@@ -2,13 +2,13 @@ import express, { Express, type RequestHandler } from 'express';
 import { Pool } from 'pg';
 import {
   AuthService,
-  createEd25519AuthSessionStore,
+  createEd25519WalletSessionStore,
   createInMemoryConsoleSponsorshipSpendCapService,
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
-  createEcdsaAuthSessionStore,
+  createEcdsaWalletSessionStore,
   createHostedSigningRootShareResolver,
-  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
@@ -67,12 +67,15 @@ import {
   createRelayBootstrapGrantBroker,
   createRelayPublishableKeyAuthAdapter,
   createAppSessionConsoleAuthAdapter,
-  parseRouterAbPublicKeysetV1,
-  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+  createInMemoryRouterAbNormalSigningAdmissionStore,
+  createPostgresRouterAbNormalSigningAdmissionStore,
+  createRouterAbNormalSigningAdmissionAdapter,
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
   createRelayRouter,
-  type RouterAbPublicKeysetV1,
+  type RouterAbPublicKeysetV2,
   type ConsoleAccountService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
@@ -91,6 +94,7 @@ import {
   type ConsoleWebhookService,
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
+  type RouterAbNormalSigningAdmissionAdapter,
 } from '@seams/sdk/server/router/express';
 
 import dotenv from 'dotenv';
@@ -106,7 +110,7 @@ import {
 
 const relayServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const relayDotenvPath = resolve(relayServerDir, '.env');
-dotenv.config({ path: relayDotenvPath, override: true });
+dotenv.config({ path: relayDotenvPath });
 
 let server: ReturnType<Express['listen']> | null = null;
 
@@ -226,21 +230,22 @@ function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
 
 function resolveCanonicalRouterAbPublicKeysetFromEnv(
   env: NodeJS.ProcessEnv,
-): RouterAbPublicKeysetV1 | null {
+): RouterAbPublicKeysetV2 | null {
   if (!hasCanonicalRouterAbPublicKeysetEnv(env)) return null;
-  return parseRouterAbPublicKeysetV1({
-    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
-    route_profile: optionalEnv(env, 'ROUTER_AB_KEYSET_ROUTE_PROFILE') || 'self_hosted_relay',
+  return parseRouterAbPublicKeysetV2({
+    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
     signer_envelope_hpke: {
-      deriver_a: {
-        role: 'signer_a',
-        key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH'),
-        public_key: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY'),
-      },
-      deriver_b: {
-        role: 'signer_b',
-        key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH'),
-        public_key: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY'),
+      current: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH'),
+          public_key: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY'),
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH'),
+          public_key: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY'),
+        },
       },
     },
     signer_peer_verifying_keys: {
@@ -278,20 +283,21 @@ function shouldUseLocalDevRouterAbPublicKeyset(input: {
   );
 }
 
-function buildLocalDevRouterAbPublicKeyset(): RouterAbPublicKeysetV1 {
-  return parseRouterAbPublicKeysetV1({
-    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
-    route_profile: 'local_dev',
+function buildLocalDevRouterAbPublicKeyset(): RouterAbPublicKeysetV2 {
+  return parseRouterAbPublicKeysetV2({
+    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
     signer_envelope_hpke: {
-      deriver_a: {
-        role: 'signer_a',
-        key_epoch: 'epoch-1',
-        public_key: LOCAL_DEV_ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
-      },
-      deriver_b: {
-        role: 'signer_b',
-        key_epoch: 'epoch-1',
-        public_key: LOCAL_DEV_ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+      current: {
+        deriver_a: {
+          role: 'signer_a',
+          key_epoch: 'epoch-1',
+          public_key: LOCAL_DEV_ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+        },
+        deriver_b: {
+          role: 'signer_b',
+          key_epoch: 'epoch-1',
+          public_key: LOCAL_DEV_ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+        },
       },
     },
     signer_peer_verifying_keys: {
@@ -315,7 +321,7 @@ function resolveRouterAbPublicKeysetFromEnv(input: {
   env: NodeJS.ProcessEnv;
   expectedOrigin: string;
   expectedWalletOrigin: string;
-}): RouterAbPublicKeysetV1 | null {
+}): RouterAbPublicKeysetV2 | null {
   const canonical = resolveCanonicalRouterAbPublicKeysetFromEnv(input.env);
   if (canonical) return canonical;
   if (shouldUseLocalDevRouterAbPublicKeyset(input)) return buildLocalDevRouterAbPublicKeyset();
@@ -330,6 +336,45 @@ function resolveRouterAbPublicKeysetFromEnv(input: {
     );
   }
   return null;
+}
+
+function resolveRouterAbNormalSigningAdmissionFromEnv(input: {
+  env: NodeJS.ProcessEnv;
+  expectedOrigin: string;
+  expectedWalletOrigin: string;
+  thresholdPostgresUrl: string;
+}): RouterAbNormalSigningAdmissionAdapter | null {
+  if (!optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID')) return null;
+
+  const postgresUrl =
+    optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_URL') ||
+    input.thresholdPostgresUrl;
+  if (postgresUrl) {
+    return createRouterAbNormalSigningAdmissionAdapter(
+      createPostgresRouterAbNormalSigningAdmissionStore({
+        postgresUrl,
+        namespace:
+          optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_NAMESPACE') ||
+          'router-ab-normal-signing',
+      }),
+    );
+  }
+
+  if (
+    isLocalDevelopmentOrigin(input.expectedOrigin) ||
+    isLocalDevelopmentOrigin(input.expectedWalletOrigin)
+  ) {
+    console.warn(
+      '[router-ab] using in-memory normal-signing admission state for local development.',
+    );
+    return createRouterAbNormalSigningAdmissionAdapter(
+      createInMemoryRouterAbNormalSigningAdmissionStore(),
+    );
+  }
+
+  throw new Error(
+    '[router-ab] ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_URL or POSTGRES_URL is required when normal signing is enabled',
+  );
 }
 
 function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean {
@@ -1088,13 +1133,19 @@ async function main() {
     expectedOrigin: config.expectedOrigin,
     expectedWalletOrigin: config.expectedWalletOrigin,
   });
+  const routerAbNormalSigningAdmission = resolveRouterAbNormalSigningAdmissionFromEnv({
+    env,
+    expectedOrigin: config.expectedOrigin,
+    expectedWalletOrigin: config.expectedWalletOrigin,
+    thresholdPostgresUrl,
+  });
   if (localDevSigningRootResolver) {
     console.warn(
       '[threshold] using dynamic local-dev fixture signing-root shares; do not use this signer for real funds.',
     );
   }
   if (routerAbPublicKeyset) {
-    console.log(`[router-ab] public keyset route: enabled (${routerAbPublicKeyset.route_profile})`);
+    console.log(`[router-ab] public keyset route: enabled (${routerAbPublicKeyset.keyset_version})`);
   } else if (String(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID || '').trim()) {
     console.warn('[router-ab] public keyset route is not configured');
   }
@@ -1120,6 +1171,12 @@ async function main() {
     THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,
     THRESHOLD_ED25519_AUTH_PREFIX: env.THRESHOLD_ED25519_AUTH_PREFIX,
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID,
+    ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL:
+      env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
+    ROUTER_AB_SIGNING_WORKER_URL: env.ROUTER_AB_SIGNING_WORKER_URL,
+    SIGNING_WORKER_URL: env.SIGNING_WORKER_URL,
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
   } as const;
 
   const googleClientIds = Array.from(
@@ -1188,12 +1245,12 @@ async function main() {
       );
     }
 
-    const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
+    const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
       config: thresholdStore,
       logger: console,
       isNode: true,
     });
-    const authSessionStore = createEd25519AuthSessionStore({
+    const walletSessionStore = createEd25519WalletSessionStore({
       config: thresholdStore,
       logger: console,
       isNode: true,
@@ -1246,10 +1303,10 @@ async function main() {
       : undefined;
 
     return createSigningSessionSealRoutesOptions({
-      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        ed25519Stores: [authSessionStore],
-        ecdsaStores: [ecdsaAuthSessionStore],
-        walletBudgetStores: [authSessionStore],
+      sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
+        ed25519Stores: [walletSessionStore],
+        ecdsaStores: [ecdsaWalletSessionStore],
+        walletBudgetStores: [walletSessionStore],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: keyVersion,
@@ -1741,6 +1798,7 @@ async function main() {
     },
     orgProjectEnv: consoleOrgProjectEnv,
     routerAbPublicKeyset,
+    routerAbNormalSigningAdmission,
     signingSessionSeal,
     logger: console,
   }) as unknown as RequestHandler;

@@ -8,11 +8,11 @@ import {
   type RouterAbEcdsaHssServerPresignatureShareV1,
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
+import { postRouterAbInternalServiceJson } from './internalServiceHttp';
+export { ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1 } from './internalServiceHttp';
 
 export const CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1 =
   '/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put' as const;
-
-export const ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1 = 'x-router-ab-internal-service-auth';
 
 export type RouterAbEcdsaHssPresignaturePoolFillInput = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
@@ -95,58 +95,42 @@ function errorMessage(error: unknown): string {
   );
 }
 
-function normalizeInternalServiceAuthToken(input: string): string {
-  const token = input.trim();
-  if (!token) throw new Error('Router A/B internal service-auth token is required');
-  if (!/^[\x20-\x7e]+$/.test(token)) {
-    throw new Error('Router A/B internal service-auth token must be printable ASCII');
-  }
-  return token;
-}
-
 export async function putRouterAbEcdsaHssPresignaturePoolFill(
   input: RouterAbEcdsaHssPresignaturePoolFillHttpInput,
 ): Promise<RouterAbEcdsaHssPresignaturePoolFillHttpResult> {
   const request = parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1(input.request);
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-    [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]: normalizeInternalServiceAuthToken(
-      input.auth.token,
-    ),
-  };
-
-  let response: Response;
-  try {
-    response = await input.fetchImpl(privatePoolFillUrl(input.signingWorkerBaseUrl), {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(request),
-    });
-  } catch (error: unknown) {
-    return { ok: false, code: 'network_error', message: errorMessage(error) };
-  }
-
-  const bodyText = await response.text();
-  if (!response.ok) {
+  const url = privatePoolFillUrl(input.signingWorkerBaseUrl);
+  const response = await postRouterAbInternalServiceJson({
+    url,
+    body: request,
+    authToken: input.auth.token,
+    fetchImpl: input.fetchImpl,
+  });
+  if (!response.ok && response.code === 'network_error') {
     return {
       ok: false,
-      code: 'http_error',
-      message: bodyText || `pool-fill request failed with HTTP ${response.status}`,
-      status: response.status,
-      bodyText,
+      code: 'network_error',
+      message: `pool-fill request to ${url} failed: ${response.message}`,
     };
   }
 
-  let json: unknown;
-  try {
-    json = JSON.parse(bodyText);
-  } catch {
+  if (!response.ok && response.code === 'http_error') {
+    return {
+      ok: false,
+      code: 'http_error',
+      message: response.bodyText || `pool-fill request failed with HTTP ${response.status}`,
+      status: response.status,
+      bodyText: response.bodyText,
+    };
+  }
+
+  if (!response.ok) {
     return {
       ok: false,
       code: 'invalid_response',
       message: 'pool-fill response body is not valid JSON',
       status: response.status,
-      bodyText,
+      bodyText: response.bodyText,
     };
   }
 
@@ -154,7 +138,7 @@ export async function putRouterAbEcdsaHssPresignaturePoolFill(
   try {
     receipt = parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptForRequestV1(
       request,
-      json,
+      response.json,
     );
   } catch (error: unknown) {
     return {
@@ -162,7 +146,7 @@ export async function putRouterAbEcdsaHssPresignaturePoolFill(
       code: 'invalid_response',
       message: errorMessage(error),
       status: response.status,
-      bodyText,
+      bodyText: response.bodyText,
     };
   }
 

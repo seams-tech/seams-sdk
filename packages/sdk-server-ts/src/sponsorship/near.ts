@@ -1,4 +1,4 @@
-import { ActionType } from '@/core/types/actions';
+import { ActionType } from '@shared/near/actions';
 import type { DelegateActionPolicy } from '../delegateAction';
 import type { ResolvedGasSponsorshipNearPolicy } from '../console/gasSponsorship/types';
 

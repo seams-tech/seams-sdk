@@ -4,9 +4,9 @@ import type { Logger } from '../logger';
 import { coerceLogger } from '../logger';
 import { ThresholdSigningService } from './ThresholdSigningService';
 import {
-  createEcdsaAuthSessionStore,
-  createEd25519AuthSessionStore,
-} from './stores/AuthSessionStore';
+  createEcdsaWalletSessionStore,
+  createEd25519WalletSessionStore,
+} from './stores/WalletSessionStore';
 import { createThresholdEcdsaSigningStores } from './stores/EcdsaSigningStore';
 import { createThresholdEcdsaKeyStore, createThresholdEd25519KeyStore } from './stores/KeyStore';
 import {
@@ -50,12 +50,11 @@ export function createThresholdSigningService(input: {
         THRESHOLD_PREFIX: env.THRESHOLD_PREFIX,
         THRESHOLD_ED25519_KEYSTORE_PREFIX: env.THRESHOLD_ED25519_KEYSTORE_PREFIX,
         THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,
-        THRESHOLD_ED25519_AUTH_PREFIX: env.THRESHOLD_ED25519_AUTH_PREFIX,
+        THRESHOLD_ED25519_WALLET_SESSION_PREFIX: env.THRESHOLD_ED25519_WALLET_SESSION_PREFIX,
         THRESHOLD_ECDSA_KEYSTORE_PREFIX: env.THRESHOLD_ECDSA_KEYSTORE_PREFIX,
         THRESHOLD_ECDSA_SESSION_PREFIX: env.THRESHOLD_ECDSA_SESSION_PREFIX,
-        THRESHOLD_ECDSA_AUTH_PREFIX: env.THRESHOLD_ECDSA_AUTH_PREFIX,
+        THRESHOLD_ECDSA_WALLET_SESSION_PREFIX: env.THRESHOLD_ECDSA_WALLET_SESSION_PREFIX,
         THRESHOLD_ECDSA_PRESIGN_PREFIX: env.THRESHOLD_ECDSA_PRESIGN_PREFIX,
-        THRESHOLD_ECDSA_SIGNING_PREFIX: env.THRESHOLD_ECDSA_SIGNING_PREFIX,
         THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID: env.THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID,
         THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID: env.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
         THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
@@ -65,15 +64,13 @@ export function createThresholdSigningService(input: {
         THRESHOLD_ED25519_RELAYER_COSIGNERS: env.THRESHOLD_ED25519_RELAYER_COSIGNERS,
         THRESHOLD_ED25519_RELAYER_COSIGNER_ID: env.THRESHOLD_ED25519_RELAYER_COSIGNER_ID,
         THRESHOLD_ED25519_RELAYER_COSIGNER_T: env.THRESHOLD_ED25519_RELAYER_COSIGNER_T,
-        THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED: env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED,
-        THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH:
-          env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH,
-        THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK:
-          env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK,
-        THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT:
-          env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT,
-        THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS:
-          env.THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS,
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID,
+        ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL:
+          env.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL,
+        ROUTER_AB_SIGNING_WORKER_URL: env.ROUTER_AB_SIGNING_WORKER_URL,
+        SIGNING_WORKER_URL: env.SIGNING_WORKER_URL,
+        ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
+        ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN: env.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN,
       }
     : null;
 
@@ -114,13 +111,13 @@ export function createThresholdSigningService(input: {
 
   const keyStore = createThresholdEd25519KeyStore({ config, logger, isNode });
   const sessionStore = createThresholdEd25519SessionStore({ config, logger, isNode });
-  const authSessionStore = createEd25519AuthSessionStore({ config, logger, isNode });
+  const walletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
 
   // ECDSA scaffolding uses the same store backends but keeps prefixes distinct so
   // keys/sessions/auth records do not collide with Ed25519 state.
   const ecdsaKeyStore = createThresholdEcdsaKeyStore({ config, logger, isNode });
   const ecdsaSessionStore = createThresholdEcdsaSessionStore({ config, logger, isNode });
-  const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({ config, logger, isNode });
+  const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({ config, logger, isNode });
   const ecdsaSigningStores = createThresholdEcdsaSigningStores({ config, logger, isNode });
   const signingRootShareResolver =
     input.signingRootShareResolver ?? createConfiguredSigningRootShareResolver(config);
@@ -133,12 +130,11 @@ export function createThresholdSigningService(input: {
     logger,
     keyStore,
     sessionStore,
-    authSessionStore,
+    walletSessionStore,
     ecdsaKeyStore,
     ecdsaSessionStore,
-    ecdsaAuthSessionStore,
-    ecdsaSigningSessionStore: ecdsaSigningStores.signingSessionStore,
-    ecdsaPresignSessionStore: ecdsaSigningStores.presignSessionStore,
+    ecdsaWalletSessionStore,
+    ecdsaPoolFillSessionStore: ecdsaSigningStores.poolFillSessionStore,
     ecdsaPresignaturePool: ecdsaSigningStores.presignaturePool,
     signingRootShareResolver,
     config,

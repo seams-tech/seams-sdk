@@ -4,7 +4,7 @@
 // accidentally pull in server-oriented defaults/config.
 
 // Threshold node roles.
-// Coordinator is the default because it exposes the public `/threshold-ed25519/sign/*` endpoints.
+// Coordinator is the default for public registration/session routes and Router A/B bridge handlers.
 export const THRESHOLD_NODE_ROLE_COORDINATOR = 'coordinator' as const;
 export const THRESHOLD_NODE_ROLE_DEFAULT = THRESHOLD_NODE_ROLE_COORDINATOR;
 

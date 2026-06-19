@@ -2,7 +2,7 @@ import type { Request, Response, Router as ExpressRouter } from 'express';
 import {
   createEvmClient,
   parseRpcHexQuantity as parseEvmRpcHexQuantity,
-} from '@/core/rpcClients/evm/EvmClient';
+} from './evmRpcClient';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';

@@ -1,11 +1,9 @@
-import type {
-  ThresholdEd25519AuthorizeWithSessionRequest,
-  ThresholdRuntimePolicyScope,
-  ThresholdEcdsaAuthorizeWithSessionRequest,
-} from '../core/types';
+import type { EcdsaHssServerBootstrapResponse, ThresholdRuntimePolicyScope } from '../core/types';
 import {
-  parseThresholdEd25519SessionClaims,
-  parseThresholdEcdsaSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
+  parseRouterAbEcdsaHssWalletSessionClaims,
+  type RouterAbEd25519WalletSessionClaims,
+  type RouterAbEcdsaHssWalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { SessionAdapter } from './relay';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
@@ -13,9 +11,26 @@ import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import { extractBearerCredential } from './relayApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
+import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
+import {
+  ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+  parseRouterAbEcdsaHssNormalSigningStateV1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
+import {
   normalizeRuntimePolicyScope,
   normalizeRuntimePolicyScopeFields,
+  type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
+import { base64UrlEncode } from '@shared/utils/encoders';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = { ok: false; code: 'sessions_disabled' | 'unauthorized'; message: string };
@@ -24,59 +39,15 @@ function isPlainObject(input: unknown): input is PlainObject {
   return !!input && typeof input === 'object' && !Array.isArray(input);
 }
 
-export type ThresholdEd25519AuthorizeInputs =
-  | {
-      ok: true;
-      claims: NonNullable<ReturnType<typeof parseThresholdEd25519SessionClaims>>;
-      request: ThresholdEd25519AuthorizeWithSessionRequest;
-    }
-  | AuthorizeErr;
-
-export async function validateThresholdEd25519AuthorizeInputs(input: {
-  body: unknown;
-  headers: Record<string, string | string[] | undefined>;
-  session: SessionAdapter | null | undefined;
-}): Promise<ThresholdEd25519AuthorizeInputs> {
-  const session = input.session;
-  if (!session) {
-    return {
-      ok: false,
-      code: 'sessions_disabled',
-      message: 'Sessions are not configured on this server',
-    };
-  }
-
-  const parsed = await session.parse(input.headers);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Missing or invalid threshold session token',
-    };
-  }
-
-  const claims = parseThresholdEd25519SessionClaims(parsed.claims);
-  if (!claims) {
-    return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
-  }
-
-  const requestBody = isPlainObject(input.body) ? input.body : {};
-  return {
-    ok: true,
-    claims,
-    request: requestBody as unknown as ThresholdEd25519AuthorizeWithSessionRequest,
-  };
-}
-
 export type ThresholdEd25519SessionTokenInputs =
   | {
       ok: true;
-      claims: NonNullable<ReturnType<typeof parseThresholdEd25519SessionClaims>>;
+      claims: NonNullable<ReturnType<typeof parseRouterAbEd25519WalletSessionClaims>>;
       body: PlainObject;
     }
   | AuthorizeErr;
 
-export async function validateThresholdEd25519SessionTokenInputs(input: {
+export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
@@ -95,36 +66,28 @@ export async function validateThresholdEd25519SessionTokenInputs(input: {
     return {
       ok: false,
       code: 'unauthorized',
-      message: 'Missing or invalid threshold session token',
+      message: 'Missing or invalid Wallet Session JWT',
     };
   }
 
-  const claims = parseThresholdEd25519SessionClaims(parsed.claims);
+  const claims = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
   if (!claims) {
-    return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
+    return { ok: false, code: 'unauthorized', message: 'Invalid Router A/B Wallet Session claims' };
   }
 
   const body = isPlainObject(input.body) ? input.body : {};
   return { ok: true, claims, body };
 }
 
-export type ThresholdEcdsaAuthorizeInputs =
-  | {
-      ok: true;
-      claims: NonNullable<ReturnType<typeof parseThresholdEcdsaSessionClaims>>;
-      request: ThresholdEcdsaAuthorizeWithSessionRequest;
-    }
-  | AuthorizeErr;
-
 export type ThresholdEcdsaSessionInputs =
   | {
       ok: true;
-      claims: NonNullable<ReturnType<typeof parseThresholdEcdsaSessionClaims>>;
+      claims: NonNullable<ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims>>;
       body: PlainObject;
     }
   | AuthorizeErr;
 
-export async function validateThresholdEcdsaSessionInputs(input: {
+export async function validateRouterAbEcdsaHssWalletSessionInputs(input: {
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
   session: SessionAdapter | null | undefined;
@@ -143,58 +106,20 @@ export async function validateThresholdEcdsaSessionInputs(input: {
     return {
       ok: false,
       code: 'unauthorized',
-      message: 'Missing or invalid threshold session token',
+      message: 'Missing or invalid Wallet Session token',
     };
   }
 
-  const claims = parseThresholdEcdsaSessionClaims(parsed.claims);
+  const claims = parseRouterAbEcdsaHssWalletSessionClaims(parsed.claims);
   if (!claims) {
-    return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
+    return { ok: false, code: 'unauthorized', message: 'Invalid Wallet Session token claims' };
   }
 
   const body = isPlainObject(input.body) ? input.body : {};
   return { ok: true, claims, body };
 }
 
-export async function validateThresholdEcdsaAuthorizeInputs(input: {
-  body: unknown;
-  headers: Record<string, string | string[] | undefined>;
-  session: SessionAdapter | null | undefined;
-}): Promise<ThresholdEcdsaAuthorizeInputs> {
-  const session = input.session;
-  if (!session) {
-    return {
-      ok: false,
-      code: 'sessions_disabled',
-      message: 'Sessions are not configured on this server',
-    };
-  }
-
-  const parsed = await session.parse(input.headers);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Missing or invalid threshold session token',
-    };
-  }
-
-  const claims = parseThresholdEcdsaSessionClaims(parsed.claims);
-  if (!claims) {
-    return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
-  }
-
-  const requestBody = isPlainObject(input.body) ? input.body : {};
-  return {
-    ok: true,
-    claims,
-    request: requestBody as unknown as ThresholdEcdsaAuthorizeWithSessionRequest,
-  };
-}
-
-type ThresholdSessionAuthTokenKind = 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2';
-
-export type ThresholdSessionAuthTokenSigningResult =
+export type WalletSessionJwtSigningResult =
   | {
       ok: true;
       jwt: string;
@@ -209,51 +134,105 @@ export type ThresholdSessionAuthTokenSigningResult =
       message: string;
     };
 
-export async function signThresholdSessionAuthToken(args: {
+type WalletSessionJwtSigningFailure = Extract<WalletSessionJwtSigningResult, { ok: false }>;
+
+type RouterAbWalletSessionJwtSigningInput = {
   session: SessionAdapter | null | undefined;
-  kind: ThresholdSessionAuthTokenKind;
   userId: unknown;
   rpId: unknown;
   relayerKeyId: unknown;
   sessionInfo: {
-    sessionKind?: unknown;
+    sessionKind: 'jwt';
     sessionId?: unknown;
     walletSigningSessionId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
-    keyHandle?: unknown;
   };
   fallbackParticipantIds?: unknown;
-  allowedSessionKinds?: Array<'jwt' | 'cookie'>;
   requireJwtErrorMessage: string;
   invalidPayloadErrorMessage: string;
   sessionsDisabledMessage?: string;
-}): Promise<ThresholdSessionAuthTokenSigningResult> {
-  const session = args.session;
-  if (!session) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'sessions_disabled',
-      message: args.sessionsDisabledMessage || 'Session signing is not configured on this server',
-    };
-  }
+};
 
+export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
+  sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
+    sessionKind: 'jwt';
+    runtimePolicyScope: unknown;
+    routerAbNormalSigning: unknown;
+  };
+};
+
+export type RouterAbEd25519WalletSessionJwtSessionInfo =
+  RouterAbEd25519WalletSessionJwtSigningInput['sessionInfo'];
+
+export type RouterAbEcdsaHssWalletSessionJwtSigningInput =
+  RouterAbWalletSessionJwtSigningInput & {
+    sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
+      sessionKind: 'jwt';
+      keyHandle: unknown;
+      stableKeyContext: unknown;
+      publicIdentity: unknown;
+      activationEpoch: unknown;
+      signingWorkerId: unknown;
+      routerAbEcdsaHssNormalSigning: unknown;
+    };
+  };
+
+export type RouterAbEcdsaHssWalletSessionJwtSessionInfo =
+  RouterAbEcdsaHssWalletSessionJwtSigningInput['sessionInfo'];
+
+export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
+  input: unknown,
+): RouterAbEd25519WalletSessionJwtSessionInfo | null {
+  if (!isPlainObject(input)) return null;
+  if (String(input.sessionKind || '').trim() !== 'jwt') return null;
+  if (!('runtimePolicyScope' in input) || !('routerAbNormalSigning' in input)) return null;
+  return {
+    sessionKind: 'jwt',
+    sessionId: input.sessionId,
+    walletSigningSessionId: input.walletSigningSessionId,
+    expiresAtMs: input.expiresAtMs,
+    participantIds: input.participantIds,
+    runtimePolicyScope: input.runtimePolicyScope,
+    routerAbNormalSigning: input.routerAbNormalSigning,
+  };
+}
+
+function rejectNonJwtWalletSessionKind(
+  args: RouterAbWalletSessionJwtSigningInput,
+): WalletSessionJwtSigningFailure | null {
   const sessionKind = String(args.sessionInfo?.sessionKind || '')
     .trim()
     .toLowerCase();
-  const allowedSessionKinds = Array.isArray(args.allowedSessionKinds)
-    ? args.allowedSessionKinds
-    : ['jwt'];
-  if (sessionKind && !allowedSessionKinds.includes(sessionKind as 'jwt' | 'cookie')) {
-    return {
-      ok: false,
-      status: 400,
-      code: 'invalid_body',
-      message: args.requireJwtErrorMessage,
-    };
-  }
+  if (sessionKind === 'jwt') return null;
+  return {
+    ok: false,
+    status: 400,
+    code: 'invalid_body',
+    message: args.requireJwtErrorMessage,
+  };
+}
+
+type NormalizedRouterAbWalletSessionSigningBase = {
+  userId: string;
+  rpId: string;
+  relayerKeyId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  thresholdExpiresAtMs: number;
+  participantIds: number[];
+  iat: number;
+  exp: number;
+};
+
+function normalizeRouterAbWalletSessionSigningBase(
+  args: RouterAbWalletSessionJwtSigningInput,
+):
+  | { ok: true; value: NormalizedRouterAbWalletSessionSigningBase }
+  | WalletSessionJwtSigningFailure {
+  const invalidSessionKind = rejectNonJwtWalletSessionKind(args);
+  if (invalidSessionKind) return invalidSessionKind;
 
   const userId = String(args.userId || '').trim();
   const rpId = String(args.rpId || '').trim();
@@ -264,16 +243,6 @@ export async function signThresholdSessionAuthToken(args: {
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.fallbackParticipantIds);
-  const runtimePolicyScope = (() => {
-    const raw = args.sessionInfo?.runtimePolicyScope;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-    try {
-      return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
-    } catch {
-      return undefined;
-    }
-  })();
-  const keyHandle = String(args.sessionInfo?.keyHandle || '').trim();
 
   if (
     !userId ||
@@ -284,8 +253,7 @@ export async function signThresholdSessionAuthToken(args: {
     !Number.isFinite(thresholdExpiresAtMs) ||
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
-    participantIds.length < 2 ||
-    (args.kind === 'threshold_ecdsa_session_v2' && !keyHandle)
+    participantIds.length < 2
   ) {
     return {
       ok: false,
@@ -295,34 +263,354 @@ export async function signThresholdSessionAuthToken(args: {
     };
   }
 
-  const nowSec = Math.floor(Date.now() / 1000);
-  const expSec = Math.floor(thresholdExpiresAtMs / 1000);
-  const jwt = await session.signJwt(userId, {
-    kind: args.kind,
-    walletId: userId,
-    sessionId,
-    walletSigningSessionId,
-    relayerKeyId,
-    rpId,
-    participantIds,
-    thresholdExpiresAtMs,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(args.kind === 'threshold_ecdsa_session_v2'
-      ? {
-          keyHandle,
-          keyScope: 'evm-family',
-        }
-      : {}),
-    iat: nowSec,
-    exp: expSec,
-  });
+  return {
+    ok: true,
+    value: {
+      userId,
+      rpId,
+      relayerKeyId,
+      sessionId,
+      walletSigningSessionId,
+      thresholdExpiresAtMs,
+      participantIds,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(thresholdExpiresAtMs / 1000),
+    },
+  };
+}
+
+function rejectInvalidRouterAbEd25519Binding(
+  args: RouterAbEd25519WalletSessionJwtSigningInput,
+):
+  | {
+      ok: true;
+      runtimePolicyScope: RuntimePolicyScope;
+      routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+    }
+  | WalletSessionJwtSigningFailure {
+  try {
+    const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+      args.sessionInfo.routerAbNormalSigning,
+    );
+    if (!routerAbNormalSigning) throw new Error('missing routerAbNormalSigning');
+    const runtimePolicyScope = normalizeRuntimePolicyScope(
+      args.sessionInfo.runtimePolicyScope as Record<string, unknown>,
+    );
+    return { ok: true, runtimePolicyScope, routerAbNormalSigning };
+  } catch {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
+}
+
+function decodeEthereumAddress20Hex(address: string): Uint8Array {
+  const normalized = String(address || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^0x/, '');
+  if (!/^[0-9a-f]{40}$/.test(normalized)) {
+    throw new Error('Router A/B ECDSA-HSS normal-signing state requires a 20-byte owner address');
+  }
+  const bytes = new Uint8Array(20);
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = Number.parseInt(normalized.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+export function buildRouterAbEcdsaHssNormalSigningStateForBootstrap(input: {
+  bootstrap: EcdsaHssServerBootstrapResponse;
+  routerAbPublicKeyset: RouterAbPublicKeysetV2 | null | undefined;
+  signingWorkerId: string;
+}):
+  | { ok: true; state: RouterAbEcdsaHssNormalSigningStateV1 }
+  | { ok: false; code: 'not_configured' | 'internal'; message: string } {
+  const signingWorkerId = String(input.signingWorkerId || '').trim();
+  const signingWorkerHpke = input.routerAbPublicKeyset?.signing_worker_server_output_hpke;
+  if (!signingWorkerId || !signingWorkerHpke) {
+    return {
+      ok: false,
+      code: 'not_configured',
+      message: 'Router A/B public keyset is required for ECDSA-HSS Wallet Session signing',
+    };
+  }
+
+  try {
+    const bootstrap = input.bootstrap;
+    const state = parseRouterAbEcdsaHssNormalSigningStateV1({
+      kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+      scope: {
+        context: {
+          wallet_id: bootstrap.walletId,
+          rp_id: bootstrap.rpId,
+          key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
+          ecdsa_threshold_key_id: bootstrap.ecdsaThresholdKeyId,
+          signing_root_id: bootstrap.signingRootId,
+          signing_root_version: bootstrap.signingRootVersion,
+          key_purpose: 'evm-signing',
+          key_version: 'v1',
+        },
+        public_identity: {
+          context_binding_b64u: bootstrap.contextBinding32B64u,
+          client_public_key33_b64u: bootstrap.publicIdentity.hssClientSharePublicKey33B64u,
+          server_public_key33_b64u: bootstrap.publicIdentity.relayerPublicKey33B64u,
+          threshold_public_key33_b64u: bootstrap.publicIdentity.groupPublicKey33B64u,
+          ethereum_address20_b64u: base64UrlEncode(
+            decodeEthereumAddress20Hex(bootstrap.publicIdentity.ethereumAddress),
+          ),
+          client_share_retry_counter: bootstrap.clientShareRetryCounter,
+          server_share_retry_counter: bootstrap.relayerShareRetryCounter,
+        },
+        signing_worker: {
+          server_id: signingWorkerId,
+          key_epoch: signingWorkerHpke.key_epoch,
+          recipient_encryption_key: signingWorkerHpke.public_key,
+        },
+        activation_epoch: bootstrap.sessionId,
+      },
+    });
+    if (!state) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Router A/B ECDSA-HSS normal-signing state could not be built',
+      };
+    }
+    return { ok: true, state };
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'internal',
+      message:
+        error && typeof error === 'object' && 'message' in error
+          ? String((error as { message?: unknown }).message || 'invalid ECDSA-HSS state')
+          : 'invalid ECDSA-HSS state',
+    };
+  }
+}
+
+function rejectInvalidRouterAbEcdsaHssBinding(
+  args: RouterAbEcdsaHssWalletSessionJwtSigningInput,
+):
+  | {
+      ok: true;
+      normalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+    }
+  | WalletSessionJwtSigningFailure {
+  try {
+    const normalSigning = parseRouterAbEcdsaHssNormalSigningStateV1(
+      args.sessionInfo.routerAbEcdsaHssNormalSigning,
+    );
+    if (normalSigning && doesEcdsaHssBindingMatchSessionInfo(args, normalSigning)) {
+      return {
+        ok: true,
+        normalSigning,
+      };
+    }
+  } catch {
+    // Fall through to the shared failure below.
+  }
+  return {
+    ok: false,
+    status: 500,
+    code: 'internal',
+    message: args.invalidPayloadErrorMessage,
+  };
+}
+
+function parseOptionalRuntimePolicyScope(
+  raw: unknown,
+  invalidPayloadErrorMessage: string,
+): { ok: true; value?: RuntimePolicyScope } | WalletSessionJwtSigningFailure {
+  if (raw === undefined || raw === null || raw === '') return { ok: true };
+  if (!isPlainObject(raw)) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: invalidPayloadErrorMessage,
+    };
+  }
+  try {
+    return { ok: true, value: normalizeRuntimePolicyScope(raw) };
+  } catch {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: invalidPayloadErrorMessage,
+    };
+  }
+}
+
+function doesEcdsaHssBindingMatchSessionInfo(
+  args: RouterAbEcdsaHssWalletSessionJwtSigningInput,
+  normalSigning: RouterAbEcdsaHssNormalSigningStateV1,
+): boolean {
+  const stableKeyContext = isPlainObject(args.sessionInfo.stableKeyContext)
+    ? args.sessionInfo.stableKeyContext
+    : null;
+  const publicIdentity = isPlainObject(args.sessionInfo.publicIdentity)
+    ? args.sessionInfo.publicIdentity
+    : null;
+  if (!stableKeyContext || !publicIdentity) return false;
+
+  const context = normalSigning.scope.context;
+  const identity = normalSigning.scope.public_identity;
+  const signingWorker = normalSigning.scope.signing_worker;
+  const expectedEthereumAddress20B64u = (() => {
+    try {
+      return base64UrlEncode(
+        decodeEthereumAddress20Hex(String(publicIdentity.ethereumAddress || '')),
+      );
+    } catch {
+      return '';
+    }
+  })();
+
+  return (
+    String(args.sessionInfo.keyHandle || '').trim() !== '' &&
+    String(args.sessionInfo.activationEpoch || '').trim() === normalSigning.scope.activation_epoch &&
+    String(args.sessionInfo.signingWorkerId || '').trim() === signingWorker.server_id &&
+    String(stableKeyContext.walletId || '').trim() === context.wallet_id &&
+    String(stableKeyContext.rpId || '').trim() === context.rp_id &&
+    String(stableKeyContext.keyScope || '').trim() === context.key_scope &&
+    String(stableKeyContext.ecdsaThresholdKeyId || '').trim() ===
+      context.ecdsa_threshold_key_id &&
+    String(stableKeyContext.signingRootId || '').trim() === context.signing_root_id &&
+    String(stableKeyContext.signingRootVersion || '').trim() === context.signing_root_version &&
+    String(stableKeyContext.contextBinding32B64u || '').trim() ===
+      identity.context_binding_b64u &&
+    String(publicIdentity.hssClientSharePublicKey33B64u || '').trim() ===
+      identity.client_public_key33_b64u &&
+    String(publicIdentity.relayerPublicKey33B64u || '').trim() ===
+      identity.server_public_key33_b64u &&
+    String(publicIdentity.groupPublicKey33B64u || '').trim() ===
+      identity.threshold_public_key33_b64u &&
+    expectedEthereumAddress20B64u === identity.ethereum_address20_b64u
+  );
+}
+
+type RouterAbWalletSessionClaimsToSign =
+  | RouterAbEd25519WalletSessionClaims
+  | RouterAbEcdsaHssWalletSessionClaims;
+
+async function signRouterAbWalletSessionClaims(args: {
+  session: SessionAdapter | null | undefined;
+  claims: RouterAbWalletSessionClaimsToSign;
+  invalidPayloadErrorMessage: string;
+  sessionsDisabledMessage?: string;
+}): Promise<WalletSessionJwtSigningResult> {
+  const session = args.session;
+  if (!session) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'sessions_disabled',
+      message: args.sessionsDisabledMessage || 'Session signing is not configured on this server',
+    };
+  }
+
+  const validClaims =
+    args.claims.kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+      ? parseRouterAbEd25519WalletSessionClaims(args.claims)
+      : parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
+  if (!validClaims) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
+  const jwt = await session.signJwt(args.claims.sub, args.claims);
   return {
     ok: true,
     jwt,
-    sessionId,
-    thresholdExpiresAtMs,
-    participantIds,
+    sessionId: args.claims.sessionId,
+    thresholdExpiresAtMs: args.claims.thresholdExpiresAtMs,
+    participantIds: args.claims.participantIds,
   };
+}
+
+export async function signRouterAbEd25519WalletSessionJwt(
+  args: RouterAbEd25519WalletSessionJwtSigningInput,
+): Promise<WalletSessionJwtSigningResult> {
+  const base = normalizeRouterAbWalletSessionSigningBase(args);
+  if (!base.ok) return base;
+  const binding = rejectInvalidRouterAbEd25519Binding(args);
+  if (!binding.ok) return binding;
+  const claims: RouterAbEd25519WalletSessionClaims = {
+    sub: base.value.userId,
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    walletId: base.value.userId,
+    sessionId: base.value.sessionId,
+    walletSigningSessionId: base.value.walletSigningSessionId,
+    relayerKeyId: base.value.relayerKeyId,
+    rpId: base.value.rpId,
+    runtimePolicyScope: binding.runtimePolicyScope,
+    routerAbNormalSigning: binding.routerAbNormalSigning,
+    participantIds: base.value.participantIds,
+    thresholdExpiresAtMs: base.value.thresholdExpiresAtMs,
+    iat: base.value.iat,
+    exp: base.value.exp,
+  };
+  return await signRouterAbWalletSessionClaims({
+    session: args.session,
+    claims,
+    invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
+    sessionsDisabledMessage: args.sessionsDisabledMessage,
+  });
+}
+
+export async function signRouterAbEcdsaHssWalletSessionJwt(
+  args: RouterAbEcdsaHssWalletSessionJwtSigningInput,
+): Promise<WalletSessionJwtSigningResult> {
+  const base = normalizeRouterAbWalletSessionSigningBase(args);
+  if (!base.ok) return base;
+  const binding = rejectInvalidRouterAbEcdsaHssBinding(args);
+  if (!binding.ok) return binding;
+  const runtimePolicyScope = parseOptionalRuntimePolicyScope(
+    args.sessionInfo.runtimePolicyScope,
+    args.invalidPayloadErrorMessage,
+  );
+  if (!runtimePolicyScope.ok) return runtimePolicyScope;
+  const keyHandle = String(args.sessionInfo.keyHandle || '').trim();
+  if (!keyHandle) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
+  const claims: RouterAbEcdsaHssWalletSessionClaims = {
+    sub: base.value.userId,
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    walletId: base.value.userId,
+    sessionId: base.value.sessionId,
+    walletSigningSessionId: base.value.walletSigningSessionId,
+    keyScope: 'evm-family',
+    keyHandle,
+    relayerKeyId: base.value.relayerKeyId,
+    rpId: base.value.rpId,
+    ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
+    routerAbEcdsaHssNormalSigning: binding.normalSigning,
+    participantIds: base.value.participantIds,
+    thresholdExpiresAtMs: base.value.thresholdExpiresAtMs,
+    iat: base.value.iat,
+    exp: base.value.exp,
+  };
+  return await signRouterAbWalletSessionClaims({
+    session: args.session,
+    claims,
+    invalidPayloadErrorMessage: args.invalidPayloadErrorMessage,
+    sessionsDisabledMessage: args.sessionsDisabledMessage,
+  });
 }
 
 export type ThresholdRuntimePolicyScopeResolution =

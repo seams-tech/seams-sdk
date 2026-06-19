@@ -83,6 +83,7 @@ export async function handleWalletRegistration(
       apiKeyAuth: ctx.opts.apiKeyAuth,
       bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
       orgProjectEnv: ctx.opts.orgProjectEnv,
+      routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
       session: ctx.opts.session,
     },
     sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,

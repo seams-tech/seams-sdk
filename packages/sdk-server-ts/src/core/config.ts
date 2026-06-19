@@ -153,13 +153,18 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_SHARE_MODE) ||
     toOptionalTrimmedString(c.THRESHOLD_PREFIX) ||
-    toOptionalTrimmedString(c.THRESHOLD_ED25519_AUTH_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_WALLET_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_KEYSTORE_PREFIX) ||
-    toOptionalTrimmedString(c.THRESHOLD_ECDSA_AUTH_PREFIX) ||
+    toOptionalTrimmedString(c.THRESHOLD_ECDSA_WALLET_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
     toOptionalTrimmedString(c.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
+    toOptionalTrimmedString(c.ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL) ||
+    toOptionalTrimmedString(c.ROUTER_AB_SIGNING_WORKER_URL) ||
+    toOptionalTrimmedString(c.SIGNING_WORKER_URL) ||
+    toOptionalTrimmedString(c.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET) ||
+    toOptionalTrimmedString(c.ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_KEY_VERSION) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SHAMIR_P_B64U) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_E_S_B64U) ||
@@ -201,7 +206,7 @@ function normalizeThresholdStoreConfig(
 
     const thresholdPrefix = toOptionalTrimmedString(normalized.THRESHOLD_PREFIX);
     const anySpecificPrefix = Boolean(
-      toOptionalTrimmedString(normalized.THRESHOLD_ED25519_AUTH_PREFIX) ||
+      toOptionalTrimmedString(normalized.THRESHOLD_ED25519_WALLET_SESSION_PREFIX) ||
       toOptionalTrimmedString(normalized.THRESHOLD_ED25519_SESSION_PREFIX) ||
       toOptionalTrimmedString(normalized.THRESHOLD_ED25519_KEYSTORE_PREFIX),
     );

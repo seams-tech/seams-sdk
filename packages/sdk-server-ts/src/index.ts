@@ -10,8 +10,8 @@ export {
   createThresholdSigningService,
   createThresholdEd25519KeyStore,
   createThresholdEd25519SessionStore,
-  createEd25519AuthSessionStore,
-  createEcdsaAuthSessionStore,
+  createEd25519WalletSessionStore,
+  createEcdsaWalletSessionStore,
   CloudflareDurableObjectSigningRootSecretStore,
   createConfiguredSigningRootShareResolver,
   createHostedSigningRootShareResolver,
@@ -70,8 +70,8 @@ export type {
   ThresholdEd25519MpcSessionRecord,
   ThresholdEd25519SigningSessionRecord,
   ThresholdEd25519Commitments,
-  Ed25519AuthSessionStore,
-  Ed25519AuthSessionRecord,
+  Ed25519WalletSessionStore,
+  Ed25519WalletSessionRecord,
 } from './core/ThresholdService';
 export {
   createRecoverySessionStore,
@@ -114,6 +114,24 @@ export {
   transitionTrackedRecoverySession,
   type TrackedNearRecoveryExecution,
 } from './router/recoveryExecutionTracking';
+export {
+  InMemoryRouterAbNormalSigningAdmissionStore,
+  PostgresRouterAbNormalSigningAdmissionStore,
+  createInMemoryRouterAbNormalSigningAdmissionAdapter,
+  createInMemoryRouterAbNormalSigningAdmissionStore,
+  createPostgresRouterAbNormalSigningAdmissionStore,
+  createRouterAbNormalSigningAdmissionAdapter,
+  ensurePostgresRouterAbNormalSigningAdmissionStoreSchema,
+  type InMemoryRouterAbNormalSigningAdmissionStoreOptions,
+  type PostgresRouterAbNormalSigningAdmissionStoreOptions,
+  type RouterAbNormalSigningAbuseDecision,
+  type RouterAbNormalSigningAbuseProvider,
+  type RouterAbNormalSigningAdmissionStore,
+  type RouterAbNormalSigningProjectPolicyDecision,
+  type RouterAbNormalSigningProjectPolicyProvider,
+  type RouterAbNormalSigningQuotaDecision,
+  type RouterAbNormalSigningQuotaStore,
+} from './router/routerAbNormalSigningAdmissionStore';
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';
 export type {

@@ -5,7 +5,7 @@ This app runs a dedicated wallet/service origin for local development. It serves
 - Dev server: `http://localhost:3600`
 - Docs origin (via Caddy): `https://docs.localhost`
 - Wallet origin (via Caddy): `https://localhost:8443`
-- Relay origin (via Caddy): `https://localhost:9444`
+- Router API origin (via Caddy): `https://localhost:9444`
 - Service path: `/wallet-service`
 - SDK assets base: `/sdk/*` (served from `passkey-sdk/dist` in the workspace)
 
@@ -21,13 +21,13 @@ pnpm -C examples/vite-secure dev
 ```
 
 - This command runs `docs:build` before starting Vite so the `/docs` route always serves the latest static output.
-- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it starts Caddy for you; run `pnpm run server` separately so the relay origin `https://localhost:9444` is available.
+- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it starts Caddy for you; run `pnpm run server` separately so the Router API origin `https://localhost:9444` is available.
 
 Open:
 
 - `https://localhost:8443/wallet-service` – the iframe service page
 - `https://localhost:8443` – splash page with links
-- `https://localhost:9444` – relay API origin
+- `https://localhost:9444` – Router API origin
 - `https://docs.localhost` – docs site
 
 ## Notes

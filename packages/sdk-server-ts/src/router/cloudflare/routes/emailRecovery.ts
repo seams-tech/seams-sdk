@@ -1,6 +1,9 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
-import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
+import {
+  parseRouterAbEd25519WalletSessionJwtSessionInfo,
+  signRouterAbEd25519WalletSessionJwt,
+} from '../../commonRouterUtils';
 
 export async function handleEmailRecoveryPrepare(
   ctx: CloudflareRelayContext,
@@ -30,16 +33,38 @@ export async function handleEmailRecoveryPrepare(
         })
       : await ctx.service.respondEmailRecoveryEcdsa(body as any);
   if (result.ok && result.thresholdEd25519?.session) {
-    const signed = await signThresholdSessionAuthToken({
+    if (result.thresholdEd25519.session.sessionKind !== 'jwt') {
+      return json(
+        {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ed25519.session_kind must be jwt',
+        },
+        { status: 400 },
+      );
+    }
+    const sessionInfo = parseRouterAbEd25519WalletSessionJwtSessionInfo(
+      result.thresholdEd25519.session,
+    );
+    if (!sessionInfo) {
+      return json(
+        {
+          ok: false,
+          code: 'internal',
+          message: 'invalid thresholdEd25519 session payload for jwt signing',
+        },
+        { status: 500 },
+      );
+    }
+    const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
-      kind: 'threshold_ed25519_session_v1',
       userId: result.accountId,
       rpId:
         ctx.pathname === '/email-recovery/prepare'
           ? (body as Record<string, unknown>).rp_id
           : (result as any).ecdsa?.bootstrap?.rpId,
       relayerKeyId: result.thresholdEd25519.relayerKeyId,
-      sessionInfo: result.thresholdEd25519.session,
+      sessionInfo,
       fallbackParticipantIds: result.thresholdEd25519.participantIds,
       requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
       invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',

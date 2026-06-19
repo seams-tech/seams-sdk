@@ -3,20 +3,27 @@ import { base64UrlDecode } from './base64';
 export const APP_SESSION_JWT_KIND = 'app_session_v1' as const;
 export const THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND = 'threshold_ed25519_session_v1' as const;
 export const THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND = 'threshold_ecdsa_session_v2' as const;
+export const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND =
+  'router_ab_ed25519_wallet_session_v1' as const;
+export const ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND =
+  'router_ab_ecdsa_hss_wallet_session_v1' as const;
 
 export type AppSessionJwtKind = typeof APP_SESSION_JWT_KIND;
-export type ThresholdSessionAuthTokenKind =
+export type LegacyThresholdSessionJwtKind =
   | typeof THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND
   | typeof THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND;
-export type SessionJwtKind = AppSessionJwtKind | ThresholdSessionAuthTokenKind;
+export type WalletSessionJwtKind =
+  | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+  | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
+export type SessionJwtKind = AppSessionJwtKind | WalletSessionJwtKind;
 
 export type AppSessionJwtAuth = {
   kind: 'app_session';
   jwt: string;
 };
 
-export type ThresholdSessionAuthTokenAuth = {
-  kind: 'threshold_session';
+export type WalletSessionJwtAuth = {
+  kind: 'wallet_session';
   jwt: string;
 };
 
@@ -24,8 +31,8 @@ export type CookieSessionAuth = {
   kind: 'cookie';
 };
 
-export type AppOrThresholdSessionAuth = AppSessionJwtAuth | ThresholdSessionAuthTokenAuth;
-export type RouteSessionAuth = AppOrThresholdSessionAuth | CookieSessionAuth;
+export type AppOrWalletSessionAuth = AppSessionJwtAuth | WalletSessionJwtAuth;
+export type RouteSessionAuth = AppOrWalletSessionAuth | CookieSessionAuth;
 
 export function decodeJwtPayloadRecord(jwtRaw: string): Record<string, unknown> | null {
   const jwt = String(jwtRaw || '').trim();
@@ -70,11 +77,11 @@ export function isAppSessionJwt(jwtRaw: string): boolean {
   return kind === APP_SESSION_JWT_KIND;
 }
 
-export function isThresholdSessionAuthToken(tokenRaw: string): boolean {
+export function isWalletSessionJwt(tokenRaw: string): boolean {
   const kind = getSessionJwtKind(tokenRaw);
   return (
-    kind === THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND ||
-    kind === THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND
+    kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND ||
+    kind === ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
   );
 }
 
@@ -87,14 +94,11 @@ export function requireAppSessionJwt(jwtRaw: string, label = 'appSessionJwt'): s
   return jwt;
 }
 
-export function requireThresholdSessionAuthToken(
-  tokenRaw: string,
-  label = 'thresholdSessionAuthToken',
-): string {
+export function requireWalletSessionJwt(tokenRaw: string, label = 'walletSessionJwt'): string {
   const token = String(tokenRaw || '').trim();
   if (!token) throw new Error(`${label} is required`);
-  if (!isThresholdSessionAuthToken(token)) {
-    throw new Error(`${label} must be a threshold-session auth token`);
+  if (!isWalletSessionJwt(token)) {
+    throw new Error(`${label} must be a Wallet Session JWT`);
   }
   return token;
 }
@@ -103,22 +107,22 @@ export function appSessionJwtAuth(jwtRaw: string): AppSessionJwtAuth {
   return { kind: 'app_session', jwt: requireAppSessionJwt(jwtRaw) };
 }
 
-export function thresholdSessionAuthTokenAuth(tokenRaw: string): ThresholdSessionAuthTokenAuth {
-  return { kind: 'threshold_session', jwt: requireThresholdSessionAuthToken(tokenRaw) };
+export function walletSessionJwtAuth(tokenRaw: string): WalletSessionJwtAuth {
+  return { kind: 'wallet_session', jwt: requireWalletSessionJwt(tokenRaw) };
 }
 
-export function appOrThresholdSessionAuthTokenAuth(jwtRaw: string): AppOrThresholdSessionAuth {
+export function appOrWalletSessionJwtAuth(jwtRaw: string): AppOrWalletSessionAuth {
   const jwt = String(jwtRaw || '').trim();
-  if (!jwt) throw new Error('session auth token is required');
+  if (!jwt) throw new Error('session JWT is required');
   const kind = getSessionJwtKind(jwt);
   if (
-    kind === THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND ||
-    kind === THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND
+    kind === ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND ||
+    kind === ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
   ) {
-    return thresholdSessionAuthTokenAuth(jwt);
+    return walletSessionJwtAuth(jwt);
   }
   if (kind === APP_SESSION_JWT_KIND) {
     return appSessionJwtAuth(jwt);
   }
-  throw new Error('session auth token must include a valid session kind');
+  throw new Error('session JWT must include a valid session kind');
 }

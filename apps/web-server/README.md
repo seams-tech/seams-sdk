@@ -1,10 +1,10 @@
-# Relay Server
+# Router API Server
 
-NEAR relay server that creates accounts on behalf of users, where the relayer pays gas fees.
+Router API server that creates NEAR accounts on behalf of users through the configured relayer account.
 
 ## Features
 
-- **Direct Account Creation**: Create NEAR accounts using relay server authority
+- **Direct Account Creation**: Create NEAR accounts using configured relayer account authority
 - **Custom Funding**: Configurable initial balance for new accounts
 - **Transaction Queuing**: Prevents nonce conflicts
 - **Simple JSON API**: Easy integration
@@ -171,12 +171,12 @@ Notes
   The example config enables CORS with `origin: [EXPECTED_ORIGIN, EXPECTED_WALLET_ORIGIN]` and `credentials: true`.
   Your frontend must use `credentials: 'include'` with fetch.
 
-### Signing-session seal routes (`POST /threshold/signing-session-seal/*`) (optional)
+### Signing-session seal routes (`POST /v2/wallet-session/seal/*`) (optional)
 
 When enabled, this example mounts:
 
-- `POST /threshold/signing-session-seal/apply-server-seal`
-- `POST /threshold/signing-session-seal/remove-server-seal`
+- `POST /v2/wallet-session/seal/apply`
+- `POST /v2/wallet-session/seal/remove`
 - `GET /.well-known/webauthn` response includes `capabilities.signingSessionSeal` so sealed-refresh clients can enforce startup parity (`mode`, `keyVersion`, `shamirPrimeB64u`)
 
 Enable with `SIGNING_SESSION_SEAL_ENABLED=1` and provide:
@@ -206,6 +206,20 @@ Set `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` on the relay/server when clients mint
 Router A/B Ed25519 normal-signing sessions. The value must match the frontend
 `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`; local Router A/B workers use
 `local-signing-worker`.
+
+Router A/B active signing requires the Router server to reach the private SigningWorker:
+
+- `ROUTER_AB_SIGNING_WORKER_URL` (local default: `http://127.0.0.1:9093`)
+- `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` (dev-only local value: `dev-router-ab-internal-service-auth`)
+
+Router A/B normal-signing admission state is owned by the Router server:
+
+- `ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_URL` (defaults to `POSTGRES_URL`)
+- `ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_NAMESPACE` (default: `router-ab-normal-signing`)
+
+Local development without Postgres uses in-memory admission state. Production
+startup requires `ROUTER_AB_NORMAL_SIGNING_ADMISSION_POSTGRES_URL` or
+`POSTGRES_URL` when `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` is set.
 
 Optional limiter config:
 
@@ -550,46 +564,6 @@ Example (cookie session from `/session/exchange`):
 curl -s http://localhost:3001/console/session \
   -H "Cookie: seams-jwt=<app_session_jwt>"
 ```
-
-### Coordinator Continuity Config (ECDSA Presign Sessions)
-
-For multi-coordinator deployments behind a load balancer, configure each coordinator with:
-
-1. a unique `THRESHOLD_COORDINATOR_INSTANCE_ID`
-2. the same full `THRESHOLD_COORDINATOR_PEERS` map (all coordinators + URLs)
-
-Example for 3 coordinators:
-
-```bash
-# coordinator-a env
-THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-a
-THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://localhost:9444"},{"instanceId":"coordinator-b","relayerUrl":"https://localhost:8445"},{"instanceId":"coordinator-c","relayerUrl":"https://localhost:8446"}]'
-```
-
-```bash
-# coordinator-b env
-THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-b
-THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://localhost:9444"},{"instanceId":"coordinator-b","relayerUrl":"https://localhost:8445"},{"instanceId":"coordinator-c","relayerUrl":"https://localhost:8446"}]'
-```
-
-```bash
-# coordinator-c env
-THRESHOLD_COORDINATOR_INSTANCE_ID=coordinator-c
-THRESHOLD_COORDINATOR_PEERS='[{"instanceId":"coordinator-a","relayerUrl":"https://localhost:9444"},{"instanceId":"coordinator-b","relayerUrl":"https://localhost:8445"},{"instanceId":"coordinator-c","relayerUrl":"https://localhost:8446"}]'
-```
-
-Without this config, cross-instance `/threshold-ecdsa/presign/step` requests cannot be forwarded to the owning coordinator and fall back to retriable `stale_session_state`.
-
-Forwarding behavior for `/threshold-ecdsa/presign/step`:
-
-1. Client hits any coordinator behind LB.
-2. If that coordinator owns the session, it handles the step directly.
-3. If not, it forwards the request to the owner coordinator and relays the response back to client.
-4. Forwarding uses:
-   - `x-threshold-ecdsa-presign-forward-hop` (hop depth / loop protection)
-   - `x-threshold-ecdsa-presign-forwarded-by` (forwarding coordinator instance id)
-5. Hop depth is trusted only when `forwarded-by` is a known configured peer; untrusted client-supplied hop values are ignored.
-6. If owner is unavailable or continuity is lost, the route returns retriable `stale_session_state` and client should call `/threshold-ecdsa/presign/init` again.
 
 ### Run the Server
 

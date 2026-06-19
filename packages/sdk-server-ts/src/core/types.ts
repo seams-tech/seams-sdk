@@ -3,20 +3,17 @@ import {
   AuthenticatorOptions,
   UserVerificationPolicy,
   OriginPolicyInput,
-} from '@/core/types/authenticatorOptions';
+} from '@shared/utils/authenticatorOptions';
 import type { InitInput } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type {
-  ThresholdEd25519NearAction,
-  ThresholdEd25519NearTransaction,
-} from '@shared/threshold/ed25519OperationFingerprint';
 import type {
   EcdsaClientRootPublicKey33B64u,
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import type { RouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
 import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
@@ -576,7 +573,7 @@ export type WalletAddSignerFinalizeRequest = {
   ed25519?: {
     evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
     sessionPolicy?: Ed25519SessionPolicy;
-    sessionKind?: 'jwt' | 'cookie';
+    sessionKind?: 'jwt';
   };
   ecdsa?: {
     expectedKeyHandles?: string[];
@@ -870,7 +867,7 @@ export type WalletRegistrationFinalizeRequest = {
   ed25519?: {
     evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
     sessionPolicy?: Ed25519SessionPolicy;
-    sessionKind?: 'jwt' | 'cookie';
+    sessionKind?: 'jwt';
   };
   ecdsa?: {
     expectedKeyHandles?: string[];
@@ -1152,7 +1149,7 @@ export type ThresholdStoreEnvInput = {
    *
    * When set, and the more specific `THRESHOLD_ED25519_*_PREFIX` variables are not set,
    * the SDK derives:
-   * - `THRESHOLD_ED25519_AUTH_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:auth:`
+   * - `THRESHOLD_ED25519_WALLET_SESSION_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:wallet-session:`
    * - `THRESHOLD_ED25519_SESSION_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:sess:`
    * - `THRESHOLD_ED25519_KEYSTORE_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:key:`
    *
@@ -1161,25 +1158,24 @@ export type ThresholdStoreEnvInput = {
   THRESHOLD_PREFIX?: string;
   THRESHOLD_ED25519_KEYSTORE_PREFIX?: string;
   THRESHOLD_ED25519_SESSION_PREFIX?: string;
-  THRESHOLD_ED25519_AUTH_PREFIX?: string;
+  THRESHOLD_ED25519_WALLET_SESSION_PREFIX?: string;
   /**
    * Ed25519 relayer-share source mode. This remains Ed25519-specific because
    * it controls the Ed25519 threshold signing protocol, not the shared store.
    */
   THRESHOLD_ED25519_SHARE_MODE?: string;
   /**
-   * Optional prefixes for threshold ECDSA key/session/auth storage.
+   * Optional prefixes for threshold ECDSA key/session/Wallet Session storage.
    * Defaults derive from `THRESHOLD_PREFIX` with a `threshold-ecdsa:*` namespace when unset.
    */
   THRESHOLD_ECDSA_KEYSTORE_PREFIX?: string;
   THRESHOLD_ECDSA_SESSION_PREFIX?: string;
-  THRESHOLD_ECDSA_AUTH_PREFIX?: string;
+  THRESHOLD_ECDSA_WALLET_SESSION_PREFIX?: string;
   /**
-   * Optional prefixes for threshold ECDSA presignature pool and signing-session storage.
+   * Optional prefix for threshold ECDSA presignature pool storage.
    * Defaults derive from `THRESHOLD_PREFIX` with a `threshold-ecdsa:*` namespace when unset.
    */
   THRESHOLD_ECDSA_PRESIGN_PREFIX?: string;
-  THRESHOLD_ECDSA_SIGNING_PREFIX?: string;
   /**
    * Optional override for the client FROST participant identifier (u16, >= 1).
    * Must be distinct from `THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID`.
@@ -1192,8 +1188,8 @@ export type ThresholdStoreEnvInput = {
   THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID?: string;
   /**
    * Threshold node role.
-   * - "coordinator" (default): exposes `/threshold-ed25519/sign/*` and can fan out to cosigners when configured.
-   * - "cosigner": does not expose public signing endpoints; intended for internal relayer-fleet t-of-n cosigning.
+   * - "coordinator" (default): exposes public registration/session routes and Router A/B bridge handlers.
+   * - "cosigner": exposes internal relayer-fleet t-of-n cosigning endpoints when configured.
    */
   THRESHOLD_NODE_ROLE?: string;
   /**
@@ -1206,7 +1202,7 @@ export type ThresholdStoreEnvInput = {
   /**
    * Stable identifier for this coordinator instance.
    *
-   * Used to pin `/threshold-ecdsa/presign/*` sessions to the instance that
+   * Used to pin Router A/B ECDSA-HSS pool-fill sessions to the instance that
    * created the live in-memory WASM session object.
    */
   THRESHOLD_COORDINATOR_INSTANCE_ID?: string;
@@ -1239,20 +1235,24 @@ export type ThresholdStoreEnvInput = {
    */
   THRESHOLD_ED25519_RELAYER_COSIGNER_T?: string;
   /**
-   * Optional threshold ECDSA presign-pool policy hint returned to clients during `/threshold-ecdsa/authorize`.
-   * Values are advisory and clients may clamp them locally.
-   */
-  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED?: string;
-  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH?: string;
-  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
-  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
-  THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
-  /**
    * Optional Router A/B Ed25519 normal-signing SigningWorker id accepted by
    * threshold session policy. When unset, Router A/B normal-signing session
    * policy is rejected.
    */
   ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
+  /**
+   * Private Router A/B SigningWorker base URL used by the server-side
+   * ECDSA-HSS presignature pool-fill bridge.
+   */
+  ROUTER_AB_ECDSA_HSS_POOL_FILL_SIGNING_WORKER_URL?: string;
+  /** Shared Router A/B SigningWorker base URL alias for local/dev wiring. */
+  ROUTER_AB_SIGNING_WORKER_URL?: string;
+  /** Local router-ab-dev SigningWorker URL alias. */
+  SIGNING_WORKER_URL?: string;
+  /** Secret value sent in `x-router-ab-internal-service-auth` to private workers. */
+  ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET?: string;
+  /** Token alias for `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET`. */
+  ROUTER_AB_INTERNAL_SERVICE_AUTH_TOKEN?: string;
   /** Optional signing session-seal key metadata and Shamir 3-pass parameters. */
   SIGNING_SESSION_SEAL_KEY_VERSION?: string;
   SIGNING_SESSION_SHAMIR_P_B64U?: string;
@@ -1412,7 +1412,7 @@ export interface WebAuthnRegistrationCredential {
     attestationObject: string;
     transports: string[];
   };
-  // PRF outputs are not sent to the relay server
+  // PRF outputs are not sent to the Router API server.
   clientExtensionResults: null;
 }
 
@@ -1602,8 +1602,7 @@ export interface ThresholdEd25519SessionRequest {
   expected_origin: string;
   appSessionClaims?: Record<string, unknown>;
   ecdsaSessionClaims?: Record<string, unknown>;
-  // Optional: whether to return JWT in JSON or set an HttpOnly cookie
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
 }
 
 export interface ThresholdEd25519SessionResponse {
@@ -1622,253 +1621,6 @@ export interface ThresholdEd25519SessionResponse {
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   jwt?: string;
 }
-
-export interface ThresholdEd25519AuthorizeWithSessionRequest {
-  relayerKeyId: string;
-  purpose: ThresholdEd25519Purpose;
-  signing_digest_32: number[];
-  signingPayload?: unknown;
-  runtimeSnapshot?: ThresholdRuntimeSnapshotExpectation;
-}
-
-export interface ThresholdEd25519AuthorizeResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  mpcSessionId?: string;
-  expiresAt?: string;
-  walletSigningSessionId?: string;
-  remainingUses?: number;
-}
-
-export interface ThresholdEd25519SignInitRequest {
-  mpcSessionId: string;
-  relayerKeyId: string;
-  nearAccountId: string;
-  /**
-   * Base64url-encoded message bytes (the exact digest the co-signers will sign).
-   * For NEAR tx/delegate flows this is expected to be 32 bytes.
-   */
-  signingDigestB64u: string;
-  clientCommitments: {
-    hiding: string;
-    binding: string;
-  };
-}
-
-export interface ThresholdEd25519SignInitResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  signingSessionId?: string;
-  /** Commitments keyed by participant id (stringified u16). */
-  commitmentsById?: Record<string, { hiding: string; binding: string }>;
-  /** Relayer verifying shares keyed by relayer participant id (stringified u16). */
-  relayerVerifyingSharesById?: Record<string, string>;
-  /** Convenience list of participant ids for this signer set. */
-  participantIds?: number[];
-}
-
-export interface ThresholdEd25519SignFinalizeRequest {
-  signingSessionId: string;
-  clientSignatureShareB64u: string;
-}
-
-export interface ThresholdEd25519SignFinalizeResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  /** Signature shares keyed by relayer participant id (stringified u16). */
-  relayerSignatureSharesById?: Record<string, string>;
-}
-
-export type ThresholdEd25519CommitmentsWire = {
-  hiding: string;
-  binding: string;
-};
-
-export type ThresholdEd25519PresignRefillRequest = {
-  kind: 'threshold_ed25519_presign_refill_v1';
-  relayerKeyId: string;
-  nearAccountId: string;
-  nearNetworkId: string;
-  expectedSignerPublicKey: string;
-  participantIds: readonly number[];
-  clientPresigns: readonly ThresholdEd25519ClientPresignOffer[];
-  requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
-};
-
-export type ThresholdEd25519ClientPresignOffer = {
-  clientPresignId: string;
-  clientVerifyingShareB64u: string;
-  clientCommitments: ThresholdEd25519CommitmentsWire;
-};
-
-export type ThresholdEd25519PresignRefillResponse =
-  | {
-      ok: true;
-      kind: 'threshold_ed25519_presign_refill_response_v1';
-      accepted: readonly ThresholdEd25519PresignPair[];
-      rejectedClientPresignIds: readonly string[];
-      serverTimeMs: number;
-    }
-  | {
-      ok: false;
-      code: ThresholdEd25519PresignRefillErrorCode;
-      message: string;
-    };
-
-export type ThresholdEd25519PresignPair = {
-  presignId: string;
-  clientPresignId: string;
-  relayerCommitments: ThresholdEd25519CommitmentsWire;
-  relayerVerifyingShareB64u: string;
-  signerPublicKey: string;
-  nearNetworkId: string;
-  participantIds: readonly number[];
-  expiresAtMs: number;
-};
-
-export type ThresholdEd25519PresignRefillErrorCode =
-  | 'invalid_body'
-  | 'unauthorized'
-  | 'forbidden'
-  | 'expired'
-  | 'wrong_scope'
-  | 'invalid_commitments'
-  | 'rate_limited'
-  | 'capacity_exceeded'
-  | 'internal';
-
-export type ThresholdEd25519SigningOperation = {
-  kind: 'threshold_ed25519_signing_operation_v1';
-  operationId: string;
-  operationFingerprint: string;
-  purpose: 'near_transaction' | 'nep413_message' | 'delegate_action';
-};
-
-export type ThresholdEd25519FinalizeAndDispatchRequest =
-  | ThresholdEd25519FinalizeSignatureOnlyRequest
-  | ThresholdEd25519FinalizeAndDispatchNearTxRequest;
-
-export type ThresholdEd25519FinalizeNep413Intent = {
-  kind: 'nep413_message_v1';
-  message: string;
-  recipient: string;
-  nonce: string;
-  state?: string;
-};
-
-export type ThresholdEd25519FinalizeDelegateActionIntent = {
-  kind: 'near_delegate_action_v1';
-  delegate: {
-    senderId: string;
-    receiverId: string;
-    actions: readonly ThresholdEd25519NearAction[];
-    nonce: string;
-    maxBlockHeight: string;
-    publicKey: string;
-  };
-};
-
-export type ThresholdEd25519FinalizeSignatureOnlyIntent =
-  | ThresholdEd25519FinalizeNep413Intent
-  | ThresholdEd25519FinalizeDelegateActionIntent;
-
-export type ThresholdEd25519FinalizeSignatureOnlyRequest = {
-  kind: 'threshold_ed25519_finalize_signature_only_v1';
-  operation: ThresholdEd25519SigningOperation;
-  requestIntegrityHash: string;
-  presignId: string;
-  relayerKeyId: string;
-  nearAccountId: string;
-  nearNetworkId: string;
-  expectedSignerPublicKey: string;
-  intent: ThresholdEd25519FinalizeSignatureOnlyIntent;
-  clientSignatureShareB64u: string;
-};
-
-export type ThresholdEd25519FinalizeAndDispatchNearTxRequest = {
-  kind: 'threshold_ed25519_finalize_and_dispatch_near_tx_v1';
-  operation: ThresholdEd25519SigningOperation;
-  requestIntegrityHash: string;
-  presignId: string;
-  relayerKeyId: string;
-  nearAccountId: string;
-  nearNetworkId: string;
-  expectedSignerPublicKey: string;
-  transactions: readonly ThresholdEd25519NearTransaction[];
-  unsignedTransactionBorshB64u: string;
-  signingDigestB64u: string;
-  clientSignatureShareB64u: string;
-  dispatch: {
-    kind: 'near_rpc_configured_default_v1';
-  };
-};
-
-export type ThresholdEd25519FinalizeAndDispatchResponse =
-  | {
-      ok: true;
-      kind: 'threshold_ed25519_signature_only_result_v1';
-      operationId: string;
-      budgetState: 'consumed' | 'already_consumed';
-      remainingSigningUses: number;
-      signatureB64u: string;
-      signerPublicKey: string;
-    }
-  | {
-      ok: true;
-      kind: 'threshold_ed25519_dispatched_near_tx_result_v1';
-      operationId: string;
-      budgetState: 'consumed' | 'already_consumed';
-      remainingSigningUses: number;
-      signatureB64u: string;
-      signerPublicKey: string;
-      signedTransactionBorshB64u: string;
-      transactionHash: string;
-      rpcResult: unknown;
-    }
-  | {
-      ok: false;
-      kind: 'threshold_ed25519_finalize_rejected_without_operation_v1';
-      code: 'invalid_body' | 'unauthorized' | 'internal';
-      message: string;
-      budgetState: 'not_consumed';
-      presignConsumed: false;
-      dispatchState: 'not_attempted';
-    }
-  | {
-      ok: false;
-      kind: 'threshold_ed25519_finalize_rejected_for_operation_v1';
-      code: ThresholdEd25519FinalizeAndDispatchErrorCode;
-      message: string;
-      operationId: string;
-      budgetState: 'not_consumed' | 'consumed' | 'already_consumed';
-      presignConsumed: boolean;
-      dispatchState: 'not_attempted' | 'attempted' | 'unknown';
-    };
-
-export type ThresholdEd25519FinalizeAndDispatchErrorCode =
-  | 'invalid_body'
-  | 'unauthorized'
-  | 'forbidden'
-  | 'expired'
-  | 'wrong_scope'
-  | 'request_integrity_mismatch'
-  | 'operation_fingerprint_mismatch'
-  | 'budget_exhausted'
-  | 'budget_operation_conflict'
-  | 'presign_unavailable'
-  | 'presign_expired'
-  | 'presign_consumed'
-  | 'digest_mismatch'
-  | 'transaction_scope_mismatch'
-  | 'transaction_signer_key_mismatch'
-  | 'transaction_network_mismatch'
-  | 'invalid_signature_share'
-  | 'signature_verification_failed'
-  | 'dispatch_failed'
-  | 'internal';
 
 // ==========================================
 // Threshold Ed25519 cosign continuation payloads
@@ -1959,7 +1711,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   ok: boolean;
   code?: string;
   message?: string;
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   sessionAuthTokenUserId?: string;
   sessionAuthTokenRpId?: string;
   keyHandle?: string;
@@ -2060,7 +1812,7 @@ interface EcdsaHssClientBootstrapRequestBase {
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   runtimePolicyScope?: RuntimePolicyScope;
 }
 
@@ -2086,6 +1838,8 @@ export interface EcdsaHssServerBootstrapResponse {
   relayerKeyId: string;
   contextBinding32B64u: string;
   publicIdentity: EcdsaHssPublicIdentity;
+  clientShareRetryCounter: number;
+  relayerShareRetryCounter: number;
   publicTranscriptDigest32B64u: string;
   keyHandle: string;
   signingRootId: string;
@@ -2186,39 +1940,11 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   remainingUses: number;
 };
 
-export interface ThresholdEcdsaAuthorizeWithSessionRequest {
-  keyHandle: string;
-  ecdsaThresholdKeyId?: never;
-  purpose: ThresholdEcdsaPurpose;
-  signing_digest_32: number[];
-  signingPayload?: unknown;
-  runtimeSnapshot?: ThresholdRuntimeSnapshotExpectation;
-}
-
-export interface ThresholdEcdsaPresignPoolPolicyHint {
-  enabled?: boolean;
-  targetDepth?: number;
-  lowWatermark?: number;
-  maxRefillInFlight?: number;
-  refillAttemptTimeoutMs?: number;
-}
-
-export interface ThresholdEcdsaAuthorizeResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  mpcSessionId?: string;
-  expiresAt?: string;
-  walletSigningSessionId?: string;
-  remainingUses?: number;
-  presignPoolPolicy?: ThresholdEcdsaPresignPoolPolicyHint;
-}
-
 // =====================================
-// Threshold ECDSA (presignature pool)
+// Router A/B ECDSA-HSS pool-fill routes
 // =====================================
 
-export type ThresholdEcdsaPresignInitRequest = {
+export type RouterAbEcdsaHssPoolFillInitRequest = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   /**
@@ -2231,9 +1957,14 @@ export type ThresholdEcdsaPresignInitRequest = {
    * Example: `background_presign_pool_refill`.
    */
   requestTag?: string;
+  poolFill: {
+    kind: 'router_ab_ecdsa_hss_signing_worker_pool';
+    scope: RouterAbEcdsaHssNormalSigningScopeV1;
+    expiresAtMs: number;
+  };
 };
 
-export type ThresholdEcdsaPresignInitResponse = {
+export type RouterAbEcdsaHssPoolFillInitResponse = {
   ok: boolean;
   code?: string;
   message?: string;
@@ -2242,7 +1973,7 @@ export type ThresholdEcdsaPresignInitResponse = {
   outgoingMessagesB64u?: string[];
 };
 
-export type ThresholdEcdsaPresignStepRequest = {
+export type RouterAbEcdsaHssPoolFillStepRequest = {
   presignSessionId: string;
   /**
    * The client-requested stage transition:
@@ -2258,7 +1989,7 @@ export type ThresholdEcdsaPresignStepRequest = {
   requestTag?: string;
 };
 
-export type ThresholdEcdsaPresignStepResponse = {
+export type RouterAbEcdsaHssPoolFillStepResponse = {
   ok: boolean;
   code?: string;
   message?: string;
@@ -2270,82 +2001,6 @@ export type ThresholdEcdsaPresignStepResponse = {
   /** Base64url-encoded compressed secp256k1 point (33 bytes) for `R` (only present when `event==='presign_done'`). */
   bigRB64u?: string;
 };
-
-export type ThresholdEcdsaSignInitClientRound1V1 = {
-  /**
-   * Optional presignature id chosen by the client.
-   * When omitted, the relayer selects a presignature from its pool.
-   */
-  presignatureId?: string;
-};
-
-export type ThresholdEcdsaSignInitRelayerRound1V1 = {
-  presignatureId: string;
-  /**
-   * Base64url-encoded 32 bytes of public entropy used for presignature rerandomization.
-   * Both parties must use exactly this value.
-   */
-  entropyB64u: string;
-  /**
-   * Base64url-encoded compressed secp256k1 point (33 bytes) for R = k·G (optional echo).
-   * When present, the client should verify it matches its local presignature.
-   */
-  bigRB64u?: string;
-};
-
-export interface ThresholdEcdsaSignInitRequest {
-  mpcSessionId: string;
-  relayerKeyId: string;
-  /** Base64url-encoded digest bytes (typically 32 bytes for secp256k1/ECDSA). */
-  signingDigestB64u: string;
-  /** Scheme-specific round-1 payload (nonce commitments, preprocessing selection, etc.). */
-  clientRound1?: ThresholdEcdsaSignInitClientRound1V1;
-}
-
-export interface ThresholdEcdsaSignInitResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  signingSessionId?: string;
-  /** Scheme-specific round-1 payload to return to the client. */
-  relayerRound1?: ThresholdEcdsaSignInitRelayerRound1V1;
-}
-
-export type ThresholdEcdsaSignFinalizeClientRound2V1 = {
-  /**
-   * Base64url-encoded scalar signature share produced by the client (implementation-defined).
-   * For NEAR `threshold-signatures` OT-based ECDSA, this is the participant's `s_i`.
-   */
-  clientSignatureShareB64u: string;
-};
-
-export type ThresholdEcdsaSignFinalizeRelayerRound2V1 = {
-  /**
-   * Base64url-encoded recoverable ECDSA signature bytes: `r(32) || s(32) || recId(1)`.
-   * `s` must be low-s normalized.
-   */
-  signature65B64u: string;
-  /** Base64url-encoded 32-byte `r` (x-coordinate of R). */
-  rB64u: string;
-  /** Base64url-encoded 32-byte low-s `s`. */
-  sB64u: string;
-  /** Recovery id in [0..3]. EVM yParity is `recId & 1`. */
-  recId: number;
-};
-
-export interface ThresholdEcdsaSignFinalizeRequest {
-  signingSessionId: string;
-  /** Scheme-specific round-2 payload (signature share contribution, etc.). */
-  clientRound2?: ThresholdEcdsaSignFinalizeClientRound2V1;
-}
-
-export interface ThresholdEcdsaSignFinalizeResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  /** Scheme-specific relayer-side contribution used by the client to finalize the signature. */
-  relayerRound2?: ThresholdEcdsaSignFinalizeRelayerRound2V1;
-}
 
 // =======================================
 // Threshold ECDSA cosign continuation payloads

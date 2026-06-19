@@ -1168,7 +1168,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
 
   // Session: authoritative wallet signing-session budget status.
   //
-  // This route intentionally authenticates with a threshold-session token and
+  // This route intentionally authenticates with a Wallet Session JWT and
   // returns only the wallet-level budget projection. Client runtime and
   // IndexedDB remaining-use counters are material hints; this server store is
   // the budget authority.

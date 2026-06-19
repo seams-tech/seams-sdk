@@ -28,22 +28,22 @@ localhost:8443 {
 	reverse_proxy localhost:3600
 }
 
-# Relay server on separate origin
+# Router server on separate origin
 localhost:9444 {
 	tls internal
 	encode gzip
-	@relay_allowed_origin header_regexp relay_origin Origin ^https://localhost(:8443)?$
-	@relay_preflight {
+	@router_allowed_origin header_regexp router_origin Origin ^https://localhost(:8443)?$
+	@router_preflight {
 		method OPTIONS
 		header_regexp Origin ^https://localhost(:8443)?$
 	}
-	header @relay_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
-	header @relay_allowed_origin Access-Control-Allow-Credentials true
-	header @relay_allowed_origin Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-	header @relay_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret"
-	header @relay_allowed_origin Vary Origin
-	respond @relay_preflight 204
-	reverse_proxy 127.0.0.1:8444 {
+	header @router_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
+	header @router_allowed_origin Access-Control-Allow-Credentials true
+	header @router_allowed_origin Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+	header @router_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret"
+	header @router_allowed_origin Vary Origin
+	respond @router_preflight 204
+	reverse_proxy 127.0.0.1:9090 {
 		header_down -Access-Control-Allow-Origin
 		header_down -Access-Control-Allow-Credentials
 		header_down -Access-Control-Allow-Methods
@@ -52,14 +52,14 @@ localhost:9444 {
 	}
 }
 
-# Relay server (cosigner instance #1)
+# Cosigner instance #1
 localhost:8445 {
 	tls internal
 	encode gzip
 	reverse_proxy 127.0.0.1:3001
 }
 
-# Relay server (cosigner instance #2)
+# Cosigner instance #2
 localhost:8446 {
 	tls internal
 	encode gzip

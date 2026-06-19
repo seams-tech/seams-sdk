@@ -1,5 +1,5 @@
-import type { ActionArgsWasm } from '@/core/types/actions';
-import { ActionType, validateActionArgsWasm } from '@/core/types/actions';
+import type { ActionArgsWasm } from '@shared/near/actions';
+import { ActionType, validateActionArgsWasm } from '@shared/near/actions';
 import { parseContractExecutionError } from '../core/errors';
 import { hashRecoveryEmailForAccount, type EmailEncryptionContext } from './emailEncryptor';
 import { parseHeaderValue } from './emailParsers';

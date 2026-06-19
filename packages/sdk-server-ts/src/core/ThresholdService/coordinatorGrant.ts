@@ -1,6 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { bytesEqual32, isObject, parseThresholdEd25519MpcSessionRecord } from './validation';
+import { isObject, parseThresholdEd25519MpcSessionRecord } from './validation';
 import { normalizeThresholdEd25519ParticipantId } from '@shared/threshold/participants';
 
 export type ThresholdEd25519CosignerGrantV1 = {
@@ -21,6 +21,13 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   const ab = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(ab).set(bytes);
   return ab;
+}
+
+function bytesEqual32(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== 32 || b.length !== 32) return false;
+  let diff = 0;
+  for (let i = 0; i < 32; i += 1) diff |= a[i]! ^ b[i]!;
+  return diff === 0;
 }
 
 async function signHmacJsonToken(input: {

@@ -11,20 +11,29 @@ import {
   ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
   ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
   ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+  ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
 } from '@shared/utils/signingSessionSeal';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  validateThresholdEd25519SessionTokenInputs,
+  signRouterAbEd25519WalletSessionJwt,
+  validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../commonRouterUtils';
 import {
   parseAppSessionClaims,
-  parseThresholdEcdsaSessionClaims,
+  parseRouterAbEcdsaHssWalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
+import {
+  handleRouterAbEd25519NormalSigningRouteCore,
+  ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
+  type RouterAbEd25519PrivateSigningPath,
+} from '../../routerAbPrivateSigningWorker';
 
 function errMessage(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e)
@@ -111,28 +120,32 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
   participantIds: number[];
   runtimePolicyScope: NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope'];
 }): Promise<string> {
-  const session = args.ctx.opts.session;
-  if (!session) throw new Error('Sessions are disabled');
   const sessionId = String(args.sessionResult.sessionId || '').trim();
   const walletSigningSessionId = String(args.sessionResult.walletSigningSessionId || '').trim();
   const expiresAtMs = Number(args.sessionResult.expiresAtMs);
   if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('threshold-ed25519 session bootstrap returned incomplete session state');
   }
-  const nowSec = Math.floor(Date.now() / 1000);
-  return await session.signJwt(args.nearAccountId, {
-    kind: 'threshold_ed25519_session_v1',
-    walletId: args.nearAccountId,
-    sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-    relayerKeyId: args.relayerKeyId,
+  const signed = await signRouterAbEd25519WalletSessionJwt({
+    session: args.ctx.opts.session,
+    userId: args.nearAccountId,
     rpId: args.rpId,
-    participantIds: args.participantIds,
-    thresholdExpiresAtMs: expiresAtMs,
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    iat: nowSec,
-    exp: Math.floor(expiresAtMs / 1000),
+    relayerKeyId: args.relayerKeyId,
+    sessionInfo: {
+      sessionKind: 'jwt',
+      sessionId,
+      walletSigningSessionId,
+      expiresAtMs,
+      participantIds: args.participantIds,
+      runtimePolicyScope: args.runtimePolicyScope,
+      routerAbNormalSigning: args.sessionResult.routerAbNormalSigning,
+    },
+    fallbackParticipantIds: args.participantIds,
+    requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
+    invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
   });
+  if (!signed.ok) throw new Error(signed.message);
+  return signed.jwt;
 }
 
 async function handle<T extends { ok: boolean; code?: string; message?: string }>(
@@ -169,6 +182,69 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
       ...(requestMeta || {}),
     });
     res.status(500).json({ ok: false, code: 'internal', message: errMessage(e) });
+  }
+}
+
+async function handleRouterAbEd25519NormalSigningRoute(
+  ctx: ExpressRelayContext,
+  req: Request,
+  res: Response,
+  publicPath: string,
+  privatePath: RouterAbEd25519PrivateSigningPath,
+  phase: 'prepare' | 'presign-pool-prepare' | 'finalize',
+): Promise<void> {
+  const startedAt = Date.now();
+  const bodyUnknown = (req.body || {}) as unknown;
+  const body =
+    bodyUnknown && typeof bodyUnknown === 'object' && !Array.isArray(bodyUnknown)
+      ? (bodyUnknown as Record<string, unknown>)
+      : {};
+  try {
+    ctx.logger.info('[router-ab-ed25519-signing] request', {
+      route: publicPath,
+      method: req.method,
+    });
+    const result = await handleRouterAbEd25519NormalSigningRouteCore({
+      body,
+      rawBody: bodyUnknown,
+      headers: req.headers || {},
+      session: ctx.opts.session,
+      getThreshold: () => ctx.service.getThresholdSigningService(),
+      admissionAdapter: ctx.opts.routerAbNormalSigningAdmission,
+      privatePath,
+      phase,
+    });
+    const resultBody =
+      result.body && typeof result.body === 'object' && !Array.isArray(result.body)
+        ? (result.body as Record<string, unknown>)
+        : {};
+    const ok =
+      typeof resultBody.ok === 'boolean'
+        ? resultBody.ok
+        : result.status >= 200 && result.status < 400;
+    const code = typeof resultBody.code === 'string' ? resultBody.code : undefined;
+    const responseLog = {
+      route: publicPath,
+      status: result.status,
+      ok,
+      ...(code ? { code } : {}),
+      durationMs: Date.now() - startedAt,
+    };
+    if (ok) {
+      ctx.logger.info('[router-ab-ed25519-signing] response', responseLog);
+    } else if (result.status >= 500) {
+      ctx.logger.error('[router-ab-ed25519-signing] response', responseLog);
+    } else {
+      ctx.logger.warn('[router-ab-ed25519-signing] response', responseLog);
+    }
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    ctx.logger.error('[router-ab-ed25519-signing] error', {
+      route: publicPath,
+      message: errMessage(error),
+      durationMs: Date.now() - startedAt,
+    });
+    res.status(500).json({ ok: false, code: 'internal', message: errMessage(error) });
   }
 }
 
@@ -227,9 +303,17 @@ export function registerThresholdEd25519Routes(
             message: 'Sessions are not configured on this server',
           };
         }
+        const sessionKind = parseSessionKind(body);
+        if (sessionKind !== 'jwt') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Router A/B Ed25519 Wallet Session issuance requires sessionKind=jwt',
+          };
+        }
 
         let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
-        let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
+        let ecdsaSessionClaims: ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims> = null;
         if (session) {
           const parsedSession = await session.parse(req.headers || {});
           if (parsedSession.ok) {
@@ -242,7 +326,7 @@ export function registerThresholdEd25519Routes(
               if (!validated.ok) appSessionClaims = null;
             }
             if (!appSessionClaims) {
-              ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
+              ecdsaSessionClaims = parseRouterAbEcdsaHssWalletSessionClaims(parsedSession.claims);
             }
           }
         }
@@ -322,33 +406,73 @@ export function registerThresholdEd25519Routes(
             message: 'threshold session missing participantIds',
           };
         }
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expSec = Math.floor(thresholdExpiresAtMs / 1000);
-        const token = await session.signJwt(userId, {
-          kind: 'threshold_ed25519_session_v1',
-          walletId: userId,
-          sessionId,
-          ...(result.walletSigningSessionId
-            ? { walletSigningSessionId: result.walletSigningSessionId }
-            : {}),
-          relayerKeyId,
+        const signed = await signRouterAbEd25519WalletSessionJwt({
+          session,
+          userId,
           rpId,
-          participantIds,
-          thresholdExpiresAtMs,
-          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          iat: nowSec,
-          exp: expSec,
+          relayerKeyId,
+          sessionInfo: {
+            sessionKind: 'jwt',
+            sessionId,
+            walletSigningSessionId: result.walletSigningSessionId,
+            expiresAtMs: thresholdExpiresAtMs,
+            participantIds,
+            runtimePolicyScope,
+            routerAbNormalSigning: result.routerAbNormalSigning,
+          },
+          fallbackParticipantIds: participantIds,
+          requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
+          invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
         });
-
-        const sessionKind = parseSessionKind(body);
-        if (sessionKind === 'cookie') {
-          res.set('Set-Cookie', session.buildSetCookie(token));
-          const { jwt: _omit, ...rest } = result;
-          return { ...rest, ok: true, ...(runtimePolicyScope ? { runtimePolicyScope } : {}) };
+        if (!signed.ok) {
+          return { ok: false, code: signed.code, message: signed.message };
         }
 
-        return { ...result, ...(runtimePolicyScope ? { runtimePolicyScope } : {}), jwt: token };
+        return {
+          ...result,
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          jwt: signed.jwt,
+        };
       },
+    );
+  });
+
+  router.post(
+    ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+    async (req: Request, res: Response) => {
+      await handleRouterAbEd25519NormalSigningRoute(
+        ctx,
+        req,
+        res,
+        ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
+        ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare,
+        'prepare',
+      );
+    },
+  );
+
+  router.post(
+    ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+    async (req: Request, res: Response) => {
+      await handleRouterAbEd25519NormalSigningRoute(
+        ctx,
+        req,
+        res,
+        ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
+        ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.presignPoolPrepare,
+        'presign-pool-prepare',
+      );
+    },
+  );
+
+  router.post(ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2, async (req: Request, res: Response) => {
+    await handleRouterAbEd25519NormalSigningRoute(
+      ctx,
+      req,
+      res,
+      ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+      ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize,
+      'finalize',
     );
   });
 
@@ -397,7 +521,7 @@ export function registerThresholdEd25519Routes(
             request: body as any,
           });
         }
-        const validated = await validateThresholdEd25519SessionTokenInputs({
+        const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
           session: ctx.opts.session,
@@ -525,7 +649,7 @@ export function registerThresholdEd25519Routes(
             ...(sessionResult ? { session: sessionResult } : {}),
           };
         }
-        const validated = await validateThresholdEd25519SessionTokenInputs({
+        const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
           session: ctx.opts.session,
@@ -571,7 +695,7 @@ export function registerThresholdEd25519Routes(
             request: body as any,
           });
         }
-        const validated = await validateThresholdEd25519SessionTokenInputs({
+        const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
           session: ctx.opts.session,

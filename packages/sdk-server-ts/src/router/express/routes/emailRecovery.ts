@@ -1,18 +1,37 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
+import {
+  parseRouterAbEd25519WalletSessionJwtSessionInfo,
+  signRouterAbEd25519WalletSessionJwt,
+} from '../../commonRouterUtils';
 
 export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   async function signEmailRecoveryThresholdSession(result: any, rpId: unknown, res: any): Promise<boolean> {
     const thresholdSession = result.thresholdEd25519?.session;
     if (!thresholdSession) return true;
-    const signed = await signThresholdSessionAuthToken({
+    if (thresholdSession.sessionKind !== 'jwt') {
+      res.status(400).json({
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ed25519.session_kind must be jwt',
+      });
+      return false;
+    }
+    const sessionInfo = parseRouterAbEd25519WalletSessionJwtSessionInfo(thresholdSession);
+    if (!sessionInfo) {
+      res.status(500).json({
+        ok: false,
+        code: 'internal',
+        message: 'invalid thresholdEd25519 session payload for jwt signing',
+      });
+      return false;
+    }
+    const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
-      kind: 'threshold_ed25519_session_v1',
       userId: result.accountId,
       rpId,
       relayerKeyId: result.thresholdEd25519?.relayerKeyId,
-      sessionInfo: thresholdSession,
+      sessionInfo,
       fallbackParticipantIds: result.thresholdEd25519?.participantIds,
       requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
       invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',

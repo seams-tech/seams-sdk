@@ -84,6 +84,26 @@ export async function getPostgresPool(postgresUrl: string): Promise<PgPool> {
 }
 
 const MIGRATION_LOCK_ID = 9452360123581;
+const THRESHOLD_ED25519_SESSION_KIND_CHECK_SQL =
+  "'mpc', 'signing', 'coordinator', 'wallet_session', 'presign', 'presign_rate'";
+
+export async function ensureThresholdEd25519SessionsKindConstraint(
+  executor: PgQueryExecutor,
+): Promise<void> {
+  await executor.query(`
+      ALTER TABLE threshold_ed25519_sessions
+      DROP CONSTRAINT IF EXISTS threshold_ed25519_sessions_kind_check
+    `);
+  await executor.query(`
+      DELETE FROM threshold_ed25519_sessions
+      WHERE kind NOT IN (${THRESHOLD_ED25519_SESSION_KIND_CHECK_SQL})
+    `);
+  await executor.query(`
+      ALTER TABLE threshold_ed25519_sessions
+      ADD CONSTRAINT threshold_ed25519_sessions_kind_check
+      CHECK (kind IN (${THRESHOLD_ED25519_SESSION_KIND_CHECK_SQL}))
+    `);
+}
 
 async function queryOne(
   executor: PgQueryExecutor,
@@ -687,24 +707,16 @@ export async function ensurePostgresSchema(input: {
         expires_at_ms BIGINT NOT NULL,
         remaining_uses INTEGER,
         PRIMARY KEY (namespace, kind, session_id),
-        CHECK (kind IN ('mpc', 'signing', 'coordinator', 'auth', 'presign', 'presign_rate'))
+        CHECK (kind IN ('mpc', 'signing', 'coordinator', 'wallet_session', 'presign', 'presign_rate'))
       )
     `);
-    await pool.query(`
-      ALTER TABLE threshold_ed25519_sessions
-      DROP CONSTRAINT IF EXISTS threshold_ed25519_sessions_kind_check
-    `);
-    await pool.query(`
-      ALTER TABLE threshold_ed25519_sessions
-      ADD CONSTRAINT threshold_ed25519_sessions_kind_check
-      CHECK (kind IN ('mpc', 'signing', 'coordinator', 'auth', 'presign', 'presign_rate'))
-    `);
+    await ensureThresholdEd25519SessionsKindConstraint(pool);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS threshold_ed25519_sessions_expires_idx
       ON threshold_ed25519_sessions (expires_at_ms)
     `);
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS threshold_ed25519_auth_consumptions (
+      CREATE TABLE IF NOT EXISTS threshold_wallet_session_consumptions (
         namespace TEXT NOT NULL,
         session_id TEXT NOT NULL,
         idempotency_key TEXT NOT NULL,
@@ -713,22 +725,8 @@ export async function ensurePostgresSchema(input: {
       )
     `);
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS threshold_ed25519_auth_consumptions_expires_idx
-      ON threshold_ed25519_auth_consumptions (expires_at_ms)
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS threshold_ecdsa_signing_sessions (
-        namespace TEXT NOT NULL,
-        signing_session_id TEXT NOT NULL,
-        record_json JSONB NOT NULL,
-        expires_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, signing_session_id)
-      )
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS threshold_ecdsa_signing_sessions_expires_idx
-      ON threshold_ecdsa_signing_sessions (expires_at_ms)
+      CREATE INDEX IF NOT EXISTS threshold_wallet_session_consumptions_expires_idx
+      ON threshold_wallet_session_consumptions (expires_at_ms)
     `);
 
     await pool.query(`

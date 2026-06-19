@@ -31,6 +31,7 @@ import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain'
 import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
+import type { RouterAbNormalSigningAdmissionAdapter } from './routerAbPrivateSigningWorker';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -501,6 +502,11 @@ export interface RelayRouterOptions {
    * routes for self-hosted and local relay surfaces.
    */
   routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
+  /**
+   * Optional Router-owned project-policy, quota, and abuse admission gate for
+   * Router A/B normal-signing requests.
+   */
+  routerAbNormalSigningAdmission?: RouterAbNormalSigningAdmissionAdapter | null;
   sponsoredEvmCall?: {
     route?: string;
     apiKeys: ConsoleApiKeyService;

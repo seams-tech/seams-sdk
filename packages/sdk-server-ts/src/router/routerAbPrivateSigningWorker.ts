@@ -2,11 +2,13 @@ import type {
   RouterAbEd25519SigningWorkerPrivateMaterial,
   RouterAbSigningWorkerPrivateHttpConfig,
 } from '../core/ThresholdService/ThresholdSigningService';
-import { ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1 } from '../core/ThresholdService/routerAb/ecdsaHssPresignBridge';
+import { postRouterAbInternalServiceJson } from '../core/ThresholdService/routerAb/internalServiceHttp';
 import type {
   RouterAbEcdsaHssWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
+import { validateRouterAbEd25519WalletSessionTokenInputs } from './commonRouterUtils';
+import type { SessionAdapter } from './relay';
 import {
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
@@ -14,12 +16,14 @@ import {
   routerAbEcdsaHssActiveStateSessionId,
   routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
   routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
+  sameRouterAbEcdsaHssNormalSigningScopeV1,
   type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssNormalSigningScopeV1,
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaHss';
 import { base64UrlDecode } from '@shared/utils/encoders';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH_V1 = '/router-ab/v1/signing-worker/sign/prepare';
 const PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1 =
@@ -61,6 +65,162 @@ export type RouterAbSigningWorkerJsonResult =
       body: { ok: false; code: string; message: string };
     };
 type RouterAbSigningWorkerJsonError = Extract<RouterAbSigningWorkerJsonResult, { ok: false }>;
+
+export type RouterAbEd25519NormalSigningRoutePhase =
+  | 'prepare'
+  | 'presign-pool-prepare'
+  | 'finalize';
+
+export type RouterAbJsonRouteResult = {
+  status: number;
+  body: unknown;
+};
+
+type RouterAbEd25519NormalSigningThresholdService = {
+  getRouterAbSigningWorkerPrivateHttpConfig(): RouterAbSigningWorkerPrivateHttpConfig | null;
+  resolveRouterAbEd25519SigningWorkerPrivateMaterial(input: {
+    claims: RouterAbEd25519WalletSessionClaims;
+  }): Promise<
+    | { ok: true; material: RouterAbEd25519SigningWorkerPrivateMaterial }
+    | { ok: false; status: number; code: string; message: string }
+  >;
+  reserveRouterAbNormalSigningPrepareReplay(input: {
+    curve: 'ed25519';
+    phase: 'prepare' | 'presign-pool-prepare';
+    sessionId: string;
+    requestId: string;
+    expiresAtMs: number;
+  }): Promise<
+    | { ok: true }
+    | { ok: false; status: number; code: string; message: string }
+  >;
+};
+
+export type RouterAbNormalSigningRouteAdmission =
+  | {
+      ok: true;
+      sessionId: string;
+      requestId: string;
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      error: RouterAbSigningWorkerJsonError;
+    };
+
+export type RouterAbNormalSigningAdmissionFailureCode =
+  | 'project_policy_rejected'
+  | 'quota_saturated'
+  | 'abuse_rejected'
+  | 'rate_limited'
+  | 'unauthorized'
+  | 'invalid_body'
+  | 'not_configured'
+  | 'internal';
+
+export type RouterAbNormalSigningAdmissionFailure = {
+  ok: false;
+  status: 400 | 401 | 403 | 408 | 409 | 429 | 500 | 503;
+  code: RouterAbNormalSigningAdmissionFailureCode;
+  message: string;
+};
+
+export type RouterAbNormalSigningAdmissionResult =
+  | { ok: true }
+  | RouterAbNormalSigningAdmissionFailure;
+
+export type RouterAbNormalSigningAdmissionInput =
+  | {
+      curve: 'ed25519';
+      phase: 'prepare' | 'presign-pool-prepare' | 'finalize';
+      walletId: string;
+      rpId: string;
+      sessionId: string;
+      walletSigningSessionId: string;
+      requestId: string;
+      expiresAtMs: number;
+      signingWorkerId: string;
+      runtimePolicyScope: RuntimePolicyScope;
+    }
+  | {
+      curve: 'ecdsa-hss';
+      phase: 'prepare' | 'finalize';
+      walletId: string;
+      rpId: string;
+      sessionId: string;
+      walletSigningSessionId: string;
+      requestId: string;
+      expiresAtMs: number;
+      signingWorkerId: string;
+      keyHandle: string;
+      runtimePolicyScope: RuntimePolicyScope;
+    };
+
+export interface RouterAbNormalSigningAdmissionAdapter {
+  evaluate(input: RouterAbNormalSigningAdmissionInput): Promise<RouterAbNormalSigningAdmissionResult>;
+}
+
+type AcceptedRouteAdmission = Extract<RouterAbNormalSigningRouteAdmission, { ok: true }>;
+
+export type RouterAbNormalSigningAdmissionEvaluationInput =
+  | {
+      adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+      curve: 'ed25519';
+      phase: 'prepare' | 'presign-pool-prepare' | 'finalize';
+      claims: RouterAbEd25519WalletSessionClaims;
+      admission: AcceptedRouteAdmission;
+    }
+  | {
+      adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+      curve: 'ecdsa-hss';
+      phase: 'prepare' | 'finalize';
+      claims: RouterAbEcdsaHssWalletSessionClaims;
+      admission: AcceptedRouteAdmission;
+    };
+
+export async function evaluateRouterAbNormalSigningAdmission(
+  input: RouterAbNormalSigningAdmissionEvaluationInput,
+): Promise<RouterAbNormalSigningAdmissionResult> {
+  if (!input.adapter) return { ok: true };
+
+  if (input.curve === 'ed25519') {
+    return await input.adapter.evaluate({
+      curve: 'ed25519',
+      phase: input.phase,
+      walletId: input.claims.walletId,
+      rpId: input.claims.rpId,
+      sessionId: input.admission.sessionId,
+      walletSigningSessionId: input.claims.walletSigningSessionId,
+      requestId: input.admission.requestId,
+      expiresAtMs: input.admission.expiresAtMs,
+      signingWorkerId: input.claims.routerAbNormalSigning.signingWorkerId,
+      runtimePolicyScope: input.claims.runtimePolicyScope,
+    });
+  }
+
+  if (!input.claims.runtimePolicyScope) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'project_policy_rejected',
+      message: 'Router A/B ECDSA-HSS normal-signing runtime policy scope is required',
+    };
+  }
+
+  return await input.adapter.evaluate({
+    curve: 'ecdsa-hss',
+    phase: input.phase,
+    walletId: input.claims.walletId,
+    rpId: input.claims.rpId,
+    sessionId: input.admission.sessionId,
+    walletSigningSessionId: input.claims.walletSigningSessionId,
+    requestId: input.admission.requestId,
+    expiresAtMs: input.admission.expiresAtMs,
+    signingWorkerId: input.claims.routerAbEcdsaHssNormalSigning.scope.signing_worker.server_id,
+    keyHandle: input.claims.keyHandle,
+    runtimePolicyScope: input.claims.runtimePolicyScope,
+  });
+}
 
 export type RouterAbEd25519PrivateSigningWorkerBody = {
   kind: 'router_ab_ed25519_signing_worker_private_request_v1';
@@ -197,20 +357,119 @@ export function resolveRouterAbEd25519PrivateSigningPath(input: {
   return input.defaultPath;
 }
 
-function sameEcdsaHssNormalSigningScope(
-  left: RouterAbEcdsaHssNormalSigningScopeV1,
-  right: RouterAbEcdsaHssNormalSigningScopeV1,
-): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function internalServiceAuthToken(config: RouterAbSigningWorkerPrivateHttpConfig): string {
-  const token = config.auth.token.trim();
-  if (!token) throw new Error('Router A/B internal service-auth token is required');
-  if (!/^[\x20-\x7e]+$/.test(token)) {
-    throw new Error('Router A/B internal service-auth token must be printable ASCII');
+export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
+  body: Record<string, unknown>;
+  rawBody: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  session: SessionAdapter | null | undefined;
+  getThreshold: () => RouterAbEd25519NormalSigningThresholdService | null | undefined;
+  admissionAdapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
+  privatePath: RouterAbEd25519PrivateSigningPath;
+  phase: RouterAbEd25519NormalSigningRoutePhase;
+}): Promise<RouterAbJsonRouteResult> {
+  const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
+    body: input.rawBody,
+    headers: input.headers,
+    session: input.session,
+  });
+  if (!validated.ok) {
+    return {
+      status: validated.code === 'sessions_disabled' ? 501 : 401,
+      body: { ok: false, code: validated.code, message: validated.message },
+    };
   }
-  return token;
+
+  const admission = validateRouterAbEd25519NormalSigningRequestScope({
+    claims: validated.claims,
+    body: input.body,
+  });
+  if (!admission.ok) {
+    return { status: admission.error.status, body: admission.error.body };
+  }
+
+  const threshold = input.getThreshold();
+  if (!threshold) {
+    return {
+      status: 501,
+      body: {
+        ok: false,
+        code: 'not_configured',
+        message: 'Router A/B Threshold service is not configured',
+      },
+    };
+  }
+
+  const admissionDecision = await evaluateRouterAbNormalSigningAdmission({
+    adapter: input.admissionAdapter,
+    curve: 'ed25519',
+    phase: input.phase,
+    claims: validated.claims,
+    admission,
+  });
+  if (!admissionDecision.ok) {
+    return {
+      status: admissionDecision.status,
+      body: {
+        ok: false,
+        code: admissionDecision.code,
+        message: admissionDecision.message,
+      },
+    };
+  }
+
+  const signingWorker = threshold.getRouterAbSigningWorkerPrivateHttpConfig();
+  if (!signingWorker) {
+    return {
+      status: 501,
+      body: {
+        ok: false,
+        code: 'not_configured',
+        message: 'Router A/B SigningWorker private HTTP target is not configured',
+      },
+    };
+  }
+
+  const material = await threshold.resolveRouterAbEd25519SigningWorkerPrivateMaterial({
+    claims: validated.claims,
+  });
+  if (!material.ok) {
+    return {
+      status: material.status,
+      body: { ok: false, code: material.code, message: material.message },
+    };
+  }
+
+  if (input.phase === 'prepare' || input.phase === 'presign-pool-prepare') {
+    const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
+      curve: 'ed25519',
+      phase: input.phase,
+      sessionId: admission.sessionId,
+      requestId: admission.requestId,
+      expiresAtMs: admission.expiresAtMs,
+    });
+    if (!replay.ok) {
+      return {
+        status: replay.status,
+        body: { ok: false, code: replay.code, message: replay.message },
+      };
+    }
+  }
+
+  const forwarded = await postRouterAbSigningWorkerJson({
+    config: signingWorker,
+    path: resolveRouterAbEd25519PrivateSigningPath({
+      defaultPath: input.privatePath,
+      body: input.body,
+    }),
+    body: buildRouterAbEd25519PrivateSigningWorkerBody({
+      body: input.body,
+      material: material.material,
+    }),
+  });
+  if (!forwarded.ok) {
+    return { status: forwarded.status, body: forwarded.body };
+  }
+  return { status: 200, body: forwarded.body };
 }
 
 function errorMessage(error: unknown): string {
@@ -224,119 +483,204 @@ function errorMessage(error: unknown): string {
 export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   claims: RouterAbEd25519WalletSessionClaims;
   body: Record<string, unknown>;
-}): RouterAbSigningWorkerJsonError | null {
+}): RouterAbNormalSigningRouteAdmission {
   const scope = isPlainObject(input.body.scope) ? input.body.scope : null;
+  const requestId = nonEmptyString(scope?.request_id);
   const accountId = nonEmptyString(scope?.account_id);
   const sessionId = nonEmptyString(scope?.session_id);
   const signingWorkerId = nonEmptyString(scope?.signing_worker_id);
-  if (!accountId || !sessionId || !signingWorkerId) {
-    return routerAbSigningError(
-      400,
-      'invalid_body',
-      'Router A/B Ed25519 normal-signing scope is required',
-    );
+  if (!requestId || !accountId || !sessionId || !signingWorkerId) {
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        400,
+        'invalid_body',
+        'Router A/B Ed25519 normal-signing scope is required',
+      ),
+    };
   }
   if (accountId !== input.claims.walletId || sessionId !== input.claims.sessionId) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B Ed25519 normal-signing scope does not match Wallet Session claims',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B Ed25519 normal-signing scope does not match Wallet Session claims',
+      ),
+    };
   }
   if (signingWorkerId !== input.claims.routerAbNormalSigning.signingWorkerId) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B Ed25519 normal-signing worker does not match Wallet Session claims',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B Ed25519 normal-signing worker does not match Wallet Session claims',
+      ),
+    };
   }
 
   const expiresAtMs = Number(input.body.expires_at_ms);
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
-    return routerAbSigningError(
-      400,
-      'invalid_body',
-      'Router A/B Ed25519 normal-signing expires_at_ms is required',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        400,
+        'invalid_body',
+        'Router A/B Ed25519 normal-signing expires_at_ms is required',
+      ),
+    };
+  }
+  if (expiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        408,
+        'expired_request',
+        'Router A/B Ed25519 normal-signing request is expired',
+      ),
+    };
   }
   if (expiresAtMs > input.claims.thresholdExpiresAtMs) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B Ed25519 normal-signing expiry exceeds Wallet Session expiry',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B Ed25519 normal-signing expiry exceeds Wallet Session expiry',
+      ),
+    };
   }
-  return null;
+  return {
+    ok: true,
+    sessionId,
+    requestId,
+    expiresAtMs,
+  };
 }
 
 export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
   claims: RouterAbEcdsaHssWalletSessionClaims;
   body: Record<string, unknown>;
-}): RouterAbSigningWorkerJsonError | null {
+}): RouterAbNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaHssNormalSigning;
   if (!normalSigning) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B ECDSA-HSS normal-signing state is required',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B ECDSA-HSS normal-signing state is required',
+      ),
+    };
   }
   let request: ReturnType<typeof parseRouterAbEcdsaHssEvmDigestSigningRequestV1>;
   try {
     request = parseRouterAbEcdsaHssEvmDigestSigningRequestV1(input.body);
   } catch (error) {
-    return routerAbSigningError(400, 'invalid_body', errorMessage(error));
+    return {
+      ok: false,
+      error: routerAbSigningError(400, 'invalid_body', errorMessage(error)),
+    };
   }
-  if (!sameEcdsaHssNormalSigningScope(request.scope, normalSigning.scope)) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
-    );
+  if (!sameRouterAbEcdsaHssNormalSigningScopeV1(request.scope, normalSigning.scope)) {
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+      ),
+    };
+  }
+  if (request.expires_at_ms <= Date.now()) {
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        408,
+        'expired_request',
+        'Router A/B ECDSA-HSS normal-signing request is expired',
+      ),
+    };
   }
   if (request.expires_at_ms > input.claims.thresholdExpiresAtMs) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
+      ),
+    };
   }
-  return null;
+  return {
+    ok: true,
+    sessionId: input.claims.sessionId,
+    requestId: request.request_id,
+    expiresAtMs: request.expires_at_ms,
+  };
 }
 
 export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
   claims: RouterAbEcdsaHssWalletSessionClaims;
   body: Record<string, unknown>;
-}): RouterAbSigningWorkerJsonError | null {
+}): RouterAbNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaHssNormalSigning;
   if (!normalSigning) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B ECDSA-HSS normal-signing state is required',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B ECDSA-HSS normal-signing state is required',
+      ),
+    };
   }
   let request: ReturnType<typeof parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1>;
   try {
     request = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input.body);
   } catch (error) {
-    return routerAbSigningError(400, 'invalid_body', errorMessage(error));
+    return {
+      ok: false,
+      error: routerAbSigningError(400, 'invalid_body', errorMessage(error)),
+    };
   }
-  if (!sameEcdsaHssNormalSigningScope(request.scope, normalSigning.scope)) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
-    );
+  if (!sameRouterAbEcdsaHssNormalSigningScopeV1(request.scope, normalSigning.scope)) {
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+      ),
+    };
+  }
+  if (request.expires_at_ms <= Date.now()) {
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        408,
+        'expired_request',
+        'Router A/B ECDSA-HSS normal-signing request is expired',
+      ),
+    };
   }
   if (request.expires_at_ms > input.claims.thresholdExpiresAtMs) {
-    return routerAbSigningError(
-      403,
-      'forbidden',
-      'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
-    );
+    return {
+      ok: false,
+      error: routerAbSigningError(
+        403,
+        'forbidden',
+        'Router A/B ECDSA-HSS normal-signing expiry exceeds Wallet Session expiry',
+      ),
+    };
   }
-  return null;
+  return {
+    ok: true,
+    sessionId: input.claims.sessionId,
+    requestId: request.request_id,
+    expiresAtMs: request.expires_at_ms,
+  };
 }
 
 export async function postRouterAbSigningWorkerJson(input: {
@@ -351,40 +695,35 @@ export async function postRouterAbSigningWorkerJson(input: {
   }
 
   const url = privateSigningWorkerUrl(input.config, input.path);
-  let response: Response;
-  try {
-    response = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]: internalServiceAuthToken(input.config),
-      },
-      body: JSON.stringify(input.body),
-    });
-  } catch (error) {
+  const response = await postRouterAbInternalServiceJson({
+    url,
+    body: input.body,
+    authToken: input.config.auth.token,
+    fetchImpl,
+  });
+  if (!response.ok && response.code === 'network_error') {
     return routerAbSigningError(
       502,
       'signing_worker_unreachable',
-      `Router A/B SigningWorker request failed: ${errorMessage(error)}`,
+      `Router A/B SigningWorker request failed: ${response.message}`,
     );
   }
 
-  const text = await response.text().catch(() => '');
-  if (!response.ok) {
+  if (!response.ok && response.code === 'http_error') {
     return routerAbSigningError(
       response.status || 502,
       'signing_worker_error',
-      text || `Router A/B SigningWorker returned HTTP ${response.status}`,
+      response.bodyText || `Router A/B SigningWorker returned HTTP ${response.status}`,
     );
   }
 
-  try {
-    return { ok: true, body: text ? JSON.parse(text) : {} };
-  } catch (error) {
+  if (!response.ok) {
     return routerAbSigningError(
       502,
       'invalid_signing_worker_response',
-      `Router A/B SigningWorker returned invalid JSON: ${errorMessage(error)}`,
+      `Router A/B SigningWorker returned invalid JSON: ${response.message}`,
     );
   }
+
+  return { ok: true, body: response.json };
 }

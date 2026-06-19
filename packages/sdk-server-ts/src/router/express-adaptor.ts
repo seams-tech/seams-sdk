@@ -28,12 +28,39 @@ export type {
   RelayRuntimeSnapshotConsumer,
 } from './relay';
 export {
-  parseRouterAbPublicKeysetV1,
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
-  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
-  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1,
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
 } from '@shared/utils/routerAbPublicKeyset';
-export type { RouterAbPublicKeysetV1 } from '@shared/utils/routerAbPublicKeyset';
+export type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
+export type {
+  RouterAbNormalSigningAdmissionAdapter,
+  RouterAbNormalSigningAdmissionFailure,
+  RouterAbNormalSigningAdmissionFailureCode,
+  RouterAbNormalSigningAdmissionInput,
+  RouterAbNormalSigningAdmissionResult,
+} from './routerAbPrivateSigningWorker';
+export {
+  InMemoryRouterAbNormalSigningAdmissionStore,
+  PostgresRouterAbNormalSigningAdmissionStore,
+  createInMemoryRouterAbNormalSigningAdmissionAdapter,
+  createInMemoryRouterAbNormalSigningAdmissionStore,
+  createPostgresRouterAbNormalSigningAdmissionStore,
+  createRouterAbNormalSigningAdmissionAdapter,
+  ensurePostgresRouterAbNormalSigningAdmissionStoreSchema,
+} from './routerAbNormalSigningAdmissionStore';
+export type {
+  InMemoryRouterAbNormalSigningAdmissionStoreOptions,
+  PostgresRouterAbNormalSigningAdmissionStoreOptions,
+  RouterAbNormalSigningAbuseDecision,
+  RouterAbNormalSigningAbuseProvider,
+  RouterAbNormalSigningAdmissionStore,
+  RouterAbNormalSigningProjectPolicyDecision,
+  RouterAbNormalSigningProjectPolicyProvider,
+  RouterAbNormalSigningQuotaDecision,
+  RouterAbNormalSigningQuotaStore,
+} from './routerAbNormalSigningAdmissionStore';
 export type {
   RelayCloudflareRouteExtensionInput,
   RelayCloudflareRouteExtension,

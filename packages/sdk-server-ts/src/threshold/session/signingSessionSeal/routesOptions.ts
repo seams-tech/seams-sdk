@@ -1,7 +1,7 @@
 import type { NormalizedLogger } from '../../../core/logger';
 import {
-  parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519SessionClaims,
+  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import { createSigningSessionSealAuditLogger } from './observability/audit';
 import { composeSigningSessionSealGuards, createSigningSessionSealRateLimitGuard } from './guards';
@@ -89,13 +89,13 @@ function parseCurveBoundThresholdLookup(args: {
 }): { curve: 'ecdsa' | 'ed25519'; thresholdSessionId: string } | null {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
-  const ecdsaClaims = parseThresholdEcdsaSessionClaims(args.claims);
+  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
     return ecdsaClaims.sessionId === thresholdSessionId
       ? { curve: 'ecdsa', thresholdSessionId }
       : null;
   }
-  const ed25519Claims = parseThresholdEd25519SessionClaims(args.claims);
+  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
   if (ed25519Claims) {
     return ed25519Claims.sessionId === thresholdSessionId
       ? { curve: 'ed25519', thresholdSessionId }
@@ -184,7 +184,7 @@ export function createSigningSessionSealRoutesOptions(
         return {
           ok: false,
           code: 'forbidden',
-          message: 'threshold session token does not match requested thresholdSessionId',
+          message: 'Wallet Session does not match requested thresholdSessionId',
           status: 403,
         };
       }

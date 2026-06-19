@@ -122,7 +122,7 @@ export interface SigningSessionSealThresholdSessionRecord {
 
 export interface SigningSessionSealThresholdSessionStatus
   extends SigningSessionSealThresholdSessionRecord {
-  kind: 'threshold_session';
+  kind: 'wallet_session';
   remainingUses: number;
 }
 

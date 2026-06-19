@@ -2,10 +2,9 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
-  parseEd25519AuthSessionRecord,
-  parseThresholdEcdsaPresignSessionRecord,
-  parseThresholdEcdsaPresignatureRelayerShareRecord,
-  parseThresholdEcdsaSigningSessionRecord,
+  parseEd25519WalletSessionRecord,
+  parseRouterAbEcdsaHssPoolFillSessionRecord,
+  parseRouterAbEcdsaHssServerPresignatureShareRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
@@ -16,7 +15,7 @@ import {
 } from './signingRootSecretShareWires';
 
 export type CurrentThresholdEd25519SessionRecord = NonNullable<
-  ReturnType<typeof parseEd25519AuthSessionRecord>
+  ReturnType<typeof parseEd25519WalletSessionRecord>
 >;
 
 export type CurrentThresholdEd25519SessionStatusRow = {
@@ -50,26 +49,17 @@ export type CurrentThresholdEd25519StoreSessionRow =
       expiresAtMs: number;
     };
 
-export type CurrentThresholdEcdsaSigningSessionRecord = NonNullable<
-  ReturnType<typeof parseThresholdEcdsaSigningSessionRecord>
+export type CurrentRouterAbEcdsaHssPoolFillSessionRecord = NonNullable<
+  ReturnType<typeof parseRouterAbEcdsaHssPoolFillSessionRecord>
 >;
 
-export type CurrentThresholdEcdsaSigningSessionRow = {
-  record: CurrentThresholdEcdsaSigningSessionRecord;
+export type CurrentRouterAbEcdsaHssPoolFillSessionRow = {
+  record: CurrentRouterAbEcdsaHssPoolFillSessionRecord;
   expiresAtMs: number;
 };
 
-export type CurrentThresholdEcdsaPresignSessionRecord = NonNullable<
-  ReturnType<typeof parseThresholdEcdsaPresignSessionRecord>
->;
-
-export type CurrentThresholdEcdsaPresignSessionRow = {
-  record: CurrentThresholdEcdsaPresignSessionRecord;
-  expiresAtMs: number;
-};
-
-export type CurrentThresholdEcdsaPresignatureRecord = NonNullable<
-  ReturnType<typeof parseThresholdEcdsaPresignatureRelayerShareRecord>
+export type CurrentRouterAbEcdsaHssServerPresignatureRecord = NonNullable<
+  ReturnType<typeof parseRouterAbEcdsaHssServerPresignatureShareRecord>
 >;
 
 export type CurrentSigningRootSecretShareRecord = SealedSigningRootSecretShare & {
@@ -98,7 +88,7 @@ export function parseCurrentThresholdEd25519SessionRecord(
 ): CurrentThresholdEd25519SessionRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  const parsed = parseEd25519AuthSessionRecord(record);
+  const parsed = parseEd25519WalletSessionRecord(record);
   if (!parsed) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
   const expiresAtMs = toPositiveSafeInt(record.expiresAtMs);
@@ -193,43 +183,12 @@ export function parseCurrentThresholdEd25519StoreSessionRow(input: {
   }
 }
 
-export function parseCurrentThresholdEcdsaSigningSessionRecord(
+export function parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(
   raw: unknown,
-): CurrentThresholdEcdsaSigningSessionRecord | null {
+): CurrentRouterAbEcdsaHssPoolFillSessionRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  const parsed = parseThresholdEcdsaSigningSessionRecord(record);
-  if (!parsed) return null;
-  const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
-  const expiresAtMs = toPositiveSafeInt(record.expiresAtMs);
-  if (!participantIds || !expiresAtMs) return null;
-  return {
-    ...parsed,
-    participantIds,
-    expiresAtMs,
-  };
-}
-
-export function parseCurrentThresholdEcdsaSigningSessionRow(input: {
-  recordJson: unknown;
-  expiresAtMs: unknown;
-}): CurrentThresholdEcdsaSigningSessionRow | null {
-  const record = parseCurrentThresholdEcdsaSigningSessionRecord(input.recordJson);
-  const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
-  if (!record || !expiresAtMs) return null;
-  if (record.expiresAtMs !== expiresAtMs) return null;
-  return {
-    record,
-    expiresAtMs,
-  };
-}
-
-export function parseCurrentThresholdEcdsaPresignSessionRecord(
-  raw: unknown,
-): CurrentThresholdEcdsaPresignSessionRecord | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const record = raw as Record<string, unknown>;
-  const parsed = parseThresholdEcdsaPresignSessionRecord(record);
+  const parsed = parseRouterAbEcdsaHssPoolFillSessionRecord(record);
   if (!parsed) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
   const createdAtMs = toPositiveSafeInt(record.createdAtMs);
@@ -246,11 +205,11 @@ export function parseCurrentThresholdEcdsaPresignSessionRecord(
   };
 }
 
-export function parseCurrentThresholdEcdsaPresignSessionRow(input: {
+export function parseCurrentRouterAbEcdsaHssPoolFillSessionRow(input: {
   recordJson: unknown;
   expiresAtMs: unknown;
-}): CurrentThresholdEcdsaPresignSessionRow | null {
-  const record = parseCurrentThresholdEcdsaPresignSessionRecord(input.recordJson);
+}): CurrentRouterAbEcdsaHssPoolFillSessionRow | null {
+  const record = parseCurrentRouterAbEcdsaHssPoolFillSessionRecord(input.recordJson);
   const expiresAtMs = toPositiveSafeInt(input.expiresAtMs);
   if (!record || !expiresAtMs) return null;
   if (record.expiresAtMs !== expiresAtMs) return null;
@@ -260,12 +219,12 @@ export function parseCurrentThresholdEcdsaPresignSessionRow(input: {
   };
 }
 
-export function parseCurrentThresholdEcdsaPresignatureRecord(
+export function parseCurrentRouterAbEcdsaHssServerPresignatureRecord(
   raw: unknown,
-): CurrentThresholdEcdsaPresignatureRecord | null {
+): CurrentRouterAbEcdsaHssServerPresignatureRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  const parsed = parseThresholdEcdsaPresignatureRelayerShareRecord(record);
+  const parsed = parseRouterAbEcdsaHssServerPresignatureShareRecord(record);
   const createdAtMs = toPositiveSafeInt(record.createdAtMs);
   if (!parsed || !createdAtMs) return null;
   return {

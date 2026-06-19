@@ -76,7 +76,7 @@ export {
 } from './crypto/cipher';
 export { createSigningSessionSealService } from './service';
 export { createInMemorySigningSessionSealIdempotencyStore } from './idempotency';
-export { createSigningSessionSealPolicyFromThresholdAuthSessionStores } from './policy/sessionPolicy';
+export { createSigningSessionSealPolicyFromWalletSessionStores } from './policy/sessionPolicy';
 export { createSigningSessionSealAuditLogger } from './observability/audit';
 export { createSigningSessionSealRoutesOptions } from './routesOptions';
 export { createSigningSessionSealOptions } from './options';

@@ -7,16 +7,16 @@ import {
 } from '../../ror/normalize';
 import { resolveRorRpId } from '../../ror/provider';
 import {
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
-  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1,
+  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 
 export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   const routerAbKeysetPaths = [
-    ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1,
-    `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1}/`,
-    ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
-    `${ROUTER_AB_PUBLIC_KEYSET_PATH_V1}/`,
+    ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
+    `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2}/`,
+    ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+    `${ROUTER_AB_PUBLIC_KEYSET_PATH_V2}/`,
   ];
   for (const p of routerAbKeysetPaths) {
     router.get(p, (_req: Request, res: Response) => {

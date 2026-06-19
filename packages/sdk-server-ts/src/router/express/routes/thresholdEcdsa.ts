@@ -8,8 +8,8 @@ import {
   parseAppSessionClaims,
   parseEcdsaHssClientBootstrapRequest,
   parseEcdsaHssExportShareRequest,
-  parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519SessionClaims,
+  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
 } from '../../../core/ThresholdService/validation';
@@ -17,10 +17,11 @@ import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/Thresho
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
+  buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
   resolveThresholdRuntimePolicyScope,
-  signWalletSessionJwt,
-  validateThresholdEcdsaSessionInputs,
-  validateThresholdEd25519SessionTokenInputs,
+  signRouterAbEcdsaHssWalletSessionJwt,
+  validateRouterAbEcdsaHssWalletSessionInputs,
+  validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../commonRouterUtils';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -34,6 +35,8 @@ import {
   ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
   ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
   ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
 } from '@shared/utils/routerAbEcdsaHss';
@@ -43,11 +46,22 @@ import {
 } from '@shared/threshold/signingRootScope';
 import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../core/ThresholdService/ethSignerWasm';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
+import {
+  buildRouterAbEcdsaHssPrivateSigningWorkerBody,
+  evaluateRouterAbNormalSigningAdmission,
+  postRouterAbSigningWorkerJson,
+  ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS,
+  validateRouterAbEcdsaHssNormalSigningFinalizeRequest,
+  validateRouterAbEcdsaHssNormalSigningPrepareRequest,
+  type RouterAbEcdsaHssPrivateSigningPath,
+} from '../../routerAbPrivateSigningWorker';
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
-type ThresholdEcdsaSessionClaims = NonNullable<ReturnType<typeof parseThresholdEcdsaSessionClaims>>;
+type RouterAbEcdsaHssWalletSessionClaims = NonNullable<
+  ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims>
+>;
 type ThresholdEd25519SessionClaims = NonNullable<
-  ReturnType<typeof parseThresholdEd25519SessionClaims>
+  ReturnType<typeof parseRouterAbEd25519WalletSessionClaims>
 >;
 
 const NOT_IMPLEMENTED = {
@@ -57,7 +71,7 @@ const NOT_IMPLEMENTED = {
 } as const;
 
 function validateEcdsaHssSessionIdentity(input: {
-  claims: ThresholdEcdsaSessionClaims;
+  claims: RouterAbEcdsaHssWalletSessionClaims;
   walletId: string;
   rpId: string;
   relayerKeyId: string;
@@ -210,8 +224,8 @@ function normalizeEcdsaRuntimePolicyScope(raw: unknown): EcdsaRuntimePolicyScope
 
 function resolveEcdsaRuntimePolicyScopeFromClaims(input: {
   appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
-  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
-  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
+  ecdsaSessionClaims: ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims>;
+  ed25519SessionClaims: ReturnType<typeof parseRouterAbEd25519WalletSessionClaims>;
 }): EcdsaRuntimePolicyScope | undefined {
   return (
     normalizeEcdsaRuntimePolicyScope(input.appSessionClaims?.runtimePolicyScope) ||
@@ -369,8 +383,8 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     });
     if (!validated.ok) appSessionClaims = null;
   }
-  const ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
-  const ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+  const ecdsaSessionClaims = parseRouterAbEcdsaHssWalletSessionClaims(parsedSession.claims);
+  const ed25519SessionClaims = parseRouterAbEd25519WalletSessionClaims(parsedSession.claims);
   const sessionClaims = appSessionClaims || ecdsaSessionClaims || ed25519SessionClaims;
   if (!sessionClaims) {
     return { ok: false, code: 'unauthorized', message: 'Invalid bootstrap authorization session' };
@@ -497,6 +511,184 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
   }
 }
 
+async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
+  ctx: ExpressRelayContext;
+  req: Request;
+  res: Response;
+  routePath: string;
+  privatePath: RouterAbEcdsaHssPrivateSigningPath;
+  phase: 'prepare' | 'finalize';
+}): Promise<void> {
+  const startedAtMs = Date.now();
+  const bodyUnknown = (input.req.body || {}) as unknown;
+  const body =
+    bodyUnknown && typeof bodyUnknown === 'object' && !Array.isArray(bodyUnknown)
+      ? (bodyUnknown as Record<string, unknown>)
+      : {};
+  try {
+    input.ctx.logger.info('[router-ab-ecdsa-hss-signing] request', {
+      route: input.routePath,
+      method: input.req.method,
+      phase: input.phase,
+    });
+    const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
+      body: bodyUnknown,
+      headers: input.req.headers || {},
+      session: input.ctx.opts.session,
+    });
+    if (!validated.ok) {
+      const status = thresholdEcdsaStatusCode(validated);
+      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
+        route: input.routePath,
+        status,
+        ok: false,
+        code: validated.code,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
+      input.res.status(status).json(validated);
+      return;
+    }
+
+    const admission =
+      input.phase === 'prepare'
+        ? validateRouterAbEcdsaHssNormalSigningPrepareRequest({
+            claims: validated.claims,
+            body,
+          })
+        : validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
+            claims: validated.claims,
+            body,
+          });
+    if (!admission.ok) {
+      const scopeError = admission.error;
+      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
+        route: input.routePath,
+        status: scopeError.status,
+        ok: false,
+        code: scopeError.body.code,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
+      input.res.status(scopeError.status).json(scopeError.body);
+      return;
+    }
+
+    const threshold = input.ctx.service.getThresholdSigningService();
+    if (!threshold) {
+      const failure = {
+        ok: false,
+        code: 'not_configured',
+        message: 'Router A/B SigningWorker private HTTP target is not configured',
+      };
+      input.ctx.logger.error('[router-ab-ecdsa-hss-signing] response', {
+        route: input.routePath,
+        status: 501,
+        ok: false,
+        code: failure.code,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
+      input.res.status(501).json(failure);
+      return;
+    }
+    const admissionDecision = await evaluateRouterAbNormalSigningAdmission({
+      adapter: input.ctx.opts.routerAbNormalSigningAdmission,
+      curve: 'ecdsa-hss',
+      phase: input.phase,
+      claims: validated.claims,
+      admission,
+    });
+    if (!admissionDecision.ok) {
+      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
+        route: input.routePath,
+        status: admissionDecision.status,
+        ok: false,
+        code: admissionDecision.code,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
+      input.res.status(admissionDecision.status).json({
+        ok: false,
+        code: admissionDecision.code,
+        message: admissionDecision.message,
+      });
+      return;
+    }
+    const signingWorker = threshold.getRouterAbSigningWorkerPrivateHttpConfig();
+    if (!signingWorker) {
+      const failure = {
+        ok: false,
+        code: 'not_configured',
+        message: 'Router A/B SigningWorker private HTTP target is not configured',
+      };
+      input.ctx.logger.error('[router-ab-ecdsa-hss-signing] response', {
+        route: input.routePath,
+        status: 501,
+        ok: false,
+        code: failure.code,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
+      input.res.status(501).json(failure);
+      return;
+    }
+
+    const privateBody = await buildRouterAbEcdsaHssPrivateSigningWorkerBody({
+      phase: input.phase,
+      body,
+    });
+    if (input.phase === 'prepare') {
+      const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
+        curve: 'ecdsa-hss',
+        phase: 'prepare',
+        sessionId: admission.sessionId,
+        requestId: admission.requestId,
+        expiresAtMs: admission.expiresAtMs,
+      });
+      if (!replay.ok) {
+        input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
+          route: input.routePath,
+          status: replay.status,
+          ok: false,
+          code: replay.code,
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+        });
+        input.res
+          .status(replay.status)
+          .json({ ok: false, code: replay.code, message: replay.message });
+        return;
+      }
+    }
+    const forwarded = await postRouterAbSigningWorkerJson({
+      config: signingWorker,
+      path: input.privatePath,
+      body: privateBody,
+    });
+    if (!forwarded.ok) {
+      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
+        route: input.routePath,
+        status: forwarded.status,
+        ok: false,
+        code: forwarded.body.code,
+        durationMs: Math.max(0, Date.now() - startedAtMs),
+      });
+      input.res.status(forwarded.status).json(forwarded.body);
+      return;
+    }
+
+    input.ctx.logger.info('[router-ab-ecdsa-hss-signing] response', {
+      route: input.routePath,
+      status: 200,
+      ok: true,
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+    });
+    input.res.status(200).json(forwarded.body);
+  } catch (error) {
+    input.ctx.logger.error('[router-ab-ecdsa-hss-signing] error', {
+      route: input.routePath,
+      message: errMessage(error),
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+    });
+    input.res.status(500).json({ ok: false, code: 'internal', message: errMessage(error) });
+  }
+}
+
 export function registerThresholdEcdsaRoutes(
   router: ExpressRouter,
   ctx: ExpressRelayContext,
@@ -523,7 +715,7 @@ export function registerThresholdEcdsaRoutes(
 
   router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, async (req: Request, res: Response) => {
     await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, {}, async () => {
-      const validated = await validateThresholdEd25519SessionTokenInputs({
+      const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body: req.body || {},
         headers: req.headers || {},
         session: ctx.opts.session,
@@ -587,11 +779,18 @@ export function registerThresholdEcdsaRoutes(
             : undefined,
       },
       async () => {
+        if (parseSessionKind(body) === 'cookie') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Router A/B ECDSA-HSS bootstrap requires sessionKind=jwt',
+          };
+        }
         const parsed = parseEcdsaHssClientBootstrapRequest(body);
         if (!parsed) {
           return { ok: false, code: 'invalid_body', message: 'Invalid ECDSA HSS bootstrap body' };
         }
-        const validated = await validateThresholdEcdsaSessionInputs({
+        const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
           body,
           headers: req.headers || {},
           session: ctx.opts.session,
@@ -616,10 +815,24 @@ export function registerThresholdEcdsaRoutes(
           runtimePolicyScope = firstBootstrap.runtimePolicyScope;
         }
         const bootstrap = await ctx.service.ecdsaHssRoleLocalBootstrap(parsed);
-        if (!bootstrap.ok || parsed.sessionKind === 'cookie') return bootstrap;
-        const signed = await signWalletSessionJwt({
+        if (!bootstrap.ok) return bootstrap;
+        const threshold = ctx.service.getThresholdSigningService();
+        if (!threshold) {
+          return {
+            ok: false,
+            code: 'not_configured',
+            message: 'Threshold signing is not configured on this server',
+          };
+        }
+        const routerAbEcdsaHssNormalSigning =
+          buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+            bootstrap: bootstrap.value,
+            routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
+            signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+          });
+        if (!routerAbEcdsaHssNormalSigning.ok) return routerAbEcdsaHssNormalSigning;
+        const signed = await signRouterAbEcdsaHssWalletSessionJwt({
           session: ctx.opts.session,
-          kind: 'threshold_ecdsa_session_v2',
           userId: parsed.walletId,
           rpId: parsed.rpId,
           relayerKeyId: parsed.relayerKeyId,
@@ -631,6 +844,19 @@ export function registerThresholdEcdsaRoutes(
             participantIds: bootstrap.value.participantIds,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             keyHandle: bootstrap.value.keyHandle,
+            stableKeyContext: {
+              walletId: parsed.walletId,
+              rpId: parsed.rpId,
+              keyScope: 'evm-family',
+              ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
+              signingRootId: parsed.signingRootId,
+              signingRootVersion: parsed.signingRootVersion,
+              contextBinding32B64u: parsed.contextBinding32B64u,
+            },
+            publicIdentity: bootstrap.value.publicIdentity,
+            activationEpoch: bootstrap.value.sessionId,
+            signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+            routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigning.state,
           },
           fallbackParticipantIds: bootstrap.value.participantIds,
           requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
@@ -689,7 +915,7 @@ export function registerThresholdEcdsaRoutes(
             message: 'Invalid ECDSA HSS export-share body',
           };
         }
-        const validated = await validateThresholdEcdsaSessionInputs({
+        const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
           body,
           headers: req.headers || {},
           session: ctx.opts.session,
@@ -749,7 +975,7 @@ export function registerThresholdEcdsaRoutes(
           if (!resolved.ok) return resolved;
           const scheme = resolved.scheme;
 
-          const validated = await validateThresholdEcdsaSessionInputs({
+          const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
             body: req.body,
             headers: req.headers || {},
             session: ctx.opts.session,
@@ -804,7 +1030,7 @@ export function registerThresholdEcdsaRoutes(
           if (!resolved.ok) return resolved;
           const scheme = resolved.scheme;
 
-          const validated = await validateThresholdEcdsaSessionInputs({
+          const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
             body: req.body,
             headers: req.headers || {},
             session: ctx.opts.session,
@@ -836,6 +1062,31 @@ export function registerThresholdEcdsaRoutes(
       gateTicket.release();
     }
   }
+
+  router.post(
+    ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+    async (req: Request, res: Response) => {
+      await handleRouterAbEcdsaHssNormalSigningRoute({
+        ctx,
+        req,
+        res,
+        routePath: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
+        privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.prepare,
+        phase: 'prepare',
+      });
+    },
+  );
+
+  router.post(ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1, async (req: Request, res: Response) => {
+    await handleRouterAbEcdsaHssNormalSigningRoute({
+      ctx,
+      req,
+      res,
+      routePath: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+      privatePath: ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize,
+      phase: 'finalize',
+    });
+  });
 
   router.post(
     ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,

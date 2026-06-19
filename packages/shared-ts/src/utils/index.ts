@@ -18,3 +18,5 @@ export * from './registrationIntent';
 export * from './ecdsaKeyFactsInventory';
 export * from './secureRandomId';
 export * from './routerAbPublicKeyset';
+export * from './routerAbEcdsaHss';
+export * from './authenticatorOptions';

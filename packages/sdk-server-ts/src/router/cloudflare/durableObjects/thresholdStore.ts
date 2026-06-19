@@ -12,7 +12,7 @@ import {
   type SigningRootRecord,
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
-import { parseThresholdEd25519PresignRecord } from '../../../core/ThresholdService/validation';
+import { parseRouterAbEd25519PresignRecord } from '../../../core/ThresholdService/validation';
 
 type DurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
@@ -67,18 +67,18 @@ type DoReq =
   | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
   | { op: 'authHasConsumedUseCountOnce'; key: string; idempotencyKey: string }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
-  | { op: 'ecdsaPresignPut'; listKey: string; value: unknown }
-  | { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
+  | { op: 'routerAbEcdsaHssPresignaturePut'; listKey: string; value: unknown }
+  | { op: 'routerAbEcdsaHssPresignatureReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
   | {
-      op: 'ecdsaPresignReserveById';
+      op: 'routerAbEcdsaHssPresignatureReserveById';
       listKey: string;
       reservedKeyPrefix: string;
       presignatureId: string;
       ttlMs?: number;
     }
-  | { op: 'ecdsaPresignSessionCreate'; key: string; value: unknown; ttlMs?: number }
+  | { op: 'routerAbEcdsaHssPoolFillSessionCreate'; key: string; value: unknown; ttlMs?: number }
   | {
-      op: 'ecdsaPresignSessionAdvanceCas';
+      op: 'routerAbEcdsaHssPoolFillSessionAdvanceCas';
       key: string;
       expectedVersion: number;
       value: unknown;
@@ -132,7 +132,7 @@ type AuthEntry = {
   consumedIdempotencyKeys?: Record<string, true>;
 };
 
-type PresignSessionRecord = {
+type RouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
   version: number;
 };
@@ -144,7 +144,7 @@ type Ed25519PresignIndexEntry = {
 };
 
 type Ed25519PresignRateLimitEntry = {
-  kind: 'threshold_ed25519_presign_refill_rate_limit_v1';
+  kind: 'router_ab_ed25519_presign_refill_rate_limit_v2';
   count: number;
   expiresAtMs: number;
 };
@@ -393,7 +393,7 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
   return raw as AuthEntry;
 }
 
-function parsePresignSessionRecord(raw: unknown): PresignSessionRecord | null {
+function parseRouterAbEcdsaHssPoolFillSessionRecord(raw: unknown): RouterAbEcdsaHssPoolFillSessionRecord | null {
   if (!isPlainObject(raw)) return null;
   const expiresAtMs = (raw as { expiresAtMs?: unknown }).expiresAtMs;
   const version = (raw as { version?: unknown }).version;
@@ -413,12 +413,12 @@ function parseEd25519PresignRateLimitEntry(
   nowMs: number,
 ): Ed25519PresignRateLimitEntry | null {
   if (!isPlainObject(raw)) return null;
-  if (raw.kind !== 'threshold_ed25519_presign_refill_rate_limit_v1') return null;
+  if (raw.kind !== 'router_ab_ed25519_presign_refill_rate_limit_v2') return null;
   const count = Number(raw.count);
   const expiresAtMs = Number(raw.expiresAtMs);
   if (!Number.isFinite(count) || count < 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
-  return { kind: 'threshold_ed25519_presign_refill_rate_limit_v1', count, expiresAtMs };
+  return { kind: 'router_ab_ed25519_presign_refill_rate_limit_v2', count, expiresAtMs };
 }
 
 function parseEd25519PresignIndex(raw: unknown, nowMs: number): Ed25519PresignIndexEntry[] {
@@ -848,7 +848,7 @@ export class ThresholdStoreDurableObject {
       return json(res);
     }
 
-    if (op === 'ecdsaPresignPut') {
+    if (op === 'routerAbEcdsaHssPresignaturePut') {
       const listKey = toKey((req as { listKey?: unknown }).listKey);
       if (!listKey) return json(err('invalid_body', 'Missing listKey'));
       const value = (req as { value?: unknown }).value;
@@ -861,7 +861,7 @@ export class ThresholdStoreDurableObject {
       return json(ok(true));
     }
 
-    if (op === 'ecdsaPresignReserve') {
+    if (op === 'routerAbEcdsaHssPresignatureReserve') {
       const listKey = toKey((req as { listKey?: unknown }).listKey);
       const reservedKeyPrefix = toKey((req as { reservedKeyPrefix?: unknown }).reservedKeyPrefix);
       const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs) || 120;
@@ -889,7 +889,7 @@ export class ThresholdStoreDurableObject {
       return json(ok(value));
     }
 
-    if (op === 'ecdsaPresignReserveById') {
+    if (op === 'routerAbEcdsaHssPresignatureReserveById') {
       const listKey = toKey((req as { listKey?: unknown }).listKey);
       const reservedKeyPrefix = toKey((req as { reservedKeyPrefix?: unknown }).reservedKeyPrefix);
       const presignatureId = toKey((req as { presignatureId?: unknown }).presignatureId);
@@ -925,19 +925,19 @@ export class ThresholdStoreDurableObject {
       return json(ok(value));
     }
 
-    if (op === 'ecdsaPresignSessionCreate') {
+    if (op === 'routerAbEcdsaHssPoolFillSessionCreate') {
       const key = toKey((req as { key?: unknown }).key);
       const value = (req as { value?: unknown }).value;
       const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
       if (!key) return json(err('invalid_body', 'Missing key'));
-      if (!parsePresignSessionRecord(value))
-        return json(err('invalid_body', 'Invalid presign session record'));
+      if (!parseRouterAbEcdsaHssPoolFillSessionRecord(value))
+        return json(err('invalid_body', 'Invalid Router A/B ECDSA-HSS pool-fill session record'));
 
       const result = await withTxn(this.state, async (store) => {
         const nowMs = Date.now();
         const existingRaw = await store.get(key);
         if (existingRaw !== null && existingRaw !== undefined) {
-          const existing = parsePresignSessionRecord(existingRaw);
+          const existing = parseRouterAbEcdsaHssPoolFillSessionRecord(existingRaw);
           if (!existing || existing.expiresAtMs > nowMs) {
             return { status: 'exists' };
           }
@@ -949,7 +949,7 @@ export class ThresholdStoreDurableObject {
       return json(ok(result));
     }
 
-    if (op === 'ecdsaPresignSessionAdvanceCas') {
+    if (op === 'routerAbEcdsaHssPoolFillSessionAdvanceCas') {
       const key = toKey((req as { key?: unknown }).key);
       const expectedVersionRaw = (req as { expectedVersion?: unknown }).expectedVersion;
       const value = (req as { value?: unknown }).value;
@@ -959,14 +959,14 @@ export class ThresholdStoreDurableObject {
       if (!Number.isFinite(expectedVersion) || expectedVersion < 1) {
         return json(err('invalid_body', 'Invalid expectedVersion'));
       }
-      const nextRecord = parsePresignSessionRecord(value);
-      if (!nextRecord) return json(err('invalid_body', 'Invalid presign session record'));
+      const nextRecord = parseRouterAbEcdsaHssPoolFillSessionRecord(value);
+      if (!nextRecord) return json(err('invalid_body', 'Invalid Router A/B ECDSA-HSS pool-fill session record'));
 
       const result = await withTxn(this.state, async (store) => {
         const nowMs = Date.now();
         const existingRaw = await store.get(key);
         if (existingRaw === null || existingRaw === undefined) return { status: 'not_found' };
-        const existing = parsePresignSessionRecord(existingRaw);
+        const existing = parseRouterAbEcdsaHssPoolFillSessionRecord(existingRaw);
         if (!existing) return { status: 'not_found' };
         if (existing.expiresAtMs <= nowMs) {
           await store.delete(key);
@@ -1026,7 +1026,7 @@ export class ThresholdStoreDurableObject {
         await store.put(
           key,
           {
-            kind: 'threshold_ed25519_presign_refill_rate_limit_v1',
+            kind: 'router_ab_ed25519_presign_refill_rate_limit_v2',
             count: nextCount,
             expiresAtMs,
           } satisfies Ed25519PresignRateLimitEntry,
@@ -1044,7 +1044,7 @@ export class ThresholdStoreDurableObject {
       const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
       const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
       const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
-      const parsed = parseThresholdEd25519PresignRecord((req as { value?: unknown }).value);
+      const parsed = parseRouterAbEd25519PresignRecord((req as { value?: unknown }).value);
       const capacity = (req as { capacity?: unknown }).capacity;
       const walletMax = isPlainObject(capacity)
         ? parsePositiveInteger(capacity.walletSigningSessionMax)
@@ -1105,7 +1105,7 @@ export class ThresholdStoreDurableObject {
         const raw = await store.get(key);
         if (raw === null || raw === undefined) return { ok: false as const, code: 'not_found' };
 
-        const parsed = parseThresholdEd25519PresignRecord(raw);
+        const parsed = parseRouterAbEd25519PresignRecord(raw);
         if (!parsed) {
           await store.delete(key);
           const nowMs = Date.now();

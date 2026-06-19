@@ -1,9 +1,9 @@
-import { ActionType, type ActionArgsWasm, validateActionArgsWasm } from '@/core/types/actions';
+import { ActionType, type ActionArgsWasm, validateActionArgsWasm } from '@shared/near/actions';
 import {
   MinimalNearClient,
   SignedTransaction,
   type AccessKeyList,
-} from '@/core/rpcClients/near/NearClient';
+} from './rpcClients/near/NearClient';
 import type { FinalExecutionOutcome, TxExecutionStatus } from '@near-js/types';
 import { toPublicKeyStringFromSecretKey } from './nearKeys';
 import { createAuthServiceConfig } from './config';
@@ -112,7 +112,7 @@ import type {
 import { registrationPreparationIdFromString } from './types';
 import {
   parseEcdsaHssClientBootstrapRequest,
-  type ThresholdEcdsaSessionClaims,
+  type RouterAbEcdsaHssWalletSessionClaims,
 } from './ThresholdService/validation';
 
 export type GoogleEmailOtpResolutionMode =
@@ -167,7 +167,7 @@ export type GoogleEmailOtpResolutionResult =
 
 import { EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT } from './defaultConfigsServer';
 import { EmailRecoveryService } from '../email-recovery';
-import { SignedDelegate } from '@/core/types/delegate';
+import { SignedDelegate } from '@shared/near/delegate';
 import {
   deriveSigningRootId,
   normalizeRuntimePolicyScope,
@@ -255,6 +255,27 @@ import {
 } from '../delegateAction';
 import { coerceLogger, type NormalizedLogger } from './logger';
 import { errorMessage, toError } from '@shared/utils/errors';
+
+type SimpleWebAuthnVerifier = (args: any) => Promise<any>;
+
+type SimpleWebAuthnServerModule = {
+  verifyRegistrationResponse?: SimpleWebAuthnVerifier;
+  verifyAuthenticationResponse?: SimpleWebAuthnVerifier;
+};
+
+async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
+  try {
+    return (await import('@simplewebauthn/server')) as SimpleWebAuthnServerModule;
+  } catch (error) {
+    const message = errorMessage(error);
+    throw new Error(
+      `Server WebAuthn route selected but '@simplewebauthn/server' dependency is not available${
+        message ? `: ${message}` : ''
+      }`,
+    );
+  }
+}
+
 import {
   base58Decode,
   base64Decode,
@@ -5210,10 +5231,8 @@ export class AuthService {
       return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
     }
 
-    const mod = await import('@simplewebauthn/server');
-    const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
-      | undefined
-      | ((args: any) => Promise<any>);
+    const mod = await loadSimpleWebAuthnServer();
+    const verifyRegistrationResponse = mod.verifyRegistrationResponse;
     if (typeof verifyRegistrationResponse !== 'function') {
       return {
         ok: false,
@@ -9660,10 +9679,8 @@ export class AuthService {
           throw new Error('WebAuthn origin is not within rpId');
         }
 
-        const mod = await import('@simplewebauthn/server');
-        const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
-          | undefined
-          | ((args: any) => Promise<any>);
+        const mod = await loadSimpleWebAuthnServer();
+        const verifyRegistrationResponse = mod.verifyRegistrationResponse;
         if (typeof verifyRegistrationResponse !== 'function') {
           throw new Error('WebAuthn registration verifier is unavailable in this runtime');
         }
@@ -10039,10 +10056,8 @@ export class AuthService {
       }
 
       // Lazy import to avoid forcing Node-only deps into non-Node runtimes unless used.
-      const mod = await import('@simplewebauthn/server');
-      const verifyAuthenticationResponse = (mod as any).verifyAuthenticationResponse as
-        | undefined
-        | ((args: any) => Promise<any>);
+      const mod = await loadSimpleWebAuthnServer();
+      const verifyAuthenticationResponse = mod.verifyAuthenticationResponse;
       if (typeof verifyAuthenticationResponse !== 'function') {
         return {
           success: false,
@@ -14513,7 +14528,7 @@ export class AuthService {
   async ecdsaHssRoleLocalExportShare(input: {
     request: EcdsaHssExportShareRequest;
     keyHandle: string;
-    claims: ThresholdEcdsaSessionClaims;
+    claims: RouterAbEcdsaHssWalletSessionClaims;
   }): Promise<EcdsaHssRouteResult<EcdsaHssExportShareResponse>> {
     const threshold = this.getThresholdSigningService();
     if (!threshold) {
@@ -15166,10 +15181,8 @@ export class AuthService {
         return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
       }
 
-      const mod = await import('@simplewebauthn/server');
-      const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
-        | undefined
-        | ((args: any) => Promise<any>);
+      const mod = await loadSimpleWebAuthnServer();
+      const verifyRegistrationResponse = mod.verifyRegistrationResponse;
       if (typeof verifyRegistrationResponse !== 'function') {
         return {
           ok: false,
@@ -15680,10 +15693,8 @@ export class AuthService {
         return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
       }
 
-      const mod = await import('@simplewebauthn/server');
-      const verifyRegistrationResponse = (mod as any).verifyRegistrationResponse as
-        | undefined
-        | ((args: any) => Promise<any>);
+      const mod = await loadSimpleWebAuthnServer();
+      const verifyRegistrationResponse = mod.verifyRegistrationResponse;
       if (typeof verifyRegistrationResponse !== 'function') {
         return {
           ok: false,

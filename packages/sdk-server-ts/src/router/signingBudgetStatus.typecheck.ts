@@ -1,12 +1,12 @@
 import type {
   EcdsaWalletSigningBudgetStatusRequest,
   Ed25519WalletSigningBudgetStatusRequest,
-  VerifiedEcdsaThresholdSessionAuth,
-  VerifiedEd25519ThresholdSessionAuth,
+  VerifiedEcdsaWalletSessionAuth,
+  VerifiedEd25519WalletSessionAuth,
 } from './signingBudgetStatus';
 
 const ecdsaAuth = {
-  kind: 'threshold_session',
+  kind: 'wallet_session',
   curve: 'ecdsa',
   thresholdSessionId: 'threshold-session-ecdsa',
   walletSigningSessionId: 'wallet-signing-session-ecdsa',
@@ -16,10 +16,10 @@ const ecdsaAuth = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   keyHandle: 'ehss-key-1',
-} satisfies VerifiedEcdsaThresholdSessionAuth;
+} satisfies VerifiedEcdsaWalletSessionAuth;
 
 const ed25519Auth = {
-  kind: 'threshold_session',
+  kind: 'wallet_session',
   curve: 'ed25519',
   thresholdSessionId: 'threshold-session-ed25519',
   walletSigningSessionId: 'wallet-signing-session-ed25519',
@@ -29,7 +29,7 @@ const ed25519Auth = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   ed25519RelayerKeyId: 'ed25519-relayer',
-} satisfies VerifiedEd25519ThresholdSessionAuth;
+} satisfies VerifiedEd25519WalletSessionAuth;
 
 const validEcdsaRequest: EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status',

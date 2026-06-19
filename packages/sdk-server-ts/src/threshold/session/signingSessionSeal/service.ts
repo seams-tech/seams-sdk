@@ -1,8 +1,8 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
-  parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519SessionClaims,
+  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import type {
   CreateSigningSessionSealServiceOptions,
@@ -224,7 +224,7 @@ function parseCurveBoundWalletBudgetLookup(
   | { curve: 'ecdsa'; walletSigningSessionId: string; thresholdSessionId: string }
   | { curve: 'ed25519'; walletSigningSessionId: string; thresholdSessionId: string }
   | null {
-  const ecdsaClaims = parseThresholdEcdsaSessionClaims(claims);
+  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(claims);
   if (ecdsaClaims) {
     return {
       curve: 'ecdsa',
@@ -232,7 +232,7 @@ function parseCurveBoundWalletBudgetLookup(
       thresholdSessionId: ecdsaClaims.sessionId,
     };
   }
-  const ed25519Claims = parseThresholdEd25519SessionClaims(claims);
+  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(claims);
   if (ed25519Claims) {
     return {
       curve: 'ed25519',
@@ -249,7 +249,7 @@ function parseCurveBoundThresholdLookup(args: {
 }): { curve: SigningSessionSealCurve; thresholdSessionId: string } | null {
   const requestedThresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!requestedThresholdSessionId) return null;
-  const ecdsaClaims = parseThresholdEcdsaSessionClaims(args.claims);
+  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
     return ecdsaClaims.sessionId === requestedThresholdSessionId
       ? {
@@ -258,7 +258,7 @@ function parseCurveBoundThresholdLookup(args: {
         }
       : null;
   }
-  const ed25519Claims = parseThresholdEd25519SessionClaims(args.claims);
+  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
   if (ed25519Claims) {
     return ed25519Claims.sessionId === requestedThresholdSessionId
       ? {
@@ -368,7 +368,7 @@ async function runSealOperation(input: {
       result = {
         ok: false,
         code: 'forbidden',
-        message: 'threshold session token does not match requested thresholdSessionId',
+        message: 'Wallet Session does not match requested thresholdSessionId',
       };
       return result;
     }

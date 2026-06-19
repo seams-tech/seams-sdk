@@ -1,8 +1,8 @@
 import {
-  parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519SessionClaims,
-  type ThresholdEcdsaSessionClaims,
-  type ThresholdEd25519SessionClaims,
+  parseRouterAbEcdsaHssWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
+  type RouterAbEcdsaHssWalletSessionClaims,
+  type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import { hashEmailOtpSigningSessionClaims } from './emailOtpSessionRouteHelpers';
 import type {
@@ -13,8 +13,8 @@ import type {
   SigningSessionSealWalletBudgetStatus,
 } from '../threshold/session/signingSessionSeal/types';
 
-type BaseVerifiedThresholdSessionAuth = {
-  kind: 'threshold_session';
+type BaseVerifiedWalletSessionAuth = {
+  kind: 'wallet_session';
   curve: 'ecdsa' | 'ed25519';
   thresholdSessionId: string;
   walletSigningSessionId: string;
@@ -25,26 +25,26 @@ type BaseVerifiedThresholdSessionAuth = {
   expiresAtMs: number;
 };
 
-export type VerifiedEcdsaThresholdSessionAuth = BaseVerifiedThresholdSessionAuth & {
+export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ecdsa';
   keyHandle: string;
   ed25519RelayerKeyId?: never;
 };
 
-export type VerifiedEd25519ThresholdSessionAuth = BaseVerifiedThresholdSessionAuth & {
+export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ed25519';
   ed25519RelayerKeyId: string;
   keyHandle?: never;
   ecdsaThresholdKeyId?: never;
 };
 
-export type VerifiedThresholdSessionAuth =
-  | VerifiedEcdsaThresholdSessionAuth
-  | VerifiedEd25519ThresholdSessionAuth;
+export type VerifiedWalletSessionAuth =
+  | VerifiedEcdsaWalletSessionAuth
+  | VerifiedEd25519WalletSessionAuth;
 
 export type EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status';
-  auth: VerifiedEcdsaThresholdSessionAuth;
+  auth: VerifiedEcdsaWalletSessionAuth;
   thresholdSessionId: string;
   walletSigningSessionId: string;
 
@@ -55,7 +55,7 @@ export type EcdsaWalletSigningBudgetStatusRequest = {
 
 export type Ed25519WalletSigningBudgetStatusRequest = {
   kind: 'ed25519_wallet_budget_status';
-  auth: VerifiedEd25519ThresholdSessionAuth;
+  auth: VerifiedEd25519WalletSessionAuth;
   thresholdSessionId: string;
   walletSigningSessionId: string;
 
@@ -115,12 +115,12 @@ function sameParticipants(expected: readonly number[], actual: unknown): boolean
 
 function selectMatchingCurveStatus(
   statuses: SigningSessionSealThresholdSessionStatus[],
-  auth: BaseVerifiedThresholdSessionAuth,
+  auth: BaseVerifiedWalletSessionAuth,
 ): SigningSessionSealThresholdSessionStatus | null {
   return (
     statuses.find((status) => {
       return (
-        status.kind === 'threshold_session' &&
+        status.kind === 'wallet_session' &&
         status.curve === auth.curve &&
         status.thresholdSessionId === auth.thresholdSessionId &&
         status.userId === auth.userId &&
@@ -133,7 +133,7 @@ function selectMatchingCurveStatus(
 }
 
 function walletBudgetMatches(
-  auth: BaseVerifiedThresholdSessionAuth,
+  auth: BaseVerifiedWalletSessionAuth,
   status: SigningSessionSealWalletBudgetStatus | null,
 ): boolean {
   return Boolean(
@@ -148,11 +148,11 @@ function walletBudgetMatches(
   );
 }
 
-function buildVerifiedEcdsaThresholdSessionAuth(
-  claims: ThresholdEcdsaSessionClaims,
-): VerifiedEcdsaThresholdSessionAuth {
+function buildVerifiedEcdsaWalletSessionAuth(
+  claims: RouterAbEcdsaHssWalletSessionClaims,
+): VerifiedEcdsaWalletSessionAuth {
   return {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     curve: 'ecdsa',
     thresholdSessionId: claims.sessionId,
     walletSigningSessionId: claims.walletSigningSessionId,
@@ -165,11 +165,11 @@ function buildVerifiedEcdsaThresholdSessionAuth(
   };
 }
 
-function buildVerifiedEd25519ThresholdSessionAuth(
-  claims: ThresholdEd25519SessionClaims,
-): VerifiedEd25519ThresholdSessionAuth {
+function buildVerifiedEd25519WalletSessionAuth(
+  claims: RouterAbEd25519WalletSessionClaims,
+): VerifiedEd25519WalletSessionAuth {
   return {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     curve: 'ed25519',
     thresholdSessionId: claims.sessionId,
     walletSigningSessionId: claims.walletSigningSessionId,
@@ -196,11 +196,11 @@ function unauthorized(message: string): ParseWalletSigningBudgetStatusResult {
 
 export async function parseEcdsaWalletSigningBudgetStatusRequest(args: {
   rawClaims: Record<string, unknown>;
-  claims: ThresholdEcdsaSessionClaims;
+  claims: RouterAbEcdsaHssWalletSessionClaims;
   sessionPolicy: SigningSessionSealThresholdSessionPolicy | null | undefined;
   nowMs?: () => number;
 }): Promise<ParseWalletSigningBudgetStatusResult> {
-  const auth = buildVerifiedEcdsaThresholdSessionAuth(args.claims);
+  const auth = buildVerifiedEcdsaWalletSessionAuth(args.claims);
   return await parseCurveBoundWalletSigningBudgetStatus({
     rawClaims: args.rawClaims,
     sessionPolicy: args.sessionPolicy,
@@ -219,11 +219,11 @@ export async function parseEcdsaWalletSigningBudgetStatusRequest(args: {
 
 export async function parseEd25519WalletSigningBudgetStatusRequest(args: {
   rawClaims: Record<string, unknown>;
-  claims: ThresholdEd25519SessionClaims;
+  claims: RouterAbEd25519WalletSessionClaims;
   sessionPolicy: SigningSessionSealThresholdSessionPolicy | null | undefined;
   nowMs?: () => number;
 }): Promise<ParseWalletSigningBudgetStatusResult> {
-  const auth = buildVerifiedEd25519ThresholdSessionAuth(args.claims);
+  const auth = buildVerifiedEd25519WalletSessionAuth(args.claims);
   return await parseCurveBoundWalletSigningBudgetStatus({
     rawClaims: args.rawClaims,
     sessionPolicy: args.sessionPolicy,
@@ -259,13 +259,13 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
   }
   const parsed = await args.session.parse(args.headers);
   if (!parsed.ok) {
-    return unauthorized('Missing or invalid threshold session token');
+    return unauthorized('Missing or invalid Wallet Session JWT');
   }
   const rawClaims = ((parsed as { claims?: Record<string, unknown> }).claims || {}) as Record<
     string,
     unknown
   >;
-  const ecdsaClaims = parseThresholdEcdsaSessionClaims(rawClaims);
+  const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(rawClaims);
   if (ecdsaClaims) {
     return await parseEcdsaWalletSigningBudgetStatusRequest({
       rawClaims,
@@ -274,7 +274,7 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
       nowMs: args.nowMs,
     });
   }
-  const ed25519Claims = parseThresholdEd25519SessionClaims(rawClaims);
+  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(rawClaims);
   if (ed25519Claims) {
     return await parseEd25519WalletSigningBudgetStatusRequest({
       rawClaims,
@@ -283,10 +283,10 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
       nowMs: args.nowMs,
     });
   }
-  return unauthorized('Invalid threshold session token claims');
+  return unauthorized('Invalid Wallet Session claims');
 }
 
-function hasCompleteCurveSpecificAuth(auth: VerifiedThresholdSessionAuth): boolean {
+function hasCompleteCurveSpecificAuth(auth: VerifiedWalletSessionAuth): boolean {
   switch (auth.curve) {
     case 'ecdsa':
       return Boolean(auth.keyHandle);
@@ -298,7 +298,7 @@ function hasCompleteCurveSpecificAuth(auth: VerifiedThresholdSessionAuth): boole
 async function parseCurveBoundWalletSigningBudgetStatus(args: {
   rawClaims: Record<string, unknown>;
   sessionPolicy: SigningSessionSealThresholdSessionPolicy | null | undefined;
-  auth: VerifiedThresholdSessionAuth;
+  auth: VerifiedWalletSessionAuth;
   request: WalletSigningBudgetStatusRequest;
   claimsKind: string;
   nowMs?: () => number;
@@ -311,7 +311,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     !hasCompleteCurveSpecificAuth(args.auth) ||
     args.auth.expiresAtMs <= nowMs()
   ) {
-    return unauthorized('Expired or incomplete threshold session token');
+    return unauthorized('Expired or incomplete Wallet Session claims');
   }
   const sessionPolicy = args.sessionPolicy;
   if (!sessionPolicy?.getWalletBudgetStatus) {
@@ -321,7 +321,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
       body: {
         authenticated: false,
         code: 'sessions_disabled',
-        message: 'Threshold session status reads are not configured',
+        message: 'Wallet Session status reads are not configured',
       },
     };
   }
@@ -336,7 +336,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     thresholdSessionId: args.auth.thresholdSessionId,
   });
   if (!curveStatus || !walletBudgetStatus || !walletBudgetMatches(args.auth, walletBudgetStatus)) {
-    return unauthorized('Threshold session is no longer active');
+    return unauthorized('Wallet Session is no longer active');
   }
   return {
     ok: true,

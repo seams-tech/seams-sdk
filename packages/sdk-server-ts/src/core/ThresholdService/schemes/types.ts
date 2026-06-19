@@ -1,89 +1,29 @@
 import type {
-  ThresholdEd25519AuthorizeResponse,
-  ThresholdEd25519AuthorizeWithSessionRequest,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
-  ThresholdEd25519FinalizeAndDispatchRequest,
-  ThresholdEd25519FinalizeAndDispatchResponse,
-  ThresholdEd25519PresignRefillRequest,
-  ThresholdEd25519PresignRefillResponse,
-  ThresholdEcdsaAuthorizeResponse,
-  ThresholdEcdsaAuthorizeWithSessionRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignFinalizeResponse,
   ThresholdEcdsaCosignInitRequest,
   ThresholdEcdsaCosignInitResponse,
-  ThresholdEcdsaPresignInitRequest,
-  ThresholdEcdsaPresignInitResponse,
-  ThresholdEcdsaPresignStepRequest,
-  ThresholdEcdsaPresignStepResponse,
-  ThresholdEcdsaSignFinalizeRequest,
-  ThresholdEcdsaSignFinalizeResponse,
-  ThresholdEcdsaSignInitRequest,
-  ThresholdEcdsaSignInitResponse,
+  RouterAbEcdsaHssPoolFillInitRequest,
+  RouterAbEcdsaHssPoolFillInitResponse,
+  RouterAbEcdsaHssPoolFillStepRequest,
+  RouterAbEcdsaHssPoolFillStepResponse,
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
-  ThresholdEd25519SignFinalizeRequest,
-  ThresholdEd25519SignFinalizeResponse,
-  ThresholdEd25519SignInitRequest,
-  ThresholdEd25519SignInitResponse,
 } from '../../types';
 import type { ThresholdEd25519SessionClaims, ThresholdEcdsaSessionClaims } from '../validation';
 import type { ThresholdSchemeId } from './schemeIds';
 
-export interface ThresholdProtocolDriver<
-  SignInitReq,
-  SignInitRes,
-  SignFinalizeReq,
-  SignFinalizeRes,
-  CosignInitReq = never,
-  CosignInitRes = never,
-  CosignFinalizeReq = never,
-  CosignFinalizeRes = never,
-> {
-  signInit(request: SignInitReq): Promise<SignInitRes>;
-  signFinalize(request: SignFinalizeReq): Promise<SignFinalizeRes>;
-  internalCosignInit?: (request: CosignInitReq) => Promise<CosignInitRes>;
-  internalCosignFinalize?: (request: CosignFinalizeReq) => Promise<CosignFinalizeRes>;
-}
-
-export interface ThresholdSchemeModule<
-  SchemeId extends ThresholdSchemeId,
-  KeygenReq,
-  KeygenRes,
-  SessionReq,
-  SessionRes,
-  AuthorizeClaims,
-  AuthorizeReq,
-  AuthorizeRes,
-  SignInitReq,
-  SignInitRes,
-  SignFinalizeReq,
-  SignFinalizeRes,
-  CosignInitReq = never,
-  CosignInitRes = never,
-  CosignFinalizeReq = never,
-  CosignFinalizeRes = never,
-> {
-  schemeId: SchemeId;
-  protocol: ThresholdProtocolDriver<
-    SignInitReq,
-    SignInitRes,
-    SignFinalizeReq,
-    SignFinalizeRes,
-    CosignInitReq,
-    CosignInitRes,
-    CosignFinalizeReq,
-    CosignFinalizeRes
-  >;
-
-  healthz(): Promise<{ ok: boolean; code?: string; message?: string }>;
-
-  keygen(request: KeygenReq): Promise<KeygenRes>;
-  session(request: SessionReq): Promise<SessionRes>;
-  authorize(input: { claims: AuthorizeClaims; request: AuthorizeReq }): Promise<AuthorizeRes>;
+export interface ThresholdEd25519PrivateCosignProtocolDriver {
+  internalCosignInit?: (
+    request: ThresholdEd25519CosignInitRequest,
+  ) => Promise<ThresholdEd25519CosignInitResponse>;
+  internalCosignFinalize?: (
+    request: ThresholdEd25519CosignFinalizeRequest,
+  ) => Promise<ThresholdEd25519CosignFinalizeResponse>;
 }
 
 export type ThresholdEd25519RegistrationKeygenRequest = {
@@ -111,33 +51,9 @@ export type ThresholdEd25519RegistrationKeygenResult =
 
 export type ThresholdEd25519Frost2pSchemeModule = {
   schemeId: 'threshold-ed25519-frost-2p-v1';
-  protocol: ThresholdProtocolDriver<
-    ThresholdEd25519SignInitRequest,
-    ThresholdEd25519SignInitResponse,
-    ThresholdEd25519SignFinalizeRequest,
-    ThresholdEd25519SignFinalizeResponse,
-    ThresholdEd25519CosignInitRequest,
-    ThresholdEd25519CosignInitResponse,
-    ThresholdEd25519CosignFinalizeRequest,
-    ThresholdEd25519CosignFinalizeResponse
-  >;
+  protocol: ThresholdEd25519PrivateCosignProtocolDriver;
   healthz(): Promise<{ ok: boolean; code?: string; message?: string }>;
   session(request: ThresholdEd25519SessionRequest): Promise<ThresholdEd25519SessionResponse>;
-  authorize(input: {
-    claims: ThresholdEd25519SessionClaims;
-    request: ThresholdEd25519AuthorizeWithSessionRequest;
-  }): Promise<ThresholdEd25519AuthorizeResponse>;
-  presign: {
-    refill(input: {
-      claims: ThresholdEd25519SessionClaims;
-      request: ThresholdEd25519PresignRefillRequest;
-      requestOriginRateLimitKey?: string;
-    }): Promise<ThresholdEd25519PresignRefillResponse>;
-    finalizeAndDispatch(input: {
-      claims: ThresholdEd25519SessionClaims;
-      request: ThresholdEd25519FinalizeAndDispatchRequest;
-    }): Promise<ThresholdEd25519FinalizeAndDispatchResponse>;
-  };
   registration: {
     keygenFromRegistrationMaterial(
       request: ThresholdEd25519RegistrationKeygenRequest,
@@ -145,38 +61,34 @@ export type ThresholdEd25519Frost2pSchemeModule = {
   };
 };
 
+export interface ThresholdEcdsaPrivateCosignProtocolDriver {
+  internalCosignInit?: (
+    request: ThresholdEcdsaCosignInitRequest,
+  ) => Promise<ThresholdEcdsaCosignInitResponse>;
+  internalCosignFinalize?: (
+    request: ThresholdEcdsaCosignFinalizeRequest,
+  ) => Promise<ThresholdEcdsaCosignFinalizeResponse>;
+}
+
 export type ThresholdSecp256k1Ecdsa2pSchemeModule = {
   schemeId: 'threshold-secp256k1-ecdsa-2p-v1';
-  protocol: ThresholdProtocolDriver<
-    ThresholdEcdsaSignInitRequest,
-    ThresholdEcdsaSignInitResponse,
-    ThresholdEcdsaSignFinalizeRequest,
-    ThresholdEcdsaSignFinalizeResponse,
-    ThresholdEcdsaCosignInitRequest,
-    ThresholdEcdsaCosignInitResponse,
-    ThresholdEcdsaCosignFinalizeRequest,
-    ThresholdEcdsaCosignFinalizeResponse
-  >;
+  protocol: ThresholdEcdsaPrivateCosignProtocolDriver;
   healthz(): Promise<{ ok: boolean; code?: string; message?: string }>;
-  authorize(input: {
-    claims: ThresholdEcdsaSessionClaims;
-    request: ThresholdEcdsaAuthorizeWithSessionRequest;
-  }): Promise<ThresholdEcdsaAuthorizeResponse>;
-  presign: {
+  poolFill: {
     init(input: {
       claims: ThresholdEcdsaSessionClaims;
-      request: ThresholdEcdsaPresignInitRequest;
-    }): Promise<ThresholdEcdsaPresignInitResponse>;
+      request: RouterAbEcdsaHssPoolFillInitRequest;
+    }): Promise<RouterAbEcdsaHssPoolFillInitResponse>;
     step(input: {
       claims: ThresholdEcdsaSessionClaims;
-      request: ThresholdEcdsaPresignStepRequest;
+      request: RouterAbEcdsaHssPoolFillStepRequest;
       transport?: {
         authorizationHeader?: string;
         cookieHeader?: string;
         forwardedHop?: number;
         forwardedByInstanceId?: string;
       };
-    }): Promise<ThresholdEcdsaPresignStepResponse>;
+    }): Promise<RouterAbEcdsaHssPoolFillStepResponse>;
   };
 };
 

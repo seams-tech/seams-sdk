@@ -13,11 +13,11 @@ import {
 } from '../postgresRecords';
 import {
   isObject,
-  toThresholdEcdsaAuthPrefix,
+  toThresholdEcdsaWalletSessionPrefix,
   toThresholdEcdsaPrefixFromBase,
-  toThresholdEd25519AuthPrefix,
+  toThresholdEd25519WalletSessionPrefix,
   toThresholdEd25519PrefixFromBase,
-  parseEd25519AuthSessionRecord,
+  parseEd25519WalletSessionRecord,
 } from '../validation';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
@@ -29,7 +29,7 @@ export type WalletSigningBudgetBinding = {
   thresholdSessionId: string;
 };
 
-export type Ed25519AuthSessionRecord = {
+export type Ed25519WalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   userId: string;
@@ -38,20 +38,20 @@ export type Ed25519AuthSessionRecord = {
   walletBudgetBinding?: WalletSigningBudgetBinding;
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
-export type ThresholdEd25519AuthConsumeUsesResult =
+export type WalletSessionConsumeUsesResult =
   | { ok: true; remainingUses: number }
   | { ok: false; code: string; message: string };
 
-export type ThresholdEd25519AuthConsumedUseResult =
+export type WalletSessionConsumedUseResult =
   | { ok: true; consumed: boolean }
   | { ok: false; code: string; message: string };
 
-export type ThresholdAuthReplayGuardResult =
+export type WalletSessionReplayGuardResult =
   | { ok: true }
   | { ok: false; code: string; message: string };
 
-export type Ed25519AuthSessionStatus = {
-  record: Ed25519AuthSessionRecord;
+export type Ed25519WalletSessionStatus = {
+  record: Ed25519WalletSessionRecord;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -59,42 +59,42 @@ export type Ed25519AuthSessionStatus = {
 const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
 const EXPORT_REPLAY_GUARD_MIN_RETENTION_MS = 24 * 60 * 60_000;
 
-export interface Ed25519AuthSessionStore {
+export interface Ed25519WalletSessionStore {
   putSession(
     id: string,
-    record: Ed25519AuthSessionRecord,
+    record: Ed25519WalletSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void>;
-  getSession(id: string): Promise<Ed25519AuthSessionRecord | null>;
-  getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null>;
+  getSession(id: string): Promise<Ed25519WalletSessionRecord | null>;
+  getSessionStatus(id: string): Promise<Ed25519WalletSessionStatus | null>;
   /**
    * Consume one use from the session counter without fetching the session record.
    *
    * This enables session-token-only authorization flows where scope/expiry are enforced from
    * signed JWT claims instead of a KV-stored record, reducing KV read-after-write consistency issues.
    */
-  consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult>;
+  consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult>;
   consumeUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumeUsesResult>;
+  ): Promise<WalletSessionConsumeUsesResult>;
   hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumedUseResult>;
+  ): Promise<WalletSessionConsumedUseResult>;
   reserveReplayGuard(
     scopeId: string,
     replayKey: string,
     expiresAtMs: number,
-  ): Promise<ThresholdAuthReplayGuardResult>;
+  ): Promise<WalletSessionReplayGuardResult>;
 }
 
-class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
+class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   private readonly keyPrefix: string;
   private readonly map = new Map<
     string,
     {
-      record: Ed25519AuthSessionRecord;
+      record: Ed25519WalletSessionRecord;
       remainingUses: number;
       expiresAtMs: number;
       consumedIdempotencyKeys: Set<string>;
@@ -103,7 +103,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly replayGuards = new Map<string, number>();
 
   constructor(input: { keyPrefix?: string }) {
-    this.keyPrefix = toThresholdEd25519AuthPrefix(input.keyPrefix);
+    this.keyPrefix = toThresholdEd25519WalletSessionPrefix(input.keyPrefix);
   }
 
   private key(id: string): string {
@@ -116,7 +116,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
 
   async putSession(
     id: string,
-    record: Ed25519AuthSessionRecord,
+    record: Ed25519WalletSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const key = this.key(id);
@@ -130,7 +130,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     });
   }
 
-  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519WalletSessionRecord | null> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) return null;
@@ -141,7 +141,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     return entry.record;
   }
 
-  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+  async getSessionStatus(id: string): Promise<Ed25519WalletSessionStatus | null> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) return null;
@@ -156,7 +156,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     };
   }
 
-  async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry)
@@ -175,7 +175,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async consumeUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  ): Promise<WalletSessionConsumeUsesResult> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry)
@@ -199,7 +199,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+  ): Promise<WalletSessionConsumedUseResult> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) {
@@ -217,7 +217,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     scopeId: string,
     replayKey: string,
     expiresAtMs: number,
-  ): Promise<ThresholdAuthReplayGuardResult> {
+  ): Promise<WalletSessionReplayGuardResult> {
     const key = this.replayGuardKey(scopeId, replayKey);
     if (!key) return replayGuardInvalid();
     const nowMs = Date.now();
@@ -251,11 +251,11 @@ function replayGuardTtlMs(expiresAtMs: number, nowMs = Date.now()): number {
   );
 }
 
-function replayGuardInvalid(): ThresholdAuthReplayGuardResult {
+function replayGuardInvalid(): WalletSessionReplayGuardResult {
   return { ok: false, code: 'invalid_body', message: 'Invalid replay guard key' };
 }
 
-function replayGuardExpired(): ThresholdAuthReplayGuardResult {
+function replayGuardExpired(): WalletSessionReplayGuardResult {
   return {
     ok: false,
     code: 'export_authorization_expired',
@@ -263,7 +263,7 @@ function replayGuardExpired(): ThresholdAuthReplayGuardResult {
   };
 }
 
-function replayGuardDuplicate(): ThresholdAuthReplayGuardResult {
+function replayGuardDuplicate(): WalletSessionReplayGuardResult {
   return {
     ok: false,
     code: 'export_nonce_replay',
@@ -271,7 +271,7 @@ function replayGuardDuplicate(): ThresholdAuthReplayGuardResult {
   };
 }
 
-function parseRedisReplayGuardResult(raw: unknown): ThresholdAuthReplayGuardResult {
+function parseRedisReplayGuardResult(raw: unknown): WalletSessionReplayGuardResult {
   const text = String(raw ?? '').trim();
   if (text === 'ok') return { ok: true };
   if (text === 'duplicate') return replayGuardDuplicate();
@@ -279,7 +279,7 @@ function parseRedisReplayGuardResult(raw: unknown): ThresholdAuthReplayGuardResu
   return { ok: false, code: 'internal', message: 'Redis replay guard returned invalid response' };
 }
 
-function parseRedisConsumeOnceResult(raw: unknown): ThresholdEd25519AuthConsumeUsesResult {
+function parseRedisConsumeOnceResult(raw: unknown): WalletSessionConsumeUsesResult {
   const text = String(raw ?? '').trim();
   if (text.startsWith('ok:')) {
     const remainingUses = Number(text.slice(3));
@@ -295,7 +295,7 @@ function parseRedisConsumeOnceResult(raw: unknown): ThresholdEd25519AuthConsumeU
   return { ok: false, code: 'internal', message: 'Redis consume-once returned invalid response' };
 }
 
-function parseRedisConsumedUseResult(raw: unknown): ThresholdEd25519AuthConsumedUseResult {
+function parseRedisConsumedUseResult(raw: unknown): WalletSessionConsumedUseResult {
   const value = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim());
   if (!Number.isFinite(value)) {
     return { ok: false, code: 'internal', message: 'Redis consumed-use check returned invalid response' };
@@ -348,17 +348,17 @@ redis.call('SET', key, '1', 'EX', ttl_seconds)
 return 'ok'
 `;
 
-class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore {
+class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
 
   constructor(input: { url: string; token: string; keyPrefix?: string }) {
     const url = toOptionalTrimmedString(input.url);
     const token = toOptionalTrimmedString(input.token);
-    if (!url) throw new Error('Upstash auth session store missing url');
-    if (!token) throw new Error('Upstash auth session store missing token');
+    if (!url) throw new Error('Upstash wallet session store missing url');
+    if (!token) throw new Error('Upstash wallet session store missing token');
     this.client = new UpstashRedisRestClient({ url, token });
-    this.keyPrefix = toThresholdEd25519AuthPrefix(input.keyPrefix);
+    this.keyPrefix = toThresholdEd25519WalletSessionPrefix(input.keyPrefix);
   }
 
   private metaKey(id: string): string {
@@ -379,7 +379,7 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
 
   async putSession(
     id: string,
-    record: Ed25519AuthSessionRecord,
+    record: Ed25519WalletSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
@@ -391,13 +391,13 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
     );
   }
 
-  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519WalletSessionRecord | null> {
     const raw = await this.client.getJson(this.metaKey(id));
-    return parseEd25519AuthSessionRecord(raw);
+    return parseEd25519WalletSessionRecord(raw);
   }
 
-  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
-    const record = parseEd25519AuthSessionRecord(await this.client.getJson(this.metaKey(id)));
+  async getSessionStatus(id: string): Promise<Ed25519WalletSessionStatus | null> {
+    const record = parseEd25519WalletSessionRecord(await this.client.getJson(this.metaKey(id)));
     if (!record) return null;
     const remainingUsesRaw = await this.client.getRaw(this.usesKey(id));
     const remainingUses =
@@ -410,7 +410,7 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
     };
   }
 
-  async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     try {
       const remainingUses = await this.client.incrby(this.usesKey(id), -1);
       if (remainingUses < 0) {
@@ -430,7 +430,7 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
   async consumeUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  ): Promise<WalletSessionConsumeUsesResult> {
     try {
       const raw = await this.client.eval(
         CONSUME_ONCE_LUA,
@@ -451,7 +451,7 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
   async hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+  ): Promise<WalletSessionConsumedUseResult> {
     const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
     if (!consumeKey) return { ok: true, consumed: false };
     try {
@@ -475,7 +475,7 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
     scopeId: string,
     replayKey: string,
     expiresAtMs: number,
-  ): Promise<ThresholdAuthReplayGuardResult> {
+  ): Promise<WalletSessionReplayGuardResult> {
     try {
       const ttlMs = replayGuardTtlMs(expiresAtMs);
       if (ttlMs <= 0) return replayGuardExpired();
@@ -496,15 +496,15 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
   }
 }
 
-class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
+class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
 
   constructor(input: { redisUrl: string; keyPrefix?: string }) {
     const url = toOptionalTrimmedString(input.redisUrl);
-    if (!url) throw new Error('redis-tcp auth session store missing redisUrl');
+    if (!url) throw new Error('redis-tcp wallet session store missing redisUrl');
     this.client = new RedisTcpClient(url);
-    this.keyPrefix = toThresholdEd25519AuthPrefix(input.keyPrefix);
+    this.keyPrefix = toThresholdEd25519WalletSessionPrefix(input.keyPrefix);
   }
 
   private metaKey(id: string): string {
@@ -525,7 +525,7 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
 
   async putSession(
     id: string,
-    record: Ed25519AuthSessionRecord,
+    record: Ed25519WalletSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
@@ -536,13 +536,13 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     if (resp.type === 'error') throw new Error(`Redis SET error: ${resp.value}`);
   }
 
-  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519WalletSessionRecord | null> {
     const raw = await redisGetJson(this.client, this.metaKey(id));
-    return parseEd25519AuthSessionRecord(raw);
+    return parseEd25519WalletSessionRecord(raw);
   }
 
-  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
-    const record = parseEd25519AuthSessionRecord(await redisGetJson(this.client, this.metaKey(id)));
+  async getSessionStatus(id: string): Promise<Ed25519WalletSessionStatus | null> {
+    const record = parseEd25519WalletSessionRecord(await redisGetJson(this.client, this.metaKey(id)));
     if (!record) return null;
     const resp = await this.client.send(['GET', this.usesKey(id)]);
     if (resp.type === 'error') throw new Error(`Redis GET error: ${resp.value}`);
@@ -556,7 +556,7 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     };
   }
 
-  async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     try {
       const resp = await this.client.send(['INCRBY', this.usesKey(id), '-1']);
       if (resp.type === 'error')
@@ -582,7 +582,7 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async consumeUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  ): Promise<WalletSessionConsumeUsesResult> {
     try {
       const resp = await this.client.send([
         'EVAL',
@@ -609,7 +609,7 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+  ): Promise<WalletSessionConsumedUseResult> {
     const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
     if (!consumeKey) return { ok: true, consumed: false };
     try {
@@ -632,7 +632,7 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     scopeId: string,
     replayKey: string,
     expiresAtMs: number,
-  ): Promise<ThresholdAuthReplayGuardResult> {
+  ): Promise<WalletSessionReplayGuardResult> {
     try {
       const ttlMs = replayGuardTtlMs(expiresAtMs);
       if (ttlMs <= 0) return replayGuardExpired();
@@ -665,7 +665,7 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   }
 }
 
-class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
+class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
   private readonly namespace: string;
 
@@ -681,13 +681,13 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         DELETE FROM threshold_ed25519_sessions
         WHERE namespace = $1 AND kind = $2 AND session_id = $3
       `,
-      [this.namespace, 'auth', id],
+      [this.namespace, 'wallet_session', id],
     );
   }
 
   async putSession(
     id: string,
-    record: Ed25519AuthSessionRecord,
+    record: Ed25519WalletSessionRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
@@ -695,7 +695,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     const remainingUses = Math.max(0, Number(opts.remainingUses) || 0);
     const storedRecord = { ...record, expiresAtMs };
     const parsed = parseCurrentThresholdEd25519SessionRecord(storedRecord);
-    if (!parsed) throw new Error('Invalid threshold auth session record');
+    if (!parsed) throw new Error('Invalid Wallet Session record');
     const pool = await this.poolPromise;
     await pool.query(
       `
@@ -704,11 +704,11 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         ON CONFLICT (namespace, kind, session_id)
         DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms, remaining_uses = EXCLUDED.remaining_uses
       `,
-      [this.namespace, 'auth', id, parsed, expiresAtMs, remainingUses],
+      [this.namespace, 'wallet_session', id, parsed, expiresAtMs, remainingUses],
     );
   }
 
-  async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
+  async getSession(id: string): Promise<Ed25519WalletSessionRecord | null> {
     const pool = await this.poolPromise;
     const nowMs = Date.now();
     const { rows } = await pool.query(
@@ -718,7 +718,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
         LIMIT 1
       `,
-      [this.namespace, 'auth', id, nowMs],
+      [this.namespace, 'wallet_session', id, nowMs],
     );
     const parsed = parsePostgresRow({
       row: rows[0],
@@ -739,7 +739,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     return parsed.value.record;
   }
 
-  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+  async getSessionStatus(id: string): Promise<Ed25519WalletSessionStatus | null> {
     const pool = await this.poolPromise;
     const nowMs = Date.now();
     const { rows } = await pool.query(
@@ -749,7 +749,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
         LIMIT 1
       `,
-      [this.namespace, 'auth', id, nowMs],
+      [this.namespace, 'wallet_session', id, nowMs],
     );
     const parsed = parsePostgresRow({
       row: rows[0],
@@ -782,7 +782,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         WHERE namespace = $1 AND kind = $2 AND session_id = $3
         LIMIT 1
       `,
-      [this.namespace, 'auth', id],
+      [this.namespace, 'wallet_session', id],
     );
     const row = rows[0];
     if (!row) return { code: 'unauthorized', message: 'threshold session expired or invalid' };
@@ -797,7 +797,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     return { code: 'unauthorized', message: 'threshold session expired or invalid' };
   }
 
-  async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  async consumeUseCount(id: string): Promise<WalletSessionConsumeUsesResult> {
     try {
       const pool = await this.poolPromise;
       const nowMs = Date.now();
@@ -808,7 +808,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
           WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4 AND remaining_uses > 0
           RETURNING remaining_uses
         `,
-        [this.namespace, 'auth', id, nowMs],
+        [this.namespace, 'wallet_session', id, nowMs],
       );
       const row = rows[0];
       if (!row) {
@@ -833,7 +833,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async consumeUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+  ): Promise<WalletSessionConsumeUsesResult> {
     const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
     if (!consumeKey) return await this.consumeUseCount(id);
     const pool = await this.poolPromise;
@@ -854,7 +854,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
           WHERE namespace = $1 AND kind = $2 AND session_id = $3
           FOR UPDATE
         `,
-        [this.namespace, 'auth', id],
+        [this.namespace, 'wallet_session', id],
       );
       const row = rows[0];
       if (!row) {
@@ -877,7 +877,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       const existing = await client.query(
         `
           SELECT 1
-          FROM threshold_ed25519_auth_consumptions
+          FROM threshold_wallet_session_consumptions
           WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms > $4
           LIMIT 1
         `,
@@ -898,11 +898,11 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
           SET remaining_uses = $5
           WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
         `,
-        [this.namespace, 'auth', id, nowMs, updatedRemainingUses],
+        [this.namespace, 'wallet_session', id, nowMs, updatedRemainingUses],
       );
       await client.query(
         `
-          INSERT INTO threshold_ed25519_auth_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
+          INSERT INTO threshold_wallet_session_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
           VALUES ($1, $2, $3, $4)
           ON CONFLICT (namespace, session_id, idempotency_key) DO NOTHING
         `,
@@ -926,7 +926,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
-  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+  ): Promise<WalletSessionConsumedUseResult> {
     const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
     if (!consumeKey) return { ok: true, consumed: false };
     const nowMs = Date.now();
@@ -935,7 +935,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       const { rows } = await pool.query(
         `
           SELECT 1
-          FROM threshold_ed25519_auth_consumptions
+          FROM threshold_wallet_session_consumptions
           WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms > $4
           LIMIT 1
         `,
@@ -956,7 +956,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     scopeId: string,
     replayKey: string,
     expiresAtMs: number,
-  ): Promise<ThresholdAuthReplayGuardResult> {
+  ): Promise<WalletSessionReplayGuardResult> {
     const scopeKey = normalizeConsumeOnceKey(scopeId);
     const consumeKey = normalizeConsumeOnceKey(replayKey);
     if (!scopeKey || !consumeKey) return replayGuardInvalid();
@@ -967,14 +967,14 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       const pool = await this.poolPromise;
       await pool.query(
         `
-          DELETE FROM threshold_ed25519_auth_consumptions
+          DELETE FROM threshold_wallet_session_consumptions
           WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms <= $4
         `,
         [this.namespace, scopeKey, consumeKey, nowMs],
       );
       const { rows } = await pool.query(
         `
-          INSERT INTO threshold_ed25519_auth_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
+          INSERT INTO threshold_wallet_session_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
           VALUES ($1, $2, $3, $4)
           ON CONFLICT (namespace, session_id, idempotency_key) DO NOTHING
           RETURNING 1
@@ -994,37 +994,37 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   }
 }
 
-export function createEd25519AuthSessionStore(input: {
+export function createEd25519WalletSessionStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): Ed25519AuthSessionStore {
+}): Ed25519WalletSessionStore {
   const doStores = createCloudflareDurableObjectThresholdEd25519Stores({
     config: input.config,
     logger: input.logger,
   });
-  if (doStores) return doStores.authSessionStore;
+  if (doStores) return doStores.walletSessionStore;
 
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const envPrefix =
-    toOptionalTrimmedString(config.THRESHOLD_ED25519_AUTH_PREFIX) ||
-    toThresholdEd25519PrefixFromBase(basePrefix, 'auth') ||
+    toOptionalTrimmedString(config.THRESHOLD_ED25519_WALLET_SESSION_PREFIX) ||
+    toThresholdEd25519PrefixFromBase(basePrefix, 'wallet-session') ||
     '';
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
-        '[threshold-ed25519] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
+        '[threshold-ed25519] In-memory wallet session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
       );
     }
-    return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+    return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix || undefined });
   }
   if (kind === 'upstash-redis-rest') {
-    return new UpstashRedisRestEd25519AuthSessionStore({
+    return new UpstashRedisRestEd25519WalletSessionStore({
       url:
         toOptionalTrimmedString(config.url) ||
         toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
@@ -1038,15 +1038,15 @@ export function createEd25519AuthSessionStore(input: {
     if (!input.isNode) {
       if (requirePersistent) {
         throw new Error(
-          '[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
+          '[threshold-ed25519] redis-tcp wallet session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
         );
       }
       input.logger.warn(
-        '[threshold-ed25519] redis-tcp auth session store is not supported in this runtime; falling back to in-memory',
+        '[threshold-ed25519] redis-tcp wallet session store is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+      return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix || undefined });
     }
-    return new RedisTcpEd25519AuthSessionStore({
+    return new RedisTcpEd25519WalletSessionStore({
       redisUrl:
         toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
@@ -1055,32 +1055,32 @@ export function createEd25519AuthSessionStore(input: {
   if (kind === 'postgres') {
     if (!input.isNode) {
       throw new Error(
-        '[threshold-ed25519] postgres auth session store is not supported in this runtime',
+        '[threshold-ed25519] postgres wallet session store is not supported in this runtime',
       );
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
     if (!postgresUrl)
       throw new Error(
-        '[threshold-ed25519] postgres auth session store enabled but POSTGRES_URL is not set',
+        '[threshold-ed25519] postgres wallet session store enabled but POSTGRES_URL is not set',
       );
-    input.logger.info('[threshold-ed25519] Using Postgres store for threshold auth sessions');
-    return new PostgresEd25519AuthSessionStore({
+    input.logger.info('[threshold-ed25519] Using Postgres store for Wallet Session records');
+    return new PostgresEd25519WalletSessionStore({
       postgresUrl,
       namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
 
-  // Env-shaped config: prefer Redis/Upstash for auth session storage (TTL + counters) to avoid Postgres churn.
+  // Env-shaped config: prefer Redis/Upstash for wallet session storage (TTL + counters) to avoid Postgres churn.
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
       throw new Error(
-        'Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+        'Upstash wallet session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
       );
     }
-    input.logger.info('[threshold-ed25519] Using Upstash REST store for threshold auth sessions');
-    return new UpstashRedisRestEd25519AuthSessionStore({
+    input.logger.info('[threshold-ed25519] Using Upstash REST store for Wallet Session records');
+    return new UpstashRedisRestEd25519WalletSessionStore({
       url: upstashUrl,
       token: upstashToken,
       keyPrefix: envPrefix || undefined,
@@ -1098,10 +1098,10 @@ export function createEd25519AuthSessionStore(input: {
       input.logger.warn(
         '[threshold-ed25519] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+      return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix || undefined });
     }
-    input.logger.info('[threshold-ed25519] Using redis-tcp store for threshold auth sessions');
-    return new RedisTcpEd25519AuthSessionStore({ redisUrl, keyPrefix: envPrefix || undefined });
+    input.logger.info('[threshold-ed25519] Using redis-tcp store for Wallet Session records');
+    return new RedisTcpEd25519WalletSessionStore({ redisUrl, keyPrefix: envPrefix || undefined });
   }
 
   const postgresUrl = getPostgresUrlFromConfig(config);
@@ -1111,52 +1111,52 @@ export function createEd25519AuthSessionStore(input: {
         '[threshold-ed25519] POSTGRES_URL is set but Postgres is not supported in this runtime',
       );
     }
-    input.logger.info('[threshold-ed25519] Using Postgres store for threshold auth sessions');
-    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix || '' });
+    input.logger.info('[threshold-ed25519] Using Postgres store for Wallet Session records');
+    return new PostgresEd25519WalletSessionStore({ postgresUrl, namespace: envPrefix || '' });
   }
 
   if (requirePersistent) {
     throw new Error(
-      '[threshold-ed25519] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
+      '[threshold-ed25519] Wallet Session records require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
     );
   }
   input.logger.info(
-    '[threshold-ed25519] Using in-memory auth session store for threshold sessions (non-persistent)',
+    '[threshold-ed25519] Using in-memory Wallet Session store (non-persistent)',
   );
-  return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix || undefined });
+  return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix || undefined });
 }
 
-export function createEcdsaAuthSessionStore(input: {
+export function createEcdsaWalletSessionStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): Ed25519AuthSessionStore {
+}): Ed25519WalletSessionStore {
   const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
     config: input.config,
     logger: input.logger,
   });
-  if (doStores) return doStores.authSessionStore;
+  if (doStores) return doStores.walletSessionStore;
 
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
   const allowInMemory = toOptionalTrimmedString(config.THRESHOLD_ALLOW_IN_MEMORY_STORES) === '1';
   const requirePersistent = !input.isNode && !allowInMemory;
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
-  const envPrefix = toThresholdEcdsaAuthPrefix(
-    toOptionalTrimmedString(config.THRESHOLD_ECDSA_AUTH_PREFIX) ||
-      toThresholdEcdsaPrefixFromBase(basePrefix, 'auth'),
+  const envPrefix = toThresholdEcdsaWalletSessionPrefix(
+    toOptionalTrimmedString(config.THRESHOLD_ECDSA_WALLET_SESSION_PREFIX) ||
+      toThresholdEcdsaPrefixFromBase(basePrefix, 'wallet-session'),
   );
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'in-memory') {
     if (requirePersistent) {
       throw new Error(
-        '[threshold-ecdsa] In-memory auth session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
+        '[threshold-ecdsa] In-memory wallet session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
       );
     }
-    return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
+    return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix });
   }
   if (kind === 'upstash-redis-rest') {
-    return new UpstashRedisRestEd25519AuthSessionStore({
+    return new UpstashRedisRestEd25519WalletSessionStore({
       url:
         toOptionalTrimmedString(config.url) ||
         toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
@@ -1170,15 +1170,15 @@ export function createEcdsaAuthSessionStore(input: {
     if (!input.isNode) {
       if (requirePersistent) {
         throw new Error(
-          '[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
+          '[threshold-ecdsa] redis-tcp wallet session store is not supported in this runtime; configure Upstash/Redis REST or Durable Objects',
         );
       }
       input.logger.warn(
-        '[threshold-ecdsa] redis-tcp auth session store is not supported in this runtime; falling back to in-memory',
+        '[threshold-ecdsa] redis-tcp wallet session store is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
+      return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix });
     }
-    return new RedisTcpEd25519AuthSessionStore({
+    return new RedisTcpEd25519WalletSessionStore({
       redisUrl:
         toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
@@ -1187,32 +1187,32 @@ export function createEcdsaAuthSessionStore(input: {
   if (kind === 'postgres') {
     if (!input.isNode) {
       throw new Error(
-        '[threshold-ecdsa] postgres auth session store is not supported in this runtime',
+        '[threshold-ecdsa] postgres wallet session store is not supported in this runtime',
       );
     }
     const postgresUrl = getPostgresUrlFromConfig(config);
     if (!postgresUrl)
       throw new Error(
-        '[threshold-ecdsa] postgres auth session store enabled but POSTGRES_URL is not set',
+        '[threshold-ecdsa] postgres wallet session store enabled but POSTGRES_URL is not set',
       );
-    input.logger.info('[threshold-ecdsa] Using Postgres store for threshold auth sessions');
-    return new PostgresEd25519AuthSessionStore({
+    input.logger.info('[threshold-ecdsa] Using Postgres store for Wallet Session records');
+    return new PostgresEd25519WalletSessionStore({
       postgresUrl,
       namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
     });
   }
 
-  // Env-shaped config: prefer Redis/Upstash for auth session storage (TTL + counters) to avoid Postgres churn.
+  // Env-shaped config: prefer Redis/Upstash for wallet session storage (TTL + counters) to avoid Postgres churn.
   const upstashUrl = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
   const upstashToken = toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
   if (upstashUrl || upstashToken) {
     if (!upstashUrl || !upstashToken) {
       throw new Error(
-        'Upstash auth session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
+        'Upstash wallet session store enabled but UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not both set',
       );
     }
-    input.logger.info('[threshold-ecdsa] Using Upstash REST store for threshold auth sessions');
-    return new UpstashRedisRestEd25519AuthSessionStore({
+    input.logger.info('[threshold-ecdsa] Using Upstash REST store for Wallet Session records');
+    return new UpstashRedisRestEd25519WalletSessionStore({
       url: upstashUrl,
       token: upstashToken,
       keyPrefix: envPrefix,
@@ -1230,10 +1230,10 @@ export function createEcdsaAuthSessionStore(input: {
       input.logger.warn(
         '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
+      return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix });
     }
-    input.logger.info('[threshold-ecdsa] Using redis-tcp store for threshold auth sessions');
-    return new RedisTcpEd25519AuthSessionStore({ redisUrl, keyPrefix: envPrefix });
+    input.logger.info('[threshold-ecdsa] Using redis-tcp store for Wallet Session records');
+    return new RedisTcpEd25519WalletSessionStore({ redisUrl, keyPrefix: envPrefix });
   }
 
   const postgresUrl = getPostgresUrlFromConfig(config);
@@ -1243,17 +1243,17 @@ export function createEcdsaAuthSessionStore(input: {
         '[threshold-ecdsa] POSTGRES_URL is set but Postgres is not supported in this runtime',
       );
     }
-    input.logger.info('[threshold-ecdsa] Using Postgres store for threshold auth sessions');
-    return new PostgresEd25519AuthSessionStore({ postgresUrl, namespace: envPrefix });
+    input.logger.info('[threshold-ecdsa] Using Postgres store for Wallet Session records');
+    return new PostgresEd25519WalletSessionStore({ postgresUrl, namespace: envPrefix });
   }
 
   if (requirePersistent) {
     throw new Error(
-      '[threshold-ecdsa] Threshold auth sessions require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
+      '[threshold-ecdsa] Wallet Session records require persistent storage in this runtime; configure UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or Durable Objects',
     );
   }
   input.logger.info(
-    '[threshold-ecdsa] Using in-memory auth session store for threshold sessions (non-persistent)',
+    '[threshold-ecdsa] Using in-memory Wallet Session store (non-persistent)',
   );
-  return new InMemoryEd25519AuthSessionStore({ keyPrefix: envPrefix });
+  return new InMemoryEd25519WalletSessionStore({ keyPrefix: envPrefix });
 }

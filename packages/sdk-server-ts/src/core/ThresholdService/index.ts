@@ -1,7 +1,4 @@
-export {
-  ThresholdSigningService,
-  thresholdEd25519FinalizeOperationFingerprint,
-} from './ThresholdSigningService';
+export { ThresholdSigningService } from './ThresholdSigningService';
 export { createThresholdSigningService } from './createThresholdSigningService';
 export * from './schemes/schemeIds';
 export * from './schemes/types';
@@ -19,11 +16,11 @@ export {
 } from './stores/SessionStore';
 
 export {
-  createEd25519AuthSessionStore,
-  createEcdsaAuthSessionStore,
-  type Ed25519AuthSessionStore,
-  type Ed25519AuthSessionRecord,
-} from './stores/AuthSessionStore';
+  createEd25519WalletSessionStore,
+  createEcdsaWalletSessionStore,
+  type Ed25519WalletSessionStore,
+  type Ed25519WalletSessionRecord,
+} from './stores/WalletSessionStore';
 export {
   ensureThresholdEd25519HssWasm,
   finalizeThresholdEd25519HssServerCeremony,

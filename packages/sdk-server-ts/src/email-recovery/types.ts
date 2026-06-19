@@ -1,5 +1,5 @@
-import type { MinimalNearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
-import type { ActionArgsWasm } from '@/core/types/actions';
+import type { MinimalNearClient, SignedTransaction } from '../core/rpcClients/near/NearClient';
+import type { ActionArgsWasm } from '@shared/near/actions';
 import type { RecoverySubjectBinding, RecoveryTargetKeySet } from '@shared/utils';
 import type { Logger } from '../core/logger';
 import type { RecoveryEmailPayload } from '@shared/utils/recoveryEmail';

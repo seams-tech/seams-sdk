@@ -23,11 +23,11 @@ import {
   toThresholdEd25519SessionPrefix,
   toThresholdEd25519PrefixFromBase,
   parseThresholdEd25519MpcSessionRecord,
-  parseThresholdEd25519PresignRecord,
+  parseRouterAbEd25519PresignRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
   isObject,
-  type ParsedThresholdEd25519PresignRecord,
+  type ParsedRouterAbEd25519PresignRecord,
 } from '../validation';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
@@ -95,9 +95,9 @@ export type ThresholdEd25519CoordinatorSigningSessionRecord = {
   relayerVerifyingSharesById: Record<string, string>;
 };
 
-export type ThresholdEd25519PresignRecord = ParsedThresholdEd25519PresignRecord;
+export type RouterAbEd25519PresignRecord = ParsedRouterAbEd25519PresignRecord;
 
-export type ThresholdEd25519PresignExpectedScope = {
+export type RouterAbEd25519PresignExpectedScope = {
   thresholdSessionId: string;
   walletSigningSessionId: string;
   relayerKeyId: string;
@@ -106,39 +106,39 @@ export type ThresholdEd25519PresignExpectedScope = {
   signerPublicKey: string;
   rpcPolicyId: string;
   rpId: string;
-  runtimePolicyScope: ThresholdEd25519PresignRecord['runtimePolicyScope'];
+  runtimePolicyScope: RouterAbEd25519PresignRecord['runtimePolicyScope'];
   participantIds: readonly number[];
   groupPublicKey: string;
 };
 
-export type ThresholdEd25519TakePresignForFinalizeResult =
-  | { ok: true; record: ThresholdEd25519PresignRecord }
+export type RouterAbEd25519TakePresignForFinalizeResult =
+  | { ok: true; record: RouterAbEd25519PresignRecord }
   | { ok: false; code: 'not_found' | 'expired' | 'scope_mismatch' | 'invalid_record' };
 
-export type ThresholdEd25519PresignCapacity = {
+export type RouterAbEd25519PresignCapacity = {
   walletSigningSessionMax: number;
   globalMax: number;
 };
 
-export type ThresholdEd25519PutPresignWithCapacityResult =
+export type RouterAbEd25519PutPresignWithCapacityResult =
   | { ok: true }
   | { ok: false; code: 'capacity_exceeded' };
 
-export type ThresholdEd25519CheckPresignCapacityResult =
+export type RouterAbEd25519CheckPresignCapacityResult =
   | { ok: true }
   | { ok: false; code: 'capacity_exceeded' };
 
-export type ThresholdEd25519PresignRefillRateLimitBucket = {
+export type RouterAbEd25519PresignRefillRateLimitBucket = {
   kind: 'wallet_signing_session' | 'threshold_session' | 'account_relayer_key' | 'request_origin';
   key: string;
 };
 
-export type ThresholdEd25519PresignRefillRateLimitPolicy = {
+export type RouterAbEd25519PresignRefillRateLimitPolicy = {
   windowMs: number;
   maxCost: number;
 };
 
-export type ThresholdEd25519ConsumePresignRefillRateLimitResult =
+export type RouterAbEd25519ConsumePresignRefillRateLimitResult =
   | { ok: true }
   | { ok: false; code: 'rate_limited' };
 
@@ -161,31 +161,31 @@ export interface ThresholdEd25519SessionStore {
   takeCoordinatorSigningSession(
     id: string,
   ): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null>;
-  putPresign(id: string, record: ThresholdEd25519PresignRecord, ttlMs: number): Promise<void>;
+  putPresign(id: string, record: RouterAbEd25519PresignRecord, ttlMs: number): Promise<void>;
   putPresignWithCapacity(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519PutPresignWithCapacityResult>;
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519PutPresignWithCapacityResult>;
   checkPresignCapacity(
     walletSigningSessionId: string,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519CheckPresignCapacityResult>;
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519CheckPresignCapacityResult>;
   consumePresignRefillRateLimit(
-    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
-    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
+    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
     cost: number,
-  ): Promise<ThresholdEd25519ConsumePresignRefillRateLimitResult>;
+  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult>;
   takePresignForFinalize(
     id: string,
-    expectedScope: ThresholdEd25519PresignExpectedScope,
-  ): Promise<ThresholdEd25519TakePresignForFinalizeResult>;
+    expectedScope: RouterAbEd25519PresignExpectedScope,
+  ): Promise<RouterAbEd25519TakePresignForFinalizeResult>;
 }
 
 function runtimePolicyScopesMatch(
-  left: ThresholdEd25519PresignRecord['runtimePolicyScope'],
-  right: ThresholdEd25519PresignExpectedScope['runtimePolicyScope'],
+  left: RouterAbEd25519PresignRecord['runtimePolicyScope'],
+  right: RouterAbEd25519PresignExpectedScope['runtimePolicyScope'],
 ): boolean {
   return (
     left.orgId === right.orgId &&
@@ -200,8 +200,8 @@ function participantIdsMatch(left: readonly number[], right: readonly number[]):
 }
 
 function presignRecordMatchesExpectedScope(
-  record: ThresholdEd25519PresignRecord,
-  expected: ThresholdEd25519PresignExpectedScope,
+  record: RouterAbEd25519PresignRecord,
+  expected: RouterAbEd25519PresignExpectedScope,
 ): boolean {
   return (
     record.thresholdSessionId === expected.thresholdSessionId &&
@@ -218,8 +218,8 @@ function presignRecordMatchesExpectedScope(
   );
 }
 
-function parseStoredPresignRecord(raw: unknown): ThresholdEd25519PresignRecord | null {
-  return parseThresholdEd25519PresignRecord(raw);
+function parseStoredPresignRecord(raw: unknown): RouterAbEd25519PresignRecord | null {
+  return parseRouterAbEd25519PresignRecord(raw);
 }
 
 function parseRawJson(raw: string | null): unknown | null {
@@ -253,8 +253,8 @@ function positiveIntegerLimit(value: number, fieldName: string): number {
 
 function presignRateLimitWindowKey(input: {
   prefix: string;
-  bucket: ThresholdEd25519PresignRefillRateLimitBucket;
-  policy: ThresholdEd25519PresignRefillRateLimitPolicy;
+  bucket: RouterAbEd25519PresignRefillRateLimitBucket;
+  policy: RouterAbEd25519PresignRefillRateLimitPolicy;
   nowMs: number;
 }): string {
   const key = toOptionalTrimmedString(input.bucket.key);
@@ -423,11 +423,11 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putPresign(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
   ): Promise<void> {
     const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const key = this.presignKey(id);
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     this.map.set(key, { value: { ...parsed, expiresAtMs }, expiresAtMs });
@@ -435,12 +435,12 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putPresignWithCapacity(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519PutPresignWithCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
     const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const walletMax = positiveIntegerCapacity(
       capacity.walletSigningSessionMax,
       'walletSigningSessionMax',
@@ -456,8 +456,8 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async checkPresignCapacity(
     walletSigningSessionId: string,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519CheckPresignCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
     const walletId = toOptionalTrimmedString(walletSigningSessionId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
@@ -472,10 +472,10 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   async consumePresignRefillRateLimit(
-    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
-    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
+    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
     cost: number,
-  ): Promise<ThresholdEd25519ConsumePresignRefillRateLimitResult> {
+  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
     const nowMs = Date.now();
     const costInt = positiveIntegerLimit(cost, 'cost');
     const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
@@ -497,8 +497,8 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async takePresignForFinalize(
     id: string,
-    expectedScope: ThresholdEd25519PresignExpectedScope,
-  ): Promise<ThresholdEd25519TakePresignForFinalizeResult> {
+    expectedScope: RouterAbEd25519PresignExpectedScope,
+  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
     const key = this.presignKey(id);
     const entry = this.map.get(key);
     if (!entry) return { ok: false, code: 'not_found' };
@@ -644,27 +644,27 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
 
   async putPresign(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
   ): Promise<void> {
     const k = id;
     if (!k) throw new Error('Missing presignId');
     const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     await this.client.setJson(this.presignKey(k), { ...parsed, expiresAtMs }, ttlMs);
   }
 
   async putPresignWithCapacity(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519PutPresignWithCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
     const k = id;
     if (!k) throw new Error('Missing presignId');
     const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     const walletMax = positiveIntegerCapacity(
       capacity.walletSigningSessionMax,
@@ -716,8 +716,8 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
 
   async checkPresignCapacity(
     walletSigningSessionId: string,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519CheckPresignCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
     const walletId = toOptionalTrimmedString(walletSigningSessionId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
@@ -745,10 +745,10 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
   }
 
   async consumePresignRefillRateLimit(
-    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
-    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
+    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
     cost: number,
-  ): Promise<ThresholdEd25519ConsumePresignRefillRateLimitResult> {
+  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
     const nowMs = Date.now();
     const costInt = positiveIntegerLimit(cost, 'cost');
     const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
@@ -774,8 +774,8 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
 
   async takePresignForFinalize(
     id: string,
-    expectedScope: ThresholdEd25519PresignExpectedScope,
-  ): Promise<ThresholdEd25519TakePresignForFinalizeResult> {
+    expectedScope: RouterAbEd25519PresignExpectedScope,
+  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
     const k = id;
     if (!k) return { ok: false, code: 'not_found' };
     const key = this.presignKey(k);
@@ -929,27 +929,27 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putPresign(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
   ): Promise<void> {
     const k = id;
     if (!k) throw new Error('Missing presignId');
     const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     await redisSetJson(this.client, this.presignKey(k), { ...parsed, expiresAtMs }, ttlMs);
   }
 
   async putPresignWithCapacity(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519PutPresignWithCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
     const k = id;
     if (!k) throw new Error('Missing presignId');
     const parsed = parseStoredPresignRecord(record);
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     const walletMax = positiveIntegerCapacity(
       capacity.walletSigningSessionMax,
@@ -1004,8 +1004,8 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async checkPresignCapacity(
     walletSigningSessionId: string,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519CheckPresignCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
     const walletId = toOptionalTrimmedString(walletSigningSessionId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
@@ -1036,10 +1036,10 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   async consumePresignRefillRateLimit(
-    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
-    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
+    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
     cost: number,
-  ): Promise<ThresholdEd25519ConsumePresignRefillRateLimitResult> {
+  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
     const nowMs = Date.now();
     const costInt = positiveIntegerLimit(cost, 'cost');
     const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
@@ -1068,8 +1068,8 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async takePresignForFinalize(
     id: string,
-    expectedScope: ThresholdEd25519PresignExpectedScope,
-  ): Promise<ThresholdEd25519TakePresignForFinalizeResult> {
+    expectedScope: RouterAbEd25519PresignExpectedScope,
+  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
     const k = id;
     if (!k) return { ok: false, code: 'not_found' };
     const key = this.presignKey(k);
@@ -1323,28 +1323,28 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putPresign(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
   ): Promise<void> {
     const k = id;
     if (!k) throw new Error('Missing presignId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     const parsed = parseStoredPresignRecord({ ...record, expiresAtMs });
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     await this.insertOrUpdate({ kind: 'presign', sessionId: k, record: parsed, expiresAtMs });
   }
 
   async putPresignWithCapacity(
     id: string,
-    record: ThresholdEd25519PresignRecord,
+    record: RouterAbEd25519PresignRecord,
     ttlMs: number,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519PutPresignWithCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519PutPresignWithCapacityResult> {
     const k = id;
     if (!k) throw new Error('Missing presignId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     const parsed = parseStoredPresignRecord({ ...record, expiresAtMs });
-    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const walletMax = positiveIntegerCapacity(
       capacity.walletSigningSessionMax,
       'walletSigningSessionMax',
@@ -1399,8 +1399,8 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async checkPresignCapacity(
     walletSigningSessionId: string,
-    capacity: ThresholdEd25519PresignCapacity,
-  ): Promise<ThresholdEd25519CheckPresignCapacityResult> {
+    capacity: RouterAbEd25519PresignCapacity,
+  ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
     const walletId = toOptionalTrimmedString(walletSigningSessionId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
@@ -1429,10 +1429,10 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   async consumePresignRefillRateLimit(
-    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
-    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+    bucket: RouterAbEd25519PresignRefillRateLimitBucket,
+    policy: RouterAbEd25519PresignRefillRateLimitPolicy,
     cost: number,
-  ): Promise<ThresholdEd25519ConsumePresignRefillRateLimitResult> {
+  ): Promise<RouterAbEd25519ConsumePresignRefillRateLimitResult> {
     const nowMs = Date.now();
     const costInt = positiveIntegerLimit(cost, 'cost');
     const maxCost = positiveIntegerLimit(policy.maxCost, 'maxCost');
@@ -1478,7 +1478,7 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
           this.namespace,
           'presign_rate',
           sessionId,
-          { kind: 'threshold_ed25519_presign_refill_rate_limit_v1', count: next },
+          { kind: 'router_ab_ed25519_presign_refill_rate_limit_v2', count: next },
           Math.floor(expiresAtMs),
         ],
       );
@@ -1494,8 +1494,8 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async takePresignForFinalize(
     id: string,
-    expectedScope: ThresholdEd25519PresignExpectedScope,
-  ): Promise<ThresholdEd25519TakePresignForFinalizeResult> {
+    expectedScope: RouterAbEd25519PresignExpectedScope,
+  ): Promise<RouterAbEd25519TakePresignForFinalizeResult> {
     const k = id;
     if (!k) return { ok: false, code: 'not_found' };
     const client = await this.connectForPresignTransaction();

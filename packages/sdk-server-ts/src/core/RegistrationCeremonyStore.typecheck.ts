@@ -256,6 +256,8 @@ const ecdsaBootstrap = {
     groupPublicKey33B64u: 'group-public',
     ethereumAddress: '0x0000000000000000000000000000000000000001',
   },
+  clientShareRetryCounter: 0,
+  relayerShareRetryCounter: 0,
   publicTranscriptDigest32B64u: 'digest',
   keyHandle: 'key-handle',
   signingRootId: 'project:env',

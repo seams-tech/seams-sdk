@@ -1,10 +1,10 @@
-import { createEcdsaAuthSessionStore } from '../../../core/ThresholdService';
-import { createEd25519AuthSessionStore } from '../../../core/ThresholdService';
+import { createEcdsaWalletSessionStore } from '../../../core/ThresholdService';
+import { createEd25519WalletSessionStore } from '../../../core/ThresholdService';
 import type { ThresholdStoreConfigInput } from '../../../core/types';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createSigningSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
 import { resolveSigningSessionSealIdempotencyFromEnv } from './idempotencyBackends';
-import { createSigningSessionSealPolicyFromThresholdAuthSessionStores } from './policy/sessionPolicy';
+import { createSigningSessionSealPolicyFromWalletSessionStores } from './policy/sessionPolicy';
 import { createSigningSessionSealRoutesOptions } from './routesOptions';
 
 export type CreateSigningSessionSealOptionsInput = {
@@ -89,22 +89,22 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
     );
   }
 
-  const authSessionStore = createEd25519AuthSessionStore({
+  const walletSessionStore = createEd25519WalletSessionStore({
     config: input.thresholdStoreConfig,
     logger: console,
     isNode: input.isNode === true,
   });
-  const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
+  const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
     config: input.thresholdStoreConfig,
     logger: console,
     isNode: input.isNode === true,
   });
 
   return createSigningSessionSealRoutesOptions({
-    sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-      ed25519Stores: [authSessionStore],
-      ecdsaStores: [ecdsaAuthSessionStore],
-      walletBudgetStores: [authSessionStore],
+    sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
+      ed25519Stores: [walletSessionStore],
+      ecdsaStores: [ecdsaWalletSessionStore],
+      walletBudgetStores: [walletSessionStore],
     }),
     cipher: createShamir3PassCipher({
       keyVersion,

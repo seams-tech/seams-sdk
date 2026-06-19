@@ -13,6 +13,11 @@ export const ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2 =
   '/v2/router-ab/ed25519/hss/respond' as const;
 export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2 =
   '/v2/router-ab/ed25519/hss/finalize' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2 =
+  '/v2/router-ab/ed25519/sign/prepare' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2 =
+  '/v2/router-ab/ed25519/sign/presign-pool/prepare' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2 = '/v2/router-ab/ed25519/sign' as const;
 export const WALLET_SESSION_SEAL_BASE_PATH_V2 = '/v2/wallet-session/seal' as const;
 
 export const PASSKEY_PRF_FIRST_SALT_V1 = new Uint8Array([
@@ -108,6 +113,7 @@ export type SealedSigningSessionEd25519RestoreMetadata = {
   sessionKind: 'jwt' | 'cookie';
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: string;
+  clientVerifyingShareB64u?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
 };
 

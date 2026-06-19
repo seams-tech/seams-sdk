@@ -47,8 +47,10 @@ import {
   parseEcdsaHssClientBootstrapRequest,
 } from '../core/ThresholdService/validation';
 import {
+  buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
   resolveActiveRuntimePolicyScopeForEnvironment,
-  signThresholdSessionAuthToken,
+  signRouterAbEcdsaHssWalletSessionJwt,
+  signRouterAbEd25519WalletSessionJwt,
 } from './commonRouterUtils';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -59,6 +61,7 @@ import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
+import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import { normalizeCorsOrigin } from '../core/SessionService';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
@@ -92,6 +95,7 @@ type RelayWalletRegistrationServices = {
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+  routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   session?: SessionAdapter | null;
 };
 
@@ -341,23 +345,30 @@ function parseParticipantIds(raw: unknown, field: string): ParseResult<number[]>
   return { ok: true, value: Array.from(new Set(participantIds)).sort((a, b) => a - b) };
 }
 
-async function attachEd25519ThresholdSessionJwt(
+async function attachEd25519WalletSessionJwt(
   input: RelayWalletRegistrationInput,
   result: Ed25519SessionCarrier,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
   const ed25519 = result.ed25519;
   const session = ed25519?.session;
   if (!session) return null;
-  const signed = await signThresholdSessionAuthToken({
+  if (session.sessionKind !== 'jwt') {
+    return routeError(400, 'invalid_body', 'Ed25519 Wallet Session must use jwt sessionKind');
+  }
+  const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.services.session,
-    kind: 'threshold_ed25519_session_v1',
     userId: ed25519.nearAccountId,
     rpId: result.rpId,
     relayerKeyId: ed25519.relayerKeyId,
-    sessionInfo: session,
+    sessionInfo: {
+      ...session,
+      sessionKind: 'jwt',
+      runtimePolicyScope: session.runtimePolicyScope,
+      routerAbNormalSigning: session.routerAbNormalSigning,
+    },
     fallbackParticipantIds: ed25519.participantIds,
-    requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
-    invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
+    requireJwtErrorMessage: 'Ed25519 Wallet Session must use jwt sessionKind',
+    invalidPayloadErrorMessage: 'invalid Ed25519 Wallet Session payload for jwt signing',
   });
   if (!signed.ok) {
     const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
@@ -367,15 +378,26 @@ async function attachEd25519ThresholdSessionJwt(
   return null;
 }
 
-async function attachEcdsaThresholdSessionJwt(
+async function attachEcdsaWalletSessionJwt(
   input: RelayWalletRegistrationInput,
   bootstrap: EcdsaHssServerBootstrapResponse | undefined,
   runtimePolicyScope?: RuntimePolicyScope,
 ): Promise<RouteResponse<RouteErrorBody> | null> {
   if (!bootstrap) return null;
-  const signed = await signThresholdSessionAuthToken({
+  const threshold = input.services.authService.getThresholdSigningService();
+  if (!threshold) {
+    return routeError(500, 'internal', 'Threshold signing is not configured on this server');
+  }
+  const routerAbEcdsaHssNormalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+    bootstrap,
+    routerAbPublicKeyset: input.services.routerAbPublicKeyset,
+    signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+  });
+  if (!routerAbEcdsaHssNormalSigning.ok) {
+    return routeError(500, 'internal', routerAbEcdsaHssNormalSigning.message);
+  }
+  const signed = await signRouterAbEcdsaHssWalletSessionJwt({
     session: input.services.session,
-    kind: 'threshold_ecdsa_session_v2',
     userId: bootstrap.walletId,
     rpId: bootstrap.rpId,
     relayerKeyId: bootstrap.relayerKeyId,
@@ -387,10 +409,23 @@ async function attachEcdsaThresholdSessionJwt(
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle: bootstrap.keyHandle,
+      stableKeyContext: {
+        walletId: bootstrap.walletId,
+        rpId: bootstrap.rpId,
+        keyScope: 'evm-family',
+        ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
+        signingRootId: bootstrap.signingRootId,
+        signingRootVersion: bootstrap.signingRootVersion,
+        contextBinding32B64u: bootstrap.contextBinding32B64u,
+      },
+      publicIdentity: bootstrap.publicIdentity,
+      activationEpoch: bootstrap.sessionId,
+      signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+      routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigning.state,
     },
     fallbackParticipantIds: bootstrap.participantIds,
-    requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
-    invalidPayloadErrorMessage: 'invalid thresholdEcdsa HSS bootstrap session payload for jwt signing',
+    requireJwtErrorMessage: 'ECDSA-HSS Wallet Session must use jwt sessionKind',
+    invalidPayloadErrorMessage: 'invalid ECDSA-HSS Wallet Session payload for jwt signing',
   });
   if (!signed.ok) {
     const code = signed.code === 'sessions_disabled' ? 'internal' : signed.code;
@@ -1735,8 +1770,14 @@ function parseWalletRegistrationFinalizeRequest(
     }
     const sessionKindRaw =
       typeof ed25519.sessionKind === 'string' ? ed25519.sessionKind.trim() : '';
-    const sessionKind =
-      sessionKindRaw === 'jwt' || sessionKindRaw === 'cookie' ? sessionKindRaw : undefined;
+    if (sessionKindRaw && sessionKindRaw !== 'jwt') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'ed25519.sessionKind must be jwt',
+      };
+    }
+    const sessionKind = sessionKindRaw === 'jwt' ? 'jwt' : undefined;
     const sessionPolicy = isPlainObject(ed25519.sessionPolicy)
       ? (ed25519.sessionPolicy as Ed25519SessionPolicy)
       : undefined;
@@ -2203,7 +2244,7 @@ export async function handleRelayWalletRegistrationHssRespond(
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.authService.respondWalletRegistrationHss(request.value);
   if (result.ok) {
-    const signingError = await attachEcdsaThresholdSessionJwt(
+    const signingError = await attachEcdsaWalletSessionJwt(
       input,
       result.ecdsa?.bootstrap,
       request.value.ecdsa?.clientBootstrap.runtimePolicyScope,
@@ -2226,7 +2267,7 @@ export async function handleRelayWalletRegistrationFinalize(
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.authService.finalizeWalletRegistration(request.value);
   if (result.ok) {
-    const signingError = await attachEd25519ThresholdSessionJwt(input, result);
+    const signingError = await attachEd25519WalletSessionJwt(input, result);
     if (signingError) return signingError;
   }
   const response = exposesRegistrationRouteDiagnostics(input)
@@ -2312,7 +2353,7 @@ export async function handleRelayWalletAddSignerHssRespond(
   }
   const result = await service.respondWalletAddSignerHss(request.value);
   if (result.ok) {
-    const signingError = await attachEcdsaThresholdSessionJwt(
+    const signingError = await attachEcdsaWalletSessionJwt(
       input,
       result.ecdsa?.bootstrap,
       request.value.ecdsa?.clientBootstrap.runtimePolicyScope,
@@ -2336,7 +2377,7 @@ export async function handleRelayWalletAddSignerFinalize(
   }
   const result = await service.finalizeWalletAddSigner(request.value);
   if (result.ok) {
-    const signingError = await attachEd25519ThresholdSessionJwt(input, result);
+    const signingError = await attachEd25519WalletSessionJwt(input, result);
     if (signingError) return signingError;
   }
   return routeJson(result.ok ? 200 : 400, result, {

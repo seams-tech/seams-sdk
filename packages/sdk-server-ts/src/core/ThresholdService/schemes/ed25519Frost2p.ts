@@ -1,10 +1,7 @@
 import type {
-  ThresholdEd25519AuthorizeResponse,
-  ThresholdEd25519AuthorizeWithSessionRequest,
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
 } from '../../types';
-import type { ThresholdEd25519SessionClaims } from '../validation';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from './schemeIds';
 import type {
   ThresholdEd25519Frost2pSchemeModule,
@@ -18,12 +15,7 @@ export type ThresholdEd25519Frost2pSchemeModuleDeps = {
     request: ThresholdEd25519RegistrationKeygenRequest,
   ): Promise<ThresholdEd25519RegistrationKeygenResult>;
   session(request: ThresholdEd25519SessionRequest): Promise<ThresholdEd25519SessionResponse>;
-  authorize(input: {
-    claims: ThresholdEd25519SessionClaims;
-    request: ThresholdEd25519AuthorizeWithSessionRequest;
-  }): Promise<ThresholdEd25519AuthorizeResponse>;
   protocol: ThresholdEd25519Frost2pSchemeModule['protocol'];
-  presign: ThresholdEd25519Frost2pSchemeModule['presign'];
 };
 
 export function createThresholdEd25519Frost2pSchemeModule(
@@ -36,8 +28,6 @@ export function createThresholdEd25519Frost2pSchemeModule(
       keygenFromRegistrationMaterial: deps.registrationKeygenFromRegistrationMaterial,
     },
     session: deps.session,
-    authorize: deps.authorize,
-    presign: deps.presign,
     protocol: deps.protocol,
   };
 }

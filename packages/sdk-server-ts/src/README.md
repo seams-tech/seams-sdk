@@ -26,7 +26,7 @@ const rorOrigins = [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_OR
 const session = new SessionService({
   jwt: {
     signToken: ({ payload }) => {
-      // If payload.exp is supplied (e.g., threshold session tokens), do not override it with `expiresIn`.
+      // If payload.exp is supplied (e.g., Wallet Session JWTs), do not override it with `expiresIn`.
       const hasExp =
         typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
       return jwt.sign(payload as any, process.env.JWT_SECRET || 'dev-insecure', {
