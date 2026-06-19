@@ -127,13 +127,13 @@ export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): Handler
       respondOkResult(deps, req.requestId, result);
     },
 
-    PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL: async (
-      req: Req<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'>,
+    PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL: async (
+      req: Req<'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL'>,
     ) => {
       const pm = deps.getSeamsWeb();
       const { walletSession, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
-      const result = await pm.auth.prefillThresholdEcdsaPresignPool({
+      const result = await pm.auth.prefillRouterAbEcdsaHssPresignaturePool({
         walletSession,
         chainTarget: options.chainTarget,
         ...(typeof options.waitForPoolReady === 'boolean'

@@ -14,8 +14,8 @@ import {
 import { buildEcdsaLaneBudgetStatusCheck, ed25519WalletBudgetOwner } from '../budget/budget';
 import { getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue } from '../persistence/records';
 import {
-  scheduleThresholdEcdsaLoginPresignPrefill as scheduleThresholdEcdsaLoginPresignPrefillValue,
-  type ThresholdEcdsaLoginPrefillResult,
+  scheduleRouterAbEcdsaHssLoginPresignaturePrefill as scheduleRouterAbEcdsaHssLoginPresignaturePrefillValue,
+  type RouterAbEcdsaHssLoginPresignaturePrefillResult,
 } from './ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaBootstrapSignerAuth } from './ecdsaBootstrapPersistence';
@@ -59,14 +59,14 @@ export type WarmCapabilitiesPublicDeps = {
     chainTarget: ThresholdEcdsaChainTarget,
   ) => string | null;
   getSignerWorkerContext: Parameters<
-    typeof scheduleThresholdEcdsaLoginPresignPrefillValue
+    typeof scheduleRouterAbEcdsaHssLoginPresignaturePrefillValue
   >[0]['getSignerWorkerContext'];
-  resolveClientSigningShare32: Parameters<
-    typeof scheduleThresholdEcdsaLoginPresignPrefillValue
-  >[0]['resolveClientSigningShare32'];
-  thresholdEcdsaPresignPoolPolicy?: Parameters<
-    typeof scheduleThresholdEcdsaLoginPresignPrefillValue
-  >[0]['thresholdEcdsaPresignPoolPolicy'];
+  resolveClientSigningMaterialSource: Parameters<
+    typeof scheduleRouterAbEcdsaHssLoginPresignaturePrefillValue
+  >[0]['resolveClientSigningMaterialSource'];
+  routerAbEcdsaHssPresignaturePoolPolicy?: Parameters<
+    typeof scheduleRouterAbEcdsaHssLoginPresignaturePrefillValue
+  >[0]['routerAbEcdsaHssPresignaturePoolPolicy'];
 };
 
 export async function persistThresholdEcdsaBootstrapForWalletTarget(
@@ -164,7 +164,7 @@ function isRecordBackedEcdsaStatus(
   return Boolean(status && typeof status.walletSigningSessionId === 'string');
 }
 
-export async function scheduleThresholdEcdsaLoginPresignPrefill(
+export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
   deps: WarmCapabilitiesPublicDeps,
   args: {
     walletId: WalletId;
@@ -172,8 +172,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     minRemainingUsesBeforePrefill?: number;
   },
-): Promise<ThresholdEcdsaLoginPrefillResult> {
-  return await scheduleThresholdEcdsaLoginPresignPrefillValue(
+): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
+  return await scheduleRouterAbEcdsaHssLoginPresignaturePrefillValue(
     {
       getWarmThresholdEcdsaSessionStatus: async (
         walletIdArg: WalletId,
@@ -197,8 +197,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
         });
       },
       getSignerWorkerContext: deps.getSignerWorkerContext,
-      resolveClientSigningShare32: deps.resolveClientSigningShare32,
-      thresholdEcdsaPresignPoolPolicy: deps.thresholdEcdsaPresignPoolPolicy,
+      resolveClientSigningMaterialSource: deps.resolveClientSigningMaterialSource,
+      routerAbEcdsaHssPresignaturePoolPolicy: deps.routerAbEcdsaHssPresignaturePoolPolicy,
     },
     args,
   );
@@ -218,4 +218,4 @@ export async function clearVolatileWarmSigningMaterial(
   await deps.clearVolatileWarmSigningMaterial(walletId);
 }
 
-export type { ThresholdEcdsaLoginPrefillResult };
+export type { RouterAbEcdsaHssLoginPresignaturePrefillResult };

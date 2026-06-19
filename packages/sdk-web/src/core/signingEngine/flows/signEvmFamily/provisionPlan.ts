@@ -6,10 +6,9 @@ import {
   buildEcdsaSigningKeyContextFromRecord,
   buildPasskeyEcdsaSessionProvision,
   buildPasskeyEcdsaProvisionSecretSource,
-  buildThresholdSessionAuthEcdsaReconnect,
-  type CookieEcdsaReconnect,
+  buildWalletSessionEcdsaReconnect,
   type PasskeyEcdsaSessionProvision,
-  type ThresholdSessionAuthEcdsaReconnect,
+  type WalletSessionEcdsaReconnect,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type {
@@ -24,8 +23,7 @@ type PasskeyEcdsaProvisionMaterial = {
 };
 
 export type EvmFamilyWarmSessionReconnectPlan =
-  | ThresholdSessionAuthEcdsaReconnect
-  | CookieEcdsaReconnect;
+  WalletSessionEcdsaReconnect;
 
 export function buildEvmFamilyWarmSessionReconnectPlan(args: {
   authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
@@ -38,7 +36,7 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
   };
   sessionBudgetUses: number;
 }): EvmFamilyWarmSessionReconnectPlan {
-  return buildThresholdSessionAuthEcdsaReconnect({
+  return buildWalletSessionEcdsaReconnect({
     chainTarget: args.material.lane.chainTarget,
     existingSessionIdentity: buildEcdsaSessionIdentity({
       thresholdSessionId: args.material.lane.thresholdSessionId,
@@ -79,7 +77,7 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
         args.authorization.plannedPasskeyReconnect.webauthnChallenge.walletSigningSessionId,
     }),
     signingKeyContext: buildEcdsaSigningKeyContextFromRecord(args.material.record),
-    sessionKind: args.material.record.thresholdSessionKind || 'jwt',
+    sessionKind: 'jwt' as const,
     sessionBudgetUses: args.sessionBudgetUses,
     requestId: args.authorization.plannedPasskeyReconnect.webauthnChallenge.requestId,
     provisionSecretSource: buildPasskeyEcdsaProvisionSecretSource({

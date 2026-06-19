@@ -46,8 +46,6 @@ export type EmailOtpRecoveryCodeRotationMaterial = {
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
   activeRecoveryCodeCount: number;

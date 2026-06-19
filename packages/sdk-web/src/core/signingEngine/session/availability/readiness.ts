@@ -19,6 +19,7 @@ import {
   readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from '../warmCapabilities/store';
+import { parseRouterAbEcdsaHssSigningWalletSessionFromRecord } from '../routerAbSigningWalletSession';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
@@ -369,6 +370,7 @@ export function buildDiscoveredLaneForRecord(
         walletSigningSessionId,
       });
     }
+    if (!parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record).ok) return null;
     return {
       curve: 'ecdsa',
       chain,
@@ -377,7 +379,7 @@ export function buildDiscoveredLaneForRecord(
       thresholdSessionId,
       walletSigningSessionId,
       backingMaterialSessionId: thresholdSessionId,
-      backing: 'touch_confirm',
+      backing: 'record_policy',
       record,
     };
   }
@@ -557,6 +559,19 @@ export function walletOwnerSigningSessionStatusOverrideKey(
   return `${walletBudgetOwnerKey(owner)}:${normalizeNonEmpty(walletSigningSessionId)}`;
 }
 
+function walletSigningSessionStatusOverrideOwners(args: {
+  owner: WalletBudgetOwner;
+  lanes: DiscoveredSigningSessionLane[];
+}): WalletBudgetOwner[] {
+  const ownersByKey = new Map<string, WalletBudgetOwner>();
+  ownersByKey.set(walletBudgetOwnerKey(args.owner), args.owner);
+  for (const lane of args.lanes) {
+    const owner = resolveRecordWalletOwnerId(lane.record);
+    ownersByKey.set(walletBudgetOwnerKey(owner), owner);
+  }
+  return [...ownersByKey.values()];
+}
+
 export function rememberWalletSigningSessionStatusOverride(args: {
   overrides: Map<string, WalletSigningSessionStatusOverride>;
   owner: WalletBudgetOwner;
@@ -567,21 +582,27 @@ export function rememberWalletSigningSessionStatusOverride(args: {
   const walletSigningSessionId = normalizeNonEmpty(args.walletSigningSessionId);
   if (!walletSigningSessionId) return;
   const now = Date.now();
-  args.overrides.set(
-    walletOwnerSigningSessionStatusOverrideKey(args.owner, walletSigningSessionId),
-    {
-      owner: args.owner,
-      walletSigningSessionId,
-      status: {
-        ...args.status,
-        sessionId: walletSigningSessionId,
-      },
-      thresholdSessionIds: new Set(
-        args.lanes.map((lane) => normalizeNonEmpty(lane.thresholdSessionId)).filter(Boolean),
-      ),
-      updatedAtMs: now,
-    },
+  const thresholdSessionIds = new Set(
+    args.lanes.map((lane) => normalizeNonEmpty(lane.thresholdSessionId)).filter(Boolean),
   );
+  for (const owner of walletSigningSessionStatusOverrideOwners({
+    owner: args.owner,
+    lanes: args.lanes,
+  })) {
+    args.overrides.set(
+      walletOwnerSigningSessionStatusOverrideKey(owner, walletSigningSessionId),
+      {
+        owner,
+        walletSigningSessionId,
+        status: {
+          ...args.status,
+          sessionId: walletSigningSessionId,
+        },
+        thresholdSessionIds,
+        updatedAtMs: now,
+      },
+    );
+  }
 }
 
 function resolveApplicableWalletSigningSessionStatusOverride(args: {
@@ -600,12 +621,14 @@ function resolveApplicableWalletSigningSessionStatusOverride(args: {
     return claim?.state === 'warm';
   });
   if (freshActiveLane) {
-    args.statusOverrides?.delete(
-      walletOwnerSigningSessionStatusOverrideKey(
-        resolveRecordWalletOwnerId(freshActiveLane.record),
-        args.override.walletSigningSessionId,
-      ),
-    );
+    for (const lane of args.lanes) {
+      args.statusOverrides?.delete(
+        walletOwnerSigningSessionStatusOverrideKey(
+          resolveRecordWalletOwnerId(lane.record),
+          args.override.walletSigningSessionId,
+        ),
+      );
+    }
     return null;
   }
   return args.override;
@@ -880,6 +903,54 @@ export function statusFromConsumeResults(args: {
   });
 }
 
+function consumeRecordPolicyLane(args: {
+  lane: DiscoveredSigningSessionLane;
+  uses: number;
+  nowMs: number;
+  basisStatus: SigningSessionStatus | null;
+}): WarmSessionStatusResult {
+  if (args.basisStatus?.status === 'exhausted') {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'record-policy signing session exhausted',
+    };
+  }
+  if (args.basisStatus?.status === 'expired') {
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'record-policy signing session expired',
+    };
+  }
+  const remainingUses = Math.max(
+    0,
+    Math.floor(Number(args.basisStatus?.remainingUses ?? args.lane.record.remainingUses) || 0),
+  );
+  const expiresAtMs = Math.floor(
+    Number(args.basisStatus?.expiresAtMs ?? args.lane.record.expiresAtMs) || 0,
+  );
+  if (expiresAtMs <= args.nowMs) {
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'record-policy signing session expired',
+    };
+  }
+  if (remainingUses < args.uses) {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'record-policy signing session exhausted',
+    };
+  }
+  return {
+    ok: true,
+    remainingUses: remainingUses - args.uses,
+    expiresAtMs,
+  };
+}
+
 export function resolveStatusAfterConsume(args: {
   walletSigningSessionId: string;
   lanes: DiscoveredSigningSessionLane[];
@@ -965,19 +1036,14 @@ export async function consumeWalletSigningSessionUse(args: {
   }
   const consumedBacking = new Set<string>();
   let skippedAlreadyConsumedBacking = false;
+  let status: SigningSessionStatus | null = null;
+  let statusRead = false;
   const consumeResults: ConsumeResultEntry[] = [];
   for (const lane of lanes) {
     const laneIsExplicitTarget =
       !hasExplicitTarget ||
       targetBacking.has(lane.backingMaterialSessionId) ||
       targetThreshold.has(lane.thresholdSessionId);
-    if (!laneIsExplicitTarget) {
-      // Explicit spend targets are the operation boundary. Companion lanes may
-      // share a wallet session id, but spending them locally here can create a
-      // false exhausted state while the server still reports the requested lane
-      // as active.
-      continue;
-    }
     const thresholdAlreadyConsumed = alreadyConsumedThreshold.has(lane.thresholdSessionId);
     const backingAlreadyConsumed =
       thresholdAlreadyConsumed || alreadyConsumedBacking.has(lane.backingMaterialSessionId);
@@ -1022,18 +1088,26 @@ export async function consumeWalletSigningSessionUse(args: {
         break;
       }
       case 'record_policy':
+        if (!statusRead) {
+          status = (await args.readStatus(input.budgetStatusCheck)) || null;
+          statusRead = true;
+        }
+        consumeResults.push({
+          lane,
+          result: consumeRecordPolicyLane({
+            lane,
+            uses,
+            nowMs: Date.now(),
+            basisStatus: status,
+          }),
+          laneIsExplicitTarget,
+        });
         break;
     }
     consumedBacking.add(lane.backingMaterialSessionId);
   }
 
-  const consumedOrTargetedLanes = hasExplicitTarget
-    ? lanes.filter(
-        (lane) =>
-          targetBacking.has(lane.backingMaterialSessionId) ||
-          targetThreshold.has(lane.thresholdSessionId),
-      )
-    : lanes;
+  const consumedOrTargetedLanes = lanes;
   const ed25519EmailOtpLane = consumedOrTargetedLanes.find(
     (lane) =>
       lane.curve === 'ed25519' &&
@@ -1048,9 +1122,13 @@ export async function consumeWalletSigningSessionUse(args: {
     });
   }
 
-  const status = (await args.readStatus(input.budgetStatusCheck)) || {
+  if (!statusRead) {
+    status = await args.readStatus(input.budgetStatusCheck);
+    statusRead = true;
+  }
+  const trustedStatus = status || {
     sessionId: walletSigningSessionId,
-    status: 'not_found',
+    status: 'not_found' as const,
   };
   const consumedStatus = statusFromConsumeResults({
     walletSigningSessionId,
@@ -1061,7 +1139,7 @@ export async function consumeWalletSigningSessionUse(args: {
   const resolvedStatus = resolveStatusAfterConsume({
     walletSigningSessionId,
     lanes,
-    status,
+    status: trustedStatus,
     consumedStatus,
     skippedAlreadyConsumedBacking,
   });

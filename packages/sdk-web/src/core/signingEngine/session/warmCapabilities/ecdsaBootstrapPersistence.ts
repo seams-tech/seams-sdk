@@ -18,6 +18,14 @@ import {
   SIGNER_KINDS,
   SIGNER_SOURCES,
 } from '@shared/utils/signerDomain';
+import {
+  parseThresholdRuntimePolicyScopeFromJwt,
+  normalizeThresholdRuntimePolicyScope,
+} from '../../threshold/sessionPolicy';
+import {
+  resolveThresholdSigningRootBindingFromRecord,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../identity/evmFamilyEcdsaIdentity';
 
 export type ThresholdEcdsaBootstrapStorePort = {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
@@ -106,11 +114,25 @@ function ecdsaBootstrapSignerActivation(args: {
     secondary: keygen.ecdsaThresholdKeyId,
     field: 'ecdsaThresholdKeyId',
   });
-  const signingRootId = requireBootstrapString(keyRef.signingRootId, 'signingRootId');
-  const signingRootVersion = requireBootstrapString(
-    keyRef.signingRootVersion,
-    'signingRootVersion',
-  );
+  const ecdsaRoleLocalReadyRecord = keyRef.backendBinding?.ecdsaRoleLocalReadyRecord;
+  if (!ecdsaRoleLocalReadyRecord) {
+    throw new Error(
+      '[SigningEngine] threshold-ecdsa bootstrap did not provide role-local ready record',
+    );
+  }
+  const runtimePolicyScope =
+    normalizeThresholdRuntimePolicyScope(args.bootstrap.session.runtimePolicyScope) ||
+    parseThresholdRuntimePolicyScopeFromJwt(args.bootstrap.session.jwt || keyRef.walletSessionJwt);
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record: {
+      keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      signingRootId: ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,
+      signingRootVersion: ecdsaRoleLocalReadyRecord.publicFacts.signingRootVersion,
+    },
+  });
+  const signingRootId = String(signingRootBinding.signingRootId);
+  const signingRootVersion = String(signingRootBinding.signingRootVersion);
   const thresholdOwnerAddress = normalizeIndexedDbAccountAddress(keygen.ethereumAddress);
   if (!thresholdOwnerAddress) {
     throw new Error(

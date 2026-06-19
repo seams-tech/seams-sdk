@@ -25,7 +25,7 @@ export function createBrowserWarmSessionPublicDeps(args: {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   enginePorts: Pick<
     SigningEnginePorts,
-    | 'thresholdSessionActivationDeps'
+    | 'walletSessionActivationDeps'
     | 'resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'
     | 'signingSessionCoordinator'
   >;
@@ -42,14 +42,14 @@ export function createBrowserWarmSessionPublicDeps(args: {
       warmSigning: args.warmSigning,
       thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
       ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
-      thresholdSessionActivationDeps: args.enginePorts.thresholdSessionActivationDeps,
+      walletSessionActivationDeps: args.enginePorts.walletSessionActivationDeps,
     }),
     warmCapabilitiesPublicDeps: createWarmCapabilitiesPublicDeps({
       seamsWebConfigs: args.seamsWebConfigs,
       bootstrapStore: args.stores.walletProfileAndSignerRecords.ecdsaBootstrapStore,
       touchConfirm: args.touchConfirm,
       warmSigning: args.warmSigning,
-      thresholdSessionActivationDeps: args.enginePorts.thresholdSessionActivationDeps,
+      walletSessionActivationDeps: args.enginePorts.walletSessionActivationDeps,
       resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
         args.enginePorts.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget,
       signingSessionCoordinator: args.enginePorts.signingSessionCoordinator,

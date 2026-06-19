@@ -384,7 +384,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
               getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
             let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
             if (ed25519Record?.source === SIGNER_AUTH_METHODS.emailOtp) {
-              if (String(ed25519Record.xClientBaseB64u || '').trim()) {
+              if (
+                String(ed25519Record.ed25519HssMaterialHandle || '').trim() &&
+                String(ed25519Record.ed25519HssMaterialBindingDigest || '').trim() &&
+                String(ed25519Record.clientVerifyingShareB64u || '').trim()
+              ) {
                 localClaim = runtimeRecordPolicyClaim({
                   sessionId,
                   remainingUses: ed25519Record.remainingUses,

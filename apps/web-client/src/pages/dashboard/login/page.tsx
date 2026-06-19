@@ -87,10 +87,10 @@ export function DashboardLoginPage(): React.JSX.Element {
         throw new Error('Relayer base URL is not configured');
       }
       if (!googleClientId) {
-        throw new Error('Google client ID is not configured on the relay server');
+        throw new Error('Google client ID is not configured on the Router API server');
       }
       if (!googleConfigured) {
-        throw new Error('Google OIDC is not configured on the relay server');
+        throw new Error('Google OIDC is not configured on the Router API server');
       }
 
       await ensureGoogleIdentityScriptLoaded();

@@ -10,7 +10,7 @@ pnpm install
 pnpm build:sdk-full
 ```
 
-Run the local site, wallet origin, docs, and relay server from the repo root:
+Run the local site, wallet origin, docs, and Router API server from the repo root:
 
 ```bash
 pnpm run site
@@ -19,10 +19,10 @@ pnpm run server
 
 - Run the commands above in separate terminals.
 - `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
-- `pnpm run server` starts the relay server.
-- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, relay API base `https://localhost:9444`.
+- `pnpm run server` starts the Router API server.
+- Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, Router API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.
-- Internal dev ports: Vite on `http://localhost:3600`, relay on `http://127.0.0.1:8444`.
+- Internal dev ports: Vite on `http://localhost:3600`, Router API server on `http://127.0.0.1:9090`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
 
@@ -33,7 +33,7 @@ pnpm run server
 - `apps/docs`: documentation site.
 - `packages/sdk-web`: browser SDK package.
 - `packages/sdk-server-ts`: server-side router and relay helpers.
-- `packages/sdk-runtime-ts`: shared runtime package code.
+- `packages/sdk-web/src/core/runtime`: shared runtime composition code.
 - `packages/shared-ts`: shared TypeScript utilities.
 - `crates`: Rust protocol, signer, HSS, and Router A/B crates.
 - `wasm`: signer WASM packages.
@@ -55,16 +55,16 @@ pnpm run server
 
 ### Router A/B Local Development
 
-- Interleaved four-worker logs: `pnpm router`
+- Interleaved local service logs: `pnpm router`
 - 2x2 terminal dashboard: `pnpm router:multiplex`
-- Bundled single-server profile: `pnpm router:bundled`
-- Four-worker smoke: `pnpm router:smoke`
-- Bundled smoke: `pnpm router:smoke:bundled`
+- Verify a running local topology: `pnpm router:check`
+- Public HTTPS route probe: `pnpm router:public-route-smoke`
 
 These commands launch Router A/B protocol harnesses. Browser account creation at
 `https://localhost` still needs the local site; `pnpm router` and
-`pnpm router:multiplex` start the relay upstream at `127.0.0.1:8444` when it is
-not already running.
+`pnpm router:multiplex` start the Router server at `127.0.0.1:9090` when it is
+not already running. After SDK or WASM changes, run `pnpm build:sdk-full`
+explicitly before restarting local services.
 
 See `docs/router-a-b-local-dev.md` for the full local-development flow.
 

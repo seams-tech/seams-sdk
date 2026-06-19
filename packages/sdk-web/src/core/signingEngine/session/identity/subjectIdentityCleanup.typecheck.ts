@@ -22,7 +22,11 @@ import {
   type EmailOtpRefreshIdentity,
 } from '../emailOtp/appSessionJwtCache';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import { SigningOperationIntent, SigningSessionIds } from '../operationState/types';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+  type WalletSigningSpendPlan,
+} from '../operationState/types';
 
 const walletId = toAccountId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -113,28 +117,37 @@ const invalidFreshness: FreshStepUpRequired = {
 };
 void invalidFreshness;
 
-const reservationIdentity = buildSigningBudgetReservationIdentity({
-  spend: {
-    operationId,
-    operationFingerprint,
-    walletId,
-    walletSigningSessionId: laneIdentity.walletSigningSessionId,
-    lane: {
-      ...laneIdentity,
-      key,
-      keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
-      keyKind: 'threshold_ecdsa_secp256k1',
-      chainFamily: 'tempo',
-      sessionOrigin: 'per_operation',
-      storageSource: 'email_otp',
-      retention: 'single_use',
-    },
-    ecdsaKey: key,
-    thresholdSessionIds: [laneIdentity.thresholdSessionId],
-    backingMaterialSessionIds: [],
-    uses: 1,
-    reason: SigningOperationIntent.TransactionSign,
+const ecdsaSpendPlan: WalletSigningSpendPlan = {
+  operationId,
+  operationFingerprint,
+  walletId,
+  walletSigningSessionId: laneIdentity.walletSigningSessionId,
+  lane: {
+    ...laneIdentity,
+    key,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+    keyKind: 'threshold_ecdsa_secp256k1',
+    chainFamily: 'tempo',
+    sessionOrigin: 'per_operation',
+    storageSource: 'email_otp',
+    retention: 'single_use',
   },
+  thresholdSessionIds: [laneIdentity.thresholdSessionId],
+  backingMaterialSessionIds: [],
+  uses: 1,
+  reason: SigningOperationIntent.TransactionSign,
+};
+void ecdsaSpendPlan;
+
+const invalidEcdsaSpendPlanWithKey = {
+  ...ecdsaSpendPlan,
+  // @ts-expect-error ECDSA spend derives key identity from the selected lane.
+  ecdsaKey: key,
+} satisfies WalletSigningSpendPlan;
+void invalidEcdsaSpendPlanWithKey;
+
+const reservationIdentity = buildSigningBudgetReservationIdentity({
+  spend: ecdsaSpendPlan,
   projectionVersion: 'projection-1',
 });
 void reservationIdentity;

@@ -960,6 +960,36 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
   return record;
 }
 
+async function deleteConflictingThresholdEcdsaSignerRows(args: {
+  store: any;
+  nextRow: WalletSignerRow;
+}): Promise<void> {
+  const row = args.nextRow;
+  if (row.kind !== SIGNER_KINDS.thresholdEcdsa || row.status === 'revoked') return;
+  if (!row.key_handle || !row.ecdsa_threshold_key_id) return;
+
+  const walletRows = (await args.store.index(SEAMS_WALLET_INDEXES.walletId).getAll(row.wallet_id)) as
+    | Partial<WalletSignerRow>[]
+    | undefined;
+  const conflictingRowIds = new Set<string>();
+  for (const existing of walletRows || []) {
+    const existingRowId = toTrimmedString(existing?.wallet_signer_id || '');
+    if (!existingRowId || existingRowId === row.wallet_signer_id) continue;
+    if (existing?.kind !== row.kind || existing?.chain_target_key !== row.chain_target_key) {
+      continue;
+    }
+    if (
+      existing?.key_handle === row.key_handle ||
+      existing?.ecdsa_threshold_key_id === row.ecdsa_threshold_key_id
+    ) {
+      conflictingRowIds.add(existingRowId);
+    }
+  }
+  for (const rowId of conflictingRowIds) {
+    await args.store.delete(rowId);
+  }
+}
+
 function signerOutboxRow(record: SignerOpOutboxRecord): SignerOpsOutboxRow {
   const opId = toTrimmedString(record.opId || '');
   const idempotencyKey = toTrimmedString(record.idempotencyKey || '');
@@ -1975,7 +2005,9 @@ export class SeamsWalletRepositories {
       existingStatus: existingSigner?.status,
       activeSigners,
     });
-    await signerStore.put(accountSignerRow(signer));
+    const signerRow = accountSignerRow(signer);
+    await deleteConflictingThresholdEcdsaSignerRows({ store: signerStore, nextRow: signerRow });
+    await signerStore.put(signerRow);
     if (input.selectAsActive ?? true) {
       await ctx.store(SEAMS_WALLET_STORES.appState).put({
         key: scopedLastProfileStateAppStateKey(),
@@ -2159,7 +2191,9 @@ export class SeamsWalletRepositories {
           existingStatus: existingSigner?.status,
           activeSigners,
         });
-        await signerStore.put(accountSignerRow(signer));
+        const signerRow = accountSignerRow(signer);
+        await deleteConflictingThresholdEcdsaSignerRows({ store: signerStore, nextRow: signerRow });
+        await signerStore.put(signerRow);
         if (input.mutation?.routeThroughOutbox ?? false) {
           const opId =
             toTrimmedString(input.mutation?.opId || '') || createRandomToken('add-signer');

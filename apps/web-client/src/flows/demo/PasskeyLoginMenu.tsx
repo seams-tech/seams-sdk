@@ -241,7 +241,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
 
     const result = await unlock(loginTarget, {
-      // Mint a JWT session via the relay server if session.kind is provided
+      // Mint a JWT session via the Router API server if session.kind is provided
       // session: {
       //   kind: 'jwt',
       // },
@@ -277,7 +277,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
     const googleOptions = await fetchGoogleAuthOptions(relayerBaseUrl);
     if (!googleOptions.configured || !googleOptions.clientId) {
-      throw new Error('Google SSO is not configured on the relay server');
+      throw new Error('Google SSO is not configured on the Router API server');
     }
 
     toast.loading('Opening Google SSO…', { id: 'google-sso' });

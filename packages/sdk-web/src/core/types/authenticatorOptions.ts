@@ -1,35 +1,17 @@
 import type * as wasmModule from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import {
+  cloneAuthenticatorOptions,
+  UserVerificationPolicy,
+  type AuthenticatorOptions,
+  type OriginPolicyInput,
+} from '@shared/utils/authenticatorOptions';
 
-/**
- * User verification policy for WebAuthn authenticators
- *
- * @example
- * ```typescript
- * // Require user verification (PIN, fingerprint, etc.)
- * UserVerificationPolicy.Required
- *
- * // Prefer user verification but don't require it
- * UserVerificationPolicy.Preferred
- *
- * // Discourage user verification (for performance)
- * UserVerificationPolicy.Discouraged
- * ```
- */
-export enum UserVerificationPolicy {
-  Required = 'required',
-  Preferred = 'preferred',
-  Discouraged = 'discouraged',
-}
-
-/**
- * Origin policy input for WebAuthn registration (matches WASM OriginPolicyInput struct)
- * Note: choose only one of the fields: single, all_subdomains, multiple
- */
-export interface OriginPolicyInput {
-  single: boolean | undefined;
-  all_subdomains: boolean | undefined;
-  multiple: string[] | undefined;
-}
+export {
+  cloneAuthenticatorOptions,
+  UserVerificationPolicy,
+  type AuthenticatorOptions,
+  type OriginPolicyInput,
+};
 
 export const toEnumUserVerificationPolicy = (
   userVerification: UserVerificationPolicy | undefined,
@@ -45,33 +27,3 @@ export const toEnumUserVerificationPolicy = (
       return 'preferred' as unknown as wasmModule.UserVerificationPolicy;
   }
 };
-
-export interface AuthenticatorOptions {
-  userVerification: UserVerificationPolicy;
-  originPolicy: OriginPolicyInput;
-}
-
-type AuthenticatorOptionsLike =
-  | AuthenticatorOptions
-  | {
-      userVerification: UserVerificationPolicy;
-      originPolicy: {
-        single: boolean | undefined;
-        all_subdomains: boolean | undefined;
-        multiple: readonly string[] | string[] | undefined;
-      };
-    };
-
-export function cloneAuthenticatorOptions(
-  options: AuthenticatorOptionsLike,
-): AuthenticatorOptions {
-  const multiple = options.originPolicy?.multiple;
-  return {
-    userVerification: options.userVerification,
-    originPolicy: {
-      single: options.originPolicy?.single,
-      all_subdomains: options.originPolicy?.all_subdomains,
-      multiple: Array.isArray(multiple) ? [...multiple] : undefined,
-    },
-  };
-}

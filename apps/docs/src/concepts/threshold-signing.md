@@ -4,151 +4,73 @@ title: Threshold Signing
 
 # Threshold Signing
 
-Seams uses a single-key threshold-ed25519 model for NEAR.
-
-There is one canonical Ed25519 lifecycle per account:
-
-- the client derives hidden inputs from factor-derived secret material
-- the relay derives hidden inputs from its server root material
-- the `ed25519-hss` ceremony reconstructs signing-share base material on demand
-- signing and export stay bound to the same canonical public key
-
-The active path no longer depends on a second Ed25519 recovery key, local wrap-key
-share derivation, or any separate keygen bootstrap flow.
-
-## Canonical Key Lifecycle
-
-The shared hidden root material defines one canonical seed `d`, one canonical
-signing scalar `a`, and one canonical public key `A`.
-
-At a high level:
-
-- `y_client` comes from client factor-derived secret material plus canonical context
-- `y_relayer` comes from relay root material plus the same context
-- `d` is reconstructed from `y_client + y_relayer`
-- `a` is the Ed25519 clamped scalar derived from `SHA-512(d)`
-- `A = [a]B`
-
-The HSS ceremony reconstructs base shares of `a` for signing without exposing
-raw client or relay root material across the wire.
+Seams product signing uses Router A/B for Ed25519 and ECDSA-HSS signatures.
+The SDK sends Wallet Session authorization to the public Router, and the Router
+fans out to private Deriver and SigningWorker services after admission checks.
 
 ## Active Product Flow
 
-The active threshold-ed25519 flow has three phases:
+The public signing boundary is:
 
-1. Registration or session mint establishes the canonical public key and a
-   threshold session policy.
-2. When the client needs live signing state, it runs the role-separated HSS
-   ceremony to reconstruct `xClientBaseB64u`.
-3. The signer worker uses only `xClientBaseB64u` plus relay cosigning to
-   produce a standard Ed25519 signature for the canonical key.
+- `POST /v2/router-ab/ed25519/sign/prepare`
+- `POST /v2/router-ab/ed25519/sign`
 
-The relay holds the matching relay signing material and binds all continuation
-steps to the same session scope, relayer key id, participant set, and public
-key.
-
-## Registration And Warm Session Flow
-
-Registration uses the sessionless single-key HSS seam. The relay derives and
-stores canonical threshold-ed25519 registration material from the finalized HSS
-report, and the client immediately reconstructs live signing state for warm
-session use.
+The SDK sends bearer Wallet Session auth with browser credentials omitted. The
+Router validates the request body, origin, policy, quota, expiry, replay state,
+and operation fingerprint before private worker traffic begins.
 
 ```mermaid
 sequenceDiagram
-  participant App as Wallet
-  participant Secure as "SecureConfirm + WebAuthn"
-  participant Relay as Relayer
+  participant App as Wallet SDK
+  participant Router as Router A/B
+  participant DeriverA as Deriver A
+  participant DeriverB as Deriver B
+  participant SigningWorker as SigningWorker
 
-  App->>Secure: derive registration-scoped factor inputs
-  App->>Relay: POST /registration/threshold-ed25519/hss/prepare
-  Relay-->>App: prepared registration HSS message
-  App->>Relay: POST /registration/threshold-ed25519/hss/finalize
-  Relay-->>App: publicKey + relayerKeyId + session bootstrap data
-  App->>App: persist threshold_ed25519_v1 record
-  App->>Relay: cache threshold session + runtime scope
-  App->>App: reconstruct and persist xClientBaseB64u for warm signing
+  App->>Router: POST /v2/router-ab/ed25519/sign/prepare or pool-hit finalize
+  Router->>Router: validate Wallet Session, scope, quota, replay
+  Router->>DeriverA: private role request
+  Router->>DeriverB: private role request
+  DeriverA-->>Router: opaque role output
+  DeriverB-->>Router: opaque role output
+  Router->>SigningWorker: private signing request
+  SigningWorker-->>Router: signature or prepared one-use handle
+  Router-->>App: typed response bound to request digest
 ```
 
-The persisted client record is a single-key `threshold_ed25519_v1` entry. It
-stores the canonical public key, relayer metadata, participant ids, and warm
-session context. It does not store a second recovery key.
+## Ed25519
 
-## Threshold Session And HSS Reconstruction
+Ed25519 supports NEAR transactions, NEP-413 messages, and NEP-461 delegate
+actions through Router A/B normal signing.
 
-The active warm-session path uses:
+The Ed25519 presign pool keeps the prior latency model:
 
-- `POST /threshold-ed25519/session`
-- `POST /threshold-ed25519/hss/prepare`
-- `POST /threshold-ed25519/hss/finalize`
+- pool hit: one public Router finalize request after local reservation
+- pool miss: Router prepare plus finalize fallback
+- handles are one-use, scoped, expiring, and bound to the exact signing request
 
-The threshold session token binds:
+## ECDSA-HSS
 
-- account id
-- relying party id
-- relayer key id
-- participant ids
-- canonical runtime scope
-- ttl / remaining uses
+ECDSA-HSS supports EVM-family digest signing through the same Router A/B public
+boundary.
 
-If `xClientBaseB64u` is missing, the client reconstructs it through the HSS
-routes before signing. Those requests stay segregated:
+The ECDSA-HSS presignature pool keeps the prior latency model:
 
-- the client does not send raw factor-derived secret material or raw `xClientBaseB64u`
-- the relay does not return raw relay base-share or server root material
-
-## Signing Flow
-
-Once the session is active and `xClientBaseB64u` is available, the signer path
-uses the standard threshold-ed25519 authorize and continuation routes.
-
-```mermaid
-sequenceDiagram
-  participant App as Wallet
-  participant Signer as Signer Worker
-  participant Relay as Relayer
-
-  App->>Relay: POST /threshold-ed25519/session
-  Relay-->>App: threshold session JWT
-  App->>Relay: POST /threshold-ed25519/hss/prepare
-  Relay-->>App: HSS server message
-  App->>Relay: POST /threshold-ed25519/hss/finalize
-  Relay-->>App: finalized HSS report
-  App->>Signer: xClientBaseB64u + canonical signer config
-  Signer->>Relay: POST /threshold-ed25519/authorize
-  Relay-->>Signer: signing session id
-  Signer->>Relay: POST /threshold-ed25519/sign/init
-  Relay-->>Signer: round-1 relay data
-  Signer->>Relay: POST /threshold-ed25519/sign/finalize
-  Relay-->>Signer: relay signature share
-  Signer->>Signer: aggregate standard Ed25519 signature
-```
-
-The active signer worker now consumes only single-key HSS signing material. It
-no longer derives live signing shares from wrap-key inputs or bootstrap-share
-inputs.
-
-## Export Flow
-
-Export is also bound to the same canonical key lifecycle.
-
-- the product opens canonical seed output from the finalized HSS report
-- it verifies that the derived public key matches the active threshold-ed25519
-  public key
-- it emits only `near-ed25519-seed-v1`
-
-There is no separate recovery-key export identity.
+- pool hit: consume one prepared presignature through Router A/B signing
+- pool miss: fill through Router A/B ECDSA-HSS pool-fill, then sign
+- missing pool-fill state is a hard failure for live refill
 
 ## Security Boundary
 
-The active design enforces:
+The current design enforces:
 
-- one canonical Ed25519 public key per account
-- no second active recovery key in the default path
-- no raw relay root or relay base-share output returned to the client
-- no raw factor-derived secret material forwarded to the relay
-- no durable client wrap-key share derivation in the signing path
+- Wallet Session auth at the public Router boundary
+- private Deriver and SigningWorker routes outside the public SDK surface
+- strict boundary parsers and unknown-field rejection
+- Router ciphertext opacity for role outputs
+- one-use nonce or presignature storage
+- request-digest binding before SDK response acceptance
 
-The relay and client each re-derive only their own hidden inputs and exchange
-only the role-separated HSS wire messages needed for reconstruction and
-signing.
+Deployment readiness requires local checks plus deployed Cloudflare browser
+evidence for configured-origin success, rejected-origin rejection, preflight
+behavior, and deleted-route absence.

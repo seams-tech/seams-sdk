@@ -1,7 +1,7 @@
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
-import type { AuthSessionDomainDeps } from '@/SeamsWeb/operations/auth/authSessions';
+import type { WalletAuthDomainDeps } from '@/SeamsWeb/operations/auth/walletAuth';
 import { createAuthCapability, type AuthCapabilityDomainMethods } from '@/SeamsWeb/publicApi/auth';
 import {
   createDevicesCapability,
@@ -107,7 +107,7 @@ export function createPublicApi(deps: {
   getTheme: () => ThemeName;
   userPreferences: UserPreferencesManager;
   getWalletIframe: () => WalletIframeCoordinator;
-  getAuthSessionDeps: () => AuthSessionDomainDeps;
+  getWalletAuthDeps: () => WalletAuthDomainDeps;
   auth: AuthCapabilityDomainMethods;
   registration: RegistrationCapabilityDomainMethods;
   recovery: RecoveryCapabilityDomainMethods;
@@ -145,7 +145,7 @@ export function createPublicApi(deps: {
       getWalletIframe: deps.getWalletIframe,
     }),
     auth: createAuthCapability({
-      getAuthSessionDeps: deps.getAuthSessionDeps,
+      getWalletAuthDeps: deps.getWalletAuthDeps,
       domain: deps.auth,
     }),
     registration: {

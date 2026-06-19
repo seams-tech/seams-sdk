@@ -3,7 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "prepare:sdk": "pnpm -C ../.. -s server:prepare-sdk",
+    "prepare:sdk": "pnpm -C ../../packages/sdk-web run build:prepare",
     "vite": "vite --host localhost --port 3600",
     "caddy": "bash run_caddy.sh",
     "dev": "pnpm run prepare:sdk && concurrently --kill-others --names site,caddy \"pnpm run vite\" \"pnpm run caddy\"",

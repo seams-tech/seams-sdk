@@ -225,8 +225,8 @@ export interface SeamsContextType {
  *       explorerUrl: 'https://testnet.nearblocks.io',
  *     },
  *   ],
- *   // Parent account used for new subaccount creation via the relay server.
- *   // Must match relay-server `RELAYER_ACCOUNT_ID` when using atomic registration.
+ *   // Parent account used for new subaccount creation via the Router API server.
+ *   // Must match server `RELAYER_ACCOUNT_ID` when using atomic registration.
  *   relayerAccount: 'w3a-relayer.testnet',
  *   relayer: { url: 'https://relay.example.com' },
  * }

@@ -805,11 +805,11 @@ export function NavbarStatic(): React.JSX.Element {
     setGoogleSigningIn(true);
     try {
       if (!googleClientId) {
-        throw new Error('Google client ID is not configured on the relay server');
+        throw new Error('Google client ID is not configured on the Router API server');
       }
       const configured = googleConfigChecked ? googleConfigured : await refreshGoogleConfigured();
       if (!configured) {
-        throw new Error('Google OIDC is not configured on the relay server');
+        throw new Error('Google OIDC is not configured on the Router API server');
       }
       if (!relayerBaseUrl) {
         throw new Error('Relayer base URL is not configured');

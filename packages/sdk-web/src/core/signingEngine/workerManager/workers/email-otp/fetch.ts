@@ -1,6 +1,6 @@
 import { errorMessage } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
 export type EmailOtpWorkerJson = Record<string, unknown>;
 
@@ -13,7 +13,7 @@ function requireObjectJson(value: unknown, label: string): EmailOtpWorkerJson {
 
 function buildSessionHeaders(args: {
   appSessionJwt?: string;
-  sessionAuth?: AppOrThresholdSessionAuth;
+  sessionAuth?: AppOrWalletSessionAuth;
 }): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = String(args.sessionAuth?.jwt || args.appSessionJwt || '').trim();
@@ -26,7 +26,7 @@ export async function postEmailOtpJson(args: {
   route: string;
   body: EmailOtpWorkerJson;
   appSessionJwt?: string;
-  sessionAuth?: AppOrThresholdSessionAuth;
+  sessionAuth?: AppOrWalletSessionAuth;
 }): Promise<EmailOtpWorkerJson> {
   const url = joinNormalizedUrl(args.relayUrl, args.route);
   try {

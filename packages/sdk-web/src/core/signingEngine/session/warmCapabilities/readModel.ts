@@ -16,6 +16,14 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
 } from './types';
+import {
+  persistedWarmSessionRecordRequiresWalletSessionJwt,
+  walletSessionJwtFromPersistedWarmSessionRecord,
+} from './walletSessionAuthBoundary';
+import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEd25519PersistedSigningRecord,
+} from '../routerAbSigningWalletSession';
 
 export type WarmSessionReadPortsInput =
   | Partial<
@@ -187,19 +195,19 @@ export function resolveEd25519AuthMaterial(
   record: WarmSessionEd25519CapabilityState['record'],
 ): WarmSessionEd25519AuthMaterial | null {
   if (!record) return null;
-  const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
-  if (thresholdSessionAuthToken) {
+  const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
+  if (walletSessionJwt) {
     return {
       capability: 'ed25519',
       record,
-      thresholdSessionAuthToken,
-      thresholdSessionAuthTokenSource: 'ed25519',
+      walletSessionJwt,
+      walletSessionJwtSource: 'ed25519_record',
     };
   }
   return {
     capability: 'ed25519',
     record,
-    thresholdSessionAuthTokenSource: 'none',
+    walletSessionJwtSource: 'none',
   };
 }
 
@@ -207,28 +215,32 @@ export function resolveEcdsaAuthMaterial(
   record: WarmSessionEcdsaCapabilityState['record'],
 ): WarmSessionEcdsaAuthMaterial | null {
   if (!record) return null;
-  const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
-  if (thresholdSessionAuthToken) {
+  if (record.thresholdSessionKind !== 'jwt') {
     return {
       capability: 'ecdsa',
+      state: 'unavailable',
       record,
-      thresholdSessionAuthToken,
-      thresholdSessionAuthTokenSource: 'ecdsa',
+      walletSessionJwtSource: 'none',
+      unavailableReason: 'cookie_session',
+    };
+  }
+  const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
+  if (walletSessionJwt) {
+    return {
+      capability: 'ecdsa',
+      state: 'ready',
+      record,
+      walletSessionJwt,
+      walletSessionJwtSource: 'ecdsa_record',
     };
   }
   return {
     capability: 'ecdsa',
+    state: 'unavailable',
     record,
-    thresholdSessionAuthTokenSource: 'none',
+    walletSessionJwtSource: 'none',
+    unavailableReason: 'missing_wallet_session_jwt',
   };
-}
-
-function hasRecordBackedEd25519ClientBase(
-  record: WarmSessionEd25519CapabilityState['record'],
-): boolean {
-  if (!record) return false;
-  if (!String(record.xClientBaseB64u || '').trim()) return false;
-  return record.source === 'email_otp' || record.thresholdSessionKind === 'cookie';
 }
 
 export function deriveEd25519CapabilityState(args: {
@@ -237,10 +249,7 @@ export function deriveEd25519CapabilityState(args: {
   prfClaim: WarmSessionPrfClaim | null;
 }): WarmSessionEd25519CapabilityState['state'] {
   if (!args.record) return 'missing';
-  if (
-    !args.auth ||
-    (args.record.thresholdSessionKind === 'jwt' && !args.auth.thresholdSessionAuthToken)
-  ) {
+  if (!args.auth || !args.auth.walletSessionJwt) {
     return 'auth_missing';
   }
   if (
@@ -250,13 +259,34 @@ export function deriveEd25519CapabilityState(args: {
   ) {
     return 'prf_missing';
   }
-  if (hasRecordBackedEd25519ClientBase(args.record)) {
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  if (persistedState.kind === 'signable') {
     return 'ready';
   }
+  if (
+    persistedState.kind === 'non_signing' ||
+    persistedState.reason === 'missing_wallet_session_jwt'
+  ) {
+    return 'auth_missing';
+  }
+  if (persistedState.kind === 'invalid') return 'invalid';
+  if (args.record.source !== 'email_otp') {
+    if (!args.prfClaim || args.prfClaim.state === 'missing' || args.prfClaim.state === 'warm') {
+      return 'material_pending';
+    }
+    return args.prfClaim.state === 'unavailable' ? 'prf_unavailable' : 'prf_missing';
+  }
   if (!args.prfClaim) return 'prf_missing';
-  if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
-  if (args.prfClaim.state !== 'warm') return 'prf_missing';
-  return 'ready';
+  switch (args.prfClaim.state) {
+    case 'warm':
+      return 'material_pending';
+    case 'unavailable':
+      return 'prf_unavailable';
+    case 'missing':
+    case 'expired':
+    case 'exhausted':
+      return 'prf_missing';
+  }
 }
 
 export function deriveEcdsaCapabilityState(args: {
@@ -265,10 +295,11 @@ export function deriveEcdsaCapabilityState(args: {
   prfClaim: WarmSessionPrfClaim | null;
 }): WarmSessionEcdsaCapabilityState['state'] {
   if (!args.record) return 'missing';
-  if (
-    args.record.thresholdSessionKind === 'jwt' &&
-    (!args.auth || !args.auth.thresholdSessionAuthToken)
-  ) {
+  const requiresWalletSessionJwt = persistedWarmSessionRecordRequiresWalletSessionJwt({
+    capability: 'ecdsa',
+    record: args.record,
+  });
+  if (requiresWalletSessionJwt && (!args.auth || args.auth.state === 'unavailable')) {
     return 'auth_missing';
   }
   if (
@@ -281,7 +312,15 @@ export function deriveEcdsaCapabilityState(args: {
   if (!args.prfClaim) return 'prf_missing';
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
   if (args.prfClaim.state !== 'warm') return 'prf_missing';
-  return 'ready';
+  const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+  if (persistedState.kind === 'signable') return 'ready';
+  if (
+    persistedState.kind === 'non_signing' ||
+    persistedState.reason === 'missing_wallet_session_jwt'
+  ) {
+    return 'auth_missing';
+  }
+  return 'material_pending';
 }
 
 export function hasSufficientWarmClaim(
@@ -366,16 +405,19 @@ export function resolveEcdsaSealTransport(args: {
   const keyVersion = String(args.keyVersion || '').trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
   const walletSigningSessionId = args.record.walletSigningSessionId;
+  const walletSessionJwt = String(args.auth?.walletSessionJwt || '').trim();
+  const walletSessionJwtSource =
+    args.auth?.walletSessionJwtSource === 'ecdsa_record' ? 'ecdsa' : 'none';
   return {
     curve: 'ecdsa',
     walletId: String(args.record.walletId),
     chainTarget: args.record.chainTarget,
     relayerUrl,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-    ...(String(args.auth?.thresholdSessionAuthToken || '').trim()
-      ? { thresholdSessionAuthToken: String(args.auth?.thresholdSessionAuthToken || '').trim() }
+    ...(walletSessionJwt
+      ? { walletSessionJwt: walletSessionJwt }
       : {}),
-    thresholdSessionAuthTokenSource: args.auth?.thresholdSessionAuthTokenSource || 'none',
+    walletSessionJwtSource,
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };

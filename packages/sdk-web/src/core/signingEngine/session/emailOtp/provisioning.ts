@@ -8,17 +8,16 @@ import {
   normalizeThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import {
-  deriveThresholdEd25519HssClientOutputMaskWasm,
-  deriveThresholdEd25519HssClientInputsWasm,
-} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import {
-  runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
+  runThresholdEd25519HssCeremonyWithMaterialHandle,
 } from '@/core/signingEngine/threshold/ed25519/hssLifecycle';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
+import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 } from '@shared/utils/signingSessionSeal';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
@@ -48,7 +47,7 @@ export type EmailOtpThresholdEd25519ProvisioningResult = {
   remainingUses: number;
   participantIds: number[];
   jwt: string;
-  xClientBaseB64u?: string;
+  clientVerifyingShareB64u?: string;
 };
 
 export type EmailOtpEd25519SessionReconstructionKey = {
@@ -94,8 +93,9 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
   prfFirstB64u: string;
   routeAuth: AppOrWalletSessionAuth;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   walletSigningSessionId: string;
-  ecdsaThresholdSessionId: string;
+  ecdsaThresholdSessionId?: string;
   ed25519Key: EmailOtpEd25519SessionReconstructionKey;
   registrationAttemptId?: never;
   appSessionJwt?: never;
@@ -163,9 +163,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'Email OTP threshold-ed25519 session reconstruction requires canonical runtime scope',
     );
   }
-  if (!walletSigningSessionId || !ecdsaThresholdSessionId) {
+  if (!walletSigningSessionId) {
     throw new Error(
-      'Email OTP threshold-ed25519 session reconstruction requires ECDSA session identity',
+      'Email OTP threshold-ed25519 session reconstruction requires wallet session identity',
     );
   }
   if (!relayerKeyId || !keyVersion || !participantIds) {
@@ -198,6 +198,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     rpId,
     relayerKeyId,
     runtimePolicyScope,
+    routerAbNormalSigning: input.routerAbNormalSigning,
     participantIds,
     walletSigningSessionId,
     ttlMs: input.ttlMs,
@@ -226,12 +227,27 @@ export async function reconstructEmailOtpEd25519Session(args: {
     : policy.remainingUses;
   const sessionScope =
     normalizeThresholdRuntimePolicyScope(minted.runtimePolicyScope) || runtimePolicyScope;
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(sessionScope);
+  const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
+  if (!signingRootVersion) {
+    throw new Error('Email OTP threshold-ed25519 session mint missing signing-root version');
+  }
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    minted.routerAbNormalSigning,
+  );
   if (!sessionId || !jwt || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error(
       'Email OTP threshold-ed25519 session reconstruction mint returned incomplete data',
     );
   }
-  const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
+  if (!routerAbNormalSigning) {
+    throw new Error('Email OTP threshold-ed25519 session mint missing Router A/B state');
+  }
+  const signingWorkerId = String(routerAbNormalSigning.signingWorkerId || '').trim();
+  if (!signingWorkerId) {
+    throw new Error('Email OTP threshold-ed25519 session mint missing SigningWorker id');
+  }
+  const completed = await runThresholdEd25519HssCeremonyWithMaterialHandle({
     relayerUrl,
     walletSessionJwt: jwt,
     relayerKeyId,
@@ -245,12 +261,28 @@ export async function reconstructEmailOtpEd25519Session(args: {
       kind: 'client-masked-projection',
       clientRecoverableSecretB64u: prfFirstB64u,
     },
+    materialBinding: {
+      thresholdSessionId: sessionId,
+      walletSigningSessionId,
+      signingRootId: signingRootScope.signingRootId,
+      signingRootVersion,
+      expiresAtMs,
+      nearAccountId: String(nearAccountId),
+      relayerKeyId,
+      participantIds,
+      signingWorkerId,
+    },
     workerCtx,
   });
-  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
+  if (!completed.ok) {
     throw new Error(
       completed.message || 'Email OTP threshold-ed25519 session reconstruction failed',
     );
+  }
+  const signingMaterial = completed.signingMaterial;
+  const clientVerifyingShareB64u = String(signingMaterial.clientVerifyingShareB64u || '').trim();
+  if (!clientVerifyingShareB64u) {
+    throw new Error('Email OTP threshold-ed25519 material handle is missing verifying share');
   }
   await args.persistWarmSessionEd25519Capability({
     kind: 'jwt_email_otp',
@@ -266,7 +298,10 @@ export async function reconstructEmailOtpEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     jwt,
-    xClientBaseB64u: completed.clientOutput.xClientBaseB64u,
+    clientVerifyingShareB64u,
+    ed25519HssMaterialHandle: signingMaterial.materialHandle,
+    ed25519HssMaterialBindingDigest: signingMaterial.bindingDigest,
+    routerAbNormalSigning,
     emailOtpAuthContext: input.emailOtpAuthContext,
     source: 'email_otp',
   });
@@ -277,23 +312,26 @@ export async function reconstructEmailOtpEd25519Session(args: {
     remainingUses,
     transport: {
       curve: 'ed25519',
+      authMethod: 'email_otp',
       walletId: String(nearAccountId),
       relayerUrl,
       walletSigningSessionId,
       walletSessionJwt: jwt,
     },
   });
-  await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
-    sessionPersistenceMode: args.sessionPersistenceMode,
-    ecdsaThresholdSessionId,
-    ed25519ThresholdSessionId: sessionId,
-    readExactSealedSession: args.readExactSealedSession,
-    getThresholdEcdsaSessionRecordByThresholdSessionId:
-      args.getThresholdEcdsaSessionRecordByThresholdSessionId,
-    getThresholdEd25519SessionRecordByThresholdSessionId:
-      args.getThresholdEd25519SessionRecordByThresholdSessionId,
-    registerSigningSession: args.registerSigningSession,
-  });
+  if (ecdsaThresholdSessionId) {
+    await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+      sessionPersistenceMode: args.sessionPersistenceMode,
+      ecdsaThresholdSessionId,
+      ed25519ThresholdSessionId: sessionId,
+      readExactSealedSession: args.readExactSealedSession,
+      getThresholdEcdsaSessionRecordByThresholdSessionId:
+        args.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      getThresholdEd25519SessionRecordByThresholdSessionId:
+        args.getThresholdEd25519SessionRecordByThresholdSessionId,
+      registerSigningSession: args.registerSigningSession,
+    });
+  }
   return {
     relayerKeyId,
     keyVersion,
@@ -302,7 +340,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     remainingUses,
     participantIds,
     jwt,
-    xClientBaseB64u: completed.clientOutput.xClientBaseB64u,
+    clientVerifyingShareB64u,
   };
 }
 

@@ -16,7 +16,7 @@ import {
   ecdsaBootstrapChainTarget,
   ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
-  type ThresholdSessionActivationDeps,
+  type WalletSessionActivationDeps,
 } from './ecdsaBootstrap';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../warmCapabilities/sealedRefreshParity';
 import {
@@ -46,7 +46,7 @@ type NoPromptEcdsaPasskeyPrfFirstClaim = {
 export type BootstrapWarmEcdsaCapabilityDeps = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
   queueByWallet: Map<string, Promise<void>>;
-  activationDeps: ThresholdSessionActivationDeps;
+  activationDeps: WalletSessionActivationDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   capabilityReader: WarmSessionCapabilityReader;
@@ -58,10 +58,10 @@ export type NoPromptWarmSessionDeps = {
     DurableSealedSessionPort['restorePersistedSessionsForWallet']
   >;
   claimEcdsaPasskeyPrfFirst: (args: NoPromptEcdsaPasskeyPrfFirstClaim) => Promise<string>;
-  reconnectWithThresholdSessionAuth: (
+  reconnectWithWalletSessionAuth: (
     request: Extract<
       EcdsaBootstrapRequest,
-      { kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap' }
+      { kind: 'wallet_session_reconnect_ecdsa_bootstrap' }
     >,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
@@ -74,7 +74,7 @@ export type NoPromptWarmSessionDeps = {
 
 export type PromptCapableWarmupDeps = {
   queueByWallet: Map<string, Promise<void>>;
-  activationDeps: ThresholdSessionActivationDeps;
+  activationDeps: WalletSessionActivationDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   capabilityReader: WarmSessionCapabilityReader;
 };
@@ -151,7 +151,7 @@ function createNoPromptWarmSessionDeps(
         curve: 'ecdsa',
         chainTarget: args.chainTarget,
       }),
-    reconnectWithThresholdSessionAuth: (request) =>
+    reconnectWithWalletSessionAuth: (request) =>
       provisionThresholdEcdsaSessionFromBootstrapArgs(
         createProvisionThresholdEcdsaSessionDeps({
           queueByWallet: deps.queueByWallet,
@@ -210,45 +210,6 @@ async function bootstrapDirectEcdsaRequest(
   );
 }
 
-async function bootstrapPasskeyCookieReconnect(
-  deps: PromptCapableWarmupDeps,
-  walletId: ReturnType<typeof toAccountId>,
-  request: Extract<EcdsaBootstrapRequest, { kind: 'passkey_cookie_reconnect_ecdsa_bootstrap' }>,
-): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const passkeyPrfFirstB64u = await claimWarmSessionPrfFirst({
-    touchConfirm: deps.touchConfirm,
-    thresholdSessionId: request.lanePolicy.thresholdSessionId,
-    errorContext: 'threshold-ecdsa restored-session bootstrap',
-    uses: 1,
-    curve: 'ecdsa',
-    chainTarget: request.lanePolicy.chainTarget,
-    restoreBeforeClaim: async () => {
-      if (typeof deps.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
-      await deps.touchConfirm.restorePersistedSessionForSigning({
-        walletId: String(walletId),
-        authMethod: 'passkey',
-        curve: 'ecdsa',
-        chainTarget: request.lanePolicy.chainTarget,
-        walletSigningSessionId: request.lanePolicy.walletSigningSessionId,
-        thresholdSessionId: request.lanePolicy.thresholdSessionId,
-        reason: 'transaction',
-      });
-    },
-  });
-  return await bootstrapDirectEcdsaRequest(deps, {
-    kind: 'passkey_fresh_ecdsa_bootstrap',
-    keyHandle: request.keyHandle,
-    key: request.key,
-    lanePolicy: request.lanePolicy,
-    source: request.source,
-    relayerUrl: request.relayerUrl,
-    operationIntent: request.operationIntent,
-    runtimeScopeBootstrap: request.runtimeScopeBootstrap,
-    passkeyPrfFirstB64u,
-    passkeyCredentialIdB64u: request.passkeyCredentialIdB64u,
-  });
-}
-
 function sealedRestoreFailureFromError(args: {
   chainTargetKey: string;
   error: unknown;
@@ -289,7 +250,7 @@ function resolveNoPromptReconnectRemainingUses(args: {
   return Math.max(1, Math.floor(Number(args.recordRemainingUses) || 0));
 }
 
-async function tryNoPromptThresholdSessionAuthReconnect(args: {
+async function tryNoPromptWalletSessionReconnect(args: {
   deps: NoPromptWarmSessionDeps;
   walletId: ReturnType<typeof toAccountId>;
   request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>;
@@ -303,7 +264,7 @@ async function tryNoPromptThresholdSessionAuthReconnect(args: {
   if (primary.state !== 'ready' || primary.prfClaim?.state !== 'warm') return null;
   const record = primary.record;
   const auth = primary.auth;
-  if (!record || !auth?.thresholdSessionAuthToken) return null;
+  if (!record || !auth?.walletSessionJwt) return null;
 
   const readModel = thresholdEcdsaSessionRecordReadModel(record);
   const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
@@ -321,8 +282,8 @@ async function tryNoPromptThresholdSessionAuthReconnect(args: {
     throw new Error('[SigningEngine][ecdsa] no-prompt reconnect requires relayerUrl');
   }
 
-  return await args.deps.reconnectWithThresholdSessionAuth({
-    kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  return await args.deps.reconnectWithWalletSessionAuth({
+    kind: 'wallet_session_reconnect_ecdsa_bootstrap',
     source: args.request.source || record.source,
     relayerUrl,
     keyHandle: record.keyHandle,
@@ -347,8 +308,8 @@ async function tryNoPromptThresholdSessionAuthReconnect(args: {
     operationIntent: args.request.operationIntent,
     runtimeScopeBootstrap: args.request.runtimeScopeBootstrap,
     routeAuth: {
-      kind: 'threshold_session',
-      jwt: auth.thresholdSessionAuthToken,
+      kind: 'wallet_session',
+      jwt: auth.walletSessionJwt,
     },
     passkeyPrfFirstB64u,
     passkeyCredentialIdB64u: readyRecord.authMethod.credentialIdB64u,
@@ -412,7 +373,7 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
     };
   }
   try {
-    const reconnectedBootstrap = await tryNoPromptThresholdSessionAuthReconnect({
+    const reconnectedBootstrap = await tryNoPromptWalletSessionReconnect({
       deps,
       walletId,
       request,
@@ -488,16 +449,11 @@ export async function bootstrapWarmEcdsaCapabilityResult(
       };
     }
     case 'passkey_fresh_ecdsa_bootstrap':
-    case 'threshold_session_auth_reconnect_ecdsa_bootstrap':
+    case 'wallet_session_reconnect_ecdsa_bootstrap':
     case 'email_otp_ecdsa_bootstrap':
       return {
         ok: true,
         bootstrap: await bootstrapDirectEcdsaRequest(deps, request),
-      };
-    case 'passkey_cookie_reconnect_ecdsa_bootstrap':
-      return {
-        ok: true,
-        bootstrap: await bootstrapPasskeyCookieReconnect(deps, walletId, request),
       };
   }
   request satisfies never;

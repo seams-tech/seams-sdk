@@ -18,7 +18,6 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { WalletFlowEvent } from '@/core/types/sdkSentEvents';
@@ -39,6 +38,12 @@ import type {
   RegistrationSignerSelection,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type { PMUnlockPayload } from '@/core/types/login.typings';
+export type {
+  PMUnlockOptions,
+  PMUnlockPayload,
+  WalletIframeUnlockRequest,
+} from '@/core/types/login.typings';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -91,7 +96,7 @@ export type ParentToChildType =
   | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'
   | 'PM_GET_RECENT_UNLOCKS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
-  | 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'
+  | 'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL'
   | 'PM_SET_CONFIRM_BEHAVIOR'
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
@@ -203,11 +208,6 @@ export interface PMAddWalletSignerPayload {
 
 export type PMBootstrapThresholdEcdsaSessionPayload = BootstrapThresholdEcdsaSessionArgs;
 
-export interface PMUnlockPayload {
-  nearAccountId: string;
-  options?: Record<string, unknown>;
-}
-
 export type PMGoogleEmailOtpWalletAuthStartPayload = {
   idToken: string;
   mode: GoogleEmailOtpWalletAuthRequestedMode;
@@ -224,10 +224,9 @@ export type PMGoogleEmailOtpWalletAuthHandlePayload = {
   mode: GoogleEmailOtpWalletAuthResolvedMode;
 };
 
-export type PMGoogleEmailOtpWalletAuthSubmitPayload =
-  PMGoogleEmailOtpWalletAuthHandlePayload & {
-    otpCode: string;
-  };
+export type PMGoogleEmailOtpWalletAuthSubmitPayload = PMGoogleEmailOtpWalletAuthHandlePayload & {
+  otpCode: string;
+};
 
 export type PMGoogleEmailOtpWalletAuthRegistrationWireFlow = {
   kind: 'google_email_otp_wallet_auth_flow_v1';
@@ -481,7 +480,6 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   registrationAttemptId?: string;
 }
 
@@ -496,7 +494,7 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
 
 export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload extends PMEmailOtpEcdsaCapabilityPayload {}
 
-export interface PMPrefillThresholdEcdsaPresignPoolPayload {
+export interface PMPrefillRouterAbEcdsaHssPresignaturePoolPayload {
   walletSession: WalletSessionRef;
   options: {
     chainTarget: ThresholdEcdsaChainTarget;
@@ -594,26 +592,17 @@ export type ParentToChildEnvelope =
     >
   | RpcEnvelope<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION', PMExchangeGoogleEmailOtpSessionPayload>
   | RpcEnvelope<'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH', PMGoogleEmailOtpWalletAuthStartPayload>
-  | RpcEnvelope<
-      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND',
-      PMGoogleEmailOtpWalletAuthHandlePayload
-    >
+  | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND', PMGoogleEmailOtpWalletAuthHandlePayload>
   | RpcEnvelope<
       'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_REROLL_WALLET_ID',
       PMGoogleEmailOtpWalletAuthHandlePayload
     >
-  | RpcEnvelope<
-      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT',
-      PMGoogleEmailOtpWalletAuthSubmitPayload
-    >
+  | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT', PMGoogleEmailOtpWalletAuthSubmitPayload>
   | RpcEnvelope<
       'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
       PMGoogleEmailOtpWalletAuthHandlePayload
     >
-  | RpcEnvelope<
-      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL',
-      PMGoogleEmailOtpWalletAuthHandlePayload
-    >
+  | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL', PMGoogleEmailOtpWalletAuthHandlePayload>
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
@@ -621,18 +610,9 @@ export type ParentToChildEnvelope =
       'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
       PMEmailOtpEcdsaEnrollmentCapabilityPayload
     >
-  | RpcEnvelope<
-      'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
-      PMGetEmailOtpRecoveryCodeStatusPayload
-    >
-  | RpcEnvelope<
-      'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
-      PMShowEmailOtpRecoveryCodesPayload
-    >
-  | RpcEnvelope<
-      'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
-      PMRotateEmailOtpRecoveryCodesPayload
-    >
+  | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
+  | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
+  | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TXS_WITH_ACTIONS', PMSignTxsPayload>
@@ -655,8 +635,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_GET_RECENT_UNLOCKS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
   | RpcEnvelope<
-      'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',
-      PMPrefillThresholdEcdsaPresignPoolPayload
+      'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL',
+      PMPrefillRouterAbEcdsaHssPresignaturePoolPayload
     >
   | RpcEnvelope<'PM_SET_CONFIRM_BEHAVIOR', PMSetConfirmBehaviorPayload>
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>

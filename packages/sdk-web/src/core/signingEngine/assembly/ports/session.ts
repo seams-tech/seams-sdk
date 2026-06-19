@@ -1,7 +1,7 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { configuredThresholdEcdsaChainTargets } from '../../interfaces/ecdsaChainTarget';
 import { readTrustedWalletSigningBudgetStatus } from '../../session/budget/budgetStatusReader';
-import type { EmailOtpThresholdSessionCoordinator } from '../../session/emailOtp/EmailOtpThresholdSessionCoordinator';
+import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { SessionPublicDeps } from '../../session/public';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import type { WarmSigningPorts } from './warmSigning';
@@ -9,7 +9,7 @@ import type { WarmSigningPorts } from './warmSigning';
 export function createSessionPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
   touchConfirm: UiConfirmRuntimeBridgePort;
-  emailOtpSessions: EmailOtpThresholdSessionCoordinator;
+  emailOtpSessions: EmailOtpWalletSessionCoordinator;
   warmSigning: WarmSigningPorts;
 }): SessionPublicDeps {
   const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>

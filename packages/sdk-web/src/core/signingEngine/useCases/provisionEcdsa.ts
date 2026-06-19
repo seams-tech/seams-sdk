@@ -34,10 +34,13 @@ import {
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaThresholdKeyId,
-  SigningRootId,
-  SigningRootVersion,
+} from '../session/identity/emailOtpHssIdentity';
+import {
+  toEcdsaHssSigningRootId,
+  toEcdsaHssSigningRootVersion,
 } from '../session/identity/emailOtpHssIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { assertNeverUseCase, useCaseFailure, type UseCaseFailure } from './lifecycle';
 
 export type ProvisionEcdsaDeps = {
@@ -80,9 +83,9 @@ export type ProvisionEcdsaRouteFacts = {
   walletSigningSessionId: string;
   ttlMs: number;
   remainingUses: number;
-  sessionKind: 'jwt' | 'cookie';
+  sessionKind: 'jwt';
   auth: BootstrapEcdsaSessionRouteInput['auth'];
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
 export type ProvisionEcdsaInput = {
@@ -91,8 +94,6 @@ export type ProvisionEcdsaInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  signingRootId: SigningRootId;
-  signingRootVersion: SigningRootVersion;
   participantIds: readonly [1, 2];
   authMethod: ProvisionEcdsaAuthMethod;
   route: ProvisionEcdsaRouteFacts;
@@ -190,6 +191,19 @@ function sameString(left: unknown, right: unknown): boolean {
   return String(left || '').trim() === String(right || '').trim();
 }
 
+type ProvisionEcdsaSigningRoot = {
+  signingRootId: ReturnType<typeof toEcdsaHssSigningRootId>;
+  signingRootVersion: ReturnType<typeof toEcdsaHssSigningRootVersion>;
+};
+
+function signingRootFromProvisionInput(input: ProvisionEcdsaInput): ProvisionEcdsaSigningRoot {
+  const signingRoot = signingRootScopeFromRuntimePolicyScope(input.route.runtimePolicyScope);
+  return {
+    signingRootId: toEcdsaHssSigningRootId(signingRoot.signingRootId),
+    signingRootVersion: toEcdsaHssSigningRootVersion(signingRoot.signingRootVersion),
+  };
+}
+
 function validateEmailOtpHandle(input: ProvisionEcdsaInput): ProvisionEcdsaFailure | null {
   if (input.authMethod.kind !== 'email_otp') return null;
   const handle = input.authMethod.handle;
@@ -228,6 +242,7 @@ function storageAuthMethodFromInput(input: ProvisionEcdsaInput): EcdsaRoleLocalA
 function storageKeyFactsFromInput(
   input: ProvisionEcdsaInput,
   authMethod: EcdsaRoleLocalAuthMethod,
+  signingRoot: ProvisionEcdsaSigningRoot,
 ): LoadEcdsaRoleLocalReadyRecordInput {
   return {
     walletId: input.walletId,
@@ -235,8 +250,8 @@ function storageKeyFactsFromInput(
     chainTarget: input.chainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
     participantIds: input.participantIds,
     authMethod,
   };
@@ -291,8 +306,6 @@ function routeInputFromPrepared(args: {
     chainTarget: args.input.chainTarget,
     keyScope: 'evm-family',
     ecdsaThresholdKeyId: args.input.ecdsaThresholdKeyId,
-    signingRootId: args.input.signingRootId,
-    signingRootVersion: args.input.signingRootVersion,
     relayerKeyId: args.input.route.relayerKeyId,
     requestId: args.input.route.requestId,
     sessionId: args.input.route.sessionId,
@@ -304,9 +317,7 @@ function routeInputFromPrepared(args: {
     auth: args.input.route.auth,
     clientBootstrap: args.prepared.clientBootstrap,
     preparePublicFacts: args.prepared.publicFacts,
-    ...(args.input.route.runtimePolicyScope
-      ? { runtimePolicyScope: args.input.route.runtimePolicyScope }
-      : {}),
+    runtimePolicyScope: args.input.route.runtimePolicyScope,
   };
 }
 
@@ -320,8 +331,6 @@ function validateRelayerOutput(args: {
     !sameString(output.walletId, input.walletId) ||
     !sameString(output.rpId, input.rpId) ||
     !sameString(output.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
-    !sameString(output.signingRootId, input.signingRootId) ||
-    !sameString(output.signingRootVersion, input.signingRootVersion) ||
     !sameString(output.keyHandle, input.keyHandle) ||
     !sameString(output.relayerPublicIdentity.relayerKeyId, input.route.relayerKeyId) ||
     output.participantIds[0] !== 1 ||
@@ -344,8 +353,9 @@ export async function provisionEcdsa(
   const handleFailure = validateEmailOtpHandle(input);
   if (handleFailure) return handleFailure;
 
+  const signingRoot = signingRootFromProvisionInput(input);
   const authMethod = storageAuthMethodFromInput(input);
-  const storageKeyFacts = storageKeyFactsFromInput(input, authMethod);
+  const storageKeyFacts = storageKeyFactsFromInput(input, authMethod, signingRoot);
 
   const loaded = await deps.storage.loadEcdsaRoleLocalReadyRecord(storageKeyFacts);
   if (!loaded.ok) {
@@ -384,8 +394,8 @@ export async function provisionEcdsa(
       rpId: input.rpId,
       chainTarget: input.chainTarget,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-      signingRootId: input.signingRootId,
-      signingRootVersion: input.signingRootVersion,
+      signingRootId: signingRoot.signingRootId,
+      signingRootVersion: signingRoot.signingRootVersion,
       keyPurpose: 'evm-signing',
       keyVersion: 'v1',
     },
@@ -429,8 +439,8 @@ export async function provisionEcdsa(
     chainTarget: input.chainTarget,
     keyHandle: relayer.value.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: input.participantIds,

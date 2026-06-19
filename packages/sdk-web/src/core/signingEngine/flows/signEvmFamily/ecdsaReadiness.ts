@@ -43,8 +43,7 @@ type EvmFamilyThresholdEcdsaExistingRecordPlan = Extract<
   EcdsaSessionProvisionPlan,
   {
     kind:
-      | 'threshold_session_auth_ecdsa_reconnect'
-      | 'cookie_ecdsa_reconnect'
+      | 'wallet_session_ecdsa_reconnect'
       | 'passkey_ecdsa_session_provision';
   }
 >;
@@ -107,7 +106,6 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
     thresholdSessionId: args.reconnectSessionIdentity.thresholdSessionId,
     walletSigningSessionId: args.reconnectSessionIdentity.walletSigningSessionId,
   });
-  const { thresholdSessionId, walletSigningSessionId } = reconnectSessionIdentity;
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
   const sessionBudgetUses = Math.max(1, Math.floor(Number(args.sessionBudgetUses) || 1));
@@ -115,13 +113,22 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   const reconnectPlan = args.reconnectPlan;
   const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
   if (
-    reconnectPlanIdentity.thresholdSessionId !== thresholdSessionId ||
-    reconnectPlanIdentity.walletSigningSessionId !== walletSigningSessionId
+    reconnectPlanIdentity.thresholdSessionId !== reconnectSessionIdentity.thresholdSessionId ||
+    reconnectPlanIdentity.walletSigningSessionId !== reconnectSessionIdentity.walletSigningSessionId
   ) {
     throw new Error(
       '[SigningEngine][ecdsa] reconnect plan identity does not match requested reconnect identity',
     );
   }
+  try {
+    emitEvmFamilySigningEvent(args.onEvent, {
+      phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
+      status: 'running',
+      accountId: walletId,
+      interaction: { kind: 'none', overlay: 'none' },
+      data: { chain },
+    });
+  } catch {}
   const readyCapabilityArgs = {
     walletId,
     chainTarget,
@@ -130,24 +137,12 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
     usesNeeded: operationUsesNeeded,
     sessionBudgetUses,
     operationIntent: SigningOperationIntent.TransactionSign,
-    beforeReconnect: async () => {
-      try {
-        emitEvmFamilySigningEvent(args.onEvent, {
-          phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
-          status: 'running',
-          accountId: walletId,
-          interaction: { kind: 'none', overlay: 'none' },
-          data: { chain },
-        });
-      } catch {}
-    },
     assertNotCancelled: () => {
       throwIfEvmFamilySigningCancelled(args.shouldAbort);
     },
   };
   const readyCapability =
-    reconnectPlan.kind === 'threshold_session_auth_ecdsa_reconnect' ||
-    reconnectPlan.kind === 'cookie_ecdsa_reconnect' ||
+    reconnectPlan.kind === 'wallet_session_ecdsa_reconnect' ||
     reconnectPlan.kind === 'passkey_ecdsa_session_provision'
       ? await (async () => {
           if (!selectedRecord) {
@@ -169,17 +164,19 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   if (!refreshedRecord) {
     throw new Error('[SigningEngine] ECDSA reconnect did not return a ready session record');
   }
-  const refreshedThresholdSessionId = String(refreshedRecord.thresholdSessionId).trim();
-  const refreshedWalletSigningSessionId = String(refreshedRecord.walletSigningSessionId).trim();
+  const refreshedSessionIdentity = buildEcdsaSessionIdentity({
+    thresholdSessionId: refreshedRecord.thresholdSessionId,
+    walletSigningSessionId: refreshedRecord.walletSigningSessionId,
+  });
   if (
-    refreshedThresholdSessionId !== thresholdSessionId ||
-    refreshedWalletSigningSessionId !== walletSigningSessionId
+    refreshedSessionIdentity.thresholdSessionId !== reconnectSessionIdentity.thresholdSessionId ||
+    refreshedSessionIdentity.walletSigningSessionId !== reconnectSessionIdentity.walletSigningSessionId
   ) {
     throw new Error(
       [
         '[SigningEngine] ECDSA reconnect returned a different exact session identity',
-        `expected=${walletSigningSessionId}:${thresholdSessionId}`,
-        `actual=${refreshedWalletSigningSessionId || 'missing'}:${refreshedThresholdSessionId || 'missing'}`,
+        `expected=${reconnectSessionIdentity.walletSigningSessionId}:${reconnectSessionIdentity.thresholdSessionId}`,
+        `actual=${refreshedSessionIdentity.walletSigningSessionId}:${refreshedSessionIdentity.thresholdSessionId}`,
       ].join(' '),
     );
   }

@@ -14,7 +14,7 @@ import {
   type WalletEmailOtpChannel,
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import { type AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import { type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
@@ -23,7 +23,7 @@ import type { SigningRuntime } from '@/core/runtime/types';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { WalletIframeRegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -38,7 +38,7 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { type ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import { type RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import {
   signNear as signNearOperation,
   type NearSignIntentRequest,
@@ -64,7 +64,7 @@ import {
   type ThresholdEcdsaCommitQueueByKey,
 } from '@/core/signingEngine/threshold/ecdsa/commitQueue';
 import { type ThresholdEd25519CommitQueueByKey } from '@/core/signingEngine/threshold/ed25519/commitQueue';
-import { clearAllThresholdEd25519ClientPresigns } from '@/core/signingEngine/threshold/ed25519/presignPool';
+import { clearAllRouterAbEd25519ClientPresigns } from '@/core/signingEngine/threshold/ed25519/presignPool';
 import * as recoveryPublic from '@/core/signingEngine/flows/recovery/public';
 import type {
   RecoveryPublicDeps,
@@ -78,6 +78,8 @@ import {
   type EmailOtpPublicDeps,
   type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
+  type LoginWithEmailOtpEd25519CapabilityInternalArgs,
+  type LoginWithEmailOtpEd25519CapabilityInternalResult,
   type LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type LoginWithEmailOtpEcdsaCapabilityInternalResult,
   type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
@@ -86,7 +88,8 @@ import {
 import * as emailOtpPublic from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { createManagerAssembly } from '@/core/signingEngine/assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '@/core/rpcClients/relayer/sealedRefreshCapabilities';
-import type { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator';
+import { isRetryableSealedRefreshCapabilityFetchError } from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
+import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type {
   ProvisionWarmEd25519CapabilityResult,
@@ -127,6 +130,7 @@ import {
   finalizeWalletRegistrationEcdsaClientBootstrap,
   prepareEmailOtpWalletRegistrationEcdsaClientBootstrap,
   preparePasskeyWalletRegistrationEcdsaClientBootstrap,
+  storeWalletRegistrationEcdsaClientSigningMaterial,
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
@@ -147,7 +151,7 @@ export class BrowserSigningSurface {
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
-  private readonly emailOtpSessions: EmailOtpThresholdSessionCoordinator;
+  private readonly emailOtpSessions: EmailOtpWalletSessionCoordinator;
   private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord>;
   private readonly thresholdEcdsaExportArtifactByLane: Map<
     string,
@@ -259,7 +263,7 @@ export class BrowserSigningSurface {
       relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
       shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
       getSignerWorkerContext: () =>
-        this.enginePorts.thresholdSessionActivationDeps.getSignerWorkerContext(),
+        this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext(),
       emailOtpSessions: this.emailOtpSessions,
     };
     this.recoveryPublicDeps = createBrowserRecoveryPublicDeps({
@@ -351,7 +355,15 @@ export class BrowserSigningSurface {
   }
 
   async warmCriticalResources(nearAccountId?: string): Promise<WorkerResourceWarmupDiagnostics> {
-    await this.ensureSealedRefreshStartupParity();
+    try {
+      await this.ensureSealedRefreshStartupParity();
+    } catch (error: unknown) {
+      if (!isRetryableSealedRefreshCapabilityFetchError(error)) throw error;
+      console.warn(
+        '[BrowserSigningSurface] warmCriticalResources skipped retryable sealed-refresh capability fetch failure',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
     return await this.enginePorts.getManagerConveniencePorts().warmCriticalResources(nearAccountId);
   }
 
@@ -536,6 +548,11 @@ export class BrowserSigningSurface {
               { signerCrypto: this.runtimePorts.signerCrypto },
               bootstrapInput,
             ),
+          storeClientSigningMaterial: (storeInput) =>
+            storeWalletRegistrationEcdsaClientSigningMaterial(
+              { signerCrypto: this.runtimePorts.signerCrypto },
+              storeInput,
+            ),
         },
         bootstrapStore: this.ecdsaBootstrapStore,
         sessionStore: this.warmSigning.ecdsaSessions,
@@ -606,7 +623,7 @@ export class BrowserSigningSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
-    walletIframeActivation?: WalletIframeRegistrationActivationProof;
+    walletIframeActivation?: RegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload> {
     return registrationPublic.requestRegistrationCredentialConfirmation(
       this.registrationPublicDeps,
@@ -688,6 +705,15 @@ export class BrowserSigningSurface {
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
     return await emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(
+      this.emailOtpPublicDeps,
+      args,
+    );
+  }
+
+  async loginWithEmailOtpEd25519CapabilityInternal(
+    args: LoginWithEmailOtpEd25519CapabilityInternalArgs,
+  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
+    return await emailOtpPublic.loginWithEmailOtpEd25519CapabilityInternal(
       this.emailOtpPublicDeps,
       args,
     );
@@ -775,7 +801,7 @@ export class BrowserSigningSurface {
 
   clearAllThresholdEcdsaSessionRecords(): void {
     sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);
-    clearAllThresholdEd25519ClientPresigns();
+    clearAllRouterAbEd25519ClientPresigns();
   }
 
   getWarmThresholdEd25519SessionStatus(
@@ -811,13 +837,13 @@ export class BrowserSigningSurface {
     );
   }
 
-  async scheduleThresholdEcdsaLoginPresignPrefill(args: {
+  async scheduleRouterAbEcdsaHssLoginPresignaturePrefill(args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<ThresholdEcdsaLoginPrefillResult> {
-    return await warmCapabilitiesPublic.scheduleThresholdEcdsaLoginPresignPrefill(
+  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
+    return await warmCapabilitiesPublic.scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
       this.warmCapabilitiesPublicDeps,
       args,
     );
@@ -878,6 +904,19 @@ export class BrowserSigningSurface {
     );
   }
 
+  deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+    args: Parameters<
+      typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+  > {
+    return thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
     args: Parameters<
       typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
@@ -895,6 +934,26 @@ export class BrowserSigningSurface {
     args: Parameters<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession> {
     return thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
+  runThresholdEd25519HssCeremonyWithMaterialHandle(
+    args: Parameters<
+      typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle
+    >[1],
+  ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle> {
+    return thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
+  storeThresholdEd25519HssSigningMaterial(
+    args: Parameters<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial>[1],
+  ): ReturnType<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial> {
+    return thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial(
       this.thresholdEd25519PublicDeps,
       args,
     );

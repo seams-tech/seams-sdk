@@ -5,7 +5,7 @@ import type {
   SeamsConfigsInput,
   SeamsConfigsReadonly,
   SeamsWalletMode,
-  ThresholdEcdsaPresignPoolPolicy,
+  RouterAbEcdsaHssPresignaturePoolPolicy,
 } from '../types/seams';
 import {
   copyEcdsaSignerProvisioningDefaults,
@@ -202,7 +202,7 @@ function resolveRouterAbNormalSigningConfig(args: {
 export function buildConfigsFromDefaults(args: {
   defaults: SeamsConfigsReadonly;
   overrides?: SeamsConfigsInput;
-  fallbackThresholdEcdsaPresignPoolPolicy: ThresholdEcdsaPresignPoolPolicy;
+  fallbackRouterAbEcdsaHssPresignaturePoolPolicy: RouterAbEcdsaHssPresignaturePoolPolicy;
 }): SeamsConfigsReadonly {
   const defaults = args.defaults;
   const overrides = args.overrides ?? {};
@@ -236,19 +236,20 @@ export function buildConfigsFromDefaults(args: {
     overrides.provisioningDefaults ?? defaults.signing.thresholdEcdsa.provisioningDefaults,
   );
 
-  const thresholdEcdsaPresignPoolDefaults =
-    defaults.signing.thresholdEcdsa.presignPool ?? args.fallbackThresholdEcdsaPresignPoolPolicy;
-  const thresholdEcdsaPresignPoolTargetDepth = resolveIntegerInRange({
-    value: overrides.thresholdEcdsaPresignPool?.targetDepth,
-    fallback: thresholdEcdsaPresignPoolDefaults.targetDepth,
+  const routerAbEcdsaHssPresignaturePoolDefaults =
+    defaults.signing.routerAbEcdsaHss.presignaturePool ??
+    args.fallbackRouterAbEcdsaHssPresignaturePoolPolicy;
+  const routerAbEcdsaHssPresignaturePoolTargetDepth = resolveIntegerInRange({
+    value: overrides.routerAbEcdsaHssPresignaturePool?.targetDepth,
+    fallback: routerAbEcdsaHssPresignaturePoolDefaults.targetDepth,
     range: THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS.targetDepth,
-    path: 'thresholdEcdsaPresignPool.targetDepth',
+    path: 'routerAbEcdsaHssPresignaturePool.targetDepth',
   });
-  const thresholdEcdsaPresignPoolLowWatermark = resolveIntegerInRange({
-    value: overrides.thresholdEcdsaPresignPool?.lowWatermark,
-    fallback: thresholdEcdsaPresignPoolDefaults.lowWatermark,
-    range: { min: 0, max: thresholdEcdsaPresignPoolTargetDepth },
-    path: 'thresholdEcdsaPresignPool.lowWatermark',
+  const routerAbEcdsaHssPresignaturePoolLowWatermark = resolveIntegerInRange({
+    value: overrides.routerAbEcdsaHssPresignaturePool?.lowWatermark,
+    fallback: routerAbEcdsaHssPresignaturePoolDefaults.lowWatermark,
+    range: { min: 0, max: routerAbEcdsaHssPresignaturePoolTargetDepth },
+    path: 'routerAbEcdsaHssPresignaturePool.lowWatermark',
   });
 
   const appearanceTheme = resolveTheme({
@@ -355,28 +356,30 @@ export function buildConfigsFromDefaults(args: {
       routerAb: {
         normalSigning: routerAbNormalSigning,
       },
-      thresholdEcdsa: {
-        presignPool: {
+      routerAbEcdsaHss: {
+        presignaturePool: {
           enabled: resolveBoolean({
-            value: overrides.thresholdEcdsaPresignPool?.enabled,
-            fallback: thresholdEcdsaPresignPoolDefaults.enabled,
-            path: 'thresholdEcdsaPresignPool.enabled',
+            value: overrides.routerAbEcdsaHssPresignaturePool?.enabled,
+            fallback: routerAbEcdsaHssPresignaturePoolDefaults.enabled,
+            path: 'routerAbEcdsaHssPresignaturePool.enabled',
           }),
-          targetDepth: thresholdEcdsaPresignPoolTargetDepth,
-          lowWatermark: thresholdEcdsaPresignPoolLowWatermark,
+          targetDepth: routerAbEcdsaHssPresignaturePoolTargetDepth,
+          lowWatermark: routerAbEcdsaHssPresignaturePoolLowWatermark,
           maxRefillInFlight: resolveIntegerInRange({
-            value: overrides.thresholdEcdsaPresignPool?.maxRefillInFlight,
-            fallback: thresholdEcdsaPresignPoolDefaults.maxRefillInFlight,
+            value: overrides.routerAbEcdsaHssPresignaturePool?.maxRefillInFlight,
+            fallback: routerAbEcdsaHssPresignaturePoolDefaults.maxRefillInFlight,
             range: THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS.maxRefillInFlight,
-            path: 'thresholdEcdsaPresignPool.maxRefillInFlight',
+            path: 'routerAbEcdsaHssPresignaturePool.maxRefillInFlight',
           }),
           refillAttemptTimeoutMs: resolveIntegerInRange({
-            value: overrides.thresholdEcdsaPresignPool?.refillAttemptTimeoutMs,
-            fallback: thresholdEcdsaPresignPoolDefaults.refillAttemptTimeoutMs,
+            value: overrides.routerAbEcdsaHssPresignaturePool?.refillAttemptTimeoutMs,
+            fallback: routerAbEcdsaHssPresignaturePoolDefaults.refillAttemptTimeoutMs,
             range: THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS.refillAttemptTimeoutMs,
-            path: 'thresholdEcdsaPresignPool.refillAttemptTimeoutMs',
+            path: 'routerAbEcdsaHssPresignaturePool.refillAttemptTimeoutMs',
           }),
         },
+      },
+      thresholdEcdsa: {
         provisioningDefaults,
       },
     },

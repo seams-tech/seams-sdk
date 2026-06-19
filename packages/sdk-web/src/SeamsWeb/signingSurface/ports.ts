@@ -9,7 +9,7 @@ import type {
   WarmEcdsaSigningSessionStatus,
   WarmSessionEcdsaCapabilityState,
 } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AvailableSigningLanes,
   ListThresholdEcdsaSessionRecordsForWalletTargetInput,
@@ -80,6 +80,8 @@ import type {
   EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
+  LoginWithEmailOtpEd25519CapabilityInternalArgs,
+  LoginWithEmailOtpEd25519CapabilityInternalResult,
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   LoginWithEmailOtpEcdsaCapabilityInternalResult,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
@@ -89,7 +91,7 @@ import type {
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
-import type { WalletIframeRegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
@@ -174,12 +176,12 @@ export interface EcdsaLoginSessionSurface {
   listThresholdEcdsaSessionRecordsForWalletTarget(
     args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ): SessionPublicThresholdEcdsaSessionRecord[];
-  scheduleThresholdEcdsaLoginPresignPrefill(args: {
+  scheduleRouterAbEcdsaHssLoginPresignaturePrefill(args: {
     walletId: EcdsaWalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<ThresholdEcdsaLoginPrefillResult>;
+  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult>;
 }
 
 export interface Ed25519SessionConnectionSurface {
@@ -316,7 +318,7 @@ export interface WebAuthnRegistrationConfirmationSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
-    walletIframeActivation?: WalletIframeRegistrationActivationProof;
+    walletIframeActivation?: RegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload>;
 }
 
@@ -337,6 +339,9 @@ export interface EmailOtpSigningSessionSurface {
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
+  loginWithEmailOtpEd25519CapabilityInternal(
+    args: LoginWithEmailOtpEd25519CapabilityInternalArgs,
+  ): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -411,6 +416,13 @@ export interface ThresholdEd25519HssClientSurface {
   deriveThresholdEd25519HssClientOutputMask(
     args: Parameters<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>[1],
   ): ReturnType<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>;
+  deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+    args: Parameters<
+      typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+  >;
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
     args: Parameters<
       typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
@@ -421,6 +433,14 @@ export interface ThresholdEd25519HssClientSurface {
   runThresholdEd25519HssCeremonyWithSession(
     args: Parameters<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>;
+  runThresholdEd25519HssCeremonyWithMaterialHandle(
+    args: Parameters<
+      typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle
+    >[1],
+  ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle>;
+  storeThresholdEd25519HssSigningMaterial(
+    args: Parameters<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial>[1],
+  ): ReturnType<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial>;
 }
 
 export interface EmailOtpRegistrationEnrollmentSurface {
@@ -474,7 +494,7 @@ export type LockWebContext = SeamsWebBaseContext<LockSigningSurface>;
 
 export type RecentUnlocksWebContext = SeamsWebBaseContext<RecentUnlocksSigningSurface>;
 
-export type AuthSessionWebContext = SeamsWebBaseContext<
+export type WalletAuthWebContext = SeamsWebBaseContext<
   LoginUnlockSigningSurface &
     LockSigningSurface &
     RecentUnlocksSigningSurface &

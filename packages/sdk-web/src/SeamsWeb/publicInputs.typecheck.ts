@@ -212,6 +212,9 @@ void invalidPublicBootstrapSigningRootVersion;
 // @ts-expect-error Public bootstrap keyRef hides internal export artifact identity.
 const invalidPublicBootstrapExportArtifact = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaHssExportArtifact;
 void invalidPublicBootstrapExportArtifact;
+// @ts-expect-error Public bootstrap keyRef hides internal Wallet Session bearer auth.
+const invalidPublicBootstrapWalletSessionJwt = publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.walletSessionJwt;
+void invalidPublicBootstrapWalletSessionJwt;
 
 const invalidEcdsaBootstrapLifecycleInput: BootstrapThresholdEcdsaSessionArgs = {
   // @ts-expect-error Fresh bootstrap is an internal signing-engine lifecycle request.

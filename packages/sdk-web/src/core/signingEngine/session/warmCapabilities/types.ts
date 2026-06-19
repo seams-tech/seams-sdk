@@ -4,7 +4,6 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type {
-  ThresholdEcdsaSessionAuthTokenSource,
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
   ThresholdSessionSealTransportAuthMaterial,
@@ -21,7 +20,8 @@ import type {
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
-import type { ThresholdEd25519SessionMintAuthorization } from '../../threshold/ed25519/authSession';
+import type { Ed25519WalletSessionMintAuthorization } from '../../threshold/ed25519/walletSession';
+import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { SigningOperationIntent } from '../operationState/types';
 import {
@@ -30,6 +30,11 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import { persistedWarmSessionRecordRequiresWalletSessionJwt } from './walletSessionAuthBoundary';
+import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEd25519PersistedSigningRecord,
+} from '../routerAbSigningWalletSession';
 
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
@@ -83,15 +88,15 @@ export type WarmSessionPrfClaim =
 export type WarmSessionEd25519AuthMaterialWithToken = {
   capability: 'ed25519';
   record: ThresholdEd25519SessionRecord;
-  thresholdSessionAuthToken: string;
-  thresholdSessionAuthTokenSource: 'ed25519';
+  walletSessionJwt: string;
+  walletSessionJwtSource: 'ed25519_record';
 };
 
 export type WarmSessionEd25519AuthMaterialWithoutToken = {
   capability: 'ed25519';
   record: ThresholdEd25519SessionRecord;
-  thresholdSessionAuthToken?: never;
-  thresholdSessionAuthTokenSource: 'none';
+  walletSessionJwt?: never;
+  walletSessionJwtSource: 'none';
 };
 
 export type WarmSessionEd25519AuthMaterial =
@@ -100,16 +105,20 @@ export type WarmSessionEd25519AuthMaterial =
 
 export type WarmSessionEcdsaAuthMaterialWithToken = {
   capability: 'ecdsa';
+  state: 'ready';
   record: ThresholdEcdsaSessionRecord;
-  thresholdSessionAuthToken: string;
-  thresholdSessionAuthTokenSource: 'ecdsa';
+  walletSessionJwt: string;
+  walletSessionJwtSource: 'ecdsa_record';
+  unavailableReason?: never;
 };
 
 export type WarmSessionEcdsaAuthMaterialWithoutToken = {
   capability: 'ecdsa';
+  state: 'unavailable';
   record: ThresholdEcdsaSessionRecord;
-  thresholdSessionAuthToken?: never;
-  thresholdSessionAuthTokenSource: 'none';
+  walletSessionJwt?: never;
+  walletSessionJwtSource: 'none';
+  unavailableReason: 'cookie_session' | 'missing_wallet_session_jwt';
 };
 
 export type WarmSessionEcdsaAuthMaterial =
@@ -120,6 +129,8 @@ type WarmSessionCapabilityStateValue =
   | 'missing'
   | 'ready'
   | 'auth_missing'
+  | 'invalid'
+  | 'material_pending'
   | 'prf_missing'
   | 'prf_unavailable';
 
@@ -369,31 +380,53 @@ function assertCapabilityStateInvariant(args: {
     );
   }
 
-  const requiresAuthToken = record.thresholdSessionKind === 'jwt';
-  const hasAuthToken = Boolean(String(auth?.thresholdSessionAuthToken || '').trim());
+  const requiresWalletSessionJwt = persistedWarmSessionRecordRequiresWalletSessionJwt({
+    capability: capability.capability,
+    record,
+  });
+  const hasWalletSessionJwt = Boolean(String(auth?.walletSessionJwt || '').trim());
   const emailOtpSingleUseConsumed =
     record.source === 'email_otp' &&
     emailOtpAuthContext?.retention === 'single_use' &&
     Number(emailOtpAuthContext.consumedAtMs) > 0;
-  const recordBackedEd25519ClientBase =
-    capability.capability === 'ed25519' &&
-    !emailOtpSingleUseConsumed &&
-    Boolean(String((record as { xClientBaseB64u?: unknown }).xClientBaseB64u || '').trim()) &&
-    (record.source === 'email_otp' || record.thresholdSessionKind === 'cookie');
-  const expectedState =
-    !auth || (requiresAuthToken && !hasAuthToken)
-      ? 'auth_missing'
-      : emailOtpSingleUseConsumed
-        ? 'prf_missing'
-        : recordBackedEd25519ClientBase
-          ? 'ready'
-          : !prfClaim
-            ? 'prf_missing'
-            : prfClaim.state === 'unavailable'
-              ? 'prf_unavailable'
-              : prfClaim.state !== 'warm'
-                ? 'prf_missing'
-                : 'ready';
+  const expectedState = (() => {
+    if (!auth || (requiresWalletSessionJwt && !hasWalletSessionJwt)) return 'auth_missing';
+    if (emailOtpSingleUseConsumed) return 'prf_missing';
+    if (capability.capability === 'ed25519') {
+      const persistedState = classifyRouterAbEd25519PersistedSigningRecord(capability.record);
+      if (persistedState.kind === 'signable') return 'ready';
+      if (
+        persistedState.kind === 'non_signing' ||
+        persistedState.reason === 'missing_wallet_session_jwt'
+      ) {
+        return 'auth_missing';
+      }
+      if (persistedState.kind === 'invalid') return 'invalid';
+      if (record.source !== 'email_otp') {
+        if (!prfClaim || prfClaim.state === 'missing' || prfClaim.state === 'warm') {
+          return 'material_pending';
+        }
+        return prfClaim.state === 'unavailable' ? 'prf_unavailable' : 'prf_missing';
+      }
+      if (!prfClaim) return 'prf_missing';
+      if (prfClaim.state === 'warm') return 'material_pending';
+      if (prfClaim.state === 'unavailable') return 'prf_unavailable';
+      return 'prf_missing';
+    }
+    if (!prfClaim) return 'prf_missing';
+    if (prfClaim.state === 'unavailable') return 'prf_unavailable';
+    if (prfClaim.state !== 'warm') return 'prf_missing';
+    const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(capability.record);
+    if (persistedState.kind === 'signable') return 'ready';
+    if (
+      persistedState.kind === 'non_signing' ||
+      persistedState.reason === 'missing_wallet_session_jwt'
+    ) {
+      return 'auth_missing';
+    }
+    if (prfClaim.state === 'warm') return 'material_pending';
+    return 'prf_missing';
+  })();
   if (capability.state !== expectedState) {
     throw new Error(
       `[WarmSessionStore] invalid ${args.label} capability: state=${capability.state} does not match derived state=${expectedState}`,
@@ -424,14 +457,15 @@ export function assertWarmSessionEnvelopeInvariant(
 type ProvisionWarmEd25519CapabilityCommonArgs = {
   nearAccountId: AccountId | string;
   relayerKeyId: string;
-  auth?: ThresholdEd25519SessionMintAuthorization;
+  auth?: Ed25519WalletSessionMintAuthorization;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
   };
   participantIds: readonly number[];
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -500,8 +534,7 @@ export type EnsureWarmEcdsaProvisionPlanReadyArgs =
         EcdsaSessionProvisionPlan,
         {
           kind:
-            | 'threshold_session_auth_ecdsa_reconnect'
-            | 'cookie_ecdsa_reconnect'
+            | 'wallet_session_ecdsa_reconnect'
             | 'passkey_ecdsa_session_provision';
         }
       >;

@@ -2,7 +2,6 @@ import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapSession';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdSessionKind } from '../sessionPolicy';
 
 /**
  * Wallet-origin helper for threshold-ECDSA session bootstrap.
@@ -17,7 +16,7 @@ export async function connectEcdsaSession(args: {
   userId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   participantIds?: number[];
-  sessionKind?: ThresholdSessionKind;
+  sessionKind?: 'jwt';
   sessionId?: string;
   ttlMs?: number;
   remainingUses?: number;

@@ -1,7 +1,7 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import type { ThemeName, WalletAuthCurve, WalletAuthIntent } from '@/core/types/seams';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import {
   WalletAuthPolicyError,
 } from '../../stepUpConfirmation/walletAuthModeResolver';
@@ -130,7 +130,7 @@ export async function requestEmailOtpKeyExportAuthorization(
     chain: ThresholdEcdsaChainTarget['kind'];
     publicKey: string;
     curve: WalletAuthCurve;
-    routeAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
   },
 ): Promise<ExportEmailOtpStepUpAuthorization>;
@@ -142,7 +142,7 @@ export async function requestEmailOtpKeyExportAuthorization(
     chain: 'near';
     publicKey: string;
     curve: 'ed25519';
-    routeAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
     walletSession?: never;
   },
@@ -158,7 +158,7 @@ export async function requestEmailOtpKeyExportAuthorization(
         chain: ThresholdEcdsaChainTarget['kind'];
         publicKey: string;
         curve: WalletAuthCurve;
-        routeAuth?: AppOrThresholdSessionAuth;
+        routeAuth?: AppOrWalletSessionAuth;
         authLane?: EmailOtpAuthLane;
       }
     | {
@@ -167,7 +167,7 @@ export async function requestEmailOtpKeyExportAuthorization(
         chain: 'near';
         publicKey: string;
         curve: 'ed25519';
-        routeAuth?: AppOrThresholdSessionAuth;
+        routeAuth?: AppOrWalletSessionAuth;
         authLane?: EmailOtpAuthLane;
         walletSession?: never;
       },

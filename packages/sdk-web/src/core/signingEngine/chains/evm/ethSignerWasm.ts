@@ -407,14 +407,16 @@ export type ThresholdEcdsaPresignProgressWasm = {
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
   event: 'none' | 'triples_done' | 'presign_done';
   outgoingMessages: Uint8Array[];
-  presignature97?: Uint8Array;
+  presignatureHandle?: string;
+  presignatureBigR33?: Uint8Array;
 };
 
 type ThresholdEcdsaPresignProgressWasmRaw = {
   stage?: unknown;
   event?: unknown;
   outgoingMessages?: unknown[];
-  presignature97?: unknown;
+  presignatureHandle?: unknown;
+  presignatureBigR33?: unknown;
 };
 
 function asPresignProgress(
@@ -434,11 +436,18 @@ function asPresignProgress(
     ? raw.outgoingMessages.map((entry) => new Uint8Array(entry as ArrayBuffer))
     : [];
 
-  const presignature97 = raw.presignature97
-    ? new Uint8Array(raw.presignature97 as ArrayBuffer)
+  const presignatureHandle = String(raw.presignatureHandle || '').trim();
+  const presignatureBigR33 = raw.presignatureBigR33
+    ? new Uint8Array(raw.presignatureBigR33 as ArrayBuffer)
     : undefined;
 
-  return { stage, event, outgoingMessages, ...(presignature97 ? { presignature97 } : {}) };
+  return {
+    stage,
+    event,
+    outgoingMessages,
+    ...(presignatureHandle ? { presignatureHandle } : {}),
+    ...(presignatureBigR33 ? { presignatureBigR33 } : {}),
+  };
 }
 
 export async function thresholdEcdsaPresignSessionInitWasm(args: {
@@ -531,21 +540,18 @@ function assertThresholdEcdsaPresignAbortResult(args: {
   }
 }
 
-export async function thresholdEcdsaComputeSignatureShareWasm(args: {
+export async function thresholdEcdsaComputeSignatureShareFromPresignatureHandleWasm(args: {
+  materialHandle: string;
   participantIds: number[];
   clientParticipantId: number;
   groupPublicKey33: Uint8Array;
-  presignBigR33: Uint8Array;
-  presignKShare32: Uint8Array;
-  presignSigmaShare32: Uint8Array;
+  expectedPresignBigR33: Uint8Array;
   digest32: Uint8Array;
   entropy32: Uint8Array;
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
   const groupPublicKey33 = args.groupPublicKey33.slice();
-  const presignBigR33 = args.presignBigR33.slice();
-  const presignKShare32 = args.presignKShare32.slice();
-  const presignSigmaShare32 = args.presignSigmaShare32.slice();
+  const expectedPresignBigR33 = args.expectedPresignBigR33.slice();
   const digest32 = args.digest32.slice();
   const entropy32 = args.entropy32.slice();
 
@@ -553,23 +559,20 @@ export async function thresholdEcdsaComputeSignatureShareWasm(args: {
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
-      type: 'thresholdEcdsaComputeSignatureShare',
+      type: 'thresholdEcdsaComputeSignatureShareFromPresignatureHandle',
       payload: {
+        materialHandle: String(args.materialHandle || '').trim(),
         participantIds: [...args.participantIds],
         clientParticipantId: args.clientParticipantId,
         groupPublicKey33: groupPublicKey33.buffer,
-        presignBigR33: presignBigR33.buffer,
-        presignKShare32: presignKShare32.buffer,
-        presignSigmaShare32: presignSigmaShare32.buffer,
+        expectedPresignBigR33: expectedPresignBigR33.buffer,
         digest32: digest32.buffer,
         entropy32: entropy32.buffer,
       },
       timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
       transfer: [
         groupPublicKey33.buffer,
-        presignBigR33.buffer,
-        presignKShare32.buffer,
-        presignSigmaShare32.buffer,
+        expectedPresignBigR33.buffer,
         digest32.buffer,
         entropy32.buffer,
       ],

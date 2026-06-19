@@ -4,7 +4,6 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { upsertStoredThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
@@ -14,9 +13,15 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '@/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import {
+  sealedRecoverySessionKind,
+  sealedRecoveryWalletSessionJwt,
+  type EmailOtpEcdsaSealedRecoveryRecord,
+  type SealedRecoveryWalletSessionAuth,
+} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import { walletSessionAuthFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
@@ -66,12 +71,10 @@ type EmailOtpCompanionEd25519Session = {
   relayerKeyId: string;
   participantIds: number[];
   runtimePolicyScope?: ThresholdEd25519SessionRecord['runtimePolicyScope'];
-  xClientBaseB64u?: string;
   routerAbNormalSigning?: ThresholdEd25519SessionRecord['routerAbNormalSigning'];
-  thresholdSessionKind: 'jwt' | 'cookie';
+  walletSessionAuth: SealedRecoveryWalletSessionAuth;
   thresholdSessionId: string;
   walletSigningSessionId: string;
-  thresholdSessionAuthToken?: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 
@@ -112,6 +115,12 @@ function resolveEmailOtpCompanionEd25519Session(args: {
   walletSigningSessionId: string;
   ed25519Record?: ThresholdEd25519SessionRecord | null;
 }): EmailOtpCompanionEd25519Session | null {
+  const sealedCompanion =
+    args.sealedRecord.companionEd25519Recovery &&
+    args.sealedRecord.companionEd25519Recovery.walletSigningSessionId ===
+      args.walletSigningSessionId
+      ? args.sealedRecord.companionEd25519Recovery
+      : null;
   const ed25519Record =
     args.ed25519Record &&
     args.ed25519Record.source === 'email_otp' &&
@@ -120,6 +129,12 @@ function resolveEmailOtpCompanionEd25519Session(args: {
       ? args.ed25519Record
       : null;
   if (ed25519Record) {
+    const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(ed25519Record);
+    if (!walletSessionAuth) return null;
+    const matchingSealedCompanion =
+      sealedCompanion?.thresholdSessionId === ed25519Record.thresholdSessionId
+        ? sealedCompanion
+        : null;
     return {
       nearAccountId: String(ed25519Record.nearAccountId),
       rpId: ed25519Record.rpId,
@@ -129,21 +144,20 @@ function resolveEmailOtpCompanionEd25519Session(args: {
       ...(ed25519Record.runtimePolicyScope
         ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
         : {}),
-      ...(ed25519Record.xClientBaseB64u ? { xClientBaseB64u: ed25519Record.xClientBaseB64u } : {}),
-      thresholdSessionKind: ed25519Record.thresholdSessionKind,
+      ...(ed25519Record.routerAbNormalSigning
+        ? { routerAbNormalSigning: ed25519Record.routerAbNormalSigning }
+        : matchingSealedCompanion?.routerAbNormalSigning
+          ? { routerAbNormalSigning: matchingSealedCompanion.routerAbNormalSigning }
+          : {}),
+      walletSessionAuth,
       thresholdSessionId: ed25519Record.thresholdSessionId,
       walletSigningSessionId: args.walletSigningSessionId,
-      ...(ed25519Record.thresholdSessionAuthToken
-        ? { thresholdSessionAuthToken: ed25519Record.thresholdSessionAuthToken }
-        : {}),
       emailOtpAuthContext: ed25519Record.emailOtpAuthContext || defaultEmailOtpSessionAuthContext(),
     };
   }
 
-  const companion = args.sealedRecord.companionEd25519Recovery;
-  if (!companion || companion.walletSigningSessionId !== args.walletSigningSessionId) {
-    return null;
-  }
+  const companion = sealedCompanion;
+  if (!companion) return null;
   return {
     nearAccountId: args.sealedRecord.walletId,
     rpId: companion.rpId,
@@ -151,14 +165,13 @@ function resolveEmailOtpCompanionEd25519Session(args: {
     relayerKeyId: companion.relayerKeyId,
     participantIds: [...companion.participantIds],
     ...(companion.runtimePolicyScope ? { runtimePolicyScope: companion.runtimePolicyScope } : {}),
-    ...(companion.xClientBaseB64u ? { xClientBaseB64u: companion.xClientBaseB64u } : {}),
-    thresholdSessionKind: companion.sessionKind,
+    walletSessionAuth: companion.walletSessionAuth,
     thresholdSessionId: companion.thresholdSessionId,
     walletSigningSessionId: companion.walletSigningSessionId,
-    ...(companion.thresholdSessionAuthToken
-      ? { thresholdSessionAuthToken: companion.thresholdSessionAuthToken }
-      : {}),
     emailOtpAuthContext: defaultEmailOtpSessionAuthContext(),
+    ...(companion.routerAbNormalSigning
+      ? { routerAbNormalSigning: companion.routerAbNormalSigning }
+      : {}),
   };
 }
 
@@ -209,8 +222,13 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       args.configs.signing.sessionSeal?.shamirPrimeB64u ||
       '',
   ).trim();
-  const thresholdSessionAuthToken = String(
-    ecdsaRecord?.thresholdSessionAuthToken || sealedRecord.thresholdSessionAuthToken || '',
+  const ecdsaWalletSessionAuth = ecdsaRecord
+    ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(ecdsaRecord)
+    : null;
+  const walletSessionJwt = String(
+    (ecdsaWalletSessionAuth?.kind === 'ready' ? ecdsaWalletSessionAuth.walletSessionJwt : '') ||
+      sealedRecoveryWalletSessionJwt(sealedRecord.walletSessionAuth) ||
+      '',
   ).trim();
   const keyVersion = String(
     sealedRecord.keyVersion ||
@@ -245,19 +263,37 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   ) {
     throw new Error('Email OTP sealed refresh chain target mismatch');
   }
+  if (ecdsaRecord?.signingRootId || ecdsaRecord?.signingRootVersion) {
+    if (
+      ecdsaRecord.signingRootId &&
+      ecdsaRecord.signingRootId !== sealedRecord.signingRootId
+    ) {
+      throw new Error('Email OTP sealed refresh signing-root id mismatch');
+    }
+    if (
+      ecdsaRecord.signingRootVersion &&
+      ecdsaRecord.signingRootVersion !== sealedRecord.signingRootVersion
+    ) {
+      throw new Error('Email OTP sealed refresh signing-root version mismatch');
+    }
+  }
   const restoreChainTarget = ecdsaRecord?.chainTarget || sealedRecord.chainTarget;
   const restoreKeyHandle = ecdsaRecord?.keyHandle || sealedRecord.keyHandle;
   const restoreRelayerKeyId = ecdsaRecord?.relayerKeyId || sealedRecord.relayerKeyId;
   const restoreParticipantIds = ecdsaRecord?.participantIds || sealedRecord.participantIds;
-  const restoreSessionKind = ecdsaRecord?.thresholdSessionKind || sealedRecord.sessionKind || 'jwt';
+  const restoreSessionKind =
+    ecdsaRecord?.thresholdSessionKind || sealedRecoverySessionKind(sealedRecord.walletSessionAuth);
   const restoreRuntimePolicyScope =
     ecdsaRecord?.runtimePolicyScope || sealedRecord.runtimePolicyScope;
+  if (restoreSessionKind !== 'jwt') {
+    throw new Error('Email OTP sealed refresh requires JWT Wallet Session restore metadata');
+  }
   if (
     !restoreChainTarget ||
     !restoreKeyHandle ||
     !restoreRelayerKeyId ||
     !restoreParticipantIds?.length ||
-    (restoreSessionKind === 'jwt' && !thresholdSessionAuthToken)
+    !walletSessionJwt
   ) {
     throw new Error('Email OTP sealed refresh is missing durable ECDSA restore metadata');
   }
@@ -266,13 +302,9 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     walletSigningSessionId,
     ed25519Record: args.ed25519Record,
   });
-  const companionSigningRootScope =
-    ed25519Session?.runtimePolicyScope
-      ? signingRootScopeFromRuntimePolicyScope(ed25519Session.runtimePolicyScope)
-      : null;
-  if (ed25519Session && !companionSigningRootScope) {
+  if (ed25519Session) {
     throw new Error(
-      'Email OTP sealed refresh companion Ed25519 recovery requires runtime policy scope',
+      'Email OTP sealed refresh companion Ed25519 recovery requires worker-owned material restore',
     );
   }
 
@@ -283,7 +315,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     expiresAtMs: sealedRecord.expiresAtMs,
     transport: {
       relayerUrl,
-      ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+      ...(walletSessionJwt ? { walletSessionJwt } : {}),
       ...(keyVersion ? { keyVersion } : {}),
       shamirPrimeB64u,
     },
@@ -298,19 +330,6 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       participantIds: [...restoreParticipantIds],
       sessionKind: restoreSessionKind,
       ...(restoreRuntimePolicyScope ? { runtimePolicyScope: restoreRuntimePolicyScope } : {}),
-      ...(ed25519Session
-        ? {
-            ed25519: {
-              sessionId: ed25519Session.thresholdSessionId,
-              signingRootId: companionSigningRootScope!.signingRootId,
-              ...(companionSigningRootScope!.signingRootVersion
-                ? { signingRootVersion: companionSigningRootScope!.signingRootVersion }
-                : {}),
-              relayerKeyId: ed25519Session.relayerKeyId,
-              participantIds: ed25519Session.participantIds,
-            },
-          }
-        : {}),
     },
   });
   if (!restored.ok) {
@@ -328,52 +347,6 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     source: 'email_otp',
     emailOtpAuthContext,
   });
-  if (ed25519Session) {
-    upsertStoredThresholdEd25519SessionRecord({
-      nearAccountId: ed25519Session.nearAccountId,
-      rpId: ed25519Session.rpId,
-      relayerUrl: ed25519Session.relayerUrl,
-      relayerKeyId: ed25519Session.relayerKeyId,
-      participantIds: [...ed25519Session.participantIds],
-      ...(ed25519Session.runtimePolicyScope
-        ? { runtimePolicyScope: ed25519Session.runtimePolicyScope }
-        : {}),
-      ...(ed25519Session.xClientBaseB64u
-        ? { xClientBaseB64u: ed25519Session.xClientBaseB64u }
-        : {}),
-      ...(ed25519Session.routerAbNormalSigning
-        ? { routerAbNormalSigning: ed25519Session.routerAbNormalSigning }
-        : {}),
-      thresholdSessionKind: ed25519Session.thresholdSessionKind,
-      thresholdSessionId: ed25519Session.thresholdSessionId,
-      ...(ed25519Session.walletSigningSessionId
-        ? { walletSigningSessionId: ed25519Session.walletSigningSessionId }
-        : {}),
-      ...(ed25519Session.thresholdSessionAuthToken
-        ? { thresholdSessionAuthToken: ed25519Session.thresholdSessionAuthToken }
-        : {}),
-      expiresAtMs: restored.expiresAtMs,
-      remainingUses: restored.remainingUses,
-      emailOtpAuthContext: ed25519Session.emailOtpAuthContext,
-      updatedAtMs: Date.now(),
-      source: 'email_otp',
-    });
-    if (restored.ed25519RestoreSeedB64u) {
-      await args.hydrateSigningSession({
-        sessionId: ed25519Session.thresholdSessionId,
-        prfFirstB64u: restored.ed25519RestoreSeedB64u,
-        expiresAtMs: restored.expiresAtMs,
-        remainingUses: restored.remainingUses,
-        transport: {
-          curve: 'ed25519',
-          relayerUrl: ed25519Session.relayerUrl,
-          ...(ed25519Session.thresholdSessionAuthToken
-            ? { thresholdSessionAuthToken: ed25519Session.thresholdSessionAuthToken }
-            : {}),
-        },
-      });
-    }
-  }
   return {
     bootstrap,
     warmCapability,

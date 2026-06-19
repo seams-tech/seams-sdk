@@ -22,7 +22,7 @@ import type {
   EmailOtpEcdsaBootstrapStrictPayload,
   EmailOtpWorkerProgressEvent,
 } from '@/core/signingEngine/workerManager/workerTypes';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { type WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
@@ -38,10 +38,6 @@ import {
   emailOtpEcdsaPublicationChainTargets,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
-import {
-  resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity,
-  type EmailOtpEcdsaRoleLocalKeyIdentity,
-} from './ecdsaRoleLocalIdentity';
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
 import {
   buildEmailOtpEcdsaMintingSession,
@@ -70,10 +66,10 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   challengeId?: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
   remainingUses?: number;
@@ -91,17 +87,11 @@ type EmailOtpEcdsaRegistrationBaseInput = {
   routePlan: EmailOtpRoutePlan;
   registrationAttemptId: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  roleLocalKeyIdentity: EmailOtpEcdsaRoleLocalKeyIdentity;
 };
 
 type EmailOtpEcdsaRegistrationJwtAuthInput = {
   sessionKind: 'jwt';
-  routeAuth: AppOrThresholdSessionAuth;
-};
-
-type EmailOtpEcdsaRegistrationCookieAuthInput = {
-  sessionKind: 'cookie';
-  routeAuth?: never;
+  routeAuth: AppOrWalletSessionAuth;
 };
 
 type EmailOtpEcdsaNewRegistrationKeyInput = {
@@ -115,7 +105,7 @@ type EmailOtpEcdsaExistingRegistrationKeyInput = {
 };
 
 export type EmailOtpEcdsaRegistrationBootstrapInput = EmailOtpEcdsaRegistrationBaseInput &
-  (EmailOtpEcdsaRegistrationJwtAuthInput | EmailOtpEcdsaRegistrationCookieAuthInput) &
+  EmailOtpEcdsaRegistrationJwtAuthInput &
   (EmailOtpEcdsaNewRegistrationKeyInput | EmailOtpEcdsaExistingRegistrationKeyInput);
 
 export type EmailOtpEcdsaEnrollmentPorts = {
@@ -142,7 +132,7 @@ function requiredEmailOtpEcdsaEnrollmentString(value: unknown, field: string): s
 async function resolveEmailOtpEcdsaRegistrationBootstrapInput(args: {
   request: EnrollAndLoginEmailOtpEcdsaCapabilityArgs;
   routePlan: EmailOtpRoutePlan;
-  routeAuth: AppOrThresholdSessionAuth | undefined;
+  routeAuth: AppOrWalletSessionAuth | undefined;
   runtimePolicyScope: ThresholdRuntimePolicyScope | undefined;
   walletSessionUserId: string;
   rpId: string;
@@ -154,12 +144,6 @@ async function resolveEmailOtpEcdsaRegistrationBootstrapInput(args: {
   if (!args.runtimePolicyScope) {
     throw new Error('Email OTP ECDSA registration requires runtimePolicyScope');
   }
-  const roleLocalKeyIdentity = await resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity({
-    keyHandle: args.request.keyHandle,
-    walletId: args.walletSessionUserId,
-    rpId: args.rpId,
-    runtimePolicyScope: args.runtimePolicyScope,
-  });
   const base = {
     mode: 'registration_bootstrap' as const,
     walletSession: args.request.walletSession,
@@ -167,19 +151,15 @@ async function resolveEmailOtpEcdsaRegistrationBootstrapInput(args: {
     routePlan: args.routePlan,
     registrationAttemptId,
     runtimePolicyScope: args.runtimePolicyScope,
-    roleLocalKeyIdentity,
   };
-  const authInput =
-    args.routePlan.authLane.kind === 'cookie'
-      ? ({ sessionKind: 'cookie' } as const)
-      : ({
-          sessionKind: 'jwt',
-          routeAuth:
-            args.routeAuth ||
-            (() => {
-              throw new Error('Email OTP ECDSA registration requires route auth');
-            })(),
-        } as const);
+  const authInput = {
+    sessionKind: 'jwt' as const,
+    routeAuth:
+      args.routeAuth ||
+      (() => {
+        throw new Error('Email OTP ECDSA registration requires route auth');
+      })(),
+  };
   const keyHandle = String(args.request.keyHandle || '').trim();
   if (keyHandle) {
     return {
@@ -328,7 +308,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     ...(registrationInput.keyMode === 'existing_role_local_key'
       ? { keyHandle: registrationInput.keyHandle }
       : {}),
-    roleLocalKeyIdentity: registrationInput.roleLocalKeyIdentity,
     runtimePolicyScope: registrationInput.runtimePolicyScope,
     ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
       ? { participantIds: args.participantIds }
@@ -338,29 +317,18 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     remainingUses,
   };
   const bootstrapPayload: EmailOtpEcdsaBootstrapStrictPayload =
-    registrationInput.sessionKind === 'jwt'
-      ? registrationInput.keyMode === 'existing_role_local_key'
-        ? {
-            ...bootstrapPayloadBase,
-            sessionKind: 'jwt',
-            routeAuth: registrationInput.routeAuth,
-            keyHandle: registrationInput.keyHandle,
-          }
-        : {
-            ...bootstrapPayloadBase,
-            sessionKind: 'jwt',
-            routeAuth: registrationInput.routeAuth,
-          }
-      : registrationInput.keyMode === 'existing_role_local_key'
-        ? {
-            ...bootstrapPayloadBase,
-            sessionKind: 'cookie',
-            keyHandle: registrationInput.keyHandle,
-          }
-        : {
-            ...bootstrapPayloadBase,
-            sessionKind: 'cookie',
-          };
+    registrationInput.keyMode === 'existing_role_local_key'
+      ? {
+          ...bootstrapPayloadBase,
+          sessionKind: 'jwt',
+          routeAuth: registrationInput.routeAuth,
+          keyHandle: registrationInput.keyHandle,
+        }
+      : {
+          ...bootstrapPayloadBase,
+          sessionKind: 'jwt',
+          routeAuth: registrationInput.routeAuth,
+        };
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {

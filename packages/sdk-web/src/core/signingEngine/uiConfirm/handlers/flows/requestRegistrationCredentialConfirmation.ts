@@ -5,7 +5,7 @@ import {
   type RegistrationUserConfirmRequest,
   type TransactionSummary,
   UserConfirmMessageType,
-  type WalletIframeRegistrationActivationProof,
+  type RegistrationActivationProof,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
@@ -33,7 +33,7 @@ type RegistrationCredentialConfirmationArgs = {
   confirmerText?: { title?: string; body?: string };
   confirmationConfig?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
-  walletIframeActivation?: WalletIframeRegistrationActivationProof;
+  walletIframeActivation?: RegistrationActivationProof;
 };
 
 type RegistrationCredentialDecisionInput = {

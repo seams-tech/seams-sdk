@@ -27,6 +27,7 @@ export * from './emailRecovery';
 export * from './errors';
 export * from './accountIds';
 export * from './sdkSentEvents';
+export * from './login.typings';
 export * from './seams';
 export * from './delegate';
 

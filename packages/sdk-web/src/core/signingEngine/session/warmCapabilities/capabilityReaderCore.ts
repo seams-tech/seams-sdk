@@ -267,9 +267,10 @@ export function createWarmSessionCapabilityReaderCore(
     if (!thresholdSessionId) return null;
     if (args.curve === 'ed25519') {
       const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-      const jwt = String(record?.thresholdSessionAuthToken || '').trim();
+      const auth = resolveEd25519AuthMaterial(record);
+      const jwt = String(auth?.walletSessionJwt || '').trim();
       const lane = resolveEmailOtpAuthLane({
-        routeAuth: jwt ? { kind: 'threshold_session', jwt } : undefined,
+        routeAuth: jwt ? { kind: 'wallet_session', jwt } : undefined,
         thresholdSessionId,
         authorizingWalletSigningSessionId: record?.walletSigningSessionId,
         curve: 'ed25519',
@@ -281,11 +282,12 @@ export function createWarmSessionCapabilityReaderCore(
         : null;
     }
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-    const jwt = String(record?.thresholdSessionAuthToken || '').trim();
+    const auth = resolveEcdsaAuthMaterial(record);
+    const jwt = String(auth?.walletSessionJwt || '').trim();
     const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
     if (record?.source !== 'email_otp' || !jwt || !identity) return null;
     const lane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'threshold_session', jwt },
+      routeAuth: { kind: 'wallet_session', jwt },
       thresholdSessionId: identity.thresholdSessionId,
       authorizingWalletSigningSessionId: identity.walletSigningSessionId,
       curve: 'ecdsa',

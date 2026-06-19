@@ -34,11 +34,12 @@ import {
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
   requireThresholdEd25519WarmSessionKeyVersion,
-  reconstructThresholdEd25519ClientBaseFromWarmSession,
+  reconstructThresholdEd25519SigningMaterialFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPrepareContext,
@@ -71,6 +72,14 @@ function requireEmailRecoveryString(value: unknown, field: string): string {
   return text;
 }
 
+function requireEmailRecoveryRuntimePolicyScope(value: unknown) {
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value);
+  if (!runtimePolicyScope) {
+    throw new Error('email-recovery ECDSA response missing runtimePolicyScope');
+  }
+  return runtimePolicyScope;
+}
+
 function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPrepareContext {
   if (!isObject(value)) {
     throw new Error('email-recovery/prepare returned invalid ECDSA prepare data');
@@ -84,14 +93,15 @@ function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsa
   ) {
     throw new Error('email-recovery/prepare returned invalid ECDSA participant ids');
   }
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
+  const runtimePolicyScope = requireEmailRecoveryRuntimePolicyScope(value.runtimePolicyScope);
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: requireEmailRecoveryString(value.walletId, 'walletId'),
     rpId: requireEmailRecoveryString(value.rpId, 'rpId'),
     ecdsaThresholdKeyId: requireEmailRecoveryString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
-    signingRootId: requireEmailRecoveryString(value.signingRootId, 'signingRootId'),
-    signingRootVersion: requireEmailRecoveryString(value.signingRootVersion, 'signingRootVersion'),
+    signingRootId: signingRootScope.signingRootId,
+    signingRootVersion: signingRootScope.signingRootVersion || runtimePolicyScope.signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId: requireEmailRecoveryString(value.relayerKeyId, 'relayerKeyId'),
     requestId: requireEmailRecoveryString(value.requestId, 'requestId'),
@@ -103,7 +113,7 @@ function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsa
     ttlMs: coercePositiveInt(value.ttlMs, 1),
     remainingUses: coercePositiveInt(value.remainingUses, 1),
     participantIds,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    runtimePolicyScope,
   };
 }
 
@@ -594,7 +604,7 @@ export class EmailRecoveryDomain {
           ? thresholdSection.participantIds
           : undefined,
       });
-      await reconstructThresholdEd25519ClientBaseFromWarmSession({
+      await reconstructThresholdEd25519SigningMaterialFromWarmSession({
         context,
         credential,
         nearAccountId,

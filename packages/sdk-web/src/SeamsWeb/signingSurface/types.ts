@@ -30,7 +30,7 @@ import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 export type {
   AccountSyncSigningSurface,
   AccountSyncWebContext,
-  AuthSessionWebContext,
+  WalletAuthWebContext,
   DeviceLinkingSigningSurface,
   DeviceLinkingWebContext,
   EcdsaLoginSessionSurface,

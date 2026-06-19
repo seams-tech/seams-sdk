@@ -1,6 +1,7 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import type {
   EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalReadyRecord,
@@ -28,6 +29,12 @@ export type { EcdsaThresholdKeyId };
 export type ThresholdEcdsaClientAdditiveShareHandle = {
   kind: 'email_otp_worker_session';
   sessionId: string;
+};
+
+export type ThresholdEcdsaRoleLocalWorkerShareHandle = {
+  kind: 'role_local_worker_session';
+  materialHandle: string;
+  bindingDigest: string;
 };
 
 export type ThresholdEcdsaHssRoleLocalClientState = {
@@ -71,6 +78,16 @@ export type ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding =
     ecdsaHssRoleLocalClientState?: never;
   };
 
+export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
+  ThresholdEcdsaBackendBindingCommon & {
+    materialKind: 'role_local_worker_handle';
+    roleLocalMaterialHandle: ThresholdEcdsaRoleLocalWorkerShareHandle;
+    ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+    stateBlob?: never;
+    clientAdditiveShareHandle?: never;
+    ecdsaHssRoleLocalClientState?: never;
+  };
+
 export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBindingCommon & {
   materialKind: 'metadata_only';
   stateBlob?: never;
@@ -81,6 +98,7 @@ export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBind
 
 export type ThresholdEcdsaBackendBinding =
   | ThresholdEcdsaEmailOtpWorkerBackendBinding
+  | ThresholdEcdsaRoleLocalWorkerHandleBackendBinding
   | ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding
   | ThresholdEcdsaMetadataOnlyBackendBinding;
 
@@ -95,16 +113,17 @@ export type KeyRef =
        */
       keyHandle?: string;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-      signingRootId: string;
-      signingRootVersion?: string;
+      signingRootId?: never;
+      signingRootVersion?: never;
       backendBinding?: ThresholdEcdsaBackendBinding;
       ecdsaHssExportArtifact?: ThresholdEcdsaCanonicalExportArtifact;
       participantIds?: number[];
       thresholdEcdsaPublicKeyB64u?: string;
       ethereumAddress?: string;
       relayerVerifyingShareB64u?: string;
+      routerAbEcdsaHssNormalSigning?: RouterAbEcdsaHssNormalSigningStateV1;
       thresholdSessionKind?: 'jwt' | 'cookie';
-      thresholdSessionAuthToken?: string;
+      walletSessionJwt?: string;
       thresholdSessionId: string;
       walletSigningSessionId: string;
       mpcSessionId?: string;

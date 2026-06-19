@@ -3,10 +3,10 @@ import {
   getWalletSessionDomain,
   hasPasskeyCredentialDomain,
   lockDomain,
-  prefillThresholdEcdsaPresignPoolDomain,
+  prefillRouterAbEcdsaHssPresignaturePoolDomain,
   unlockDomain,
-  type AuthSessionDomainDeps,
-} from '@/SeamsWeb/operations/auth/authSessions';
+  type WalletAuthDomainDeps,
+} from '@/SeamsWeb/operations/auth/walletAuth';
 import type { AuthCapability } from '@/SeamsWeb/signingSurface/types';
 
 export type AuthCapabilityDomainMethods = {
@@ -19,20 +19,20 @@ export type AuthCapabilityDomainMethods = {
 };
 
 export function createAuthCapability(deps: {
-  getAuthSessionDeps: () => AuthSessionDomainDeps;
+  getWalletAuthDeps: () => WalletAuthDomainDeps;
   domain: AuthCapabilityDomainMethods;
 }): AuthCapability {
   return {
     unlock: async (nearAccountId, options) =>
-      await unlockDomain(deps.getAuthSessionDeps(), nearAccountId, options),
-    lock: async () => await lockDomain(deps.getAuthSessionDeps()),
+      await unlockDomain(deps.getWalletAuthDeps(), nearAccountId, options),
+    lock: async () => await lockDomain(deps.getWalletAuthDeps()),
     getWalletSession: async (walletId) =>
-      await getWalletSessionDomain(deps.getAuthSessionDeps(), walletId),
-    getRecentUnlocks: async () => await getRecentUnlocksDomain(deps.getAuthSessionDeps()),
+      await getWalletSessionDomain(deps.getWalletAuthDeps(), walletId),
+    getRecentUnlocks: async () => await getRecentUnlocksDomain(deps.getWalletAuthDeps()),
     hasPasskeyCredential: async (nearAccountId) =>
-      await hasPasskeyCredentialDomain(deps.getAuthSessionDeps(), nearAccountId),
-    prefillThresholdEcdsaPresignPool: async (args) =>
-      await prefillThresholdEcdsaPresignPoolDomain(deps.getAuthSessionDeps(), args),
+      await hasPasskeyCredentialDomain(deps.getWalletAuthDeps(), nearAccountId),
+    prefillRouterAbEcdsaHssPresignaturePool: async (args) =>
+      await prefillRouterAbEcdsaHssPresignaturePoolDomain(deps.getWalletAuthDeps(), args),
     requestEmailOtpChallenge: deps.domain.requestEmailOtpChallenge,
     requestEmailOtpSigningSessionChallenge: deps.domain.requestEmailOtpSigningSessionChallenge,
     refreshEmailOtpSigningSession: deps.domain.refreshEmailOtpSigningSession,

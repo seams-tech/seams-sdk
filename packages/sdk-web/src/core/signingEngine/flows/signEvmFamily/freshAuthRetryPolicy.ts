@@ -1,7 +1,7 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { isSigningSessionBudgetExhaustedError } from '../../session/budget/budget';
-import { isThresholdSessionAuthUnavailableError } from '../../threshold/sessionPolicy';
+import { isSigningSessionAuthUnavailableError } from '../../threshold/sessionPolicy';
 import { isFreshEmailOtpReauthRequiredError } from './errors';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
 
@@ -91,7 +91,7 @@ export function classifyEvmFamilyFreshAuthRetry(args: {
   if (args.trigger === 'email_otp_auth_unavailable') {
     if (args.hasEmailOtpSigningPlan) return blocked('email_otp_signing_plan_already_selected');
     if (
-      !isThresholdSessionAuthUnavailableError(args.error) &&
+      !isSigningSessionAuthUnavailableError(args.error) &&
       !isFreshEmailOtpReauthRequiredError(args.error)
     ) {
       return blocked('error_not_retryable');

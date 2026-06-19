@@ -9,7 +9,7 @@ import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -28,7 +28,9 @@ import {
   refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
 } from './emailOtpSigningSession';
 import type { EmailOtpEd25519SessionReconstructionPlan } from '../../session/emailOtp/provisioning';
+import type { EmailOtpThresholdEd25519ProvisioningResult } from '../../session/emailOtp/provisioning';
 import type { EmailOtpEd25519ReconstructionResult } from '../../session/emailOtp/ecdsaLogin';
+import type { LoginEmailOtpEd25519CapabilityArgs } from '../../session/emailOtp/ed25519Warmup';
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
@@ -39,11 +41,11 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   operation?: WalletEmailOtpLoginOperation;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -59,6 +61,12 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
   warmCapability: WarmSessionEcdsaCapabilityState;
   ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
 };
+
+export type LoginWithEmailOtpEd25519CapabilityInternalArgs =
+  LoginEmailOtpEd25519CapabilityArgs;
+
+export type LoginWithEmailOtpEd25519CapabilityInternalResult =
+  EmailOtpThresholdEd25519ProvisioningResult;
 
 export type EnrollEmailOtpInternalArgs = {
   walletId: WalletId;
@@ -87,11 +95,11 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   challengeId?: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   participantIds?: number[];
   ed25519ParticipantIds?: number[];
   keyHandle?: string;
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   ttlMs?: number;
   remainingUses?: number;
   clientSecret32?: Uint8Array;
@@ -140,6 +148,9 @@ export type EmailOtpPublicDeps = {
     loginWithEcdsaCapabilityInternal: (
       args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
     ) => Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
+    loginWithEd25519CapabilityInternal: (
+      args: LoginWithEmailOtpEd25519CapabilityInternalArgs,
+    ) => Promise<LoginWithEmailOtpEd25519CapabilityInternalResult>;
     enrollAndLoginWithEcdsaCapabilityInternal: (
       args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
     ) => Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult>;
@@ -151,6 +162,13 @@ export async function loginWithEmailOtpEcdsaCapabilityInternal(
   args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
 ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
   return await deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(args);
+}
+
+export async function loginWithEmailOtpEd25519CapabilityInternal(
+  deps: EmailOtpPublicDeps,
+  args: LoginWithEmailOtpEd25519CapabilityInternalArgs,
+): Promise<LoginWithEmailOtpEd25519CapabilityInternalResult> {
+  return await deps.emailOtpSessions.loginWithEd25519CapabilityInternal(args);
 }
 
 export async function requestEmailOtpSigningSessionChallenge(

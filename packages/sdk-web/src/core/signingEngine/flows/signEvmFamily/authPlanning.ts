@@ -3,9 +3,7 @@ import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -37,7 +35,11 @@ import {
   createEmailOtpEcdsaTransactionSigningBridge,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
-import { getEcdsaMaterialRecord, type EcdsaMaterialState } from './ecdsaMaterialState';
+import {
+  getEcdsaMaterialRecord,
+  resolveEmailOtpEcdsaReadinessSource,
+  type EcdsaMaterialState,
+} from './ecdsaMaterialState';
 import type {
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
@@ -94,6 +96,10 @@ type ResolveEvmFamilyTransactionStepUpBaseArgs = {
   onEvent?: EvmFamilyLifecycleEventCallback;
 };
 
+function assertNeverEcdsaReadinessSource(value: never): never {
+  throw new Error(`[SigningEngine][ecdsa] unsupported readiness source: ${String(value)}`);
+}
+
 export type ResolveEvmFamilyTransactionStepUpArgs =
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
@@ -148,33 +154,35 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
-    const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+    const readinessSource = resolveEmailOtpEcdsaReadinessSource({
       record,
       nowMs: Date.now(),
     });
-    if (
-      roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-      roleLocalState.inlineSigningMaterial.kind === 'role_local_ready_state_blob'
-    ) {
-      return buildBackingReadiness({
-        expiresAtMs: record.expiresAtMs,
-        remainingUses: record.remainingUses,
-      });
+    switch (readinessSource.kind) {
+      case 'persisted_record_policy':
+        return buildBackingReadiness({
+          expiresAtMs: readinessSource.expiresAtMs,
+          remainingUses: readinessSource.remainingUses,
+        });
+      case 'worker_session_status': {
+        const status =
+          typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
+            ? await args.deps
+                .getEmailOtpWarmSessionStatus(readinessSource.workerSessionId)
+                .catch(() => null)
+            : null;
+        const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
+        const statusRemainingUses = status?.ok ? status.remainingUses : 0;
+        return buildBackingReadiness({
+          expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
+          remainingUses: Math.floor(Number(statusRemainingUses) || 0),
+        });
+      }
+      case 'unavailable':
+        return buildBackingReadiness({ expiresAtMs: 0, remainingUses: 0 });
+      default:
+        return assertNeverEcdsaReadinessSource(readinessSource);
     }
-    const status =
-      roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-      roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share' &&
-      typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
-        ? await args.deps
-            .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
-            .catch(() => null)
-        : null;
-    const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
-    const statusRemainingUses = status?.ok ? status.remainingUses : 0;
-    return buildBackingReadiness({
-      expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
-      remainingUses: Math.floor(Number(statusRemainingUses) || 0),
-    });
   }
 
   const trustedPasskeyReadiness = await resolvePasskeyEcdsaTrustedBudgetReadiness({
@@ -207,12 +215,12 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
     return null;
   }
   const signerSession = args.material.signerSession;
+  const walletSessionJwt =
+    signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
   const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
-    ...(signerSession.transport.auth.kind === 'jwt_threshold_session_auth'
-      ? { thresholdSessionAuthToken: signerSession.transport.auth.thresholdSessionAuthToken }
-      : {}),
+    walletSessionJwt,
   };
   try {
     const budgetIdentity = await args.deps.signingSessionCoordinator.prepareBudgetIdentity({
@@ -274,9 +282,6 @@ export async function resolveEvmFamilyTransactionStepUp(
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const preparedMaterial = preparedEcdsaMetadata?.material;
   const laneWarmRecord = preparedMaterial ? getEcdsaMaterialRecord(preparedMaterial) : undefined;
-  const preparedSigningRootId = laneWarmRecord?.runtimePolicyScope
-    ? signingRootScopeFromRuntimePolicyScope(laneWarmRecord.runtimePolicyScope).signingRootId
-    : undefined;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
     args.senderSignatureAlgorithm === 'secp256k1' &&
@@ -324,7 +329,6 @@ export async function resolveEvmFamilyTransactionStepUp(
         accountId: walletId,
         intent: signingIntent,
         ...(signingCurve ? { curve: signingCurve } : {}),
-        ...(preparedSigningRootId ? { signingRootId: String(preparedSigningRootId) } : {}),
         expiresAtMs: preparedOperation.expiresAtMs,
         remainingUses: preparedOperation.remainingUses,
       });

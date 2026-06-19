@@ -24,7 +24,7 @@ sealed-recovery boundary and adds method-specific worker/bootstrap logic on top.
 ## Entrypoints
 
 - `companionSessions.ts`
-- `EmailOtpThresholdSessionCoordinator.ts`
+- `EmailOtpWalletSessionCoordinator.ts`
 - `appSessionJwtCache.ts`
 - `ecdsaRecovery.ts`
 - `ed25519Recovery.ts`

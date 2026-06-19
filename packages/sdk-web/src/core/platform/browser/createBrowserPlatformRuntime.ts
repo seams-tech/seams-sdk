@@ -9,6 +9,7 @@ import {
   finalizeEcdsaClientBootstrapCommandWasm,
   prepareEcdsaClientBootstrapCommandWasm,
   buildEcdsaRoleLocalExportArtifactCommandWasm,
+  storeEcdsaRoleLocalSigningMaterialWasm,
 } from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { WorkerOperationContext } from '../../signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -64,6 +65,8 @@ import type {
   SignerCryptoPort,
   SignerCryptoInvocationErrorCode,
   SignerCryptoResult,
+  StoreEcdsaRoleLocalSigningMaterialErrorCode,
+  StoreEcdsaRoleLocalSigningMaterialOutput,
 } from '../types';
 import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
@@ -672,6 +675,55 @@ function createBrowserSignerCryptoPort(
         };
       } catch (error) {
         return mapSignerCryptoInvocationError(error) || mapFinalizeEcdsaCommandError(error);
+      }
+    },
+    async storeEcdsaRoleLocalSigningMaterial(
+      input,
+    ): Promise<
+      SignerCryptoResult<
+        StoreEcdsaRoleLocalSigningMaterialOutput,
+        StoreEcdsaRoleLocalSigningMaterialErrorCode
+      >
+    > {
+      if (
+        input.stateBlob.kind !== 'ecdsa_role_local_state_blob_v1' ||
+        input.stateBlob.curve !== 'secp256k1' ||
+        input.stateBlob.encoding !== 'base64url' ||
+        input.stateBlob.producer !== 'signer_core'
+      ) {
+        return signerCryptoCommandFailure(
+          'invalid_ready_state',
+          'ECDSA role-local ready blob envelope is invalid',
+        );
+      }
+      if (!workerCtx) {
+        return signerCryptoInvocationFailure(
+          'unavailable',
+          'ECDSA role-local material worker context is unavailable',
+        );
+      }
+      try {
+        const stored = await storeEcdsaRoleLocalSigningMaterialWasm({
+          materialHandle: input.handle.materialHandle,
+          bindingDigest: input.handle.bindingDigest,
+          stateBlob: input.stateBlob,
+          workerCtx,
+        });
+        return {
+          ok: true,
+          value: {
+            handle: {
+              kind: 'role_local_worker_session',
+              materialHandle: stored.materialHandle,
+              bindingDigest: stored.bindingDigest,
+            },
+          },
+        };
+      } catch (error) {
+        return (
+          mapSignerCryptoInvocationError(error) ||
+          signerCryptoCommandFailure('crypto_failure', errorMessage(error))
+        );
       }
     },
     async buildEcdsaRoleLocalExportArtifact(

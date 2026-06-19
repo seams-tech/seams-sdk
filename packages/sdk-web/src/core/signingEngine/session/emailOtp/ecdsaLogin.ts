@@ -23,7 +23,7 @@ import type {
   EmailOtpWorkerProgressEvent,
   EmailOtpWorkerSessionHandleOperation,
 } from '@/core/signingEngine/workerManager/workerTypes';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import {
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
@@ -33,6 +33,10 @@ import {
   type WalletEmailOtpOperation,
 } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import {
+  ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
 import type { EmailOtpEcdsaBootstrapStrictPayload } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import { toEvmFamilyEcdsaKeyHandle } from '../identity/evmFamilyEcdsaIdentity';
@@ -51,7 +55,6 @@ import {
   emailOtpEcdsaPublicationChainTargets,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
-import { resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity } from './ecdsaRoleLocalIdentity';
 import { unlockEmailOtpWallet } from './walletUnlock';
 import {
   assertEmailOtpSigningSessionAuthLane,
@@ -61,7 +64,7 @@ import {
   emailOtpEcdsaBootstrapRouteAuthFromRoutePlan,
   emailOtpEcdsaBootstrapRouteAuthToTransport,
   routeAuthFromEmailOtpRoutePlan,
-  thresholdSessionAuthFromEcdsaBootstrap,
+  walletSessionRouteAuthFromEcdsaBootstrap,
   thresholdSessionIdFromEcdsaBootstrap,
   type EmailOtpEcdsaBootstrapAuthorization,
   walletSigningSessionIdFromEcdsaBootstrap,
@@ -103,6 +106,31 @@ export type EmailOtpEd25519ReconstructionResult =
         | 'not_needed_for_ecdsa';
     };
 
+function routerAbNormalSigningStateFromConfigs(
+  configs: SeamsConfigsReadonly,
+): RouterAbEd25519NormalSigningState {
+  const normalSigning = configs.signing.routerAb.normalSigning;
+  switch (normalSigning.mode) {
+    case 'enabled':
+      return {
+        kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+        signingWorkerId: normalSigning.signingWorkerId,
+      };
+    case 'disabled':
+      throw new Error(
+        '[SigningEngine][email-otp] Router A/B normal signing must be enabled for Ed25519 reconstruction',
+      );
+    default: {
+      const exhaustive: never = normalSigning;
+      throw new Error(
+        `[SigningEngine][email-otp] Unsupported Router A/B normal-signing mode: ${String(
+          (exhaustive as { mode?: unknown })?.mode || '',
+        )}`,
+      );
+    }
+  }
+}
+
 export type LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
   subjectId?: never;
@@ -115,11 +143,11 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   operation?: WalletEmailOtpLoginOperation;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
   keyHandle?: string;
   participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
   remainingUses?: number;
@@ -197,7 +225,7 @@ export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   challengeId: string;
   otpCode: string;
   record?: ThresholdEcdsaSessionRecord;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   authLane?: EmailOtpAuthLane;
 };
 
@@ -230,7 +258,7 @@ export type EmailOtpEcdsaTransactionStepUpInput = EmailOtpEcdsaSigningBaseInput 
     | {
         mode: 'transaction_step_up';
         record: ThresholdEcdsaSessionRecord;
-        routeAuth: AppOrThresholdSessionAuth;
+        routeAuth: AppOrWalletSessionAuth;
         authLane?: never;
         appSessionJwt?: never;
         registrationAttemptId?: never;
@@ -380,7 +408,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     operation,
     keyHandle,
     participantIds: record.participantIds,
-    sessionKind: record.thresholdSessionKind,
+    sessionKind: 'jwt',
     routePlan,
     authSubjectId: record.source === 'email_otp' ? record.emailOtpAuthContext.authSubjectId : undefined,
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
@@ -535,23 +563,14 @@ export async function loginWithEmailOtpEcdsaCapability(
     runtimePolicyScope,
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   });
-  const roleLocalKeyIdentity = await resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity({
-    keyHandle: args.keyHandle,
-    walletId: walletSessionUserId,
-    rpId,
-    runtimePolicyScope,
-  });
-  const bootstrapAuth =
-    routePlan.authLane.kind === 'cookie'
-      ? ({ sessionKind: 'cookie' } as const)
-      : ({
-          sessionKind: 'jwt',
-          routeAuth:
-            bootstrapTransportAuth ||
-            (() => {
-              throw new Error('Email OTP ECDSA bootstrap requires route auth');
-            })(),
-        } as const);
+  const bootstrapAuth = {
+    sessionKind: 'jwt' as const,
+    routeAuth:
+      bootstrapTransportAuth ||
+      (() => {
+        throw new Error('Email OTP ECDSA bootstrap requires route auth');
+      })(),
+  };
   const keyHandle = String(args.keyHandle || '').trim();
   const bootstrapPayload: EmailOtpEcdsaBootstrapStrictPayload = {
     relayUrl,
@@ -562,7 +581,6 @@ export async function loginWithEmailOtpEcdsaCapability(
     clientRootShareHandle: workerResult.clientRootShareHandle,
     chainTarget,
     publicationChainTargets,
-    roleLocalKeyIdentity,
     runtimePolicyScope,
     ...(keyHandle ? { keyHandle } : {}),
     ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
@@ -611,9 +629,9 @@ export async function loginWithEmailOtpEcdsaCapability(
     reason: 'missing_client_seed_material',
   };
   if (thresholdEd25519PrfFirstB64u) {
-    const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
+    const freshWalletSessionRouteAuth = walletSessionRouteAuthFromEcdsaBootstrap(bootstrap);
     const shouldAwaitEd25519Reconstruction = args.ed25519ReconstructionMode === 'await';
-    const reconstructionAuth = freshThresholdSessionAuth || bootstrapTransportAuth;
+    const reconstructionAuth = freshWalletSessionRouteAuth || bootstrapTransportAuth;
     const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;
     const resolvedEd25519Reconstruction =
       ed25519ReconstructionPlan.kind === 'reconstruct'
@@ -638,6 +656,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         emailOtpAuthContext: ed25519ReconstructionAuthContext,
         routeAuth: reconstructionAuth,
         runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope,
+        routerAbNormalSigning: routerAbNormalSigningStateFromConfigs(ports.configs),
         ed25519Key: resolvedEd25519Reconstruction.ed25519Key,
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),

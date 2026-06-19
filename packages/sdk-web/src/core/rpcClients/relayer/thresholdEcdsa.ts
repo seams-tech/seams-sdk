@@ -1,15 +1,15 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import { errorMessage } from '@shared/utils/errors';
-import { normalizeJwtCookieSessionKind, stripTrailingSlashes } from '@shared/utils/normalize';
 import {
   requireAppSessionJwt,
   requireWalletSessionJwt,
   type AppOrWalletSessionAuth,
-  type CookieSessionAuth,
 } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
   ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+  parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import {
@@ -25,6 +25,11 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+  normalizeRelayerBaseUrl,
+} from './relayerHttp';
 
 export type EcdsaHssRoleLocalPublicIdentity = {
   hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
@@ -75,7 +80,6 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   remainingUses: number;
   participantIds: number[];
   auth?: ThresholdEcdsaHssRouteAuth;
-  sessionKind?: 'jwt' | 'cookie';
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 } & (
   | {
@@ -185,6 +189,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   expiresAt: string;
   remainingUses: number;
   jwt?: string;
+  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 };
 
 export type ThresholdEcdsaHssRoleLocalExportShareRequest = {
@@ -203,7 +208,6 @@ export type ThresholdEcdsaHssRoleLocalExportShareRequest = {
   clientDeviceId: string;
   clientSessionId: string;
   auth: ThresholdEcdsaHssRouteAuth;
-  sessionKind?: 'jwt' | 'cookie';
 };
 
 type ThresholdEcdsaHssRoleLocalExportShareBody = {
@@ -248,7 +252,6 @@ type RawThresholdEcdsaHssRoleLocalRouteResponse<T> = {
 
 export type ThresholdEcdsaHssRouteAuth =
   | AppOrWalletSessionAuth
-  | CookieSessionAuth
   | { kind: 'bootstrap_grant'; token: string }
   | { kind: 'publishable_key'; token: string };
 
@@ -357,32 +360,78 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
 ): ThresholdEcdsaHssRoleLocalBootstrapValue {
   const record = requireRecord(value, 'value');
   rejectUnexpectedFields(record, NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS, 'value');
+  const walletId = toWalletId(record.walletId);
+  const rpId = requireNonEmptyString(record.rpId, 'rpId');
+  const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(record.ecdsaThresholdKeyId);
+  const relayerKeyId = requireNonEmptyString(record.relayerKeyId, 'relayerKeyId');
+  const contextBinding32B64u = requireNonEmptyString(
+    record.contextBinding32B64u,
+    'contextBinding32B64u',
+  );
+  const publicIdentity = parseEcdsaHssRoleLocalPublicIdentity(record.publicIdentity);
+  const clientShareRetryCounter = requireNonNegativeInteger(
+    record.clientShareRetryCounter,
+    'clientShareRetryCounter',
+  );
+  const relayerShareRetryCounter = requireNonNegativeInteger(
+    record.relayerShareRetryCounter,
+    'relayerShareRetryCounter',
+  );
+  const keyHandle = requireNonEmptyString(record.keyHandle, 'keyHandle');
+  const signingRootId = requireNonEmptyString(record.signingRootId, 'signingRootId');
+  const signingRootVersion = requireNonEmptyString(
+    record.signingRootVersion,
+    'signingRootVersion',
+  );
+  const participantIds = requireParticipantIds(record.participantIds);
+  const sessionId = requireNonEmptyString(record.sessionId, 'sessionId');
+  const walletSigningSessionId = requireNonEmptyString(
+    record.walletSigningSessionId,
+    'walletSigningSessionId',
+  );
+  const expiresAtMs = requireNumber(record.expiresAtMs, 'expiresAtMs');
+  const jwt = String(record.jwt || '').trim();
+  const routerAbEcdsaHssNormalSigning =
+    parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1({
+      walletSessionJwt: jwt,
+      expected: {
+        walletId,
+        rpId,
+        keyHandle,
+        relayerKeyId,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion,
+        thresholdSessionId: sessionId,
+        walletSigningSessionId,
+        expiresAtMs,
+        participantIds,
+        contextBinding32B64u,
+        clientPublicKey33B64u: publicIdentity.hssClientSharePublicKey33B64u,
+        serverPublicKey33B64u: publicIdentity.relayerPublicKey33B64u,
+        thresholdPublicKey33B64u: publicIdentity.groupPublicKey33B64u,
+        ethereumAddress: publicIdentity.ethereumAddress,
+        clientShareRetryCounter,
+        serverShareRetryCounter: relayerShareRetryCounter,
+      },
+    });
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletId: toWalletId(record.walletId),
-    rpId: requireNonEmptyString(record.rpId, 'rpId'),
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(record.ecdsaThresholdKeyId),
-    relayerKeyId: requireNonEmptyString(record.relayerKeyId, 'relayerKeyId'),
-    contextBinding32B64u: requireNonEmptyString(
-      record.contextBinding32B64u,
-      'contextBinding32B64u',
-    ),
-    publicIdentity: parseEcdsaHssRoleLocalPublicIdentity(record.publicIdentity),
-    clientShareRetryCounter: requireNonNegativeInteger(
-      record.clientShareRetryCounter,
-      'clientShareRetryCounter',
-    ),
-    relayerShareRetryCounter: requireNonNegativeInteger(
-      record.relayerShareRetryCounter,
-      'relayerShareRetryCounter',
-    ),
+    walletId,
+    rpId,
+    ecdsaThresholdKeyId,
+    relayerKeyId,
+    contextBinding32B64u,
+    publicIdentity,
+    clientShareRetryCounter,
+    relayerShareRetryCounter,
     publicTranscriptDigest32B64u: requireNonEmptyString(
       record.publicTranscriptDigest32B64u,
       'publicTranscriptDigest32B64u',
     ),
-    keyHandle: requireNonEmptyString(record.keyHandle, 'keyHandle'),
-    signingRootId: requireNonEmptyString(record.signingRootId, 'signingRootId'),
-    signingRootVersion: requireNonEmptyString(record.signingRootVersion, 'signingRootVersion'),
+    keyHandle,
+    signingRootId,
+    signingRootVersion,
     thresholdEcdsaPublicKeyB64u: requireNonEmptyString(
       record.thresholdEcdsaPublicKeyB64u,
       'thresholdEcdsaPublicKeyB64u',
@@ -392,16 +441,14 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
       record.relayerVerifyingShareB64u,
       'relayerVerifyingShareB64u',
     ),
-    participantIds: requireParticipantIds(record.participantIds),
-    sessionId: requireNonEmptyString(record.sessionId, 'sessionId'),
-    walletSigningSessionId: requireNonEmptyString(
-      record.walletSigningSessionId,
-      'walletSigningSessionId',
-    ),
-    expiresAtMs: requireNumber(record.expiresAtMs, 'expiresAtMs'),
+    participantIds,
+    sessionId,
+    walletSigningSessionId,
+    expiresAtMs,
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
     remainingUses: requireNumber(record.remainingUses, 'remainingUses'),
-    ...(String(record.jwt || '').trim() ? { jwt: String(record.jwt).trim() } : {}),
+    ...(jwt ? { jwt } : {}),
+    routerAbEcdsaHssNormalSigning,
   };
 }
 
@@ -432,30 +479,34 @@ function parseThresholdEcdsaHssRoleLocalExportShareValue(
 }
 
 function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
-  if (!auth || auth.kind === 'cookie') return '';
+  if (!auth) return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
-  if (auth.kind === 'threshold_session') return requireWalletSessionJwt(auth.jwt);
+  if (auth.kind === 'wallet_session') return requireWalletSessionJwt(auth.jwt);
   return String(auth.token || '').trim();
 }
 
 function buildRelayRequestInit(args: {
   auth?: ThresholdEcdsaHssRouteAuth;
-  sessionKind?: 'jwt' | 'cookie';
   publishableKeyAuth?: string;
   body: unknown;
 }): RequestInit {
-  const sessionKind = normalizeJwtCookieSessionKind(args.sessionKind);
   const bearerToken = resolveBearerToken(args.auth);
   const publishableKeyAuth = String(args.publishableKeyAuth || '').trim();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;
-  else if (publishableKeyAuth) headers.Authorization = `Bearer ${publishableKeyAuth}`;
-  return {
-    method: 'POST',
+  const headers = bearerToken
+    ? buildBearerAuthorizationHeader({
+        token: bearerToken,
+        missingMessage: 'bearer token is required',
+      })
+    : publishableKeyAuth
+      ? buildBearerAuthorizationHeader({
+          token: publishableKeyAuth,
+          missingMessage: 'publishable key auth is required',
+        })
+      : undefined;
+  return buildRelayerJsonPostRequestInit({
     headers,
-    credentials: bearerToken ? 'omit' : sessionKind === 'cookie' ? 'include' : 'omit',
-    body: JSON.stringify(args.body),
-  };
+    body: args.body,
+  });
 }
 
 async function parseRelayJson<T>(response: Response): Promise<T> {
@@ -469,7 +520,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
   ThresholdEcdsaHssRoleLocalRouteResult<ThresholdEcdsaHssRoleLocalBootstrapValue>
 > {
   try {
-    const base = stripTrailingSlashes(String(relayServerUrl || '').trim());
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
     if (!base) throw new Error('Missing relayServerUrl');
     const bodyBase: ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
       formatVersion: 'ecdsa-hss-role-local',
@@ -555,7 +606,6 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       `${base}${ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1}`,
       buildRelayRequestInit({
         auth: args.auth,
-        sessionKind: args.sessionKind,
         publishableKeyAuth:
           args.passkeyBootstrapAuthorization &&
           'runtimeEnvironmentPublishableKey' in args.passkeyBootstrapAuthorization
@@ -589,7 +639,7 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
   ThresholdEcdsaHssRoleLocalRouteResult<ThresholdEcdsaHssRoleLocalExportShareValue>
 > {
   try {
-    const base = stripTrailingSlashes(String(relayServerUrl || '').trim());
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
     if (!base) throw new Error('Missing relayServerUrl');
     const body: ThresholdEcdsaHssRoleLocalExportShareBody = {
       formatVersion: 'ecdsa-hss-role-local-export',
@@ -640,7 +690,6 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
       `${base}${ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1}`,
       buildRelayRequestInit({
         auth: args.auth,
-        sessionKind: args.sessionKind,
         body,
       }),
     );

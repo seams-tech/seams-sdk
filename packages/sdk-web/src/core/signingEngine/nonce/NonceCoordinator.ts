@@ -115,6 +115,7 @@ import {
   isAccessKeyViewLike,
   markNearBroadcastAcceptedState,
   reconcileNearLaneState,
+  refreshNearNonceAfterBroadcastRejectedState,
   releaseAllNearNoncesFromState,
   releaseNearNonceFromState,
   reserveNearNoncesFromState,
@@ -673,6 +674,14 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     });
   };
 
+  const refreshNearNonceAfterBroadcastRejected = async (nearClient: NearClient): Promise<void> => {
+    await refreshNearNonceAfterBroadcastRejectedState({
+      state: nearState,
+      nearClient,
+      now,
+    });
+  };
+
   const reconcileNearLaneLocked = async (lane: NearNonceLane): Promise<NonceLaneStatus> => {
     const laneKey = nonceLaneKey(lane);
     return await reconcileNearLaneState({
@@ -1051,7 +1060,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
             : await fetchNearContextForLane({
                 lane: input.lane,
                 nearClient: input.nearClient,
-                force: input.force,
+                force: input.force === false ? false : true,
               })),
         };
         nearState.transactionContext = context;
@@ -1175,6 +1184,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'broadcast_rejected');
         await releaseBackendReservation(lockedLease);
+        if (isNearNonceLease(lockedLease) && deps.nearClient) {
+          try {
+            await refreshNearNonceAfterBroadcastRejected(deps.nearClient);
+          } catch {
+            // Rejection handling must always release the lease; the next reservation can refresh again.
+          }
+        }
         transitionLease({
           lease: lockedLease,
           transition: 'broadcast_rejected',

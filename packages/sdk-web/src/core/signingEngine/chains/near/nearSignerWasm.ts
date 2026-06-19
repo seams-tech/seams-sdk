@@ -10,6 +10,8 @@ import {
   type ThresholdEd25519BuildDelegateSigningPayloadResult,
   type ThresholdEd25519ClientPresignCreateResult,
   type ThresholdEd25519ClientPresignSignResult,
+  type ThresholdEd25519StoreHssMaterialResult,
+  type ThresholdEd25519ValidateHssMaterialResult,
   type ThresholdEd25519ComputeSigningDigestResult,
   type ThresholdEd25519FinalizeNearTxFromSignatureResult,
   type ThresholdEd25519NearTxUnsignedBorsh,
@@ -27,6 +29,52 @@ import {
 } from '../../workerManager/executeWorkerOperation';
 
 const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
+
+export async function storeThresholdEd25519HssMaterialNearSignerWasm(args: {
+  materialHandle: string;
+  xClientBaseB64u: string;
+  expectedClientVerifyingShareB64u: string;
+  bindingDigest: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519StoreHssMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: args.materialHandle,
+        xClientBaseB64u: args.xClientBaseB64u,
+        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
+        bindingDigest: args.bindingDigest,
+      },
+    },
+  });
+  return requireThresholdEd25519StoreHssMaterialResult(response);
+}
+
+export async function validateThresholdEd25519HssMaterialNearSignerWasm(args: {
+  materialHandle: string;
+  expectedClientVerifyingShareB64u: string;
+  expectedBindingDigest: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519ValidateHssMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateHssMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: args.materialHandle,
+        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
+        expectedBindingDigest: args.expectedBindingDigest,
+      },
+    },
+  });
+  return requireThresholdEd25519StoreHssMaterialResult(response);
+}
 
 export async function createThresholdEd25519ClientPresignWasm(args: {
   sessionId: string;
@@ -47,6 +95,34 @@ export async function createThresholdEd25519ClientPresignWasm(args: {
         clientParticipantId: args.clientParticipantId,
         relayerParticipantId: args.relayerParticipantId,
         xClientBaseB64u: args.xClientBaseB64u,
+        groupPublicKey: args.groupPublicKey,
+      },
+    },
+  });
+  return requireThresholdEd25519ClientPresignCreateResult(response);
+}
+
+export async function createThresholdEd25519ClientPresignFromMaterialHandleWasm(args: {
+  sessionId: string;
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  materialHandle: string;
+  expectedClientVerifyingShareB64u: string;
+  groupPublicKey: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519ClientPresignCreateResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      sessionId: args.sessionId,
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreateFromMaterialHandle,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        clientParticipantId: args.clientParticipantId,
+        relayerParticipantId: args.relayerParticipantId,
+        materialHandle: args.materialHandle,
+        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
         groupPublicKey: args.groupPublicKey,
       },
     },
@@ -77,6 +153,42 @@ export async function signThresholdEd25519ClientPresignWasm(args: {
         clientParticipantId: args.clientParticipantId,
         relayerParticipantId: args.relayerParticipantId,
         xClientBaseB64u: args.xClientBaseB64u,
+        groupPublicKey: args.groupPublicKey,
+        signingDigestB64u: args.signingDigestB64u,
+        clientNonceHandleB64u: args.clientNonceHandleB64u,
+        clientCommitments: args.clientCommitments,
+        relayerCommitments: args.relayerCommitments,
+      },
+    },
+  });
+  return requireThresholdEd25519ClientPresignSignResult(response);
+}
+
+export async function signThresholdEd25519ClientPresignFromMaterialHandleWasm(args: {
+  sessionId: string;
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  materialHandle: string;
+  expectedClientVerifyingShareB64u: string;
+  groupPublicKey: string;
+  signingDigestB64u: string;
+  clientNonceHandleB64u: string;
+  clientCommitments: { hiding: string; binding: string };
+  relayerCommitments: { hiding: string; binding: string };
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519ClientPresignSignResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      sessionId: args.sessionId,
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSignFromMaterialHandle,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        clientParticipantId: args.clientParticipantId,
+        relayerParticipantId: args.relayerParticipantId,
+        materialHandle: args.materialHandle,
+        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
         groupPublicKey: args.groupPublicKey,
         signingDigestB64u: args.signingDigestB64u,
         clientNonceHandleB64u: args.clientNonceHandleB64u,
@@ -305,6 +417,16 @@ function requireThresholdEd25519ClientPresignCreateResult(
     !parsed.clientCommitments?.binding
   ) {
     throw new Error('near signer worker returned invalid Ed25519 client presign create result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519StoreHssMaterialResult(
+  value: unknown,
+): ThresholdEd25519StoreHssMaterialResult {
+  const parsed = value as ThresholdEd25519StoreHssMaterialResult;
+  if (!parsed?.materialHandle || !parsed.clientVerifyingShareB64u || !parsed.bindingDigest) {
+    throw new Error('near signer worker returned invalid Ed25519 HSS material store result');
   }
   return parsed;
 }

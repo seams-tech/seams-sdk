@@ -8,7 +8,6 @@ import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/run
 import type { NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   getPrfResultsFromCredential,
-  redactCredentialExtensionOutputs,
 } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   getLastLoggedInSignerSlot,
@@ -20,12 +19,6 @@ export const PRF_MISSING_ERROR =
 
 export function generateNearSigningSessionId(): string {
   return secureRandomId('sess', 32, 'NEAR signing session IDs');
-}
-
-export function toCredentialForRelayJson(
-  credential?: WebAuthnAuthenticationCredential,
-): string | undefined {
-  return credential ? JSON.stringify(redactCredentialExtensionOutputs(credential)) : undefined;
 }
 
 export function requirePrfFirstFromCredential(

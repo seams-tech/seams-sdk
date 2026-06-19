@@ -2,7 +2,7 @@ import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from '@/core/signingEngine/session/budget/budgetStatusReader';
-import type { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator';
+import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   consumeSingleUseEmailOtpEcdsaLane as consumeSingleUseEmailOtpEcdsaLaneOperation,
   clearThresholdEcdsaSessionRecordForWalletTarget as clearThresholdEcdsaSessionRecordForWalletTargetOperation,
@@ -56,7 +56,7 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   nonceCoordinator: NonceCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
-  emailOtpSessions: EmailOtpThresholdSessionCoordinator;
+  emailOtpSessions: EmailOtpWalletSessionCoordinator;
   warmSigning: WarmSigningPorts;
   ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
@@ -185,7 +185,7 @@ export function createBrowserSigningSurfaceEnginePorts(
           touchConfirm: args.touchConfirm,
           defaultRelayerUrl: args.seamsWebConfigs.network.relayer?.url || '',
           getSignerWorkerContext: () =>
-            args.getEnginePorts().thresholdSessionActivationDeps.getSignerWorkerContext(),
+            args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),
         },
         provisionArgs,
       ),
@@ -224,7 +224,7 @@ export function createBrowserSigningSurfaceEnginePorts(
       provisionThresholdEcdsaSessionOperation(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
-          activationDeps: args.getEnginePorts().thresholdSessionActivationDeps,
+          activationDeps: args.getEnginePorts().walletSessionActivationDeps,
           touchConfirm: args.touchConfirm,
           resolveSealTransport: ({ thresholdSessionId, chainTarget }) =>
             args.warmSigning.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({

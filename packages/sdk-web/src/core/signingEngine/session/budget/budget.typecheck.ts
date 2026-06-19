@@ -17,6 +17,7 @@ import type {
   AuthenticatedThresholdBudgetStatusCheck,
   ExternallyConsumedWalletBudgetSpend,
   ReservedBudgetFinalizationSpend,
+  SigningSessionBudgetStatusAuth,
   ThresholdBudgetStatusCheck,
   WalletBudgetStatusCheck,
   WalletBudgetOwner,
@@ -131,6 +132,22 @@ const emptyThresholdTargets: ThresholdBudgetStatusCheck = {
   targetThresholdSessionIds: [],
 };
 void emptyThresholdTargets;
+
+const validWalletSessionBudgetStatusAuth: SigningSessionBudgetStatusAuth = {
+  relayerUrl: 'https://router.example',
+  thresholdSessionId: 'threshold-session-1',
+  walletSessionJwt: 'wallet-session-jwt',
+};
+void validWalletSessionBudgetStatusAuth;
+
+const invalidThresholdSessionBudgetStatusAuth: SigningSessionBudgetStatusAuth = {
+  relayerUrl: 'https://router.example',
+  thresholdSessionId: 'threshold-session-1',
+  walletSessionJwt: 'wallet-session-jwt',
+  // @ts-expect-error active budget auth uses Wallet Session JWT naming.
+  thresholdSessionAuthToken: 'threshold-session-jwt',
+};
+void invalidThresholdSessionBudgetStatusAuth;
 
 const walletBudgetProjection = createWalletBudgetProjection({
   walletId: accountId,

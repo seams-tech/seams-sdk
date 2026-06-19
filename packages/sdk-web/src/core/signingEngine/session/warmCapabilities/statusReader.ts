@@ -34,7 +34,11 @@ import {
   toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from './readModel';
+import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
+import {
+  parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
+} from '../routerAbSigningWalletSession';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmEcdsaRecordBackedSigningSessionStatus,
@@ -54,8 +58,8 @@ export const THRESHOLD_SESSION_MISSING_ERROR =
   '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
 export const THRESHOLD_SESSION_EXHAUSTED_ERROR =
   '[chains] threshold signingSession is exhausted; reconnect threshold session before signing';
-export const THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR =
-  '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing';
+export const SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR =
+  '[chains] signingSession auth is unavailable; reconnect signing session before signing';
 export const THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR =
   '[chains] threshold signingSession status is unavailable; retry after refreshing the signer runtime';
 
@@ -131,11 +135,28 @@ export function createWarmSessionStatusReader(
       .filter((lane): lane is DiscoveredSigningSessionLane => lane !== null);
   }
 
+  function readStrictRouterAbEcdsaRecordClaim(
+    record: ThresholdEcdsaSessionRecord,
+  ): WarmSessionPrfClaim | null {
+    if (record.source === 'email_otp') return null;
+    const identity = tryBuildEcdsaSessionIdentity(record);
+    if (!identity) return null;
+    if (!parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record).ok) return null;
+    return warmClaimFromRecordPolicy({
+      sessionId: identity.thresholdSessionId,
+      remainingUses: record.remainingUses,
+      expiresAtMs: record.expiresAtMs,
+    });
+  }
+
   async function readEcdsaWarmSessionClaimForRecord(
     record: ThresholdEcdsaSessionRecord,
   ): Promise<WarmSessionPrfClaim | null> {
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
+    const strictRouterAbClaim = readStrictRouterAbEcdsaRecordClaim(record);
+    if (strictRouterAbClaim) return strictRouterAbClaim;
+    if (record.source !== 'email_otp') return null;
     if (record.source === 'email_otp') {
       const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
         record,
@@ -177,13 +198,14 @@ export function createWarmSessionStatusReader(
           }
           return null;
         case 'ready_passkey_role_local_material_v1':
+          return null;
         case 'cleanup_only_raw_role_local_record_v1':
           return null;
       }
       roleLocalState satisfies never;
       return null;
     }
-    return await readWarmSessionClaim(touchConfirm, identity.thresholdSessionId);
+    return null;
   }
 
   async function readWalletScopedClaimsForRecords(
@@ -205,8 +227,11 @@ export function createWarmSessionStatusReader(
       ed25519Claim:
         walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
       evmClaim:
-        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.evm) || '') || null,
+        (records.ecdsa.evm ? readStrictRouterAbEcdsaRecordClaim(records.ecdsa.evm) : null) ||
+        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.evm) || '') ||
+        null,
       tempoClaim:
+        (records.ecdsa.tempo ? readStrictRouterAbEcdsaRecordClaim(records.ecdsa.tempo) : null) ||
         walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.tempo) || '') ||
         null,
     };
@@ -280,11 +305,11 @@ export function createWarmSessionStatusReader(
   function hasRecordBackedEd25519Status(
     record: ThresholdEd25519SessionRecord | null | undefined,
   ): record is ThresholdEd25519SessionRecord {
-    if (!record || !String(record.xClientBaseB64u || '').trim()) return false;
-    if (record.source === 'email_otp') {
-      return record.emailOtpAuthContext?.retention === 'session';
-    }
-    return record.thresholdSessionKind === 'cookie';
+    if (!record || !String(record.ed25519HssMaterialHandle || '').trim()) return false;
+    if (!String(record.ed25519HssMaterialBindingDigest || '').trim()) return false;
+    if (!String(record.clientVerifyingShareB64u || '').trim()) return false;
+    if (record.source === 'email_otp') return record.emailOtpAuthContext?.retention === 'session';
+    return true;
   }
 
   function toRecordBackedEd25519Status(
@@ -355,8 +380,8 @@ export function createWarmSessionStatusReader(
     const record = args.record;
     const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
     if (!normalizedThresholdSessionId) return null;
-    const thresholdSessionAuthToken = String(record?.thresholdSessionAuthToken || '').trim();
-    if (record?.thresholdSessionKind !== 'cookie' && !thresholdSessionAuthToken) {
+    const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
+    if (!walletSessionJwt) {
       return {
         sessionId: normalizedThresholdSessionId,
         status: 'unavailable',
@@ -457,14 +482,16 @@ export function createWarmSessionStatusReader(
       deps: claimReaderDeps,
       lanes: buildLanesForRecords(records),
     });
-    return records.map((record) =>
-      toEcdsaSigningSessionStatus({
+    return records.map((record) => {
+      const recordBackedClaim = readStrictRouterAbEcdsaRecordClaim(record);
+      return toEcdsaSigningSessionStatus({
         record,
         claim:
+          recordBackedClaim ||
           claimsByThresholdSessionId.get(buildEcdsaSessionIdentity(record).thresholdSessionId) ||
           null,
-      }),
-    );
+      });
+    });
   }
 
   async function getEcdsaSigningSessionStatus(args: {
@@ -492,9 +519,11 @@ export function createWarmSessionStatusReader(
       deps: claimReaderDeps,
       lanes: buildLanesForRecords([record]),
     });
+    const recordBackedClaim = readStrictRouterAbEcdsaRecordClaim(record);
     return toEcdsaSigningSessionStatus({
       record,
       claim:
+        recordBackedClaim ||
         claimsByThresholdSessionId.get(buildEcdsaSessionIdentity(record).thresholdSessionId) ||
         (await readEcdsaWarmSessionClaimForRecord(record)),
     });

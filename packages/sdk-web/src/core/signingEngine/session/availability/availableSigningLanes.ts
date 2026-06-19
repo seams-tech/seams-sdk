@@ -2,7 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import {
   decodeJwtPayloadRecord,
-  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
@@ -300,6 +300,37 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   updatedAtMs?: number;
 };
 
+export type InvalidAvailableSigningLaneDiagnostic =
+  | {
+      curve: 'ed25519';
+      source: 'runtime_session_record';
+      reason:
+        | 'missing_router_ab_state'
+        | 'missing_threshold_session_id'
+        | 'missing_wallet_signing_session_id';
+      authMethod?: 'email_otp' | 'passkey';
+      thresholdSessionId?: string;
+      walletSigningSessionId?: string;
+    }
+  | {
+      curve: 'ecdsa';
+      source: 'runtime_session_record';
+      reason:
+        | 'missing_router_ab_state'
+        | 'missing_threshold_session_id'
+        | 'unsupported_ecdsa_chain_target'
+        | 'invalid_runtime_public_facts';
+      authMethod?: 'email_otp' | 'passkey';
+      thresholdSessionId?: string;
+      walletSigningSessionId?: string;
+      targetKey?: string;
+      message?: string;
+    };
+
+export type AvailableSigningLaneDiagnostics = {
+  invalidLanes: InvalidAvailableSigningLaneDiagnostic[];
+};
+
 export type AvailableSigningLanes = {
   walletId: AccountId;
   generation: number;
@@ -318,6 +349,7 @@ export type AvailableSigningLanes = {
       near: AvailableEd25519SigningLane[];
     };
   };
+  diagnostics?: AvailableSigningLaneDiagnostics;
 };
 
 export type ConcreteAvailableSigningLane =
@@ -766,18 +798,23 @@ function ecdsaRecoveryRecordForDurableLane(
   return undefined;
 }
 
-type DurableEcdsaThresholdSessionJwtClaims = {
+type DurableEcdsaWalletSessionJwtClaims = {
   walletId: string;
   keyHandle: string;
   sessionId: string;
   walletSigningSessionId: string;
 };
 
-function parseDurableEcdsaThresholdSessionJwtClaims(
+function parseDurableEcdsaWalletSessionJwtClaims(
   jwt: string,
-): DurableEcdsaThresholdSessionJwtClaims | null {
+): DurableEcdsaWalletSessionJwtClaims | null {
   const payload = decodeJwtPayloadRecord(jwt);
-  if (!payload || payload.kind !== THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND) return null;
+  if (
+    !payload ||
+    payload.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
+  ) {
+    return null;
+  }
   if (String(payload.keyScope || '').trim() !== 'evm-family') return null;
   const sessionId = String(payload.sessionId || '').trim();
   const walletSigningSessionId = String(payload.walletSigningSessionId || '').trim();
@@ -803,7 +840,7 @@ function durableEcdsaJwtMatchesRecord(args: {
     sealedRecoveryWalletSessionJwt(args.recoveryRecord.walletSessionAuth) || '',
   ).trim();
   if (!jwt) return true;
-  const claims = parseDurableEcdsaThresholdSessionJwtClaims(jwt);
+  const claims = parseDurableEcdsaWalletSessionJwtClaims(jwt);
   if (!claims) return false;
   if (claims.walletId !== args.expectedWalletId) return false;
   if (claims.keyHandle !== args.expectedKeyHandle) return false;
@@ -1652,6 +1689,7 @@ export async function readAvailableSigningLanes(
   const collectDiagnostics = isAvailableSigningLaneDiagnosticsEnabled();
   const durableEcdsaDiscovery: Record<string, unknown>[] = [];
   const runtimeEcdsaDiscovery: Record<string, unknown>[] = [];
+  const invalidLanes: InvalidAvailableSigningLaneDiagnostic[] = [];
   const recordDurableEcdsaDiscovery = (
     record: SigningSessionSealedStoreRecord,
     result: Record<string, unknown>,
@@ -1727,20 +1765,49 @@ export async function readAvailableSigningLanes(
     ed25519LaneUpdatedAtMs = updatedAtMs;
   }
 
-  const runtimeEcdsaRecords = ports.listRuntimeEcdsaLanesForWallet
-    ? (await ports.listRuntimeEcdsaLanesForWallet({ walletId })).filter(
-        (record) =>
-          Boolean(record.routerAbEcdsaHssNormalSigning) &&
-          (!input.authMethod || record.authMethod === input.authMethod),
-      )
+  const rawRuntimeEcdsaRecords = ports.listRuntimeEcdsaLanesForWallet
+    ? await ports.listRuntimeEcdsaLanesForWallet({ walletId })
     : [];
-  const runtimeEd25519Records = ports.listRuntimeEd25519RecordsForAccount
-    ? (await ports.listRuntimeEd25519RecordsForAccount({ accountId: walletId })).filter(
-        (record) =>
-          Boolean(record.routerAbNormalSigning) &&
-          (!input.authMethod || record.authMethod === input.authMethod),
-      )
+  const runtimeEcdsaRecords: AvailableSigningLanesRuntimeEcdsaRecord[] = [];
+  for (const record of rawRuntimeEcdsaRecords) {
+    if (input.authMethod && record.authMethod !== input.authMethod) continue;
+    const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+    if (!record.routerAbEcdsaHssNormalSigning) {
+      invalidLanes.push({
+        curve: 'ecdsa',
+        source: 'runtime_session_record',
+        reason: 'missing_router_ab_state',
+        authMethod: record.authMethod,
+        ...(thresholdSessionId ? { thresholdSessionId } : {}),
+        ...(record.walletSigningSessionId
+          ? { walletSigningSessionId: String(record.walletSigningSessionId) }
+          : {}),
+      });
+      continue;
+    }
+    runtimeEcdsaRecords.push(record);
+  }
+  const rawRuntimeEd25519Records = ports.listRuntimeEd25519RecordsForAccount
+    ? await ports.listRuntimeEd25519RecordsForAccount({ accountId: walletId })
     : [];
+  const runtimeEd25519Records: AvailableSigningLanesRuntimeEd25519Record[] = [];
+  for (const record of rawRuntimeEd25519Records) {
+    if (input.authMethod && record.authMethod !== input.authMethod) continue;
+    const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+    const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+    if (!record.routerAbNormalSigning) {
+      invalidLanes.push({
+        curve: 'ed25519',
+        source: 'runtime_session_record',
+        reason: 'missing_router_ab_state',
+        authMethod: record.authMethod,
+        ...(thresholdSessionId ? { thresholdSessionId } : {}),
+        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      });
+      continue;
+    }
+    runtimeEd25519Records.push(record);
+  }
   const claimsByEcdsaRecordKey =
     runtimeEcdsaRecords.length && ports.readRuntimeEcdsaClaimsForRecords
       ? await ports.readRuntimeEcdsaClaimsForRecords(runtimeEcdsaRecords)
@@ -1756,6 +1823,14 @@ export async function readAvailableSigningLanes(
   for (const runtimeRecord of runtimeEcdsaRecords) {
     const chain = runtimeRecord.chainTarget.kind;
     if (chain !== 'tempo' && chain !== 'evm') {
+      invalidLanes.push({
+        curve: 'ecdsa',
+        source: 'runtime_session_record',
+        reason: 'unsupported_ecdsa_chain_target',
+        authMethod: runtimeRecord.authMethod,
+        thresholdSessionId: String(runtimeRecord.thresholdSessionId || '').trim(),
+        walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+      });
       runtimeEcdsaDiscovery.push({
         result: 'rejected',
         reason: 'unsupported_ecdsa_chain_target',
@@ -1765,6 +1840,13 @@ export async function readAvailableSigningLanes(
     }
     const thresholdSessionId = String(runtimeRecord.thresholdSessionId || '').trim();
     if (!thresholdSessionId) {
+      invalidLanes.push({
+        curve: 'ecdsa',
+        source: 'runtime_session_record',
+        reason: 'missing_threshold_session_id',
+        authMethod: runtimeRecord.authMethod,
+        walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+      });
       runtimeEcdsaDiscovery.push({
         result: 'rejected',
         reason: 'missing_runtime_threshold_session_id',
@@ -1781,6 +1863,15 @@ export async function readAvailableSigningLanes(
         thresholdEcdsaPublicKeyB64u: runtimeRecord.thresholdEcdsaPublicKeyB64u,
       });
     } catch (error) {
+      invalidLanes.push({
+        curve: 'ecdsa',
+        source: 'runtime_session_record',
+        reason: 'invalid_runtime_public_facts',
+        authMethod: runtimeRecord.authMethod,
+        thresholdSessionId,
+        walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+        message: error instanceof Error ? error.message : String(error),
+      });
       runtimeEcdsaDiscovery.push({
         result: 'rejected',
         reason: 'invalid_runtime_public_facts',
@@ -1814,6 +1905,15 @@ export async function readAvailableSigningLanes(
         durableLane,
       });
     } catch (error) {
+      invalidLanes.push({
+        curve: 'ecdsa',
+        source: 'runtime_session_record',
+        reason: 'invalid_runtime_public_facts',
+        authMethod: runtimeRecord.authMethod,
+        thresholdSessionId,
+        walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+        message: error instanceof Error ? error.message : String(error),
+      });
       runtimeEcdsaDiscovery.push({
         result: 'rejected',
         reason: 'invalid_runtime_public_facts',
@@ -1847,7 +1947,27 @@ export async function readAvailableSigningLanes(
 
   for (const runtimeRecord of runtimeEd25519Records) {
     const thresholdSessionId = String(runtimeRecord.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) continue;
+    if (!thresholdSessionId) {
+      invalidLanes.push({
+        curve: 'ed25519',
+        source: 'runtime_session_record',
+        reason: 'missing_threshold_session_id',
+        authMethod: runtimeRecord.authMethod,
+        walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+      });
+      continue;
+    }
+    const walletSigningSessionId = String(runtimeRecord.walletSigningSessionId || '').trim();
+    if (!walletSigningSessionId) {
+      invalidLanes.push({
+        curve: 'ed25519',
+        source: 'runtime_session_record',
+        reason: 'missing_wallet_signing_session_id',
+        authMethod: runtimeRecord.authMethod,
+        thresholdSessionId,
+      });
+      continue;
+    }
     const runtimeLaneKey = ed25519AvailableLaneIdentityKey(runtimeRecord);
     const durableLane =
       (runtimeLaneKey
@@ -1950,6 +2070,9 @@ export async function readAvailableSigningLanes(
       ed25519: {
         near: normalizedEd25519Candidates,
       },
+    },
+    diagnostics: {
+      invalidLanes,
     },
   };
   const missingEcdsaTargets = ecdsaTargets

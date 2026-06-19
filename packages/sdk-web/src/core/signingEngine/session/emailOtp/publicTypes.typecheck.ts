@@ -5,6 +5,7 @@ import type {
 import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 
 declare const rawRecoveryKeys: string[];
+declare const parsedRecoveryKeys: EmailOtpRecoveryCodeSet;
 
 // @ts-expect-error raw string arrays must be normalized into a fixed recovery-code set.
 const invalidRecoveryCodeSet: EmailOtpRecoveryCodeSet = rawRecoveryKeys;
@@ -59,3 +60,20 @@ const broadSpreadWorkerRotationOutput = {
 const invalidRotationFromBroadSpread: EmailOtpRecoveryCodeRotationMaterial =
   broadSpreadWorkerRotationOutput;
 void invalidRotationFromBroadSpread;
+
+const invalidRotationWithSigningRoot: EmailOtpRecoveryCodeRotationMaterial = {
+  walletId: 'wallet-1',
+  userId: 'user-1',
+  authSubjectId: 'subject-1',
+  enrollmentId: 'enrollment-1',
+  enrollmentVersion: 'v1',
+  enrollmentSealKeyVersion: 'seal-v1',
+  recoveryKeys: parsedRecoveryKeys,
+  recoveryCodesIssuedAtMs: 1,
+  activeRecoveryCodeCount: 1,
+  revokedRecoveryCodeCount: 0,
+  totalRecoveryCodeCount: 1,
+  // @ts-expect-error rotation material must not expose signing-root identity.
+  signingRootId: 'root-1',
+};
+void invalidRotationWithSigningRoot;

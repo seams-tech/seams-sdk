@@ -178,10 +178,10 @@ export interface RegisterAccountPayload {
   nearAccountId: string;
   signerSlot?: number;
   webauthnChallenge?: Extract<WebAuthnChallenge, { kind: 'intent_digest' }>;
-  walletIframeActivation?: WalletIframeRegistrationActivationProof;
+  walletIframeActivation?: RegistrationActivationProof;
 }
 
-export type WalletIframeRegistrationActivationProof = {
+export type RegistrationActivationProof = {
   kind: 'wallet_iframe_registration_activation_v1';
   activationId: string;
   activatedAtMs: number;

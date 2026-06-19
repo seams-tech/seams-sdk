@@ -5,7 +5,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
@@ -32,7 +32,7 @@ export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   challengeId: string;
   otpCode: string;
   record?: ThresholdEcdsaSessionRecord;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   authLane?: EmailOtpAuthLane;
 };
 

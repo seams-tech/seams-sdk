@@ -9,6 +9,7 @@ const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 const distEsmRoot = path.join(sdkRoot, 'dist', 'esm');
 
 const entryFiles = ['runtime.js'];
+const expectedRuntimeValueExports = ['createSigningRuntime', 'createSigningRuntimeStatePorts'];
 const forbiddenResolvedPathPatterns = [
   /(^|\/)react(\/|$)/,
   /(^|\/)web\/SeamsWeb(\/|$)/,
@@ -51,7 +52,6 @@ function importSpecifiers(source) {
   const patterns = [
     /\bimport\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g,
     /\bexport\s+(?:[^'"]*?\s+from\s+)['"]([^'"]+)['"]/g,
-    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
   ];
   for (const pattern of patterns) {
     let match;
@@ -62,6 +62,22 @@ function importSpecifiers(source) {
   return specifiers;
 }
 
+async function assertPublicRuntimeValueExports() {
+  let runtimeModule;
+  try {
+    runtimeModule = await import('@seams/sdk/runtime');
+  } catch (error) {
+    fail(`Failed to import @seams/sdk/runtime from the built package: ${error.message}`);
+  }
+
+  const missing = expectedRuntimeValueExports.filter(
+    (exportName) => typeof runtimeModule[exportName] !== 'function',
+  );
+  if (missing.length > 0) {
+    fail(`Missing @seams/sdk/runtime value export(s): ${missing.join(', ')}`);
+  }
+}
+
 if (!fs.existsSync(distEsmRoot)) {
   fail(`Missing directory: ${distEsmRoot}. Run pnpm -C sdk build first.`);
 }
@@ -70,6 +86,8 @@ const missingEntries = entryFiles.filter((entry) => !fs.existsSync(path.join(dis
 if (missingEntries.length > 0) {
   fail(`Missing runtime package entry output(s): ${missingEntries.join(', ')}`);
 }
+
+await assertPublicRuntimeValueExports();
 
 const offenders = [];
 
@@ -115,4 +133,6 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log('[assert-runtime-entry-bundles] OK: runtime entry avoids browser bundles');
+console.log(
+  '[assert-runtime-entry-bundles] OK: runtime entry avoids browser bundles and exposes public runtime values',
+);

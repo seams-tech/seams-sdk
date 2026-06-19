@@ -97,7 +97,6 @@ export type SigningAuthPlan =
       accountId: string;
       intent: WalletAuthIntent;
       curve?: WalletAuthCurve;
-      signingRootId?: string;
       sessionId: string;
       retention?: SigningSessionRetention | null;
       expiresAtMs: number;

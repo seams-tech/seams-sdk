@@ -6,12 +6,10 @@
     "noEmit": false,
     "rootDir": ".."
   },
-  "include": ["src/**/*", "../sdk-runtime-ts/src/**/*", "../shared-ts/src/**/*", "build-paths.ts"],
+  "include": ["src/**/*", "../shared-ts/src/**/*", "build-paths.ts"],
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
-    "../sdk-runtime-ts/src/**/*.test.ts",
-    "../sdk-runtime-ts/src/**/*.test.tsx",
     "../../examples/",
     "../../apps/",
     "../../docs/",

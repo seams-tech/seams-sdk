@@ -44,6 +44,7 @@ import init, {
   threshold_ed25519_build_delegate_signing_payload,
   threshold_ed25519_client_presign_create,
   threshold_ed25519_client_presign_sign,
+  threshold_ed25519_role_separated_client_verifying_share_from_base_share,
   threshold_ed25519_build_near_tx_unsigned_borsh,
   threshold_ed25519_compute_delegate_signing_digest,
   threshold_ed25519_compute_nep413_signing_digest,
@@ -74,6 +75,15 @@ let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let activeRequestId: string | null = null;
 const thresholdEd25519ClientPresignNonceByHandle = new Map<string, string>();
+
+type StoredEd25519HssMaterial = {
+  materialHandle: string;
+  xClientBaseB64u: string;
+  clientVerifyingShareB64u: string;
+  bindingDigest: string;
+};
+
+const thresholdEd25519HssMaterialByHandle = new Map<string, StoredEd25519HssMaterial>();
 
 /**
  * Function called by WASM to send progress messages
@@ -245,10 +255,18 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
 
 function handleCustomNearSignerRequest(type: string, payload: unknown): unknown {
   switch (type) {
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial:
+      return storeThresholdEd25519HssMaterial(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateHssMaterial:
+      return validateThresholdEd25519HssMaterial(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate:
       return createOpaqueClientPresignHandle(threshold_ed25519_client_presign_create(payload));
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreateFromMaterialHandle:
+      return createOpaqueClientPresignFromMaterialHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign:
       return signWithOpaqueClientPresignHandle(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSignFromMaterialHandle:
+      return signWithOpaqueClientPresignHandleFromMaterialHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn:
       return burnOpaqueClientPresignHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest:
@@ -286,6 +304,89 @@ function handleCustomNearSignerRequest(type: string, payload: unknown): unknown 
   }
 }
 
+function readNonEmptyString(record: Record<string, unknown>, key: string): string {
+  const parsed = String(record[key] || '').trim();
+  if (!parsed) throw new Error(`near signer worker request is missing ${key}`);
+  return parsed;
+}
+
+function requireRecordPayload(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('near signer worker request payload must be an object');
+  }
+  return payload as Record<string, unknown>;
+}
+
+function storeThresholdEd25519HssMaterial(payload: unknown): {
+  materialHandle: string;
+  clientVerifyingShareB64u: string;
+  bindingDigest: string;
+} {
+  const record = requireRecordPayload(payload);
+  const materialHandle = readNonEmptyString(record, 'materialHandle');
+  const xClientBaseB64u = readNonEmptyString(record, 'xClientBaseB64u');
+  const expectedClientVerifyingShareB64u = readNonEmptyString(
+    record,
+    'expectedClientVerifyingShareB64u',
+  );
+  const bindingDigest = readNonEmptyString(record, 'bindingDigest');
+  const derived = threshold_ed25519_role_separated_client_verifying_share_from_base_share({
+    xClientBaseB64u,
+  }) as { clientVerifyingShareB64u?: unknown };
+  const clientVerifyingShareB64u = String(derived.clientVerifyingShareB64u || '').trim();
+  if (!clientVerifyingShareB64u) {
+    throw new Error('near signer worker failed to derive Ed25519 client verifying share');
+  }
+  if (clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
+    throw new Error('near signer worker Ed25519 HSS material verifying-share mismatch');
+  }
+  thresholdEd25519HssMaterialByHandle.set(materialHandle, {
+    materialHandle,
+    xClientBaseB64u,
+    clientVerifyingShareB64u,
+    bindingDigest,
+  });
+  return { materialHandle, clientVerifyingShareB64u, bindingDigest };
+}
+
+function requireThresholdEd25519HssMaterial(payload: unknown): {
+  record: Record<string, unknown>;
+  material: StoredEd25519HssMaterial;
+} {
+  const record = requireRecordPayload(payload);
+  const materialHandle = readNonEmptyString(record, 'materialHandle');
+  const expectedClientVerifyingShareB64u = readNonEmptyString(
+    record,
+    'expectedClientVerifyingShareB64u',
+  );
+  const material = thresholdEd25519HssMaterialByHandle.get(materialHandle);
+  if (!material) {
+    throw new Error('near signer worker Ed25519 HSS material handle is not loaded');
+  }
+  if (material.clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
+    throw new Error('near signer worker Ed25519 HSS material handle binding mismatch');
+  }
+  return { record, material };
+}
+
+function validateThresholdEd25519HssMaterial(payload: unknown): {
+  materialHandle: string;
+  clientVerifyingShareB64u: string;
+  bindingDigest: string;
+} {
+  const record = requireRecordPayload(payload);
+  const expectedBindingDigest = readNonEmptyString(record, 'expectedBindingDigest');
+  const { material } = requireThresholdEd25519HssMaterial(payload);
+  if (material.bindingDigest !== expectedBindingDigest) {
+    throw new Error('near signer worker Ed25519 HSS material binding digest mismatch');
+  }
+  return {
+    materialHandle: material.materialHandle,
+    clientVerifyingShareB64u: material.clientVerifyingShareB64u,
+    bindingDigest: material.bindingDigest,
+  };
+}
+
 function createOpaqueClientPresignHandle(output: unknown): {
   clientNonceHandleB64u: string;
   clientVerifyingShareB64u: string;
@@ -298,6 +399,20 @@ function createOpaqueClientPresignHandle(output: unknown): {
     ...parsed,
     clientNonceHandleB64u: handle,
   };
+}
+
+function createOpaqueClientPresignFromMaterialHandle(payload: unknown): {
+  clientNonceHandleB64u: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: { hiding: string; binding: string };
+} {
+  const { record, material } = requireThresholdEd25519HssMaterial(payload);
+  return createOpaqueClientPresignHandle(
+    threshold_ed25519_client_presign_create({
+      ...record,
+      xClientBaseB64u: material.xClientBaseB64u,
+    }),
+  );
 }
 
 function signWithOpaqueClientPresignHandle(payload: unknown): { clientSignatureShareB64u: string } {
@@ -314,6 +429,16 @@ function signWithOpaqueClientPresignHandle(payload: unknown): { clientSignatureS
       clientNonceHandleB64u: nonceBytesB64u,
     }),
   );
+}
+
+function signWithOpaqueClientPresignHandleFromMaterialHandle(payload: unknown): {
+  clientSignatureShareB64u: string;
+} {
+  const { record, material } = requireThresholdEd25519HssMaterial(payload);
+  return signWithOpaqueClientPresignHandle({
+    ...record,
+    xClientBaseB64u: material.xClientBaseB64u,
+  });
 }
 
 function burnOpaqueClientPresignHandle(payload: unknown): { burned: true } {

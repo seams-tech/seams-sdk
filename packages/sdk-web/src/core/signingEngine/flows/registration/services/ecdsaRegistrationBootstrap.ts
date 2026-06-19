@@ -1,6 +1,7 @@
 import {
   buildWebAuthnPrfFirstSecretSourceFromParts,
   type EcdsaPreparePublicFacts,
+  type StoreEcdsaRoleLocalSigningMaterialOutput,
   type EcdsaRoleLocalPendingStateBlob,
   type FinalizeEcdsaClientBootstrapOutput,
   type SignerCryptoPort,
@@ -24,6 +25,25 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type {
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import {
+  buildEcdsaRoleLocalSigningMaterialHandle,
+} from '@/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle';
+import {
+  routerAbEcdsaHssActiveStateSessionId,
+} from '@shared/utils/routerAbEcdsaHss';
+
+export type FinalizedWalletRegistrationEcdsaClientBootstrap =
+  FinalizeEcdsaClientBootstrapOutput;
+
+export type StoreWalletRegistrationEcdsaClientSigningMaterialInput = {
+  finalized: FinalizedWalletRegistrationEcdsaClientBootstrap;
+  bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+export type StoreWalletRegistrationEcdsaClientSigningMaterialOutput = {
+  handle: StoreEcdsaRoleLocalSigningMaterialOutput['handle'];
+};
 
 export type PasskeyWalletRegistrationEcdsaPreparedClientBootstrap = {
   materialSource: 'passkey_prf_first';
@@ -73,13 +93,18 @@ export type EcdsaRegistrationBootstrapService = {
   ): Promise<EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap>;
   finalizeClientBootstrap(
     input: FinalizeWalletRegistrationEcdsaClientBootstrapInput,
-  ): Promise<FinalizeEcdsaClientBootstrapOutput>;
+  ): Promise<FinalizedWalletRegistrationEcdsaClientBootstrap>;
+  storeClientSigningMaterial(
+    input: StoreWalletRegistrationEcdsaClientSigningMaterialInput,
+  ): Promise<StoreWalletRegistrationEcdsaClientSigningMaterialOutput>;
 };
 
 export function createEcdsaRegistrationBootstrapService(deps: {
   signerCrypto: Pick<
     SignerCryptoPort,
-    'prepareEcdsaClientBootstrap' | 'finalizeEcdsaClientBootstrap'
+    | 'prepareEcdsaClientBootstrap'
+    | 'finalizeEcdsaClientBootstrap'
+    | 'storeEcdsaRoleLocalSigningMaterial'
   >;
   emailOtpWorker: WorkerOperationContext;
 }): EcdsaRegistrationBootstrapService {
@@ -90,6 +115,8 @@ export function createEcdsaRegistrationBootstrapService(deps: {
       prepareEmailOtpWalletRegistrationEcdsaClientBootstrap(deps, input),
     finalizeClientBootstrap: (input) =>
       finalizeWalletRegistrationEcdsaClientBootstrap(deps, input),
+    storeClientSigningMaterial: (input) =>
+      storeWalletRegistrationEcdsaClientSigningMaterial(deps, input),
   };
 }
 
@@ -173,7 +200,7 @@ export async function finalizeWalletRegistrationEcdsaClientBootstrap(
     signerCrypto: Pick<SignerCryptoPort, 'finalizeEcdsaClientBootstrap'>;
   },
   args: FinalizeWalletRegistrationEcdsaClientBootstrapInput,
-): Promise<FinalizeEcdsaClientBootstrapOutput> {
+): Promise<FinalizedWalletRegistrationEcdsaClientBootstrap> {
   const finalized = await deps.signerCrypto.finalizeEcdsaClientBootstrap({
     kind: 'finalize_ecdsa_client_bootstrap_v1',
     pendingStateBlob: args.preparedClientBootstrap.pendingStateBlob,
@@ -188,4 +215,34 @@ export async function finalizeWalletRegistrationEcdsaClientBootstrap(
     throw new Error(finalized.message);
   }
   return finalized.value;
+}
+
+export async function storeWalletRegistrationEcdsaClientSigningMaterial(
+  deps: {
+    signerCrypto: Pick<SignerCryptoPort, 'storeEcdsaRoleLocalSigningMaterial'>;
+  },
+  args: StoreWalletRegistrationEcdsaClientSigningMaterialInput,
+): Promise<StoreWalletRegistrationEcdsaClientSigningMaterialOutput> {
+  const signingMaterialHandle = buildEcdsaRoleLocalSigningMaterialHandle({
+    thresholdSessionId: args.bootstrap.thresholdSessionId,
+    walletSigningSessionId: args.bootstrap.walletSigningSessionId,
+    keyHandle: args.bootstrap.keyHandle,
+    routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(
+      args.bootstrap.routerAbEcdsaHssNormalSigning,
+    ),
+    chainTarget: args.chainTarget,
+    clientVerifyingShareB64u: args.finalized.publicFacts.hssClientSharePublicKey33B64u,
+    ecdsaThresholdKeyId: args.bootstrap.ecdsaThresholdKeyId,
+    participantIds: args.bootstrap.participantIds,
+    relayerKeyId: args.bootstrap.relayerKeyId,
+  });
+  const stored = await deps.signerCrypto.storeEcdsaRoleLocalSigningMaterial({
+    kind: 'store_ecdsa_role_local_signing_material_v1',
+    handle: signingMaterialHandle,
+    stateBlob: args.finalized.stateBlob,
+  });
+  if (!stored.ok) {
+    throw new Error(stored.message);
+  }
+  return stored.value;
 }

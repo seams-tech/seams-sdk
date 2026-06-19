@@ -1,5 +1,5 @@
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
-import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
+import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type { CreateSigningEnginePortsArgs } from './shared';
@@ -14,16 +14,17 @@ export function createThresholdEd25519LifecycleDeps(
   };
 }
 
-export function createThresholdSessionActivationDeps(args: {
+export function createWalletSessionActivationDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
-  credentialStore: ThresholdSessionActivationDeps['credentialStore'];
-  getOrCreateActiveThresholdEcdsaSessionId: ThresholdSessionActivationDeps['getOrCreateActiveThresholdEcdsaSessionId'];
-}): ThresholdSessionActivationDeps {
+  credentialStore: WalletSessionActivationDeps['credentialStore'];
+  getOrCreateActiveThresholdEcdsaSessionId: WalletSessionActivationDeps['getOrCreateActiveThresholdEcdsaSessionId'];
+}): WalletSessionActivationDeps {
   return {
     credentialStore: args.credentialStore,
     touchIdPrompt: args.createArgs.touchIdPrompt,
     touchConfirm: args.createArgs.touchConfirm,
     getSignerWorkerContext: () => args.createArgs.signerWorkerManager.getContext(),
+    routerAbNormalSigning: args.createArgs.seamsWebConfigs.signing.routerAb.normalSigning,
     getOrCreateActiveThresholdEcdsaSessionId: args.getOrCreateActiveThresholdEcdsaSessionId,
     defaultRelayerUrl: args.createArgs.seamsWebConfigs.network.relayer?.url || '',
     persistThresholdEcdsaBootstrapForWalletTarget:

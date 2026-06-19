@@ -8,7 +8,7 @@ import { createNearSigningDeps } from './ports/near';
 import {
   createRegistrationAccountLifecycleDeps,
   createThresholdEd25519LifecycleDeps,
-  createThresholdSessionActivationDeps,
+  createWalletSessionActivationDeps,
 } from './ports/registration';
 import { createPrivateKeyExportRecoveryDeps } from './ports/recovery';
 import {
@@ -76,7 +76,7 @@ export function createSigningEnginePorts(
       touchConfirm: args.touchConfirm,
       touchIdPrompt: args.touchIdPrompt,
     },
-    thresholdSessionActivationDeps: createThresholdSessionActivationDeps({
+    walletSessionActivationDeps: createWalletSessionActivationDeps({
       createArgs: args,
       credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
       getOrCreateActiveThresholdEcdsaSessionId,

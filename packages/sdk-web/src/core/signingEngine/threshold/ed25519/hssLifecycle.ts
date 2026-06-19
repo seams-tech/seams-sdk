@@ -17,6 +17,7 @@ import {
   openThresholdEd25519HssClientOutputWasm,
   openThresholdEd25519HssSeedOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
+  storeRouterAbEd25519HssMaterialFromClientOutputWasm,
   type ThresholdEd25519HssCanonicalContext,
   type ThresholdEd25519HssClientRequestEnvelope,
   type ThresholdEd25519HssClientInputs,
@@ -28,6 +29,7 @@ import {
   type ThresholdEd25519SeedExportArtifact,
   type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '../crypto/hssClientSignerWasm';
+import type { StoreRouterAbEd25519HssMaterialFromClientOutputResult } from '../../workerManager/workerTypes';
 import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../crypto/ed25519WrapKeySalt';
 import {
   resolveThresholdEd25519HssClientOutputMaskB64u,
@@ -118,6 +120,26 @@ export type CompleteThresholdEd25519HssClientCeremonyResult =
       preparedSession?: never;
       finalizedReport?: never;
       clientOutput?: never;
+    };
+
+export type CompleteThresholdEd25519HssMaterialHandleCeremonyResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+      signingMaterial: StoreRouterAbEd25519HssMaterialFromClientOutputResult;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'complete_client_ceremony_failed';
+      message: string;
+      preparedSession?: never;
+      finalizedReport?: never;
+      signingMaterial?: never;
     };
 
 export type PrepareThresholdEd25519HssServerCeremonyWithSessionResult =
@@ -1033,6 +1055,146 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     ...completed,
     preparedSession: prepared.preparedSession,
     finalizedReport: finalized.finalizedReport,
+  };
+}
+
+export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
+  relayerUrl: string;
+  walletSessionJwt: string;
+  relayerKeyId: string;
+  operation: ThresholdEd25519HssSessionOperation;
+  context: ThresholdEd25519HssCanonicalContext;
+  clientInputs: ThresholdEd25519HssClientInputs;
+  outputProjection: ThresholdEd25519HssOutputProjectionPolicy;
+  materialBinding: {
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+    signingRootId: string;
+    signingRootVersion: string;
+    expiresAtMs: number;
+    nearAccountId: string;
+    relayerKeyId: string;
+    participantIds: number[];
+    signingWorkerId: string;
+  };
+  workerCtx: WorkerOperationContext;
+}): Promise<CompleteThresholdEd25519HssMaterialHandleCeremonyResult> {
+  validateThresholdEd25519HssOutputProjectionPolicy(args.outputProjection);
+  const startedAt = Date.now();
+  const prepared = await prepareThresholdEd25519HssServerCeremonyWithSession({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.walletSessionJwt,
+    relayerKeyId: args.relayerKeyId,
+    operation: args.operation,
+    context: args.context,
+  });
+  if (!prepared.ok) {
+    return {
+      ok: false,
+      contextBindingB64u: prepared.contextBindingB64u,
+      code: 'complete_client_ceremony_failed',
+      message: prepared.message,
+    };
+  }
+
+  const clientOutputMaskB64u = await resolveThresholdEd25519HssClientOutputMaskB64u({
+    policy: args.outputProjection,
+    context: {
+      ...args.context,
+      contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+      operation: args.operation,
+      relayerKeyId: args.relayerKeyId,
+    },
+    workerCtx: args.workerCtx,
+  });
+
+  const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+    evaluatorDriverStateB64u: prepared.preparedSession.evaluatorDriverStateB64u,
+    clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
+    clientInputs: args.clientInputs,
+    workerCtx: args.workerCtx,
+  });
+
+  const responded = await respondThresholdEd25519HssServerCeremonyWithSession({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.walletSessionJwt,
+    ceremonyHandle: prepared.ceremonyHandle,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    clientRequest,
+  });
+  if (!responded.ok) {
+    return {
+      ok: false,
+      contextBindingB64u: responded.contextBindingB64u,
+      code: 'complete_client_ceremony_failed',
+      message: responded.message,
+    };
+  }
+
+  const evaluateStartedAt = Date.now();
+  const evaluationResult =
+    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+      preparedSession: prepared.preparedSession,
+      clientRequest,
+      serverInputDelivery: responded.serverInputDelivery,
+      clientOutputMaskB64u,
+      workerCtx: args.workerCtx,
+    });
+  if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
+    return {
+      ok: false,
+      contextBindingB64u: evaluationResult.contextBindingB64u,
+      code: 'complete_client_ceremony_failed',
+      message: 'HSS client-owned staged artifact context binding mismatch',
+    };
+  }
+  const evaluateMs = Date.now() - evaluateStartedAt;
+
+  const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.walletSessionJwt,
+    ceremonyHandle: prepared.ceremonyHandle,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    evaluationResult,
+  });
+  if (!finalized.ok) {
+    return {
+      ok: false,
+      contextBindingB64u: finalized.contextBindingB64u,
+      code: 'complete_client_ceremony_failed',
+      message: finalized.message,
+    };
+  }
+
+  const completeStartedAt = Date.now();
+  const signingMaterial = await storeRouterAbEd25519HssMaterialFromClientOutputWasm({
+    preparedSession: prepared.preparedSession,
+    finalizedReport: finalized.finalizedReport,
+    clientOutputMaskB64u,
+    thresholdSessionId: args.materialBinding.thresholdSessionId,
+    walletSigningSessionId: args.materialBinding.walletSigningSessionId,
+    signingRootId: args.materialBinding.signingRootId,
+    signingRootVersion: args.materialBinding.signingRootVersion,
+    expiresAtMs: args.materialBinding.expiresAtMs,
+    nearAccountId: args.materialBinding.nearAccountId,
+    relayerKeyId: args.materialBinding.relayerKeyId,
+    participantIds: args.materialBinding.participantIds,
+    signingWorkerId: args.materialBinding.signingWorkerId,
+    workerCtx: args.workerCtx,
+  });
+  const completeMs = Date.now() - completeStartedAt;
+  console.info('[threshold-ed25519][client] hss material-handle ceremony timings', {
+    relayerKeyId: String(args.relayerKeyId || '').trim(),
+    evaluateMs,
+    completeMs,
+    totalMs: Date.now() - startedAt,
+  });
+  return {
+    ok: true,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    preparedSession: prepared.preparedSession,
+    finalizedReport: finalized.finalizedReport,
+    signingMaterial,
   };
 }
 

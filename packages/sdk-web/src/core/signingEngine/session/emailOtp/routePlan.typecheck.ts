@@ -79,7 +79,7 @@ void ed25519RouteAuth;
 
 void ({
   kind: 'explicit_route_auth',
-  // @ts-expect-error Ed25519 threshold-session auth cannot authorize ECDSA bootstrap.
+  // @ts-expect-error Ed25519 Wallet Session auth cannot authorize ECDSA bootstrap.
   routeAuth: ed25519RouteAuth,
 } satisfies EmailOtpEcdsaBootstrapAuthorization);
 

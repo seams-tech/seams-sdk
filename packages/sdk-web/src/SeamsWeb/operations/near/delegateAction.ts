@@ -53,15 +53,6 @@ export async function signDelegateAction(args: {
     interaction: { kind: 'none', overlay: 'none' },
   });
 
-  // Emit the v2 confirmation-display event before kicking off the UserConfirm-driven
-  // flow so the wallet-iframe overlay can expand and allow the TxConfirmer modal
-  // to capture activation.
-  emitNearSigningEvent(options?.onEvent, nearAccountId, {
-    phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
-    status: 'waiting_for_user',
-    message: 'Requesting delegate action confirmation',
-    interaction: { kind: 'transaction_confirmation', overlay: 'show' },
-  });
   await yieldForUiPaint();
 
   try {

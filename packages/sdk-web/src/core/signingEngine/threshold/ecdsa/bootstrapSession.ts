@@ -174,13 +174,12 @@ function summarizeHssRouteAuth(
   auth: ThresholdEcdsaHssRouteAuth | undefined,
 ): Record<string, unknown> {
   if (!auth) return { kind: 'none' };
-  if (auth.kind === 'threshold_session' || auth.kind === 'app_session') {
+  if (auth.kind === 'wallet_session' || auth.kind === 'app_session') {
     return {
       kind: auth.kind,
       jwtClaims: summarizeJwtClaims(auth.jwt),
     };
   }
-  if (auth.kind === 'cookie') return { kind: 'cookie' };
   return { kind: auth.kind, hasToken: Boolean(String(auth.token || '').trim()) };
 }
 
@@ -598,7 +597,7 @@ type BootstrapEcdsaSessionBaseArgs = {
   userId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   participantIds?: number[];
-  sessionKind?: ThresholdSessionKind;
+  sessionKind?: 'jwt';
   requestId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
@@ -713,12 +712,15 @@ type BootstrapEcdsaSessionSuccessCommon = {
   ethereumAddress: string;
   relayerKeyId: string;
   relayerVerifyingShareB64u: string;
+  clientShareRetryCounter: number;
+  relayerShareRetryCounter: number;
   participantIds: number[];
   chainId: number;
   sessionId: string;
   walletSigningSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   signingRootId: string;
   signingRootVersion: string;
   jwt?: string;
@@ -774,9 +776,7 @@ export async function bootstrapEcdsaSession(
   args: BootstrapEcdsaSessionArgs,
 ): Promise<BootstrapEcdsaSessionResult> {
   const exactSessionBootstrap = isExactSessionBootstrapArgs(args);
-  const sessionKind: ThresholdSessionKind = exactSessionBootstrap
-    ? args.lanePolicy.thresholdSessionKind
-    : args.sessionKind || 'jwt';
+  const sessionKind = 'jwt';
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
@@ -974,20 +974,7 @@ export async function bootstrapEcdsaSession(
       resolvedSecretSource.kind === 'passkey'
         ? resolvedSecretSource.authorizationCredential || undefined
         : undefined;
-    const hssAuth: ThresholdEcdsaHssRouteAuth | undefined = (() => {
-      if (exactSessionBootstrap) return args.bootstrapAuth;
-      if (args.bootstrapAuth) return args.bootstrapAuth;
-      if (!exactSessionBootstrap && passkeyBootstrapIdentity && runtimeScopePublishableKey) {
-        return { kind: 'publishable_key', token: runtimeScopePublishableKey };
-      }
-      if (managedBootstrapGrant?.token) {
-        return { kind: 'bootstrap_grant', token: managedBootstrapGrant.token };
-      }
-      if (runtimeScopePublishableKey) {
-        return { kind: 'publishable_key', token: runtimeScopePublishableKey };
-      }
-      return undefined;
-    })();
+    const hssAuth: ThresholdEcdsaHssRouteAuth | undefined = args.bootstrapAuth;
     const evmFamilyKeyFingerprint = exactSessionBootstrap
       ? deriveEvmFamilyKeyFingerprint(args.key)
       : undefined;
@@ -1112,7 +1099,6 @@ export async function bootstrapEcdsaSession(
         remainingUses,
         participantIds: sessionPolicyParticipantIds || [1, 2],
         auth: hssAuth,
-        sessionKind,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest;
       let passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization | null =
@@ -1258,12 +1244,15 @@ export async function bootstrapEcdsaSession(
             ethereumAddress,
             relayerKeyId: value.relayerKeyId,
             relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
+            clientShareRetryCounter: value.clientShareRetryCounter,
+            relayerShareRetryCounter: value.relayerShareRetryCounter,
             participantIds: value.participantIds,
             chainId: sessionPolicyChainTarget.chainId,
             sessionId: value.sessionId,
             walletSigningSessionId: value.walletSigningSessionId,
             expiresAtMs: value.expiresAtMs,
             remainingUses: value.remainingUses,
+            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             jwt,
             signingRootId: value.signingRootId,
             signingRootVersion: value.signingRootVersion,
@@ -1284,12 +1273,15 @@ export async function bootstrapEcdsaSession(
           ethereumAddress,
           relayerKeyId: value.relayerKeyId,
           relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
+          clientShareRetryCounter: value.clientShareRetryCounter,
+          relayerShareRetryCounter: value.relayerShareRetryCounter,
           participantIds: value.participantIds,
           chainId: sessionPolicyChainTarget.chainId,
           sessionId: value.sessionId,
           walletSigningSessionId: value.walletSigningSessionId,
           expiresAtMs: value.expiresAtMs,
           remainingUses: value.remainingUses,
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           signingRootId: value.signingRootId,
           signingRootVersion: value.signingRootVersion,
           ecdsaHssRoleLocalClientState,
@@ -1310,12 +1302,15 @@ export async function bootstrapEcdsaSession(
           ethereumAddress,
           relayerKeyId: value.relayerKeyId,
           relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
+          clientShareRetryCounter: value.clientShareRetryCounter,
+          relayerShareRetryCounter: value.relayerShareRetryCounter,
           participantIds: value.participantIds,
           chainId: sessionPolicyChainTarget.chainId,
           sessionId: value.sessionId,
           walletSigningSessionId: value.walletSigningSessionId,
           expiresAtMs: value.expiresAtMs,
           remainingUses: value.remainingUses,
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           jwt,
           signingRootId: value.signingRootId,
           signingRootVersion: value.signingRootVersion,
@@ -1334,12 +1329,15 @@ export async function bootstrapEcdsaSession(
         ethereumAddress,
         relayerKeyId: value.relayerKeyId,
         relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
+        clientShareRetryCounter: value.clientShareRetryCounter,
+        relayerShareRetryCounter: value.relayerShareRetryCounter,
         participantIds: value.participantIds,
         chainId: sessionPolicyChainTarget.chainId,
         sessionId: value.sessionId,
         walletSigningSessionId: value.walletSigningSessionId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         signingRootId: value.signingRootId,
         signingRootVersion: value.signingRootVersion,
         ecdsaHssRoleLocalClientState,

@@ -52,8 +52,8 @@ export type ActiveEcdsaSignerRecord = {
   source: 'profile_continuity' | 'wallet';
 };
 
-export type RepairRequiredEcdsaSignerRecord = {
-  kind: 'repair_required';
+export type KeyFactsInventoryRequiredEcdsaSignerRecord = {
+  kind: 'key_facts_inventory_required';
   targetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
@@ -70,7 +70,7 @@ export type BlockedEcdsaSignerRecord = {
 
 export type ParsedEcdsaUnlockSignerRecord =
   | ActiveEcdsaSignerRecord
-  | RepairRequiredEcdsaSignerRecord
+  | KeyFactsInventoryRequiredEcdsaSignerRecord
   | BlockedEcdsaSignerRecord
   | {
       kind: 'skipped';
@@ -133,7 +133,7 @@ export type SharedKeyTargetCompletion =
 
 export type EcdsaUnlockRuntimeConfig = {
   allowAuthenticatedKeyFactsInventory: boolean;
-  explicitRepairMode: boolean;
+  explicitKeyFactsInventoryMode: boolean;
 };
 
 export type EcdsaWarmupPlannerResult =
@@ -141,14 +141,14 @@ export type EcdsaWarmupPlannerResult =
       kind: 'no_configured_ecdsa_targets';
       readyTargets?: never;
       keyTargets?: never;
-      repairRecords?: never;
+      keyFactsInventoryRequiredRecords?: never;
       blockedRecords?: never;
     }
   | {
       kind: 'ready';
       readyTargets: EcdsaWarmupReadyTarget[];
       keyTargets?: never;
-      repairRecords?: never;
+      keyFactsInventoryRequiredRecords?: never;
       blockedRecords?: never;
     }
   | {
@@ -157,13 +157,13 @@ export type EcdsaWarmupPlannerResult =
         keyHandle: string;
         chainTarget: ThresholdEcdsaChainTarget;
       }[];
-      repairRecords: RepairRequiredEcdsaSignerRecord[];
+      keyFactsInventoryRequiredRecords: KeyFactsInventoryRequiredEcdsaSignerRecord[];
       readyTargets?: never;
       blockedRecords?: never;
     }
   | {
-      kind: 'repair_required';
-      repairRecords: RepairRequiredEcdsaSignerRecord[];
+      kind: 'key_facts_inventory_required';
+      keyFactsInventoryRequiredRecords: KeyFactsInventoryRequiredEcdsaSignerRecord[];
       readyTargets?: never;
       keyTargets?: never;
       blockedRecords?: never;
@@ -173,7 +173,7 @@ export type EcdsaWarmupPlannerResult =
       blockedRecords: BlockedEcdsaSignerRecord[];
       readyTargets?: never;
       keyTargets?: never;
-      repairRecords?: never;
+      keyFactsInventoryRequiredRecords?: never;
     };
 
 export function walletUnlockSelectionIncludesEcdsa(selection: WalletUnlockSelection): boolean {
@@ -229,9 +229,9 @@ export function parseActiveEcdsaSignerRecordForUnlock(args: {
         source: 'profile_continuity',
         ...(signerId ? { signerId } : {}),
       };
-    case 'repair_required':
+    case 'key_facts_inventory_required':
       return {
-        kind: 'repair_required',
+        kind: 'key_facts_inventory_required',
         targetKey: parsed.targetKey,
         chainTarget: parsed.chainTarget,
         keyHandle: parsed.keyHandle,
@@ -495,7 +495,9 @@ export function requireCompleteSharedKeyTargetContext(args: {
   throw new Error('[login] unsupported ECDSA warm-up key completion state');
 }
 
-function dedupeRepairKeyTargets(records: readonly RepairRequiredEcdsaSignerRecord[]): {
+function dedupeKeyFactsInventoryTargets(
+  records: readonly KeyFactsInventoryRequiredEcdsaSignerRecord[],
+): {
   keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;
 }[] {
@@ -520,13 +522,13 @@ export function planUnlockEcdsaWarmup(args: {
   selection: WalletUnlockSelection;
   configuredTargets: readonly ThresholdEcdsaChainTarget[];
   activeSignerRecords: readonly ActiveEcdsaSignerRecord[];
-  repairRecords?: readonly RepairRequiredEcdsaSignerRecord[];
+  keyFactsInventoryRequiredRecords?: readonly KeyFactsInventoryRequiredEcdsaSignerRecord[];
   blockedRecords?: readonly BlockedEcdsaSignerRecord[];
   localSessionRecords: readonly ThresholdEcdsaSessionRecord[];
   currentSessionFacts?: readonly CurrentEcdsaSessionFact[];
   runtimeConfig?: EcdsaUnlockRuntimeConfig;
   allowAuthenticatedKeyFactsInventory?: boolean;
-  explicitRepairMode?: boolean;
+  explicitKeyFactsInventoryMode?: boolean;
   nowMs?: number;
 }): EcdsaWarmupPlannerResult {
   if (!walletUnlockSelectionIncludesEcdsa(args.selection) || args.configuredTargets.length === 0) {
@@ -542,12 +544,15 @@ export function planUnlockEcdsaWarmup(args: {
     return { kind: 'blocked', blockedRecords };
   }
 
-  const repairByTarget = new Map<string, RepairRequiredEcdsaSignerRecord>();
-  for (const record of args.repairRecords || []) {
-    repairByTarget.set(record.targetKey, record);
+  const keyFactsInventoryRequiredByTarget = new Map<
+    string,
+    KeyFactsInventoryRequiredEcdsaSignerRecord
+  >();
+  for (const record of args.keyFactsInventoryRequiredRecords || []) {
+    keyFactsInventoryRequiredByTarget.set(record.targetKey, record);
   }
 
-  const missingOrRepairRecords: RepairRequiredEcdsaSignerRecord[] = [];
+  const keyFactsInventoryRequiredRecords: KeyFactsInventoryRequiredEcdsaSignerRecord[] = [];
   const readyTargets: EcdsaWarmupReadyTarget[] = [];
   const nowMs = args.nowMs ?? Date.now();
   for (const chainTarget of args.configuredTargets) {
@@ -574,13 +579,13 @@ export function planUnlockEcdsaWarmup(args: {
       });
       continue;
     }
-    const repairRecord = repairByTarget.get(targetKey);
-    if (repairRecord) {
-      missingOrRepairRecords.push(repairRecord);
+    const keyFactsInventoryRequiredRecord = keyFactsInventoryRequiredByTarget.get(targetKey);
+    if (keyFactsInventoryRequiredRecord) {
+      keyFactsInventoryRequiredRecords.push(keyFactsInventoryRequiredRecord);
       continue;
     }
-    missingOrRepairRecords.push({
-      kind: 'repair_required',
+    keyFactsInventoryRequiredRecords.push({
+      kind: 'key_facts_inventory_required',
       targetKey,
       chainTarget,
       keyHandle: '',
@@ -588,31 +593,32 @@ export function planUnlockEcdsaWarmup(args: {
     });
   }
 
-  if (missingOrRepairRecords.length === 0) {
+  if (keyFactsInventoryRequiredRecords.length === 0) {
     return { kind: 'ready', readyTargets };
   }
 
-  const repairRecordsWithKeyHandles = missingOrRepairRecords.filter((record) =>
+  const inventoryRecordsWithKeyHandles = keyFactsInventoryRequiredRecords.filter((record) =>
     String(record.keyHandle || '').trim(),
   );
-  const explicitRepairMode = args.runtimeConfig?.explicitRepairMode ?? args.explicitRepairMode;
+  const explicitKeyFactsInventoryMode =
+    args.runtimeConfig?.explicitKeyFactsInventoryMode ?? args.explicitKeyFactsInventoryMode;
   const allowAuthenticatedKeyFactsInventory =
     args.runtimeConfig?.allowAuthenticatedKeyFactsInventory ??
     args.allowAuthenticatedKeyFactsInventory;
   if (
-    explicitRepairMode === true &&
+    explicitKeyFactsInventoryMode === true &&
     allowAuthenticatedKeyFactsInventory === true &&
-    repairRecordsWithKeyHandles.length === missingOrRepairRecords.length
+    inventoryRecordsWithKeyHandles.length === keyFactsInventoryRequiredRecords.length
   ) {
     return {
       kind: 'awaiting_authenticated_key_facts_inventory',
-      repairRecords: repairRecordsWithKeyHandles,
-      keyTargets: dedupeRepairKeyTargets(repairRecordsWithKeyHandles),
+      keyFactsInventoryRequiredRecords: inventoryRecordsWithKeyHandles,
+      keyTargets: dedupeKeyFactsInventoryTargets(inventoryRecordsWithKeyHandles),
     };
   }
 
   return {
-    kind: 'repair_required',
-    repairRecords: missingOrRepairRecords,
+    kind: 'key_facts_inventory_required',
+    keyFactsInventoryRequiredRecords,
   };
 }

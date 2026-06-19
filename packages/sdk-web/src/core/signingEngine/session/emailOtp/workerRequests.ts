@@ -14,7 +14,7 @@ function zeroizeBytes(bytes?: Uint8Array | null): void {
 
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
-  thresholdSessionAuthToken?: string;
+  walletSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
 };
@@ -28,12 +28,11 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   keyHandle: string;
   relayerKeyId: string;
   participantIds: number[];
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind: 'jwt';
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ed25519?: {
     sessionId: string;
-    signingRootId: string;
-    signingRootVersion?: string;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
     relayerKeyId: string;
     participantIds: number[];
   };

@@ -36,7 +36,7 @@ import type {
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { WarmSessionEcdsaCapabilityState } from '../session/warmCapabilities/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
-import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../threshold/ed25519/authSession';
+import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../threshold/ed25519/walletSession';
 import type {
   UiConfirmContextPort,
   UiConfirmRegistrationPort,

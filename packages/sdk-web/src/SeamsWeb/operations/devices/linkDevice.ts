@@ -36,11 +36,12 @@ import {
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
   requireThresholdEd25519WarmSessionKeyVersion,
-  reconstructThresholdEd25519ClientBaseFromWarmSession,
+  reconstructThresholdEd25519SigningMaterialFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPrepareContext,
@@ -91,6 +92,14 @@ function requireLinkDeviceString(value: unknown, field: string): string {
   return text;
 }
 
+function requireLinkDeviceRuntimePolicyScope(value: unknown) {
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value);
+  if (!runtimePolicyScope) {
+    throw new Error('link-device ECDSA response missing runtimePolicyScope');
+  }
+  return runtimePolicyScope;
+}
+
 function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPrepareContext {
   if (!isObject(value)) throw new Error('link-device/prepare returned invalid ECDSA prepare data');
   const participantIds = Array.isArray(value.participantIds)
@@ -103,14 +112,15 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
   ) {
     throw new Error('link-device/prepare returned invalid ECDSA participant ids');
   }
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
+  const runtimePolicyScope = requireLinkDeviceRuntimePolicyScope(value.runtimePolicyScope);
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: requireLinkDeviceString(value.walletId, 'walletId'),
     rpId: requireLinkDeviceString(value.rpId, 'rpId'),
     ecdsaThresholdKeyId: requireLinkDeviceString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
-    signingRootId: requireLinkDeviceString(value.signingRootId, 'signingRootId'),
-    signingRootVersion: requireLinkDeviceString(value.signingRootVersion, 'signingRootVersion'),
+    signingRootId: signingRootScope.signingRootId,
+    signingRootVersion: signingRootScope.signingRootVersion || runtimePolicyScope.signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId: requireLinkDeviceString(value.relayerKeyId, 'relayerKeyId'),
     requestId: requireLinkDeviceString(value.requestId, 'requestId'),
@@ -122,7 +132,7 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
     ttlMs: coercePositiveInt(value.ttlMs, 1),
     remainingUses: coercePositiveInt(value.remainingUses, 1),
     participantIds,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    runtimePolicyScope,
   };
 }
 
@@ -667,7 +677,7 @@ export class LinkDeviceFlow {
         ? thresholdSection.participantIds
         : undefined,
     });
-    await reconstructThresholdEd25519ClientBaseFromWarmSession({
+    await reconstructThresholdEd25519SigningMaterialFromWarmSession({
       context: this.context,
       credential,
       nearAccountId,

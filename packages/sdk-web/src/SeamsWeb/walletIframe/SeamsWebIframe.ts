@@ -19,7 +19,8 @@
  */
 
 import { WalletIframeRouter } from './client/router';
-import type { ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import { walletIframeUnlockRequestFromLoginHooks } from './shared/unlockOptions';
+import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
   NearAccountRef,
@@ -179,7 +180,7 @@ export class SeamsWebIframe {
         : undefined;
     const signingSessionDefaults = this.configs.signing.sessionDefaults;
     const routerAb = this.configs.signing.routerAb;
-    const thresholdEcdsaPresignPool = this.configs.signing.thresholdEcdsa.presignPool;
+    const routerAbEcdsaHssPresignaturePool = this.configs.signing.routerAbEcdsaHss.presignaturePool;
     const provisioningDefaults = this.configs.signing.thresholdEcdsa.provisioningDefaults;
 
     this.router = new WalletIframeRouter({
@@ -196,7 +197,7 @@ export class SeamsWebIframe {
       signingSessionPersistenceMode,
       ...(signingSessionSeal ? { signingSessionSeal } : {}),
       routerAb,
-      thresholdEcdsaPresignPool,
+      routerAbEcdsaHssPresignaturePool,
       provisioningDefaults,
       // relayer: configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
@@ -209,8 +210,8 @@ export class SeamsWebIframe {
       getRecentUnlocks: async () => await this.getRecentUnlocksDomain(),
       hasPasskeyCredential: async (nearAccountId) =>
         await this.hasPasskeyCredentialDomain(nearAccountId),
-      prefillThresholdEcdsaPresignPool: async (args) =>
-        await this.prefillThresholdEcdsaPresignPoolDomain(args),
+      prefillRouterAbEcdsaHssPresignaturePool: async (args) =>
+        await this.prefillRouterAbEcdsaHssPresignaturePoolDomain(args),
       requestEmailOtpChallenge: async (args) => {
         const result = await this.router.requestEmailOtpChallenge(args);
         return result;
@@ -579,15 +580,12 @@ export class SeamsWebIframe {
     try {
       // Route login request to iframe - similar flow to registerPasskey
       // The iframe will handle WebAuthn authentication and session creation
-      const res = await this.router.unlock({
-        nearAccountId,
-        options: {
-          onEvent: options?.onEvent,
-          signerSlot: options?.signerSlot,
-          session: options?.session,
-          signingSession: options?.signingSession,
-        }, // Progress events flow back to parent
-      });
+      const res = await this.router.unlock(
+        walletIframeUnlockRequestFromLoginHooks({
+          nearAccountId,
+          options,
+        }),
+      );
       if (!res.success) {
         const unlockError = new Error(res.error || 'Login failed');
         await options?.onError?.(unlockError);
@@ -621,16 +619,16 @@ export class SeamsWebIframe {
     return await this.router.getWalletSession(walletId);
   }
 
-  private async prefillThresholdEcdsaPresignPoolDomain(args: {
+  private async prefillRouterAbEcdsaHssPresignaturePoolDomain(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<ThresholdEcdsaLoginPrefillResult> {
+  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
     await this.requireRouterReady();
-    return await this.router.prefillThresholdEcdsaPresignPool({
+    return await this.router.prefillRouterAbEcdsaHssPresignaturePool({
       walletSession: args.walletSession,
       options: {
         chainTarget: args.chainTarget,

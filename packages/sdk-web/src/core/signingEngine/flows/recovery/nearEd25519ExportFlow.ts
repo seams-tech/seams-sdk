@@ -3,18 +3,19 @@ import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot'
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/types/seams';
-import { requireThresholdSessionAuthToken } from '@shared/utils/sessionTokens';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEd25519SessionRecord } from '../../session/persistence/records';
 import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/persistence/records';
+import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   toAuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
+import { walletSessionJwtFromPersistedEd25519Record } from '../../session/walletSessionAuthBoundary';
 import type {
   RequestEmailOtpChallengeArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
@@ -48,14 +49,13 @@ export type NearEd25519SingleKeyExportDeps = {
       challengeId: string;
       otpCode: string;
       record: ThresholdEd25519SessionRecord;
-      signingRootId: string;
       keyVersion: string;
       participantIds: number[];
       thresholdSessionId: string;
-      thresholdSessionAuthToken: string;
+      walletSessionJwt: string;
       relayerKeyId: string;
       expectedPublicKey: string;
-      routeAuth?: AppOrThresholdSessionAuth;
+      routeAuth?: AppOrWalletSessionAuth;
       authLane?: EmailOtpAuthLane;
     }) => Promise<{ publicKey: string; privateKey: string }>;
   };
@@ -74,6 +74,96 @@ type NearEd25519SingleKeyExportArgs = {
 };
 
 type ExportedKeySchemes = Array<'ed25519' | 'secp256k1'>;
+
+export type RouterAbEd25519ExportWalletSessionAuth = {
+  kind: 'router_ab_ed25519_export_wallet_session_auth_v1';
+  walletSessionJwt: string;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+  participantIds: number[];
+  expiresAtMs: number;
+  remainingUses: number;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  signingWorkerId: string;
+};
+
+export type RouterAbEd25519ExportWalletSessionAuthFailureReason =
+  | 'missing_record'
+  | 'cookie_session'
+  | 'missing_wallet_session_jwt'
+  | 'missing_threshold_session_id'
+  | 'missing_wallet_signing_session_id'
+  | 'missing_relayer_url'
+  | 'missing_relayer_key_id'
+  | 'missing_participant_ids'
+  | 'missing_runtime_policy_scope'
+  | 'missing_router_ab_state'
+  | 'invalid_budget';
+
+export type RouterAbEd25519ExportWalletSessionAuthResult =
+  | { ok: true; value: RouterAbEd25519ExportWalletSessionAuth }
+  | { ok: false; reason: RouterAbEd25519ExportWalletSessionAuthFailureReason };
+
+function nonEmptyString(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function positiveInteger(value: unknown): number {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+export function resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): RouterAbEd25519ExportWalletSessionAuthResult {
+  if (!record) return { ok: false, reason: 'missing_record' };
+  if (record.thresholdSessionKind !== 'jwt') return { ok: false, reason: 'cookie_session' };
+  const walletSessionJwt = walletSessionJwtFromPersistedEd25519Record(record);
+  if (!walletSessionJwt) return { ok: false, reason: 'missing_wallet_session_jwt' };
+  const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
+  if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
+  const walletSigningSessionId = nonEmptyString(record.walletSigningSessionId);
+  if (!walletSigningSessionId) return { ok: false, reason: 'missing_wallet_signing_session_id' };
+  const relayerUrl = nonEmptyString(record.relayerUrl);
+  if (!relayerUrl) return { ok: false, reason: 'missing_relayer_url' };
+  const relayerKeyId = nonEmptyString(record.relayerKeyId);
+  if (!relayerKeyId) return { ok: false, reason: 'missing_relayer_key_id' };
+  const participantIds = Array.isArray(record.participantIds)
+    ? record.participantIds.map((value) => Number(value)).filter(Number.isFinite)
+    : [];
+  if (participantIds.length === 0) return { ok: false, reason: 'missing_participant_ids' };
+  if (!record.runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
+  const routerAbNormalSigning = record.routerAbNormalSigning;
+  const signingWorkerId = nonEmptyString(routerAbNormalSigning?.signingWorkerId);
+  if (!routerAbNormalSigning || !signingWorkerId) {
+    return { ok: false, reason: 'missing_router_ab_state' };
+  }
+  const expiresAtMs = positiveInteger(record.expiresAtMs);
+  const remainingUses = positiveInteger(record.remainingUses);
+  if (!expiresAtMs || expiresAtMs <= Date.now() || !remainingUses) {
+    return { ok: false, reason: 'invalid_budget' };
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'router_ab_ed25519_export_wallet_session_auth_v1',
+      walletSessionJwt,
+      thresholdSessionId,
+      walletSigningSessionId,
+      relayerUrl,
+      relayerKeyId,
+      participantIds,
+      expiresAtMs,
+      remainingUses,
+      runtimePolicyScope: record.runtimePolicyScope,
+      routerAbNormalSigning,
+      signingWorkerId,
+    },
+  };
+}
 
 function assertNearEd25519ExportRecordMatchesLane(args: {
   record: ThresholdEd25519SessionRecord | null | undefined;
@@ -135,10 +225,10 @@ async function runNearEd25519HssExportAndViewer(
     keyVersion: string;
     participantIds: number[];
     thresholdSessionId: string;
-    thresholdSessionAuthToken: string;
+    walletSessionJwt: string;
     relayerUrl: string;
     relayerKeyId: string;
-    signingRootId: string;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
     prfFirstB64u: string;
     viewerSessionId: string;
     options: NearEd25519SingleKeyExportArgs['options'];
@@ -152,15 +242,21 @@ async function runNearEd25519HssExportAndViewer(
     nearAccountId: args.nearAccountId,
     onEvent: args.onEvent,
   });
+  const signingRootId = String(
+    signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope).signingRootId || '',
+  ).trim();
+  if (!signingRootId) {
+    throw new Error(`Missing signing root scope for ${args.errorContext} Ed25519 seed export`);
+  }
   const hssTask = runNearEd25519SingleKeyHssExport(
     { getSignerWorkerContext: deps.getSignerWorkerContext },
     {
-      signingRootId: args.signingRootId,
+      signingRootId,
       nearAccountId: args.nearAccountId,
       keyVersion: args.keyVersion,
       participantIds: args.participantIds,
       thresholdSessionId: args.thresholdSessionId,
-      thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+      walletSessionJwt: args.walletSessionJwt,
       relayerUrl: args.relayerUrl,
       relayerKeyId: args.relayerKeyId,
       prfFirstB64u: args.prfFirstB64u,
@@ -245,7 +341,6 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     sessionRecord.runtimePolicyScope?.signingRootVersion || '',
   ).trim();
   const thresholdSessionId = String(sessionRecord.thresholdSessionId || '').trim();
-  const thresholdSessionAuthToken = String(sessionRecord.thresholdSessionAuthToken || '').trim();
   const relayerUrl = String(sessionRecord.relayerUrl || '').trim();
   const relayerKeyId = String(sessionRecord.relayerKeyId || '').trim();
   const participantIds = Array.isArray(sessionRecord.participantIds)
@@ -266,7 +361,6 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     !envId ||
     !signingRootVersion ||
     !thresholdSessionId ||
-    !thresholdSessionAuthToken ||
     !relayerUrl ||
     !relayerKeyId ||
     participantIds.length === 0
@@ -283,8 +377,6 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     envId,
     signingRootVersion,
   };
-  const defaultSigningRootId =
-    signingRootScopeFromRuntimePolicyScope(defaultRuntimePolicyScope).signingRootId;
 
   const signerSlot = await getLastLoggedInSignerSlot(nearAccountId, deps.keyMaterialStore).catch(
     () => null as number | null,
@@ -307,13 +399,23 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
   ).catch(() => null);
   const keyVersion = String(thresholdKeyMaterial?.keyVersion || '').trim();
   const expectedPublicKey = String(thresholdKeyMaterial?.publicKey || '').trim();
-  if (!keyVersion || !expectedPublicKey) {
+  if (!thresholdKeyMaterial || !keyVersion || !expectedPublicKey) {
     requireSingleKeyHssExportPrerequisite(
       false,
       'Missing canonical public key material for single-key HSS Ed25519 export',
     );
     return null;
   }
+  const exportWalletSessionAuth =
+    resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(sessionRecord);
+  if (!exportWalletSessionAuth.ok) {
+    requireSingleKeyHssExportPrerequisite(
+      false,
+      'Missing Router A/B Wallet Session JWT for single-key HSS Ed25519 export',
+    );
+    return null;
+  }
+  const walletSessionJwt = exportWalletSessionAuth.value.walletSessionJwt;
 
   const viewerSessionId = createExportUiRequestId('export-near-ed25519-viewer-session');
 
@@ -325,10 +427,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
       }
       const exportSigningSessionAuthLane = {
         kind: 'signing_session' as const,
-        jwt: requireThresholdSessionAuthToken(
-          String(sessionRecord.thresholdSessionAuthToken || '').trim(),
-          'exportThresholdSessionAuthToken',
-        ),
+        jwt: walletSessionJwt,
         thresholdSessionId,
         authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
           walletSigningSessionId,
@@ -379,11 +478,10 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
         challengeId: authorization.challengeId,
         otpCode: authorization.otpCode,
         record: sessionRecord,
-        signingRootId: defaultSigningRootId,
         keyVersion,
         participantIds,
         thresholdSessionId,
-        thresholdSessionAuthToken,
+        walletSessionJwt,
         relayerKeyId,
         expectedPublicKey,
         authLane: exportSigningSessionAuthLane,
@@ -432,12 +530,12 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
       errorContext: 'single-key HSS Ed25519 export',
     });
     return await runNearEd25519HssExportAndViewer(deps, {
-      signingRootId: defaultSigningRootId,
+      runtimePolicyScope: defaultRuntimePolicyScope,
       nearAccountId,
       keyVersion,
       participantIds,
       thresholdSessionId,
-      thresholdSessionAuthToken,
+      walletSessionJwt,
       relayerUrl,
       relayerKeyId,
       prfFirstB64u,

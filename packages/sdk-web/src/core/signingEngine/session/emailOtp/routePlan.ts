@@ -1,7 +1,7 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   WalletEmailOtpExportOperation,
   WalletEmailOtpLoginOperation,
@@ -108,7 +108,7 @@ export function buildEmailOtpSigningSessionRoutePlan(args: {
 
 export function routeAuthFromEmailOtpRoutePlan(
   routePlan: EmailOtpRoutePlan,
-): AppOrThresholdSessionAuth | undefined {
+): AppOrWalletSessionAuth | undefined {
   return authLaneToRouteAuth(routePlan.authLane);
 }
 
@@ -142,12 +142,12 @@ export function emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(
 
 export function emailOtpEcdsaBootstrapRouteAuthToTransport(
   auth: EmailOtpEcdsaBootstrapRouteAuth,
-): AppOrThresholdSessionAuth {
+): AppOrWalletSessionAuth {
   switch (auth.kind) {
     case 'app_session':
       return { kind: 'app_session', jwt: auth.jwt };
     case 'threshold_ecdsa_session':
-      return { kind: 'threshold_session', jwt: auth.jwt };
+      return { kind: 'wallet_session', jwt: auth.jwt };
   }
   return assertNever(auth);
 }
@@ -226,11 +226,11 @@ export function buildEmailOtpEcdsaMintingSession(args: {
   };
 }
 
-export function thresholdSessionAuthFromEcdsaBootstrap(
+export function walletSessionRouteAuthFromEcdsaBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
-): AppOrThresholdSessionAuth | undefined {
+): AppOrWalletSessionAuth | undefined {
   const jwt = String(bootstrap?.session?.jwt || '').trim();
-  return jwt ? { kind: 'threshold_session', jwt } : undefined;
+  return jwt ? { kind: 'wallet_session', jwt } : undefined;
 }
 
 export function walletSigningSessionIdFromEcdsaBootstrap(

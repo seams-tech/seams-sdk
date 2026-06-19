@@ -168,7 +168,6 @@ function withFinalizationCommand(args: {
       intent: SigningOperationIntent.TransactionSign,
     },
     args.zeroSpend.lane,
-    args.zeroSpend.lane.curve === 'ecdsa' ? { ecdsaKey: args.zeroSpend.lane.key } : undefined,
   );
   const finalizationCommand: BudgetReservationFinalizationCommand = {
     kind: 'budget_reservation_finalization_command',

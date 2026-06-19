@@ -111,7 +111,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
       >;
       try {
         admittedStatus = await assertSigningSessionBudgetReservationAvailable({
-          getStatus: (statusArgs) => this.deps.readStatus(statusArgs),
+          getStatus: (statusArgs) => this.readStatusWithSuccessfulSpendProjection(statusArgs),
           input: normalizedInput,
           reservationsByOperationId: this.reservationsByOperationId,
         });
@@ -157,7 +157,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
       input.walletSigningSessionId,
       'walletSigningSessionId',
     );
-    const status = await this.deps.readStatus({
+    const status = await this.readStatusWithSuccessfulSpendProjection({
       ...input,
       walletSigningSessionId,
     });
@@ -246,7 +246,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
     }
     let successIdentity = reservation?.reservationIdentity || null;
     if (!reservation) {
-      const status = await this.deps.readStatus(
+      const status = await this.readStatusWithSuccessfulSpendProjection(
         buildSigningSessionBudgetStatusCheckForSpend({
           spend: normalizedInput.spend,
           trustedStatusAuth: normalizedInput.trustedStatusAuth,
@@ -482,6 +482,56 @@ export class BudgetCoordinator implements SigningSessionBudget {
       },
     });
     return status;
+  }
+
+  private async readStatusWithSuccessfulSpendProjection(
+    input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
+  ): Promise<SigningSessionStatus> {
+    const walletSigningSessionId = normalizeRequired(
+      input.walletSigningSessionId,
+      'walletSigningSessionId',
+    );
+    const status = await this.deps.readStatus({
+      ...input,
+      walletSigningSessionId,
+    });
+    return this.projectSuccessfulSpends(status, walletSigningSessionId);
+  }
+
+  private projectSuccessfulSpends(
+    status: SigningSessionStatus,
+    walletSigningSessionId: string,
+  ): SigningSessionStatus {
+    if (status.status !== 'active') return status;
+    const projectionVersion = String(status.projectionVersion || '').trim();
+    if (!projectionVersion) return status;
+    const successfulSpendUses = this.sameProjectionSuccessfulSpendUses({
+      walletSigningSessionId,
+      projectionVersion,
+    });
+    if (successfulSpendUses <= 0) return status;
+    const remainingUses = Math.max(
+      0,
+      Math.floor(Number(status.remainingUses) || 0) - successfulSpendUses,
+    );
+    return {
+      ...status,
+      remainingUses,
+    };
+  }
+
+  private sameProjectionSuccessfulSpendUses(args: {
+    walletSigningSessionId: string;
+    projectionVersion: string;
+  }): number {
+    let uses = 0;
+    for (const spend of this.successfulSpendsByOperationId.values()) {
+      const identity = spend.reservationIdentity;
+      if (String(identity.walletSigningSessionId) !== args.walletSigningSessionId) continue;
+      if (String(identity.admittedProjection.version) !== args.projectionVersion) continue;
+      uses += Math.max(0, Math.floor(Number(identity.reservedUses) || 0));
+    }
+    return uses;
   }
 
   private emitTrace<TEvent extends SigningSessionBudgetTraceEvent['event']>(

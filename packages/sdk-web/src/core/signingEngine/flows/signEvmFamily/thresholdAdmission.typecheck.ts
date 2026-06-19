@@ -108,6 +108,7 @@ void ({
   operation,
   signerSession,
   singleUseEmailOtpSession: false,
+  roleLocalReadyRecordForWorkerRestore: null,
   runtime: stepUpRuntime,
 } satisfies EvmFamilyThresholdEcdsaStepUp);
 

@@ -27,7 +27,6 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   authMethod: 'passkey',
   walletSigningSessionId: 'wsess-ecdsa',
   walletId: 'wallet.testnet',
-  signingRootId: 'root-ecdsa',
   relayerUrl: 'https://relay.example',
   ecdsaRestore: {
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -44,6 +43,13 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   subjectId: 'wallet-alice',
 };
 void invalidEcdsaWriteInput;
+
+const invalidEcdsaWriteSigningRootInput: BuildCurrentEcdsaSealedSessionRecordInput = {
+  ...invalidEcdsaWriteInput,
+  // @ts-expect-error ECDSA sealed writes do not carry top-level signingRootId.
+  signingRootId: 'root-ecdsa',
+};
+void invalidEcdsaWriteSigningRootInput;
 
 const validCurrentEcdsaRestoreKeyId: BuildCurrentEcdsaSealedSessionRecordInput = {
   ...invalidEcdsaWriteInput,

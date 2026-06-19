@@ -1,9 +1,9 @@
-import { stripTrailingSlashes } from '@shared/utils/normalize';
 import {
-  parseRouterAbPublicKeysetV1,
-  ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
-  type RouterAbPublicKeysetV1,
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_PATH_V2,
+  type RouterAbPublicKeysetV2,
 } from '@shared/utils/routerAbPublicKeyset';
+import { buildRelayerJsonGetRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
 
 function requireNonEmptyString(value: unknown, label: string): string {
   const normalized = String(value || '').trim();
@@ -11,20 +11,17 @@ function requireNonEmptyString(value: unknown, label: string): string {
   return normalized;
 }
 
-export async function fetchRouterAbPublicKeysetV1(args: {
+export async function fetchRouterAbPublicKeysetV2(args: {
   relayerUrl: string;
-}): Promise<RouterAbPublicKeysetV1> {
+}): Promise<RouterAbPublicKeysetV2> {
   if (typeof fetch !== 'function') {
     throw new Error('fetch is not available for Router A/B public keyset prefetch');
   }
-  const base = stripTrailingSlashes(requireNonEmptyString(args.relayerUrl, 'relayerUrl'));
-  const response = await fetch(`${base}${ROUTER_AB_PUBLIC_KEYSET_PATH_V1}`, {
-    method: 'GET',
-    credentials: 'omit',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  const base = normalizeRelayerBaseUrl(requireNonEmptyString(args.relayerUrl, 'relayerUrl'));
+  const response = await fetch(
+    `${base}${ROUTER_AB_PUBLIC_KEYSET_PATH_V2}`,
+    buildRelayerJsonGetRequestInit(),
+  );
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
     throw new Error(
@@ -33,5 +30,5 @@ export async function fetchRouterAbPublicKeysetV1(args: {
       }`,
     );
   }
-  return parseRouterAbPublicKeysetV1(await response.json());
+  return parseRouterAbPublicKeysetV2(await response.json());
 }

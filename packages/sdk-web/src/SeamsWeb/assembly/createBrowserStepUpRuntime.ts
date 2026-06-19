@@ -5,7 +5,7 @@ import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/Sig
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
 import type {
   EmailOtpSealedSessionStorePorts,
-} from '@/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator';
+} from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   createStepUpRuntime,
   type StepUpRuntime,
@@ -36,7 +36,7 @@ export function createBrowserStepUpRuntime(args: {
     sealedSessionStore: args.sealedSigningSessionStore,
     baseTouchConfirm: args.baseTouchConfirm,
     getSignerWorkerContext: () =>
-      args.getEnginePorts().thresholdSessionActivationDeps.getSignerWorkerContext(),
+      args.getEnginePorts().walletSessionActivationDeps.getSignerWorkerContext(),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
     getEcdsaSessions: () => args.getWarmSigning().ecdsaSessions,
     getWarmCapabilityReader: () => args.getWarmSigning().capabilityReader,

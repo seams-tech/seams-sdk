@@ -47,6 +47,7 @@ import type {
   PersistEcdsaRoleLocalReadyRecordResult,
   RelayerKeyId,
 } from './ecdsaRoleLocalRecords';
+import type { ThresholdEcdsaRoleLocalWorkerShareHandle } from '../signingEngine/interfaces/signing';
 import type { EcdsaBootstrapSecretSource } from './secretSources';
 
 export type SignerCryptoInvocationErrorCode =
@@ -299,13 +300,8 @@ export type EcdsaBootstrapRouteAuth =
       token?: never;
     }
   | {
-      kind: 'threshold_session';
+      kind: 'wallet_session';
       jwt: string;
-      token?: never;
-    }
-  | {
-      kind: 'cookie';
-      jwt?: never;
       token?: never;
     }
   | {
@@ -326,20 +322,18 @@ export type BootstrapEcdsaSessionRouteInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   keyScope: 'evm-family';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  signingRootId: SigningRootId;
-  signingRootVersion: SigningRootVersion;
   relayerKeyId: RelayerKeyId;
   requestId: string;
   sessionId: string;
   walletSigningSessionId: string;
   ttlMs: number;
   remainingUses: number;
-  sessionKind: 'jwt' | 'cookie';
+  sessionKind: 'jwt';
   participantIds: readonly [1, 2];
   auth: EcdsaBootstrapRouteAuth;
   clientBootstrap: EcdsaClientBootstrapFacts;
   preparePublicFacts: EcdsaPreparePublicFacts;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
 export type BootstrapEcdsaSessionRouteOutput = {
@@ -347,16 +341,16 @@ export type BootstrapEcdsaSessionRouteOutput = {
   walletId: WalletId;
   rpId: RpId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  signingRootId: SigningRootId;
-  signingRootVersion: SigningRootVersion;
   keyHandle: string;
   relayerPublicIdentity: EcdsaRelayerPublicIdentity;
+  clientShareRetryCounter: number;
+  relayerShareRetryCounter: number;
   participantIds: readonly [1, 2];
   sessionId: string;
   walletSigningSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
 };
 
 export type BootstrapEcdsaSessionRouteFailureCode =
@@ -396,6 +390,20 @@ export type FinalizeEcdsaClientBootstrapOutput = {
 export type PrepareEcdsaClientBootstrapErrorCode = GeneratedPrepareEcdsaClientBootstrapErrorCode;
 
 export type FinalizeEcdsaClientBootstrapErrorCode = GeneratedFinalizeEcdsaClientBootstrapErrorCode;
+
+export type StoreEcdsaRoleLocalSigningMaterialInput = {
+  kind: 'store_ecdsa_role_local_signing_material_v1';
+  handle: ThresholdEcdsaRoleLocalWorkerShareHandle;
+  stateBlob: EcdsaRoleLocalReadyStateBlob;
+};
+
+export type StoreEcdsaRoleLocalSigningMaterialOutput = {
+  handle: ThresholdEcdsaRoleLocalWorkerShareHandle;
+};
+
+export type StoreEcdsaRoleLocalSigningMaterialErrorCode =
+  | 'invalid_ready_state'
+  | 'crypto_failure';
 
 export type BuildEcdsaRoleLocalExportArtifactAuthorization =
   | {
@@ -445,9 +453,9 @@ export type EcdsaProvisioningState =
       walletId: WalletId;
       rpId: RpId;
       chainTarget: ThresholdEcdsaChainTarget;
+      keyHandle: string;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-      signingRootId: SigningRootId;
-      signingRootVersion: SigningRootVersion;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
       authMethod: EcdsaRoleLocalAuthMethod;
     }
   | {
@@ -498,6 +506,14 @@ export type SignerCryptoPort = {
     input: FinalizeEcdsaClientBootstrapInput,
   ): Promise<
     SignerCryptoResult<FinalizeEcdsaClientBootstrapOutput, FinalizeEcdsaClientBootstrapErrorCode>
+  >;
+  storeEcdsaRoleLocalSigningMaterial(
+    input: StoreEcdsaRoleLocalSigningMaterialInput,
+  ): Promise<
+    SignerCryptoResult<
+      StoreEcdsaRoleLocalSigningMaterialOutput,
+      StoreEcdsaRoleLocalSigningMaterialErrorCode
+    >
   >;
   buildEcdsaRoleLocalExportArtifact(
     input: BuildEcdsaRoleLocalExportArtifactInput,

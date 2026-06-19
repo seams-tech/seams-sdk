@@ -12,7 +12,6 @@ const SDK_ROOT_ABS = process.cwd();
 const CLIENT_SRC_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src');
 const CLIENT_REACT_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/react');
 const CLIENT_PLUGINS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/plugins');
-const RUNTIME_SRC_ROOT_ABS = path.resolve(SDK_ROOT_ABS, '../sdk-runtime-ts/src');
 const SERVER_SRC_ROOT_ABS = path.resolve(SDK_ROOT_ABS, '../sdk-server-ts/src');
 const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
@@ -116,6 +115,7 @@ const external = [
   'cors',
 
   // Node-only database clients (optional consumers)
+  '@simplewebauthn/server',
   'pg',
 
   // Core dependencies that should be provided by consuming application
@@ -144,9 +144,8 @@ const embeddedExternal: (string | RegExp)[] = [];
 
 const aliasConfig = {
   '@build-paths': path.resolve(SDK_ROOT_ABS, 'build-paths.ts'),
-  '@/core/runtime': path.resolve(RUNTIME_SRC_ROOT_ABS, 'runtime'),
-  '@seams-internal/runtime': path.resolve(RUNTIME_SRC_ROOT_ABS, 'index.ts'),
-  '@seams-internal/runtime/*': path.resolve(RUNTIME_SRC_ROOT_ABS, '*'),
+  '@/core/runtime': path.resolve(SDK_ROOT_ABS, 'src/core/runtime'),
+  '@/core/runtime/*': path.resolve(SDK_ROOT_ABS, 'src/core/runtime/*'),
   '@/*': path.resolve(SDK_ROOT_ABS, 'src/*'),
   '@shared/*': path.resolve(SDK_ROOT_ABS, '../shared-ts/src/*'),
   '@server': path.resolve(SDK_ROOT_ABS, '../sdk-server-ts/src/index.ts'),

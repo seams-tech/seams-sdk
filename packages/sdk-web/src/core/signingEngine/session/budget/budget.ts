@@ -484,7 +484,7 @@ export type SigningSessionBudgetStatusReader = (
 export type SigningSessionBudgetStatusAuth = {
   relayerUrl: string;
   thresholdSessionId: string;
-  thresholdSessionAuthToken?: string;
+  walletSessionJwt: string;
 };
 
 export type SigningSessionBudgetConsumer = (args: {
@@ -851,9 +851,8 @@ export function normalizeStringList(values: readonly string[] | undefined): stri
 export function buildWalletSigningSpendPlan(
   operation: SigningOperationContext,
   lane: SelectedSigningSessionPlanningLane,
-  identity?: { ecdsaKey?: EvmFamilyEcdsaKeyIdentity; uses?: number },
 ): WalletSigningSpendPlan {
-  const uses = Math.max(1, Math.floor(Number(identity?.uses) || 1));
+  const uses = 1;
   const base = {
     operationId: operation.operationId,
     ...(operation.operationFingerprint
@@ -869,10 +868,7 @@ export function buildWalletSigningSpendPlan(
   };
   return normalizeWalletSigningSpendPlan(
     lane.curve === 'ecdsa'
-      ? ({
-          ...base,
-          ecdsaKey: identity?.ecdsaKey,
-        } as EcdsaWalletSigningSpendPlan)
+      ? (base as EcdsaWalletSigningSpendPlan)
       : (base as Ed25519WalletSigningSpendPlan),
   );
 }
@@ -1113,7 +1109,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   if (isEcdsaWalletSigningSpendPlan(args.spend)) {
     if (args.trustedStatusAuth) {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
-        key: args.spend.ecdsaKey,
+        key: args.spend.lane.key,
         keyHandle: args.spend.lane.keyHandle,
         chainTarget: args.spend.lane.chainTarget,
         walletSigningSessionId: args.spend.walletSigningSessionId,
@@ -1122,7 +1118,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
       });
     }
     return buildEcdsaLaneBudgetStatusCheck({
-      key: args.spend.ecdsaKey,
+      key: args.spend.lane.key,
       keyHandle: args.spend.lane.keyHandle,
       chainTarget: args.spend.lane.chainTarget,
       walletSigningSessionId: args.spend.walletSigningSessionId,

@@ -8,7 +8,6 @@ import { buildEd25519SessionPolicy } from '../sessionPolicy';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
-  type ThresholdSessionKind,
 } from '../sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from './routerAbNormalSigningState';
 import {
@@ -41,7 +40,7 @@ export async function connectEd25519Session(args: {
     environmentId: string;
     publishableKey: string;
   };
-  sessionKind?: ThresholdSessionKind;
+  sessionKind?: 'jwt';
   sessionId?: string;
   walletSigningSessionId?: string;
   ttlMs?: number;
@@ -55,12 +54,13 @@ export async function connectEd25519Session(args: {
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   jwt?: string;
   ecdsaHssPasskeyPrfFirstB64u?: string;
   code?: string;
   message?: string;
 }> {
-  const sessionKind: ThresholdSessionKind = args.sessionKind || 'jwt';
+  const sessionKind = 'jwt';
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
@@ -143,6 +143,7 @@ export async function connectEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     ...(mintedRuntimePolicyScope ? { runtimePolicyScope: mintedRuntimePolicyScope } : {}),
+    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     jwt: minted.jwt,
     ecdsaHssPasskeyPrfFirstB64u: prfFirstB64u,
   };

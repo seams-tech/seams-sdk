@@ -27,8 +27,8 @@ Supporting entrypoints: `signTransactions.ts`, `signDelegate.ts`,
 ## Stage Order
 
 1. Input normalization: `signNear.ts`.
-2. Lane selection and auth mode: `shared/thresholdAuthMode.ts`,
-   `shared/thresholdSessionAuth.ts`.
+2. Lane selection and auth mode: `shared/signingSessionAuthMode.ts`,
+   `shared/routerAbEd25519WalletSessionState.ts`.
 3. Auth planning and confirmation: `signTransactions.ts`, `signDelegate.ts`,
    `signNep413.ts`.
 4. Threshold admission: `nearSigningFlow.ts`.

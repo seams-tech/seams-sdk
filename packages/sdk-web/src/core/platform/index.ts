@@ -58,6 +58,9 @@ export type {
   SignerCryptoInvocationErrorCode,
   SignerCryptoPort,
   SignerCryptoResult,
+  StoreEcdsaRoleLocalSigningMaterialErrorCode,
+  StoreEcdsaRoleLocalSigningMaterialInput,
+  StoreEcdsaRoleLocalSigningMaterialOutput,
   WebAuthnPrfFirstSecretSource,
 } from './types';
 export {

@@ -20,7 +20,7 @@ import {
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -31,7 +31,7 @@ import {
   type EmailOtpThresholdEd25519ProvisioningResult,
   type ReconstructEmailOtpEd25519SessionArgs,
 } from './provisioning';
-import type { EmailOtpThresholdSessionCoordinatorDeps } from './ports';
+import type { EmailOtpWalletSessionCoordinatorDeps } from './ports';
 import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
 import {
   type EmailOtpThresholdEcdsaLoginResult,
@@ -54,7 +54,10 @@ import {
   type ExportEcdsaKeyWithFreshEmailOtpLaneArgs,
   type RequestEmailOtpChallengeArgs,
 } from './exportRecoveryRuntime';
-import { EmailOtpEd25519Warmup } from './ed25519Warmup';
+import {
+  EmailOtpEd25519Warmup,
+  type LoginEmailOtpEd25519CapabilityArgs,
+} from './ed25519Warmup';
 import { EmailOtpRuntimeConfig } from './runtimeConfig';
 import { EmailOtpSealedSessionRegistry } from './sealedSessionRegistry';
 import { EmailOtpSealedRefreshPolicy } from './sealedRefreshPolicy';
@@ -73,15 +76,18 @@ export type {
   EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaEnrollment';
 export type {
+  LoginEmailOtpEd25519CapabilityArgs,
+} from './ed25519Warmup';
+export type {
   EmailOtpCoordinatorRuntimePorts,
   EmailOtpEcdsaSessionPorts,
   EmailOtpEd25519SessionPorts,
   EmailOtpEd25519PersistencePorts,
   EmailOtpSealedSessionStorePorts,
-  EmailOtpThresholdSessionCoordinatorDeps,
+  EmailOtpWalletSessionCoordinatorDeps,
 } from './ports';
 
-export class EmailOtpThresholdSessionRuntime {
+export class EmailOtpWalletSessionRuntime {
   private readonly appSessionJwtCache: EmailOtpAppSessionJwtCache;
   private sealedRefreshDiagnosticLogAtMsByKey: Map<string, number> = new Map();
   private readonly sealedRefreshPolicy: EmailOtpSealedRefreshPolicy;
@@ -93,7 +99,7 @@ export class EmailOtpThresholdSessionRuntime {
   private readonly exportRecoveryRuntime: EmailOtpExportRecoveryRuntime;
   private readonly ecdsaLifecycleRuntime: EmailOtpEcdsaLifecycleRuntime;
 
-  constructor(private readonly deps: EmailOtpThresholdSessionCoordinatorDeps) {
+  constructor(private readonly deps: EmailOtpWalletSessionCoordinatorDeps) {
     this.appSessionJwtCache = new EmailOtpAppSessionJwtCache({
       refreshAppSessionJwt: deps.refreshAppSessionJwt,
     });
@@ -186,6 +192,8 @@ export class EmailOtpThresholdSessionRuntime {
       registerSigningSession: (record) =>
         this.sealedSessionRegistry.registerSigningSession(record),
       requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
+      requireShamirPrimeB64u: () => this.runtimeConfig.requireShamirPrimeB64u(),
+      requireRpId: (operation) => this.runtimeConfig.requireRpId(operation),
       resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
       listThresholdEcdsaSessionRecordsForWallet: deps.listThresholdEcdsaSessionRecordsForWallet,
       loginWithEcdsaCapabilityInternal: (request) =>
@@ -327,6 +335,12 @@ export class EmailOtpThresholdSessionRuntime {
     return await this.ecdsaLifecycleRuntime.loginWithEcdsaCapabilityInternal(args);
   }
 
+  async loginWithEd25519CapabilityInternal(
+    args: LoginEmailOtpEd25519CapabilityArgs,
+  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
+    return await this.ed25519Warmup.loginWithEd25519CapabilityInternal(args);
+  }
+
   async enrollAndLoginWithEcdsaCapabilityInternal(
     args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
@@ -338,7 +352,7 @@ export class EmailOtpThresholdSessionRuntime {
     challengeId: string;
     otpCode: string;
     record: ThresholdEd25519SessionRecord;
-    routeAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
     remainingUses?: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {

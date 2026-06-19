@@ -7,7 +7,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SENSITIVE_OPERATION_POLICIES, SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { requireThresholdSessionAuthToken } from '@shared/utils/sessionTokens';
 import {
   toAuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
@@ -25,7 +24,7 @@ import {
   type FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
   type ReadyEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
-import { exportEcdsaHssKeyWithThresholdSession } from './ecdsaHssExport';
+import { exportEcdsaHssKeyWithWalletSession } from './ecdsaHssExport';
 import {
   type EmailOtpWalletSessionExportAuthorizationDeps,
   createEmailOtpKeyExportRequiresPasskeyError,
@@ -395,10 +394,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     }
     const exportSigningSessionAuthLane = {
       kind: 'signing_session' as const,
-      jwt: requireThresholdSessionAuthToken(
-        String(currentRecord.thresholdSessionAuthToken || '').trim(),
-        'exportThresholdSessionAuthToken',
-      ),
+      jwt: args.material.signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt,
       thresholdSessionId: currentRecord.thresholdSessionId,
       authorizingWalletSigningSessionId:
         toAuthorizingWalletSigningSessionId(walletSigningSessionId),
@@ -508,7 +504,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     flowId: args.flowId,
     onEvent: args.onEvent,
     prepareArtifact: async () =>
-      await exportEcdsaHssKeyWithThresholdSession(
+      await exportEcdsaHssKeyWithWalletSession(
         { getSignerWorkerContext: deps.getSignerWorkerContext },
         {
           walletSessionUserId: args.walletSessionUserId,

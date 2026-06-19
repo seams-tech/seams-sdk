@@ -3,7 +3,6 @@ import { ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 } from '@shared/utils/signingS
 import {
   type Ed25519SessionPolicy,
   type ThresholdRuntimePolicyScope,
-  type ThresholdSessionKind,
 } from '../sessionPolicy';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
@@ -185,7 +184,7 @@ export function localPrfFirstForEd25519WalletSessionMintAuthorization(
  */
 export async function mintEd25519WalletSession(args: {
   relayerUrl: string;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   auth: Ed25519WalletSessionMintAuthorization;
@@ -256,7 +255,7 @@ export async function mintEd25519WalletSession(args: {
         'Content-Type': 'application/json',
         ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       },
-      credentials: useAppSessionCookie || args.sessionKind === 'cookie' ? 'include' : 'omit',
+      credentials: useAppSessionCookie ? 'include' : 'omit',
       body: JSON.stringify({
         sessionKind: args.sessionKind,
         relayerKeyId: args.relayerKeyId,

@@ -1,7 +1,7 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletEmailOtpOperation } from '@shared/utils/emailOtpDomain';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
 export type AuthorizingWalletSigningSessionId = string & {
   readonly __brand: 'AuthorizingWalletSigningSessionId';
@@ -44,7 +44,7 @@ export type EmailOtpRoutePlan = {
 export type ResolveEmailOtpAuthLaneArgs = {
   sessionKind?: 'jwt' | 'cookie';
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   thresholdSessionId?: string;
   authorizingWalletSigningSessionId?: string;
   curve?: 'ed25519' | 'ecdsa';
@@ -140,7 +140,7 @@ export function resolveEmailOtpAuthLane(
     return jwt ? { kind: 'app_session', jwt } : undefined;
   }
 
-  if (args.routeAuth?.kind === 'threshold_session') {
+  if (args.routeAuth?.kind === 'wallet_session') {
     return buildEmailOtpSigningSessionAuthLane({
       jwt: args.routeAuth.jwt,
       thresholdSessionId: args.thresholdSessionId,
@@ -156,10 +156,10 @@ export function resolveEmailOtpAuthLane(
 
 export function authLaneToRouteAuth(
   lane: EmailOtpAuthLane | undefined,
-): AppOrThresholdSessionAuth | undefined {
+): AppOrWalletSessionAuth | undefined {
   if (!lane || lane.kind === 'cookie') return undefined;
   if (lane.kind === 'app_session') return { kind: 'app_session', jwt: lane.jwt };
-  return { kind: 'threshold_session', jwt: lane.jwt };
+  return { kind: 'wallet_session', jwt: lane.jwt };
 }
 
 export function authLaneAppSessionJwt(lane: EmailOtpAuthLane | undefined): string {

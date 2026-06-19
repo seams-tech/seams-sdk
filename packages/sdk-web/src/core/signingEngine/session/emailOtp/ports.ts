@@ -89,7 +89,7 @@ export type EmailOtpSealedSessionStorePorts = {
   updateExactSealedSessionPolicy: typeof updateExactSealedSessionPolicy;
 };
 
-export type EmailOtpThresholdSessionCoordinatorDeps =
+export type EmailOtpWalletSessionCoordinatorDeps =
   & EmailOtpCoordinatorRuntimePorts
   & EmailOtpEcdsaSessionPorts
   & EmailOtpEd25519SessionPorts

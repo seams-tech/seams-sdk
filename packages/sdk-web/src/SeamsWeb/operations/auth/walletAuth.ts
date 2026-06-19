@@ -1,6 +1,6 @@
 import { toError } from '@shared/utils/errors';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
@@ -22,50 +22,47 @@ import {
   lock as lockCore,
 } from '@/SeamsWeb/operations/auth/login';
 import type {
-  AuthSessionWebContext,
+  WalletAuthWebContext,
   EcdsaLoginSessionSurface,
   RegistrationAccountSurface,
 } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
+import { walletIframeUnlockRequestFromLoginHooks } from '@/SeamsWeb/walletIframe/shared/unlockOptions';
 
-type AuthSessionSigningSurface = Pick<
+type WalletAuthSigningSurface = Pick<
   RegistrationAccountSurface,
   'activateAuthenticatedWalletState' | 'hasPasskeyCredential'
 > &
   EcdsaLoginSessionSurface;
 
 /**
- * SeamsWeb auth/session domain call graph:
+ * SeamsWeb wallet-auth domain call graph:
  * - unlockDomain -> wallet router unlock OR local unlock workflow (`@/SeamsWeb/operations/auth/login`)
  * - getWalletSessionDomain/getRecentUnlocksDomain -> wallet router read path OR local IndexedDB/session read path
  * - lockDomain -> local lock + best-effort wallet-host lock
  */
-export type AuthSessionDomainDeps = {
-  getContext: () => AuthSessionWebContext;
+export type WalletAuthDomainDeps = {
+  getContext: () => WalletAuthWebContext;
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
-  signingEngine: AuthSessionSigningSurface;
+  signingEngine: WalletAuthSigningSurface;
   nearClient: NearClient;
   initWalletIframe: (walletId?: string) => Promise<void>;
 };
 
 export async function unlockDomain(
-  deps: AuthSessionDomainDeps,
+  deps: WalletAuthDomainDeps,
   nearAccountId: string,
   options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
   if (deps.walletIframe.shouldUseWalletIframe()) {
     try {
       const router = await deps.walletIframe.requireRouter(nearAccountId);
-      const result = await router.unlock({
-        nearAccountId,
-        options: {
-          onEvent: options?.onEvent,
-          signerSlot: options?.signerSlot,
-          // Pass through session so the wallet host calls relay to mint JWT/cookie sessions.
-          session: options?.session,
-          signingSession: options?.signingSession,
-        },
-      });
+      const result = await router.unlock(
+        walletIframeUnlockRequestFromLoginHooks({
+          nearAccountId,
+          options,
+        }),
+      );
       if (!result.success) {
         const unlockError = new Error(result.error || 'Login failed');
         await options?.onError?.(unlockError);
@@ -104,7 +101,7 @@ export async function unlockDomain(
   return result;
 }
 
-export async function lockDomain(deps: AuthSessionDomainDeps): Promise<void> {
+export async function lockDomain(deps: WalletAuthDomainDeps): Promise<void> {
   await lockCore(deps.getContext());
   if (!deps.walletIframe.shouldUseWalletIframe()) return;
   try {
@@ -114,7 +111,7 @@ export async function lockDomain(deps: AuthSessionDomainDeps): Promise<void> {
 }
 
 export async function getWalletSessionDomain(
-  deps: AuthSessionDomainDeps,
+  deps: WalletAuthDomainDeps,
   walletId?: string,
 ): Promise<WalletSession> {
   if (deps.walletIframe.shouldUseWalletIframe()) {
@@ -133,7 +130,7 @@ export async function getWalletSessionDomain(
 }
 
 export async function hasPasskeyCredentialDomain(
-  deps: AuthSessionDomainDeps,
+  deps: WalletAuthDomainDeps,
   nearAccountId: AccountId,
 ): Promise<boolean> {
   if (deps.walletIframe.shouldUseWalletIframe()) {
@@ -146,7 +143,7 @@ export async function hasPasskeyCredentialDomain(
 }
 
 export async function getRecentUnlocksDomain(
-  deps: AuthSessionDomainDeps,
+  deps: WalletAuthDomainDeps,
 ): Promise<GetRecentUnlocksResult> {
   // In iframe mode, do not fall back to app-origin IndexedDB.
   if (deps.walletIframe.shouldUseWalletIframe()) {
@@ -164,8 +161,8 @@ export async function getRecentUnlocksDomain(
   return await getRecentUnlocksCore(deps.getContext());
 }
 
-export async function prefillThresholdEcdsaPresignPoolDomain(
-  deps: AuthSessionDomainDeps,
+export async function prefillRouterAbEcdsaHssPresignaturePoolDomain(
+  deps: WalletAuthDomainDeps,
   args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -174,10 +171,10 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
   },
-): Promise<ThresholdEcdsaLoginPrefillResult> {
+): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
   if (deps.walletIframe.shouldUseWalletIframe()) {
     const router = await deps.walletIframe.requireRouter(args.walletSession.walletId);
-    return await router.prefillThresholdEcdsaPresignPool({
+    return await router.prefillRouterAbEcdsaHssPresignaturePool({
       walletSession: args.walletSession,
       options: {
         chainTarget: args.chainTarget,
@@ -210,7 +207,7 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
     );
   }
   const record = ecdsaRecords[0]!;
-  return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
+  return await deps.signingEngine.scheduleRouterAbEcdsaHssLoginPresignaturePrefill({
     walletId: toWalletId(args.walletSession.walletId),
     chainTarget: record.chainTarget,
     thresholdEcdsaSessionRecord: record,

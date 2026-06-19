@@ -7,12 +7,19 @@ import {
   openThresholdEd25519HssSeedOutput as openThresholdEd25519HssSeedOutputValue,
   prepareThresholdEd25519HssClientCeremonyFromCredential as prepareThresholdEd25519HssClientCeremonyFromCredentialValue,
   prepareThresholdEd25519HssClientCeremonyFromPrfFirst as prepareThresholdEd25519HssClientCeremonyFromPrfFirstValue,
+  runThresholdEd25519HssCeremonyWithMaterialHandle as runThresholdEd25519HssCeremonyWithMaterialHandleValue,
   runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
   type ThresholdEd25519LifecycleDeps,
 } from './hssLifecycle';
 import {
+  storeRouterAbEd25519SigningMaterialHandleWasm,
+  type RouterAbEd25519SigningMaterialReady,
+  type Ed25519HssMaterialCache,
+} from './hssClientBase';
+import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
   deriveThresholdEd25519HssClientOutputMaskWasm,
+  deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm,
   prepareThresholdEd25519HssClientRequestWasm,
 } from '../crypto/hssClientSignerWasm';
 
@@ -73,6 +80,19 @@ export function deriveThresholdEd25519HssClientOutputMask(
   });
 }
 
+export function deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm>[0],
+    'workerCtx'
+  >,
+): ReturnType<typeof deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm> {
+  return deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
 export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
   deps: ThresholdEd25519PublicDeps,
   args: Omit<
@@ -101,6 +121,34 @@ export function runThresholdEd25519HssCeremonyWithSession(
   args: Omit<Parameters<typeof runThresholdEd25519HssCeremonyWithSessionValue>[0], 'workerCtx'>,
 ): ReturnType<typeof runThresholdEd25519HssCeremonyWithSessionValue> {
   return runThresholdEd25519HssCeremonyWithSessionValue({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function runThresholdEd25519HssCeremonyWithMaterialHandle(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof runThresholdEd25519HssCeremonyWithMaterialHandleValue>[0],
+    'workerCtx'
+  >,
+): ReturnType<typeof runThresholdEd25519HssCeremonyWithMaterialHandleValue> {
+  return runThresholdEd25519HssCeremonyWithMaterialHandleValue({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function storeThresholdEd25519HssSigningMaterial(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof storeRouterAbEd25519SigningMaterialHandleWasm>[0],
+    'workerCtx' | 'materialCache'
+  > & {
+    materialCache: Ed25519HssMaterialCache;
+  },
+): Promise<RouterAbEd25519SigningMaterialReady> {
+  return storeRouterAbEd25519SigningMaterialHandleWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });

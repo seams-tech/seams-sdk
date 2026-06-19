@@ -20,7 +20,7 @@ import {
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
   requireThresholdEd25519WarmSessionKeyVersion,
-  reconstructThresholdEd25519ClientBaseFromWarmSession,
+  reconstructThresholdEd25519SigningMaterialFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { IndexedDBManager } from '@/core/indexedDB';
@@ -320,7 +320,7 @@ export async function syncAccount(
             ? thresholdEd25519.participantIds
             : undefined,
         });
-        await reconstructThresholdEd25519ClientBaseFromWarmSession({
+        await reconstructThresholdEd25519SigningMaterialFromWarmSession({
           context,
           credential,
           nearAccountId: normalizedAccountId,

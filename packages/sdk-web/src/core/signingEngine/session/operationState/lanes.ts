@@ -9,6 +9,10 @@ import {
   thresholdEd25519LaneCandidateFromSessionRecord,
 } from '../persistence/records';
 import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEd25519PersistedSigningRecord,
+} from '../routerAbSigningWalletSession';
+import {
   selectedEcdsaLane,
   selectedEd25519Lane,
   type EcdsaLaneCandidate,
@@ -379,6 +383,15 @@ function readEd25519CapabilityRecord(
     return readError(lane, 'missing_record', 'Missing selected-lane Ed25519 session record');
   }
 
+  const signableSession = classifyRouterAbEd25519PersistedSigningRecord(record);
+  if (signableSession.kind !== 'signable') {
+    return readError(
+      lane,
+      'record_mismatch',
+      `Selected Ed25519 session record is not Router A/B signable: ${signableSession.reason}`,
+    );
+  }
+
   const candidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
   if (!candidate) {
     return readError(
@@ -434,6 +447,15 @@ function readEcdsaCapabilityRecord(
       : readPasskeyEcdsaRecord(deps, lane, chainTarget);
   if (!record) {
     return readError(lane, 'missing_record', 'Missing selected-lane ECDSA session record');
+  }
+
+  const signableSession = classifyRouterAbEcdsaHssPersistedSigningRecord(record);
+  if (signableSession.kind !== 'signable') {
+    return readError(
+      lane,
+      'record_mismatch',
+      `Selected ECDSA session record is not Router A/B signable: ${signableSession.reason}`,
+    );
   }
 
   const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });

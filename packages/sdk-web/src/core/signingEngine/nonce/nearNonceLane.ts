@@ -530,6 +530,50 @@ export async function updateNearNonceFromBlockchainState(input: {
   }
 }
 
+export async function refreshNearNonceAfterBroadcastRejectedState(input: {
+  state: NearNonceLaneState;
+  nearClient: NearClient;
+  now: () => number;
+}): Promise<void> {
+  const { state } = input;
+  if (!state.accountId || !state.publicKey) {
+    throw new Error('[NonceCoordinator] NEAR access key is not initialized');
+  }
+  const accessKeyInfoRaw = await input.nearClient.viewAccessKey(state.accountId, state.publicKey);
+  if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
+    throw new Error(`Access key not found or invalid for account ${state.accountId}`);
+  }
+  const accessKeyInfo = normalizeAccessKeyView(accessKeyInfoRaw);
+  const chainNonce = BigInt(accessKeyInfo.nonce);
+  const candidateNext = maxBigint(
+    chainNonce + 1n,
+    state.lastReservedNonce ? BigInt(state.lastReservedNonce) + 1n : 0n,
+    1n,
+  );
+
+  if (state.transactionContext) {
+    state.transactionContext = {
+      ...state.transactionContext,
+      accessKeyInfo,
+      nextNonce: candidateNext.toString(),
+    };
+  } else {
+    state.transactionContext = {
+      nearPublicKeyStr: state.publicKey,
+      accessKeyInfo,
+      nextNonce: candidateNext.toString(),
+      txBlockHeight: '0',
+      txBlockHash: '',
+    };
+  }
+  state.lastNonceUpdate = input.now();
+  if (state.reservedNonces.size > 0) {
+    const pruned = pruneReservedNearNonces(chainNonce, state.reservedNonces);
+    state.reservedNonces = pruned.set;
+    state.lastReservedNonce = pruned.lastReserved;
+  }
+}
+
 export function shouldPrefetchNearContext(input: {
   state: NearNonceLaneState;
   nowMs: number;

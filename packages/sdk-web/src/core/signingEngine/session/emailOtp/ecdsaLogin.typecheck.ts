@@ -2,7 +2,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
@@ -13,7 +13,7 @@ import type {
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const authLane: EmailOtpAuthLane;
-declare const routeAuth: AppOrThresholdSessionAuth;
+declare const routeAuth: AppOrWalletSessionAuth;
 declare const record: ThresholdEcdsaSessionRecord;
 
 const loginReconnect: EmailOtpEcdsaLoginReconnectInput = {

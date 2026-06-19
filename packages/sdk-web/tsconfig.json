@@ -32,10 +32,8 @@
     ],
     "useDefineForClassFields": false,
     "paths": {
-      "@/core/runtime": ["../sdk-runtime-ts/src/runtime/index.ts"],
-      "@/core/runtime/*": ["../sdk-runtime-ts/src/runtime/*"],
-      "@seams-internal/runtime": ["../sdk-runtime-ts/src/index.ts"],
-      "@seams-internal/runtime/*": ["../sdk-runtime-ts/src/*"],
+      "@/core/runtime": ["src/core/runtime/index.ts"],
+      "@/core/runtime/*": ["src/core/runtime/*"],
       "@/*": ["src/*"],
       "@shared/*": ["../shared-ts/src/*"],
       "@server": ["../sdk-server-ts/src/index.ts"],
@@ -59,7 +57,6 @@
   },
   "include": [
     "src/**/*",
-    "../sdk-runtime-ts/src/**/*",
     "../sdk-server-ts/src/**/*",
     "../shared-ts/src/**/*",
     "../../tests/**/*"

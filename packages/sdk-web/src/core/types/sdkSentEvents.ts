@@ -12,7 +12,7 @@ import type {
   SignTransactionResult,
 } from './seams';
 import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
-import type { WalletIframeRegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 
 ////////////////////////////
 // Wallet Flow Event Model
@@ -740,7 +740,7 @@ export interface RegistrationHooksOptions {
   // Accept partial config so callers can pass minimal overrides like { uiMode: 'drawer' }
   confirmationConfig?: Partial<ConfirmationConfig>;
   /** @internal Wallet-host proof that a registration activation click occurred inside the iframe. */
-  walletIframeActivation?: WalletIframeRegistrationActivationProof;
+  walletIframeActivation?: RegistrationActivationProof;
 }
 
 export interface LoginHooksOptions {
@@ -763,7 +763,7 @@ export interface LoginHooksOptions {
         ed25519: true;
         ecdsa: true;
       };
-  ecdsaKeyFactsRepair?:
+  ecdsaKeyFactsInventory?:
     | {
         mode: 'app_session';
         appSessionJwt?: string;

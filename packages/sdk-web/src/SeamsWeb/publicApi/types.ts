@@ -5,7 +5,6 @@ import type {
   WalletId as EcdsaWalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   EmailOtpDeviceEnrollmentRemoveResult,
   EmailOtpDeviceEnrollmentRestoreResult,
@@ -20,7 +19,7 @@ import type {
   WarmEcdsaSigningSessionStatus,
   WarmSessionEcdsaCapabilityState,
 } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type {
   AccessKeyList,
   NearClient,
@@ -172,7 +171,11 @@ import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/sessio
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
   ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
-  'ecdsaThresholdKeyId' | 'signingRootId' | 'signingRootVersion' | 'ecdsaHssExportArtifact'
+  | 'ecdsaThresholdKeyId'
+  | 'signingRootId'
+  | 'signingRootVersion'
+  | 'ecdsaHssExportArtifact'
+  | 'walletSessionJwt'
 >;
 
 export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
@@ -346,7 +349,6 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   registrationAttemptId?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
 };
@@ -554,14 +556,14 @@ export interface AuthCapability {
   getWalletSession(walletId?: string): Promise<WalletSession>;
   getRecentUnlocks(): Promise<GetRecentUnlocksResult>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
-  prefillThresholdEcdsaPresignPool(args: {
+  prefillRouterAbEcdsaHssPresignaturePool(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
-  }): Promise<ThresholdEcdsaLoginPrefillResult>;
+  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult>;
   requestEmailOtpChallenge(args: {
     nearAccountId: string;
     relayUrl?: string;

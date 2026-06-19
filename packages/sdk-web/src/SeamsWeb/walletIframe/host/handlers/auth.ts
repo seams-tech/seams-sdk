@@ -2,15 +2,20 @@ import type { LoginHooksOptions } from '@/core/types/sdkSentEvents';
 import type { WalletSession } from '@/core/types/seams';
 import type { HandlerDeps, HandlerMap, Req } from './types';
 import { respondOk, respondOkResult, withProgress } from './shared';
+import {
+  pmUnlockPayloadToLoginHooksOptions,
+  requirePMUnlockPayload,
+} from '../../shared/unlockOptions';
 
 export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, options } = req.payload!;
+      const payload = requirePMUnlockPayload(req.payload);
+      const options = pmUnlockPayloadToLoginHooksOptions(payload);
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
-        nearAccountId,
+        payload.nearAccountId,
         withProgress(deps, req.requestId, options) as LoginHooksOptions,
       );
       if (deps.respondIfCancelled(req.requestId)) return;
@@ -36,4 +41,3 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
   };
 }
-

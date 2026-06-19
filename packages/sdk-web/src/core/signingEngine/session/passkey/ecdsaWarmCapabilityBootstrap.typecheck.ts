@@ -9,14 +9,14 @@ declare const restorePersistedSessionsForWallet: NonNullable<
   NoPromptWarmSessionDeps['restorePersistedSessionsForWallet']
 >;
 declare const claimEcdsaPasskeyPrfFirst: NoPromptWarmSessionDeps['claimEcdsaPasskeyPrfFirst'];
-declare const reconnectWithThresholdSessionAuth: NoPromptWarmSessionDeps['reconnectWithThresholdSessionAuth'];
+declare const reconnectWithWalletSessionAuth: NoPromptWarmSessionDeps['reconnectWithWalletSessionAuth'];
 declare const ecdsaSessions: NoPromptWarmSessionDeps['ecdsaSessions'];
 
 const noPromptDeps: NoPromptWarmSessionDeps = {
   getWarmSession,
   restorePersistedSessionsForWallet,
   claimEcdsaPasskeyPrfFirst,
-  reconnectWithThresholdSessionAuth,
+  reconnectWithWalletSessionAuth,
   ecdsaSessions,
 };
 
@@ -26,7 +26,7 @@ const noPromptDepsWithTouchId: NoPromptWarmSessionDeps = {
   getWarmSession,
   restorePersistedSessionsForWallet,
   claimEcdsaPasskeyPrfFirst,
-  reconnectWithThresholdSessionAuth,
+  reconnectWithWalletSessionAuth,
   ecdsaSessions,
   // @ts-expect-error No-prompt reuse dependencies cannot carry TouchID ports.
   touchIdPrompt: {},
@@ -38,7 +38,7 @@ const noPromptDepsWithFreshBootstrap: NoPromptWarmSessionDeps = {
   getWarmSession,
   restorePersistedSessionsForWallet,
   claimEcdsaPasskeyPrfFirst,
-  reconnectWithThresholdSessionAuth,
+  reconnectWithWalletSessionAuth,
   ecdsaSessions,
   // @ts-expect-error No-prompt reuse dependencies cannot carry fresh bootstrap ports.
   freshBootstrap: {},

@@ -16,7 +16,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpEd25519SessionReconstructionPlan } from './provisioning';
 import type { EmailOtpEcdsaBootstrapAuthorization } from './routePlan';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -38,6 +38,7 @@ import {
   parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   type EcdsaRoleLocalWorkerExportMaterial,
 } from '../persistence/ecdsaRoleLocalRecords';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -129,7 +130,7 @@ function requiredEmailOtpExportString(value: unknown, field: string): string {
 
 function requireProvidedEmailOtpSigningSessionAuthLane(args: {
   authLane?: EmailOtpAuthLane;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   chain: EmailOtpRouteChain;
   chainTarget?: ThresholdEcdsaChainTarget;
 }): EmailOtpSigningSessionAuthLane {
@@ -163,7 +164,7 @@ type EmailOtpRecordBackedSigningSessionIdentity =
 
 function requireRecordBackedEmailOtpSigningSessionAuthLane(args: {
   authLane?: EmailOtpAuthLane;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   recordIdentity: EmailOtpRecordBackedSigningSessionIdentity;
 }): EmailOtpSigningSessionAuthLane {
   const authLane =
@@ -207,7 +208,7 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
     rpId: string;
-    routeAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
   },
 ): EmailOtpEcdsaAuthorizedExportStepUpInput {
@@ -486,6 +487,10 @@ export async function exportEd25519SeedWithAuthorization(
   if (!workerCtx) {
     throw new Error('Email OTP Ed25519 export requires the dedicated emailOtp worker');
   }
+  const runtimePolicyScope = args.record.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('Email OTP Ed25519 export requires runtime policy scope');
+  }
   const providedAuthLane = args.authLane;
   const providedRouteAuth = providedAuthLane
     ? authLaneToRouteAuth(providedAuthLane)
@@ -523,14 +528,11 @@ export async function exportEd25519SeedWithAuthorization(
         shamirPrimeB64u,
         routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
-        ...(args.record.runtimePolicyScope
-          ? { runtimePolicyScope: args.record.runtimePolicyScope }
-          : {}),
-        signingRootId: args.signingRootId,
+        runtimePolicyScope,
         keyVersion: args.keyVersion,
         participantIds: args.participantIds,
         thresholdSessionId: args.thresholdSessionId,
-        thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+        walletSessionJwt: args.walletSessionJwt,
         relayerKeyId: args.relayerKeyId,
         expectedPublicKey: args.expectedPublicKey,
       },
@@ -558,16 +560,15 @@ export async function exportEcdsaKeyWithAuthorization(
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
     rpId: string;
-    routeAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
   const exportInput = resolveEmailOtpEcdsaAuthorizedExportStepUpInput(ports, args);
   const record = exportInput.record;
-  const thresholdSessionAuthToken = String(args.record.thresholdSessionAuthToken || '').trim();
-  const sessionKind = args.record.thresholdSessionKind || 'jwt';
-  if (!thresholdSessionAuthToken && sessionKind !== 'cookie') {
-    throw new Error('Email OTP ECDSA export requires threshold session route auth');
+  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
+  if (walletSessionAuth.kind !== 'ready') {
+    throw new Error('Email OTP ECDSA export requires Wallet Session route auth');
   }
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
@@ -592,11 +593,8 @@ export async function exportEcdsaKeyWithAuthorization(
         shamirPrimeB64u: exportInput.shamirPrimeB64u,
         routePlan: exportInput.routePlan,
         rpId: exportInput.rpId,
-        thresholdSessionAuthToken,
-        sessionKind,
+        walletSessionJwt: walletSessionAuth.walletSessionJwt,
         ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-        signingRootId: record.signingRootId,
-        signingRootVersion: record.signingRootVersion,
         relayerKeyId: record.relayerKeyId,
         readyRecord: exportInput.roleLocalMaterial.readyRecord,
         thresholdSessionId: record.thresholdSessionId,

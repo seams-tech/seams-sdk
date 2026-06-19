@@ -9,7 +9,6 @@
   },
   "include": [
     "src/**/*",
-    "../sdk-runtime-ts/src/**/*",
     "../sdk-server-ts/src/**/*",
     "../shared-ts/src/**/*",
     "build-paths.ts"
@@ -17,8 +16,6 @@
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
-    "../sdk-runtime-ts/src/**/*.test.ts",
-    "../sdk-runtime-ts/src/**/*.test.tsx",
     "../sdk-server-ts/src/**/*.test.ts",
     "../sdk-server-ts/src/**/*.test.tsx",
     "../../examples/",

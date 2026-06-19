@@ -381,17 +381,15 @@ function inferCanonicalCodeFromMessage(args: {
 
   if (
     message.includes('signing session is not ready') ||
-    message.includes('no cached threshold session token') ||
     message.includes('missing threshold wrapkeysalt') ||
     message.includes('missing threshold wrap key salt') ||
-    message.includes('threshold-ecdsa session token unavailable') ||
     message.includes('threshold-ecdsa session record not available') ||
     message.includes('missing canonical threshold ecdsa session') ||
     message.includes('relayer threshold session expired') ||
-    message.includes('threshold signingsession auth is unavailable') ||
+    message.includes('signingsession auth is unavailable') ||
+    message.includes('wallet session auth is unavailable') ||
     message.includes('threshold session exhausted') ||
     message.includes('threshold session expired') ||
-    message.includes('missing or invalid threshold session token') ||
     message.includes('invalid session token kind') ||
     message.includes('/authorize http 401') ||
     message.includes('/authorize http 403')

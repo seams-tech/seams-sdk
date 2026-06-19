@@ -52,7 +52,7 @@ import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLa
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
-import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
+import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../session/emailOtp/ed25519LocalMetadata';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -90,7 +90,7 @@ export type SigningEngineStorePorts = {
     ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   };
   recoveryAndDeviceLinking: {
-    credentialStore: ThresholdSessionActivationDeps['credentialStore'];
+    credentialStore: WalletSessionActivationDeps['credentialStore'];
     keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
     ed25519MetadataStore: PersistEmailOtpThresholdEd25519LocalMetadataDeps;
   };
@@ -124,8 +124,8 @@ export type CreateSigningEnginePortsArgs = {
   signTempo: SigningEngineConveniencePorts['signTempo'];
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
-  persistThresholdEcdsaBootstrapForWalletTarget: ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
-  upsertThresholdEcdsaSessionFromBootstrap: ThresholdSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
+  persistThresholdEcdsaBootstrapForWalletTarget: WalletSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
+  upsertThresholdEcdsaSessionFromBootstrap: WalletSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
   listThresholdEcdsaKeyRefsForWalletTarget: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -228,7 +228,7 @@ export type SigningEnginePorts = {
   privateKeyExportRecoveryDeps: PrivateKeyExportRecoveryDeps;
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
-  thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
+  walletSessionActivationDeps: WalletSessionActivationDeps;
   nearKeyOpsDeps: NearKeyOpsDeps;
   resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (
     walletId: WalletId,

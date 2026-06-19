@@ -4,6 +4,10 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
+  normalizeSealedRecoveryRecord,
+  sealedRecoveryWalletSessionJwt,
+} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import {
   resolveEmailOtpAuthLane,
   type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
@@ -19,27 +23,34 @@ export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
 ): EmailOtpSigningSessionAuthLane | null {
   const thresholdSessionId = String(input.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
-  const record = input.sealedRecord;
-  if (record.authMethod !== 'email_otp') return null;
-  if (String(record.thresholdSessionIds.ecdsa || '').trim() !== thresholdSessionId) return null;
-  const ecdsaRestore = record.ecdsaRestore;
-  if (!ecdsaRestore) return null;
+  const normalized = normalizeSealedRecoveryRecord(input.sealedRecord, {
+    allowExhausted: true,
+  });
   if (
-    thresholdEcdsaChainTargetKey(ecdsaRestore.chainTarget) !==
+    normalized.kind !== 'accepted' ||
+    normalized.record.authMethod !== 'email_otp' ||
+    normalized.record.curve !== 'ecdsa'
+  ) {
+    return null;
+  }
+  const record = normalized.record;
+  if (record.authMethod !== 'email_otp') return null;
+  if (String(record.thresholdSessionId || '').trim() !== thresholdSessionId) return null;
+  if (
+    thresholdEcdsaChainTargetKey(record.chainTarget) !==
     thresholdEcdsaChainTargetKey(input.chainTarget)
   ) {
     return null;
   }
   if (Math.floor(Number(record.expiresAtMs) || 0) <= Date.now()) return null;
-  if (ecdsaRestore.sessionKind !== 'jwt') return null;
-  const jwt = String(ecdsaRestore.thresholdSessionAuthToken || '').trim();
+  const jwt = sealedRecoveryWalletSessionJwt(record.walletSessionAuth);
   if (!jwt) return null;
   const lane = resolveEmailOtpAuthLane({
-    routeAuth: { kind: 'threshold_session', jwt },
+    routeAuth: { kind: 'wallet_session', jwt },
     thresholdSessionId,
     authorizingWalletSigningSessionId: record.walletSigningSessionId,
     curve: 'ecdsa',
-    chainTarget: ecdsaRestore.chainTarget,
+    chainTarget: record.chainTarget,
   });
   return lane?.kind === 'signing_session' && lane.curve === 'ecdsa' ? lane : null;
 }

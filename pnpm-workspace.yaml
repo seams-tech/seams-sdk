@@ -1,7 +1,6 @@
 packages:
   - tests
   - packages/sdk-web
-  - packages/sdk-runtime-ts
   - packages/sdk-server-ts
   - packages/shared-ts
   - voiceId

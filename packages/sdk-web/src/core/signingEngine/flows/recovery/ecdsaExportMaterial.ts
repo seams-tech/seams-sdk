@@ -25,6 +25,7 @@ import {
   getThresholdEcdsaSessionRecordByKey,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
@@ -216,12 +217,12 @@ function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
 export function isUsableEcdsaExportSessionRecord(record: ThresholdEcdsaSessionRecord): boolean {
   const remainingUses = Math.floor(Number(record.remainingUses));
   const expiresAtMs = Math.floor(Number(record.expiresAtMs));
-  const hasAuthToken = Boolean(String(record.thresholdSessionAuthToken || '').trim());
+  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
   return (
     Number.isFinite(remainingUses) &&
     remainingUses > 0 &&
     (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0 || expiresAtMs > Date.now()) &&
-    (record.thresholdSessionKind === 'cookie' || hasAuthToken)
+    walletSessionAuth.kind === 'ready'
   );
 }
 
@@ -297,9 +298,11 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
       '[SigningEngine][ecdsa-export] fresh Email OTP export requires runtimePolicyScope',
     );
   }
-  const thresholdSessionAuthToken = String(runtimeRecord?.thresholdSessionAuthToken || '').trim();
+  const walletSessionAuth = runtimeRecord
+    ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(runtimeRecord)
+    : null;
   const walletSigningSessionId = String(runtimeRecord?.walletSigningSessionId || '').trim();
-  if (runtimeRecord && thresholdSessionAuthToken && walletSigningSessionId) {
+  if (runtimeRecord && walletSessionAuth?.kind === 'ready' && walletSigningSessionId) {
     return {
       kind: 'fresh_email_otp_route_auth_ready',
       chainTarget: exportLane.session.chainTarget,
@@ -308,7 +311,7 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
       record: runtimeRecord,
       authLane: {
         kind: 'signing_session',
-        jwt: thresholdSessionAuthToken,
+        jwt: walletSessionAuth.walletSessionJwt,
         thresholdSessionId: runtimeRecord.thresholdSessionId,
         authorizingWalletSigningSessionId:
           toAuthorizingWalletSigningSessionId(walletSigningSessionId),

@@ -403,13 +403,14 @@ function budgetStatusAuthFromReadyEcdsaMaterial(
   const relayerUrl = String(signerSession.transport.relayerUrl || '').trim();
   const thresholdSessionId = String(signerSession.session.thresholdSessionId || '').trim();
   if (!relayerUrl || !thresholdSessionId) return null;
-  if (signerSession.transport.auth.kind !== 'jwt_threshold_session_auth') {
-    return { relayerUrl, thresholdSessionId };
-  }
+  const walletSessionJwt = String(
+    signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt || '',
+  ).trim();
+  if (!walletSessionJwt) return null;
   return {
     relayerUrl,
     thresholdSessionId,
-    thresholdSessionAuthToken: signerSession.transport.auth.thresholdSessionAuthToken,
+    walletSessionJwt,
   };
 }
 
@@ -883,9 +884,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               material: selection.material,
             },
             availableLanesGeneration: availableLanes.generation,
-            ...(selection.material.kind === 'ready_to_sign'
-              ? { signingRootId: selection.material.signingKeyContext.signingRootId }
-              : {}),
           },
         };
       },

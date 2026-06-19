@@ -210,7 +210,7 @@ export type EcdsaWalletSigningSpendPlan = {
   walletId: AccountId;
   walletSigningSessionId: WalletSigningSessionId;
   lane: SelectedEcdsaSigningSessionPlanningLane;
-  ecdsaKey: EvmFamilyEcdsaKeyIdentity;
+  ecdsaKey?: never;
   thresholdSessionIds: readonly ThresholdEcdsaSessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
   uses: number;
@@ -460,18 +460,19 @@ export function normalizeWalletSigningSpendPlan(
           accountId: walletId,
           walletSigningSessionId,
         };
-  const ecdsaKey =
-    normalizedLane.curve === 'ecdsa'
-      ? normalizeEcdsaSpendKey(input, normalizedLane)
-      : undefined;
+  if (normalizedLane.curve === 'ecdsa') {
+    assertEcdsaSpendLaneKey(input, normalizedLane);
+  }
+  const { ecdsaKey: _ignoredEcdsaKey, ...spendInput } = input as WalletSigningSpendPlan & {
+    ecdsaKey?: unknown;
+  };
   return {
-    ...input,
+    ...spendInput,
     operationId,
     ...(operationFingerprint ? { operationFingerprint } : {}),
     walletId,
     walletSigningSessionId,
     lane: normalizedLane,
-    ...(ecdsaKey ? { ecdsaKey } : {}),
     thresholdSessionIds: uniqueBrandedStrings(
       input.thresholdSessionIds,
       (value) => requireDomainId(parseThresholdSessionId(value), 'thresholdSessionId'),
@@ -487,14 +488,14 @@ export function normalizeWalletSigningSpendPlan(
   } as WalletSigningSpendPlan;
 }
 
-function normalizeEcdsaSpendKey(
+function assertEcdsaSpendLaneKey(
   input: WalletSigningSpendPlan,
   lane: SelectedEcdsaSigningSessionPlanningLane,
-): EvmFamilyEcdsaKeyIdentity {
-  const key = (input as { ecdsaKey?: EvmFamilyEcdsaKeyIdentity }).ecdsaKey;
-  if (!key) {
-    throw new Error('[SigningSession] ECDSA wallet signing spend requires shared key identity');
+): void {
+  if ((input as { ecdsaKey?: unknown }).ecdsaKey != null) {
+    throw new Error('[SigningSession] ECDSA wallet signing spend derives key identity from lane');
   }
+  const key = lane.key;
   const mismatches: string[] = [];
   if (String(key.walletId) !== String(lane.walletId)) mismatches.push('walletId');
   if (String(key.ecdsaThresholdKeyId) !== String(lane.key.ecdsaThresholdKeyId)) {
@@ -511,7 +512,6 @@ function normalizeEcdsaSpendKey(
       `[SigningSession] ECDSA wallet signing spend key does not match lane: ${mismatches.join(',')}`,
     );
   }
-  return key;
 }
 
 function uniqueBrandedStrings<TValue extends string>(

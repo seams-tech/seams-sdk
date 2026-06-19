@@ -58,9 +58,6 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     const actionToExecute: FunctionCallAction = createGreetingAction(
       greetingInput,
     ) as FunctionCallAction;
-    const secondActionToExecute: FunctionCallAction = createGreetingAction(greetingInput, {
-      postfix: 'Tx 2',
-    }) as FunctionCallAction;
 
     setTxLoading(true);
     let signingFailureMessage: string | null = null;
@@ -70,11 +67,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         transactions: [
           {
             receiverId: DEMO_CONTRACT_ID,
-            actions: [actionToExecute, actionToExecute],
-          },
-          {
-            receiverId: DEMO_CONTRACT_ID,
-            actions: [secondActionToExecute],
+            actions: [actionToExecute],
           },
         ],
         options: {

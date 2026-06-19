@@ -35,7 +35,7 @@ export type ProfileContinuityEcdsaWarmKeyParseResult =
       reason?: never;
     }
   | {
-      kind: 'repair_required';
+      kind: 'key_facts_inventory_required';
       chainTarget: ThresholdEcdsaChainTarget;
       targetKey: string;
       keyHandle: string;
@@ -198,7 +198,7 @@ export function parseProfileContinuityEcdsaWarmKey(args: {
   });
   if (!walletKey) {
     return {
-      kind: 'repair_required',
+      kind: 'key_facts_inventory_required',
       chainTarget,
       targetKey,
       keyHandle: keyHandleResolution.keyHandle,

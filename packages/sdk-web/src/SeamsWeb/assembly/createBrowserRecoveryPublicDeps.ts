@@ -2,7 +2,7 @@ import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import type { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator';
+import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
 import {
@@ -20,7 +20,7 @@ export function createBrowserRecoveryPublicDeps(args: {
   keyMaterialStore: SigningEngineStorePorts['recoveryAndDeviceLinking']['keyMaterialStore'];
   warmSigning: WarmSigningPorts;
   touchConfirm: UiConfirmRuntimeBridgePort;
-  emailOtpSessions: EmailOtpThresholdSessionCoordinator;
+  emailOtpSessions: EmailOtpWalletSessionCoordinator;
   getTheme: () => ThemeName;
 }): RecoveryPublicDeps {
   return createRecoveryPublicDeps({

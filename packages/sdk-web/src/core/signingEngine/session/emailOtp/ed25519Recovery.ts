@@ -14,7 +14,11 @@ import {
   recordAndVerifyRestoredWarmSessions,
   type RestoredWarmSessionStatus,
 } from '@/core/signingEngine/session/sealedRecovery/readback';
-import type { EmailOtpEd25519SealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import {
+  sealedRecoverySessionKind,
+  sealedRecoveryWalletSessionJwt,
+  type EmailOtpEd25519SealedRecoveryRecord,
+} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
@@ -46,16 +50,19 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
-    ...(args.record.xClientBaseB64u ? { xClientBaseB64u: args.record.xClientBaseB64u } : {}),
     ...(args.record.routerAbNormalSigning
       ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
       : {}),
     participantIds: [...args.record.participantIds],
-    thresholdSessionKind: args.record.sessionKind,
+    thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
     thresholdSessionId: args.purpose.thresholdSessionId,
     walletSigningSessionId: args.purpose.walletSigningSessionId,
-    ...(args.record.thresholdSessionAuthToken
-      ? { thresholdSessionAuthToken: args.record.thresholdSessionAuthToken }
+    ...(sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth)
+      ? {
+          walletSessionJwt: sealedRecoveryWalletSessionJwt(
+            args.record.walletSessionAuth,
+          )!,
+        }
       : {}),
     expiresAtMs: args.record.expiresAtMs,
     remainingUses: args.record.remainingUses,

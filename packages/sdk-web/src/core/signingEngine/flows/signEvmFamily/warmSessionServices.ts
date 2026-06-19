@@ -1,6 +1,6 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaActivationRequest } from '../../session/passkey/ecdsaSessionProvision';
-import { clearThresholdEcdsaClientPresignaturesForLane } from '../../threshold/ecdsa/presignPool';
+import { clearRouterAbEcdsaHssClientPresignaturesForLane } from '../../routerAb/ecdsaHss/presignaturePool';
 import type {
   UiConfirmContextPort,
   UiConfirmSecureConfirmationPort,
@@ -37,7 +37,6 @@ import {
   getThresholdEcdsaSessionRecordForLane,
 } from './ecdsaLanes';
 import {
-  resolveThresholdEcdsaKeyIdFromRecord,
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
@@ -90,11 +89,13 @@ export function createEvmFamilyWarmSessionServices(
     thresholdSessionIdOverride: string | undefined,
   ): Promise<void> => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
-    clearThresholdEcdsaClientPresignaturesForLane({
-      relayerUrl: record.relayerUrl,
-      ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({ record }),
-      participantIds: publicFacts.participantIds.map((participantId) => Number(participantId)),
-    });
+    if (record.routerAbEcdsaHssNormalSigning) {
+      clearRouterAbEcdsaHssClientPresignaturesForLane({
+        relayerUrl: record.relayerUrl,
+        scope: record.routerAbEcdsaHssNormalSigning.scope,
+        participantIds: publicFacts.participantIds.map((participantId) => Number(participantId)),
+      });
+    }
     const thresholdSessionId = parseVolatileWarmSessionId(
       thresholdSessionIdOverride || record.thresholdSessionId || '',
     );

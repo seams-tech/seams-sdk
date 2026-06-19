@@ -1,6 +1,9 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
-import { persistWarmSessionEd25519Capability } from './persistence';
+import {
+  persistWarmSessionEd25519Capability,
+  type PersistWarmSessionEd25519CapabilityArgs,
+} from './persistence';
 
 const commonArgs = {
   nearAccountId: toAccountId('alice.testnet'),
@@ -39,10 +42,24 @@ void persistWarmSessionEd25519Capability({
 });
 
 void persistWarmSessionEd25519Capability({
-  kind: 'cookie_passkey',
+  kind: 'jwt_passkey',
   ...commonArgs,
-  sessionKind: 'cookie',
-  source: 'manual-connect',
+  sessionKind: 'jwt',
+  jwt: 'jwt-token',
+  source: 'login',
+  clientVerifyingShareB64u: 'public-client-verifying-share',
+  ed25519HssMaterialHandle: 'ed25519-hss-material-handle',
+  ed25519HssMaterialBindingDigest: 'ed25519-hss-material-binding',
+});
+
+void persistWarmSessionEd25519Capability({
+  kind: 'jwt_passkey',
+  ...commonArgs,
+  sessionKind: 'jwt',
+  jwt: 'jwt-token',
+  source: 'login',
+  // @ts-expect-error Warm-session persistence must not accept raw Ed25519 client-base material.
+  xClientBaseB64u: 'raw-client-base',
 });
 
 // @ts-expect-error Email OTP persistence requires Email OTP auth context.
@@ -54,14 +71,14 @@ void persistWarmSessionEd25519Capability({
   source: 'email_otp',
 });
 
-// @ts-expect-error Cookie persistence must not accept JWT auth material.
-void persistWarmSessionEd25519Capability({
+const cookieBackedCapability = {
   kind: 'cookie_passkey',
   ...commonArgs,
   sessionKind: 'cookie',
-  jwt: 'jwt-token',
   source: 'manual-connect',
-});
+};
+// @ts-expect-error Cookie-backed signing capabilities are not valid Wallet Session V2 state.
+void (cookieBackedCapability satisfies PersistWarmSessionEd25519CapabilityArgs);
 
 // @ts-expect-error JWT passkey persistence must not accept Email OTP auth context.
 void persistWarmSessionEd25519Capability({

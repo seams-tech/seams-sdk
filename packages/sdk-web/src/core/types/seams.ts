@@ -124,7 +124,7 @@ export interface SigningSessionSealConfig {
  *       signingWorkerId?: string; // required when mode === 'enabled'
  *     };
  *   };
- *   thresholdEcdsaPresignPool?: {
+ *   routerAbEcdsaHssPresignaturePool?: {
  *     enabled?: boolean;
  *     targetDepth?: number;
  *     lowWatermark?: number;
@@ -193,9 +193,9 @@ export interface SeamsConfigsInput {
   chains?: SeamsChainConfigInput[];
   appearance?: AppearanceConfigInput;
   /**
-   * NEAR account ID under which the relay server creates new subaccounts.
+   * NEAR account ID under which the Router API server creates new subaccounts.
    *
-   * This must match the relay server config `RELAYER_ACCOUNT_ID` when
+   * This must match the server config `RELAYER_ACCOUNT_ID` when
    * using the wallet-registration ceremony.
    *
    * Defaults to the SDK relayer account default.
@@ -242,7 +242,7 @@ export interface SeamsConfigsInput {
    *
    * Controls best-effort background refill behavior only; signing correctness does not depend on refill success.
    */
-  thresholdEcdsaPresignPool?: ThresholdEcdsaPresignPoolPolicyInput;
+  routerAbEcdsaHssPresignaturePool?: RouterAbEcdsaHssPresignaturePoolPolicyInput;
   /**
    * Default threshold-ECDSA provisioning policy used at registration time for
    * `tempo` and `evm` chains.
@@ -317,8 +317,10 @@ export interface SeamsConfigsInput {
  *         | { mode: 'disabled' }
  *         | { mode: 'enabled'; signingWorkerId: string };
  *     };
+ *     routerAbEcdsaHss: {
+ *       presignaturePool: RouterAbEcdsaHssPresignaturePoolPolicy;
+ *     };
  *     thresholdEcdsa: {
- *       presignPool: ThresholdEcdsaPresignPoolPolicy;
  *       provisioningDefaults: EcdsaSignerProvisioningDefaults;
  *     };
  *   };
@@ -521,7 +523,7 @@ export interface SignAndSendDelegateActionResult {
   relayResult: DelegateRelayResult;
 }
 
-export interface ThresholdEcdsaPresignPoolPolicyInput {
+export interface RouterAbEcdsaHssPresignaturePoolPolicyInput {
   enabled?: boolean;
   targetDepth?: number;
   lowWatermark?: number;
@@ -529,7 +531,7 @@ export interface ThresholdEcdsaPresignPoolPolicyInput {
   refillAttemptTimeoutMs?: number;
 }
 
-export interface ThresholdEcdsaPresignPoolPolicy {
+export interface RouterAbEcdsaHssPresignaturePoolPolicy {
   enabled: boolean;
   targetDepth: number;
   lowWatermark: number;
@@ -711,8 +713,11 @@ export interface SeamsEmailOtpConfig {
   authPolicy: EmailOtpAuthPolicy;
 }
 
+export interface SeamsRouterAbEcdsaHssConfig {
+  presignaturePool: RouterAbEcdsaHssPresignaturePoolPolicy;
+}
+
 export interface SeamsThresholdEcdsaConfig {
-  presignPool: ThresholdEcdsaPresignPoolPolicy;
   provisioningDefaults: EcdsaSignerProvisioningDefaults;
 }
 
@@ -722,6 +727,7 @@ export interface SeamsSigningConfig {
   sessionPersistenceMode: SigningSessionPersistenceMode;
   sessionSeal: SigningSessionSealConfig;
   routerAb: SeamsRouterAbConfig;
+  routerAbEcdsaHss: SeamsRouterAbEcdsaHssConfig;
   thresholdEcdsa: SeamsThresholdEcdsaConfig;
 }
 

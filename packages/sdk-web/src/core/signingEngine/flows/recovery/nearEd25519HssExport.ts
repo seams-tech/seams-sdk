@@ -23,7 +23,7 @@ export async function runNearEd25519SingleKeyHssExport(
     keyVersion: string;
     participantIds: number[];
     thresholdSessionId: string;
-    thresholdSessionAuthToken: string;
+    walletSessionJwt: string;
     relayerUrl: string;
     relayerKeyId: string;
     prfFirstB64u: string;
@@ -47,7 +47,7 @@ export async function runNearEd25519SingleKeyHssExport(
 
   const completed = await runThresholdEd25519HssCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+    walletSessionJwt: args.walletSessionJwt,
     relayerKeyId: args.relayerKeyId,
     operation: 'explicit_key_export',
     context: {

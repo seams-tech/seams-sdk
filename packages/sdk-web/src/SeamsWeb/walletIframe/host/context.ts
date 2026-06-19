@@ -90,7 +90,7 @@ function buildWalletRuntimeResetFingerprint(config: SeamsConfigsInput | null | u
     signingSessionPersistenceMode: config?.signingSessionPersistenceMode,
     signingSessionSeal: config?.signingSessionSeal,
     routerAb: config?.routerAb,
-    thresholdEcdsaPresignPool: config?.thresholdEcdsaPresignPool,
+    routerAbEcdsaHssPresignaturePool: config?.routerAbEcdsaHssPresignaturePool,
     provisioningDefaults: config?.provisioningDefaults,
     authenticatorOptions: config?.authenticatorOptions,
     iframeWallet: config?.iframeWallet,
@@ -252,7 +252,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
     ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
     routerAb: payload?.routerAb ?? prev.routerAb,
-    thresholdEcdsaPresignPool: payload?.thresholdEcdsaPresignPool ?? prev.thresholdEcdsaPresignPool,
+    routerAbEcdsaHssPresignaturePool: payload?.routerAbEcdsaHssPresignaturePool ?? prev.routerAbEcdsaHssPresignaturePool,
     provisioningDefaults: payload?.provisioningDefaults ?? prev.provisioningDefaults,
     relayer:
       payload?.relayer || prev.relayer

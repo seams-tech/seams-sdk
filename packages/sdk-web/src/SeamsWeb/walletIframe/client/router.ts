@@ -64,6 +64,7 @@ import type {
   ActionHooksOptions,
   AfterCall,
   LinkDeviceFlowEvent,
+  LoginHooksOptions,
   KeyExportFlowEvent,
   EmailRecoveryFlowEvent,
   UnlockFlowEvent,
@@ -113,7 +114,7 @@ import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
-import type { ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
   ThresholdEcdsaChainTarget,
@@ -180,6 +181,8 @@ import type { SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { cloneResolvedChainConfig } from '@/core/config/chains';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { WalletIframeUnlockRequest } from '@/core/types/login.typings';
+import { buildPMUnlockPayload } from '../shared/unlockOptions';
 
 // Simple, framework-agnostic service iframe client.
 // Responsibilities split:
@@ -211,7 +214,7 @@ export interface WalletIframeRouterOptions {
   signingSessionPersistenceMode?: SeamsConfigsInput['signingSessionPersistenceMode'];
   signingSessionSeal?: SeamsConfigsInput['signingSessionSeal'];
   routerAb?: SeamsConfigsInput['routerAb'];
-  thresholdEcdsaPresignPool?: SeamsConfigsInput['thresholdEcdsaPresignPool'];
+  routerAbEcdsaHssPresignaturePool?: SeamsConfigsInput['routerAbEcdsaHssPresignaturePool'];
   provisioningDefaults?: SeamsConfigsInput['provisioningDefaults'];
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
@@ -665,7 +668,7 @@ export class WalletIframeRouter {
           signingSessionPersistenceMode,
           ...(signingSessionSeal ? { signingSessionSeal } : {}),
           routerAb: this.opts.routerAb,
-          thresholdEcdsaPresignPool: this.opts.thresholdEcdsaPresignPool,
+          routerAbEcdsaHssPresignaturePool: this.opts.routerAbEcdsaHssPresignaturePool,
           provisioningDefaults: this.opts.provisioningDefaults,
           iframeWallet: this.opts.rpIdOverride
             ? { rpIdOverride: this.opts.rpIdOverride }
@@ -1145,38 +1148,19 @@ export class WalletIframeRouter {
     }
   }
 
-  async unlock(payload: {
-    nearAccountId: string;
-    options?: {
-      onEvent?: (ev: UnlockFlowEvent) => void;
-      signerSlot?: number;
-      // Forward session config so host can mint JWT/cookie
-      session?: {
-        kind: 'jwt' | 'cookie';
-        relayUrl?: string;
-        route?: string;
-      };
-      // Warm signing session policy override during login
-      signingSession?: {
-        ttlMs?: number;
-        remainingUses?: number;
-      };
-    };
-  }): Promise<LoginAndCreateSessionResult> {
+  async unlock(payload: WalletIframeUnlockRequest): Promise<LoginAndCreateSessionResult> {
     this.showFrameForActivation();
     try {
-      const safeOptions = removeFunctionsFromOptions(payload.options);
+      const unlockPayload = buildPMUnlockPayload(payload);
+      const onEvent = unlockOnEventFromRequest(payload);
       const res = await this.post<LoginAndCreateSessionResult>({
         type: 'PM_UNLOCK',
-        payload: {
-          nearAccountId: payload.nearAccountId,
-          options: safeOptions,
-        },
-        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isUnlockFlowEvent) },
+        payload: unlockPayload,
+        options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
       });
       const result = res.result;
       if (result.success) {
-        const { login: st } = await this.getWalletSession(payload.nearAccountId);
+        const { login: st } = await this.getWalletSession(unlockPayload.nearAccountId);
         this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
       }
       return result;
@@ -1840,7 +1824,7 @@ export class WalletIframeRouter {
     await this.post<void>({ type: 'PM_PREFETCH_BLOCKHEIGHT' });
   }
 
-  async prefillThresholdEcdsaPresignPool(payload: {
+  async prefillRouterAbEcdsaHssPresignaturePool(payload: {
     walletSession: WalletSessionRef;
     options: {
       chainTarget: ThresholdEcdsaChainTarget;
@@ -1849,10 +1833,10 @@ export class WalletIframeRouter {
       poolReadyPollIntervalMs?: number;
       minRemainingUsesBeforePrefill?: number;
     };
-  }): Promise<ThresholdEcdsaLoginPrefillResult> {
-    const res = await this.post<ThresholdEcdsaLoginPrefillResult>(
+  }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult> {
+    const res = await this.post<RouterAbEcdsaHssLoginPresignaturePrefillResult>(
       {
-        type: 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',
+        type: 'PM_PREFILL_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL',
         payload: {
           walletSession: payload.walletSession,
           ...(payload.options ? { options: payload.options } : {}),
@@ -2599,7 +2583,23 @@ function normalizeSignedTransactionObject(result: SignTransactionResult) {
  */
 import { stripFunctionsShallow } from '@shared/utils/validation';
 
+function unlockOnEventFromRequest(
+  request: WalletIframeUnlockRequest,
+): LoginHooksOptions['onEvent'] | undefined {
+  switch (request.kind) {
+    case 'default_options':
+      return undefined;
+    case 'custom_options':
+      return request.options.onEvent;
+  }
+  return assertNeverWalletIframeUnlockRequest(request);
+}
+
 function removeFunctionsFromOptions(options?: object): object | undefined {
   if (!options || !isObject(options)) return undefined;
   return stripFunctionsShallow(options);
+}
+
+function assertNeverWalletIframeUnlockRequest(value: never): never {
+  throw new Error(`Unhandled wallet iframe unlock request: ${String(value)}`);
 }

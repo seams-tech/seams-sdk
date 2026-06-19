@@ -113,14 +113,13 @@ type EthSignerWorkerRequest =
     }
   | {
       id: string;
-      type: 'thresholdEcdsaComputeSignatureShare';
+      type: 'thresholdEcdsaComputeSignatureShareFromPresignatureHandle';
       payload: {
+        materialHandle: string;
         participantIds: number[];
         clientParticipantId: number;
         groupPublicKey33: unknown;
-        presignBigR33: unknown;
-        presignKShare32: unknown;
-        presignSigmaShare32: unknown;
+        expectedPresignBigR33: unknown;
         digest32: unknown;
         entropy32: unknown;
       };
@@ -204,7 +203,7 @@ function ethSignerOperationLabel(type: string): string {
       return 'threshold ECDSA presign step';
     case 'thresholdEcdsaPresignSessionAbort':
       return 'threshold ECDSA presign session abort';
-    case 'thresholdEcdsaComputeSignatureShare':
+    case 'thresholdEcdsaComputeSignatureShareFromPresignatureHandle':
       return 'threshold ECDSA signature share';
     default:
       return type || 'unknown ethSigner operation';
@@ -246,10 +245,18 @@ type PresignProgressResult = {
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
   event: 'none' | 'triples_done' | 'presign_done';
   outgoingMessages: ArrayBuffer[];
-  presignature97?: ArrayBuffer;
+  presignatureHandle?: string;
+  presignatureBigR33?: ArrayBuffer;
 };
 
 const thresholdEcdsaPresignSessions = new Map<string, ThresholdEcdsaPresignSession>();
+type ThresholdEcdsaStoredPresignature = {
+  materialHandle: string;
+  bigR33: Uint8Array;
+  kShare32: Uint8Array;
+  sigmaShare32: Uint8Array;
+};
+const thresholdEcdsaPresignaturesByHandle = new Map<string, ThresholdEcdsaStoredPresignature>();
 const buildWebauthnP256SignatureWasm = (
   ethSignerWasmModule as unknown as {
     build_webauthn_p256_signature?: (
@@ -301,6 +308,41 @@ function freePresignSession(sessionId: string): void {
   } catch {}
 }
 
+function randomHandleId(prefix: string): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function putThresholdEcdsaPresignatureMaterial(args: {
+  sessionId: string;
+  presignature97: Uint8Array;
+}): { materialHandle: string; bigR33: Uint8Array } {
+  if (args.presignature97.length !== 97) {
+    throw new Error('threshold ECDSA presignature must be 97 bytes');
+  }
+  const materialHandle = randomHandleId(`ecdsa-presign-material-${args.sessionId}`);
+  const bigR33 = args.presignature97.slice(0, 33);
+  thresholdEcdsaPresignaturesByHandle.set(materialHandle, {
+    materialHandle,
+    bigR33: bigR33.slice(),
+    kShare32: args.presignature97.slice(33, 65),
+    sigmaShare32: args.presignature97.slice(65, 97),
+  });
+  return { materialHandle, bigR33 };
+}
+
+function takeThresholdEcdsaPresignatureMaterial(
+  materialHandleRaw: unknown,
+): ThresholdEcdsaStoredPresignature {
+  const materialHandle = String(materialHandleRaw || '').trim();
+  if (!materialHandle) throw new Error('Missing threshold ECDSA presignature materialHandle');
+  const stored = thresholdEcdsaPresignaturesByHandle.get(materialHandle);
+  if (!stored) throw new Error('Unknown threshold ECDSA presignature materialHandle');
+  thresholdEcdsaPresignaturesByHandle.delete(materialHandle);
+  return stored;
+}
+
 function pollPresignSession(
   sessionId: string,
   session: ThresholdEcdsaPresignSession,
@@ -317,13 +359,15 @@ function pollPresignSession(
 
   const presignature97 = session.take_presignature_97();
   freePresignSession(sessionId);
-  const presignature97Buffer = presignature97.slice().buffer;
+  const stored = putThresholdEcdsaPresignatureMaterial({ sessionId, presignature97 });
+  const presignatureBigR33 = stored.bigR33.slice().buffer;
   zeroizeBytes(presignature97);
   return {
     stage: 'done',
     event: 'presign_done',
     outgoingMessages,
-    presignature97: presignature97Buffer,
+    presignatureHandle: stored.materialHandle,
+    presignatureBigR33,
   };
 }
 
@@ -521,7 +565,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
 
           const progress = pollPresignSession(sessionId, session);
           const transferables = [...progress.outgoingMessages];
-          if (progress.presignature97) transferables.push(progress.presignature97);
+          if (progress.presignatureBigR33) transferables.push(progress.presignatureBigR33);
           postOperationSucceeded(msg, progress, transferables);
           return;
         } finally {
@@ -562,7 +606,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
 
         const progress = pollPresignSession(sessionId, session);
         const transferables = [...progress.outgoingMessages];
-        if (progress.presignature97) transferables.push(progress.presignature97);
+        if (progress.presignatureBigR33) transferables.push(progress.presignatureBigR33);
         postOperationSucceeded(msg, progress, transferables);
         return;
       }
@@ -576,14 +620,19 @@ self.addEventListener('message', async (event: MessageEvent) => {
         });
         return;
       }
-      case 'thresholdEcdsaComputeSignatureShare': {
+      case 'thresholdEcdsaComputeSignatureShareFromPresignatureHandle': {
+        const material = takeThresholdEcdsaPresignatureMaterial(msg.payload.materialHandle);
         const groupPublicKey33 = toU8(msg.payload.groupPublicKey33);
-        const presignBigR33 = toU8(msg.payload.presignBigR33);
-        const presignKShare32 = toU8(msg.payload.presignKShare32);
-        const presignSigmaShare32 = toU8(msg.payload.presignSigmaShare32);
+        const expectedPresignBigR33 = toU8(msg.payload.expectedPresignBigR33);
         const digest32 = toU8(msg.payload.digest32);
         const entropy32 = toU8(msg.payload.entropy32);
         try {
+          const bigRMatches =
+            expectedPresignBigR33.length === material.bigR33.length &&
+            expectedPresignBigR33.every((value, index) => value === material.bigR33[index]);
+          if (!bigRMatches) {
+            throw new Error('threshold ECDSA presignature handle bigR mismatch');
+          }
           const out = threshold_ecdsa_compute_signature_share(
             new Uint32Array(
               (Array.isArray(msg.payload.participantIds) ? msg.payload.participantIds : []).map((v) =>
@@ -592,9 +641,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
             ),
             Number(msg.payload.clientParticipantId),
             groupPublicKey33,
-            presignBigR33,
-            presignKShare32,
-            presignSigmaShare32,
+            material.bigR33,
+            material.kShare32,
+            material.sigmaShare32,
             digest32,
             entropy32,
           ) as Uint8Array;
@@ -603,8 +652,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
           postOperationSucceeded(msg, ab, [ab]);
           return;
         } finally {
-          zeroizeBytes(presignKShare32);
-          zeroizeBytes(presignSigmaShare32);
+          zeroizeBytes(material.bigR33);
+          zeroizeBytes(material.kShare32);
+          zeroizeBytes(material.sigmaShare32);
+          zeroizeBytes(expectedPresignBigR33);
           zeroizeBytes(digest32);
           zeroizeBytes(entropy32);
         }

@@ -43,6 +43,9 @@ import {
   tryBuildEcdsaSessionIdentity,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
+  resolveRouterAbEcdsaWalletSessionAuthFromRecord,
+} from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import {
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -66,37 +69,21 @@ export function summarizeEvmFamilyEcdsaSessionRecord(
   record: ThresholdEcdsaSessionRecord | undefined,
 ): Record<string, unknown> {
   if (!record) return { present: false };
-  const recordSigning = (() => {
-    try {
-      const key = thresholdEcdsaSessionRecordReadModel(record).key;
-      return {
-        ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-        signingRootId: key.signingRootId,
-        signingRootVersion: key.signingRootVersion,
-      };
-    } catch {
-      return {
-        ecdsaThresholdKeyId: null,
-        signingRootId: null,
-        signingRootVersion: null,
-      };
-    }
-  })();
+  const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
   return {
     present: true,
     source: record.source,
     chain: record.chainTarget.kind,
     thresholdSessionId: record.thresholdSessionId,
     walletSigningSessionId: record.walletSigningSessionId,
-    ecdsaThresholdKeyId: recordSigning.ecdsaThresholdKeyId,
-    signingRootId: recordSigning.signingRootId,
-    signingRootVersion: recordSigning.signingRootVersion,
+    keyHandle: record.keyHandle,
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,
     emailOtpRetention: record.source === 'email_otp' ? record.emailOtpAuthContext.retention : null,
     emailOtpReason: record.source === 'email_otp' ? record.emailOtpAuthContext.reason : null,
-    thresholdSessionKind: record.thresholdSessionKind,
-    hasThresholdSessionAuthToken: !!record.thresholdSessionAuthToken,
+    routerAbWalletSessionAuth: walletSessionAuth.kind,
+    routerAbWalletSessionAuthSource:
+      walletSessionAuth.kind === 'ready' ? walletSessionAuth.source : walletSessionAuth.reason,
     hasRelayerKeyId: !!record.relayerKeyId,
   };
 }
@@ -488,18 +475,20 @@ export function isEmailOtpThresholdEcdsaSigningContext(
 export function emailOtpEcdsaAuthLaneFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
 ): EmailOtpAuthLane | undefined {
-  const jwt = String(record?.thresholdSessionAuthToken || '').trim();
   const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
+  const walletSessionAuth = record
+    ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(record)
+    : null;
   if (
     record?.source !== SIGNER_AUTH_METHODS.emailOtp ||
-    !jwt ||
+    walletSessionAuth?.kind !== 'ready' ||
     !identity
   ) {
     return undefined;
   }
   return {
     kind: 'signing_session',
-    jwt,
+    jwt: walletSessionAuth.walletSessionJwt,
     thresholdSessionId: identity.thresholdSessionId,
     authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
       identity.walletSigningSessionId,

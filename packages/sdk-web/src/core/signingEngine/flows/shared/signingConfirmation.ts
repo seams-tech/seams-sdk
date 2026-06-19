@@ -14,6 +14,7 @@ import {
   type ConfirmTransactionSigningOperationResult,
 } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
 import type { SignRequest } from '@/core/signingEngine/interfaces/signing';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   SigningOperationIntent,
   SigningOperationContext,
@@ -41,6 +42,13 @@ export type {
 
 export function makeRequestId(prefix: string): string {
   return secureRandomId(prefix, 32, 'signing confirmation request IDs');
+}
+
+export function confirmationConfigForSigningAuthPlan(args: {
+  signingAuthPlan: SigningAuthPlan;
+  override?: Partial<ConfirmationConfig>;
+}): Partial<ConfirmationConfig> | undefined {
+  return args.override;
 }
 
 export function inferDigest32FromSignRequest(req: SignRequest): Uint8Array {
@@ -105,7 +113,6 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
   accountId: string;
   intent: SigningOperationIntent;
   curve?: 'ed25519' | 'ecdsa';
-  signingRootId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
@@ -128,7 +135,6 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
       accountId: args.accountId,
       intent: args.intent,
       ...(args.curve ? { curve: args.curve } : {}),
-      ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
       sessionId: String(plan.keyRef.thresholdSessionId),
       retention: plan.lane.retention,
       expiresAtMs,

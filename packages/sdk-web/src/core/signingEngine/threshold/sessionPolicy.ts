@@ -180,6 +180,7 @@ export async function buildEd25519SessionPolicy(params: {
   rpId: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   participantIds?: number[];
   sessionId?: string;
   walletSigningSessionId?: string;
@@ -207,6 +208,7 @@ export async function buildEd25519SessionPolicy(params: {
     sessionId,
     walletSigningSessionId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(params.routerAbNormalSigning ? { routerAbNormalSigning: params.routerAbNormalSigning } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
     remainingUses,
@@ -295,20 +297,19 @@ export function buildEcdsaHssSessionPolicy(params: {
   };
 }
 
-export function isThresholdSessionAuthUnavailableError(err: unknown): boolean {
+export function isSigningSessionAuthUnavailableError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
-    msg.includes('no cached threshold session token') ||
-    msg.includes('threshold-ecdsa session token unavailable') ||
     msg.includes('threshold-ecdsa session record not available') ||
     msg.includes('relayer threshold session expired') ||
     msg.includes('threshold signingSession is not_found') ||
     msg.includes('threshold signingSession is expired') ||
     msg.includes('threshold signingSession is exhausted') ||
-    msg.includes('threshold signingSession auth is unavailable') ||
+    msg.includes('signingSession auth is unavailable') ||
+    msg.includes('signing-session consume returned not_found') ||
+    msg.includes('Wallet Session auth is unavailable') ||
     msg.includes('threshold session exhausted') ||
     msg.includes('threshold session expired') ||
-    msg.includes('Missing or invalid threshold session token') ||
     msg.includes('Invalid session token kind') ||
     msg.includes('/authorize HTTP 401') ||
     msg.includes('/authorize HTTP 403')
@@ -321,5 +322,15 @@ export function isThresholdSignerMissingKeyError(err: unknown): boolean {
     msg.includes('"code":"missing_key"') ||
     msg.includes('missing_key') ||
     msg.includes('unknown relayerkeyid')
+  );
+}
+
+export function isThresholdSignerRepairableMaterialError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    isThresholdSignerMissingKeyError(err) ||
+    msg.includes('ed25519 verifying shares do not sum to group public key') ||
+    msg.includes('client verifying share does not match x_client_base') ||
+    msg.includes('router a/b ed25519 signing material handle')
   );
 }

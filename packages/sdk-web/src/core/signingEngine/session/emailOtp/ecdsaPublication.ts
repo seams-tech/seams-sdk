@@ -200,13 +200,10 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     emailOtpAuthContext: args.emailOtpAuthContext,
   });
 
-  const thresholdSessionAuthToken = String(
-    session?.jwt || keyRef.thresholdSessionAuthToken || '',
-  ).trim();
+  const walletSessionJwt = String(session?.jwt || keyRef.walletSessionJwt || '').trim();
   const runtimePolicyScope =
-    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(thresholdSessionAuthToken);
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
   const keyVersion = String(ports.configs.signing.sessionSeal?.keyVersion || '').trim();
-  const sessionKind = keyRef.thresholdSessionKind || (thresholdSessionAuthToken ? 'jwt' : 'cookie');
   const rpId = String(args.bootstrap.keygen.rpId || '').trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
@@ -227,7 +224,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
     !participantIds.length ||
-    (sessionKind === 'jwt' && !thresholdSessionAuthToken)
+    !walletSessionJwt
   ) {
     throw new Error('Email OTP sealed refresh is missing ECDSA restore metadata');
   }
@@ -241,7 +238,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     sessionId: emailOtpWorkerSessionId,
     transport: {
       relayerUrl,
-      ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+      ...(walletSessionJwt ? { walletSessionJwt } : {}),
       ...(keyVersion ? { keyVersion } : {}),
       shamirPrimeB64u,
     },
@@ -272,10 +269,6 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
     userId: String(keyRef.userId || args.walletId || '').trim(),
-    signingRootId: String(keyRef.signingRootId || '').trim(),
-    ...(String(keyRef.signingRootVersion || '').trim()
-      ? { signingRootVersion: String(keyRef.signingRootVersion || '').trim() }
-      : {}),
     relayerUrl,
     ...(String(sealed.keyVersion || keyVersion).trim()
       ? { keyVersion: String(sealed.keyVersion || keyVersion).trim() }
@@ -303,8 +296,8 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     ecdsaRestore: {
       chainTarget: actualChainTarget,
       rpId,
-      ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
-      sessionKind,
+      walletSessionJwt,
+      sessionKind: 'jwt',
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle,
       ecdsaThresholdKeyId,

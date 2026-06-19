@@ -21,7 +21,7 @@ type RawThresholdSessionIds = {
 type RawEcdsaRestoreMetadata = {
   chainTarget?: unknown;
   rpId?: unknown;
-  thresholdSessionAuthToken?: unknown;
+  walletSessionJwt?: unknown;
   sessionKind?: unknown;
   keyHandle?: unknown;
   ecdsaThresholdKeyId?: unknown;
@@ -37,10 +37,11 @@ type RawEd25519RestoreMetadata = {
   rpId?: unknown;
   relayerKeyId?: unknown;
   participantIds?: unknown;
-  thresholdSessionAuthToken?: unknown;
+  walletSessionJwt?: unknown;
   sessionKind?: unknown;
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: unknown;
+  clientVerifyingShareB64u?: unknown;
   routerAbNormalSigning?: unknown;
 };
 
@@ -125,26 +126,24 @@ type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
-type JwtThresholdSessionAuth = {
-  sessionKind: 'jwt';
-  thresholdSessionAuthToken: string;
-};
+export type SealedRecoveryWalletSessionAuth =
+  {
+    kind: 'wallet_session_jwt';
+    walletSessionJwt: string;
+  };
 
-type CookieThresholdSessionAuth = {
-  sessionKind: 'cookie';
-  thresholdSessionAuthToken?: never;
+type SealedRecoveryWalletSessionAuthCarrier = {
+  walletSessionAuth: SealedRecoveryWalletSessionAuth;
 };
-
-type ThresholdSessionAuth = JwtThresholdSessionAuth | CookieThresholdSessionAuth;
 
 export type PasskeyEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
-  ThresholdSessionAuth & {
+  SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'passkey';
     clientVerifyingShareB64u: string;
   };
 
 export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
-  ThresholdSessionAuth & {
+  SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
     clientVerifyingShareB64u?: string;
     companionEd25519ThresholdSessionId?: string;
@@ -152,26 +151,25 @@ export type EmailOtpEcdsaSealedRecoveryRecord = EcdsaSealedRecoveryRecordBase &
   };
 
 export type EmailOtpEcdsaCompanionEd25519Recovery = Ed25519SealedRecoveryRecordBase &
-  ThresholdSessionAuth & {
+  SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
     rpId: string;
-    xClientBaseB64u: string;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   };
 
 export type PasskeyEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase &
-  ThresholdSessionAuth & {
+  SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'passkey';
     rpId: string;
-    xClientBaseB64u?: string;
+    xClientBaseB64u?: never;
+    clientVerifyingShareB64u?: never;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   };
 
 export type EmailOtpEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase &
-  ThresholdSessionAuth & {
+  SealedRecoveryWalletSessionAuthCarrier & {
     authMethod: 'email_otp';
     rpId: string;
-    xClientBaseB64u: string;
     routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     companionEcdsaRecovery?: EmailOtpEcdsaSealedRecoveryRecord;
   };
@@ -217,6 +215,18 @@ function normalizeSessionKind(value: unknown): ThresholdSessionKind | null {
   return value === 'jwt' || value === 'cookie' ? value : null;
 }
 
+export function sealedRecoverySessionKind(
+  auth: SealedRecoveryWalletSessionAuth,
+): ThresholdSessionKind {
+  return 'jwt';
+}
+
+export function sealedRecoveryWalletSessionJwt(
+  auth: SealedRecoveryWalletSessionAuth,
+): string | undefined {
+  return auth.kind === 'wallet_session_jwt' ? auth.walletSessionJwt : undefined;
+}
+
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
   const normalized = String(value || '')
     .trim()
@@ -224,24 +234,24 @@ function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
   return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : null;
 }
 
-function normalizeThresholdSessionAuthOrReject(args: {
+function normalizeWalletSessionAuthFromStoredRestoreOrReject(args: {
   record: RawSigningSessionSealedStoreRecord;
   sessionKind: ThresholdSessionKind | null;
-  thresholdSessionAuthToken: unknown;
-}): ThresholdSessionAuth | NormalizeSealedRecoveryRecordResult {
+  walletSessionJwt: unknown;
+}): SealedRecoveryWalletSessionAuthCarrier | NormalizeSealedRecoveryRecordResult {
   if (!args.sessionKind) {
     return reject(args.record, 'missing_restore_metadata');
   }
-  if (args.sessionKind === 'cookie') {
-    return { sessionKind: 'cookie' };
-  }
-  const thresholdSessionAuthToken = normalizeNonEmptyString(args.thresholdSessionAuthToken);
-  if (!thresholdSessionAuthToken) {
+  if (args.sessionKind === 'cookie') return reject(args.record, 'missing_restore_metadata');
+  const walletSessionJwt = normalizeNonEmptyString(args.walletSessionJwt);
+  if (!walletSessionJwt) {
     return reject(args.record, 'missing_restore_metadata');
   }
   return {
-    sessionKind: 'jwt',
-    thresholdSessionAuthToken,
+    walletSessionAuth: {
+      kind: 'wallet_session_jwt',
+      walletSessionJwt: walletSessionJwt,
+    },
   };
 }
 
@@ -268,13 +278,13 @@ function resolveSigningRootBinding(args: {
 
 function resolveRuntimePolicyScope(args: {
   rawRuntimePolicyScope: unknown;
-  rawThresholdSessionAuthToken: unknown;
+  rawWalletSessionJwt: unknown;
 }): ThresholdRuntimePolicyScope | undefined {
   const explicit = normalizeThresholdRuntimePolicyScope(args.rawRuntimePolicyScope);
   if (explicit) return explicit;
-  const thresholdSessionAuthToken = normalizeNonEmptyString(args.rawThresholdSessionAuthToken);
-  if (!thresholdSessionAuthToken) return undefined;
-  return parseThresholdRuntimePolicyScopeFromJwt(thresholdSessionAuthToken);
+  const walletSessionJwt = normalizeNonEmptyString(args.rawWalletSessionJwt);
+  if (!walletSessionJwt) return undefined;
+  return parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
 }
 
 function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string, unknown> {
@@ -349,7 +359,7 @@ export function normalizeSealedRecoveryRecord(
     const restore = ecdsaRestore;
     const runtimePolicyScope = resolveRuntimePolicyScope({
       rawRuntimePolicyScope: restore?.runtimePolicyScope,
-      rawThresholdSessionAuthToken: restore?.thresholdSessionAuthToken,
+      rawWalletSessionJwt: restore?.walletSessionJwt,
     });
     const signingRootBinding = resolveSigningRootBinding({
       runtimePolicyScope,
@@ -398,13 +408,13 @@ export function normalizeSealedRecoveryRecord(
     ) {
       return reject(raw, 'missing_restore_metadata');
     }
-    const thresholdSessionAuth = normalizeThresholdSessionAuthOrReject({
+    const walletSessionAuth = normalizeWalletSessionAuthFromStoredRestoreOrReject({
       record: raw,
       sessionKind,
-      thresholdSessionAuthToken: restore.thresholdSessionAuthToken,
+      walletSessionJwt: restore.walletSessionJwt,
     });
-    if ('kind' in thresholdSessionAuth) {
-      return thresholdSessionAuth;
+    if ('kind' in walletSessionAuth) {
+      return walletSessionAuth;
     }
     const companionEd25519ThresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ed25519);
     let companionEd25519Recovery: EmailOtpEcdsaCompanionEd25519Recovery | undefined;
@@ -418,32 +428,36 @@ export function normalizeSealedRecoveryRecord(
       const companionRelayerKeyId = normalizeNonEmptyString(ed25519Restore.relayerKeyId);
       const companionParticipantIds = normalizeParticipantIds(ed25519Restore.participantIds);
       const companionXClientBaseB64u = normalizeNonEmptyString(ed25519Restore.xClientBaseB64u);
+      const companionClientVerifyingShareB64u = normalizeNonEmptyString(
+        ed25519Restore.clientVerifyingShareB64u,
+      );
       const companionRouterAbNormalSigning = parseRouterAbEd25519NormalSigningState(
         ed25519Restore.routerAbNormalSigning,
       );
       const companionSessionKind = normalizeSessionKind(ed25519Restore.sessionKind);
-      const companionThresholdSessionAuthToken = normalizeNonEmptyString(
-        ed25519Restore.thresholdSessionAuthToken,
+      const companionWalletSessionJwt = normalizeNonEmptyString(
+        ed25519Restore.walletSessionJwt,
       );
-      let companionThresholdSessionAuth: ThresholdSessionAuth | null = null;
-      if (companionSessionKind === 'cookie') {
-        companionThresholdSessionAuth = { sessionKind: 'cookie' };
-      } else if (companionSessionKind === 'jwt' && companionThresholdSessionAuthToken) {
-        companionThresholdSessionAuth = {
-          sessionKind: 'jwt',
-          thresholdSessionAuthToken: companionThresholdSessionAuthToken,
+      let companionWalletSessionAuth: SealedRecoveryWalletSessionAuthCarrier | null = null;
+      if (companionSessionKind === 'jwt' && companionWalletSessionJwt) {
+        companionWalletSessionAuth = {
+          walletSessionAuth: {
+            kind: 'wallet_session_jwt',
+            walletSessionJwt: companionWalletSessionJwt,
+          },
         };
       }
       if (
         companionRpId &&
         companionRelayerKeyId &&
         companionParticipantIds.length &&
-        companionXClientBaseB64u &&
-        companionThresholdSessionAuth
+        !companionXClientBaseB64u &&
+        !companionClientVerifyingShareB64u &&
+        companionWalletSessionAuth
       ) {
         const companionRuntimePolicyScope = resolveRuntimePolicyScope({
           rawRuntimePolicyScope: ed25519Restore.runtimePolicyScope,
-          rawThresholdSessionAuthToken: ed25519Restore.thresholdSessionAuthToken,
+          rawWalletSessionJwt: ed25519Restore.walletSessionJwt,
         });
         companionEd25519Recovery = {
           storeKey,
@@ -467,11 +481,10 @@ export function normalizeSealedRecoveryRecord(
           rpId: companionRpId,
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
-          ...companionThresholdSessionAuth,
+          ...companionWalletSessionAuth,
           ...(companionRuntimePolicyScope
             ? { runtimePolicyScope: companionRuntimePolicyScope }
             : {}),
-          xClientBaseB64u: companionXClientBaseB64u,
           ...(companionRouterAbNormalSigning
             ? { routerAbNormalSigning: companionRouterAbNormalSigning }
             : {}),
@@ -509,7 +522,7 @@ export function normalizeSealedRecoveryRecord(
             participantIds,
             relayerUrl,
             relayerKeyId,
-            ...thresholdSessionAuth,
+            ...walletSessionAuth,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             clientVerifyingShareB64u: passkeyClientVerifyingShareB64u!,
           }
@@ -542,7 +555,7 @@ export function normalizeSealedRecoveryRecord(
             participantIds,
             relayerUrl,
             relayerKeyId,
-            ...thresholdSessionAuth,
+            ...walletSessionAuth,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
             ...(normalizeNonEmptyString(thresholdSessionIds.ed25519)
@@ -564,6 +577,7 @@ export function normalizeSealedRecoveryRecord(
   const rpId = normalizeNonEmptyString(restore?.rpId);
   const participantIds = normalizeParticipantIds(restore?.participantIds);
   const xClientBaseB64u = normalizeNonEmptyString(restore?.xClientBaseB64u);
+  const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     restore?.routerAbNormalSigning,
   );
@@ -575,27 +589,28 @@ export function normalizeSealedRecoveryRecord(
     !relayerUrl ||
     !relayerKeyId ||
     !participantIds.length ||
-    (raw.authMethod === 'email_otp' && !xClientBaseB64u)
+    xClientBaseB64u ||
+    clientVerifyingShareB64u
   ) {
     return reject(raw, 'missing_restore_metadata');
   }
-  const thresholdSessionAuth = normalizeThresholdSessionAuthOrReject({
+  const walletSessionAuth = normalizeWalletSessionAuthFromStoredRestoreOrReject({
     record: raw,
     sessionKind,
-    thresholdSessionAuthToken: restore.thresholdSessionAuthToken,
+    walletSessionJwt: restore.walletSessionJwt,
   });
-  if ('kind' in thresholdSessionAuth) {
-    return thresholdSessionAuth;
+  if ('kind' in walletSessionAuth) {
+    return walletSessionAuth;
   }
   const runtimePolicyScope = resolveRuntimePolicyScope({
     rawRuntimePolicyScope: restore.runtimePolicyScope,
-    rawThresholdSessionAuthToken: restore.thresholdSessionAuthToken,
+    rawWalletSessionJwt: restore.walletSessionJwt,
   });
   let companionEcdsaRecovery: EmailOtpEcdsaSealedRecoveryRecord | undefined;
   if (raw.authMethod === 'email_otp' && (thresholdSessionIds.ecdsa || ecdsaRestore)) {
     const companionRuntimePolicyScope = resolveRuntimePolicyScope({
       rawRuntimePolicyScope: ecdsaRestore?.runtimePolicyScope,
-      rawThresholdSessionAuthToken: ecdsaRestore?.thresholdSessionAuthToken,
+      rawWalletSessionJwt: ecdsaRestore?.walletSessionJwt,
     });
     const companionSigningRootBinding = resolveSigningRootBinding({
       runtimePolicyScope: companionRuntimePolicyScope,
@@ -627,13 +642,13 @@ export function normalizeSealedRecoveryRecord(
     } catch {
       return reject(raw, 'wrong_chain_target');
     }
-    const companionThresholdSessionAuth = normalizeThresholdSessionAuthOrReject({
+    const companionWalletSessionAuth = normalizeWalletSessionAuthFromStoredRestoreOrReject({
       record: raw,
       sessionKind: normalizeSessionKind(ecdsaRestore.sessionKind),
-      thresholdSessionAuthToken: ecdsaRestore.thresholdSessionAuthToken,
+      walletSessionJwt: ecdsaRestore.walletSessionJwt,
     });
-    if ('kind' in companionThresholdSessionAuth) {
-      return companionThresholdSessionAuth;
+    if ('kind' in companionWalletSessionAuth) {
+      return companionWalletSessionAuth;
     }
     companionEcdsaRecovery = {
       storeKey,
@@ -670,7 +685,7 @@ export function normalizeSealedRecoveryRecord(
       participantIds: normalizeParticipantIds(ecdsaRestore.participantIds),
       relayerUrl,
       relayerKeyId: normalizeNonEmptyString(ecdsaRestore.relayerKeyId)!,
-      ...companionThresholdSessionAuth,
+      ...companionWalletSessionAuth,
       ...(companionRuntimePolicyScope ? { runtimePolicyScope: companionRuntimePolicyScope } : {}),
       clientVerifyingShareB64u: normalizeNonEmptyString(ecdsaRestore.clientVerifyingShareB64u)!,
     };
@@ -699,9 +714,8 @@ export function normalizeSealedRecoveryRecord(
           rpId,
           relayerKeyId,
           participantIds,
-          ...thresholdSessionAuth,
+          ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
           ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
         }
       : {
@@ -726,9 +740,8 @@ export function normalizeSealedRecoveryRecord(
           rpId,
           relayerKeyId,
           participantIds,
-          ...thresholdSessionAuth,
+          ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          xClientBaseB64u: xClientBaseB64u!,
           ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
           ...(companionEcdsaRecovery
             ? {

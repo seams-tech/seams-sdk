@@ -13,16 +13,15 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
   buildEcdsaSessionIdentity,
-  type VerifiedEcdsaThresholdSessionAuth,
+  type VerifiedEcdsaWalletSessionAuth,
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import {
-  buildCookieReconnectEcdsaActivation,
   buildEcdsaExportActivation,
   buildEmailOtpPerOperationReauthEcdsaActivation,
   buildEmailOtpSessionBootstrapEcdsaActivation,
   buildPasskeyReconnectEcdsaActivation,
   buildPasskeyRegistrationEcdsaActivation,
-  buildThresholdSessionReconnectEcdsaActivation,
+  buildWalletSessionReconnectEcdsaActivation,
   type EcdsaBootstrapLifecycleCommand,
 } from './ecdsaSessionProvision';
 
@@ -44,15 +43,15 @@ declare const emailOtpWorkerSessionHandle: Extract<
   { action: 'threshold_ecdsa_bootstrap' }
 >;
 
-const thresholdSessionAuth = {
-  kind: 'threshold_session',
+const walletSessionAuth = {
+  kind: 'wallet_session',
   curve: 'ecdsa',
   identity: sessionIdentity,
-  thresholdSessionAuthToken: 'jwt-token',
+  walletSessionJwt: 'jwt-token',
   expiresAtMs: 1,
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   relayerKeyId: 'relayer-key-1',
-} satisfies VerifiedEcdsaThresholdSessionAuth;
+} satisfies VerifiedEcdsaWalletSessionAuth;
 
 const emailOtpAuthContext = {
   policy: 'session',
@@ -160,19 +159,12 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
   emailOtpAuthContext: emailOtpSingleUseAuthContext,
 });
 
-void buildThresholdSessionReconnectEcdsaActivation({
+void buildWalletSessionReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  thresholdSessionAuth,
+  walletSessionAuth,
   passkeyPrfFirstB64u: 'client-root',
-  passkeyCredentialIdB64u,
-});
-
-void buildCookieReconnectEcdsaActivation({
-  ...exactActivationCommon,
-  sessionIdentity,
-  sessionKind: 'cookie',
   passkeyCredentialIdB64u,
 });
 
@@ -199,8 +191,8 @@ void buildPasskeyReconnectEcdsaActivation({
   sessionKind: 'jwt',
   passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
-  // @ts-expect-error passkey activation must not accept threshold-session auth
-  thresholdSessionAuth,
+  // @ts-expect-error passkey activation must not accept Wallet Session auth
+  walletSessionAuth,
 });
 
 void buildPasskeyReconnectEcdsaActivation({
@@ -241,21 +233,12 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   webauthnAuthentication,
 });
 
-void buildCookieReconnectEcdsaActivation({
+void buildWalletSessionReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
+  // @ts-expect-error Wallet Session reconnect must stay on jwt sessionKind
   sessionKind: 'cookie',
-  passkeyCredentialIdB64u,
-  // @ts-expect-error cookie reconnect must not accept fresh client root share material
-  passkeyPrfFirstB64u: 'client-root',
-});
-
-void buildThresholdSessionReconnectEcdsaActivation({
-  ...exactActivationCommon,
-  sessionIdentity,
-  // @ts-expect-error threshold-session-auth reconnect must stay on jwt sessionKind
-  sessionKind: 'cookie',
-  thresholdSessionAuth,
+  walletSessionAuth,
   passkeyPrfFirstB64u: 'client-root',
   passkeyCredentialIdB64u,
 });
@@ -335,9 +318,9 @@ const invalidLifecycleCommandWithBroadIdentity = {
 void invalidLifecycleCommandWithBroadIdentity;
 
 const invalidLifecycleCommandWithTargetIntent = {
-  kind: 'cookie_existing_session_reconnect',
+  kind: 'wallet_session_existing_session_reconnect',
   request: {
-    kind: 'cookie_reconnect',
+    kind: 'wallet_session_reconnect',
     ...exactActivationCommon,
     // @ts-expect-error lifecycle bootstrap commands cannot carry target keyIntent state.
     keyIntent: {
@@ -346,7 +329,10 @@ const invalidLifecycleCommandWithTargetIntent = {
       participantIds: [1, 2],
     },
     sessionIdentity,
-    sessionKind: 'cookie',
+    sessionKind: 'jwt',
+    walletSessionAuth,
+    passkeyPrfFirstB64u: 'client-root',
+    passkeyCredentialIdB64u,
   },
 } satisfies EcdsaBootstrapLifecycleCommand;
 void invalidLifecycleCommandWithTargetIntent;

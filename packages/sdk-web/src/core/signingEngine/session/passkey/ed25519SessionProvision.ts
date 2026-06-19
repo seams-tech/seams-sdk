@@ -30,7 +30,7 @@ export async function provisionThresholdEd25519Session(
   const nearAccountId = toAccountId(args.nearAccountId);
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
-  const sessionKind = args.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+  const sessionKind = 'jwt';
   const source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'> =
     args.source === 'email_otp' ? 'manual-connect' : args.source || 'manual-connect';
   if (!relayerUrl) {
@@ -51,6 +51,7 @@ export async function provisionThresholdEd25519Session(
     relayerKeyId: args.relayerKeyId,
     ...(args.auth ? { auth: args.auth } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     nearAccountId,
     participantIds,
@@ -82,7 +83,7 @@ export async function provisionThresholdEd25519Session(
     !walletSigningSessionId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
-    (sessionKind === 'jwt' && !jwt)
+    !jwt
   ) {
     return {
       ok: false,
@@ -92,44 +93,25 @@ export async function provisionThresholdEd25519Session(
   }
 
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
-  if (sessionKind === 'cookie') {
-    persist({
-      kind: 'cookie_passkey',
-      nearAccountId,
-      rpId: deps.touchIdPrompt.getRpId(),
-      relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      ...(connected.runtimePolicyScope || args.runtimePolicyScope
-        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
-        : {}),
-      participantIds,
-      sessionKind: 'cookie',
-      sessionId: resolvedSessionId,
-      walletSigningSessionId,
-      expiresAtMs,
-      remainingUses,
-      source,
-    });
-  } else {
-    persist({
-      kind: 'jwt_passkey',
-      nearAccountId,
-      rpId: deps.touchIdPrompt.getRpId(),
-      relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      ...(connected.runtimePolicyScope || args.runtimePolicyScope
-        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
-        : {}),
-      participantIds,
-      sessionKind: 'jwt',
-      sessionId: resolvedSessionId,
-      walletSigningSessionId,
-      expiresAtMs,
-      remainingUses,
-      jwt,
-      source,
-    });
-  }
+  persist({
+    kind: 'jwt_passkey',
+    nearAccountId,
+    rpId: deps.touchIdPrompt.getRpId(),
+    relayerUrl,
+    relayerKeyId: args.relayerKeyId,
+    ...(connected.runtimePolicyScope || args.runtimePolicyScope
+      ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
+      : {}),
+    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
+    participantIds,
+    sessionKind: 'jwt',
+    sessionId: resolvedSessionId,
+    walletSigningSessionId,
+    expiresAtMs,
+    remainingUses,
+    jwt,
+    source,
+  });
 
   if (prfFirstB64u) {
     try {
@@ -143,7 +125,7 @@ export async function provisionThresholdEd25519Session(
           walletId: String(nearAccountId),
           relayerUrl,
           walletSigningSessionId,
-          ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
+          ...(jwt ? { walletSessionJwt: jwt } : {}),
         },
       });
     } catch (error: unknown) {

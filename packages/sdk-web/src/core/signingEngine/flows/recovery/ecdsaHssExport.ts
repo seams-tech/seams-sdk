@@ -44,7 +44,7 @@ async function digestB64u(input: unknown): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input)));
 }
 
-export async function exportEcdsaHssKeyWithThresholdSession(
+export async function exportEcdsaHssKeyWithWalletSession(
   deps: EcdsaHssExplicitExportDeps,
   args: {
     walletSessionUserId: string;
@@ -59,17 +59,14 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   ethereumAddress: string;
 }> {
   const signerTransport = args.signerSession.transport;
-  const signerTransportAuth = signerTransport.auth;
-  const thresholdSessionAuthToken =
-    signerTransportAuth.kind === 'jwt_threshold_session_auth'
-      ? String(signerTransportAuth.thresholdSessionAuthToken || '').trim()
-      : '';
+  const walletSessionJwt = String(
+    args.signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt || '',
+  ).trim();
   const relayerUrl = String(signerTransport.relayerUrl || '').trim();
   const keyHandle = String(args.signerSession.publicFacts.keyHandle || '').trim();
   const walletId = toWalletId(args.walletSessionUserId);
-  const sessionKind =
-    signerTransportAuth.kind === 'cookie_threshold_session_auth' ? 'cookie' : 'jwt';
-  if (!relayerUrl || !keyHandle || (!thresholdSessionAuthToken && sessionKind !== 'cookie')) {
+  const sessionKind = 'jwt' as const;
+  if (!relayerUrl || !keyHandle || !walletSessionJwt) {
     throw new Error(
       '[SigningEngine][ecdsa-export] ready export signer session is missing canonical transport',
     );
@@ -159,11 +156,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     expiresAtUnixMs,
     clientDeviceId: String(args.signerSession.session.walletSigningSessionId),
     clientSessionId: String(args.signerSession.session.thresholdSessionId),
-    auth:
-      sessionKind === 'cookie'
-        ? { kind: 'cookie' }
-        : { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
-    sessionKind,
+    auth: { kind: 'wallet_session', jwt: walletSessionJwt },
   });
   if (!exportShare.ok) {
     throw new Error(

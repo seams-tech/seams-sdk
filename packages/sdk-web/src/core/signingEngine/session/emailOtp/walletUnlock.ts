@@ -6,6 +6,7 @@ import type {
   EmailOtpWorkerProgressEvent,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 
 export type EmailOtpWalletUnlockRecovery = {
@@ -23,7 +24,7 @@ export type EmailOtpWalletUnlockResult = {
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
 };
 
-export async function unlockEmailOtpWallet(args: {
+type EmailOtpWalletUnlockBaseArgs = {
   walletSession: WalletSessionRef;
   relayUrl: string;
   shamirPrimeB64u: string;
@@ -32,14 +33,47 @@ export async function unlockEmailOtpWallet(args: {
   workerCtx: WorkerOperationContext;
   challengeId?: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
-  ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
-  runtimePolicyScope?: {
-    orgId: string;
-    projectId: string;
-    envId: string;
-    signingRootVersion: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+};
+
+export async function unlockEmailOtpWalletForEd25519Session(
+  args: EmailOtpWalletUnlockBaseArgs,
+): Promise<{ recovery: EmailOtpWalletUnlockRecovery }> {
+  const result = await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'loginWithEmailOtpWallet',
+      timeoutMs: 60_000,
+      payload: {
+        relayUrl: args.relayUrl,
+        walletId: String(args.walletSession.walletId),
+        userId: String(args.walletSession.walletSessionUserId),
+        ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+        otpCode: args.otpCode,
+        shamirPrimeB64u: args.shamirPrimeB64u,
+        routePlan: args.routePlan,
+        otpChannel: EMAIL_OTP_CHANNEL,
+        runtimePolicyScope: args.runtimePolicyScope,
+      },
+      onEvent: args.onProgress,
+    },
+  });
+  const thresholdEd25519PrfFirstB64u = String(
+    result.recovery?.thresholdEd25519PrfFirstB64u || '',
+  ).trim();
+  if (!thresholdEd25519PrfFirstB64u) {
+    throw new Error('Email OTP wallet unlock did not return Ed25519 PRF material');
+  }
+  return {
+    recovery: result.recovery,
   };
-}): Promise<EmailOtpWalletUnlockResult> {
+}
+
+export async function unlockEmailOtpWallet(
+  args: EmailOtpWalletUnlockBaseArgs & {
+    ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
+  },
+): Promise<EmailOtpWalletUnlockResult> {
   const result = await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
@@ -55,7 +89,7 @@ export async function unlockEmailOtpWallet(args: {
         routePlan: args.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
         ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
-        ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+        runtimePolicyScope: args.runtimePolicyScope,
       },
       onEvent: args.onProgress,
     },

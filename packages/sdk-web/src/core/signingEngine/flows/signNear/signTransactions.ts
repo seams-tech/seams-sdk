@@ -887,25 +887,33 @@ export async function runNearTransactionsWithActionsSigning({
     operationState: SignedTransactionOperation<SelectedEd25519Lane>,
   ): Promise<void> => {
     if (walletSpendRecorded) return;
-    const finalizer = createNearBudgetFinalizer(
-      {
-        kind: 'externally_consumed_success',
-        spend: {
-          operationId: confirmationOperationId,
-          ...(operationFingerprint ? { operationFingerprint } : {}),
-          walletId: nearAccountId,
-          walletSigningSessionId: buildBudgetSigningLane().walletSigningSessionId,
-          lane: buildBudgetSigningLane(),
-          thresholdSessionIds: [operationState.lane.thresholdSessionId],
-          backingMaterialSessionIds: [],
-          uses: requiredSignatureUses,
-          reason: SigningOperationIntent.TransactionSign,
-        },
-        ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
-        alreadyConsumedThresholdSessionIds: [operationState.lane.thresholdSessionId],
-      },
-      operationState,
-    );
+    const spend = {
+      operationId: confirmationOperationId,
+      ...(operationFingerprint ? { operationFingerprint } : {}),
+      walletId: nearAccountId,
+      walletSigningSessionId: buildBudgetSigningLane().walletSigningSessionId,
+      lane: buildBudgetSigningLane(),
+      thresholdSessionIds: [operationState.lane.thresholdSessionId],
+      backingMaterialSessionIds: [],
+      uses: requiredSignatureUses,
+      reason: SigningOperationIntent.TransactionSign,
+    };
+    const finalization: BudgetFinalizationSpend =
+      operationState.lane.authMethod === 'email_otp'
+        ? {
+            kind: 'externally_consumed_success',
+            spend,
+            ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
+            alreadyConsumedThresholdSessionIds: [operationState.lane.thresholdSessionId],
+          }
+        : {
+            kind: 'unreserved_success',
+            spend,
+            expectedBudgetProjectionVersion:
+              operationState.budgetAdmission.budgetIdentity.projectionVersion,
+            ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
+          };
+    const finalizer = createNearBudgetFinalizer(finalization, operationState);
     if (!finalizer) {
       walletSpendRecorded = true;
       return;

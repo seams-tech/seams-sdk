@@ -10,7 +10,7 @@ import type {
 } from '@/core/signingEngine/session/persistence/records';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { appSessionJwtFromEmailOtpAuthLane } from './appSessionJwtCache';
 import {
@@ -41,14 +41,14 @@ export type RequestEmailOtpChallengeArgs =
       kind: 'wallet_session_challenge';
       walletSession: WalletSessionRef;
       chain: EmailOtpRouteChain;
-      routeAuth?: AppOrThresholdSessionAuth;
+      routeAuth?: AppOrWalletSessionAuth;
       authLane?: EmailOtpAuthLane;
     }
   | {
       kind: 'near_account_challenge';
       nearAccountId: AccountId;
       chain: EmailOtpRouteChain;
-      routeAuth?: AppOrThresholdSessionAuth;
+      routeAuth?: AppOrWalletSessionAuth;
       authLane?: EmailOtpAuthLane;
       walletSession?: never;
     };
@@ -58,14 +58,13 @@ export type ExportEd25519SeedWithAuthorizationArgs = {
   challengeId: string;
   otpCode: string;
   record: ThresholdEd25519SessionRecord;
-  signingRootId: string;
   keyVersion: string;
   participantIds: number[];
   thresholdSessionId: string;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   relayerKeyId: string;
   expectedPublicKey: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   authLane?: EmailOtpAuthLane;
 };
 
@@ -75,7 +74,7 @@ export type ExportEcdsaKeyWithAuthorizationArgs = {
   otpCode: string;
   record: ThresholdEcdsaSessionRecord;
   rpId: string;
-  routeAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrWalletSessionAuth;
   authLane?: EmailOtpAuthLane;
 };
 

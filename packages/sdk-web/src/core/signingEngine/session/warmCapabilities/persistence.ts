@@ -13,8 +13,8 @@ import type {
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
-  type ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
 
 type PersistWarmSessionEd25519CapabilityCommon = {
@@ -22,13 +22,17 @@ type PersistWarmSessionEd25519CapabilityCommon = {
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds: readonly number[];
   sessionId: string;
   walletSigningSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
-  xClientBaseB64u?: string;
+  clientVerifyingShareB64u?: string;
+  ed25519HssMaterialHandle?: string;
+  ed25519HssMaterialBindingDigest?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   updatedAtMs?: number;
 };
@@ -51,19 +55,9 @@ export type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs =
     emailOtpAuthContext?: never;
   };
 
-export type PersistWarmSessionEd25519CookiePasskeyCapabilityArgs =
-  PersistWarmSessionEd25519CapabilityCommon & {
-    kind: 'cookie_passkey';
-    sessionKind: 'cookie';
-    source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
-    jwt?: never;
-    emailOtpAuthContext?: never;
-  };
-
 export type PersistWarmSessionEd25519CapabilityArgs =
   | PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs
-  | PersistWarmSessionEd25519JwtPasskeyCapabilityArgs
-  | PersistWarmSessionEd25519CookiePasskeyCapabilityArgs;
+  | PersistWarmSessionEd25519JwtPasskeyCapabilityArgs;
 
 export function persistWarmSessionEd25519Capability(
   args: PersistWarmSessionEd25519CapabilityArgs,
@@ -90,13 +84,23 @@ export function persistWarmSessionEd25519Capability(
     throw new Error('Missing participantIds for warm threshold-ed25519 capability');
   }
 
-  const xClientBaseB64u = String(args.xClientBaseB64u || '').trim();
-  const jwt = args.kind === 'cookie_passkey' ? '' : String(args.jwt || '').trim();
-  const runtimePolicyScope =
-    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
+  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  const ed25519HssMaterialHandle = String(args.ed25519HssMaterialHandle || '').trim();
+  const ed25519HssMaterialBindingDigest = String(
+    args.ed25519HssMaterialBindingDigest || '',
+  ).trim();
+  const jwt = String(args.jwt || '').trim();
+  const runtimePolicyScope = args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
+  const signingRootBinding = runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
+    : null;
+  const signingRootId =
+    String(args.signingRootId || '').trim() ||
+    String(signingRootBinding?.signingRootId || '').trim();
+  const signingRootVersion =
+    String(args.signingRootVersion || '').trim() ||
+    String(signingRootBinding?.signingRootVersion || '').trim();
   const authMethod = args.kind === 'jwt_email_otp' ? 'email_otp' : 'passkey';
-  const thresholdSessionKind: ThresholdSessionKind =
-    args.kind === 'cookie_passkey' ? 'cookie' : 'jwt';
   const source = args.source;
 
   const record = upsertStoredThresholdEd25519SessionRecord({
@@ -105,13 +109,17 @@ export function persistWarmSessionEd25519Capability(
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds,
+    ...(signingRootId ? { signingRootId } : {}),
+    ...(signingRootVersion ? { signingRootVersion } : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    ...(ed25519HssMaterialHandle ? { ed25519HssMaterialHandle } : {}),
+    ...(ed25519HssMaterialBindingDigest ? { ed25519HssMaterialBindingDigest } : {}),
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
-    thresholdSessionKind,
+    thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
     walletSigningSessionId,
-    ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
+    ...(jwt ? { walletSessionJwt: jwt } : {}),
     expiresAtMs,
     remainingUses,
     ...(args.kind === 'jwt_email_otp'

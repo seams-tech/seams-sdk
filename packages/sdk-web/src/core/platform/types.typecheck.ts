@@ -46,6 +46,7 @@ import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
 } from '../types/webauthn';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 
 declare const runtime: RuntimePorts;
 declare const platformResult: PlatformResult<{ value: string }, 'failed'>;
@@ -59,6 +60,7 @@ declare const pendingBlob: EcdsaRoleLocalPendingStateBlob;
 declare const readyBlob: EcdsaRoleLocalReadyStateBlob;
 declare const publicFacts: EcdsaRoleLocalPublicFacts;
 declare const readyRecord: EcdsaRoleLocalReadyRecord;
+declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const passkeyReadyRecord: Extract<
   EcdsaRoleLocalReadyRecord,
   { kind: 'ecdsa_role_local_ready_passkey_v1' }
@@ -462,6 +464,28 @@ const provisioningReady = {
   record: passkeyReadyRecordLiteral,
 } satisfies EcdsaProvisioningState;
 void provisioningReady;
+
+const provisioningNeedsSecretSource = {
+  kind: 'needs_secret_source',
+  walletId: toWalletId('wallet_alice'),
+  rpId: toRpId('wallet.example'),
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+  keyHandle: 'key-handle',
+  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
+  runtimePolicyScope,
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'credential',
+    rpId: toRpId('wallet.example'),
+  }),
+} satisfies EcdsaProvisioningState;
+void provisioningNeedsSecretSource;
+
+const provisioningNeedsSecretSourceWithSigningRoot = {
+  ...provisioningNeedsSecretSource,
+  // @ts-expect-error ECDSA provisioning state derives signing-root identity from runtimePolicyScope.
+  signingRootId: toEcdsaHssSigningRootId('root'),
+} satisfies EcdsaProvisioningState;
+void provisioningNeedsSecretSourceWithSigningRoot;
 
 const provisioningFailedWithRecord = {
   kind: 'failed',

@@ -13,10 +13,10 @@ import {
 import { createWarmSessionAwareUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import {
-  EmailOtpThresholdSessionCoordinator,
-  type EmailOtpThresholdSessionCoordinatorDeps,
+  EmailOtpWalletSessionCoordinator,
+  type EmailOtpWalletSessionCoordinatorDeps,
   type EmailOtpSealedSessionStorePorts,
-} from '../../session/emailOtp/EmailOtpThresholdSessionCoordinator';
+} from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   persistEmailOtpThresholdEd25519LocalMetadata,
   type PersistEmailOtpThresholdEd25519LocalMetadataDeps,
@@ -26,7 +26,7 @@ import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManage
 import type { WarmSigningPorts } from './warmSigning';
 
 export type StepUpRuntime = {
-  emailOtpSessions: EmailOtpThresholdSessionCoordinator;
+  emailOtpSessions: EmailOtpWalletSessionCoordinator;
   touchConfirm: UiConfirmRuntimeBridgePort;
 };
 
@@ -38,7 +38,7 @@ export function createStepUpRuntime(args: {
   ed25519MetadataStore: PersistEmailOtpThresholdEd25519LocalMetadataDeps;
   sealedSessionStore: EmailOtpSealedSessionStorePorts;
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
-  getSignerWorkerContext: EmailOtpThresholdSessionCoordinatorDeps['getSignerWorkerContext'];
+  getSignerWorkerContext: EmailOtpWalletSessionCoordinatorDeps['getSignerWorkerContext'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   getEcdsaSessions: () => WarmSigningPorts['ecdsaSessions'];
   getWarmCapabilityReader: () => WarmSigningPorts['capabilityReader'];
@@ -46,7 +46,7 @@ export function createStepUpRuntime(args: {
     WarmSigningPorts['getThresholdEcdsaSessionRecordByThresholdSessionId'];
   ensureSealedRefreshStartupParity: () => Promise<void>;
 }): StepUpRuntime {
-  const emailOtpSessions = new EmailOtpThresholdSessionCoordinator({
+  const emailOtpSessions = new EmailOtpWalletSessionCoordinator({
     configs: args.seamsWebConfigs,
     signerWorkerManager: args.signerWorkerManager,
     getRpId: () => args.touchIdPrompt.getRpId(),

@@ -4,7 +4,7 @@ import type {
   SeamsChainConfig,
   SeamsConfigsInput,
   SeamsConfigsReadonly,
-  ThresholdEcdsaPresignPoolPolicy,
+  RouterAbEcdsaHssPresignaturePoolPolicy,
 } from '../types/seams';
 import { buildConfigsFromDefaults } from './configBuilder';
 
@@ -22,7 +22,7 @@ export {
 /// ECDSA Threshold (Cait Sith) configs
 //////////////////////////////////////////
 
-export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignPoolPolicy = {
+export const DEFAULT_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_POLICY: RouterAbEcdsaHssPresignaturePoolPolicy = {
   enabled: true,
   targetDepth: 3,
   lowWatermark: 1,
@@ -141,10 +141,11 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
         mode: 'disabled',
       },
     },
+    routerAbEcdsaHss: {
+      // Controls Router A/B ECDSA-HSS client presignature pool refill behavior.
+      presignaturePool: DEFAULT_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_POLICY,
+    },
     thresholdEcdsa: {
-      // Presign pool controls Cait Sith background presignature pool refill behavior.
-      // It is separate from threshold-ECDSA `provisioningDefaults`.
-      presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
       provisioningDefaults: DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS,
     },
   },
@@ -185,6 +186,6 @@ export function buildConfigsFromEnv(overrides: SeamsConfigsInput = {}): SeamsCon
   return buildConfigsFromDefaults({
     defaults: PASSKEY_MANAGER_DEFAULT_CONFIGS,
     overrides,
-    fallbackThresholdEcdsaPresignPoolPolicy: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
+    fallbackRouterAbEcdsaHssPresignaturePoolPolicy: DEFAULT_ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_POLICY,
   });
 }

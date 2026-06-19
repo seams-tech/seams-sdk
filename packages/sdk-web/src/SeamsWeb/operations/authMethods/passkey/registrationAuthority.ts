@@ -1,7 +1,7 @@
 import type { RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { WalletIframeRegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnRegistrationConfirmationSurface } from '@/SeamsWeb/signingSurface/types';
 import {
@@ -73,7 +73,7 @@ export async function collectPasskeyRegistrationAuthority(args: {
   registrationIntentDigestB64u: string;
   options: RegistrationHooksOptions;
   confirmationConfigOverride: Partial<ConfirmationConfig>;
-  walletIframeActivation?: WalletIframeRegistrationActivationProof;
+  walletIframeActivation?: RegistrationActivationProof;
 }): Promise<PasskeyRegistrationAuthorityMaterial> {
   const requestConfirmationStartedAt = performance.now();
   const registrationSession =

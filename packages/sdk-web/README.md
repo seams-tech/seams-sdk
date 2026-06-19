@@ -207,7 +207,7 @@ interface SeamsWebConfig {
     rpIdOverride?: string; // Optional: Credential scope override
   };
 
-  // Optional relay server (for account creation & Shamir 3-pass)
+  // Optional Router API server (for account creation & Shamir 3-pass)
   relayer?: {
     url: string;
   };
@@ -238,11 +238,10 @@ iframeWallet: {
 repo/
 ├── apps/
 │   ├── web-client/               # Browser app/site
-│   ├── web-server/               # Deployable relay server app
+│   ├── web-server/               # Deployable Router API server app
 │   └── docs/                     # Documentation app
 ├── packages/
 │   ├── sdk-web/                  # Browser SDK package and build output
-│   ├── sdk-runtime-ts/           # Platform-neutral runtime entrypoint
 │   ├── sdk-server-ts/            # Server library source
 │   └── shared-ts/                # Shared TypeScript utils/types
 ├── clients/

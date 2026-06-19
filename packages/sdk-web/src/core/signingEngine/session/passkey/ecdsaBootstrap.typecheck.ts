@@ -3,10 +3,7 @@ import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  EcdsaBootstrapRequest,
-  PasskeyCookieReconnectEcdsaBootstrapRequest,
-} from './ecdsaBootstrap';
+import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import type {
   EvmFamilyEcdsaKeyHandle,
@@ -68,8 +65,8 @@ const validPasskeyFreshBootstrap = {
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'bootstrap_grant',
-    token: 'bootstrap-grant-token',
+    kind: 'wallet_session',
+    jwt: 'threshold-session-jwt',
   },
 } satisfies EcdsaBootstrapRequest;
 
@@ -84,11 +81,12 @@ const validPasskeyFreshWebAuthnBootstrap = {
   webauthnAuthentication,
 } satisfies EcdsaBootstrapRequest;
 
-const validPasskeyFreshCookieBootstrap = {
+const invalidPasskeyFreshCookieBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
   chainTarget,
   source: 'login',
+  // @ts-expect-error passkey fresh ECDSA bootstrap must mint JWT Wallet Sessions.
   sessionKind: 'cookie',
   sessionIdentity,
   passkeyPrfFirstB64u: 'passkey-prf-first',
@@ -105,69 +103,49 @@ const invalidPasskeyFreshRegistrationWithExactSessionField: EcdsaBootstrapReques
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'bootstrap_grant',
-    token: 'bootstrap-grant-token',
+    kind: 'wallet_session',
+    jwt: 'threshold-session-jwt',
   },
   // @ts-expect-error target enrollment rejects exact-session key handles.
   keyHandle,
 };
 void invalidPasskeyFreshRegistrationWithExactSessionField;
 
-const validCookieReconnectBootstrap = {
-  kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  keyHandle,
-  key,
-  lanePolicy,
-  passkeyCredentialIdB64u,
-} satisfies EcdsaBootstrapRequest;
-
-const invalidCookieReconnectBootstrapWithKeyIntent: PasskeyCookieReconnectEcdsaBootstrapRequest = {
-  kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  keyHandle,
-  key,
-  lanePolicy,
-  // @ts-expect-error exact activation rejects registration key intents.
-  keyIntent: {
-    kind: 'existing_ecdsa_key',
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
-    participantIds: [1, 2],
-  },
-};
-void invalidCookieReconnectBootstrapWithKeyIntent;
-
-const validThresholdSessionReconnectBootstrap = {
-  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+const validWalletSessionReconnectBootstrap = {
+  kind: 'wallet_session_reconnect_ecdsa_bootstrap',
   keyHandle,
   key,
   lanePolicy,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     jwt: 'threshold-session-jwt',
   },
 } satisfies EcdsaBootstrapRequest;
 
-const validCookieThresholdSessionReconnectBootstrap = {
-  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+const invalidCookieWalletSessionReconnectBootstrap: EcdsaBootstrapRequest = {
+  kind: 'wallet_session_reconnect_ecdsa_bootstrap',
   keyHandle,
   key,
   lanePolicy,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
+    // @ts-expect-error Wallet Session reconnect requires bearer route auth.
     kind: 'cookie',
   },
-} satisfies EcdsaBootstrapRequest;
+};
+void invalidCookieWalletSessionReconnectBootstrap;
 
-// @ts-expect-error threshold-session reconnect requires the primed ECDSA passkey PRF.first
-const invalidThresholdSessionReconnectWithoutPasskeyPrfFirst: EcdsaBootstrapRequest = {
-  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+// @ts-expect-error Wallet Session reconnect requires the primed ECDSA passkey PRF.first
+const invalidWalletSessionReconnectWithoutPasskeyPrfFirst: EcdsaBootstrapRequest = {
+  kind: 'wallet_session_reconnect_ecdsa_bootstrap',
   keyHandle,
   key,
   lanePolicy,
   routeAuth: {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     jwt: 'threshold-session-jwt',
   },
 };
@@ -191,13 +169,11 @@ const validEmailOtpBootstrap = {
 void validReuseBootstrap;
 void validPasskeyFreshBootstrap;
 void validPasskeyFreshWebAuthnBootstrap;
-void validPasskeyFreshCookieBootstrap;
-void validCookieReconnectBootstrap;
-void validThresholdSessionReconnectBootstrap;
+void invalidPasskeyFreshCookieBootstrap;
+void validWalletSessionReconnectBootstrap;
 void validEmailOtpBootstrap;
 
-// @ts-expect-error passkey fresh bootstrap rejects threshold-session auth reconnect material
-const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
+const validPasskeyFreshWithWalletSessionAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
   chainTarget,
@@ -206,10 +182,11 @@ const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     jwt: 'threshold-session-jwt',
   },
 };
+void validPasskeyFreshWithWalletSessionAuth;
 
 // @ts-expect-error jwt passkey fresh bootstrap requires route auth or WebAuthn auth
 const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
@@ -230,8 +207,8 @@ const validPasskeyFreshWithRouteAndWebauthn: EcdsaBootstrapRequest = {
   sessionIdentity,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   routeAuth: {
-    kind: 'bootstrap_grant',
-    token: 'bootstrap-grant-token',
+    kind: 'app_session',
+    jwt: 'app-session-jwt',
   },
   webauthnAuthentication,
 };
@@ -244,30 +221,22 @@ const validPasskeyFreshWithWebauthnCredentialOnly: EcdsaBootstrapRequest = {
   sessionKind: 'jwt',
   sessionIdentity,
   routeAuth: {
-    kind: 'bootstrap_grant',
-    token: 'bootstrap-grant-token',
+    kind: 'app_session',
+    jwt: 'app-session-jwt',
   },
   webauthnAuthentication,
 };
 void validPasskeyFreshWithWebauthnCredentialOnly;
 
-// @ts-expect-error cookie reconnect uses exact key and lane identity.
-const invalidCookieReconnectWithTargetIdentity: EcdsaBootstrapRequest = {
-  kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  walletId,
-  chainTarget,
-};
-void invalidCookieReconnectWithTargetIdentity;
-
-// @ts-expect-error threshold-session reconnect rejects WebAuthn authentication
-const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
-  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+// @ts-expect-error Wallet Session reconnect rejects WebAuthn authentication
+const invalidWalletSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
+  kind: 'wallet_session_reconnect_ecdsa_bootstrap',
   keyHandle,
   key,
   lanePolicy,
   passkeyPrfFirstB64u: 'passkey-prf-first',
   routeAuth: {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     jwt: 'threshold-session-jwt',
   },
   webauthnAuthentication,
@@ -295,22 +264,11 @@ const invalidPasskeyFreshBootstrapWithSubjectId: EcdsaBootstrapRequest = {
   passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'bootstrap_grant',
-    token: 'bootstrap-grant-token',
+    kind: 'wallet_session',
+    jwt: 'threshold-session-jwt',
   },
 };
 void invalidPasskeyFreshBootstrapWithSubjectId;
-
-const invalidCookieReconnectBootstrapWithSubjectId: EcdsaBootstrapRequest = {
-  kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  keyHandle,
-  key,
-  lanePolicy,
-  passkeyCredentialIdB64u,
-  // @ts-expect-error exact cookie reconnect derives subject from key identity.
-  subjectId,
-};
-void invalidCookieReconnectBootstrapWithSubjectId;
 
 const invalidEmailOtpBootstrapWithSubjectId: EcdsaBootstrapRequest = {
   kind: 'email_otp_ecdsa_bootstrap',

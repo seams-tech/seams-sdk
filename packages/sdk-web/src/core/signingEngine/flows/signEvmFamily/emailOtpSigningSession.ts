@@ -1,10 +1,9 @@
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/emailOtpDomain';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import {
   buildEmailOtpRoutePlan,
-  toAuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
@@ -68,11 +67,11 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       routePlan?: ReturnType<typeof buildEmailOtpRoutePlan>;
       publicFacts: VerifiedEcdsaPublicFacts;
       participantIds?: never;
-      sessionKind?: 'jwt' | 'cookie';
+      sessionKind?: 'jwt';
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      routeAuth?: AppOrThresholdSessionAuth;
+      routeAuth?: AppOrWalletSessionAuth;
       ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
       ed25519ReconstructionMode: 'await' | 'skip';
     }) => Promise<{
@@ -255,22 +254,10 @@ function resolveEmailOtpEcdsaSigningSessionAuth(
     chainTarget: args.chainTarget,
     source: 'email_otp',
   });
-  const jwt = String(record.thresholdSessionAuthToken || '').trim();
-  if (!jwt) {
-    throw new Error('Email OTP signing-session refresh requires threshold-session auth');
+  const authLane = emailOtpEcdsaAuthLaneFromRecord(record);
+  if (!authLane) {
+    throw new Error('Email OTP signing-session refresh requires Router A/B Wallet Session auth');
   }
-  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) {
-    throw new Error('Email OTP signing-session refresh requires wallet signing-session identity');
-  }
-  const authLane: EmailOtpAuthLane = {
-    kind: 'signing_session',
-    jwt,
-    thresholdSessionId: record.thresholdSessionId,
-    authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(walletSigningSessionId),
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-  };
   return {
     record,
     authLane,
@@ -332,7 +319,7 @@ export async function refreshEmailOtpSigningSession(
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
     routePlan,
     publicFacts,
-    sessionKind: record.thresholdSessionKind,
+    sessionKind: 'jwt',
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),

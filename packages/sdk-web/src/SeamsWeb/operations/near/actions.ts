@@ -482,16 +482,9 @@ export async function signTransactionsWithActionsInternal({
     // 1. Basic validation (NEAR data fetching moved to confirmation flow)
     await validateInputsOnly(nearAccountId, transactionInputs, { onEvent, onError, waitUntil });
 
-    // 2. UserConfirm/WebAuthn + transaction signing (NEAR data fetched in confirmation flow)
-    emitNearSigningEvent(onEvent, nearAccountId, {
-      phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
-      status: 'waiting_for_user',
-      message: 'Requesting user confirmation',
-      interaction: { kind: 'transaction_confirmation', overlay: 'show' },
-    });
+    // 2. Transaction signing. The signing engine owns confirmation/auth events.
     await yieldForUiPaint();
 
-    // Convert all actions to ActionArgsWasm format for batched transaction
     const transactionInputsWasm: TransactionInputWasm[] = transactionInputs.map((tx) => {
       return {
         receiverId: tx.receiverId,

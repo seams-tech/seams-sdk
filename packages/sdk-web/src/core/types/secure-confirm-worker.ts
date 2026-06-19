@@ -8,6 +8,17 @@
 import type { SigningSessionPersistenceMode } from './seams';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
+export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
+
+type WarmSessionSealTransportCommon = {
+  walletId?: string;
+  relayerUrl: string;
+  walletSigningSessionId?: string;
+  walletSessionJwt?: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+};
+
 export interface UiConfirmManagerConfig {
   workerUrl?: string;
   workerTimeout?: number;
@@ -32,25 +43,22 @@ export type UserConfirmWorkerMessageType =
   | 'WARM_SESSION_REHYDRATE';
 
 export type WarmSessionSealTransportInput =
-  | {
+  | (WarmSessionSealTransportCommon & {
       curve: 'ed25519';
-      walletId?: string;
-      relayerUrl: string;
-      walletSigningSessionId?: string;
-      thresholdSessionAuthToken?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    }
-  | {
+      authMethod: 'email_otp';
+      emailOtpRestore?: never;
+    })
+  | (WarmSessionSealTransportCommon & {
+      curve: 'ed25519';
+      authMethod?: 'passkey';
+      emailOtpRestore?: never;
+    })
+  | (WarmSessionSealTransportCommon & {
       curve: 'ecdsa';
-      walletId?: string;
+      authMethod?: SigningSessionSealAuthMethod;
       chainTarget: ThresholdEcdsaChainTarget;
-      relayerUrl: string;
-      walletSigningSessionId?: string;
-      thresholdSessionAuthToken?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+      emailOtpRestore?: never;
+    });
 
 export interface WarmSessionSealAndPersistPayload {
   sessionId: string;

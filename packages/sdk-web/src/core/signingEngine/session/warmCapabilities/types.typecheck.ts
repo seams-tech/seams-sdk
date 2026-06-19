@@ -26,7 +26,7 @@ type EmailOtpEcdsaSessionProvisionPlan = Extract<
 >;
 type ReconnectEcdsaSessionProvisionPlan = Extract<
   EcdsaSessionProvisionPlan,
-  { kind: 'threshold_session_auth_ecdsa_reconnect' | 'cookie_ecdsa_reconnect' }
+  { kind: 'wallet_session_ecdsa_reconnect' }
 >;
 
 declare const walletId: WalletId;

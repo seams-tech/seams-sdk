@@ -239,8 +239,13 @@ export type ThresholdEd25519SessionRecord = {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
+  signingRootId?: string;
+  signingRootVersion?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   xClientBaseB64u?: string;
+  clientVerifyingShareB64u?: string;
+  ed25519HssMaterialHandle?: string;
+  ed25519HssMaterialBindingDigest?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
@@ -1252,7 +1257,39 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj);
+  const scopeBinding = runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
+    : null;
+  const explicitSigningRootId = normalizeOptionalNonEmptyString(obj.signingRootId);
+  const explicitSigningRootVersion = normalizeOptionalNonEmptyString(obj.signingRootVersion);
+  const scopeSigningRootId = normalizeOptionalNonEmptyString(scopeBinding?.signingRootId);
+  const scopeSigningRootVersion = normalizeOptionalNonEmptyString(scopeBinding?.signingRootVersion);
+  if (
+    explicitSigningRootId &&
+    scopeSigningRootId &&
+    explicitSigningRootId !== scopeSigningRootId
+  ) {
+    throw new Error('Invalid threshold Ed25519 canonical session record: signingRootId mismatch');
+  }
+  if (
+    explicitSigningRootVersion &&
+    scopeSigningRootVersion &&
+    explicitSigningRootVersion !== scopeSigningRootVersion
+  ) {
+    throw new Error(
+      'Invalid threshold Ed25519 canonical session record: signingRootVersion mismatch',
+    );
+  }
+  const signingRootId = explicitSigningRootId || scopeSigningRootId || '';
+  const signingRootVersion = explicitSigningRootVersion || scopeSigningRootVersion || '';
   const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
+  const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
+  const ed25519HssMaterialHandle = normalizeOptionalNonEmptyString(
+    obj.ed25519HssMaterialHandle,
+  );
+  const ed25519HssMaterialBindingDigest = normalizeOptionalNonEmptyString(
+    obj.ed25519HssMaterialBindingDigest,
+  );
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   const thresholdSessionKindRaw = String(obj.thresholdSessionKind || 'jwt')
     .trim()
@@ -1300,8 +1337,13 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     relayerUrl,
     relayerKeyId,
     participantIds,
+    ...(signingRootId ? { signingRootId } : {}),
+    ...(signingRootVersion ? { signingRootVersion } : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    ...(ed25519HssMaterialHandle ? { ed25519HssMaterialHandle } : {}),
+    ...(ed25519HssMaterialBindingDigest ? { ed25519HssMaterialBindingDigest } : {}),
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId,
@@ -1395,6 +1437,79 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
   }
 
   return null;
+}
+
+function isStaleThresholdEd25519RawMaterialRecord(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): boolean {
+  return Boolean(
+    normalizeOptionalNonEmptyString(record?.xClientBaseB64u) &&
+      !normalizeOptionalNonEmptyString(record?.ed25519HssMaterialHandle),
+  );
+}
+
+function forgetInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRecord): void {
+  const accountKey = String(record.nearAccountId || '').trim();
+  const thresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionId);
+  if (accountKey) {
+    const currentAccountRecord = inMemoryEd25519RecordsByAccount.get(accountKey) || null;
+    if (
+      currentAccountRecord &&
+      String(currentAccountRecord.thresholdSessionId || '').trim() === thresholdSessionId
+    ) {
+      inMemoryEd25519RecordsByAccount.delete(accountKey);
+    }
+  }
+  if (
+    thresholdSessionId &&
+    inMemoryEd25519AccountBySessionId.get(thresholdSessionId) === accountKey
+  ) {
+    inMemoryEd25519AccountBySessionId.delete(thresholdSessionId);
+  }
+  const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
+  if (laneKey) {
+    const currentLaneRecord = inMemoryEd25519RecordsByLane.get(laneKey) || null;
+    if (
+      currentLaneRecord &&
+      String(currentLaneRecord.thresholdSessionId || '').trim() === thresholdSessionId
+    ) {
+      inMemoryEd25519RecordsByLane.delete(laneKey);
+    }
+  }
+  if (
+    thresholdSessionId &&
+    laneKey &&
+    inMemoryEd25519LaneBySessionId.get(thresholdSessionId) === laneKey
+  ) {
+    inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
+  }
+}
+
+function pruneStaleThresholdEd25519RawMaterialSessionRecordsForAccount(
+  nearAccountIdRaw: AccountId | string,
+): number {
+  let accountKey = '';
+  try {
+    accountKey = String(toAccountId(nearAccountIdRaw)).trim();
+  } catch {
+    return 0;
+  }
+  if (!accountKey) return 0;
+
+  const staleRecords = new Map<string, ThresholdEd25519SessionRecord>();
+  const accountRecord = inMemoryEd25519RecordsByAccount.get(accountKey) || null;
+  if (accountRecord && isStaleThresholdEd25519RawMaterialRecord(accountRecord)) {
+    staleRecords.set(accountRecord.thresholdSessionId, accountRecord);
+  }
+  for (const record of inMemoryEd25519RecordsByLane.values()) {
+    if (String(record.nearAccountId || '').trim() !== accountKey) continue;
+    if (!isStaleThresholdEd25519RawMaterialRecord(record)) continue;
+    staleRecords.set(record.thresholdSessionId, record);
+  }
+  for (const record of staleRecords.values()) {
+    forgetInMemoryThresholdEd25519Record(record);
+  }
+  return staleRecords.size;
 }
 
 type ThresholdEd25519SessionAuthMethod = 'email_otp' | 'passkey';
@@ -1986,6 +2101,15 @@ export function upsertStoredThresholdEcdsaSessionRecord(
   return record;
 }
 
+export function upsertRestoredThresholdEcdsaSessionRecord(
+  recordRaw: unknown,
+): ThresholdEcdsaSessionRecord {
+  return upsertStoredThresholdEcdsaSessionRecord(
+    { recordsByLane: inMemoryEcdsaRecordsByLane },
+    recordRaw,
+  );
+}
+
 export function listThresholdEcdsaSessionRecordsForWalletTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
@@ -2453,8 +2577,13 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
+  signingRootId?: string;
+  signingRootVersion?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   xClientBaseB64u?: string;
+  clientVerifyingShareB64u?: string;
+  ed25519HssMaterialHandle?: string;
+  ed25519HssMaterialBindingDigest?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
@@ -2472,9 +2601,28 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds: args.participantIds,
+    ...(String(args.signingRootId || '').trim()
+      ? { signingRootId: String(args.signingRootId || '').trim() }
+      : {}),
+    ...(String(args.signingRootVersion || '').trim()
+      ? { signingRootVersion: String(args.signingRootVersion || '').trim() }
+      : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(String(args.xClientBaseB64u || '').trim()
       ? { xClientBaseB64u: String(args.xClientBaseB64u || '').trim() }
+      : {}),
+    ...(String(args.clientVerifyingShareB64u || '').trim()
+      ? { clientVerifyingShareB64u: String(args.clientVerifyingShareB64u || '').trim() }
+      : {}),
+    ...(String(args.ed25519HssMaterialHandle || '').trim()
+      ? { ed25519HssMaterialHandle: String(args.ed25519HssMaterialHandle || '').trim() }
+      : {}),
+    ...(String(args.ed25519HssMaterialBindingDigest || '').trim()
+      ? {
+          ed25519HssMaterialBindingDigest: String(
+            args.ed25519HssMaterialBindingDigest || '',
+          ).trim(),
+        }
       : {}),
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     thresholdSessionKind: String(args.thresholdSessionKind || 'jwt')
@@ -2500,12 +2648,16 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
 export function persistStoredThresholdEd25519SessionClientBase(args: {
   thresholdSessionId: string;
   xClientBaseB64u: string;
+  clientVerifyingShareB64u: string;
+  ed25519HssMaterialHandle?: string;
+  ed25519HssMaterialBindingDigest?: string;
   updatedAtMs?: number;
 }): ThresholdEd25519SessionRecord | null {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const xClientBaseB64u = String(args.xClientBaseB64u || '').trim();
-  if (!thresholdSessionId || !xClientBaseB64u) return null;
-  const existing = getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  if (!thresholdSessionId || !xClientBaseB64u || !clientVerifyingShareB64u) return null;
+  const existing = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
   if (!existing) return null;
   return upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: existing.nearAccountId,
@@ -2513,8 +2665,73 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     relayerUrl: existing.relayerUrl,
     relayerKeyId: existing.relayerKeyId,
     participantIds: existing.participantIds,
+    ...(existing.signingRootId ? { signingRootId: existing.signingRootId } : {}),
+    ...(existing.signingRootVersion ? { signingRootVersion: existing.signingRootVersion } : {}),
     ...(existing.runtimePolicyScope ? { runtimePolicyScope: existing.runtimePolicyScope } : {}),
     xClientBaseB64u,
+    clientVerifyingShareB64u,
+    ...(String(args.ed25519HssMaterialHandle || '').trim()
+      ? { ed25519HssMaterialHandle: String(args.ed25519HssMaterialHandle || '').trim() }
+      : {}),
+    ...(String(args.ed25519HssMaterialBindingDigest || '').trim()
+      ? {
+          ed25519HssMaterialBindingDigest: String(
+            args.ed25519HssMaterialBindingDigest || '',
+          ).trim(),
+        }
+      : {}),
+    ...(existing.routerAbNormalSigning
+      ? { routerAbNormalSigning: existing.routerAbNormalSigning }
+      : {}),
+    thresholdSessionKind: existing.thresholdSessionKind,
+    thresholdSessionId: existing.thresholdSessionId,
+    ...(existing.walletSigningSessionId
+      ? { walletSigningSessionId: existing.walletSigningSessionId }
+      : {}),
+    walletSessionJwt: existing.walletSessionJwt,
+    expiresAtMs: existing.expiresAtMs,
+    remainingUses: existing.remainingUses,
+    ...(existing.emailOtpAuthContext ? { emailOtpAuthContext: existing.emailOtpAuthContext } : {}),
+    updatedAtMs: args.updatedAtMs ?? Date.now(),
+    source: existing.source,
+  });
+}
+
+export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
+  thresholdSessionId: string;
+  ed25519HssMaterialHandle: string;
+  ed25519HssMaterialBindingDigest: string;
+  clientVerifyingShareB64u: string;
+  updatedAtMs?: number;
+}): ThresholdEd25519SessionRecord | null {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  const ed25519HssMaterialHandle = String(args.ed25519HssMaterialHandle || '').trim();
+  const ed25519HssMaterialBindingDigest = String(
+    args.ed25519HssMaterialBindingDigest || '',
+  ).trim();
+  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  if (
+    !thresholdSessionId ||
+    !ed25519HssMaterialHandle ||
+    !ed25519HssMaterialBindingDigest ||
+    !clientVerifyingShareB64u
+  ) {
+    return null;
+  }
+  const existing = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+  if (!existing) return null;
+  return upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: existing.nearAccountId,
+    rpId: existing.rpId,
+    relayerUrl: existing.relayerUrl,
+    relayerKeyId: existing.relayerKeyId,
+    participantIds: existing.participantIds,
+    ...(existing.signingRootId ? { signingRootId: existing.signingRootId } : {}),
+    ...(existing.signingRootVersion ? { signingRootVersion: existing.signingRootVersion } : {}),
+    ...(existing.runtimePolicyScope ? { runtimePolicyScope: existing.runtimePolicyScope } : {}),
+    clientVerifyingShareB64u,
+    ed25519HssMaterialHandle,
+    ed25519HssMaterialBindingDigest,
     ...(existing.routerAbNormalSigning
       ? { routerAbNormalSigning: existing.routerAbNormalSigning }
       : {}),
@@ -2535,6 +2752,7 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
 export function getStoredThresholdEd25519SessionRecordForAccount(
   nearAccountIdRaw: AccountId | string,
 ): ThresholdEd25519SessionRecord | null {
+  pruneStaleThresholdEd25519RawMaterialSessionRecordsForAccount(nearAccountIdRaw);
   const inMemory = getInMemoryThresholdEd25519SessionRecordForAccount(nearAccountIdRaw);
   if (inMemory) return inMemory;
   return null;
@@ -2544,6 +2762,7 @@ export function listStoredThresholdEd25519SessionRecordsForAccount(
   nearAccountIdRaw: AccountId | string,
 ): ThresholdEd25519SessionRecord[] {
   try {
+    pruneStaleThresholdEd25519RawMaterialSessionRecordsForAccount(nearAccountIdRaw);
     const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
     const record = accountKey ? inMemoryEd25519RecordsByAccount.get(accountKey) || null : null;
     return record ? [record] : [];
@@ -2692,6 +2911,10 @@ export function getStoredThresholdEd25519SessionRecordForLane(args: {
     return null;
   }
   const record = inMemoryEd25519RecordsByLane.get(laneKey) || null;
+  if (record && isStaleThresholdEd25519RawMaterialRecord(record)) {
+    forgetInMemoryThresholdEd25519Record(record);
+    return null;
+  }
   if (record && thresholdEd25519RecordMatchesLane(record, lane)) return record;
   if (record) {
     inMemoryEd25519RecordsByLane.delete(laneKey);
@@ -2730,6 +2953,15 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
     ...(record.xClientBaseB64u && !clearClientBase
       ? { xClientBaseB64u: record.xClientBaseB64u }
       : {}),
+    ...(record.clientVerifyingShareB64u && !clearClientBase
+      ? { clientVerifyingShareB64u: record.clientVerifyingShareB64u }
+      : {}),
+    ...(record.ed25519HssMaterialHandle && !clearClientBase
+      ? { ed25519HssMaterialHandle: record.ed25519HssMaterialHandle }
+      : {}),
+    ...(record.ed25519HssMaterialBindingDigest && !clearClientBase
+      ? { ed25519HssMaterialBindingDigest: record.ed25519HssMaterialBindingDigest }
+      : {}),
     ...(record.routerAbNormalSigning
       ? { routerAbNormalSigning: record.routerAbNormalSigning }
       : {}),
@@ -2758,6 +2990,10 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
   const inMemory = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+  if (inMemory && isStaleThresholdEd25519RawMaterialRecord(inMemory)) {
+    forgetInMemoryThresholdEd25519Record(inMemory);
+    return null;
+  }
   if (inMemory) return inMemory;
   return null;
 }

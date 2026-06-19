@@ -13,6 +13,10 @@ import type {
   WalletAuthMethodTarget,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import {
+  parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
@@ -24,7 +28,10 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
+import type {
+  ThresholdEcdsaRoleLocalWorkerShareHandle,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from '@/core/signingEngine/interfaces/signing';
 import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
@@ -43,10 +50,11 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
-
-function stripTrailingSlashes(url: string): string {
-  return String(url || '').replace(/\/+$/, '');
-}
+import {
+  buildBearerAuthorizationHeader,
+  buildRelayerJsonPostRequestInit,
+  normalizeRelayerBaseUrl,
+} from './relayerHttp';
 
 const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL =
   '[Registration] wallet route payload summary';
@@ -134,15 +142,14 @@ async function postJson<TResponse>(args: {
 }): Promise<TResponse> {
   const startedAt = Date.now();
   const requestBody = JSON.stringify(args.body);
-  const response = await fetch(`${stripTrailingSlashes(args.relayerUrl)}${args.path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(args.headers || {}),
-    },
-    credentials: 'omit',
-    body: requestBody,
-  });
+  const response = await fetch(
+    `${normalizeRelayerBaseUrl(args.relayerUrl, { trim: false })}${args.path}`,
+    buildRelayerJsonPostRequestInit({
+      headers: args.headers,
+      body: args.body,
+      bodyJson: requestBody,
+    }),
+  );
   const responseText = await readResponseText(response);
   const data = parseJsonText(responseText);
   if (registrationBenchmarkDiagnosticsEnabled()) {
@@ -667,7 +674,8 @@ export type WalletRegistrationEcdsaHssRespondBootstrap = {
   walletSigningSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
+  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
 };
 
 function requireMatchingString(args: {
@@ -723,7 +731,38 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     actual: serverBootstrap.contextBinding32B64u,
   });
 
-  const thresholdSessionAuthToken = String(serverBootstrap.jwt || '').trim();
+  const walletSessionJwt = String(serverBootstrap.jwt || '').trim();
+  const routerAbEcdsaHssNormalSigning = parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1({
+    walletSessionJwt,
+    expected: {
+      walletId: String(serverBootstrap.walletId || '').trim(),
+      rpId: String(serverBootstrap.rpId || '').trim(),
+      keyHandle: String(serverBootstrap.keyHandle || '').trim(),
+      relayerKeyId: String(serverBootstrap.relayerKeyId || '').trim(),
+      ecdsaThresholdKeyId: String(serverBootstrap.ecdsaThresholdKeyId || '').trim(),
+      signingRootId: String(serverBootstrap.signingRootId || '').trim(),
+      signingRootVersion: String(serverBootstrap.signingRootVersion || '').trim(),
+      thresholdSessionId: String(serverBootstrap.sessionId || '').trim(),
+      walletSigningSessionId: String(serverBootstrap.walletSigningSessionId || '').trim(),
+      expiresAtMs: Number(serverBootstrap.expiresAtMs),
+      participantIds: serverBootstrap.participantIds.map((participantId) =>
+        Math.floor(Number(participantId)),
+      ),
+      contextBinding32B64u: String(serverBootstrap.contextBinding32B64u || '').trim(),
+      clientPublicKey33B64u: String(
+        serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u || '',
+      ).trim(),
+      serverPublicKey33B64u: String(
+        serverBootstrap.publicIdentity.relayerPublicKey33B64u || '',
+      ).trim(),
+      thresholdPublicKey33B64u: String(
+        serverBootstrap.publicIdentity.groupPublicKey33B64u || '',
+      ).trim(),
+      ethereumAddress: String(serverBootstrap.ethereumAddress || '').trim(),
+      clientShareRetryCounter: Math.floor(Number(serverBootstrap.clientShareRetryCounter)),
+      serverShareRetryCounter: Math.floor(Number(serverBootstrap.relayerShareRetryCounter)),
+    },
+  });
   const walletId = String(serverBootstrap.walletId || '').trim();
   const rpId = String(serverBootstrap.rpId || '').trim();
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
@@ -756,7 +795,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     !relayerVerifyingShareB64u ||
     !thresholdSessionId ||
     !walletSigningSessionId ||
-    !thresholdSessionAuthToken ||
+    !walletSessionJwt ||
     !participantIds.length ||
     participantIds.some(
       (participantId) => !Number.isSafeInteger(participantId) || participantId <= 0,
@@ -784,7 +823,8 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     walletSigningSessionId,
     expiresAtMs,
     remainingUses,
-    thresholdSessionAuthToken,
+    walletSessionJwt,
+    routerAbEcdsaHssNormalSigning,
   };
 }
 
@@ -794,6 +834,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   keygenSessionId: string;
   readyStateBlob: EcdsaRoleLocalReadyStateBlob;
+  signingMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
   clientVerifyingShareB64u: string;
   serverBootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
   walletKey: WalletRegistrationEcdsaWalletKey;
@@ -867,7 +908,8 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     expected: args.walletKey.participantIds,
     actual: serverBootstrap.participantIds,
   });
-  const thresholdSessionAuthToken = serverBootstrap.thresholdSessionAuthToken;
+  const walletSessionJwt = serverBootstrap.walletSessionJwt;
+  const routerAbEcdsaHssNormalSigning = serverBootstrap.routerAbEcdsaHssNormalSigning;
   const thresholdSessionId = serverBootstrap.thresholdSessionId;
   const walletSigningSessionId = serverBootstrap.walletSigningSessionId;
   const remainingUses = serverBootstrap.remainingUses;
@@ -910,21 +952,28 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     relayerUrl: args.relayerUrl,
     keyHandle,
     ecdsaThresholdKeyId,
-    signingRootId,
-    ...(signingRootVersion ? { signingRootVersion } : {}),
-    backendBinding: {
-      materialKind: 'role_local_ready_state_blob',
-      relayerKeyId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-      stateBlob: args.readyStateBlob,
-      ecdsaRoleLocalReadyRecord,
-    },
+    backendBinding: args.signingMaterialHandle
+      ? {
+          materialKind: 'role_local_worker_handle',
+          relayerKeyId,
+          clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+          roleLocalMaterialHandle: args.signingMaterialHandle,
+          ecdsaRoleLocalReadyRecord,
+        }
+      : {
+          materialKind: 'role_local_ready_state_blob',
+          relayerKeyId,
+          clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+          stateBlob: args.readyStateBlob,
+          ecdsaRoleLocalReadyRecord,
+        },
     participantIds,
     thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
     relayerVerifyingShareB64u,
+    routerAbEcdsaHssNormalSigning,
     thresholdSessionKind: 'jwt',
-    thresholdSessionAuthToken,
+    walletSessionJwt,
     thresholdSessionId,
     walletSigningSessionId,
   };
@@ -953,7 +1002,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
       walletSigningSessionId,
       expiresAtMs,
       remainingUses,
-      jwt: thresholdSessionAuthToken,
+      jwt: walletSessionJwt,
     },
   };
 }
@@ -1138,9 +1187,10 @@ export async function finalizeWalletRegistration(args: {
 
 function addSignerAuthHeaders(auth: AddSignerAuth): Record<string, string> | undefined {
   if (auth.kind !== 'app_session') return undefined;
-  const token = String(auth.appSessionJwt || '').trim();
-  if (!token) throw new Error('appSessionJwt is required for app-session add-signer auth');
-  return { Authorization: `Bearer ${token}` };
+  return buildBearerAuthorizationHeader({
+    token: auth.appSessionJwt,
+    missingMessage: 'appSessionJwt is required for app-session add-signer auth',
+  });
 }
 
 function addSignerAuthBody(auth: AddSignerAuth): unknown {
@@ -1161,9 +1211,10 @@ function addSignerAuthBody(auth: AddSignerAuth): unknown {
 
 function addAuthMethodAuthHeaders(auth: AddAuthMethodAuth): Record<string, string> | undefined {
   if (auth.kind !== 'app_session') return undefined;
-  const token = String(auth.appSessionJwt || '').trim();
-  if (!token) throw new Error('appSessionJwt is required for app-session add-auth-method auth');
-  return { Authorization: `Bearer ${token}` };
+  return buildBearerAuthorizationHeader({
+    token: auth.appSessionJwt,
+    missingMessage: 'appSessionJwt is required for app-session add-auth-method auth',
+  });
 }
 
 function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
@@ -1197,9 +1248,10 @@ function revokeAuthMethodAuthHeaders(
   auth: RevokeAuthMethodAuth,
 ): Record<string, string> | undefined {
   if (auth.kind !== 'app_session') return undefined;
-  const token = String(auth.appSessionJwt || '').trim();
-  if (!token) throw new Error('appSessionJwt is required for app-session auth-method revoke');
-  return { Authorization: `Bearer ${token}` };
+  return buildBearerAuthorizationHeader({
+    token: auth.appSessionJwt,
+    missingMessage: 'appSessionJwt is required for app-session auth-method revoke',
+  });
 }
 
 function revokeAuthMethodAuthBody(auth: RevokeAuthMethodAuth): unknown {
@@ -1355,7 +1407,7 @@ export async function revokeWalletAuthMethod(args: {
   });
 }
 
-export async function repairWalletEcdsaKeyFactsInventoryWithAppSession(args: {
+export async function fetchWalletEcdsaKeyFactsInventoryWithAppSession(args: {
   relayerUrl: string;
   walletId: AccountId;
   rpId: string;
@@ -1368,24 +1420,25 @@ export async function repairWalletEcdsaKeyFactsInventoryWithAppSession(args: {
   const rpId = String(args.rpId || '').trim();
   const appSessionJwt = String(args.appSessionJwt || '').trim();
   if (!walletId) {
-    throw new Error('walletId is required for ECDSA key-facts repair');
+    throw new Error('walletId is required for ECDSA key-facts inventory');
   }
   if (!rpId) {
-    throw new Error('rpId is required for ECDSA key-facts repair');
+    throw new Error('rpId is required for ECDSA key-facts inventory');
   }
   if (!appSessionJwt) {
-    throw new Error('appSessionJwt is required for ECDSA key-facts repair');
+    throw new Error('appSessionJwt is required for ECDSA key-facts inventory');
   }
   if (String(args.policy.walletId || '').trim() !== walletId) {
-    throw new Error('policy.walletId must match walletId for ECDSA key-facts repair');
+    throw new Error('policy.walletId must match walletId for ECDSA key-facts inventory');
   }
 
   const data = await postJson<Record<string, unknown>>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/ecdsa/key-facts/inventory`,
-    headers: {
-      Authorization: `Bearer ${appSessionJwt}`,
-    },
+    headers: buildBearerAuthorizationHeader({
+      token: appSessionJwt,
+      missingMessage: 'appSessionJwt is required for ECDSA key-facts inventory',
+    }),
     body: {
       rpId,
       keyTargets: args.keyTargets,
@@ -1410,7 +1463,7 @@ export async function repairWalletEcdsaKeyFactsInventoryWithAppSession(args: {
   };
 }
 
-export async function repairWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
+export async function fetchWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
   relayerUrl: string;
   walletId: AccountId;
   rpId: string;
@@ -1425,13 +1478,13 @@ export async function repairWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
   const serverNonceB64u = String(args.serverNonceB64u || '').trim();
   const expectedChallengeDigestB64u = String(args.expectedChallengeDigestB64u || '').trim();
   if (!walletId) {
-    throw new Error('walletId is required for ECDSA key-facts repair');
+    throw new Error('walletId is required for ECDSA key-facts inventory');
   }
   if (!rpId) {
-    throw new Error('rpId is required for ECDSA key-facts repair');
+    throw new Error('rpId is required for ECDSA key-facts inventory');
   }
   if (!serverNonceB64u || !expectedChallengeDigestB64u) {
-    throw new Error('WebAuthn ECDSA key-facts repair requires challenge binding');
+    throw new Error('WebAuthn ECDSA key-facts inventory requires challenge binding');
   }
 
   const data = await postJson<Record<string, unknown>>({

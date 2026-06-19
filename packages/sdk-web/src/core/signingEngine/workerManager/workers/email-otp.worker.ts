@@ -413,7 +413,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
     keyHandle: string;
     relayerKeyId: string;
     participantIds: number[];
-    sessionKind?: 'jwt' | 'cookie';
+    sessionKind: 'jwt';
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     ed25519?: {
       sessionId: string;
@@ -1454,7 +1454,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     keyHandle: string;
     relayerKeyId: string;
     participantIds: number[];
-    sessionKind?: 'jwt' | 'cookie';
+    sessionKind: 'jwt';
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     ed25519?: {
       sessionId: string;
@@ -1556,9 +1556,9 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       });
       if (!policy.ok) return policy;
       const routeAuth: AppOrWalletSessionAuth | undefined = transport.walletSessionJwt
-        ? { kind: 'threshold_session', jwt: transport.walletSessionJwt }
+        ? { kind: 'wallet_session', jwt: transport.walletSessionJwt }
         : undefined;
-      if (!routeAuth && restore.sessionKind !== 'cookie') {
+      if (!routeAuth) {
         return {
           ok: false,
           code: 'invalid_args',
@@ -2844,7 +2844,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       walletSessionUserId: WalletSessionUserId;
       rpId: string;
       participantIds?: number[];
-      sessionKind?: 'jwt' | 'cookie';
+      sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
       sessionId?: string;
       walletSigningSessionId?: string;
@@ -2856,7 +2856,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       walletSessionUserId: WalletSessionUserId;
       rpId: string;
       participantIds?: number[];
-      sessionKind?: 'jwt' | 'cookie';
+      sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
       sessionId?: string;
       walletSigningSessionId?: string;
@@ -2876,7 +2876,7 @@ function requireThresholdEcdsaHssKeyHandle(keyHandle: string, operation: string)
 }
 
 function relayerKeyIdFromRouteAuth(auth: ThresholdEcdsaHssRouteAuth | undefined): string {
-  if (!auth || (auth.kind !== 'threshold_session' && auth.kind !== 'app_session')) return '';
+  if (!auth || (auth.kind !== 'wallet_session' && auth.kind !== 'app_session')) return '';
   const payload = decodeJwtPayloadRecord(auth.jwt);
   return readOptionalString(payload?.relayerKeyId) || '';
 }
@@ -3071,8 +3071,10 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const sessionKind = exactSessionBootstrap
     ? args.lanePolicy.thresholdSessionKind
     : args.sessionKind || 'jwt';
-  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined =
-    args.routeAuth || (sessionKind === 'cookie' ? { kind: 'cookie' } : undefined);
+  if (sessionKind !== 'jwt') {
+    throw new Error('Email OTP ECDSA bootstrap requires JWT signing sessions');
+  }
+  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = args.routeAuth;
   if (!routeAuth) {
     throw new Error('routeAuth is required for JWT threshold bootstrap sessions');
   }
@@ -3186,7 +3188,6 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       formatVersion: 'ecdsa-hss-role-local',
       ...bootstrapIdentity,
       auth: routeAuth,
-      sessionKind,
       clientRootProof,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest;
@@ -3284,7 +3285,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     };
     const walletSessionJwt =
       readOptionalString(value.jwt) ||
-      (routeAuth.kind === 'threshold_session' ? readOptionalString(routeAuth.jwt) : undefined);
+      (routeAuth.kind === 'wallet_session' ? readOptionalString(routeAuth.jwt) : undefined);
     return {
       thresholdEcdsaKeyRef: {
         type: 'threshold-ecdsa-secp256k1',
@@ -3308,6 +3309,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         ...(walletSessionJwt ? { walletSessionJwt } : {}),
         thresholdSessionId: value.sessionId,
         walletSigningSessionId: value.walletSigningSessionId,
+        routerAbEcdsaHssNormalSigning: value.routerAbEcdsaHssNormalSigning,
       },
       keygen: {
         ok: true,
@@ -3338,10 +3340,35 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
 
   const roleLocalRelayerKeyId = relayerKeyIdFromRouteAuth(routeAuth);
   if (exactSessionBootstrap && roleLocalRelayerKeyId) {
+    if (!runtimePolicyScope) {
+      throw new Error('Email OTP ECDSA session bootstrap requires runtime policy scope');
+    }
+    const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
+    const signingRootId = readString(signingRootScope.signingRootId, 'signingRootId');
+    const signingRootVersion = readString(
+      signingRootScope.signingRootVersion,
+      'signingRootVersion',
+    );
+    const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(
+      await computeEcdsaHssRoleLocalThresholdKeyId({
+        walletId,
+        rpId,
+        signingRootId,
+        signingRootVersion,
+      }),
+    );
+    const expectedKeyHandle = await deriveEvmFamilyEcdsaKeyHandle({
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+    });
+    if (String(expectedKeyHandle) !== keyHandle) {
+      throw new Error('Email OTP ECDSA keyHandle does not match runtime policy key identity');
+    }
     return await runRoleLocalBootstrap({
-      ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.keyContext.ecdsaThresholdKeyId),
-      signingRootId: readString(args.keyContext.signingRootId, 'signingRootId'),
-      signingRootVersion: readString(args.keyContext.signingRootVersion, 'signingRootVersion'),
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
       relayerKeyId: roleLocalRelayerKeyId,
     });
   }
@@ -3393,7 +3420,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   publicationChainTargets: ThresholdEcdsaChainTarget[];
   keyHandle?: string;
   participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
   sessionId?: string;
   walletSigningSessionId?: string;
   routeAuth?: AppOrWalletSessionAuth;
@@ -3520,7 +3547,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     throw new Error('threshold export requires participantIds');
   }
   const walletSessionJwt = readString(args.walletSessionJwt, 'walletSessionJwt');
-  const routeAuth: ThresholdEcdsaHssRouteAuth = { kind: 'threshold_session', jwt: walletSessionJwt };
+  const routeAuth: ThresholdEcdsaHssRouteAuth = { kind: 'wallet_session', jwt: walletSessionJwt };
   const issuedAtUnixMs = Date.now();
   const expiresAtUnixMs = Math.min(
     issuedAtUnixMs + ECDSA_HSS_EXPORT_AUTH_TTL_MS,
@@ -3611,7 +3638,6 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     clientDeviceId: walletSigningSessionId,
     clientSessionId: thresholdSessionId,
     auth: routeAuth,
-    sessionKind: 'jwt',
   });
   if (!exportShare.ok) {
     throw new Error(
@@ -3653,7 +3679,7 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
   relayerUrl: string;
   userId: string;
   rpId: string;
-  sessionKind?: 'jwt' | 'cookie';
+  sessionKind?: 'jwt';
 }): Promise<
   | {
       artifactKind: 'ecdsa-hss-secp256k1-export';
@@ -3753,8 +3779,8 @@ function parseWorkerRouteAuth(value: unknown, label: string): AppOrWalletSession
   if (kind === 'app_session') {
     return { kind: 'app_session', jwt };
   }
-  if (kind === 'threshold_session') {
-    return { kind: 'threshold_session', jwt };
+  if (kind === 'wallet_session') {
+    return { kind: 'wallet_session', jwt };
   }
   throw new Error(`${label} requires routeAuth`);
 }
@@ -4284,9 +4310,8 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       };
     case 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle': {
       const chainTarget = parseWorkerChainTarget(payload.chainTarget);
-      const sessionKind = payload.sessionKind === 'cookie' ? 'cookie' : 'jwt';
-      if (sessionKind === 'cookie' && payload.routeAuth != null) {
-        throw new Error('Email OTP ECDSA cookie bootstrap rejects routeAuth');
+      if (payload.sessionKind !== 'jwt') {
+        throw new Error('Email OTP ECDSA bootstrap requires JWT signing sessions');
       }
       const basePayload = {
         relayUrl: readString(payload.relayUrl, 'relayUrl'),
@@ -4331,14 +4356,11 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
       return {
         id,
         type,
-        payload:
-          sessionKind === 'jwt'
-            ? {
-                ...basePayload,
-                sessionKind: 'jwt',
-                routeAuth: parseWorkerRouteAuth(payload.routeAuth, 'Email OTP ECDSA bootstrap'),
-              }
-            : { ...basePayload, sessionKind: 'cookie' },
+        payload: {
+          ...basePayload,
+          sessionKind: 'jwt',
+          routeAuth: parseWorkerRouteAuth(payload.routeAuth, 'Email OTP ECDSA bootstrap'),
+        },
       };
     }
     case 'getEmailOtpWarmSessionStatus':
@@ -4384,6 +4406,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
     case 'rehydrateEmailOtpEcdsaWarmSessionMaterial': {
       const restore = workerPayloadObject(payload.restore);
       if (!restore) throw new Error('Email OTP ECDSA rehydrate requires restore payload');
+      if (restore.sessionKind != null && restore.sessionKind !== 'jwt') {
+        throw new Error('Email OTP ECDSA rehydrate requires JWT signing sessions');
+      }
       const ed25519 = workerPayloadObject(restore.ed25519);
       const restoreRuntimePolicyScope = parseOptionalWorkerRuntimePolicyScope(
         restore.runtimePolicyScope,
@@ -4418,9 +4443,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
               (() => {
                 throw new Error('Email OTP ECDSA rehydrate requires participantIds');
               })(),
-            ...(restore.sessionKind === 'cookie' || restore.sessionKind === 'jwt'
-              ? { sessionKind: restore.sessionKind }
-              : {}),
+            sessionKind: 'jwt',
             ...(restoreRuntimePolicyScope ? { runtimePolicyScope: restoreRuntimePolicyScope } : {}),
             ...(ed25519
               ? {

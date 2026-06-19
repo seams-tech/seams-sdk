@@ -51,7 +51,6 @@ const finalizeRequest = {
   },
   protocol: {
     kind: 'ed25519_two_party_frost_finalize_v1' as const,
-    group_public_key: 'ed25519:public-key',
     client_commitments: {
       hiding: 'client-hiding',
       binding: 'client-binding',
@@ -66,6 +65,23 @@ const finalizeRequest = {
   },
 } satisfies RouterAbNormalSigningFinalizeRequestV2Wire;
 void finalizeRequest;
+
+const finalizeWithClientGroupPublicKey = {
+  scope,
+  expires_at_ms: 1_900_000_000_000,
+  prepare_binding: finalizeRequest.prepare_binding,
+  protocol: {
+    kind: 'ed25519_two_party_frost_finalize_v1' as const,
+    // @ts-expect-error active SigningWorker state owns the group public key.
+    group_public_key: 'ed25519:public-key',
+    client_commitments: finalizeRequest.protocol.client_commitments,
+    server_commitments: finalizeRequest.protocol.server_commitments,
+    client_verifying_share_b64u: 'client-verifying-share',
+    server_verifying_share_b64u: 'server-verifying-share',
+    client_signature_share_b64u: 'client-signature-share',
+  },
+} satisfies RouterAbNormalSigningFinalizeRequestV2Wire;
+void finalizeWithClientGroupPublicKey;
 
 const missingPrepareBinding = {
   scope,

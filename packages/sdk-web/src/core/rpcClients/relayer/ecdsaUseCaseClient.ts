@@ -7,6 +7,11 @@ import {
 } from '@/core/platform';
 import { buildEcdsaRoleLocalPublicFacts } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
+  toEcdsaHssSigningRootId,
+  toEcdsaHssSigningRootVersion,
+} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
   thresholdEcdsaHssRoleLocalBootstrap,
   type ThresholdEcdsaHssRoleLocalBootstrapValue,
   type ThresholdEcdsaHssRouteAuth,
@@ -20,10 +25,8 @@ function routeAuthToThresholdAuth(auth: EcdsaBootstrapRouteAuth): ThresholdEcdsa
   switch (auth.kind) {
     case 'app_session':
       return { kind: 'app_session', jwt: auth.jwt };
-    case 'threshold_session':
-      return { kind: 'threshold_session', jwt: auth.jwt };
-    case 'cookie':
-      return { kind: 'cookie' };
+    case 'wallet_session':
+      return { kind: 'wallet_session', jwt: auth.jwt };
     case 'bootstrap_grant':
       return { kind: 'bootstrap_grant', token: auth.token };
     case 'publishable_key':
@@ -44,16 +47,28 @@ function participantIdsFromRoute(value: readonly number[]): readonly [1, 2] {
   return [1, 2] as const;
 }
 
+function signingRootFromRouteInput(input: BootstrapEcdsaSessionRouteInput): {
+  signingRootId: ReturnType<typeof toEcdsaHssSigningRootId>;
+  signingRootVersion: ReturnType<typeof toEcdsaHssSigningRootVersion>;
+} {
+  const scope = signingRootScopeFromRuntimePolicyScope(input.runtimePolicyScope);
+  return {
+    signingRootId: toEcdsaHssSigningRootId(scope.signingRootId),
+    signingRootVersion: toEcdsaHssSigningRootVersion(scope.signingRootVersion),
+  };
+}
+
 function parseBootstrapOutput(
   input: BootstrapEcdsaSessionRouteInput,
   value: ThresholdEcdsaHssRoleLocalBootstrapValue,
 ): BootstrapEcdsaSessionRouteOutput {
+  const signingRoot = signingRootFromRouteInput(input);
   if (
     !sameString(value.walletId, input.walletId) ||
     !sameString(value.rpId, input.rpId) ||
     !sameString(value.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
-    !sameString(value.signingRootId, input.signingRootId) ||
-    !sameString(value.signingRootVersion, input.signingRootVersion) ||
+    !sameString(value.signingRootId, signingRoot.signingRootId) ||
+    !sameString(value.signingRootVersion, signingRoot.signingRootVersion) ||
     !sameString(value.relayerKeyId, input.relayerKeyId)
   ) {
     throw new Error('[relayer][ecdsa] route output identity mismatch');
@@ -65,8 +80,8 @@ function parseBootstrapOutput(
     chainTarget: input.chainTarget,
     keyHandle: value.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds,
@@ -81,8 +96,6 @@ function parseBootstrapOutput(
     walletId: input.walletId,
     rpId: input.rpId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
     keyHandle: value.keyHandle,
     relayerPublicIdentity: {
       relayerKeyId: input.relayerKeyId,
@@ -90,12 +103,14 @@ function parseBootstrapOutput(
       groupPublicKey33B64u: publicFacts.groupPublicKey33B64u,
       ethereumAddress: publicFacts.ethereumAddress,
     },
+    clientShareRetryCounter: value.clientShareRetryCounter,
+    relayerShareRetryCounter: value.relayerShareRetryCounter,
     participantIds,
     sessionId: value.sessionId,
     walletSigningSessionId: value.walletSigningSessionId,
     expiresAtMs: value.expiresAtMs,
     remainingUses: value.remainingUses,
-    thresholdSessionAuthToken: String(value.jwt || '').trim(),
+    walletSessionJwt: String(value.jwt || '').trim(),
   };
 }
 
@@ -128,13 +143,14 @@ export function createThresholdEcdsaRelayerClient(
 ): EcdsaRelayerClient {
   return {
     async bootstrapEcdsaSession(input) {
+      const signingRoot = signingRootFromRouteInput(input);
       const response = await thresholdEcdsaHssRoleLocalBootstrap(config.relayerUrl, {
         formatVersion: 'ecdsa-hss-role-local',
         walletId: input.walletId,
         rpId: input.rpId,
         ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-        signingRootId: input.signingRootId,
-        signingRootVersion: input.signingRootVersion,
+        signingRootId: signingRoot.signingRootId,
+        signingRootVersion: signingRoot.signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId: input.relayerKeyId,
         hssClientSharePublicKey33B64u: input.clientBootstrap.hssClientSharePublicKey33B64u,
@@ -147,8 +163,7 @@ export function createThresholdEcdsaRelayerClient(
         remainingUses: input.remainingUses,
         participantIds: [...input.participantIds],
         auth: routeAuthToThresholdAuth(input.auth),
-        sessionKind: input.sessionKind,
-        ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+        runtimePolicyScope: input.runtimePolicyScope,
       });
       if (!response.ok) {
         return mapRouteFailure({

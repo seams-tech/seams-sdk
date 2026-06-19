@@ -9,12 +9,16 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
-import type { PasskeyEd25519SealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import {
+  sealedRecoverySessionKind,
+  sealedRecoveryWalletSessionJwt,
+  type PasskeyEd25519SealedRecoveryRecord,
+} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { RestorePersistedEd25519SessionPurpose } from '@/core/signingEngine/session/sealedRecovery/types';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
-import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/authSession';
+import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 
 type PasskeyEd25519SessionRestoreIdentity = {
@@ -103,8 +107,11 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     ...(args.record.runtimePolicyScope
       ? { runtimePolicyScope: args.record.runtimePolicyScope }
       : {}),
+    ...(args.record.routerAbNormalSigning
+      ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
+      : {}),
     participantIds: args.record.participantIds,
-    sessionKind: args.record.thresholdSessionKind,
+    sessionKind: 'jwt',
     sessionId,
     walletSigningSessionId,
     remainingUses: reconnectRemainingUses,
@@ -163,6 +170,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
   }
 
   const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
+    const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
     upsertStoredThresholdEd25519SessionRecord({
       nearAccountId: args.accountId,
       rpId: args.record.rpId,
@@ -172,16 +180,13 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       ...(args.record.runtimePolicyScope
         ? { runtimePolicyScope: args.record.runtimePolicyScope }
         : {}),
-      ...(args.record.xClientBaseB64u ? { xClientBaseB64u: args.record.xClientBaseB64u } : {}),
       ...(args.record.routerAbNormalSigning
         ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
         : {}),
-      thresholdSessionKind: args.record.sessionKind,
+      thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
       thresholdSessionId,
       walletSigningSessionId,
-      ...(args.record.sessionKind === 'jwt'
-        ? { thresholdSessionAuthToken: args.record.thresholdSessionAuthToken }
-        : {}),
+      ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
       expiresAtMs: policy.expiresAtMs,
       remainingUses: policy.remainingUses,
       updatedAtMs: Date.now(),
@@ -197,11 +202,6 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
     });
   };
 
-  publishRecord({
-    expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-    remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
-  });
-
   const rehydrated = await args.rehydrateWarmSessionMaterial({
     sessionId: thresholdSessionId,
     sealedSecretB64u: args.record.sealedSecretB64u,
@@ -214,34 +214,38 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
     },
   });
   if (!rehydrated.ok) {
-    if (rehydrated.code === 'expired') {
-      await args.deletePersistedRecord().catch(() => undefined);
-    }
+    await args.deletePersistedRecord().catch(() => undefined);
     await args.recordSessionMaterialRestored(rehydrated);
     return rehydrated;
   }
 
-  publishRecord({
-    expiresAtMs: rehydrated.expiresAtMs,
-    remainingUses: rehydrated.remainingUses,
-  });
-  await args.recordSessionMaterialRestored(rehydrated);
   const parsed = await args.readWarmSessionStatusFromWorker(thresholdSessionId);
   if (!parsed) {
-    return {
+    await args.deletePersistedRecord().catch(() => undefined);
+    const failed: WarmSessionStatusResult = {
       ok: false,
       code: 'worker_error',
       message: 'Warm-session status read failed after rehydrate',
     };
+    await args.recordSessionMaterialRestored(failed);
+    return failed;
   }
-  if (parsed.ok) {
-    await args
-      .updatePersistedPolicy({
-        expiresAtMs: parsed.expiresAtMs,
-        remainingUses: parsed.remainingUses,
-        updatedAtMs: Date.now(),
-      })
-      .catch(() => undefined);
+  if (!parsed.ok) {
+    await args.deletePersistedRecord().catch(() => undefined);
+    await args.recordSessionMaterialRestored(parsed);
+    return parsed;
   }
+  publishRecord({
+    expiresAtMs: parsed.expiresAtMs,
+    remainingUses: parsed.remainingUses,
+  });
+  await args.recordSessionMaterialRestored(parsed);
+  await args
+    .updatePersistedPolicy({
+      expiresAtMs: parsed.expiresAtMs,
+      remainingUses: parsed.remainingUses,
+      updatedAtMs: Date.now(),
+    })
+    .catch(() => undefined);
   return parsed;
 }

@@ -67,7 +67,7 @@ Current child owners are explicit folders:
   `passkey/ecdsaBootstrap.ts`, `passkey/ecdsaWarmCapabilityBootstrap.ts`,
   `passkey/ecdsaSessionProvision.ts`, `passkey/ed25519SessionProvision.ts`,
   `passkey/ecdsaRecovery.ts`, and `passkey/ed25519Recovery.ts`.
-- Email OTP method helpers: `emailOtp/EmailOtpThresholdSessionCoordinator.ts`,
+- Email OTP method helpers: `emailOtp/EmailOtpWalletSessionCoordinator.ts`,
   `emailOtp/companionSessions.ts`,
   `emailOtp/ecdsaRecovery.ts`, `emailOtp/ed25519Recovery.ts`,
   `emailOtp/ecdsaBootstrapCommit.ts`, `emailOtp/ed25519LocalMetadata.ts`,

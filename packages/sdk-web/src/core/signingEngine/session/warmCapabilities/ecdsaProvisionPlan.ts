@@ -12,7 +12,6 @@ import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persi
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   resolveThresholdEcdsaKeyIdFromRecord,
-  resolveThresholdSigningRootBindingFromRecord,
   type EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
@@ -25,6 +24,7 @@ import {
   type ThresholdEcdsaSessionId,
   type WalletSigningSessionId,
 } from '../operationState/types';
+import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 
 export type EcdsaSessionIdentity = {
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -33,16 +33,14 @@ export type EcdsaSessionIdentity = {
 
 export type EcdsaSigningKeyContext = {
   ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
   participantIds: readonly number[];
 };
 
-export type VerifiedEcdsaThresholdSessionAuth = {
-  kind: 'threshold_session';
+export type VerifiedEcdsaWalletSessionAuth = {
+  kind: 'wallet_session';
   curve: 'ecdsa';
   identity: EcdsaSessionIdentity;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   expiresAtMs: number;
 
   // Curve-specific fields.
@@ -80,7 +78,7 @@ export type PasskeyEcdsaSessionProvision = {
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   sessionBudgetUses: number;
   requestId: string;
 
@@ -88,14 +86,14 @@ export type PasskeyEcdsaSessionProvision = {
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   activationMaterial: PasskeyEcdsaActivationMaterial;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  thresholdSessionAuth?: never;
+  walletSessionRouteAuth?: never;
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
 };
 
-export type ThresholdSessionAuthEcdsaReconnect = {
-  kind: 'threshold_session_auth_ecdsa_reconnect';
+export type WalletSessionEcdsaReconnect = {
+  kind: 'wallet_session_ecdsa_reconnect';
   chainTarget: ThresholdEcdsaChainTarget;
   existingSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -103,24 +101,8 @@ export type ThresholdSessionAuthEcdsaReconnect = {
   sessionBudgetUses: number;
 
   // Branch-specific fields.
-  thresholdSessionAuth: VerifiedEcdsaThresholdSessionAuth;
+  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   passkeyCredentialIdB64u: string;
-  webauthnAuthentication?: never;
-  passkeyPrfFirstB64u?: never;
-  emailOtpAuthContext?: never;
-};
-
-export type CookieEcdsaReconnect = {
-  kind: 'cookie_ecdsa_reconnect';
-  chainTarget: ThresholdEcdsaChainTarget;
-  existingSessionIdentity: EcdsaSessionIdentity;
-  signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: 'cookie';
-  sessionBudgetUses: number;
-
-  // Branch-specific fields.
-  passkeyCredentialIdB64u: string;
-  thresholdSessionAuth?: never;
   webauthnAuthentication?: never;
   passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
@@ -132,7 +114,7 @@ export type EmailOtpEcdsaSessionProvision = {
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   sessionBudgetUses: number;
 
   // Branch-specific fields.
@@ -141,13 +123,12 @@ export type EmailOtpEcdsaSessionProvision = {
   emailOtpAuthContext?: never;
   passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
-  thresholdSessionAuth?: never;
+  walletSessionRouteAuth?: never;
 };
 
 export type EcdsaSessionProvisionPlan =
   | PasskeyEcdsaSessionProvision
-  | ThresholdSessionAuthEcdsaReconnect
-  | CookieEcdsaReconnect
+  | WalletSessionEcdsaReconnect
   | EmailOtpEcdsaSessionProvision;
 
 export type EcdsaReconnectMaterial = {
@@ -162,7 +143,7 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
   sessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   sessionBudgetUses: number;
   requestId: string;
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
@@ -180,7 +161,7 @@ type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
   sessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   sessionBudgetUses: number;
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -268,13 +249,8 @@ export function buildEmailOtpEcdsaProvisionSecretSource(args: {
 export function buildEcdsaSigningKeyContextFromRecord(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaSigningKeyContext {
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-    record,
-  });
   return {
     ecdsaThresholdKeyId: String(resolveThresholdEcdsaKeyIdFromRecord({ record })),
-    signingRootId: String(signingRootBinding.signingRootId),
-    signingRootVersion: String(signingRootBinding.signingRootVersion),
     participantIds: requireParticipantIds(record.participantIds, 'participantIds'),
   };
 }
@@ -342,32 +318,32 @@ export function buildEcdsaReconnectMaterial(args: {
   };
 }
 
-function verifyEcdsaThresholdSessionAuth(args: {
+function verifyEcdsaWalletSessionAuth(args: {
   identity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   relayerKeyId: string;
-}): VerifiedEcdsaThresholdSessionAuth {
-  const thresholdSessionAuthToken = requireNonEmptyString(
-    args.thresholdSessionAuthToken,
-    'thresholdSessionAuthToken',
+}): VerifiedEcdsaWalletSessionAuth {
+  const walletSessionJwt = requireNonEmptyString(
+    args.walletSessionJwt,
+    'walletSessionJwt',
   );
-  const claims = decodeJwtPayloadRecord(thresholdSessionAuthToken);
+  const claims = decodeJwtPayloadRecord(walletSessionJwt);
   if (!claims) {
-    throw new Error('[SigningEngine][ecdsa] threshold session auth token is invalid');
+    throw new Error('[SigningEngine][ecdsa] Wallet Session JWT is invalid');
   }
   const claimIdentity = tryBuildEcdsaSessionIdentityFromClaims(claims);
   if (!claimIdentity || !ecdsaSessionIdentitiesEqual(claimIdentity, args.identity)) {
     throw new Error(
-      '[SigningEngine][ecdsa] threshold session auth token does not match planned reconnect identity',
+      '[SigningEngine][ecdsa] Wallet Session JWT does not match planned reconnect identity',
     );
   }
   const expSeconds = Math.floor(Number(claims.exp) || 0);
   return {
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     curve: 'ecdsa',
     identity: args.identity,
-    thresholdSessionAuthToken,
+    walletSessionJwt,
     expiresAtMs: expSeconds > 0 ? expSeconds * 1000 : 0,
 
     // Curve-specific fields.
@@ -376,11 +352,11 @@ function verifyEcdsaThresholdSessionAuth(args: {
   };
 }
 
-function selectReconnectThresholdSessionAuthToken(args: {
+function selectReconnectWalletSessionJwt(args: {
   identity: EcdsaSessionIdentity;
   record: ThresholdEcdsaSessionRecord;
 }): string | null {
-  const candidates = [String(args.record.thresholdSessionAuthToken || '').trim()].filter(Boolean);
+  const candidates = [walletSessionJwtFromPersistedWarmSessionRecord(args.record)].filter(Boolean);
   for (const token of candidates) {
     const claims = decodeJwtPayloadRecord(token);
     if (!claims) continue;
@@ -405,7 +381,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   sessionBudgetUses: number;
   requestId: string;
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
@@ -418,7 +394,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
     chainTarget: args.chainTarget,
     newSessionIdentity: args.newSessionIdentity,
     signingKeyContext: args.signingKeyContext,
-    sessionKind: normalizeThresholdSessionKind(args.sessionKind),
+    sessionKind: args.sessionKind,
     sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
     requestId: requireNonEmptyString(args.requestId, 'requestId'),
 
@@ -429,12 +405,12 @@ export function buildPasskeyEcdsaSessionProvision(args: {
   } satisfies PasskeyEcdsaSessionProvision;
 }
 
-export function buildThresholdSessionAuthEcdsaReconnect(args: {
+export function buildWalletSessionEcdsaReconnect(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   existingSessionIdentity: EcdsaSessionIdentity;
   sessionBudgetUses: number;
   reconnectMaterial: EcdsaReconnectMaterial;
-}): ThresholdSessionAuthEcdsaReconnect | CookieEcdsaReconnect {
+}): WalletSessionEcdsaReconnect {
   const record = args.reconnectMaterial.record;
   const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromRecord({ record });
   const recordIdentity = buildEcdsaSessionIdentity(record);
@@ -453,18 +429,10 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
   const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
   const sessionKind = normalizeThresholdSessionKind(record.thresholdSessionKind);
   const passkeyCredentialIdB64u = passkeyCredentialIdB64uFromReconnectRecord(record);
-  if (sessionKind === 'cookie') {
-    return {
-      kind: 'cookie_ecdsa_reconnect',
-      chainTarget: args.chainTarget,
-      existingSessionIdentity: args.existingSessionIdentity,
-      signingKeyContext,
-      sessionKind: 'cookie',
-      sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
-      passkeyCredentialIdB64u,
-    } satisfies CookieEcdsaReconnect;
+  if (sessionKind !== 'jwt') {
+    throw new Error('[SigningEngine][ecdsa] Router A/B ECDSA reconnect requires Wallet Session JWT auth');
   }
-  const thresholdSessionAuthToken = selectReconnectThresholdSessionAuthToken({
+  const walletSessionJwt = selectReconnectWalletSessionJwt({
     identity: args.existingSessionIdentity,
     record,
   });
@@ -473,7 +441,7 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
     'relayerKeyId',
   );
   return {
-    kind: 'threshold_session_auth_ecdsa_reconnect',
+    kind: 'wallet_session_ecdsa_reconnect',
     chainTarget: args.chainTarget,
     existingSessionIdentity: args.existingSessionIdentity,
     signingKeyContext,
@@ -482,16 +450,16 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
 
     // Branch-specific fields.
     passkeyCredentialIdB64u,
-    thresholdSessionAuth: verifyEcdsaThresholdSessionAuth({
+    walletSessionAuth: verifyEcdsaWalletSessionAuth({
       identity: args.existingSessionIdentity,
       signingKeyContext,
-      thresholdSessionAuthToken: requireNonEmptyString(
-        thresholdSessionAuthToken,
-        'thresholdSessionAuthToken',
+      walletSessionJwt: requireNonEmptyString(
+        walletSessionJwt,
+        'walletSessionJwt',
       ),
       relayerKeyId,
     }),
-  } satisfies ThresholdSessionAuthEcdsaReconnect;
+  } satisfies WalletSessionEcdsaReconnect;
 }
 
 export function buildEmailOtpEcdsaSessionProvision(args: {
@@ -499,7 +467,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
-  sessionKind: ThresholdSessionKind;
+  sessionKind: 'jwt';
   sessionBudgetUses: number;
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -510,7 +478,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
     chainTarget: args.chainTarget,
     newSessionIdentity: args.newSessionIdentity,
     signingKeyContext: args.signingKeyContext,
-    sessionKind: normalizeThresholdSessionKind(args.sessionKind),
+    sessionKind: 'jwt',
     sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
 
     // Branch-specific fields.
@@ -548,7 +516,7 @@ export function buildEcdsaSessionProvisionPlan(
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       });
     case 'ecdsa_session_reconnect':
-      return buildThresholdSessionAuthEcdsaReconnect({
+      return buildWalletSessionEcdsaReconnect({
         chainTarget: args.chainTarget,
         existingSessionIdentity: args.sessionIdentity,
         sessionBudgetUses: args.sessionBudgetUses,

@@ -37,7 +37,10 @@ export type EcdsaRegistrationSessionsService = {
 };
 
 export function createEcdsaRegistrationSessionsService(deps: {
-  registrationBootstrap: Pick<EcdsaRegistrationBootstrapService, 'finalizeClientBootstrap'>;
+  registrationBootstrap: Pick<
+    EcdsaRegistrationBootstrapService,
+    'finalizeClientBootstrap' | 'storeClientSigningMaterial'
+  >;
   bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   sessionStore: ThresholdEcdsaSessionStoreDeps;
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
@@ -54,7 +57,10 @@ export function createEcdsaRegistrationSessionsService(deps: {
 
 export async function finalizeWalletRegistrationEcdsaSessions(
   deps: {
-    registrationBootstrap: Pick<EcdsaRegistrationBootstrapService, 'finalizeClientBootstrap'>;
+    registrationBootstrap: Pick<
+      EcdsaRegistrationBootstrapService,
+      'finalizeClientBootstrap' | 'storeClientSigningMaterial'
+    >;
     bootstrapStore: ThresholdEcdsaBootstrapStorePort;
     sessionStore: ThresholdEcdsaSessionStoreDeps;
     warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
@@ -70,26 +76,36 @@ export async function finalizeWalletRegistrationEcdsaSessions(
     preparedClientBootstrap: args.preparedClientBootstrap,
     bootstrap: args.bootstrap,
   });
-  const sessionBootstraps = args.walletKeys.map((walletKey) => ({
-    walletKey,
-    bootstrap: buildWalletRegistrationEcdsaSessionBootstrap({
-      walletId,
-      relayerUrl: args.relayerUrl,
-      chainTarget: walletKey.chainTarget,
-      keygenSessionId: args.preparedClientBootstrap.clientBootstrap.requestId,
-      readyStateBlob: finalized.stateBlob,
-      clientVerifyingShareB64u: finalized.publicFacts.hssClientSharePublicKey33B64u,
-      serverBootstrap: args.bootstrap,
-      walletKey,
-      authMethod:
-        args.auth.kind === 'email_otp'
-          ? {
-              kind: 'email_otp',
-              authSubjectId: args.auth.emailOtpAuthContext.authSubjectId,
-            }
-          : { kind: 'passkey', credentialIdB64u: args.auth.credentialIdB64u },
+  const sessionBootstraps = await Promise.all(
+    args.walletKeys.map(async (walletKey) => {
+      const signingMaterial = await deps.registrationBootstrap.storeClientSigningMaterial({
+        finalized,
+        bootstrap: args.bootstrap,
+        chainTarget: walletKey.chainTarget,
+      });
+      return {
+        walletKey,
+        bootstrap: buildWalletRegistrationEcdsaSessionBootstrap({
+          walletId,
+          relayerUrl: args.relayerUrl,
+          chainTarget: walletKey.chainTarget,
+          keygenSessionId: args.preparedClientBootstrap.clientBootstrap.requestId,
+          readyStateBlob: finalized.stateBlob,
+          signingMaterialHandle: signingMaterial.handle,
+          clientVerifyingShareB64u: finalized.publicFacts.hssClientSharePublicKey33B64u,
+          serverBootstrap: args.bootstrap,
+          walletKey,
+          authMethod:
+            args.auth.kind === 'email_otp'
+              ? {
+                  kind: 'email_otp',
+                  authSubjectId: args.auth.emailOtpAuthContext.authSubjectId,
+                }
+              : { kind: 'passkey', credentialIdB64u: args.auth.credentialIdB64u },
+        }),
+      };
     }),
-  }));
+  );
 
   for (const { walletKey, bootstrap } of sessionBootstraps) {
     await persistThresholdEcdsaBootstrapForWalletTarget({
@@ -157,10 +173,8 @@ async function hydratePasskeyRegistrationSession(args: {
       args.bootstrap.thresholdEcdsaKeyRef.walletSigningSessionId ||
       '',
   ).trim();
-  const thresholdSessionAuthToken = String(
-    args.bootstrap.session.jwt ||
-      args.bootstrap.thresholdEcdsaKeyRef.thresholdSessionAuthToken ||
-      '',
+  const walletSessionJwt = String(
+    args.bootstrap.session.jwt || args.bootstrap.thresholdEcdsaKeyRef.walletSessionJwt || '',
   ).trim();
   const transport: WarmSessionSealTransportInput = {
     curve: 'ecdsa',
@@ -171,8 +185,8 @@ async function hydratePasskeyRegistrationSession(args: {
   if (walletSigningSessionId) {
     transport.walletSigningSessionId = walletSigningSessionId;
   }
-  if (thresholdSessionAuthToken) {
-    transport.thresholdSessionAuthToken = thresholdSessionAuthToken;
+  if (walletSessionJwt) {
+    transport.walletSessionJwt = walletSessionJwt;
   }
   const sealKeyVersion = String(args.signingSessionSeal.keyVersion || '').trim();
   if (sealKeyVersion) {

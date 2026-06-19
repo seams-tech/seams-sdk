@@ -4,7 +4,7 @@ import {
 } from '@/core/indexedDB';
 import type { ManagerAssemblyStores } from '@/core/signingEngine/assembly/createManagers';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
-import type { EmailOtpSealedSessionStorePorts } from '@/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator';
+import type { EmailOtpSealedSessionStorePorts } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';
 import {
   acquireSigningSessionRestoreLease,
   deleteDurableSealedSessionRecord,

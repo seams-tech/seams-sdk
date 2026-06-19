@@ -7,11 +7,8 @@ import type {
   WalletId,
 } from '../interfaces/ecdsaChainTarget';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
-import type {
-  EcdsaThresholdKeyId,
-  SigningRootId,
-  SigningRootVersion,
-} from '../session/identity/emailOtpHssIdentity';
+import type { EcdsaThresholdKeyId } from '../session/identity/emailOtpHssIdentity';
+import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type {
   ProvisionEcdsaEmailOtpHandle,
   ProvisionEcdsaInput,
@@ -25,9 +22,8 @@ declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const credentialIdB64u: CredentialIdB64u;
 declare const emailOtpHandle: ProvisionEcdsaEmailOtpHandle;
 declare const ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-declare const signingRootId: SigningRootId;
-declare const signingRootVersion: SigningRootVersion;
 declare const relayerKeyId: RelayerKeyId;
+declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 
 const routeFacts = {
   relayerKeyId,
@@ -38,6 +34,7 @@ const routeFacts = {
   remainingUses: 8,
   sessionKind: 'jwt',
   auth: { kind: 'publishable_key', token: 'pk_test' },
+  runtimePolicyScope,
 } satisfies ProvisionEcdsaRouteFacts;
 
 const validPasskeyInput = {
@@ -46,8 +43,6 @@ const validPasskeyInput = {
   chainTarget,
   keyHandle: 'ecdsa-key-handle',
   ecdsaThresholdKeyId,
-  signingRootId,
-  signingRootVersion,
   participantIds: [1, 2],
   authMethod: {
     kind: 'passkey',
@@ -64,8 +59,6 @@ const passkeyInputWithEmailHandle = {
   chainTarget,
   keyHandle: 'ecdsa-key-handle',
   ecdsaThresholdKeyId,
-  signingRootId,
-  signingRootVersion,
   participantIds: [1, 2],
   authMethod: {
     kind: 'passkey',
@@ -84,8 +77,6 @@ const emailOtpInputWithChallenge = {
   chainTarget,
   keyHandle: 'ecdsa-key-handle',
   ecdsaThresholdKeyId,
-  signingRootId,
-  signingRootVersion,
   participantIds: [1, 2],
   authMethod: {
     kind: 'email_otp',
@@ -102,8 +93,6 @@ const inputWithoutKeyHandle = {
   rpId,
   chainTarget,
   ecdsaThresholdKeyId,
-  signingRootId,
-  signingRootVersion,
   participantIds: [1, 2],
   authMethod: {
     kind: 'email_otp',
@@ -114,6 +103,13 @@ const inputWithoutKeyHandle = {
 // @ts-expect-error ECDSA provisioning storage lookup requires keyHandle
 inputWithoutKeyHandle satisfies ProvisionEcdsaInput;
 
+const inputWithSigningRoot = {
+  ...validPasskeyInput,
+  // @ts-expect-error ProvisionEcdsaInput derives signing-root identity from route.runtimePolicyScope.
+  signingRootId: 'project:dev',
+} satisfies ProvisionEcdsaInput;
+void inputWithSigningRoot;
+
 const routeFactsWithoutAuth = {
   relayerKeyId,
   requestId: 'request',
@@ -122,9 +118,23 @@ const routeFactsWithoutAuth = {
   ttlMs: 60_000,
   remainingUses: 8,
   sessionKind: 'jwt',
+  runtimePolicyScope,
 };
 // @ts-expect-error relayer bootstrap requires explicit route auth facts
 routeFactsWithoutAuth satisfies ProvisionEcdsaRouteFacts;
+
+const routeFactsWithoutRuntimePolicyScope = {
+  relayerKeyId,
+  requestId: 'request',
+  sessionId: 'threshold-session',
+  walletSigningSessionId: 'wallet-signing-session',
+  ttlMs: 60_000,
+  remainingUses: 8,
+  sessionKind: 'jwt',
+  auth: { kind: 'publishable_key', token: 'pk_test' },
+};
+// @ts-expect-error ECDSA provisioning derives signing-root identity from runtimePolicyScope.
+routeFactsWithoutRuntimePolicyScope satisfies ProvisionEcdsaRouteFacts;
 
 const successWithoutRecord = {
   ok: true,

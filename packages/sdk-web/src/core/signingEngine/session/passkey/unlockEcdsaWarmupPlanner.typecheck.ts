@@ -5,7 +5,7 @@ import {
   planUnlockEcdsaWarmup,
   type ActiveEcdsaSignerRecord,
   type EcdsaWarmupPlannerResult,
-  type RepairRequiredEcdsaSignerRecord,
+  type KeyFactsInventoryRequiredEcdsaSignerRecord,
   type WalletUnlockSelection,
 } from './unlockEcdsaWarmupPlanner';
 import type { AccountId } from '@/core/types/accountIds';
@@ -33,16 +33,16 @@ const activeRecord: ActiveEcdsaSignerRecord = {
   source: 'profile_continuity',
 };
 
-const repairRecord: RepairRequiredEcdsaSignerRecord = {
-  kind: 'repair_required',
+const keyFactsInventoryRequiredRecord: KeyFactsInventoryRequiredEcdsaSignerRecord = {
+  kind: 'key_facts_inventory_required',
   targetKey: 'tempo:978',
   chainTarget,
   keyHandle: 'ecdsa-handle',
   reason: 'missing_key_facts',
 };
 
-// @ts-expect-error ready unlock plans reject repair records.
-const invalidReadyPlanWithRepairRecords: EcdsaWarmupPlannerResult = {
+// @ts-expect-error ready unlock plans reject key-facts inventory records.
+const invalidReadyPlanWithInventoryRecords: EcdsaWarmupPlannerResult = {
   kind: 'ready',
   readyTargets: [
     {
@@ -51,12 +51,12 @@ const invalidReadyPlanWithRepairRecords: EcdsaWarmupPlannerResult = {
       walletKey,
     },
   ],
-  repairRecords: [repairRecord],
+  keyFactsInventoryRequiredRecords: [keyFactsInventoryRequiredRecord],
 };
-void invalidReadyPlanWithRepairRecords;
+void invalidReadyPlanWithInventoryRecords;
 
 declare const broadUnlockPlanShape: {
-  repairRecords?: unknown[];
+  keyFactsInventoryRequiredRecords?: unknown[];
   blockedRecords?: unknown[];
 };
 

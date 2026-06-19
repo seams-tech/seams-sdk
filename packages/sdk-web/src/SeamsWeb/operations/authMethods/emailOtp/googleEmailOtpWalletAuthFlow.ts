@@ -77,6 +77,16 @@ type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
 };
 
+type GoogleLoginEmailOtpEd25519CapabilityArgs = {
+  walletSession: ReturnType<typeof walletSessionRefFromSession>;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  relayUrl?: string;
+  challengeId?: string;
+  otpCode: string;
+  appSessionJwt?: string;
+  onEvent?: (event: UnlockFlowEvent) => void;
+};
+
 type GoogleSessionState = {
   idToken: string;
   appSessionJwt?: string;
@@ -93,7 +103,6 @@ type GoogleSessionState = {
   mode: GoogleEmailOtpWalletAuthResolvedMode;
   registrationAttemptId?: string;
   expiresAtMs: number;
-  runtimePolicyScope?: EmailOtpEcdsaCapabilityArgs['runtimePolicyScope'];
 };
 
 export type GoogleEmailOtpWalletAuthDeps = {
@@ -128,6 +137,9 @@ export type GoogleEmailOtpWalletAuthDeps = {
   loginWithEmailOtpEcdsaCapability(
     args: GoogleLoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
+  loginWithEmailOtpEd25519Capability(
+    args: GoogleLoginEmailOtpEd25519CapabilityArgs,
+  ): Promise<unknown>;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
 
@@ -314,9 +326,6 @@ function resolveSessionState(input: {
     ...(resolution?.registrationAttemptId
       ? { registrationAttemptId: resolution.registrationAttemptId }
       : {}),
-    ...(input.exchange.session.runtimePolicyScope
-      ? { runtimePolicyScope: input.exchange.session.runtimePolicyScope }
-      : {}),
   };
 }
 
@@ -370,7 +379,7 @@ function eventOnlyRegistrationOptions(args: {
   };
 }
 
-async function loginWithRequiredEcdsaTargets(args: {
+async function loginWithConfiguredTargets(args: {
   deps: GoogleEmailOtpWalletAuthDeps;
   state: GoogleSessionState;
   input: GoogleEmailOtpWalletAuthStartInput;
@@ -378,30 +387,32 @@ async function loginWithRequiredEcdsaTargets(args: {
   otpCode: string;
   targets: readonly ThresholdEcdsaChainTarget[];
 }): Promise<void> {
-  const [primaryTarget] = args.targets;
-  if (!primaryTarget) {
-    throw new Error('Email OTP login requires at least one ECDSA target');
-  }
-  await args.deps.loginWithEmailOtpEcdsaCapability({
-    walletSession: walletSessionRefFromSession({
-      walletId: args.state.walletId,
-      userId: args.state.walletSessionUserId,
-    }),
-    chainTarget: primaryTarget,
-    publicationChainTargets: args.targets,
+  const walletSession = walletSessionRefFromSession({
+    walletId: args.state.walletId,
+    userId: args.state.walletSessionUserId,
+  });
+  const common = {
+    walletSession,
     challengeId: args.challenge.challengeId,
     otpCode: args.otpCode,
     ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
     ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
-    ...(args.state.runtimePolicyScope
-      ? { runtimePolicyScope: args.state.runtimePolicyScope }
-      : {}),
     ...(args.input.emailOtpAuthPolicy
       ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy }
       : {}),
     ...(args.input.onEvent
       ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
       : {}),
+  };
+  const [primaryTarget] = args.targets;
+  if (!primaryTarget) {
+    await args.deps.loginWithEmailOtpEd25519Capability(common);
+    return;
+  }
+  await args.deps.loginWithEmailOtpEcdsaCapability({
+    ...common,
+    chainTarget: primaryTarget,
+    publicationChainTargets: args.targets,
   });
 }
 
@@ -792,13 +803,7 @@ function createGoogleEmailOtpWalletLoginFlow(
           configs: deps.configs,
           policy: args.input.ecdsaTargets,
         });
-        if (!requiredTargets.length) {
-          return fail(
-            'local_signing_session_not_ready',
-            new Error('Email OTP login requires at least one ECDSA target'),
-          );
-        }
-        await loginWithRequiredEcdsaTargets({
+        await loginWithConfiguredTargets({
           deps,
           state: args.state,
           input: args.input,

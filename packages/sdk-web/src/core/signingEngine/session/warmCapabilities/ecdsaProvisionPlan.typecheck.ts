@@ -18,10 +18,11 @@ import {
   buildEmailOtpEcdsaSessionProvision,
   buildPasskeyEcdsaProvisionSecretSource,
   buildPasskeyEcdsaSessionProvision,
-  buildThresholdSessionAuthEcdsaReconnect,
+  buildWalletSessionEcdsaReconnect,
+  type EcdsaSigningKeyContext,
   type EcdsaSessionProvisionPlan,
   type PasskeyEcdsaProvisionSecretSource,
-  type VerifiedEcdsaThresholdSessionAuth,
+  type VerifiedEcdsaWalletSessionAuth,
 } from './ecdsaProvisionPlan';
 
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -34,10 +35,14 @@ const identity = buildEcdsaSessionIdentity({
 });
 const signingKeyContext = {
   ecdsaThresholdKeyId: 'ecdsa-key-1',
-  signingRootId: 'signing-root-1',
-  signingRootVersion: 'v1',
   participantIds: [1, 2] as const,
 };
+const signingKeyContextWithSigningRoot = {
+  ...signingKeyContext,
+  // @ts-expect-error signing-root identity belongs to key facts, records, and protocol boundaries.
+  signingRootId: 'signing-root-1',
+} satisfies EcdsaSigningKeyContext;
+void signingKeyContextWithSigningRoot;
 const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-1');
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpWorkerHandle: Extract<
@@ -45,15 +50,15 @@ declare const emailOtpWorkerHandle: Extract<
   { action: 'threshold_ecdsa_bootstrap' }
 >;
 declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-const thresholdSessionAuth = {
-  kind: 'threshold_session',
+const walletSessionAuth = {
+  kind: 'wallet_session',
   curve: 'ecdsa',
   identity,
-  thresholdSessionAuthToken: 'jwt-token',
+  walletSessionJwt: 'jwt-token',
   expiresAtMs: 1,
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   relayerKeyId: 'relayer-key-1',
-} satisfies VerifiedEcdsaThresholdSessionAuth;
+} satisfies VerifiedEcdsaWalletSessionAuth;
 const emailOtpAuthContext = {
   policy: 'session',
   retention: 'session',
@@ -83,8 +88,6 @@ const reconnectKeyRef = {
   relayerUrl: 'https://relayer.test',
   keyHandle,
   ecdsaThresholdKeyId: 'ecdsa-key-1',
-  signingRootId: 'signing-root-1',
-  signingRootVersion: 'v1',
   backendBinding: {
     materialKind: 'metadata_only',
     relayerKeyId: 'relayer-key-1',
@@ -92,10 +95,16 @@ const reconnectKeyRef = {
   },
   participantIds: [1, 2],
   thresholdSessionKind: 'jwt',
-  thresholdSessionAuthToken: 'jwt-token',
+  walletSessionJwt: 'jwt-token',
   thresholdSessionId: identity.thresholdSessionId,
   walletSigningSessionId: identity.walletSigningSessionId,
 } satisfies ThresholdEcdsaSecp256k1KeyRef;
+const invalidReconnectKeyRefThresholdSessionAuth = {
+  ...reconnectKeyRef,
+  // @ts-expect-error current ECDSA key refs carry Wallet Session JWT auth.
+  thresholdSessionAuthToken: 'jwt-token',
+} satisfies ThresholdEcdsaSecp256k1KeyRef;
+void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
   walletId: toAccountId('alice.testnet'),
   authMetadata: { rpId: 'example.localhost' },
@@ -110,7 +119,7 @@ const reconnectRecord = {
   ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
   participantIds: [1, 2],
   thresholdSessionKind: 'jwt',
-  thresholdSessionAuthToken: 'jwt-token',
+  walletSessionJwt: 'jwt-token',
   thresholdSessionId: identity.thresholdSessionId,
   walletSigningSessionId: identity.walletSigningSessionId,
   expiresAtMs: 1,
@@ -141,6 +150,19 @@ void buildPasskeyEcdsaSessionProvision({
   chainTarget,
   newSessionIdentity: identity,
   signingKeyContext,
+  // @ts-expect-error passkey ECDSA provision must stay on Wallet Session JWT auth
+  sessionKind: 'cookie',
+  sessionBudgetUses: 1,
+  requestId: 'request-1',
+  provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
+});
+
+void buildPasskeyEcdsaSessionProvision({
+  key: exactKey,
+  chainTarget,
+  newSessionIdentity: identity,
+  signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   requestId: 'request-1',
@@ -160,8 +182,8 @@ void buildPasskeyEcdsaSessionProvision({
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
-  // @ts-expect-error passkey provision must not accept threshold-session auth
-  thresholdSessionAuth,
+  // @ts-expect-error passkey provision must not accept Wallet Session auth
+  walletSessionAuth,
 });
 
 void buildPasskeyEcdsaSessionProvision({
@@ -178,7 +200,7 @@ void buildPasskeyEcdsaSessionProvision({
   activationMaterial: recordBackedPasskeyActivationMaterial,
 });
 
-void buildThresholdSessionAuthEcdsaReconnect({
+void buildWalletSessionEcdsaReconnect({
   chainTarget,
   existingSessionIdentity: identity,
   sessionBudgetUses: 1,
@@ -294,6 +316,20 @@ void buildEcdsaSessionProvisionPlan({
   sessionIdentity: identity,
   signingKeyContext,
   sessionKind: 'jwt',
+  sessionBudgetUses: 1,
+  requestId: 'request-1',
+  provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
+});
+
+void buildEcdsaSessionProvisionPlan({
+  kind: 'passkey_ecdsa_session_provision',
+  key: exactKey,
+  chainTarget,
+  sessionIdentity: identity,
+  signingKeyContext,
+  // @ts-expect-error passkey ECDSA provision plan must stay on Wallet Session JWT auth
+  sessionKind: 'cookie',
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
