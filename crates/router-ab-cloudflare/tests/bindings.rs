@@ -3797,7 +3797,7 @@ fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
 
     assert_eq!(session.subject_id, "user-1");
     assert_eq!(session.account_id, "account.near");
-    assert_eq!(session.session_id, "session-1");
+    assert_eq!(session.threshold_session_id, "session-1");
     assert_eq!(session.authorization_level, "normal-signing");
     assert_eq!(session.signing_worker_id, "server-a");
     assert_eq!(session.expires_at_ms, 3_000);
@@ -3906,7 +3906,7 @@ fn router_verified_wallet_session_rejects_normal_signing_v2_prepare_account_and_
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
     let mut wrong_session = normal_signing_v2_wallet_session(3_000);
-    wrong_session.session_id = "other-session".to_owned();
+    wrong_session.threshold_session_id = "other-session".to_owned();
     let err = wrong_session
         .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
         .expect_err("prepare session mismatch must fail");
@@ -4109,7 +4109,7 @@ fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_account_and
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
     let mut wrong_session = normal_signing_v2_wallet_session(3_000);
-    wrong_session.session_id = "other-session".to_owned();
+    wrong_session.threshold_session_id = "other-session".to_owned();
     let err = wrong_session
         .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
         .expect_err("finalize session mismatch must fail");
@@ -4135,7 +4135,7 @@ fn router_normal_signing_prepare_admission_v2_rejects_scope_and_digest_drift() {
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
     let mut wrong_session = admission.clone();
-    wrong_session.session_id = "other-session".to_owned();
+    wrong_session.threshold_session_id = "other-session".to_owned();
     let err = wrong_session
         .validate_for_prepare_request(&request)
         .expect_err("prepare admission session drift must fail");
@@ -4190,7 +4190,7 @@ fn router_normal_signing_finalize_admission_v2_rejects_scope_and_digest_drift() 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 
     let mut wrong_session = admission.clone();
-    wrong_session.session_id = "other-session".to_owned();
+    wrong_session.threshold_session_id = "other-session".to_owned();
     let err = wrong_session
         .validate_for_finalize_request(&request)
         .expect_err("finalize admission session drift must fail");
@@ -7250,7 +7250,7 @@ fn ecdsa_hss_wallet_session_builds_prepare_admission_candidate() {
 
     assert_eq!(admission.account_id, request.scope.context.wallet_id);
     assert_eq!(
-        admission.session_id,
+        admission.threshold_session_id,
         router_ab_ecdsa_hss_active_state_session_id_v1(
             &request.scope.context,
             &request.scope.activation_epoch,
@@ -7299,7 +7299,7 @@ fn ecdsa_hss_wallet_session_builds_finalize_admission_candidate() {
 
     assert_eq!(admission.account_id, request.scope.context.wallet_id);
     assert_eq!(
-        admission.session_id,
+        admission.threshold_session_id,
         router_ab_ecdsa_hss_active_state_session_id_v1(
             &request.scope.context,
             &request.scope.activation_epoch,

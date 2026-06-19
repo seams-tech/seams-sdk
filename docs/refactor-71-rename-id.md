@@ -317,15 +317,32 @@ Phase 4 evidence:
 
 ## Phase 5: Router A/B Cloudflare And Rust Contracts
 
-- [ ] Rename strict Router verified Wallet Session fields where they represent
+- [x] Rename strict Router verified Wallet Session fields where they represent
       threshold signing authority.
-- [ ] Update normal-signing prepare/finalize admission candidates.
-- [ ] Update ECDSA-HSS signing prepare/finalize request validation.
-- [ ] Update Durable Object schemas only through explicit boundary parsers or
+- [x] Update normal-signing prepare/finalize admission candidates.
+- [x] Update ECDSA-HSS signing prepare/finalize request validation.
+- [x] Update Durable Object schemas only through explicit boundary parsers or
       versioned records.
-- [ ] Keep private SigningWorker routes free of public Wallet Session parsing.
-- [ ] Add Rust source guards proving public Router routes verify Wallet Session
+- [x] Keep private SigningWorker routes free of public Wallet Session parsing.
+- [x] Add Rust source guards proving public Router routes verify Wallet Session
       credentials before deriving trusted admission.
+
+Phase 5 evidence:
+
+- Rust strict Router `CloudflareRouterVerifiedWalletSessionV1` and internal
+  Router A/B normal-signing / ECDSA-HSS admission candidates now use
+  `threshold_session_id` for Wallet Session threshold authority. Public request
+  scopes keep protocol-local `session_id`.
+- Cloudflare Durable Object budget/reservation records parse `signingGrantId`
+  and `thresholdSessionId` through explicit record parsers before matching
+  stored scope.
+- Rust source guards assert strict Router public routes derive admission from
+  bearer Wallet Session verification and private SigningWorker routes do not
+  parse Wallet Session material.
+- Validation: `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml
+  --features strict-worker-router-entrypoint`, `cargo test --manifest-path
+  crates/router-ab-cloudflare/Cargo.toml --test source_guards`, and filtered
+  `bindings` tests for verified Wallet Session and ECDSA-HSS admission.
 
 ## Phase 6: Tests, Fixtures, And Docs
 
