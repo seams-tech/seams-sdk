@@ -199,7 +199,6 @@ Inventory captured on June 19, 2026:
 | `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/types.ts` | `rename-later:walletIframeHandler.types.ts` |
 | `packages/sdk-web/src/core/accountData/near/types.ts` | `rename-later:nearAccountData.types.ts` |
 | `packages/sdk-web/src/core/platform/types.ts` | `rename-later:platform.types.ts` |
-| `packages/sdk-web/src/core/runtime/runtime.types.ts` | renamed from `packages/sdk-web/src/core/runtime/types.ts` |
 | `packages/sdk-web/src/core/signingEngine/chains/evm/types.ts` | `rename-later:evmSigning.types.ts` |
 | `packages/sdk-web/src/core/signingEngine/chains/tempo/types.ts` | `rename-later:tempoSigning.types.ts` |
 | `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts` | `mixed-runtime` |
