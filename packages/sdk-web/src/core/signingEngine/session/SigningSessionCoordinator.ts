@@ -11,6 +11,7 @@ import {
 import {
   buildAuthenticatedEcdsaLaneBudgetStatusCheck,
   buildAuthenticatedThresholdBudgetStatusCheck,
+  availableUsesForBudgetAdmission,
   buildBackingMaterialBudgetStatusCheck,
   buildEcdsaLaneBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,
@@ -24,6 +25,7 @@ import {
   isSigningSessionBudgetUnknownError,
   normalizeRequired,
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
   SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
   type SigningSessionBudget,
   type SigningSessionBudgetDeps,
@@ -366,7 +368,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     }
     const usesNeeded = Math.max(1, Math.floor(Number(input.operationUsesNeeded) || 1));
     const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
-    if (remainingUses < usesNeeded) {
+    const availableUses = availableUsesForBudgetAdmission(status);
+    if (availableUses < usesNeeded) {
+      if (remainingUses >= usesNeeded) {
+        throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+      }
       throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
     }
     const projectionVersion = String(status.projectionVersion || '').trim();
@@ -376,7 +382,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     return {
       walletSigningSessionId,
       projectionVersion,
-      status: status as SigningSessionPreparedBudgetIdentity['status'],
+      status: {
+        ...status,
+        remainingUses: availableUses,
+        availableUses,
+      } as SigningSessionPreparedBudgetIdentity['status'],
     };
   }
 

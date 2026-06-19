@@ -21,7 +21,10 @@ import {
   recordSuccessfulEvmFamilyWalletSigningSessionSpend,
   reserveEvmFamilyWalletSigningSessionBudget,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending';
-import { SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+import {
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 import type { BudgetAdmittedOperation } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/transactionState';
 import type { SigningSessionStatus } from '../../packages/sdk-web/src/core/types/seams';
 
@@ -48,11 +51,17 @@ function makeBudgetStatus(args: {
   status: SigningSessionStatus['status'];
   projectionVersion?: string;
   remainingUses?: number;
+  availableUses?: number;
+  inFlightReservedUses?: number;
 }): SigningSessionStatus {
   return {
     sessionId: args.walletSigningSessionId,
     status: args.status,
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
+    ...(typeof args.availableUses === 'number' ? { availableUses: args.availableUses } : {}),
+    ...(typeof args.inFlightReservedUses === 'number'
+      ? { inFlightReservedUses: args.inFlightReservedUses }
+      : {}),
     ...(args.projectionVersion ? { projectionVersion: args.projectionVersion } : {}),
     ...(args.status !== 'not_found' ? { expiresAtMs: EXPIRES_AT_MS } : {}),
   };
@@ -182,6 +191,41 @@ test.describe('EVM-family budget finalization spending', () => {
         thresholdSessionId: freshThresholdSessionId,
       },
     });
+  });
+
+  test('rejects budget identity admission when server reports in-flight reserved uses', async () => {
+    const walletSigningSessionId = 'wallet-session-server-inflight';
+    const thresholdSessionId = 'threshold-session-server-inflight';
+    const lane = buildTempoTransactionSigningLane({
+      authMethod: 'email_otp',
+      key: ECDSA_KEY,
+      keyHandle: ECDSA_KEY_HANDLE,
+      walletId: WALLET_ID,
+      chainTarget: CHAIN_TARGET,
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
+    });
+    const coordinator = new SigningSessionCoordinator({
+      getStatus: async ({ walletSigningSessionId: requestedWalletSigningSessionId }) =>
+        makeBudgetStatus({
+          walletSigningSessionId: String(requestedWalletSigningSessionId),
+          status: 'active',
+          projectionVersion: 'projection-server-inflight',
+          remainingUses: 3,
+          availableUses: 0,
+          inFlightReservedUses: 3,
+        }),
+      consumeUse: async () => {
+        throw new Error('consumeUse is not expected during admission');
+      },
+    });
+
+    await expect(
+      coordinator.prepareBudgetIdentity({
+        lane,
+        operationUsesNeeded: 1,
+      }),
+    ).rejects.toThrow(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
   });
 
   test('records one spend per operation id after reauth', async () => {

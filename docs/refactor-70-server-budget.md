@@ -490,12 +490,12 @@ Acceptance:
 
 ## Phase 5: Simplify SDK Budget Authority
 
-- [ ] Keep SDK `BudgetCoordinator` projection only as an optimistic local mirror.
+- [x] Keep SDK `BudgetCoordinator` projection only as an optimistic local mirror.
 - [ ] Remove any code path that treats IndexedDB `remainingUses` as authoritative
       for Router A/B signing.
-- [ ] Ensure `prepareBudgetIdentity` always uses server-trusted status when a
+- [x] Ensure `prepareBudgetIdentity` always uses server-trusted status when a
       Wallet Session JWT is available.
-- [ ] Ensure local completed-spend projection does not double-subtract after the
+- [x] Ensure local completed-spend projection does not double-subtract after the
       server projection version changes.
 - [ ] Map server `wallet_budget_exhausted` and `wallet_budget_in_flight` into
       the existing step-up auth planner.
@@ -503,9 +503,28 @@ Acceptance:
   - fourth sign after three committed server spends triggers step-up
   - local stale records with `remainingUses=3` cannot override exhausted server
     status
-  - in-flight server reservation blocks over-budget concurrent signing
+  - [x] in-flight server reservation blocks over-budget concurrent signing
   - one step-up approval can mint multiple signature uses for a multi-transaction
     NEAR request
+
+Implemented scope:
+
+- SDK admission now treats server `availableUses` as the available signing
+  budget when present, so server-side in-flight reservations cannot be masked by
+  a stale positive `remainingUses` projection.
+- Local completed-spend projections only subtract while the server projection
+  version still matches the projection that admitted the spend. Once the server
+  status advances, the SDK uses the server projection directly.
+- Existing multi-use coordinator coverage proves one admitted operation can
+  reserve and record multiple signature uses. Browser step-up evidence remains
+  open in Phase 6.
+
+Validation added:
+
+- `tests/unit/signingSessionBudgetFinalizer.unit.test.ts` covers server
+  in-flight availability and projection-version advancement.
+- `tests/unit/evmFamilyBudgetSpending.unit.test.ts` covers
+  `prepareBudgetIdentity` rejecting server in-flight budget.
 
 Acceptance:
 

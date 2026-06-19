@@ -547,13 +547,14 @@ export function applySigningSessionBudgetReservationsToStatus(args: {
 }): SigningSessionStatus {
   if (args.status.status !== 'active') return args.status;
   const remainingUses = Math.max(0, Math.floor(Number(args.status.remainingUses) || 0));
+  const serverAvailableUses = availableUsesForBudgetAdmission(args.status);
   const projectionVersion = String(args.status.projectionVersion || '').trim();
   const inFlightReservedUses = getSameProjectionReservedUses({
     reservationsByOperationId: args.reservationsByOperationId,
     walletSigningSessionId: args.walletSigningSessionId,
     projectionVersion,
   });
-  const availableUses = Math.max(0, remainingUses - inFlightReservedUses);
+  const availableUses = Math.max(0, serverAvailableUses - inFlightReservedUses);
   // remainingUses is the server-trusted budget. Local reservations are only
   // in-flight availability hints when they were admitted against the same
   // trusted projection. Opaque projection-version mismatches are non-subtracting
@@ -603,13 +604,15 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
     throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
   }
   const remainingUses = Math.floor(Number(status.remainingUses) || 0);
+  const serverAvailableUses = availableUsesForBudgetAdmission(status);
   const reservedUses = getSameProjectionReservedUses({
     reservationsByOperationId: args.reservationsByOperationId,
     walletSigningSessionId: spend.walletSigningSessionId,
     projectionVersion,
   });
-  if (remainingUses - reservedUses < spend.uses) {
-    if (remainingUses >= spend.uses) {
+  const availableUses = serverAvailableUses - reservedUses;
+  if (availableUses < spend.uses) {
+    if (remainingUses >= spend.uses || serverAvailableUses >= spend.uses) {
       throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
     }
     throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
@@ -619,6 +622,13 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
     throw new Error('[SigningSessionBudget] prepared budget projection version is required');
   }
   return status as SigningSessionStatus & { status: 'active'; projectionVersion: string };
+}
+
+export function availableUsesForBudgetAdmission(status: SigningSessionStatus): number {
+  const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
+  if (status.availableUses === undefined) return remainingUses;
+  const availableUses = Math.max(0, Math.floor(Number(status.availableUses) || 0));
+  return Math.min(remainingUses, availableUses);
 }
 
 export function getSameProjectionReservedUses(args: {

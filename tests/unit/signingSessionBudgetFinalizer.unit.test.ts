@@ -562,6 +562,37 @@ test.describe('budget coordinator reserved success handling', () => {
     ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is reserved by in-flight operations');
   });
 
+  test('rejects admission when server status reports all uses reserved in flight', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'server-inflight-wallet-session',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 3,
+          availableUses: 0,
+          inFlightReservedUses: 3,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse() {
+        throw new Error('consumeUse should not run');
+      },
+    });
+
+    await expect(
+      coordinator.reserve({
+        spend: makeSpend({
+          operationId: 'server-inflight-operation',
+          operationFingerprint: 'server-inflight-fingerprint',
+          walletSigningSessionId: 'server-inflight-wallet-session',
+          thresholdSessionId: 'server-inflight-threshold-session',
+        }),
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is reserved by in-flight operations');
+  });
+
   test('emits one budget reservation and one nonce lease for a transaction operation', async () => {
     const budgetEvents: SigningSessionBudgetTraceEvent[] = [];
     const nonceEvents: NonceCoordinatorTraceEvent[] = [];
@@ -858,6 +889,63 @@ test.describe('budget coordinator reserved success handling', () => {
       remainingUses: 2,
       availableUses: 2,
       projectionVersion: 'projection-1',
+    });
+  });
+
+  test('does not subtract local completed spends after server projection advances', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus(args) {
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-2',
+          remainingUses: 2,
+          availableUses: 2,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse(args) {
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-2',
+          remainingUses: 2,
+          availableUses: 2,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+    });
+    const firstSpend = makeSpend({
+      operationId: 'server-projected-completed-1',
+      operationFingerprint: 'server-projected-completed-fingerprint-1',
+      walletSigningSessionId: 'server-projected-wallet-session',
+      thresholdSessionId: 'server-projected-threshold-session-1',
+    });
+
+    await coordinator.recordSuccess(
+      withSuccessCommand({
+        kind: 'unreserved_success',
+        spend: firstSpend,
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    );
+    const status = await coordinator.getAvailableStatus(
+      buildSigningSessionBudgetStatusCheckForSpend({
+        spend: makeSpend({
+          operationId: 'server-projected-completed-2',
+          operationFingerprint: 'server-projected-completed-fingerprint-2',
+          walletSigningSessionId: 'server-projected-wallet-session',
+          thresholdSessionId: 'server-projected-threshold-session-2',
+        }),
+      }),
+    );
+
+    expect(status).toMatchObject({
+      sessionId: 'server-projected-wallet-session',
+      status: 'active',
+      remainingUses: 2,
+      availableUses: 2,
+      projectionVersion: 'projection-2',
     });
   });
 
