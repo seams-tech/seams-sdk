@@ -3,7 +3,7 @@ import type {
   LoginUnlockPayloadOption,
   PMUnlockPayload,
   WalletIframeUnlockRequest,
-} from '@/core/types/login.typings';
+} from '@/core/types/login.types';
 
 export function walletIframeUnlockRequestFromLoginHooks(args: {
   nearAccountId: string;

@@ -181,7 +181,7 @@ import type { SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { cloneResolvedChainConfig } from '@/core/config/chains';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
-import type { WalletIframeUnlockRequest } from '@/core/types/login.typings';
+import type { WalletIframeUnlockRequest } from '@/core/types/login.types';
 import { buildPMUnlockPayload } from '../shared/unlockOptions';
 
 // Simple, framework-agnostic service iframe client.

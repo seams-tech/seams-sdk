@@ -38,12 +38,12 @@ import type {
   RegistrationSignerSelection,
   WalletId,
 } from '@shared/utils/registrationIntent';
-import type { PMUnlockPayload } from '@/core/types/login.typings';
+import type { PMUnlockPayload } from '@/core/types/login.types';
 export type {
   PMUnlockOptions,
   PMUnlockPayload,
   WalletIframeUnlockRequest,
-} from '@/core/types/login.typings';
+} from '@/core/types/login.types';
 
 export type WalletProtocolVersion = '1.0.0';
 

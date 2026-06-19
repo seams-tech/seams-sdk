@@ -1,4 +1,4 @@
-import type { PMUnlockOptions, PMUnlockPayload } from './login.typings';
+import type { PMUnlockOptions, PMUnlockPayload } from './login.types';
 
 const validUnlockOptions = {
   kind: 'pm_unlock_options_v1',

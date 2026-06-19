@@ -2,7 +2,7 @@
 
 Date created: June 19, 2026
 
-Status: planned.
+Status: in progress.
 
 ## Goal
 
@@ -113,9 +113,10 @@ of: `public-barrel`, `mixed-runtime`, `external-contract`, or
 
 ## Current Baseline
 
-Observed naming families:
+Observed naming families before Phase 1:
 
-- Current `*.typings.ts`: `packages/sdk-web/src/core/types/login.typings.ts`.
+- Renamed `*.typings.ts`: `packages/sdk-web/src/core/types/login.typings.ts`
+  is now `packages/sdk-web/src/core/types/login.types.ts`.
 - Existing compliant `*.types.ts` examples:
   - `packages/sdk-web/src/core/indexedDB/keyMaterial.types.ts`
   - `packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts`
@@ -131,15 +132,18 @@ Observed naming families:
 
 ### Phase 1: Mechanical `.typings.ts` Cleanup
 
-- Rename `packages/sdk-web/src/core/types/login.typings.ts` to
+Status: complete.
+
+- [x] Rename `packages/sdk-web/src/core/types/login.typings.ts` to
   `packages/sdk-web/src/core/types/login.types.ts`.
-- Rename `packages/sdk-web/src/core/types/login.typings.typecheck.ts` to
+- [x] Rename `packages/sdk-web/src/core/types/login.typings.typecheck.ts` to
   `packages/sdk-web/src/core/types/login.types.typecheck.ts`.
-- Update imports and exports.
-- Run SDK web type-check and focused tests:
+- [x] Update imports and exports.
+- [x] Run SDK web type-check and focused tests:
   - `pnpm -C packages/sdk-web type-check`
-  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletIframeUnlock.unit.test.ts --reporter=line` if the file exists
-  - otherwise run the nearest wallet iframe/login public type fixture or guard
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/walletIframeUnlockOptions.unit.test.ts --reporter=line`
+    because `unit/walletIframeUnlock.unit.test.ts` does not exist, and this is
+    the nearest wallet iframe unlock option fixture
     that imports the renamed login types
 
 ### Phase 2: Type-Only `types.ts` Inventory
