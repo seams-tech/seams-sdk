@@ -15,6 +15,7 @@ import type {
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
 import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
@@ -80,6 +81,7 @@ export type EvmFamilyThresholdEcdsaStepUp =
       operation: EvmFamilyThresholdEcdsaOperation;
       signerSession: ReadyEcdsaSignerSession;
       singleUseEmailOtpSession: boolean;
+      roleLocalReadyRecordForWorkerRestore: EcdsaRoleLocalReadyRecord | null;
       runtime: EvmFamilyThresholdEcdsaStepUpRuntime;
     };
 

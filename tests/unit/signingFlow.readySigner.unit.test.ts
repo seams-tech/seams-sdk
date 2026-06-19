@@ -5,7 +5,10 @@ import type {
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultWithTxContext,
 } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmOperation';
-import { SigningAuthPlanKind, type SigningAuthPlan } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
+import {
+  SigningAuthPlanKind,
+  type SigningAuthPlan,
+} from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
 import type {
   KeyRef,
   SignRequest,
@@ -13,9 +16,8 @@ import type {
   Signer,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
-import {
-  toWalletId,
-} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UiConfirmContext } from '../../packages/sdk-web/src/core/signingEngine/uiConfirm/types';
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -29,7 +31,6 @@ import { SigningOperationIntent } from '../../packages/sdk-web/src/core/signingE
 import { signEvmFamilyWithUiConfirm } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow';
 import type { EvmFamilyThresholdEcdsaOperation } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission';
 import {
-  buildReadySecp256k1SigningMaterialFromKeyRef,
   type ReadySecp256k1Signer,
   type ReadySecp256k1SigningMaterial,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
@@ -90,11 +91,54 @@ const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
   }),
 });
 
+function ethereumAddress20B64u(address: string): string {
+  return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
+}
+
+function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      context: {
+        wallet_id: WALLET_ID,
+        rp_id: RP_ID,
+        key_scope: 'evm-family',
+        ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
+        signing_root_id: SIGNING_ROOT_ID,
+        signing_root_version: SIGNING_ROOT_VERSION,
+        key_purpose: 'evm-signing',
+        key_version: 'v1',
+      },
+      public_identity: {
+        context_binding_b64u: VALID_CONTEXT_BINDING_B64U,
+        client_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
+        server_public_key33_b64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+        threshold_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
+        ethereum_address20_b64u: ethereumAddress20B64u(
+          '0x1111111111111111111111111111111111111111',
+        ),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-1',
+        key_epoch: 'worker-epoch-1',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: 'activation-1',
+    },
+  };
+}
+
 async function orchestrateSigningConfirmation(
   params: OrchestrateIntentDigestSigningConfirmationParams,
 ): Promise<SigningConfirmationResultIntentDigest>;
 async function orchestrateSigningConfirmation(
-  params: Exclude<OrchestrateSigningConfirmationParams, OrchestrateIntentDigestSigningConfirmationParams>,
+  params: Exclude<
+    OrchestrateSigningConfirmationParams,
+    OrchestrateIntentDigestSigningConfirmationParams
+  >,
 ): Promise<SigningConfirmationResultWithTxContext>;
 async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
@@ -129,20 +173,19 @@ function makeThresholdKeyRef(
     relayerUrl: 'https://relayer.test',
     keyHandle: 'key-handle-ready-flow',
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-    signingRootId: SIGNING_ROOT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
     backendBinding: {
       materialKind: 'role_local_ready_state_blob',
       relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'client-verifying-share',
+      clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
       stateBlob: ROLE_LOCAL_READY_RECORD.stateBlob,
       ecdsaRoleLocalReadyRecord: ROLE_LOCAL_READY_RECORD,
     },
     participantIds: [1, 2],
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     ethereumAddress: '0x1111111111111111111111111111111111111111',
+    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
     thresholdSessionKind: 'jwt',
-    thresholdSessionAuthToken: 'threshold-auth-token',
+    walletSessionJwt: 'threshold-auth-token',
     thresholdSessionId: THRESHOLD_SESSION_ID,
     walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
   };
@@ -173,8 +216,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
         remainingUses: 1,
         expiresAtMs: 1_900_000_000_000,
       }),
-      thresholdSessionKind: 'jwt',
-      thresholdSessionAuthToken: 'threshold-auth-token',
+      walletSessionJwt: 'threshold-auth-token',
     });
     const lane = selectedEcdsaLane({
       key,
@@ -191,7 +233,6 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
       accountId: WALLET_ID,
       intent: SigningOperationIntent.TransactionSign,
       curve: 'ecdsa',
-      signingRootId: SIGNING_ROOT_ID,
       sessionId: THRESHOLD_SESSION_ID,
       expiresAtMs: EXPIRES_AT_MS,
       remainingUses: 1,
@@ -241,6 +282,10 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
         expect(req.algorithm).toBe('secp256k1');
         expect(material.signerSession).toBe(signerSession);
         expect(material.singleUseEmailOtpSession).toBe(false);
+        expect(material.roleLocalWorkerRestore).toEqual({
+          kind: 'role_local_ready_record',
+          readyRecord: ROLE_LOCAL_READY_RECORD,
+        });
         return signature;
       },
     };
@@ -317,6 +362,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
           operation,
           signerSession,
           singleUseEmailOtpSession: false,
+          roleLocalReadyRecordForWorkerRestore: ROLE_LOCAL_READY_RECORD,
           runtime: {},
         },
       },
@@ -328,31 +374,4 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
     expect(signCalls).toBe(0);
   });
 
-  test('normalizes key-ref fallback into ready secp256k1 material', async () => {
-    const keyRef = makeThresholdKeyRef();
-
-    const material = await buildReadySecp256k1SigningMaterialFromKeyRef({
-      keyRef,
-      requestLabel: 'evm',
-      rpId: RP_ID,
-    });
-
-    expect(material.kind).toBe('ready_secp256k1_signing_material');
-    expect(material.walletId).toBe(WALLET_ID);
-    expect(material.singleUseEmailOtpSession).toBe(false);
-    expect(material.signerSession.session.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
-    expect(material.signerSession.session.walletSigningSessionId).toBe(
-      WALLET_SIGNING_SESSION_ID,
-    );
-    expect(material.signerSession.session.policy).toEqual({
-      kind: 'unavailable_threshold_ecdsa_session_policy',
-      source: 'key_ref_fallback',
-    });
-    expect(material.signerSession.transport.auth).toEqual({
-      kind: 'jwt_threshold_session_auth',
-      thresholdSessionAuthToken: 'threshold-auth-token',
-    });
-    expect(material.signerSession.publicFacts.publicKeyB64u).toBe(VALID_PUBLIC_KEY_B64U);
-    expect('keyRef' in material.signerSession).toBe(false);
-  });
 });

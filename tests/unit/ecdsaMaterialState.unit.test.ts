@@ -5,6 +5,7 @@ import { buildEcdsaMaterialStateForCandidate } from '../../packages/sdk-web/src/
 import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 import {
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
@@ -33,6 +34,46 @@ const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   chainId: 1,
   networkSlug: 'tempo-1',
 };
+
+function ethereumAddress20B64u(address: string): string {
+  const hex = address.replace(/^0x/i, '');
+  const bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) ?? []);
+  return base64UrlEncode(bytes);
+}
+
+function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      context: {
+        wallet_id: 'alice.testnet',
+        rp_id: 'example.localhost',
+        key_scope: 'evm-family',
+        ecdsa_threshold_key_id: 'ecdsa-key-1',
+        signing_root_id: 'root-1',
+        signing_root_version: 'v1',
+        key_purpose: 'evm-signing',
+        key_version: 'v1',
+      },
+      public_identity: {
+        context_binding_b64u: CONTEXT_BINDING_32_B64U,
+        client_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
+        server_public_key33_b64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+        threshold_public_key33_b64u: VALID_PUBLIC_KEY_B64U,
+        ethereum_address20_b64u: ethereumAddress20B64u(OWNER_ADDRESS),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-1',
+        key_epoch: 'worker-epoch-1',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: 'activation-1',
+    },
+  };
+}
 
 function makeCandidate(): EcdsaLaneCandidate {
   const walletId = toAccountId('alice.testnet');
@@ -107,15 +148,16 @@ function makeRecord(
     signingRootId: 'root-1',
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
-    clientVerifyingShareB64u: 'client-verifying-share',
+    clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
     ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord(),
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-session-1',
-    thresholdSessionAuthToken: 'threshold-auth-token',
+    walletSessionJwt: 'threshold-auth-token',
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
+    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     ethereumAddress: OWNER_ADDRESS,
     updatedAtMs: 1_800_000_000_000,
@@ -142,7 +184,7 @@ test.describe('ecdsa material state', () => {
     );
   });
 
-  test('treats ready-state blob records as ready signer material', () => {
+  test('treats ready-state blob records as ready worker-handle signer material', () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record: makeRecord(),
@@ -154,7 +196,7 @@ test.describe('ecdsa material state', () => {
 
     expect(state.kind).toBe('ready_to_sign');
     if (state.kind !== 'ready_to_sign') return;
-    expect(state.signerSession.clientShare.kind).toBe('role_local_ready_state_blob');
+    expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
   });
 
@@ -170,7 +212,7 @@ test.describe('ecdsa material state', () => {
 
     expect(state.kind).toBe('ready_to_sign');
     if (state.kind !== 'ready_to_sign') return;
-    expect(state.signerSession.clientShare.kind).toBe('role_local_ready_state_blob');
+    expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
   });
 });

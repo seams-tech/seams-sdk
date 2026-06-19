@@ -22,6 +22,9 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
+  classifyThresholdEcdsaSessionRecordRoleLocalState,
+} from '../../session/persistence/ecdsaRoleLocalRecords';
+import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -46,11 +49,6 @@ export type EvmFamilySharedEcdsaSignerMaterial =
   | {
       kind: 'worker_handle';
       workerSessionId: string;
-      sourceChainTarget?: never;
-    }
-  | {
-      kind: 'role_local_ready_state_blob';
-      workerSessionId?: never;
       sourceChainTarget?: never;
     }
   | {
@@ -134,6 +132,26 @@ export type EvmFamilySharedEcdsaState =
   | EvmFamilySharedEcdsaRestorableState
   | EvmFamilySharedEcdsaReadyState
   | EvmFamilySharedEcdsaExportReadyState;
+
+export type EmailOtpEcdsaReadinessSource =
+  | {
+      kind: 'persisted_record_policy';
+      expiresAtMs: number;
+      remainingUses: number;
+      workerSessionId?: never;
+    }
+  | {
+      kind: 'worker_session_status';
+      workerSessionId: string;
+      expiresAtMs?: never;
+      remainingUses?: never;
+    }
+  | {
+      kind: 'unavailable';
+      workerSessionId?: never;
+      expiresAtMs?: never;
+      remainingUses?: never;
+    };
 
 export type TargetSpecificEvmFamilyEcdsaLaneState = {
   kind: 'target_specific_evm_family_ecdsa_lane_state';
@@ -565,9 +583,10 @@ function sharedSignerMaterial(args: {
         kind: 'worker_handle',
         workerSessionId: args.signerSession.clientShare.handle.sessionId,
       };
-    case 'role_local_ready_state_blob':
+    case 'role_local_worker_share':
       return {
-        kind: 'role_local_ready_state_blob',
+        kind: 'worker_handle',
+        workerSessionId: args.signerSession.clientShare.handle.materialHandle,
       };
   }
 }
@@ -624,6 +643,32 @@ export function getEcdsaMaterialRecord(
     case 'reauth_required':
     case 'ready_to_sign':
       return state.record;
+  }
+}
+
+export function resolveEmailOtpEcdsaReadinessSource(args: {
+  record: ThresholdEcdsaSessionRecord;
+  nowMs: number;
+}): EmailOtpEcdsaReadinessSource {
+  const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+    record: args.record,
+    nowMs: args.nowMs,
+  });
+  if (roleLocalState.kind !== 'ready_email_otp_role_local_material_v1') {
+    return { kind: 'unavailable' };
+  }
+  switch (roleLocalState.inlineSigningMaterial.kind) {
+    case 'role_local_ready_state_blob':
+      return {
+        kind: 'persisted_record_policy',
+        expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
+        remainingUses: Math.floor(Number(args.record.remainingUses) || 0),
+      };
+    case 'email_otp_worker_share':
+      return {
+        kind: 'worker_session_status',
+        workerSessionId: roleLocalState.inlineSigningMaterial.workerSessionId,
+      };
   }
 }
 

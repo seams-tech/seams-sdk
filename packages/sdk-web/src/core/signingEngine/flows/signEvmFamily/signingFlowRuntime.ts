@@ -17,9 +17,7 @@ import {
   emitSigningBoundaryTrace,
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
-import type {
-  EvmFamilySigningDeps,
-} from '../../interfaces/operationDeps';
+import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { resolveThresholdEcdsaCommitQueueKey } from '../../threshold/ecdsa/commitQueue';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
 import { throwIfEvmFamilySigningCancelled } from './errors';
@@ -30,6 +28,7 @@ import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
 import { ensureEvmFamilyThresholdEcdsaRecordReady } from './ecdsaReadiness';
 import {
   readSelectedEcdsaRecordForLane,
+  validateSelectedEcdsaRecordCandidateForLane,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { type ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
@@ -44,10 +43,11 @@ import {
   buildEcdsaSigningKeyContextFromRecord,
   type EcdsaSigningKeyContext,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import { resolveThresholdSigningRootBindingFromRecord } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-import { buildReadySecp256k1SigningMaterialFromRecord } from './signers/secp256k1';
+import { buildReadySecp256k1SigningMaterialFromRecord } from './readySecp256k1Material';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -61,6 +61,9 @@ import {
   buildEvmFamilyWarmSessionReconnectPlan,
 } from './provisionPlan';
 import {
+  resolveRouterAbEcdsaWalletSessionAuthFromRecord,
+} from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import {
   normalizeStepUpOperationId,
   resolvePostExhaustionStepUpBudgetPolicy,
   resolveSigningBudgetPolicyRemainingUses,
@@ -70,11 +73,10 @@ import {
   computeEcdsaHssRoleLocalRelayerKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
-type PasskeyEcdsaReconnectMaterial =
-  {
-    kind: 'session_record';
-    record: ThresholdEcdsaSessionRecord;
-  };
+type PasskeyEcdsaReconnectMaterial = {
+  kind: 'session_record';
+  record: ThresholdEcdsaSessionRecord;
+};
 
 function signingKeyContextFromPasskeyEcdsaReconnectMaterial(
   material: PasskeyEcdsaReconnectMaterial,
@@ -97,7 +99,14 @@ function runtimePolicyScopeFromPasskeyEcdsaReconnectMaterial(
 function readPasskeyEcdsaReconnectMaterialForLane(args: {
   deps: EvmFamilySigningDeps;
   lane?: ResolvedEvmFamilyEcdsaSigningLane;
+  preparedRecord?: ThresholdEcdsaSessionRecord;
 }): PasskeyEcdsaReconnectMaterial | undefined {
+  const preparedRecord = validateSelectedEcdsaRecordCandidateForLane({
+    lane: args.lane,
+    record: args.preparedRecord,
+    context: 'passkey ECDSA reconnect',
+  });
+  if (preparedRecord) return { kind: 'session_record', record: preparedRecord };
   const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane: args.lane });
   if (record) return { kind: 'session_record', record };
   return undefined;
@@ -111,15 +120,6 @@ function resolveEvmFamilyStepUpOperationId(
       SigningSessionIds.signingOperation('evm-family-post-exhaustion-step-up'),
   );
 }
-
-type ThresholdEcdsaPresignRefillEvent = {
-  trigger: 'commit_start' | 'post_sign_success';
-  result: {
-    scheduled: boolean;
-    reason?: string;
-    [key: string]: unknown;
-  };
-};
 
 type ThresholdEcdsaCommitQueueArgs = {
   walletId: WalletId;
@@ -234,6 +234,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const material = readPasskeyEcdsaReconnectMaterialForLane({
           deps: args.deps,
           lane,
+          preparedRecord: args.getThresholdEcdsaRecord(),
         });
         if (!material) {
           throw new Error(
@@ -279,21 +280,26 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           remainingUses,
         });
         const passkeyBootstrapDigest32B64u =
-          await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-            walletId: policy.walletId,
-            rpId: policy.rpId,
-            ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
-            signingRootId: signingKeyContext.signingRootId,
-            signingRootVersion: signingKeyContext.signingRootVersion || 'default',
-            keyScope: 'evm-family',
-            relayerKeyId,
-            requestId,
-            sessionId: policy.sessionId,
-            walletSigningSessionId: policy.walletSigningSessionId,
-            ttlMs: policy.ttlMs,
-            remainingUses: policy.remainingUses,
-            participantIds: policy.participantIds || participantIds,
-          });
+          await (async () => {
+            const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+              record: material.record,
+            });
+            return computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+              walletId: policy.walletId,
+              rpId: policy.rpId,
+              ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
+              signingRootId: String(signingRootBinding.signingRootId),
+              signingRootVersion: String(signingRootBinding.signingRootVersion || 'default'),
+              keyScope: 'evm-family',
+              relayerKeyId,
+              requestId,
+              sessionId: policy.sessionId,
+              walletSigningSessionId: policy.walletSigningSessionId,
+              ttlMs: policy.ttlMs,
+              remainingUses: policy.remainingUses,
+              participantIds: policy.participantIds || participantIds,
+            });
+          })();
         return {
           webauthnChallenge: {
             kind: 'ecdsa_role_local_bootstrap' as const,
@@ -317,6 +323,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const material = readPasskeyEcdsaReconnectMaterialForLane({
           deps: args.deps,
           lane,
+          preparedRecord: args.getThresholdEcdsaRecord(),
         });
         if (!material) {
           throw new Error(
@@ -365,6 +372,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const updated = await args.setThresholdEcdsaRecord({
           record: readyRecord,
         });
+        const walletSessionAuth = resolveRouterAbEcdsaWalletSessionAuthFromRecord(readyRecord);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_admitted',
           accountId: walletId,
@@ -373,7 +381,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           record: {
             walletSigningSessionId: readyRecord.walletSigningSessionId,
             thresholdSessionId: readyRecord.thresholdSessionId,
-            hasThresholdSessionAuthToken: Boolean(readyRecord.thresholdSessionAuthToken),
+            hasRouterAbWalletSessionAuth: walletSessionAuth.kind === 'ready',
           },
           budgetKind: updated.operation.budgetAdmission ? 'admitted' : 'missing',
         });
@@ -459,25 +467,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         getRpId: () => ctx.touchIdPrompt.getRpId(),
         workerCtx: signerWorkerCtx,
         shouldAbort: args.shouldAbort,
-        thresholdEcdsaPresignPoolPolicy:
-          args.deps.seamsWebConfigs.signing.thresholdEcdsa.presignPool,
-        onThresholdEcdsaPresignRefillScheduled: ({
-          trigger,
-          result,
-        }: ThresholdEcdsaPresignRefillEvent) => {
-          try {
-            emitEvmFamilySigningEvent(args.onEvent, {
-              phase: SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED,
-              status: 'running',
-              accountId: walletId,
-              message: result.scheduled
-                ? `Scheduled threshold presign refill (${trigger})`
-                : `Skipped threshold presign refill (${trigger}): ${result.reason}`,
-              interaction: { kind: 'none', overlay: 'none' },
-              data: { trigger, ...result },
-            });
-          } catch {}
-        },
         enqueueThresholdEcdsaCommit: async (queueArgs: ThresholdEcdsaCommitQueueArgs) => {
           const thresholdSessionId = String(queueArgs.thresholdSessionId || '').trim();
           const queueKey = resolveThresholdEcdsaCommitQueueKey({

@@ -195,14 +195,12 @@ function getAdmittedEcdsaBudgetIdentity(
 function trustedBudgetStatusAuthFromReadySignerSession(
   signerSession: ReadyEcdsaSignerSession,
 ): SigningSessionBudgetStatusAuth {
-  const thresholdSessionAuthToken =
-    signerSession.transport.auth.kind === 'jwt_threshold_session_auth'
-      ? signerSession.transport.auth.thresholdSessionAuthToken
-      : undefined;
+  const walletSessionJwt =
+    signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt;
   return {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
-    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    walletSessionJwt,
   };
 }
 
@@ -898,10 +896,6 @@ async function signEvmFamilyAttempt(
     assertPreparedEcdsaBudgetAdmitted(prepared, context);
     return prepared;
   };
-  const requirePreparedEcdsaBudgetKey = (
-    prepared: PreparedEvmFamilyEcdsaSigningSession,
-    context: string,
-  ) => requireReadyEcdsaMaterial(prepared.material, context).readyMaterial.key;
   const getResolvedEcdsaSigningLane = (): ResolvedEvmFamilyEcdsaSigningLane =>
     getPreparedEcdsaSigningSession().signingLane;
   const getPreparedEcdsaSigningSessionIfEcdsa = ():
@@ -1255,7 +1249,6 @@ async function signEvmFamilyAttempt(
         operation: createTransactionSigningOperation(),
         admittedTransaction: prepared.budget.operation,
         finalizedSigningLane: prepared.signingLane,
-        key: requirePreparedEcdsaBudgetKey(prepared, 'successful wallet signing-session spend'),
         reserved: walletSigningSessionBudgetReserved,
         ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
       });
@@ -1307,7 +1300,6 @@ async function signEvmFamilyAttempt(
       operation: createTransactionSigningOperation(),
       admittedTransaction: operation,
       finalizedSigningLane: prepared.signingLane,
-      key: requirePreparedEcdsaBudgetKey(prepared, 'wallet signing-session reservation'),
       ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
     });
     walletSigningSessionBudgetReserved = isSigningSessionBudgetReservation(reservation);
@@ -1338,7 +1330,6 @@ async function signEvmFamilyAttempt(
       error,
       admittedTransaction: prepared.budget.operation,
       finalizedSigningLane: prepared.signingLane,
-      key: requirePreparedEcdsaBudgetKey(prepared, 'failed wallet signing-session spend'),
       ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
     });
   };
@@ -1416,6 +1407,10 @@ async function signEvmFamilyAttempt(
           },
           signerSession: preparedExecutorSignerSession,
           singleUseEmailOtpSession: preparedExecutorSingleUseEmailOtpSession,
+          roleLocalReadyRecordForWorkerRestore:
+            preparedExecutorSignerSession.clientShare.kind === 'role_local_worker_share'
+              ? preparedExecutorReadyMaterial?.record.ecdsaRoleLocalReadyRecord ?? null
+              : null,
           runtime: requireThresholdEcdsaStepUpRuntime(),
         }
       : {
