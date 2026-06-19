@@ -90,10 +90,10 @@ export async function getWalletSigningBudgetAvailableStatus(
   deps: WalletSigningBudgetAvailableStatusDeps,
   args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) return null;
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  if (!signingGrantId) return null;
   return await deps
-    .getAvailableStatus({ ...args, walletSigningSessionId })
+    .getAvailableStatus({ ...args, signingGrantId })
     .catch(() => null);
 }
 
@@ -102,8 +102,8 @@ export async function readTrustedWalletSigningBudgetStatus(
   args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
   assertBudgetStatusCheckHasConcreteLaneIdentity(args);
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) return null;
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  if (!signingGrantId) return null;
   const targetThresholdSessionIds = thresholdSessionIdsForBudgetStatusCheck(args);
   const ecdsaLaneCheck = isEcdsaLaneBudgetStatusCheck(args) ? args : undefined;
   const providedAuth =
@@ -115,7 +115,7 @@ export async function readTrustedWalletSigningBudgetStatus(
     providedAuth ||
     resolveWalletSigningBudgetStatusAuth(deps, {
       owner: ownerForBudgetStatusCheck(args),
-      walletSigningSessionId,
+      signingGrantId,
       targetThresholdSessionIds,
       ecdsaLaneCheck,
     });
@@ -123,7 +123,7 @@ export async function readTrustedWalletSigningBudgetStatus(
 
   const initial = await fetchTrustedWalletSigningBudgetStatus({
     auth: resolvedAuth,
-    walletSigningSessionId,
+    signingGrantId,
   });
   if (!providedAuth || !initial.authRejected) {
     return initial.status;
@@ -131,7 +131,7 @@ export async function readTrustedWalletSigningBudgetStatus(
 
   const fallbackAuth = resolveWalletSigningBudgetStatusAuth(deps, {
     owner: ownerForBudgetStatusCheck(args),
-    walletSigningSessionId,
+    signingGrantId,
     targetThresholdSessionIds,
     ecdsaLaneCheck,
   });
@@ -140,7 +140,7 @@ export async function readTrustedWalletSigningBudgetStatus(
   }
   const fallback = await fetchTrustedWalletSigningBudgetStatus({
     auth: fallbackAuth,
-    walletSigningSessionId,
+    signingGrantId,
   });
   return fallback.status;
 }
@@ -186,13 +186,13 @@ function sameBudgetStatusAuth(left: TrustedBudgetStatusAuth, right: TrustedBudge
 
 function parseTrustedBudgetStatusPayload(args: {
   body: unknown;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   auth: TrustedBudgetStatusAuth;
 }): TrustedBudgetStatusPayload | null {
   const record = (args.body || {}) as Record<string, unknown>;
   if (record.ok !== true) return null;
-  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
-  if (walletSigningSessionId !== args.walletSigningSessionId) return null;
+  const signingGrantId = String(record.signingGrantId || '').trim();
+  if (signingGrantId !== args.signingGrantId) return null;
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
   if (args.auth.thresholdSessionId !== thresholdSessionId) {
     return null;
@@ -205,7 +205,7 @@ function parseTrustedBudgetStatusPayload(args: {
       return {
         kind: 'budget_unknown',
         status: budgetUnknownSigningSessionStatus({
-          walletSigningSessionId,
+          signingGrantId,
           reason: 'status_unavailable',
         }) as SigningSessionStatus & { status: 'budget_unknown' },
       };
@@ -213,7 +213,7 @@ function parseTrustedBudgetStatusPayload(args: {
     return {
       kind: 'not_found',
       status: {
-        sessionId: walletSigningSessionId,
+        sessionId: signingGrantId,
         status: 'not_found',
         ...(statusCode ? { statusCode } : {}),
       },
@@ -231,7 +231,7 @@ function parseTrustedBudgetStatusPayload(args: {
     return {
       kind: 'current',
       status: {
-        sessionId: walletSigningSessionId,
+        sessionId: signingGrantId,
         status,
         expiresAtMs,
       },
@@ -257,7 +257,7 @@ function parseTrustedBudgetStatusPayload(args: {
   return {
     kind: 'current',
     status: {
-      sessionId: walletSigningSessionId,
+      sessionId: signingGrantId,
       status,
       remainingUses,
       committedRemainingUses,
@@ -271,7 +271,7 @@ function parseTrustedBudgetStatusPayload(args: {
 
 async function fetchTrustedWalletSigningBudgetStatus(args: {
   auth: TrustedBudgetStatusAuth;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 }): Promise<TrustedBudgetStatusFetchResult> {
   const key = trustedBudgetStatusFetchKey(args);
   const inFlight = inFlightTrustedBudgetStatusFetches.get(key);
@@ -290,20 +290,20 @@ async function fetchTrustedWalletSigningBudgetStatus(args: {
 
 function trustedBudgetStatusFetchKey(args: {
   auth: TrustedBudgetStatusAuth;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 }): string {
   return [
     args.auth.kind,
     args.auth.relayerUrl,
     args.auth.thresholdSessionId,
     args.auth.walletSessionJwt,
-    args.walletSigningSessionId,
+    args.signingGrantId,
   ].join('\x1f');
 }
 
 async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
   auth: TrustedBudgetStatusAuth;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 }): Promise<TrustedBudgetStatusFetchResult> {
   const response = await fetch(
     joinNormalizedUrl(args.auth.relayerUrl, '/session/signing-budget/status'),
@@ -315,7 +315,7 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
       },
       credentials: 'omit',
       body: JSON.stringify({
-        walletSigningSessionId: args.walletSigningSessionId,
+        signingGrantId: args.signingGrantId,
         thresholdSessionId: args.auth.thresholdSessionId,
         ...(args.auth.curve ? { curve: args.auth.curve } : {}),
         ...(args.auth.chainTarget ? { chainTarget: args.auth.chainTarget } : {}),
@@ -327,7 +327,7 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
     if (response.status === 401 || response.status === 403) {
       return {
         status: budgetUnknownSigningSessionStatus({
-          walletSigningSessionId: args.walletSigningSessionId,
+          signingGrantId: args.signingGrantId,
           reason: 'status_unavailable',
         }),
         authRejected: true,
@@ -336,7 +336,7 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
     if (response.status === 404) {
       return {
         status: {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'not_found',
           ...(typeof json?.code === 'string' ? { statusCode: json.code } : {}),
         },
@@ -347,7 +347,7 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
   }
   const parsed = parseTrustedBudgetStatusPayload({
     body: json,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     auth: args.auth,
   });
   if (!parsed) return { status: null, authRejected: false };
@@ -361,14 +361,14 @@ function resolveWalletSigningBudgetStatusAuth(
   deps: TrustedWalletSigningBudgetStatusDeps,
   args: {
     owner: WalletBudgetOwner;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     targetThresholdSessionIds?: string[];
     ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck;
   },
 ): TrustedBudgetStatusAuth | null {
   const owner = args.owner;
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) return null;
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  if (!signingGrantId) return null;
   const targetThresholdIds = new Set(
     (args.targetThresholdSessionIds || [])
       .map((value) => String(value || '').trim())
@@ -380,14 +380,14 @@ function resolveWalletSigningBudgetStatusAuth(
       | {
           relayerUrl?: unknown;
           thresholdSessionId?: unknown;
-          walletSigningSessionId?: unknown;
+          signingGrantId?: unknown;
         }
       | null
       | undefined,
     walletSessionJwtInput: unknown,
   ): void => {
     if (!record) return;
-    if (String(record.walletSigningSessionId || '').trim() !== walletSigningSessionId) return;
+    if (String(record.signingGrantId || '').trim() !== signingGrantId) return;
     const thresholdSessionId = String(record.thresholdSessionId || '').trim();
     const relayerUrl = String(record.relayerUrl || '').trim();
     if (!thresholdSessionId || !relayerUrl) return;
@@ -444,7 +444,7 @@ function ecdsaRecordMatchesBudgetLane(
 ): boolean {
   return (
     String(record.walletId) === String(lane.key.walletId) &&
-    String(record.walletSigningSessionId) === String(lane.walletSigningSessionId) &&
+    String(record.signingGrantId) === String(lane.signingGrantId) &&
     String(record.thresholdSessionId) === String(lane.thresholdSessionId) &&
     record.keyHandle === lane.keyHandle &&
     thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)
@@ -482,12 +482,12 @@ export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionSta
 
 export function buildWalletBudgetStatusCheckForSession(args: {
   owner: WalletBudgetOwner;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 }): SigningSessionBudgetStatusCheck | null {
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) return null;
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  if (!signingGrantId) return null;
   return buildWalletBudgetStatusCheck({
     owner: args.owner,
-    walletSigningSessionId,
+    signingGrantId,
   });
 }

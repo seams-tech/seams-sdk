@@ -13,7 +13,7 @@ import {
   type ReadyEvmFamilyEcdsaMaterial,
   type ThresholdEcdsaSessionId,
   type VerifiedEcdsaPublicFacts,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   AvailableEcdsaSigningLane,
@@ -39,7 +39,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '../../threshold/sessionPolicy';
 import {
-  toAuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
@@ -51,7 +51,7 @@ export type ExactEcdsaExportLane = {
   session: {
     chainTarget: ThresholdEcdsaChainTarget;
     authMethod: 'email_otp' | 'passkey';
-    walletSigningSessionId: WalletSigningSessionId;
+    signingGrantId: SigningGrantId;
     thresholdSessionId: ThresholdEcdsaSessionId;
     state: ConcreteAvailableEcdsaSigningLane['state'];
     source: ConcreteAvailableEcdsaSigningLane['source'];
@@ -130,7 +130,7 @@ export function ecdsaExportSessionRecordKey(
     authMethod: lane.session.authMethod,
     curve: 'ecdsa',
     chainTarget: lane.session.chainTarget,
-    walletSigningSessionId: String(lane.session.walletSigningSessionId),
+    signingGrantId: String(lane.session.signingGrantId),
     thresholdSessionId: String(lane.session.thresholdSessionId),
   };
 }
@@ -199,7 +199,7 @@ function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
       authMethod: args.exportLane.session.authMethod,
       source: record.source,
       thresholdSessionId: args.exportLane.session.thresholdSessionId,
-      walletSigningSessionId: args.exportLane.session.walletSigningSessionId,
+      signingGrantId: args.exportLane.session.signingGrantId,
     },
   });
   if (materialResolution.kind !== 'ready') {
@@ -239,12 +239,12 @@ export async function resolveExactSealedEcdsaExportRecordForLane(
       },
     })
   ).filter((record) => {
-    const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+    const signingGrantId = String(record.signingGrantId || '').trim();
     const thresholdSessionId = String(record.thresholdSessionIds.ecdsa || '').trim();
     const sealedWalletId = String(record.walletId || '').trim();
     const sealedKeyHandle = String(record.ecdsaRestore?.keyHandle || '').trim();
     return (
-      walletSigningSessionId === String(exportLane.session.walletSigningSessionId) &&
+      signingGrantId === String(exportLane.session.signingGrantId) &&
       thresholdSessionId === String(exportLane.session.thresholdSessionId) &&
       sealedWalletId === String(exportLane.key.walletId) &&
       sealedKeyHandle === String(exportLane.publicFacts.keyHandle)
@@ -301,8 +301,8 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   const walletSessionAuth = runtimeRecord
     ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(runtimeRecord)
     : null;
-  const walletSigningSessionId = String(runtimeRecord?.walletSigningSessionId || '').trim();
-  if (runtimeRecord && walletSessionAuth?.kind === 'ready' && walletSigningSessionId) {
+  const signingGrantId = String(runtimeRecord?.signingGrantId || '').trim();
+  if (runtimeRecord && walletSessionAuth?.kind === 'ready' && signingGrantId) {
     return {
       kind: 'fresh_email_otp_route_auth_ready',
       chainTarget: exportLane.session.chainTarget,
@@ -313,8 +313,8 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
         kind: 'signing_session',
         jwt: walletSessionAuth.walletSessionJwt,
         thresholdSessionId: runtimeRecord.thresholdSessionId,
-        authorizingWalletSigningSessionId:
-          toAuthorizingWalletSigningSessionId(walletSigningSessionId),
+        authorizingSigningGrantId:
+          toAuthorizingSigningGrantId(signingGrantId),
         curve: 'ecdsa',
         chainTarget: exportLane.session.chainTarget,
       },

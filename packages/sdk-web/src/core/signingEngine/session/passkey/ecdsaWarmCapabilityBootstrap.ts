@@ -34,7 +34,7 @@ import { buildEvmFamilyEcdsaSessionLanePolicy } from '../identity/evmFamilyEcdsa
 type NoPromptEcdsaPasskeyPrfFirstClaim = {
   kind: 'claim_no_prompt_ecdsa_prf_first';
   walletId: ReturnType<typeof toAccountId>;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   chainTarget: Extract<
     EcdsaBootstrapRequest,
@@ -272,7 +272,7 @@ async function tryNoPromptWalletSessionReconnect(args: {
   const passkeyPrfFirstB64u = await args.deps.claimEcdsaPasskeyPrfFirst({
     kind: 'claim_no_prompt_ecdsa_prf_first',
     walletId: args.walletId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     thresholdSessionId: record.thresholdSessionId,
     chainTarget: args.request.chainTarget,
     uses: 1,
@@ -291,7 +291,7 @@ async function tryNoPromptWalletSessionReconnect(args: {
     lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
       chainTarget: args.request.chainTarget,
       thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: record.walletSigningSessionId,
+      signingGrantId: record.signingGrantId,
       thresholdSessionKind: 'jwt',
       ttlMs: resolveNoPromptReconnectTtlMs({
         request: args.request,

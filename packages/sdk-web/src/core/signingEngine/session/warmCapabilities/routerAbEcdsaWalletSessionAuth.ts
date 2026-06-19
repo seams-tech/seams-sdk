@@ -39,8 +39,8 @@ export function resolveRouterAbEcdsaWalletSessionAuthFromRecord(
       String(resolveThresholdEcdsaKeyIdFromRecord({ record })) &&
     thresholdEcdsaChainTargetsEqual(resolvedRecord.chainTarget, record.chainTarget) &&
     String(resolvedRecord.thresholdSessionId || '') === String(record.thresholdSessionId || '') &&
-    String(resolvedRecord.walletSigningSessionId || '') ===
-      String(record.walletSigningSessionId || '');
+    String(resolvedRecord.signingGrantId || '') ===
+      String(record.signingGrantId || '');
   const resolvedWalletSessionJwt = String(
     resolvedRecordMatches ? resolvedAuthMaterial?.walletSessionJwt || '' : '',
   ).trim();

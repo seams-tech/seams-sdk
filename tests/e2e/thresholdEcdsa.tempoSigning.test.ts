@@ -31,7 +31,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
       }
       expect(result.budgetStatus).toMatchObject({
         ok: true,
-        walletSigningSessionId: result.session.walletSigningSessionId,
+        signingGrantId: result.session.signingGrantId,
         thresholdSessionId: result.session.sessionId,
         status: 'active',
       });

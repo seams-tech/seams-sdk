@@ -27,7 +27,7 @@ test.describe('EVM family threshold reconnect events', () => {
   test('emits numbered v2 reconnect phases when ensuring stale threshold session readiness', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
-    const walletSigningSessionId = 'wallet-session-reconnect-events';
+    const signingGrantId = 'wallet-session-reconnect-events';
 
     const staleBootstrap = createThresholdEcdsaBootstrapFixture({
       nearAccountId: 'reconnect-events.testnet',
@@ -35,7 +35,7 @@ test.describe('EVM family threshold reconnect events', () => {
       ecdsaThresholdKeyId: 'ek-reconnect-events',
       sessionId: 'stale-reconnect-events-session',
       walletSessionJwt: 'jwt:stale-reconnect-events-session',
-      walletSigningSessionId,
+      signingGrantId,
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reconnect-events.testnet',
@@ -62,7 +62,7 @@ test.describe('EVM family threshold reconnect events', () => {
         keyHandle: staleRecord.keyHandle,
         walletId: toAccountId('reconnect-events.testnet'),
         authMethod: 'passkey',
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: staleRecord.thresholdSessionId,
         chainTarget: staleRecord.chainTarget,
       }),
@@ -75,7 +75,7 @@ test.describe('EVM family threshold reconnect events', () => {
     } as const;
     const reconnectSessionIdentity = buildEcdsaSessionIdentity({
       thresholdSessionId: String(lane.thresholdSessionId),
-      walletSigningSessionId: String(lane.walletSigningSessionId),
+      signingGrantId: String(lane.signingGrantId),
     });
     const reconnectPlan = buildEcdsaSessionProvisionPlan({
       kind: 'ecdsa_session_reconnect',
@@ -123,14 +123,14 @@ test.describe('EVM family threshold reconnect events', () => {
           };
           sessionIdentity: {
             thresholdSessionId: string;
-            walletSigningSessionId: string;
+            signingGrantId: string;
           };
         }) => {
           const chainTarget = request.lanePolicy.chainTarget;
           const chain = chainTarget.kind;
           const sessionId = String(request.sessionIdentity.thresholdSessionId);
-          const requestedWalletSigningSessionId = String(
-            request.sessionIdentity.walletSigningSessionId,
+          const requestedSigningGrantId = String(
+            request.sessionIdentity.signingGrantId,
           );
           provisionedChainIds.push(chainTarget.chainId);
           const freshBootstrap = createThresholdEcdsaBootstrapFixture({
@@ -139,7 +139,7 @@ test.describe('EVM family threshold reconnect events', () => {
             ecdsaThresholdKeyId: 'ek-reconnect-events',
             sessionId,
             walletSessionJwt: `jwt:${sessionId}`,
-            walletSigningSessionId: requestedWalletSigningSessionId,
+            signingGrantId: requestedSigningGrantId,
           });
           const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
             nearAccountId: String(request.walletKey.walletId),

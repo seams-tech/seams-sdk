@@ -22,7 +22,7 @@ import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from '
 type PasskeySessionRestoreIdentity = {
   touchConfirm: PasskeyWarmSessionRecoveryPorts;
   walletId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 
@@ -49,7 +49,7 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
 ): Promise<void> {
   if (typeof args.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
   const identity = buildEcdsaSessionIdentity({
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
   });
   await args.touchConfirm.restorePersistedSessionForSigning({
@@ -57,7 +57,7 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
     authMethod: 'passkey',
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    walletSigningSessionId: identity.walletSigningSessionId,
+    signingGrantId: identity.signingGrantId,
     thresholdSessionId: identity.thresholdSessionId,
     reason: 'transaction',
   });
@@ -76,7 +76,7 @@ export async function claimPasskeyEcdsaPrfFirst(args: PasskeyEcdsaPrfClaimArgs):
       restorePasskeyEcdsaSessionBeforeClaim({
         touchConfirm: args.touchConfirm,
         walletId: args.walletId,
-        walletSigningSessionId: args.walletSigningSessionId,
+        signingGrantId: args.signingGrantId,
         thresholdSessionId: args.thresholdSessionId,
         chainTarget: args.chainTarget,
       }),
@@ -110,8 +110,8 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return null;
   }
   const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(args.purpose.walletSigningSessionId || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !args.shamirPrimeB64u) {
+  const signingGrantId = String(args.purpose.signingGrantId || '').trim();
+  if (!thresholdSessionId || !signingGrantId || !args.shamirPrimeB64u) {
     return null;
   }
 
@@ -146,7 +146,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
           : {}),
       thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
       ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
       ...(args.record.shamirPrimeB64u
@@ -162,7 +162,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       authMethod: 'passkey',
       curve: 'ecdsa',
       chainTarget: args.purpose.chainTarget,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
     });
   };

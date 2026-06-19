@@ -31,7 +31,7 @@ export type ExactNearEd25519ExportLane = {
   chain: 'near';
   nearAccountId: AccountId;
   authMethod: 'email_otp' | 'passkey';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   state: AvailableSigningLanes['lanes']['ed25519']['near']['state'];
   source: AvailableSigningLanes['lanes']['ed25519']['near']['source'];
@@ -39,7 +39,7 @@ export type ExactNearEd25519ExportLane = {
 
 type ConcreteEd25519ExportAvailableLane = AvailableEd25519SigningLane & {
   authMethod: 'email_otp' | 'passkey';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 
@@ -95,7 +95,7 @@ function isConcreteEd25519ExportLane(
     lane!.curve === 'ed25519' &&
     lane!.chain === 'near' &&
     (lane!.authMethod === 'email_otp' || lane!.authMethod === 'passkey') &&
-    Boolean(String(lane!.walletSigningSessionId || '').trim()) &&
+    Boolean(String(lane!.signingGrantId || '').trim()) &&
     Boolean(String(lane!.thresholdSessionId || '').trim())
   );
 }
@@ -108,7 +108,7 @@ function summarizeExportAvailableLane(lane: ConcreteExportAvailableLane): Record
     ...(lane.curve === 'ecdsa' ? { chainTarget: lane.chainTarget } : {}),
     state: lane.state,
     source: lane.source,
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,
@@ -326,7 +326,7 @@ function sameEcdsaExportSession(
 ): boolean {
   return (
     left.authMethod === right.authMethod &&
-    left.walletSigningSessionId === right.walletSigningSessionId &&
+    left.signingGrantId === right.signingGrantId &&
     left.thresholdSessionId === right.thresholdSessionId
   );
 }
@@ -416,7 +416,7 @@ async function resolveNearEd25519ExportLane(
     chain: 'near',
     nearAccountId: args.nearAccountId,
     authMethod: selected.authMethod,
-    walletSigningSessionId: selected.walletSigningSessionId,
+    signingGrantId: selected.signingGrantId,
     thresholdSessionId: selected.thresholdSessionId,
     state: selected.state,
     source: selected.source,
@@ -471,8 +471,8 @@ async function resolveEcdsaExportLane(
     session: {
       chainTarget: sessionChainTarget,
       authMethod: selected.authMethod,
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(
-        selected.walletSigningSessionId,
+      signingGrantId: SigningSessionIds.signingGrant(
+        selected.signingGrantId,
       ),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(selected.thresholdSessionId),
       state: selected.state,
@@ -501,7 +501,7 @@ export async function restoreNearEd25519SessionForExport(
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',
-      walletSigningSessionId: restoreLane.walletSigningSessionId,
+      signingGrantId: restoreLane.signingGrantId,
       thresholdSessionId: restoreLane.thresholdSessionId,
       reason: 'export',
     });
@@ -512,7 +512,7 @@ export async function restoreNearEd25519SessionForExport(
     authMethod: 'email_otp',
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId: restoreLane.walletSigningSessionId,
+    signingGrantId: restoreLane.signingGrantId,
     thresholdSessionId: restoreLane.thresholdSessionId,
     reason: 'export',
   });
@@ -546,7 +546,7 @@ export async function restoreEcdsaSessionForExport(
       authMethod: 'passkey',
       curve: 'ecdsa',
       chainTarget: restoreLane.session.chainTarget,
-      walletSigningSessionId: String(restoreLane.session.walletSigningSessionId),
+      signingGrantId: String(restoreLane.session.signingGrantId),
       thresholdSessionId: String(restoreLane.session.thresholdSessionId),
       reason: 'export',
     });

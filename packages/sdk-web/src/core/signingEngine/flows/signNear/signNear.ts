@@ -267,7 +267,7 @@ type NearEd25519EmailOtpSigning = {
 type NearEd25519PasskeyReconnect = {
   prepare: (args: { requiredSignatureUses: number }) => Promise<{
     sessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     sessionPolicyDigest32: string;
   }>;
   reconnect: (args: {
@@ -358,7 +358,7 @@ function summarizeNearEd25519Lane(lane: AvailableEd25519SigningLane): Record<str
     authMethod: lane.authMethod,
     state: lane.state,
     source: lane.source || 'unknown',
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,
@@ -399,13 +399,13 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
 }) {
   const nearAccountId = args.nearAccount.accountId;
   const sessionId = String(args.selectedLane.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(args.selectedLane.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.selectedLane.signingGrantId || '').trim();
   if (!sessionId) {
     throw new Error(
       '[SigningEngine][near] missing threshold session id for transaction auth planning',
     );
   }
-  if (!walletSigningSessionId) {
+  if (!signingGrantId) {
     throw new Error(
       '[SigningEngine][near] missing wallet signing session id for transaction auth planning',
     );
@@ -414,7 +414,7 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
     return buildNearTransactionSigningLane({
       accountId: nearAccountId,
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
       retention: args.record.emailOtpAuthContext?.retention || 'session',
       sessionOrigin:
@@ -424,7 +424,7 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
   return buildNearTransactionSigningLane({
     accountId: nearAccountId,
     authMethod: 'passkey',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
     storageSource: resolveEd25519PasskeyStorageSource(args.record.source),
   });
@@ -444,8 +444,8 @@ function assertSigningLaneMatchesSelectedTransactionLane(args: {
     args.signingLane.authMethod !== args.transactionLane.authMethod ||
     args.signingLane.curve !== args.transactionLane.curve ||
     args.signingLane.chainFamily !== args.transactionLane.chain ||
-    String(args.signingLane.walletSigningSessionId || '').trim() !==
-      String(args.transactionLane.walletSigningSessionId || '').trim() ||
+    String(args.signingLane.signingGrantId || '').trim() !==
+      String(args.transactionLane.signingGrantId || '').trim() ||
     signingThresholdSessionId !== transactionThresholdSessionId
   ) {
     throw new Error(
@@ -489,8 +489,8 @@ function requireResolvedNearEd25519SigningLane(
     throw new Error('[SigningEngine][near] prepared Ed25519 lane must target NEAR');
   }
   const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId) {
+  const signingGrantId = String(lane.signingGrantId || '').trim();
+  if (!thresholdSessionId || !signingGrantId) {
     throw new Error('[SigningEngine][near] prepared Ed25519 lane is missing session identity');
   }
   // Resolved lane metadata is copied from the executable lane so challenge, budget,
@@ -500,7 +500,7 @@ function requireResolvedNearEd25519SigningLane(
     curve: 'ed25519',
     keyKind: 'threshold_ed25519',
     chainFamily: 'near',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
   };
 }
@@ -587,7 +587,7 @@ async function resolveNearTransactionPlannerReadiness(args: {
     console.info('[SigningEngine][near] using record-backed Ed25519 readiness', {
       nearAccountId: args.nearAccount.accountId,
       thresholdSessionId: sessionId,
-      walletSigningSessionId: args.record.walletSigningSessionId,
+      signingGrantId: args.record.signingGrantId,
       source: args.record.source,
       liveStatus: liveStatus?.status || 'not_found',
       remainingUses,
@@ -616,7 +616,7 @@ async function resolveNearTransactionPlannerReadiness(args: {
     console.info('[SigningEngine][near] using pending-material Ed25519 warm-session readiness', {
       nearAccountId: args.nearAccount.accountId,
       thresholdSessionId: sessionId,
-      walletSigningSessionId: args.record.walletSigningSessionId,
+      signingGrantId: args.record.signingGrantId,
       source: args.record.source,
       reason: persistedState.reason,
       remainingUses,
@@ -665,7 +665,7 @@ async function resolveNearTransactionWalletAuth(args: {
       authMethod: lane.authMethod,
       reason: plan.reason,
       readiness: preparedOperation.readiness.status,
-      walletSigningSessionId: lane.walletSigningSessionId,
+      signingGrantId: lane.signingGrantId,
       thresholdSessionId: lane.thresholdSessionId,
       recordSource: record.source,
       retention: record.emailOtpAuthContext?.retention,
@@ -875,13 +875,13 @@ function buildNearPasskeyEd25519Reconnect(args: {
         requiredSignatureUses,
       });
       const rpId = String(args.ctx.touchIdPrompt.getRpId() || '').trim();
-      const walletSigningSessionId = String(
-        thresholdSessionRecord.walletSigningSessionId || '',
+      const signingGrantId = String(
+        thresholdSessionRecord.signingGrantId || '',
       ).trim();
       if (!rpId) {
         throw new Error('[SigningEngine] missing rpId for passkey Ed25519 reauth');
       }
-      if (!walletSigningSessionId) {
+      if (!signingGrantId) {
         throw new Error(
           '[SigningEngine] missing wallet signing session id for passkey Ed25519 reauth',
         );
@@ -897,12 +897,12 @@ function buildNearPasskeyEd25519Reconnect(args: {
           ? { routerAbNormalSigning: thresholdSessionRecord.routerAbNormalSigning }
           : {}),
         participantIds: thresholdSessionRecord.participantIds,
-        walletSigningSessionId,
+        signingGrantId,
         remainingUses: sessionBudgetUses,
       });
       return {
         sessionId: policy.sessionId,
-        walletSigningSessionId: policy.walletSigningSessionId,
+        signingGrantId: policy.signingGrantId,
         sessionPolicyDigest32,
       };
     },
@@ -920,7 +920,7 @@ function buildNearPasskeyEd25519Reconnect(args: {
           requiredSignatureUses,
         }),
         sessionId: authorization.plannedPasskeyReconnect.sessionId,
-        walletSigningSessionId: authorization.plannedPasskeyReconnect.walletSigningSessionId,
+        signingGrantId: authorization.plannedPasskeyReconnect.signingGrantId,
       });
       const sessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(refreshed.record);
       if (!sessionState) {
@@ -971,8 +971,8 @@ function thresholdEd25519RecordMatchesSelectedLane(args: {
     authMethodForThresholdEd25519Record(args.record) === args.selectedLane.authMethod &&
     String(args.record.thresholdSessionId || '').trim() ===
       String(args.selectedLane.thresholdSessionId || '').trim() &&
-    String(args.record.walletSigningSessionId || '').trim() ===
-      String(args.selectedLane.walletSigningSessionId || '').trim()
+    String(args.record.signingGrantId || '').trim() ===
+      String(args.selectedLane.signingGrantId || '').trim()
   );
 }
 
@@ -1018,7 +1018,7 @@ function concreteNearEd25519AvailableAuthMethods(
   const methods = new Set<'email_otp' | 'passkey'>();
   for (const lane of availableLanes?.candidates.ed25519.near || []) {
     if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
-    if (!String(lane.walletSigningSessionId || '').trim()) continue;
+    if (!String(lane.signingGrantId || '').trim()) continue;
     if (!String(lane.thresholdSessionId || '').trim()) continue;
     methods.add(lane.authMethod);
   }
@@ -1031,10 +1031,10 @@ function hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(
   const authMethodsByIdentity = new Map<string, Set<'email_otp' | 'passkey'>>();
   for (const lane of availableLanes?.candidates.ed25519.near || []) {
     if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
-    const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
+    const signingGrantId = String(lane.signingGrantId || '').trim();
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-    if (!walletSigningSessionId || !thresholdSessionId) continue;
-    const identityKey = `${walletSigningSessionId}:${thresholdSessionId}`;
+    if (!signingGrantId || !thresholdSessionId) continue;
+    const identityKey = `${signingGrantId}:${thresholdSessionId}`;
     const authMethods =
       authMethodsByIdentity.get(identityKey) || new Set<'email_otp' | 'passkey'>();
     authMethods.add(lane.authMethod);
@@ -1055,13 +1055,13 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
     if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
     if (lane.source !== 'runtime_session_record' && lane.source !== 'runtime_and_durable') continue;
     if (lane.source === 'runtime_session_record' && lane.state !== 'ready') continue;
-    const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
+    const signingGrantId = String(lane.signingGrantId || '').trim();
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-    if (!walletSigningSessionId || !thresholdSessionId) continue;
+    if (!signingGrantId || !thresholdSessionId) continue;
     const runtimeRecord = getStoredThresholdEd25519SessionRecordForLane({
       nearAccountId: args.nearAccountId,
       authMethod: lane.authMethod,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
     });
     if (!runtimeRecord) continue;
@@ -1167,7 +1167,7 @@ function readNearEd25519RuntimeRecordForSelectedLane(args: {
   const record = getStoredThresholdEd25519SessionRecordForLane({
     nearAccountId: args.nearAccountId,
     authMethod: args.selectedLane.authMethod,
-    walletSigningSessionId: args.selectedLane.walletSigningSessionId,
+    signingGrantId: args.selectedLane.signingGrantId,
     thresholdSessionId: args.selectedLane.thresholdSessionId,
   });
   if (!record) return null;
@@ -1184,8 +1184,8 @@ function publishNearEd25519RuntimeIdentityForRecord(
   record: ThresholdEd25519SessionRecord | null,
 ): void {
   const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-  if (!record || !thresholdSessionId || !walletSigningSessionId) return;
+  const signingGrantId = String(record?.signingGrantId || '').trim();
+  if (!record || !thresholdSessionId || !signingGrantId) return;
   // This is a command-boundary write: durable seal cleanup can remove restore
   // material while the current tab still has a runtime lane that must be
   // selectable for step-up auth after exhaustion.
@@ -1194,7 +1194,7 @@ function publishNearEd25519RuntimeIdentityForRecord(
     authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
   });
 }
@@ -1269,7 +1269,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     authMethod: selectedLane.authMethod,
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId: selectedLane.walletSigningSessionId,
+    signingGrantId: selectedLane.signingGrantId,
     thresholdSessionId: selectedLane.thresholdSessionId,
     reason: 'transaction',
   });
@@ -1334,7 +1334,7 @@ async function prepareNearEd25519TransactionOperation(args: {
       nearAccountId,
       readiness: readiness.readiness.status,
       thresholdSessionId: recordForLifecycle.thresholdSessionId,
-      walletSigningSessionId: recordForLifecycle.walletSigningSessionId,
+      signingGrantId: recordForLifecycle.signingGrantId,
       retention: recordForLifecycle.emailOtpAuthContext?.retention,
       remainingUses: readiness.remainingUses,
       expiresAtMs: readiness.expiresAtMs,

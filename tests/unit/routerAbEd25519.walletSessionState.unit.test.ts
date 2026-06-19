@@ -43,7 +43,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             ...common,
             thresholdSessionId: 'old-passkey-session',
-            walletSigningSessionId: 'old-passkey-wallet-session',
+            signingGrantId: 'old-passkey-wallet-session',
             walletSessionJwt: 'jwt-old-passkey',
             remainingUses: 0,
             updatedAtMs: 1,
@@ -52,7 +52,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             ...common,
             thresholdSessionId: 'old-otp-session',
-            walletSigningSessionId: 'old-otp-wallet-session',
+            signingGrantId: 'old-otp-wallet-session',
             walletSessionJwt: 'jwt-old-otp',
             remainingUses: 0,
             updatedAtMs: 2,
@@ -67,7 +67,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             ...common,
             thresholdSessionId: 'fresh-otp-session',
-            walletSigningSessionId: 'fresh-otp-wallet-session',
+            signingGrantId: 'fresh-otp-wallet-session',
             walletSessionJwt: 'jwt-fresh-otp',
             remainingUses: 1,
             updatedAtMs: 3,
@@ -86,12 +86,12 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               (record: {
                 source: string;
                 thresholdSessionId: string;
-                walletSigningSessionId?: string;
+                signingGrantId?: string;
                 remainingUses: number;
               }) => ({
                 source: record.source,
                 thresholdSessionId: record.thresholdSessionId,
-                walletSigningSessionId: record.walletSigningSessionId,
+                signingGrantId: record.signingGrantId,
                 remainingUses: record.remainingUses,
               }),
             ),
@@ -99,7 +99,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               storeMod.getStoredThresholdEd25519SessionRecordForLane({
                 nearAccountId,
                 authMethod: 'passkey',
-                walletSigningSessionId: 'old-passkey-wallet-session',
+                signingGrantId: 'old-passkey-wallet-session',
                 thresholdSessionId: 'old-passkey-session',
               }),
             ),
@@ -107,7 +107,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               storeMod.getStoredThresholdEd25519SessionRecordForLane({
                 nearAccountId,
                 authMethod: 'email_otp',
-                walletSigningSessionId: 'old-otp-wallet-session',
+                signingGrantId: 'old-otp-wallet-session',
                 thresholdSessionId: 'old-otp-session',
               }),
             ),
@@ -115,7 +115,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               storeMod.getStoredThresholdEd25519SessionRecordForLane({
                 nearAccountId,
                 authMethod: 'email_otp',
-                walletSigningSessionId: 'fresh-otp-wallet-session',
+                signingGrantId: 'fresh-otp-wallet-session',
                 thresholdSessionId: 'fresh-otp-session',
               }),
             ),
@@ -132,7 +132,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         {
           source: 'email_otp',
           thresholdSessionId: 'fresh-otp-session',
-          walletSigningSessionId: 'fresh-otp-wallet-session',
+          signingGrantId: 'fresh-otp-wallet-session',
           remainingUses: 1,
         },
       ],
@@ -170,7 +170,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           ed25519HssMaterialBindingDigest: 'binding',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'canonical-threshold-session',
-          walletSigningSessionId: 'canonical-wallet-session',
+          signingGrantId: 'canonical-wallet-session',
           walletSessionJwt: 'jwt-canonical',
           routerAbNormalSigning: {
             kind: 'router_ab_ed25519_normal_signing_v1',
@@ -199,7 +199,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           return {
             kind: readyState.kind,
             thresholdSessionId: readyState.thresholdSessionId,
-            walletSigningSessionId: readyState.walletSigningSessionId,
+            signingGrantId: readyState.signingGrantId,
             exposesXClientBaseB64u: Object.prototype.hasOwnProperty.call(
               resolved,
               'xClientBaseB64u',
@@ -224,7 +224,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     expect(result).toEqual({
       kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
       thresholdSessionId: 'canonical-threshold-session',
-      walletSigningSessionId: 'canonical-wallet-session',
+      signingGrantId: 'canonical-wallet-session',
       exposesXClientBaseB64u: false,
       exposesClientVerifyingShareB64u: false,
       signingMaterial: {
@@ -270,7 +270,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             ed25519HssMaterialBindingDigest: 'binding',
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'partial-threshold-session',
-            walletSigningSessionId: 'partial-wallet-session',
+            signingGrantId: 'partial-wallet-session',
             walletSessionJwt: 'jwt-partial',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
@@ -329,7 +329,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'shared-session-id',
-          walletSigningSessionId: 'shared-wallet-session',
+          signingGrantId: 'shared-wallet-session',
           walletSessionJwt: 'jwt-ed25519',
           clientVerifyingShareB64u: 'client-verifying-share-ed25519',
           ed25519HssMaterialHandle: 'ed25519-hss-material:shared-session-id:binding',
@@ -439,7 +439,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               },
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'shared-session-id',
-              walletSigningSessionId: 'shared-wallet-session',
+              signingGrantId: 'shared-wallet-session',
               walletSessionJwt: 'jwt-ecdsa',
               routerAbEcdsaHssNormalSigning: ecdsaNormalSigning,
               ethereumAddress: `0x${'11'.repeat(20)}`,
@@ -461,7 +461,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             session: {
               ok: true,
               sessionId: 'shared-session-id',
-              walletSigningSessionId: 'shared-wallet-session',
+              signingGrantId: 'shared-wallet-session',
               jwt: 'jwt-ecdsa',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 3,
@@ -499,7 +499,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             directEd25519RelayerKeyId: String(directEd25519?.relayerKeyId || ''),
             directScopedRelayerKeyId: String(directScoped?.relayerKeyId || ''),
             thresholdSessionId: readyState.thresholdSessionId,
-            walletSigningSessionId: readyState.walletSigningSessionId,
+            signingGrantId: readyState.signingGrantId,
             credential: readyState.credential,
           };
         } finally {
@@ -514,7 +514,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       directEd25519RelayerKeyId: 'rk-ed25519',
       directScopedRelayerKeyId: 'rk-ed25519',
       thresholdSessionId: 'shared-session-id',
-      walletSigningSessionId: 'shared-wallet-session',
+      signingGrantId: 'shared-wallet-session',
       credential: {
         kind: 'jwt',
         walletSessionJwt: 'jwt-ed25519',
@@ -549,7 +549,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             clientVerifyingShareB64u: 'old-client-verifying-share',
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'threshold-session',
-            walletSigningSessionId: 'wallet-session',
+            signingGrantId: 'wallet-session',
             walletSessionJwt: 'jwt-ed25519',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
@@ -616,7 +616,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             },
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'pending-threshold-session',
-            walletSigningSessionId: 'pending-wallet-session',
+            signingGrantId: 'pending-wallet-session',
             walletSessionJwt: 'jwt-ed25519',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
@@ -657,7 +657,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             repairedState,
             resolved: {
               thresholdSessionId: resolved.thresholdSessionId,
-              walletSigningSessionId: resolved.walletSigningSessionId,
+              signingGrantId: resolved.signingGrantId,
               signingRootId: resolved.signingRootId,
               signingRootVersion: resolved.signingRootVersion,
               signingMaterial: resolved.signingMaterial,
@@ -693,7 +693,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     });
     expect(result.resolved).toEqual({
       thresholdSessionId: 'pending-threshold-session',
-      walletSigningSessionId: 'pending-wallet-session',
+      signingGrantId: 'pending-wallet-session',
       signingRootId: 'proj-a:env-a',
       signingRootVersion: 'v1',
       signingMaterial: {
@@ -728,7 +728,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             clientVerifyingShareB64u: 'stale-client-verifying-share',
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'stale-threshold-session',
-            walletSigningSessionId: 'stale-wallet-session',
+            signingGrantId: 'stale-wallet-session',
             walletSessionJwt: 'jwt-ed25519',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
@@ -748,7 +748,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             laneRecord: storeMod.getStoredThresholdEd25519SessionRecordForLane({
               nearAccountId,
               authMethod: 'passkey',
-              walletSigningSessionId: 'stale-wallet-session',
+              signingGrantId: 'stale-wallet-session',
               thresholdSessionId: 'stale-threshold-session',
             }),
             listed: storeMod.listStoredThresholdEd25519SessionRecordsForAccount(nearAccountId),
@@ -784,7 +784,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'stale-threshold-session',
-          walletSigningSessionId: 'stale-wallet-session',
+          signingGrantId: 'stale-wallet-session',
           walletSessionJwt: 'jwt-stale',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -868,7 +868,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId,
-          walletSigningSessionId: `wallet-${thresholdSessionId}`,
+          signingGrantId: `wallet-${thresholdSessionId}`,
           walletSessionJwt: `jwt-${thresholdSessionId}`,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,

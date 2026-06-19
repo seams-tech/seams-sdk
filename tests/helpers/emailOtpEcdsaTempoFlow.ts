@@ -1358,7 +1358,7 @@ export async function runEmailOtpEcdsaTempoFlow(
             source: record.source,
             thresholdSessionKind: record.thresholdSessionKind,
             thresholdSessionId: record.thresholdSessionId,
-            walletSigningSessionId: record.walletSigningSessionId,
+            signingGrantId: record.signingGrantId,
             remainingUses: record.remainingUses,
             expiresAtMs: record.expiresAtMs,
             hasWalletSessionJwt: Boolean(String(record.walletSessionJwt || '').trim()),
@@ -1554,7 +1554,7 @@ export async function runEmailOtpReloadPhase(
             storeKey: record?.storeKey,
             authMethod: record?.authMethod,
             curve: record?.curve,
-            walletSigningSessionId: record?.walletSigningSessionId,
+            signingGrantId: record?.signingGrantId,
             thresholdSessionIds: record?.thresholdSessionIds,
             hasEd25519Restore: Boolean(record?.ed25519Restore),
             hasEcdsaRestore: Boolean(record?.ecdsaRestore),
@@ -1596,7 +1596,7 @@ export async function runEmailOtpReloadPhase(
             ? {
                 source: ed25519Record.source,
                 thresholdSessionId: ed25519Record.thresholdSessionId,
-                walletSigningSessionId: ed25519Record.walletSigningSessionId,
+                signingGrantId: ed25519Record.signingGrantId,
                 retention: ed25519Record.emailOtpAuthContext?.retention,
                 hasWalletSessionJwt: Boolean(ed25519Record.walletSessionJwt),
                 hasClientBase: Boolean(ed25519Record.xClientBaseB64u),
@@ -1608,7 +1608,7 @@ export async function runEmailOtpReloadPhase(
                 curve: identity.curve,
                 chain: identity.chain,
                 thresholdSessionId: identity.thresholdSessionId,
-                walletSigningSessionId: identity.walletSigningSessionId,
+                signingGrantId: identity.signingGrantId,
               }))
             : [],
           emailOtpEd25519SealedRecords,
@@ -1687,7 +1687,7 @@ export async function runEmailOtpReloadPhase(
           source: 'email_otp' | 'passkey';
           authMethod: string;
           curve: string;
-          walletSigningSessionId: string;
+          signingGrantId: string;
           thresholdSessionId: string;
           attempted?: number;
           restored?: number;
@@ -1739,8 +1739,8 @@ export async function runEmailOtpReloadPhase(
                         authMethod: 'email_otp',
                         curve: 'ed25519',
                         chain: 'near',
-                        walletSigningSessionId: String(
-                          restoreArgs?.walletSigningSessionId || '',
+                        signingGrantId: String(
+                          restoreArgs?.signingGrantId || '',
                         ),
                         thresholdSessionId: String(restoreArgs?.thresholdSessionId || ''),
                         reason: String(restoreArgs?.reason || 'transaction'),
@@ -1761,7 +1761,7 @@ export async function runEmailOtpReloadPhase(
               source: 'email_otp' as const,
               authMethod: String(restoreArgs?.authMethod || ''),
               curve: String(restoreArgs?.curve || ''),
-              walletSigningSessionId: String(restoreArgs?.walletSigningSessionId || ''),
+              signingGrantId: String(restoreArgs?.signingGrantId || ''),
               thresholdSessionId: String(restoreArgs?.thresholdSessionId || ''),
               preflightMatched,
               preflightRejected,
@@ -1797,7 +1797,7 @@ export async function runEmailOtpReloadPhase(
               source: 'passkey' as const,
               authMethod: String(restoreArgs?.authMethod || ''),
               curve: String(restoreArgs?.curve || ''),
-              walletSigningSessionId: String(restoreArgs?.walletSigningSessionId || ''),
+              signingGrantId: String(restoreArgs?.signingGrantId || ''),
               thresholdSessionId: String(restoreArgs?.thresholdSessionId || ''),
             };
             const restoreResult = await originalRestore(restoreArgs);

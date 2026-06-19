@@ -192,7 +192,7 @@ export function createWarmSessionCapabilityReaderCore(
       keyHandle: args.record.keyHandle,
       walletId: toAccountId(args.record.walletId),
       authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
-      walletSigningSessionId: args.record.walletSigningSessionId,
+      signingGrantId: args.record.signingGrantId,
       thresholdSessionId: args.record.thresholdSessionId,
       chainTarget: args.record.chainTarget,
     });
@@ -367,7 +367,7 @@ export function createWarmSessionCapabilityReaderCore(
       const lane = resolveEmailOtpAuthLane({
         routeAuth: jwt ? { kind: 'wallet_session', jwt } : undefined,
         thresholdSessionId,
-        authorizingWalletSigningSessionId: record?.walletSigningSessionId,
+        authorizingSigningGrantId: record?.signingGrantId,
         curve: 'ed25519',
       });
       return record?.source === 'email_otp' &&
@@ -384,7 +384,7 @@ export function createWarmSessionCapabilityReaderCore(
     const lane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'wallet_session', jwt },
       thresholdSessionId: identity.thresholdSessionId,
-      authorizingWalletSigningSessionId: identity.walletSigningSessionId,
+      authorizingSigningGrantId: identity.signingGrantId,
       curve: 'ecdsa',
       chainTarget: record.chainTarget,
     });

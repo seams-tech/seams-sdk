@@ -39,8 +39,8 @@ function requireExactBootstrapCapability(args: {
   const recordIdentity = buildEcdsaSessionIdentity(record);
   const bootstrapIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: keyRef.thresholdSessionId || bootstrap.session.sessionId,
-    walletSigningSessionId:
-      keyRef.walletSigningSessionId || bootstrap.session.walletSigningSessionId,
+    signingGrantId:
+      keyRef.signingGrantId || bootstrap.session.signingGrantId,
   });
   const participantIdsMatch =
     !record.participantIds?.length ||

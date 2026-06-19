@@ -25,7 +25,7 @@ function ed25519AdmissionInput(
     walletId: 'alice.testnet',
     rpId: 'example.localhost',
     sessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     requestId: 'request-1',
     expiresAtMs: BASE_EXPIRES_AT_MS,
     signingWorkerId: 'signing-worker-a',
@@ -48,7 +48,7 @@ function ecdsaHssAdmissionInput(
     walletId: 'alice.testnet',
     rpId: 'example.localhost',
     sessionId: 'ecdsa-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     requestId: 'ecdsa-request-1',
     expiresAtMs: BASE_EXPIRES_AT_MS,
     signingWorkerId: 'signing-worker-a',
@@ -120,7 +120,7 @@ test.describe('Router A/B normal-signing admission store', () => {
       kind: 'reuse_existing',
       requestId: input.requestId,
       existingLifecycleId:
-        'ecdsa-hss:prepare:alice.testnet:example.localhost:ecdsa-session-1:wallet-signing-session-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
+        'ecdsa-hss:prepare:alice.testnet:example.localhost:ecdsa-session-1:signing-grant-1:ecdsa-request-1:signing-worker-a:ecdsa-key-handle-1',
     });
 
     nowMs = 6_001;

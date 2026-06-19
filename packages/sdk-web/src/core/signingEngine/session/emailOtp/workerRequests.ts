@@ -24,7 +24,7 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   walletId: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   keyHandle: string;
   relayerKeyId: string;
   participantIds: number[];

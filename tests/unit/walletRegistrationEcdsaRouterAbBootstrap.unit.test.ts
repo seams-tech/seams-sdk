@@ -38,7 +38,7 @@ const RELAYER_KEY_ID = 'relayer-key-1';
 const SIGNING_ROOT_ID = 'signing-root-1';
 const SIGNING_ROOT_VERSION = 'signing-root-v1';
 const THRESHOLD_SESSION_ID = 'threshold-ecdsa-session-1';
-const WALLET_SIGNING_SESSION_ID = 'wallet-signing-session-1';
+const WALLET_SIGNING_SESSION_ID = 'signing-grant-1';
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const NOW_MS = 1_800_000_000_000;
@@ -126,7 +126,7 @@ function walletSessionJwt(args: {
     sub: WALLET_ID,
     walletId: WALLET_ID,
     sessionId: THRESHOLD_SESSION_ID,
-    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    signingGrantId: WALLET_SIGNING_SESSION_ID,
     keyScope: 'evm-family',
     keyHandle: KEY_HANDLE,
     relayerKeyId: RELAYER_KEY_ID,
@@ -172,7 +172,7 @@ function clientBootstrap(): WalletRegistrationEcdsaClientBootstrap {
     relayerKeyId: RELAYER_KEY_ID,
     requestId: 'registration-request-1',
     sessionId: THRESHOLD_SESSION_ID,
-    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    signingGrantId: WALLET_SIGNING_SESSION_ID,
     ttlMs: 300_000,
     remainingUses: 3,
     participantIds: [1, 2],
@@ -210,7 +210,7 @@ function serverBootstrap(args: {
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
     participantIds: [1, 2],
     sessionId: THRESHOLD_SESSION_ID,
-    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    signingGrantId: WALLET_SIGNING_SESSION_ID,
     expiresAtMs: EXPIRES_AT_MS,
     expiresAt: new Date(EXPIRES_AT_MS).toISOString(),
     remainingUses: 3,
@@ -323,7 +323,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
       state: 'ready',
       source: 'runtime_session_record',
       thresholdSessionId: THRESHOLD_SESSION_ID,
-      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+      signingGrantId: WALLET_SIGNING_SESSION_ID,
       remainingUses: 3,
     });
   });

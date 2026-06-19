@@ -16,10 +16,10 @@ import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import {
   toEcdsaHssThresholdKeyId,
   toEcdsaHssThresholdSessionId,
-  toEcdsaHssWalletSigningSessionId,
+  toEcdsaHssSigningGrantId,
   type EcdsaThresholdKeyId,
   type ThresholdEcdsaSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../session/identity/emailOtpHssIdentity';
 
 export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
@@ -82,7 +82,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   /**
@@ -106,7 +106,7 @@ export type EcdsaHssSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: ThresholdEcdsaSessionId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /**
    * Optional signer set binding (participant ids).
@@ -155,7 +155,7 @@ export function generateThresholdSessionId(): string {
   return secureRandomId('tsess', 32, 'threshold session IDs');
 }
 
-export function generateWalletSigningSessionId(): string {
+export function generateSigningGrantId(): string {
   return secureRandomId('wsess', 32, 'wallet signing session IDs');
 }
 
@@ -183,7 +183,7 @@ export async function buildEd25519SessionPolicy(params: {
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   participantIds?: number[];
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
 }): Promise<{
@@ -192,8 +192,8 @@ export async function buildEd25519SessionPolicy(params: {
   sessionPolicyDigest32: string;
 }> {
   const sessionId = params.sessionId || generateThresholdSessionId();
-  const walletSigningSessionId =
-    String(params.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
+  const signingGrantId =
+    String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -206,7 +206,7 @@ export async function buildEd25519SessionPolicy(params: {
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(params.routerAbNormalSigning ? { routerAbNormalSigning: params.routerAbNormalSigning } : {}),
     ...(participantIds ? { participantIds } : {}),
@@ -228,7 +228,7 @@ export async function buildEcdsaSessionPolicy(params: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: unknown;
-  walletSigningSessionId?: unknown;
+  signingGrantId?: unknown;
   ttlMs?: number;
   remainingUses?: number;
 }): Promise<{
@@ -264,13 +264,13 @@ export function buildEcdsaHssSessionPolicy(params: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: unknown;
-  walletSigningSessionId?: unknown;
+  signingGrantId?: unknown;
   ttlMs?: number;
   remainingUses?: number;
 }): EcdsaHssSessionPolicy {
   const sessionId = params.sessionId || generateThresholdSessionId();
-  const walletSigningSessionId =
-    String(params.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
+  const signingGrantId =
+    String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -289,7 +289,7 @@ export function buildEcdsaHssSessionPolicy(params: {
       ? { ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(ecdsaThresholdKeyId) }
       : {}),
     sessionId: toEcdsaHssThresholdSessionId(sessionId),
-    walletSigningSessionId: toEcdsaHssWalletSigningSessionId(walletSigningSessionId),
+    signingGrantId: toEcdsaHssSigningGrantId(signingGrantId),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,

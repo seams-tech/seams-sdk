@@ -29,7 +29,7 @@ const warmAuthorization = {
   participantIds: [1, 2, 3],
   thresholdSessionKind: 'jwt',
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   walletSessionJwt: 'wallet-session-jwt',
   runtimePolicyScope,
   signingRootId: 'project-test:dev',
@@ -64,12 +64,12 @@ const warmAuthorizationWithRawClientBase = {
 } satisfies WarmEd25519SigningSessionAuthorization;
 void warmAuthorizationWithRawClientBase;
 
-const warmAuthorizationMissingWalletSigningSession = {
+const warmAuthorizationMissingSigningGrant = {
   ...warmAuthorization,
   // @ts-expect-error Unlock authorization requires the wallet signing session id.
-  walletSigningSessionId: undefined,
+  signingGrantId: undefined,
 } satisfies WarmEd25519SigningSessionAuthorization;
-void warmAuthorizationMissingWalletSigningSession;
+void warmAuthorizationMissingSigningGrant;
 
 const signingMaterialRef = buildRouterAbEd25519SigningMaterialRef({
   materialHandle: 'ed25519-material-handle',
@@ -83,7 +83,7 @@ const signingMaterialReady = {
   materialHandle: signingMaterialRef.materialHandle,
   bindingDigest: signingMaterialRef.bindingDigest,
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   signingRootId: 'project-test:dev',
   signingRootVersion: 'default',
   expiresAtMs: 1_900_000_000_000,

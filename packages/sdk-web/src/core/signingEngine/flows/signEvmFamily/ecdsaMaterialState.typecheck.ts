@@ -16,7 +16,7 @@ declare const publishedTargets: readonly ThresholdEcdsaChainTarget[];
 declare const sharedPublicFacts: VerifiedEcdsaPublicFacts;
 declare const remainingSignatureUses: PositiveSignatureUses;
 declare const expiresAtMs: FutureEpochMs;
-declare const walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+declare const signingGrantId: EcdsaSessionIdentity['signingGrantId'];
 declare const thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
 declare const signerMaterial: EvmFamilySharedEcdsaSignerMaterial;
 
@@ -49,7 +49,7 @@ const readyToSign: EvmFamilySharedEcdsaReadyState = {
   sourceChainTarget,
   publishedTargets,
   sharedPublicFacts,
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId,
   remainingSignatureUses,
   expiresAtMs,
@@ -65,7 +65,7 @@ const invalidReadyWithoutSignerMaterial: EvmFamilySharedEcdsaReadyState = {
   sourceChainTarget,
   publishedTargets,
   sharedPublicFacts,
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId,
   remainingSignatureUses,
   expiresAtMs,
@@ -79,7 +79,7 @@ const invalidReadyWithRestore: EvmFamilySharedEcdsaReadyState = {
   sourceChainTarget,
   publishedTargets,
   sharedPublicFacts,
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId,
   remainingSignatureUses,
   expiresAtMs,

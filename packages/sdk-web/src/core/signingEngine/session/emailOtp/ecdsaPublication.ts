@@ -21,7 +21,7 @@ import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/sessio
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SigningSessionIds } from '../operationState/types';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot';
-import { ecdsaBootstrapWithWalletSigningSessionId } from './routePlan';
+import { ecdsaBootstrapWithSigningGrantId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
 
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
@@ -79,7 +79,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
 export function buildEmailOtpEcdsaReadyPersistInput(args: {
   walletId: WalletId;
   primaryChain: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 }): EmailOtpEcdsaReadyPersistInput {
@@ -88,7 +88,7 @@ export function buildEmailOtpEcdsaReadyPersistInput(args: {
     curve: 'ecdsa',
     walletId: args.walletId,
     chainTarget: args.primaryChain,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     emailOtpAuthContext: args.emailOtpAuthContext,
     material: {
@@ -103,7 +103,7 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     walletId: WalletId;
     publicationChainTargets: ThresholdEcdsaChainTarget[];
     bootstraps: ThresholdEcdsaSessionBootstrapResult[];
-    walletSigningSessionId: string;
+    signingGrantId: string;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
     shamirPrimeB64u: string;
@@ -128,9 +128,9 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
         `Email OTP ECDSA publication returned ${thresholdEcdsaChainTargetKey(actualTarget)} for ${thresholdEcdsaChainTargetKey(expectedTarget)}`,
       );
     }
-    const workerBootstrap = ecdsaBootstrapWithWalletSigningSessionId({
+    const workerBootstrap = ecdsaBootstrapWithSigningGrantId({
       bootstrap: rawBootstrap,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
     });
     const result = await ports.commitEvmFamilyThresholdEcdsaSessions({
       walletId: args.walletId,
@@ -182,20 +182,20 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const session = args.bootstrap.session;
   const thresholdSessionId = String(session?.sessionId || keyRef.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(
-    session?.walletSigningSessionId || keyRef.walletSigningSessionId || '',
+  const signingGrantId = String(
+    session?.signingGrantId || keyRef.signingGrantId || '',
   ).trim();
   const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
   const shamirPrimeB64u = String(
     args.shamirPrimeB64u || ports.configs.signing.sessionSeal?.shamirPrimeB64u || '',
   ).trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) {
+  if (!thresholdSessionId || !signingGrantId || !relayerUrl || !shamirPrimeB64u) {
     throw new Error('Email OTP sealed refresh is missing threshold-session persistence metadata');
   }
   const readyPersistenceInput = buildEmailOtpEcdsaReadyPersistInput({
     walletId: args.walletId,
     primaryChain: args.primaryChain,
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
     emailOtpAuthContext: args.emailOtpAuthContext,
   });
@@ -265,7 +265,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     sealedSecretB64u,
     curve: 'ecdsa' as const,
     authMethod: 'email_otp' as const,
-    walletSigningSessionId: readyPersistenceInput.walletSigningSessionId,
+    signingGrantId: readyPersistenceInput.signingGrantId,
     thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
     userId: String(keyRef.userId || args.walletId || '').trim(),
@@ -329,7 +329,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     persisted.authMethod !== 'email_otp' ||
     persisted.secretKind !== 'signing_session_secret32' ||
     persisted.thresholdSessionIds.ecdsa !== thresholdSessionId ||
-    persisted.walletSigningSessionId !== walletSigningSessionId ||
+    persisted.signingGrantId !== signingGrantId ||
     persisted.sealedSecretB64u !== sealedSecretB64u ||
     !persisted.ecdsaRestore?.chainTarget ||
     !thresholdEcdsaChainTargetsEqual(persisted.ecdsaRestore.chainTarget, actualChainTarget)

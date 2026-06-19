@@ -12,7 +12,7 @@ const validSelectedLane = {
   keyHandle: 'test-key-handle',
   walletId,
   authMethod: 'passkey',
-  walletSigningSessionId: 'wallet-signing-session-id',
+  signingGrantId: 'signing-grant-id',
   thresholdSessionId: 'threshold-session-id',
   chainTarget,
 } satisfies SelectedEcdsaLaneInput;
@@ -23,7 +23,7 @@ const invalidSelectedLaneWithSubjectId = {
   keyHandle: 'test-key-handle',
   walletId,
   authMethod: 'passkey',
-  walletSigningSessionId: 'wallet-signing-session-id',
+  signingGrantId: 'signing-grant-id',
   thresholdSessionId: 'threshold-session-id',
   // @ts-expect-error Base ECDSA selected lanes derive subject from key identity.
   subjectId: 'alice.testnet',

@@ -32,7 +32,7 @@ export type RouterAbEd25519SigningMaterialReady = {
   materialHandle: Ed25519HssMaterialHandle;
   bindingDigest: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   signingRootId: string;
   signingRootVersion: string;
   expiresAtMs: number;
@@ -103,7 +103,7 @@ export async function storeRouterAbEd25519SigningMaterialHandleWasm(input: {
     materialHandle: persistedHandle.materialHandle,
     bindingDigest: persistedHandle.bindingDigest,
     thresholdSessionId: String(input.thresholdSessionId || '').trim(),
-    walletSigningSessionId: String(input.walletSigningSessionId || '').trim(),
+    signingGrantId: String(input.signingGrantId || '').trim(),
     signingRootId: String(input.signingRootId || '').trim(),
     signingRootVersion: String(input.signingRootVersion || '').trim(),
     expiresAtMs: Math.floor(Number(input.expiresAtMs)),
@@ -294,7 +294,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
 export async function ensureThresholdEd25519HssSigningMaterial(args: {
   ctx: WorkerOperationContext;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   existingMaterialCache?: Ed25519HssMaterialCache;
   existingMaterialHandle?: string;
   existingMaterialBindingDigest?: string;
@@ -323,7 +323,7 @@ export async function ensureThresholdEd25519HssSigningMaterial(args: {
   ) => boolean | void;
 }): Promise<RouterAbEd25519SigningMaterialReady> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.signingGrantId || '').trim();
   const signingRootId = String(args.signingRootId || '').trim();
   const signingRootVersion = String(args.signingRootVersion || '').trim();
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
@@ -335,7 +335,7 @@ export async function ensureThresholdEd25519HssSigningMaterial(args: {
   const existingMaterialClientVerifierB64u = String(
     args.existingMaterialClientVerifierB64u || '',
   ).trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !signingRootId || !signingRootVersion) {
+  if (!thresholdSessionId || !signingGrantId || !signingRootId || !signingRootVersion) {
     throw new Error('Router A/B Ed25519 signing material is missing session or signing-root scope');
   }
   if (!nearAccountId || !relayerKeyId || !signingWorkerId) {
@@ -364,7 +364,7 @@ export async function ensureThresholdEd25519HssSigningMaterial(args: {
           materialHandle: existingMaterialHandle as Ed25519HssMaterialHandle,
           bindingDigest: existingMaterialBindingDigest,
           thresholdSessionId,
-          walletSigningSessionId,
+          signingGrantId,
           signingRootId,
           signingRootVersion,
           expiresAtMs,
@@ -387,7 +387,7 @@ export async function ensureThresholdEd25519HssSigningMaterial(args: {
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
     materialCache,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     signingRootId,
     signingRootVersion,
     expiresAtMs,
@@ -412,7 +412,7 @@ export async function ensureThresholdEd25519HssSigningMaterial(args: {
 export async function requireThresholdEd25519HssSigningMaterialHandle(args: {
   ctx: WorkerOperationContext;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   existingMaterialHandle?: string;
   existingMaterialBindingDigest?: string;
   existingMaterialClientVerifierB64u?: string;
@@ -425,7 +425,7 @@ export async function requireThresholdEd25519HssSigningMaterialHandle(args: {
   signingWorkerId: string;
 }): Promise<RouterAbEd25519SigningMaterialReady> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.signingGrantId || '').trim();
   const signingRootId = String(args.signingRootId || '').trim();
   const signingRootVersion = String(args.signingRootVersion || '').trim();
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
@@ -437,7 +437,7 @@ export async function requireThresholdEd25519HssSigningMaterialHandle(args: {
   const existingMaterialClientVerifierB64u = String(
     args.existingMaterialClientVerifierB64u || '',
   ).trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !signingRootId || !signingRootVersion) {
+  if (!thresholdSessionId || !signingGrantId || !signingRootId || !signingRootVersion) {
     throw new Error('Router A/B Ed25519 signing material is missing session or signing-root scope');
   }
   if (!nearAccountId || !relayerKeyId || !signingWorkerId) {
@@ -468,7 +468,7 @@ export async function requireThresholdEd25519HssSigningMaterialHandle(args: {
     materialHandle: existingMaterialHandle as Ed25519HssMaterialHandle,
     bindingDigest: existingMaterialBindingDigest,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     signingRootId,
     signingRootVersion,
     expiresAtMs,

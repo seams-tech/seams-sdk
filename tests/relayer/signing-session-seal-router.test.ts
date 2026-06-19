@@ -30,15 +30,15 @@ function b64u(bytes: number[]): string {
   return base64UrlEncode(Uint8Array.from(bytes));
 }
 
-function makeThresholdSessionClaims(input?: { userId?: string; walletSigningSessionId?: string }) {
+function makeThresholdSessionClaims(input?: { userId?: string; signingGrantId?: string }) {
   const userId = input?.userId || USER_ID;
-  const walletSigningSessionId = input?.walletSigningSessionId || 'wallet-signing-session-1';
+  const signingGrantId = input?.signingGrantId || 'signing-grant-1';
   return {
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: userId,
     walletId: userId,
     sessionId: THRESHOLD_SESSION_ID,
-    walletSigningSessionId,
+    signingGrantId,
     keyScope: 'evm-family' as const,
     keyHandle: 'ehss-key-seal-test',
     subjectId: userId,
@@ -88,7 +88,7 @@ function makeThresholdSessionClaims(input?: { userId?: string; walletSigningSess
 
 function makeLegacyThresholdSessionClaims(input?: {
   userId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
 }) {
   return {
     ...makeThresholdSessionClaims(input),
@@ -119,7 +119,7 @@ function makePolicy(
   const remainingUses = Number.isFinite(Number(input?.remainingUses))
     ? Number(input?.remainingUses)
     : 7;
-  const walletSigningSessionId = 'wallet-signing-session-1';
+  const signingGrantId = 'signing-grant-1';
   const participantIds = [1, 2] as const;
   const rpId = FRONTEND_ORIGIN.replace('https://', '');
   const relayerKeyId = 'relayer-key-1';
@@ -136,8 +136,8 @@ function makePolicy(
   const walletBudgetStatus = {
     kind: 'wallet_budget' as const,
     curve: 'ecdsa' as const,
-    thresholdSessionId: `wallet-signing:${walletSigningSessionId}`,
-    walletSigningSessionId,
+    thresholdSessionId: `wallet-signing:${signingGrantId}`,
+    signingGrantId,
     userId: sessionUserId,
     expiresAtMs,
     remainingUses,
@@ -165,12 +165,12 @@ function makePolicy(
         : [],
     getWalletBudgetStatus: async ({
       curve,
-      walletSigningSessionId: requestedWalletSigningSessionId,
+      signingGrantId: requestedSigningGrantId,
     }: {
       curve: 'ecdsa' | 'ed25519';
-      walletSigningSessionId: string;
+      signingGrantId: string;
     }) =>
-      curve === 'ecdsa' && requestedWalletSigningSessionId === walletSigningSessionId
+      curve === 'ecdsa' && requestedSigningGrantId === signingGrantId
         ? walletBudgetStatus
         : null,
     consumeUseCount: async () => ({
@@ -374,7 +374,7 @@ test.describe('signing-session seal routes', () => {
   });
 
   test('service reports the shared wallet signing-session budget instead of curve-session uses', async () => {
-    const walletSigningSessionId = 'wallet-session-seal-budget';
+    const signingGrantId = 'wallet-session-seal-budget';
     const service = createSigningSessionSealService({
       sessionPolicy: {
         getThresholdSession: async () => ({
@@ -388,14 +388,14 @@ test.describe('signing-session seal routes', () => {
           remainingUses: 7,
         }),
         getThresholdSessionStatuses: async () => [],
-        getWalletBudgetStatus: async ({ walletSigningSessionId: requestedWalletSigningSessionId }) =>
-          requestedWalletSigningSessionId !== walletSigningSessionId
+        getWalletBudgetStatus: async ({ signingGrantId: requestedSigningGrantId }) =>
+          requestedSigningGrantId !== signingGrantId
             ? null
             : {
                 kind: 'wallet_budget',
                 curve: 'ecdsa',
-                thresholdSessionId: `wallet-signing:${walletSigningSessionId}`,
-                walletSigningSessionId,
+                thresholdSessionId: `wallet-signing:${signingGrantId}`,
+                signingGrantId,
                 userId: USER_ID,
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 2,
@@ -421,7 +421,7 @@ test.describe('signing-session seal routes', () => {
 
     const result = await service.removeServerSeal(makeBody(), {
       userId: USER_ID,
-      claims: makeThresholdSessionClaims({ walletSigningSessionId }),
+      claims: makeThresholdSessionClaims({ signingGrantId }),
     });
 
     expect(result).toMatchObject({
@@ -432,7 +432,7 @@ test.describe('signing-session seal routes', () => {
   });
 
   test('service rejects sealed refresh when the shared wallet signing-session budget is exhausted', async () => {
-    const walletSigningSessionId = 'wallet-session-seal-exhausted';
+    const signingGrantId = 'wallet-session-seal-exhausted';
     let cipherCalls = 0;
     const service = createSigningSessionSealService({
       sessionPolicy: {
@@ -450,8 +450,8 @@ test.describe('signing-session seal routes', () => {
         getWalletBudgetStatus: async () => ({
           kind: 'wallet_budget',
           curve: 'ecdsa',
-          thresholdSessionId: `wallet-signing:${walletSigningSessionId}`,
-          walletSigningSessionId,
+          thresholdSessionId: `wallet-signing:${signingGrantId}`,
+          signingGrantId,
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 0,
@@ -477,7 +477,7 @@ test.describe('signing-session seal routes', () => {
 
     const result = await service.removeServerSeal(makeBody(), {
       userId: USER_ID,
-      claims: makeThresholdSessionClaims({ walletSigningSessionId }),
+      claims: makeThresholdSessionClaims({ signingGrantId }),
     });
 
     expect(result).toEqual({
@@ -489,7 +489,7 @@ test.describe('signing-session seal routes', () => {
   });
 
   test('service does not replay stale idempotent success for wallet-budget-backed seal requests', async () => {
-    const walletSigningSessionId = 'wallet-session-no-stale-replay';
+    const signingGrantId = 'wallet-session-no-stale-replay';
     let removeCalls = 0;
     let walletRemainingUses = 2;
     const service = createSigningSessionSealService({
@@ -508,8 +508,8 @@ test.describe('signing-session seal routes', () => {
         getWalletBudgetStatus: async () => ({
           kind: 'wallet_budget',
           curve: 'ecdsa',
-          thresholdSessionId: `wallet-signing:${walletSigningSessionId}`,
-          walletSigningSessionId,
+          thresholdSessionId: `wallet-signing:${signingGrantId}`,
+          signingGrantId,
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: walletRemainingUses,
@@ -538,7 +538,7 @@ test.describe('signing-session seal routes', () => {
     });
     const auth = {
       userId: USER_ID,
-      claims: makeThresholdSessionClaims({ walletSigningSessionId }),
+      claims: makeThresholdSessionClaims({ signingGrantId }),
     };
 
     const first = await service.removeServerSeal(makeBody(), auth);

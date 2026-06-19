@@ -54,14 +54,14 @@ type ExternallyConsumedSuccessInput = Extract<
 >;
 
 function makeLane(args?: {
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   thresholdSessionId?: string;
 }): NearTransactionSigningLane {
   return buildNearTransactionSigningLane({
     accountId: toAccountId('alice.testnet'),
     authMethod: 'passkey',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(
-      args?.walletSigningSessionId || 'wallet-session-1',
+    signingGrantId: SigningSessionIds.signingGrant(
+      args?.signingGrantId || 'wallet-session-1',
     ),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       args?.thresholdSessionId || 'threshold-session-1',
@@ -71,7 +71,7 @@ function makeLane(args?: {
 }
 
 function makeSpend(args?: {
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   thresholdSessionId?: string;
   operationFingerprint?: string;
   operationId?: string;
@@ -84,7 +84,7 @@ function makeSpend(args?: {
       args?.operationFingerprint || 'fingerprint-1',
     ),
     walletId: lane.accountId,
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     lane,
     thresholdSessionIds: [lane.thresholdSessionId],
     backingMaterialSessionIds: [],
@@ -94,7 +94,7 @@ function makeSpend(args?: {
 }
 
 function makeTempoSpend(args?: {
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   thresholdSessionId?: string;
   operationFingerprint?: string;
   operationId?: string;
@@ -115,8 +115,8 @@ function makeTempoSpend(args?: {
     authMethod: 'passkey',
     storageSource: 'login',
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(
-      args?.walletSigningSessionId || 'tempo-wallet-session-1',
+    signingGrantId: SigningSessionIds.signingGrant(
+      args?.signingGrantId || 'tempo-wallet-session-1',
     ),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
       args?.thresholdSessionId || 'tempo-threshold-session-1',
@@ -128,7 +128,7 @@ function makeTempoSpend(args?: {
       args?.operationFingerprint || 'tempo-fingerprint-1',
     ),
     walletId,
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     lane,
     thresholdSessionIds: [lane.thresholdSessionId],
     backingMaterialSessionIds: [],
@@ -152,10 +152,10 @@ function makeTempoNonceLane(spend: WalletSigningSpendPlan): EvmNonceLane {
 
 function makeBudgetIdentity(spend: WalletSigningSpendPlan): SigningSessionPreparedBudgetIdentity {
   return {
-    walletSigningSessionId: spend.walletSigningSessionId,
+    signingGrantId: spend.signingGrantId,
     projectionVersion: 'projection-1',
     status: {
-      sessionId: String(spend.walletSigningSessionId),
+      sessionId: String(spend.signingGrantId),
       status: 'active',
       projectionVersion: 'projection-1',
       remainingUses: 2,
@@ -230,7 +230,7 @@ function makeZeroSpend(): ZeroBudgetFinalizationSpend {
 }
 
 function makeZeroWalletSpend(args?: {
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   thresholdSessionId?: string;
 }): ZeroWalletBudgetSpend {
   const zeroSpend = {
@@ -393,7 +393,7 @@ test.describe('budget coordinator reserved success handling', () => {
       async consumeUse(args) {
         consumeUseCalls.push(args);
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'exhausted',
           projectionVersion: 'projection-2',
           remainingUses: 0,
@@ -415,7 +415,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const spend = makeTempoSpend({
       operationId: 'tempo-broadcast-failed-operation',
       operationFingerprint: 'tempo-broadcast-failed-fingerprint',
-      walletSigningSessionId: 'tempo-wallet-session-broadcast-failed',
+      signingGrantId: 'tempo-wallet-session-broadcast-failed',
       thresholdSessionId: 'tempo-threshold-session-broadcast-failed',
     });
     if (spend.lane.curve !== 'ecdsa') {
@@ -476,12 +476,12 @@ test.describe('budget coordinator reserved success handling', () => {
 
     expect(consumeUseCalls).toHaveLength(1);
     expect(consumeUseCalls[0]).toMatchObject({
-      walletSigningSessionId: 'tempo-wallet-session-broadcast-failed',
+      signingGrantId: 'tempo-wallet-session-broadcast-failed',
       uses: 1,
       reason: SigningOperationIntent.TransactionSign,
       budgetStatusCheck: {
         kind: 'ecdsa_lane_budget_status_check',
-        walletSigningSessionId: 'tempo-wallet-session-broadcast-failed',
+        signingGrantId: 'tempo-wallet-session-broadcast-failed',
         thresholdSessionId: 'tempo-threshold-session-broadcast-failed',
         chainTarget: {
           kind: 'tempo',
@@ -526,19 +526,19 @@ test.describe('budget coordinator reserved success handling', () => {
     const firstSpend = makeTempoSpend({
       operationId: 'tempo-inflight-1',
       operationFingerprint: 'tempo-inflight-fingerprint-1',
-      walletSigningSessionId: 'tempo-wallet-session-inflight',
+      signingGrantId: 'tempo-wallet-session-inflight',
       thresholdSessionId: 'tempo-threshold-session-inflight',
     });
     const secondSpend = makeTempoSpend({
       operationId: 'tempo-inflight-2',
       operationFingerprint: 'tempo-inflight-fingerprint-2',
-      walletSigningSessionId: 'tempo-wallet-session-inflight',
+      signingGrantId: 'tempo-wallet-session-inflight',
       thresholdSessionId: 'tempo-threshold-session-inflight',
     });
     const thirdSpend = makeTempoSpend({
       operationId: 'tempo-inflight-3',
       operationFingerprint: 'tempo-inflight-fingerprint-3',
-      walletSigningSessionId: 'tempo-wallet-session-inflight',
+      signingGrantId: 'tempo-wallet-session-inflight',
       thresholdSessionId: 'tempo-threshold-session-inflight',
     });
 
@@ -585,7 +585,7 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: makeSpend({
           operationId: 'server-inflight-operation',
           operationFingerprint: 'server-inflight-fingerprint',
-          walletSigningSessionId: 'server-inflight-wallet-session',
+          signingGrantId: 'server-inflight-wallet-session',
           thresholdSessionId: 'server-inflight-threshold-session',
         }),
         expectedBudgetProjectionVersion: 'projection-1',
@@ -624,7 +624,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const spend = makeTempoSpend({
       operationId: 'tempo-trace-operation',
       operationFingerprint: 'tempo-trace-fingerprint',
-      walletSigningSessionId: 'tempo-wallet-session-trace',
+      signingGrantId: 'tempo-wallet-session-trace',
       thresholdSessionId: 'tempo-threshold-session-trace',
     });
 
@@ -664,8 +664,8 @@ test.describe('budget coordinator reserved success handling', () => {
     const readStatusCalls: string[] = [];
     const consumeCalls: string[] = [];
     const coordinator = new BudgetCoordinator({
-      async readStatus({ walletSigningSessionId }) {
-        const sessionId = String(walletSigningSessionId);
+      async readStatus({ signingGrantId }) {
+        const sessionId = String(signingGrantId);
         readStatusCalls.push(sessionId);
         return {
           sessionId,
@@ -675,8 +675,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse({ walletSigningSessionId }) {
-        const sessionId = String(walletSigningSessionId);
+      async consumeUse({ signingGrantId }) {
+        const sessionId = String(signingGrantId);
         consumeCalls.push(sessionId);
         return {
           sessionId,
@@ -690,13 +690,13 @@ test.describe('budget coordinator reserved success handling', () => {
     const nearSpend = makeSpend({
       operationId: 'near-operation-1',
       operationFingerprint: 'near-fingerprint-1',
-      walletSigningSessionId: 'near-wallet-session-1',
+      signingGrantId: 'near-wallet-session-1',
       thresholdSessionId: 'near-threshold-session-1',
     });
     const tempoSpend = makeTempoSpend({
       operationId: 'tempo-operation-1',
       operationFingerprint: 'tempo-fingerprint-1',
-      walletSigningSessionId: 'tempo-wallet-session-1',
+      signingGrantId: 'tempo-wallet-session-1',
       thresholdSessionId: 'tempo-threshold-session-1',
     });
 
@@ -758,8 +758,8 @@ test.describe('budget coordinator reserved success handling', () => {
           spend: {
             operationId: SigningSessionIds.signingOperation('observation-only'),
             walletId: toAccountId(String(walletBudgetOwnerId(args.owner))),
-            walletSigningSessionId: SigningSessionIds.walletSigningSession(
-              args.walletSigningSessionId,
+            signingGrantId: SigningSessionIds.signingGrant(
+              args.signingGrantId,
             ),
             lane: makeLane(),
             thresholdSessionIds: [],
@@ -772,7 +772,7 @@ test.describe('budget coordinator reserved success handling', () => {
           ],
         });
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 1,
@@ -808,7 +808,7 @@ test.describe('budget coordinator reserved success handling', () => {
       async consumeUse(args) {
         consumeUses.push(args.uses);
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'exhausted',
           projectionVersion: 'projection-2',
           remainingUses: 0,
@@ -841,7 +841,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const coordinator = new BudgetCoordinator({
       async readStatus(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-1',
           remainingUses: 3,
@@ -850,7 +850,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-1',
           remainingUses: 2,
@@ -861,7 +861,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const firstSpend = makeSpend({
       operationId: 'completed-unreserved-1',
       operationFingerprint: 'completed-unreserved-fingerprint-1',
-      walletSigningSessionId: 'completed-unreserved-wallet-session',
+      signingGrantId: 'completed-unreserved-wallet-session',
       thresholdSessionId: 'completed-unreserved-threshold-session-1',
     });
     await coordinator.recordSuccess(
@@ -877,7 +877,7 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: makeSpend({
           operationId: 'completed-unreserved-2',
           operationFingerprint: 'completed-unreserved-fingerprint-2',
-          walletSigningSessionId: 'completed-unreserved-wallet-session',
+          signingGrantId: 'completed-unreserved-wallet-session',
           thresholdSessionId: 'completed-unreserved-threshold-session-2',
         }),
       }),
@@ -896,7 +896,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const coordinator = new BudgetCoordinator({
       async readStatus(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 2,
@@ -906,7 +906,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 2,
@@ -918,7 +918,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const firstSpend = makeSpend({
       operationId: 'server-projected-completed-1',
       operationFingerprint: 'server-projected-completed-fingerprint-1',
-      walletSigningSessionId: 'server-projected-wallet-session',
+      signingGrantId: 'server-projected-wallet-session',
       thresholdSessionId: 'server-projected-threshold-session-1',
     });
 
@@ -934,7 +934,7 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: makeSpend({
           operationId: 'server-projected-completed-2',
           operationFingerprint: 'server-projected-completed-fingerprint-2',
-          walletSigningSessionId: 'server-projected-wallet-session',
+          signingGrantId: 'server-projected-wallet-session',
           thresholdSessionId: 'server-projected-threshold-session-2',
         }),
       }),
@@ -953,7 +953,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const coordinator = new BudgetCoordinator({
       async readStatus(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-1',
           remainingUses: 3,
@@ -962,7 +962,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-1',
           remainingUses: 3,
@@ -974,7 +974,7 @@ test.describe('budget coordinator reserved success handling', () => {
       const spend = makeSpend({
         operationId: `completed-exhaustion-${index}`,
         operationFingerprint: `completed-exhaustion-fingerprint-${index}`,
-        walletSigningSessionId: 'completed-exhaustion-wallet-session',
+        signingGrantId: 'completed-exhaustion-wallet-session',
         thresholdSessionId: `completed-exhaustion-threshold-session-${index}`,
       });
       await coordinator.recordSuccess(
@@ -991,7 +991,7 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: makeSpend({
           operationId: 'completed-exhaustion-4',
           operationFingerprint: 'completed-exhaustion-fingerprint-4',
-          walletSigningSessionId: 'completed-exhaustion-wallet-session',
+          signingGrantId: 'completed-exhaustion-wallet-session',
           thresholdSessionId: 'completed-exhaustion-threshold-session-4',
         }),
         expectedBudgetProjectionVersion: 'projection-1',
@@ -1012,9 +1012,9 @@ test.describe('budget coordinator reserved success handling', () => {
         };
       },
       async consumeUse(args) {
-        consumeUseCalls.push(args.walletSigningSessionId);
+        consumeUseCalls.push(args.signingGrantId);
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-3',
           remainingUses: 1,
@@ -1061,7 +1061,7 @@ test.describe('budget coordinator reserved success handling', () => {
 
     const result = await coordinator.recordSuccess({
       ...reserved,
-      spend: makeSpend({ walletSigningSessionId: 'wallet-session-2' }),
+      spend: makeSpend({ signingGrantId: 'wallet-session-2' }),
     });
 
     expect(result.kind).toBe('reservation_identity_mismatch');
@@ -1151,7 +1151,7 @@ test.describe('budget coordinator reserved success handling', () => {
       async consumeUse(args) {
         consumeUseCalls += 1;
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 2,
@@ -1219,7 +1219,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 2,
@@ -1320,7 +1320,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 2,
@@ -1357,7 +1357,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'active',
           projectionVersion: 'projection-2',
           remainingUses: 2,
@@ -1466,7 +1466,7 @@ test.describe('budget coordinator reserved success handling', () => {
       },
       async consumeUse(args) {
         return {
-          sessionId: args.walletSigningSessionId,
+          sessionId: args.signingGrantId,
           status: 'budget_unknown',
           statusCode: 'status_unavailable',
         };
@@ -1500,13 +1500,13 @@ test.describe('budget coordinator reserved success handling', () => {
         async consumeUse(consumeArgs) {
           if (args.consumeStatus === 'budget_unknown') {
             return {
-              sessionId: consumeArgs.walletSigningSessionId,
+              sessionId: consumeArgs.signingGrantId,
               status: 'budget_unknown',
               statusCode: 'status_unavailable',
             };
           }
           return {
-            sessionId: consumeArgs.walletSigningSessionId,
+            sessionId: consumeArgs.signingGrantId,
             status: 'active',
             projectionVersion: 'projection-2',
             remainingUses: 1,

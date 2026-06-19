@@ -51,7 +51,7 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   userId?: unknown;
   authMethod?: unknown;
   curve?: unknown;
-  walletSigningSessionId?: unknown;
+  signingGrantId?: unknown;
   thresholdSessionIds?: RawThresholdSessionIds | unknown;
   sealedSecretB64u?: unknown;
   subjectId?: unknown;
@@ -91,7 +91,7 @@ type SealedRecoveryRecordBase = {
   walletId: string;
   authMethod: 'passkey' | 'email_otp';
   curve: 'ed25519' | 'ecdsa';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   sealedSecretB64u: string;
   issuedAtMs: number;
@@ -294,7 +294,7 @@ function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string,
     curve: record.curve,
     storeKey: record.storeKey,
     walletId: record.walletId || null,
-    walletSigningSessionId: record.walletSigningSessionId || null,
+    signingGrantId: record.signingGrantId || null,
     thresholdSessionIds,
     issuedAtMs: record.issuedAtMs,
     expiresAtMs: record.expiresAtMs,
@@ -330,7 +330,7 @@ export function normalizeSealedRecoveryRecord(
   const ed25519Restore = normalizeRawObject<RawEd25519RestoreMetadata>(raw.ed25519Restore);
   const storeKey = normalizeNonEmptyString(raw.storeKey);
   const walletId = normalizeNonEmptyString(raw.walletId);
-  const walletSigningSessionId = normalizeNonEmptyString(raw.walletSigningSessionId);
+  const signingGrantId = normalizeNonEmptyString(raw.signingGrantId);
   const sealedSecretB64u = normalizeNonEmptyString(raw.sealedSecretB64u);
   const issuedAtMs = Math.floor(Number(raw.issuedAtMs) || 0);
   const expiresAtMs = Math.floor(Number(raw.expiresAtMs) || 0);
@@ -343,7 +343,7 @@ export function normalizeSealedRecoveryRecord(
   ) {
     return reject(raw, 'unsupported_record');
   }
-  if (!storeKey || !walletId || !walletSigningSessionId || !sealedSecretB64u) {
+  if (!storeKey || !walletId || !signingGrantId || !sealedSecretB64u) {
     return reject(raw, 'missing_identity');
   }
   if (expiresAtMs <= 0 || updatedAtMs <= 0 || issuedAtMs <= 0) {
@@ -464,7 +464,7 @@ export function normalizeSealedRecoveryRecord(
           walletId,
           authMethod: 'email_otp',
           curve: 'ed25519',
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId: companionEd25519ThresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,
@@ -498,7 +498,7 @@ export function normalizeSealedRecoveryRecord(
             walletId,
             authMethod: 'passkey',
             curve: 'ecdsa',
-            walletSigningSessionId,
+            signingGrantId,
             thresholdSessionId,
             sealedSecretB64u,
             issuedAtMs,
@@ -531,7 +531,7 @@ export function normalizeSealedRecoveryRecord(
             walletId,
             authMethod: 'email_otp',
             curve: 'ecdsa',
-            walletSigningSessionId,
+            signingGrantId,
             thresholdSessionId,
             sealedSecretB64u,
             issuedAtMs,
@@ -655,7 +655,7 @@ export function normalizeSealedRecoveryRecord(
       walletId,
       authMethod: 'email_otp',
       curve: 'ecdsa',
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId: normalizeNonEmptyString(thresholdSessionIds.ecdsa)!,
       sealedSecretB64u,
       issuedAtMs,
@@ -697,7 +697,7 @@ export function normalizeSealedRecoveryRecord(
           walletId,
           authMethod: 'passkey',
           curve: 'ed25519',
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,
@@ -723,7 +723,7 @@ export function normalizeSealedRecoveryRecord(
           walletId,
           authMethod: 'email_otp',
           curve: 'ed25519',
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
           sealedSecretB64u,
           issuedAtMs,

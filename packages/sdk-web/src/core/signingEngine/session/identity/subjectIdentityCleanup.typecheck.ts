@@ -81,7 +81,7 @@ const laneIdentity = exactEcdsaSigningLaneIdentity({
   chainTarget,
   key,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
-  walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session'),
+  signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
   thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
 });
 
@@ -121,7 +121,7 @@ const ecdsaSpendPlan: WalletSigningSpendPlan = {
   operationId,
   operationFingerprint,
   walletId,
-  walletSigningSessionId: laneIdentity.walletSigningSessionId,
+  signingGrantId: laneIdentity.signingGrantId,
   lane: {
     ...laneIdentity,
     key,

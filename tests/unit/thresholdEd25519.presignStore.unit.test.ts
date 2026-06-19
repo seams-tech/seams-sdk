@@ -34,7 +34,7 @@ function createPresignRecord(): RouterAbEd25519PresignRecord {
     kind: 'router_ab_ed25519_presign_record_v2',
     expiresAtMs: Date.now() + 60_000,
     thresholdSessionId: 'threshold-session',
-    walletSigningSessionId: 'wallet-signing-session',
+    signingGrantId: 'signing-grant',
     relayerKeyId: 'relayer-key',
     nearAccountId: 'alice.testnet',
     nearNetworkId: 'testnet',
@@ -74,9 +74,9 @@ function createMpcSessionRecord(): ThresholdEd25519MpcSessionRecord {
 }
 
 function createPresignRecordForWalletSession(
-  walletSigningSessionId: string,
+  signingGrantId: string,
 ): RouterAbEd25519PresignRecord {
-  return { ...createPresignRecord(), walletSigningSessionId };
+  return { ...createPresignRecord(), signingGrantId };
 }
 
 function expectedScopeForRecord(
@@ -84,7 +84,7 @@ function expectedScopeForRecord(
 ): RouterAbEd25519PresignExpectedScope {
   return {
     thresholdSessionId: record.thresholdSessionId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     relayerKeyId: record.relayerKeyId,
     nearAccountId: record.nearAccountId,
     nearNetworkId: record.nearNetworkId,
@@ -189,20 +189,20 @@ test.describe('threshold Ed25519 presign session store', () => {
     ).resolves.toEqual({ ok: false, code: 'expired' });
   });
 
-  test('enforces per-wallet-signing-session outstanding presign capacity', async () => {
+  test('enforces per-signing-grant outstanding presign capacity', async () => {
     const store = createStore();
     const record = createPresignRecord();
 
     await expect(
       store.putPresignWithCapacity('presign-4a', record, 60_000, {
-        walletSigningSessionMax: 1,
+        signingGrantMax: 1,
         globalMax: 10,
       }),
     ).resolves.toEqual({ ok: true });
 
     await expect(
       store.putPresignWithCapacity('presign-4b', record, 60_000, {
-        walletSigningSessionMax: 1,
+        signingGrantMax: 1,
         globalMax: 10,
       }),
     ).resolves.toEqual({ ok: false, code: 'capacity_exceeded' });
@@ -211,7 +211,7 @@ test.describe('threshold Ed25519 presign session store', () => {
 
     await expect(
       store.putPresignWithCapacity('presign-4c', record, 60_000, {
-        walletSigningSessionMax: 1,
+        signingGrantMax: 1,
         globalMax: 10,
       }),
     ).resolves.toEqual({ ok: true });
@@ -219,19 +219,19 @@ test.describe('threshold Ed25519 presign session store', () => {
 
   test('enforces global outstanding presign capacity across wallet sessions', async () => {
     const store = createStore();
-    const first = createPresignRecordForWalletSession('wallet-signing-session-a');
-    const second = createPresignRecordForWalletSession('wallet-signing-session-b');
+    const first = createPresignRecordForWalletSession('signing-grant-a');
+    const second = createPresignRecordForWalletSession('signing-grant-b');
 
     await expect(
       store.putPresignWithCapacity('presign-5a', first, 60_000, {
-        walletSigningSessionMax: 2,
+        signingGrantMax: 2,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: true });
 
     await expect(
       store.putPresignWithCapacity('presign-5b', second, 60_000, {
-        walletSigningSessionMax: 2,
+        signingGrantMax: 2,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: false, code: 'capacity_exceeded' });
@@ -243,7 +243,7 @@ test.describe('threshold Ed25519 presign session store', () => {
 
     await expect(
       store.putPresignWithCapacity('presign-6a', record, 1, {
-        walletSigningSessionMax: 1,
+        signingGrantMax: 1,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: true });
@@ -251,7 +251,7 @@ test.describe('threshold Ed25519 presign session store', () => {
 
     await expect(
       store.putPresignWithCapacity('presign-6b', record, 60_000, {
-        walletSigningSessionMax: 1,
+        signingGrantMax: 1,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: true });
@@ -262,20 +262,20 @@ test.describe('threshold Ed25519 presign session store', () => {
     const record = createPresignRecord();
 
     await expect(
-      store.checkPresignCapacity(record.walletSigningSessionId, {
-        walletSigningSessionMax: 1,
+      store.checkPresignCapacity(record.signingGrantId, {
+        signingGrantMax: 1,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: true });
 
     await store.putPresignWithCapacity('presign-preflight-full', record, 60_000, {
-      walletSigningSessionMax: 1,
+      signingGrantMax: 1,
       globalMax: 1,
     });
 
     await expect(
-      store.checkPresignCapacity(record.walletSigningSessionId, {
-        walletSigningSessionMax: 1,
+      store.checkPresignCapacity(record.signingGrantId, {
+        signingGrantMax: 1,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: false, code: 'capacity_exceeded' });
@@ -283,8 +283,8 @@ test.describe('threshold Ed25519 presign session store', () => {
     await store.takePresignForFinalize('presign-preflight-full', expectedScopeForRecord(record));
 
     await expect(
-      store.checkPresignCapacity(record.walletSigningSessionId, {
-        walletSigningSessionMax: 1,
+      store.checkPresignCapacity(record.signingGrantId, {
+        signingGrantMax: 1,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: true });
@@ -295,7 +295,7 @@ test.describe('threshold Ed25519 presign session store', () => {
     const record = createPresignRecord();
     const bucket = {
       kind: 'wallet_signing_session' as const,
-      key: record.walletSigningSessionId,
+      key: record.signingGrantId,
     };
     const policy = { windowMs: 60_000, maxCost: 2 };
 
@@ -303,8 +303,8 @@ test.describe('threshold Ed25519 presign session store', () => {
       ok: true,
     });
     await expect(
-      store.checkPresignCapacity(record.walletSigningSessionId, {
-        walletSigningSessionMax: 1,
+      store.checkPresignCapacity(record.signingGrantId, {
+        signingGrantMax: 1,
         globalMax: 1,
       }),
     ).resolves.toEqual({ ok: true });
@@ -320,7 +320,7 @@ test.describe('threshold Ed25519 presign session store', () => {
     const expectedScope = expectedScopeForRecord(record);
 
     await store.putPresignWithCapacity('presign-7', record, 60_000, {
-      walletSigningSessionMax: 2,
+      signingGrantMax: 2,
       globalMax: 2,
     });
 

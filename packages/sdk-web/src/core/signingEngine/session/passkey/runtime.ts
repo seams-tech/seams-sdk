@@ -55,8 +55,8 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
-            ...(sealTransport.walletSigningSessionId
-              ? { walletSigningSessionId: sealTransport.walletSigningSessionId }
+            ...(sealTransport.signingGrantId
+              ? { signingGrantId: sealTransport.signingGrantId }
               : {}),
             ...(sealTransport.walletSessionJwt
               ? { walletSessionJwt: sealTransport.walletSessionJwt }
@@ -83,8 +83,8 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
-            ...(sealTransport.walletSigningSessionId
-              ? { walletSigningSessionId: sealTransport.walletSigningSessionId }
+            ...(sealTransport.signingGrantId
+              ? { signingGrantId: sealTransport.signingGrantId }
               : {}),
             ...(sealTransport.walletSessionJwt
               ? { walletSessionJwt: sealTransport.walletSessionJwt }

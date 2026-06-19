@@ -27,7 +27,7 @@ function makeSealedRecord(args: {
     ed25519?: string;
     ecdsa?: string;
   };
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   updatedAtMs?: number;
@@ -44,7 +44,7 @@ function makeSealedRecord(args: {
     authMethod,
     secretKind: 'signing_session_secret32',
     storeKey: `${authMethod}:${curve}:${args.chain || 'near'}:${thresholdSessionId}`,
-    walletSigningSessionId: args.walletSigningSessionId || 'wsess-restore',
+    signingGrantId: args.signingGrantId || 'wsess-restore',
     thresholdSessionIds:
       args.thresholdSessionIds ||
       (curve === 'ecdsa' ? { ecdsa: thresholdSessionId } : { ed25519: thresholdSessionId }),
@@ -92,14 +92,14 @@ function makeSealedRecord(args: {
 
 function makeEd25519RecordWithEcdsaCompanion(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ecdsaThresholdSessionId: string;
 }): SigningSessionSealedStoreRecord {
   return {
     ...makeSealedRecord({
       curve: 'ed25519',
       thresholdSessionId: args.thresholdSessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
     }),
     subjectId: 'restore.testnet',
     signingRootId: 'root-restore',
@@ -126,7 +126,7 @@ function makeEd25519RecordWithEcdsaCompanion(args: {
 
 function makeEcdsaRecordWithEd25519Companion(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ed25519ThresholdSessionId: string;
 }): SigningSessionSealedStoreRecord {
   return {
@@ -134,7 +134,7 @@ function makeEcdsaRecordWithEd25519Companion(args: {
       authMethod: 'email_otp',
       curve: 'ecdsa',
       thresholdSessionId: args.thresholdSessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       thresholdSessionIds: {
         ecdsa: args.thresholdSessionId,
         ed25519: args.ed25519ThresholdSessionId,
@@ -166,7 +166,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -185,7 +185,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -221,7 +221,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -233,7 +233,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -253,7 +253,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
       chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-      walletSigningSessionId: 'wsess-restore',
+      signingGrantId: 'wsess-restore',
       thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
     };
@@ -286,7 +286,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -316,7 +316,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ed25519',
         chain: 'near',
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -353,7 +353,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'passkey',
         curve: 'ecdsa',
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        walletSigningSessionId: 'wsess-restore',
+        signingGrantId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
@@ -385,7 +385,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
       chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-      walletSigningSessionId: 'wsess-restore',
+      signingGrantId: 'wsess-restore',
       thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
     };
@@ -415,7 +415,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       curve: 'ecdsa' as const,
       chain: 'tempo' as const,
       chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-      walletSigningSessionId: 'wsess-restore',
+      signingGrantId: 'wsess-restore',
       thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
     };
@@ -445,7 +445,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     let restoredRecord: SealedRecoveryRecord | null = null;
     const companionRecord = makeEd25519RecordWithEcdsaCompanion({
       thresholdSessionId: 'tsess-ed25519-companion',
-      walletSigningSessionId: 'wsess-companion',
+      signingGrantId: 'wsess-companion',
       ecdsaThresholdSessionId: 'tsess-ecdsa-companion',
     });
 
@@ -456,7 +456,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         curve: 'ed25519',
         chain: 'near',
         thresholdSessionId: 'tsess-ed25519-companion',
-        walletSigningSessionId: 'wsess-companion',
+        signingGrantId: 'wsess-companion',
         reason: 'transaction',
       },
       {
@@ -485,7 +485,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('passes Ed25519 purpose through to the restore port for an ECDSA-primary companion record', async () => {
     const companionRecord = makeEd25519RecordWithEcdsaCompanion({
       thresholdSessionId: 'tsess-ed25519-purpose',
-      walletSigningSessionId: 'wsess-companion-purpose',
+      signingGrantId: 'wsess-companion-purpose',
       ecdsaThresholdSessionId: 'tsess-ecdsa-primary',
     });
     const restoredPurposes: unknown[] = [];
@@ -496,7 +496,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ed25519',
         chain: 'near',
-        walletSigningSessionId: 'wsess-companion-purpose',
+        signingGrantId: 'wsess-companion-purpose',
         thresholdSessionId: 'tsess-ed25519-purpose',
         reason: 'transaction',
       },
@@ -517,7 +517,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ed25519',
         chain: 'near',
-        walletSigningSessionId: 'wsess-companion-purpose',
+        signingGrantId: 'wsess-companion-purpose',
         thresholdSessionId: 'tsess-ed25519-purpose',
         reason: 'transaction',
       },
@@ -530,7 +530,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     let restoredRecord: SealedRecoveryRecord | null = null;
     const ecdsaPrimaryRecord = makeEcdsaRecordWithEd25519Companion({
       thresholdSessionId: 'tsess-ecdsa-primary',
-      walletSigningSessionId: 'wsess-ecdsa-primary',
+      signingGrantId: 'wsess-ecdsa-primary',
       ed25519ThresholdSessionId: 'tsess-ed25519-companion',
     });
 
@@ -540,7 +540,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ed25519',
         chain: 'near',
-        walletSigningSessionId: 'wsess-ecdsa-primary',
+        signingGrantId: 'wsess-ecdsa-primary',
         thresholdSessionId: 'tsess-ed25519-companion',
         reason: 'transaction',
       },
@@ -563,14 +563,14 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp',
       curve: 'ed25519',
       chain: 'near',
-      walletSigningSessionId: 'wsess-ecdsa-primary',
+      signingGrantId: 'wsess-ecdsa-primary',
       thresholdSessionId: 'tsess-ed25519-companion',
       reason: 'transaction',
     });
     expect(restoredRecord).toMatchObject({
       authMethod: 'email_otp',
       curve: 'ecdsa',
-      walletSigningSessionId: 'wsess-ecdsa-primary',
+      signingGrantId: 'wsess-ecdsa-primary',
       thresholdSessionId: 'tsess-ecdsa-primary',
       companionEd25519ThresholdSessionId: 'tsess-ed25519-companion',
     });
@@ -741,7 +741,7 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
   test('emits separate account restore work items for a multi-curve sealed record', async () => {
     const companionRecord = makeEd25519RecordWithEcdsaCompanion({
       thresholdSessionId: 'tsess-ed25519-account',
-      walletSigningSessionId: 'wsess-account-companion',
+      signingGrantId: 'wsess-account-companion',
       ecdsaThresholdSessionId: 'tsess-ecdsa-account',
     });
     const restoredPurposes: unknown[] = [];

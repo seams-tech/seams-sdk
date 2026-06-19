@@ -67,7 +67,7 @@ const lane = buildEvmFamilyEcdsaSessionLane({
   authMethod: 'passkey',
   source: 'login',
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   walletSessionAuth: {
     kind: 'wallet_session_jwt',
     walletSessionJwt: 'wallet-session-jwt',
@@ -79,7 +79,7 @@ const lane = buildEvmFamilyEcdsaSessionLane({
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
@@ -135,7 +135,7 @@ const laneWithoutKey: EvmFamilyEcdsaSessionLane = {
   authMethod: 'passkey',
   source: 'login',
   thresholdSessionId: lane.thresholdSessionId,
-  walletSigningSessionId: lane.walletSigningSessionId,
+  signingGrantId: lane.signingGrantId,
   walletSessionAuth: lane.walletSessionAuth,
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
@@ -368,7 +368,7 @@ void invalidKnownReadySessionPolicyMissingUses;
 
 const invalidReadySessionWithAuth: ReadyThresholdEcdsaSession = {
   kind: 'ready_threshold_ecdsa_session',
-  walletSigningSessionId: lane.walletSigningSessionId,
+  signingGrantId: lane.signingGrantId,
   thresholdSessionId: lane.thresholdSessionId,
   policy: knownReadySessionPolicy,
   // @ts-expect-error ready threshold sessions carry auth in Router A/B signer credentials.

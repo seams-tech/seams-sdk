@@ -144,7 +144,7 @@ test.describe('step-up authorization builders', () => {
             digest32B64u: 'digest-32',
             requestId: 'request-1',
             thresholdSessionId: 'threshold-session-passkey',
-            walletSigningSessionId: 'wallet-session-passkey',
+            signingGrantId: 'wallet-session-passkey',
           },
         },
       },
@@ -168,7 +168,7 @@ test.describe('step-up authorization builders', () => {
           digest32B64u: 'digest-32',
           requestId: 'request-1',
           thresholdSessionId: 'threshold-session-passkey',
-          walletSigningSessionId: 'wallet-session-passkey',
+          signingGrantId: 'wallet-session-passkey',
         },
       },
     });

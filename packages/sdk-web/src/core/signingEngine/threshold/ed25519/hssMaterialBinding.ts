@@ -7,7 +7,7 @@ export type Ed25519HssMaterialHandle = string & {
 
 export type RouterAbEd25519SigningMaterialBindingInput = {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   signingRootId: string;
   signingRootVersion: string;
   expiresAtMs: number;
@@ -68,7 +68,7 @@ async function materialBindingDigestB64u(
       alphabetizeStringify({
         kind: 'router_ab_ed25519_hss_material_binding_v1',
         thresholdSessionId: input.thresholdSessionId,
-        walletSigningSessionId: input.walletSigningSessionId,
+        signingGrantId: input.signingGrantId,
         signingRootId: input.signingRootId,
         signingRootVersion: input.signingRootVersion,
         expiresAtMs: input.expiresAtMs,

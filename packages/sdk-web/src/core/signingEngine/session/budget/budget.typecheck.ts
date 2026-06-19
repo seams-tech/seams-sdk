@@ -57,7 +57,7 @@ void invalidRawEd25519Owner;
 const validThresholdCheck: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
   owner: ed25519Owner,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   targetThresholdSessionIds: ['threshold-session-1'],
 };
 void validThresholdCheck;
@@ -70,7 +70,7 @@ const invalidWalletBudgetOwnerWithBothBranches: WalletBudgetStatusCheck = {
     accountId,
     walletId: ecdsaKey.walletId,
   },
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
 };
 void invalidWalletBudgetOwnerWithBothBranches;
 
@@ -82,14 +82,14 @@ const invalidEcdsaOwnerWithAccountId: WalletBudgetStatusCheck = {
     walletId: ecdsaKey.walletId,
     accountId,
   },
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
 };
 void invalidEcdsaOwnerWithAccountId;
 
 // @ts-expect-error shared wallet budget checks require owner identity.
 const invalidWalletBudgetCheckWithoutOwner: WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
 };
 void invalidWalletBudgetCheckWithoutOwner;
 
@@ -98,7 +98,7 @@ const validEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   key: ecdsaKey,
   keyHandle: ecdsaKeyHandle,
   chainTarget: ecdsaChainTarget,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void validEcdsaLaneCheck;
@@ -108,7 +108,7 @@ const invalidEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   key: ecdsaKey,
   keyHandle: ecdsaKeyHandle,
   chainTarget: ecdsaChainTarget,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
   // @ts-expect-error ECDSA budget checks require concrete lane threshold identity
   targetThresholdSessionIds: ['threshold-session-1'],
@@ -119,7 +119,7 @@ void invalidEcdsaLaneCheck;
 const missingTrustedStatusAuth: AuthenticatedThresholdBudgetStatusCheck = {
   kind: 'authenticated_threshold_budget_status_check',
   owner: ed25519Owner,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   targetThresholdSessionIds: ['threshold-session-1'],
 };
 void missingTrustedStatusAuth;
@@ -127,7 +127,7 @@ void missingTrustedStatusAuth;
 const emptyThresholdTargets: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
   owner: ed25519Owner,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   // @ts-expect-error scoped threshold status checks require a non-empty target id tuple
   targetThresholdSessionIds: [],
 };
@@ -151,7 +151,7 @@ void invalidThresholdSessionBudgetStatusAuth;
 
 const walletBudgetProjection = createWalletBudgetProjection({
   walletId: accountId,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
 });
 void walletBudgetProjection;
 
@@ -216,7 +216,7 @@ void invalidZeroWalletSpendWithoutCommand;
 const walletOnlyBudgetFinalizationSpend: ReservedBudgetFinalizationSpend['spend'] = {
   operationId: SigningSessionIds.signingOperation('operation-1'),
   walletId: toAccountId('wallet.testnet'),
-  walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-signing-session-1'),
+  signingGrantId: SigningSessionIds.signingGrant('signing-grant-1'),
   thresholdSessionIds: [SigningSessionIds.thresholdEcdsaSession('threshold-session-1')],
   backingMaterialSessionIds: [],
   uses: 1,

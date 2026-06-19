@@ -630,7 +630,7 @@ export async function runNearTransactionsWithActionsSigning({
       const signingMaterial = await requireThresholdEd25519HssSigningMaterialHandle({
         ctx,
         thresholdSessionId: canonicalThresholdSessionId,
-        walletSigningSessionId: walletSessionState.walletSigningSessionId,
+        signingGrantId: walletSessionState.signingGrantId,
         existingMaterialHandle:
           walletSessionState.signingWalletSession.signingMaterial.materialHandle,
         existingMaterialBindingDigest:
@@ -717,7 +717,7 @@ export async function runNearTransactionsWithActionsSigning({
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][near] failed to update wallet signing-session budget', {
           nearAccountId,
-          walletSigningSessionId: String(operationState.lane.walletSigningSessionId),
+          signingGrantId: String(operationState.lane.signingGrantId),
           thresholdSessionId: String(operationState.lane.thresholdSessionId),
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
@@ -734,7 +734,7 @@ export async function runNearTransactionsWithActionsSigning({
       },
     });
   };
-  const recordSuccessfulWalletSigningSessionSpend = async (
+  const recordSuccessfulSigningGrantSpend = async (
     operationState: SignedTransactionOperation<SelectedEd25519Lane>,
   ): Promise<void> => {
     if (walletSpendRecorded) return;
@@ -742,7 +742,7 @@ export async function runNearTransactionsWithActionsSigning({
       operationId: confirmationOperationId,
       ...(operationFingerprint ? { operationFingerprint } : {}),
       walletId: nearAccountId,
-      walletSigningSessionId: buildBudgetSigningLane().walletSigningSessionId,
+      signingGrantId: buildBudgetSigningLane().signingGrantId,
       lane: buildBudgetSigningLane(),
       thresholdSessionIds: [operationState.lane.thresholdSessionId],
       backingMaterialSessionIds: [],
@@ -784,7 +784,7 @@ export async function runNearTransactionsWithActionsSigning({
     }
     walletSpendRecorded = true;
   };
-  const recordFailedWalletSigningSessionSpend = async (error: unknown): Promise<void> => {
+  const recordFailedSigningGrantSpend = async (error: unknown): Promise<void> => {
     if (walletSpendRecorded || thresholdSignatureCreated) return;
     const admittedOperation = activeBudgetAdmittedOperation;
     if (!admittedOperation) return;
@@ -829,12 +829,12 @@ export async function runNearTransactionsWithActionsSigning({
   const finalizeFailedSigningAttempt = async (error: unknown): Promise<void> => {
     if (thresholdSignatureCreated) {
       if (signedTransactionOperation) {
-        await recordSuccessfulWalletSigningSessionSpend(signedTransactionOperation);
+        await recordSuccessfulSigningGrantSpend(signedTransactionOperation);
       }
       return;
     }
     await releaseUnsignedNonceLeases(error);
-    await recordFailedWalletSigningSessionSpend(error);
+    await recordFailedSigningGrantSpend(error);
   };
   const buildRequestPayload = (
     materialOverride?: RouterAbEd25519SigningMaterialReady,
@@ -927,7 +927,7 @@ export async function runNearTransactionsWithActionsSigning({
         });
         await finalizeSignedTransactionOperation(signedOperation, {
           recordSuccess: async (operation) =>
-            await recordSuccessfulWalletSigningSessionSpend(operation),
+            await recordSuccessfulSigningGrantSpend(operation),
         });
         emitNearSigningEvent(onEvent, nearAccountId, {
           phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,

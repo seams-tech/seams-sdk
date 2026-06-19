@@ -357,7 +357,7 @@ export type ThresholdEcdsaHssStableKeyContext = {
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   thresholdSessionId?: never;
   keyPurpose: string;
   keyVersion: string;
@@ -734,7 +734,7 @@ export async function storeRouterAbEd25519HssMaterialFromClientOutputWasm(input:
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'clientOutputMessageB64u'>;
   clientOutputMaskB64u: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   signingRootId: string;
   signingRootVersion: string;
   expiresAtMs: number;
@@ -757,7 +757,7 @@ export async function storeRouterAbEd25519HssMaterialFromClientOutputWasm(input:
         clientOutputMaskB64u,
         expectedContextBindingB64u: input.preparedSession.contextBindingB64u,
         thresholdSessionId: String(input.thresholdSessionId || '').trim(),
-        walletSigningSessionId: String(input.walletSigningSessionId || '').trim(),
+        signingGrantId: String(input.signingGrantId || '').trim(),
         signingRootId: String(input.signingRootId || '').trim(),
         signingRootVersion: String(input.signingRootVersion || '').trim(),
         expiresAtMs: Math.floor(Number(input.expiresAtMs)),

@@ -33,7 +33,7 @@ import type {
   SigningSessionStorageSource,
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from './types';
 
 export type Ed25519PasskeySigningLaneSource = Exclude<
@@ -43,7 +43,7 @@ export type Ed25519PasskeySigningLaneSource = Exclude<
 export type EcdsaPasskeySigningLaneSource = Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 
 type BaseSigningLaneInput = {
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   backingMaterialSessionId?: BackingMaterialSessionId;
   retention?: SigningSessionRetention;
   activeSignerSlot?: number;
@@ -105,7 +105,7 @@ export function buildEd25519PasskeySigningLane(
     ...selectedEd25519Lane({
       accountId: input.accountId,
       authMethod: 'passkey',
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
     }),
     keyKind: 'threshold_ed25519',
@@ -123,7 +123,7 @@ export function buildEd25519EmailOtpSigningLane(
     ...selectedEd25519Lane({
       accountId: input.accountId,
       authMethod: 'email_otp',
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
     }),
     keyKind: 'threshold_ed25519',
@@ -143,7 +143,7 @@ export function buildEcdsaPasskeySigningLane(
       keyHandle: input.keyHandle,
       walletId: input.walletId,
       authMethod: 'passkey',
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
       chainTarget: input.chainTarget,
     }),
@@ -164,7 +164,7 @@ export function buildEcdsaEmailOtpSigningLane(
       keyHandle: input.keyHandle,
       walletId: input.walletId,
       authMethod: 'email_otp',
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
       chainTarget: input.chainTarget,
     }),
@@ -241,7 +241,7 @@ type EcdsaCapabilityLookupArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 };
 
 export type SigningCapabilityReaderDeps = {
@@ -442,7 +442,7 @@ function readEcdsaCapabilityRecord(
           chainTarget,
           keyHandle: lane.keyHandle,
           thresholdSessionId: lane.thresholdSessionId,
-          walletSigningSessionId: lane.walletSigningSessionId,
+          signingGrantId: lane.signingGrantId,
         })
       : readPasskeyEcdsaRecord(deps, lane, chainTarget);
   if (!record) {
@@ -486,7 +486,7 @@ function readPasskeyEcdsaRecord(
     storageSource: lane.storageSource,
     keyHandle: lane.keyHandle,
     thresholdSessionId: lane.thresholdSessionId,
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
   });
 }
 
@@ -526,7 +526,7 @@ function validateLaneCandidateForSigningLane(
       'Session record threshold session does not match selected lane',
     );
   }
-  if (String(candidate.walletSigningSessionId || '') !== String(lane.walletSigningSessionId)) {
+  if (String(candidate.signingGrantId || '') !== String(lane.signingGrantId)) {
     return readError(
       lane,
       'record_mismatch',

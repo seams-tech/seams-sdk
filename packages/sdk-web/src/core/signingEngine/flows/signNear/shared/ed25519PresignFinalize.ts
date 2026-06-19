@@ -311,7 +311,7 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
   const firstOffer = await createRouterAbEd25519PresignOffer(args);
   const scopeKey = createRouterAbEd25519PresignScopeKey({
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSessionState.walletSigningSessionId,
+    signingGrantId: args.walletSessionState.signingGrantId,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
@@ -336,7 +336,7 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
     kind: 'router_ab_ed25519_presign_pool_refill_v1',
     relayUrl: args.walletSessionState.relayerUrl,
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSessionState.walletSigningSessionId,
+    signingGrantId: args.walletSessionState.signingGrantId,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
@@ -575,7 +575,7 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     );
     const reservation = reserveRouterAbEd25519ReadyPresignForScope({
       thresholdSessionId: args.thresholdSessionId,
-      walletSigningSessionId: args.walletSessionState.walletSigningSessionId,
+      signingGrantId: args.walletSessionState.signingGrantId,
       relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
       nearAccountId: args.nearAccountId,
       nearNetworkId: args.nearNetworkId,

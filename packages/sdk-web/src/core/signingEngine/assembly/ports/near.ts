@@ -91,7 +91,7 @@ export function createNearSigningDeps(args: {
       policySecretSource,
       remainingUses,
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
     }) =>
       reconnectPasskeyEd25519CapabilityForSigning({
         nearAccountId,
@@ -99,7 +99,7 @@ export function createNearSigningDeps(args: {
         policySecretSource,
         remainingUses,
         sessionId,
-        walletSigningSessionId,
+        signingGrantId,
         provisionThresholdEd25519Session: (provisionArgs) =>
           createArgs.provisionThresholdEd25519Session(provisionArgs),
         readStoredThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>

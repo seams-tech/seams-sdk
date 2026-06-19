@@ -61,13 +61,13 @@ const TEST_PASSKEY_CREDENTIAL_ID_B64U = TEST_WEBAUTHN_CREDENTIAL.rawId;
 
 function makeWalletSessionJwt(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 }): string {
   const encode = (value: object): string =>
     Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
     sessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     exp: 1_900_000_000,
   })}.signature`;
 }
@@ -120,10 +120,10 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-session-1',
+    signingGrantId: 'wallet-session-1',
     walletSessionJwt: makeWalletSessionJwt({
       thresholdSessionId: 'threshold-session-1',
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
     }),
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 2,
@@ -146,7 +146,7 @@ function makeReadyMaterial(args: {
       authMethod: args.authMethod,
       source: args.source,
       thresholdSessionId: args.record.thresholdSessionId,
-      walletSigningSessionId: args.record.walletSigningSessionId,
+      signingGrantId: args.record.signingGrantId,
     },
   });
   if (material.kind !== 'ready') {
@@ -178,7 +178,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
             digest32B64u: 'policy-digest-1',
             requestId: 'request-1',
             thresholdSessionId: 'threshold-session-2',
-            walletSigningSessionId: 'wallet-session-2',
+            signingGrantId: 'wallet-session-2',
           },
         },
       },
@@ -196,7 +196,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
     expect(plan.kind).toBe('passkey_ecdsa_session_provision');
     expect(plan.newSessionIdentity).toEqual({
       thresholdSessionId: 'threshold-session-2',
-      walletSigningSessionId: 'wallet-session-2',
+      signingGrantId: 'wallet-session-2',
     });
     expect(plan.requestId).toBe('request-1');
     expect(plan.provisionSecretSource.passkeyPrfFirstB64u).toBe(TEST_PRF_FIRST_B64U);
@@ -237,7 +237,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
     }
     expect(plan.walletSessionAuth.identity).toEqual({
       thresholdSessionId: 'threshold-session-1',
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
     });
   });
 });

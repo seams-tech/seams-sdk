@@ -74,7 +74,7 @@ type EmailOtpCompanionEd25519Session = {
   routerAbNormalSigning?: ThresholdEd25519SessionRecord['routerAbNormalSigning'];
   walletSessionAuth: SealedRecoveryWalletSessionAuth;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 
@@ -112,20 +112,20 @@ function defaultEmailOtpSessionAuthContext(): ThresholdEcdsaEmailOtpAuthContext 
 
 function resolveEmailOtpCompanionEd25519Session(args: {
   sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ed25519Record?: ThresholdEd25519SessionRecord | null;
 }): EmailOtpCompanionEd25519Session | null {
   const sealedCompanion =
     args.sealedRecord.companionEd25519Recovery &&
-    args.sealedRecord.companionEd25519Recovery.walletSigningSessionId ===
-      args.walletSigningSessionId
+    args.sealedRecord.companionEd25519Recovery.signingGrantId ===
+      args.signingGrantId
       ? args.sealedRecord.companionEd25519Recovery
       : null;
   const ed25519Record =
     args.ed25519Record &&
     args.ed25519Record.source === 'email_otp' &&
     args.ed25519Record.emailOtpAuthContext?.retention === 'session' &&
-    args.ed25519Record.walletSigningSessionId === args.walletSigningSessionId
+    args.ed25519Record.signingGrantId === args.signingGrantId
       ? args.ed25519Record
       : null;
   if (ed25519Record) {
@@ -151,7 +151,7 @@ function resolveEmailOtpCompanionEd25519Session(args: {
           : {}),
       walletSessionAuth,
       thresholdSessionId: ed25519Record.thresholdSessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       emailOtpAuthContext: ed25519Record.emailOtpAuthContext || defaultEmailOtpSessionAuthContext(),
     };
   }
@@ -167,7 +167,7 @@ function resolveEmailOtpCompanionEd25519Session(args: {
     ...(companion.runtimePolicyScope ? { runtimePolicyScope: companion.runtimePolicyScope } : {}),
     walletSessionAuth: companion.walletSessionAuth,
     thresholdSessionId: companion.thresholdSessionId,
-    walletSigningSessionId: companion.walletSigningSessionId,
+    signingGrantId: companion.signingGrantId,
     emailOtpAuthContext: defaultEmailOtpSessionAuthContext(),
     ...(companion.routerAbNormalSigning
       ? { routerAbNormalSigning: companion.routerAbNormalSigning }
@@ -212,8 +212,8 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   const thresholdSessionId = String(
     ecdsaRecord?.thresholdSessionId || sealedRecord.thresholdSessionId || '',
   ).trim();
-  const walletSigningSessionId = String(
-    ecdsaRecord?.walletSigningSessionId || sealedRecord.walletSigningSessionId || '',
+  const signingGrantId = String(
+    ecdsaRecord?.signingGrantId || sealedRecord.signingGrantId || '',
   ).trim();
   const relayerUrl = String(ecdsaRecord?.relayerUrl || sealedRecord.relayerUrl || '').trim();
   const shamirPrimeB64u = String(
@@ -242,7 +242,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   if (sealedRecord.remainingUses <= 0) {
     throw new Error('Email OTP sealed refresh exhausted sealed record');
   }
-  if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) {
+  if (!thresholdSessionId || !signingGrantId || !relayerUrl || !shamirPrimeB64u) {
     throw new Error('Email OTP sealed refresh is missing threshold-session restore metadata');
   }
   if (
@@ -252,8 +252,8 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     throw new Error('Email OTP sealed refresh threshold-session id mismatch');
   }
   if (
-    ecdsaRecord?.walletSigningSessionId &&
-    ecdsaRecord.walletSigningSessionId !== sealedRecord.walletSigningSessionId
+    ecdsaRecord?.signingGrantId &&
+    ecdsaRecord.signingGrantId !== sealedRecord.signingGrantId
   ) {
     throw new Error('Email OTP sealed refresh wallet signing-session id mismatch');
   }
@@ -299,7 +299,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   }
   const ed25519Session = resolveEmailOtpCompanionEd25519Session({
     sealedRecord,
-    walletSigningSessionId,
+    signingGrantId,
     ed25519Record: args.ed25519Record,
   });
   if (ed25519Session) {
@@ -324,7 +324,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       walletId: sealedRecord.walletId,
       rpId: args.requireRpId('Email OTP sealed refresh'),
       chainTarget: restoreChainTarget,
-      walletSigningSessionId,
+      signingGrantId,
       keyHandle: restoreKeyHandle,
       relayerKeyId: restoreRelayerKeyId,
       participantIds: [...restoreParticipantIds],

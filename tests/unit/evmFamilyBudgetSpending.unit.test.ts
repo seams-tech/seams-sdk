@@ -18,8 +18,8 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  recordSuccessfulEvmFamilyWalletSigningSessionSpend,
-  reserveEvmFamilyWalletSigningSessionBudget,
+  recordSuccessfulEvmFamilySigningGrantSpend,
+  reserveEvmFamilySigningGrantBudget,
 } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending';
 import {
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
@@ -47,7 +47,7 @@ const ECDSA_KEY = buildBaseEvmFamilyEcdsaKeyIdentity({
 const ECDSA_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ehss-key-handle-budget');
 
 function makeBudgetStatus(args: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   status: SigningSessionStatus['status'];
   projectionVersion?: string;
   remainingUses?: number;
@@ -55,7 +55,7 @@ function makeBudgetStatus(args: {
   inFlightReservedUses?: number;
 }): SigningSessionStatus {
   return {
-    sessionId: args.walletSigningSessionId,
+    sessionId: args.signingGrantId,
     status: args.status,
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(typeof args.availableUses === 'number' ? { availableUses: args.availableUses } : {}),
@@ -68,9 +68,9 @@ function makeBudgetStatus(args: {
 }
 
 function makeAdmittedOperation(args: {
-  exhaustedWalletSigningSessionId: string;
+  exhaustedSigningGrantId: string;
   exhaustedThresholdSessionId: string;
-  refreshedWalletSigningSessionId: string;
+  refreshedSigningGrantId: string;
   projectionVersion: string;
 }): BudgetAdmittedOperation<SelectedEcdsaLane> {
   return {
@@ -87,8 +87,8 @@ function makeAdmittedOperation(args: {
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(
-        args.exhaustedWalletSigningSessionId,
+      signingGrantId: SigningSessionIds.signingGrant(
+        args.exhaustedSigningGrantId,
       ),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.exhaustedThresholdSessionId),
       chainTarget: CHAIN_TARGET,
@@ -100,10 +100,10 @@ function makeAdmittedOperation(args: {
     },
     budgetAdmission: {
       budgetIdentity: {
-        walletSigningSessionId: args.refreshedWalletSigningSessionId,
+        signingGrantId: args.refreshedSigningGrantId,
         projectionVersion: args.projectionVersion,
         status: {
-          sessionId: args.refreshedWalletSigningSessionId,
+          sessionId: args.refreshedSigningGrantId,
           status: 'active',
           projectionVersion: args.projectionVersion,
           remainingUses: 1,
@@ -115,7 +115,7 @@ function makeAdmittedOperation(args: {
 }
 
 function makeResolvedFinalizedLane(args: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 }) {
   return requireResolvedEvmFamilyEcdsaSigningLane({
@@ -125,7 +125,7 @@ function makeResolvedFinalizedLane(args: {
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
       chainTarget: CHAIN_TARGET,
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
+      signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     }),
     chain: 'tempo',
@@ -135,17 +135,17 @@ function makeResolvedFinalizedLane(args: {
 
 test.describe('EVM-family budget finalization spending', () => {
   test('admits fresh unlock budget status for a ready Email OTP ECDSA lane', async () => {
-    const freshWalletSigningSessionId = 'wallet-session-fresh-unlock';
+    const freshSigningGrantId = 'wallet-session-fresh-unlock';
     const freshThresholdSessionId = 'threshold-session-fresh-unlock';
-    const statusChecks: Array<{ walletSigningSessionId: string; budgetStatusCheck: unknown }> = [];
+    const statusChecks: Array<{ signingGrantId: string; budgetStatusCheck: unknown }> = [];
     const coordinator = new SigningSessionCoordinator({
       getStatus: async (args) => {
         statusChecks.push({
-          walletSigningSessionId: String(args.walletSigningSessionId),
+          signingGrantId: String(args.signingGrantId),
           budgetStatusCheck: args,
         });
         return makeBudgetStatus({
-          walletSigningSessionId: String(args.walletSigningSessionId),
+          signingGrantId: String(args.signingGrantId),
           status: 'active',
           projectionVersion: 'projection-fresh-unlock',
           remainingUses: 2,
@@ -156,7 +156,7 @@ test.describe('EVM-family budget finalization spending', () => {
       },
     });
 
-    const reservation = await reserveEvmFamilyWalletSigningSessionBudget({
+    const reservation = await reserveEvmFamilySigningGrantBudget({
       signingSessionCoordinator: coordinator,
       walletSession: {
         walletId: toWalletId(WALLET_ID),
@@ -170,13 +170,13 @@ test.describe('EVM-family budget finalization spending', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       admittedTransaction: makeAdmittedOperation({
-        exhaustedWalletSigningSessionId: freshWalletSigningSessionId,
+        exhaustedSigningGrantId: freshSigningGrantId,
         exhaustedThresholdSessionId: freshThresholdSessionId,
-        refreshedWalletSigningSessionId: freshWalletSigningSessionId,
+        refreshedSigningGrantId: freshSigningGrantId,
         projectionVersion: 'projection-fresh-unlock',
       }),
       finalizedSigningLane: makeResolvedFinalizedLane({
-        walletSigningSessionId: freshWalletSigningSessionId,
+        signingGrantId: freshSigningGrantId,
         thresholdSessionId: freshThresholdSessionId,
       }),
     });
@@ -184,17 +184,17 @@ test.describe('EVM-family budget finalization spending', () => {
     expect(reservation).not.toBeNull();
     expect(statusChecks).toHaveLength(1);
     expect(statusChecks[0]).toMatchObject({
-      walletSigningSessionId: freshWalletSigningSessionId,
+      signingGrantId: freshSigningGrantId,
       budgetStatusCheck: {
         kind: 'ecdsa_lane_budget_status_check',
-        walletSigningSessionId: freshWalletSigningSessionId,
+        signingGrantId: freshSigningGrantId,
         thresholdSessionId: freshThresholdSessionId,
       },
     });
   });
 
   test('rejects budget identity admission when server reports in-flight reserved uses', async () => {
-    const walletSigningSessionId = 'wallet-session-server-inflight';
+    const signingGrantId = 'wallet-session-server-inflight';
     const thresholdSessionId = 'threshold-session-server-inflight';
     const lane = buildTempoTransactionSigningLane({
       authMethod: 'email_otp',
@@ -202,13 +202,13 @@ test.describe('EVM-family budget finalization spending', () => {
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
       chainTarget: CHAIN_TARGET,
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
     });
     const coordinator = new SigningSessionCoordinator({
-      getStatus: async ({ walletSigningSessionId: requestedWalletSigningSessionId }) =>
+      getStatus: async ({ signingGrantId: requestedSigningGrantId }) =>
         makeBudgetStatus({
-          walletSigningSessionId: String(requestedWalletSigningSessionId),
+          signingGrantId: String(requestedSigningGrantId),
           status: 'active',
           projectionVersion: 'projection-server-inflight',
           remainingUses: 3,
@@ -229,23 +229,23 @@ test.describe('EVM-family budget finalization spending', () => {
   });
 
   test('records one spend per operation id after reauth', async () => {
-    const exhaustedWalletSigningSessionId = 'wallet-session-exhausted';
+    const exhaustedSigningGrantId = 'wallet-session-exhausted';
     const exhaustedThresholdSessionId = 'threshold-session-exhausted';
-    const refreshedWalletSigningSessionId = 'wallet-session-refreshed';
+    const refreshedSigningGrantId = 'wallet-session-refreshed';
     const refreshedThresholdSessionId = 'threshold-session-refreshed';
     const consumeCalls: string[] = [];
     const coordinator = new SigningSessionCoordinator({
-      getStatus: async ({ walletSigningSessionId }) =>
+      getStatus: async ({ signingGrantId }) =>
         makeBudgetStatus({
-          walletSigningSessionId: String(walletSigningSessionId),
+          signingGrantId: String(signingGrantId),
           status: 'active',
           projectionVersion: 'projection-refreshed',
           remainingUses: 1,
         }),
-      consumeUse: async ({ walletSigningSessionId }) => {
-        consumeCalls.push(String(walletSigningSessionId));
+      consumeUse: async ({ signingGrantId }) => {
+        consumeCalls.push(String(signingGrantId));
         return makeBudgetStatus({
-          walletSigningSessionId: String(walletSigningSessionId),
+          signingGrantId: String(signingGrantId),
           status: 'exhausted',
           projectionVersion: 'projection-refreshed-consumed',
           remainingUses: 0,
@@ -266,42 +266,42 @@ test.describe('EVM-family budget finalization spending', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       admittedTransaction: makeAdmittedOperation({
-        exhaustedWalletSigningSessionId,
+        exhaustedSigningGrantId,
         exhaustedThresholdSessionId,
-        refreshedWalletSigningSessionId,
+        refreshedSigningGrantId,
         projectionVersion: 'projection-refreshed',
       }),
       finalizedSigningLane: makeResolvedFinalizedLane({
-        walletSigningSessionId: refreshedWalletSigningSessionId,
+        signingGrantId: refreshedSigningGrantId,
         thresholdSessionId: refreshedThresholdSessionId,
       }),
     } as const;
 
-    await recordSuccessfulEvmFamilyWalletSigningSessionSpend(commonArgs);
-    await recordSuccessfulEvmFamilyWalletSigningSessionSpend(commonArgs);
+    await recordSuccessfulEvmFamilySigningGrantSpend(commonArgs);
+    await recordSuccessfulEvmFamilySigningGrantSpend(commonArgs);
 
-    expect(consumeCalls).toEqual([refreshedWalletSigningSessionId]);
+    expect(consumeCalls).toEqual([refreshedSigningGrantId]);
   });
 
   test('reserves budget against the refreshed lane before signing after reauth', async () => {
-    const exhaustedWalletSigningSessionId = 'wallet-session-exhausted';
+    const exhaustedSigningGrantId = 'wallet-session-exhausted';
     const exhaustedThresholdSessionId = 'threshold-session-exhausted';
-    const refreshedWalletSigningSessionId = 'wallet-session-refreshed';
+    const refreshedSigningGrantId = 'wallet-session-refreshed';
     const refreshedThresholdSessionId = 'threshold-session-refreshed';
     const statusChecks: string[] = [];
     const coordinator = new SigningSessionCoordinator({
-      getStatus: async ({ walletSigningSessionId }) => {
-        const sessionId = String(walletSigningSessionId);
+      getStatus: async ({ signingGrantId }) => {
+        const sessionId = String(signingGrantId);
         statusChecks.push(sessionId);
-        return sessionId === refreshedWalletSigningSessionId
+        return sessionId === refreshedSigningGrantId
           ? makeBudgetStatus({
-              walletSigningSessionId: refreshedWalletSigningSessionId,
+              signingGrantId: refreshedSigningGrantId,
               status: 'active',
               projectionVersion: 'projection-refreshed',
               remainingUses: 1,
             })
           : makeBudgetStatus({
-              walletSigningSessionId: sessionId,
+              signingGrantId: sessionId,
               status: 'not_found',
             });
       },
@@ -310,7 +310,7 @@ test.describe('EVM-family budget finalization spending', () => {
       },
     });
 
-    const reservation = await reserveEvmFamilyWalletSigningSessionBudget({
+    const reservation = await reserveEvmFamilySigningGrantBudget({
       signingSessionCoordinator: coordinator,
       walletSession: {
         walletId: toWalletId(WALLET_ID),
@@ -324,30 +324,30 @@ test.describe('EVM-family budget finalization spending', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       admittedTransaction: makeAdmittedOperation({
-        exhaustedWalletSigningSessionId,
+        exhaustedSigningGrantId,
         exhaustedThresholdSessionId,
-        refreshedWalletSigningSessionId,
+        refreshedSigningGrantId,
         projectionVersion: 'projection-refreshed',
       }),
       finalizedSigningLane: makeResolvedFinalizedLane({
-        walletSigningSessionId: refreshedWalletSigningSessionId,
+        signingGrantId: refreshedSigningGrantId,
         thresholdSessionId: refreshedThresholdSessionId,
       }),
     });
 
     expect(reservation).not.toBeNull();
-    expect(statusChecks).toEqual([refreshedWalletSigningSessionId]);
+    expect(statusChecks).toEqual([refreshedSigningGrantId]);
   });
 
   test('fails reservation when the refreshed lane is already exhausted', async () => {
-    const exhaustedWalletSigningSessionId = 'wallet-session-exhausted';
+    const exhaustedSigningGrantId = 'wallet-session-exhausted';
     const exhaustedThresholdSessionId = 'threshold-session-exhausted';
-    const refreshedWalletSigningSessionId = 'wallet-session-refreshed';
+    const refreshedSigningGrantId = 'wallet-session-refreshed';
     const refreshedThresholdSessionId = 'threshold-session-refreshed';
     const coordinator = new SigningSessionCoordinator({
-      getStatus: async ({ walletSigningSessionId }) =>
+      getStatus: async ({ signingGrantId }) =>
         makeBudgetStatus({
-          walletSigningSessionId: String(walletSigningSessionId),
+          signingGrantId: String(signingGrantId),
           status: 'exhausted',
           projectionVersion: 'projection-exhausted',
           remainingUses: 0,
@@ -358,7 +358,7 @@ test.describe('EVM-family budget finalization spending', () => {
     });
 
     await expect(
-      reserveEvmFamilyWalletSigningSessionBudget({
+      reserveEvmFamilySigningGrantBudget({
         signingSessionCoordinator: coordinator,
         walletSession: {
           walletId: toWalletId(WALLET_ID),
@@ -372,13 +372,13 @@ test.describe('EVM-family budget finalization spending', () => {
           intent: SigningOperationIntent.TransactionSign,
         },
         admittedTransaction: makeAdmittedOperation({
-          exhaustedWalletSigningSessionId,
+          exhaustedSigningGrantId,
           exhaustedThresholdSessionId,
-          refreshedWalletSigningSessionId,
+          refreshedSigningGrantId,
           projectionVersion: 'projection-exhausted',
         }),
         finalizedSigningLane: makeResolvedFinalizedLane({
-          walletSigningSessionId: refreshedWalletSigningSessionId,
+          signingGrantId: refreshedSigningGrantId,
           thresholdSessionId: refreshedThresholdSessionId,
         }),
       }),
@@ -386,9 +386,9 @@ test.describe('EVM-family budget finalization spending', () => {
   });
 
   test('uses refreshed Email OTP wallet session for consume/finalize and records consumed threshold ids', async () => {
-    const exhaustedWalletSigningSessionId = 'wallet-session-exhausted';
+    const exhaustedSigningGrantId = 'wallet-session-exhausted';
     const exhaustedThresholdSessionId = 'threshold-session-exhausted';
-    const refreshedWalletSigningSessionId = 'wallet-session-refreshed';
+    const refreshedSigningGrantId = 'wallet-session-refreshed';
     const refreshedThresholdSessionId = 'threshold-session-refreshed';
     const operationId = SigningSessionIds.signingOperation('operation-budget-refresh');
     const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
@@ -396,40 +396,40 @@ test.describe('EVM-family budget finalization spending', () => {
     );
     const statusChecks: string[] = [];
     const consumeCalls: Array<{
-      walletSigningSessionId: string;
+      signingGrantId: string;
       budgetStatusCheck: unknown;
       alreadyConsumedThresholdSessionIds?: string[];
     }> = [];
     const coordinator = new SigningSessionCoordinator({
-      getStatus: async ({ walletSigningSessionId }) => {
-        const sessionId = String(walletSigningSessionId);
+      getStatus: async ({ signingGrantId }) => {
+        const sessionId = String(signingGrantId);
         statusChecks.push(sessionId);
-        return sessionId === refreshedWalletSigningSessionId
+        return sessionId === refreshedSigningGrantId
           ? makeBudgetStatus({
-              walletSigningSessionId: refreshedWalletSigningSessionId,
+              signingGrantId: refreshedSigningGrantId,
               status: 'active',
               projectionVersion: 'projection-refreshed',
               remainingUses: 1,
             })
           : makeBudgetStatus({
-              walletSigningSessionId: sessionId,
+              signingGrantId: sessionId,
               status: 'not_found',
             });
       },
       consumeUse: async (args) => {
         consumeCalls.push({
-          walletSigningSessionId: args.walletSigningSessionId,
+          signingGrantId: args.signingGrantId,
           budgetStatusCheck: args.budgetStatusCheck,
           alreadyConsumedThresholdSessionIds: args.alreadyConsumedThresholdSessionIds,
         });
-        if (args.walletSigningSessionId !== refreshedWalletSigningSessionId) {
+        if (args.signingGrantId !== refreshedSigningGrantId) {
           return makeBudgetStatus({
-            walletSigningSessionId: args.walletSigningSessionId,
+            signingGrantId: args.signingGrantId,
             status: 'not_found',
           });
         }
         return makeBudgetStatus({
-          walletSigningSessionId: refreshedWalletSigningSessionId,
+          signingGrantId: refreshedSigningGrantId,
           status: 'exhausted',
           projectionVersion: 'projection-refreshed-consumed',
           remainingUses: 0,
@@ -437,7 +437,7 @@ test.describe('EVM-family budget finalization spending', () => {
       },
     });
 
-    await recordSuccessfulEvmFamilyWalletSigningSessionSpend({
+    await recordSuccessfulEvmFamilySigningGrantSpend({
       signingSessionCoordinator: coordinator,
       walletSession: {
         walletId: toWalletId(WALLET_ID),
@@ -449,34 +449,34 @@ test.describe('EVM-family budget finalization spending', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       admittedTransaction: makeAdmittedOperation({
-        exhaustedWalletSigningSessionId,
+        exhaustedSigningGrantId,
         exhaustedThresholdSessionId,
-        refreshedWalletSigningSessionId,
+        refreshedSigningGrantId,
         projectionVersion: 'projection-refreshed',
       }),
       finalizedSigningLane: makeResolvedFinalizedLane({
-        walletSigningSessionId: refreshedWalletSigningSessionId,
+        signingGrantId: refreshedSigningGrantId,
         thresholdSessionId: refreshedThresholdSessionId,
       }),
     });
 
-    expect(statusChecks).toEqual([refreshedWalletSigningSessionId]);
+    expect(statusChecks).toEqual([refreshedSigningGrantId]);
     expect(consumeCalls).toHaveLength(1);
-    expect(consumeCalls[0].walletSigningSessionId).toBe(refreshedWalletSigningSessionId);
+    expect(consumeCalls[0].signingGrantId).toBe(refreshedSigningGrantId);
     expect(consumeCalls[0].alreadyConsumedThresholdSessionIds).toEqual([
       refreshedThresholdSessionId,
     ]);
     expect(consumeCalls[0].budgetStatusCheck).toMatchObject({
       kind: 'ecdsa_lane_budget_status_check',
-      walletSigningSessionId: refreshedWalletSigningSessionId,
+      signingGrantId: refreshedSigningGrantId,
       thresholdSessionId: refreshedThresholdSessionId,
     });
   });
 
   test('rejects stale exhausted finalization lane when budget identity points at refreshed session', async () => {
-    const exhaustedWalletSigningSessionId = 'wallet-session-exhausted';
+    const exhaustedSigningGrantId = 'wallet-session-exhausted';
     const exhaustedThresholdSessionId = 'threshold-session-exhausted';
-    const refreshedWalletSigningSessionId = 'wallet-session-refreshed';
+    const refreshedSigningGrantId = 'wallet-session-refreshed';
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => {
         throw new Error('getStatus should not be called for stale finalization');
@@ -487,7 +487,7 @@ test.describe('EVM-family budget finalization spending', () => {
     });
 
     await expect(
-      recordSuccessfulEvmFamilyWalletSigningSessionSpend({
+      recordSuccessfulEvmFamilySigningGrantSpend({
         signingSessionCoordinator: coordinator,
         walletSession: {
           walletId: toWalletId(WALLET_ID),
@@ -501,13 +501,13 @@ test.describe('EVM-family budget finalization spending', () => {
           intent: SigningOperationIntent.TransactionSign,
         },
         admittedTransaction: makeAdmittedOperation({
-          exhaustedWalletSigningSessionId,
+          exhaustedSigningGrantId,
           exhaustedThresholdSessionId,
-          refreshedWalletSigningSessionId,
+          refreshedSigningGrantId,
           projectionVersion: 'projection-refreshed',
         }),
         finalizedSigningLane: makeResolvedFinalizedLane({
-          walletSigningSessionId: exhaustedWalletSigningSessionId,
+          signingGrantId: exhaustedSigningGrantId,
           thresholdSessionId: exhaustedThresholdSessionId,
         }),
       }),

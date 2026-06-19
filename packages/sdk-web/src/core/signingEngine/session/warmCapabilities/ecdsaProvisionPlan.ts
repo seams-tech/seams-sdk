@@ -22,13 +22,13 @@ import type {
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../operationState/types';
 import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 
 export type EcdsaSessionIdentity = {
   thresholdSessionId: ThresholdEcdsaSessionId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
 };
 
 export type EcdsaSigningKeyContext = {
@@ -261,17 +261,17 @@ function normalizeThresholdSessionKind(value: unknown): ThresholdSessionKind {
 
 export function buildEcdsaSessionIdentity(args: {
   thresholdSessionId: unknown;
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
 }): EcdsaSessionIdentity {
   return {
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
   };
 }
 
 export function tryBuildEcdsaSessionIdentity(args: {
   thresholdSessionId: unknown;
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
 }): EcdsaSessionIdentity | null {
   try {
     return buildEcdsaSessionIdentity(args);
@@ -286,13 +286,13 @@ export function ecdsaSessionIdentitiesEqual(
 ): boolean {
   return (
     left.thresholdSessionId === right.thresholdSessionId &&
-    left.walletSigningSessionId === right.walletSigningSessionId
+    left.signingGrantId === right.signingGrantId
   );
 }
 
 export function ecdsaSessionIdentityMatches(
   identity: EcdsaSessionIdentity,
-  candidate: { thresholdSessionId: unknown; walletSigningSessionId: unknown },
+  candidate: { thresholdSessionId: unknown; signingGrantId: unknown },
 ): boolean {
   const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate);
   return Boolean(candidateIdentity && ecdsaSessionIdentitiesEqual(identity, candidateIdentity));
@@ -303,7 +303,7 @@ function tryBuildEcdsaSessionIdentityFromClaims(
 ): EcdsaSessionIdentity | null {
   return tryBuildEcdsaSessionIdentity({
     thresholdSessionId: claims.sessionId,
-    walletSigningSessionId: claims.walletSigningSessionId,
+    signingGrantId: claims.signingGrantId,
   });
 }
 

@@ -68,7 +68,7 @@ export function createSigningSessionBudgetFinalizer(
   const budget = args.budgetMode === 'with_budget' ? args.signingSessionBudget : null;
   if (
     spend &&
-    args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)
+    args.budgetIdentity.signingGrantId !== String(spend.signingGrantId)
   ) {
     throw new Error('[SigningSessionBudget] prepared budget identity does not match spend lane');
   }

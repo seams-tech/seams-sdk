@@ -25,7 +25,7 @@ type RestorePersistedSessionForSigningBaseInput = {
 
 type RestorePersistedSessionForSigningTransactionInput =
   RestorePersistedSessionForSigningBaseInput & {
-    walletSigningSessionId: string;
+    signingGrantId: string;
     thresholdSessionId: string;
     reason: 'transaction' | 'export';
   };
@@ -59,7 +59,7 @@ export type RestorePersistedEcdsaSessionForSigningInput = Extract<
 export type RestorePersistedSessionPurpose = {
   walletId: string;
   authMethod: 'email_otp' | 'passkey';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   reason: 'transaction' | 'export' | 'session_status';
 } & (

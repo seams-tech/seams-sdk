@@ -140,7 +140,7 @@ type AuthEntry = {
 
 type AuthBudgetReservation = {
   kind: 'wallet_signing_budget_reservation_v1';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: 'ed25519' | 'ecdsa';
   thresholdSessionId: string;
   operationId: string;
@@ -471,7 +471,7 @@ function parseAuthBudgetReserveInput(raw: unknown, sessionExpiresAtMs: number, n
   if (!isPlainObject(raw)) {
     return err('invalid_budget_request', 'budget reservation input must be an object');
   }
-  const walletSigningSessionId = normalizeBudgetField(raw.walletSigningSessionId);
+  const signingGrantId = normalizeBudgetField(raw.signingGrantId);
   const curve = raw.curve === 'ed25519' || raw.curve === 'ecdsa' ? raw.curve : null;
   const thresholdSessionId = normalizeBudgetField(raw.thresholdSessionId);
   const operationId = normalizeBudgetField(raw.operationId);
@@ -479,7 +479,7 @@ function parseAuthBudgetReserveInput(raw: unknown, sessionExpiresAtMs: number, n
   const signatureUses = Math.floor(Number(raw.signatureUses));
   const expiresAtMs = Math.min(Number(raw.expiresAtMs), sessionExpiresAtMs);
   if (
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !curve ||
     !thresholdSessionId ||
     !operationId ||
@@ -498,7 +498,7 @@ function parseAuthBudgetReserveInput(raw: unknown, sessionExpiresAtMs: number, n
     ok: true,
     value: {
       kind: 'wallet_signing_budget_reservation_v1',
-      walletSigningSessionId,
+      signingGrantId,
       curve,
       thresholdSessionId,
       operationId,
@@ -513,7 +513,7 @@ function parseAuthBudgetCommitInput(raw: unknown):
   | {
       ok: true;
       value: {
-        walletSigningSessionId: string;
+        signingGrantId: string;
         reservationId: string;
         operationId: string;
         requestDigest: string;
@@ -523,34 +523,34 @@ function parseAuthBudgetCommitInput(raw: unknown):
   if (!isPlainObject(raw)) {
     return err('invalid_budget_request', 'budget commit input must be an object');
   }
-  const walletSigningSessionId = normalizeBudgetField(raw.walletSigningSessionId);
+  const signingGrantId = normalizeBudgetField(raw.signingGrantId);
   const reservationId = normalizeBudgetField(raw.reservationId);
   const operationId = normalizeBudgetField(raw.operationId);
   const requestDigest = normalizeBudgetField(raw.requestDigest);
-  if (!walletSigningSessionId || !reservationId || !operationId || !requestDigest) {
+  if (!signingGrantId || !reservationId || !operationId || !requestDigest) {
     return err(
       'invalid_budget_request',
       'budget commit requires wallet signing session, reservation, operation, and request digest',
     );
   }
-  return { ok: true, value: { walletSigningSessionId, reservationId, operationId, requestDigest } };
+  return { ok: true, value: { signingGrantId, reservationId, operationId, requestDigest } };
 }
 
 function parseAuthBudgetReleaseInput(raw: unknown):
-  | { ok: true; value: { walletSigningSessionId: string; reservationId: string } }
+  | { ok: true; value: { signingGrantId: string; reservationId: string } }
   | DoErr {
   if (!isPlainObject(raw)) {
     return err('invalid_budget_request', 'budget release input must be an object');
   }
-  const walletSigningSessionId = normalizeBudgetField(raw.walletSigningSessionId);
+  const signingGrantId = normalizeBudgetField(raw.signingGrantId);
   const reservationId = normalizeBudgetField(raw.reservationId);
-  if (!walletSigningSessionId || !reservationId) {
+  if (!signingGrantId || !reservationId) {
     return err(
       'invalid_budget_request',
       'budget release requires wallet signing session and reservation',
     );
   }
-  return { ok: true, value: { walletSigningSessionId, reservationId } };
+  return { ok: true, value: { signingGrantId, reservationId } };
 }
 
 function authBudgetReservationMismatch(): DoErr {
@@ -639,7 +639,7 @@ function ed25519PresignRecordMatchesExpectedScope(record: unknown, expected: unk
   if (!isPlainObject(record) || !isPlainObject(expected)) return false;
   return (
     scopeString(record.thresholdSessionId) === scopeString(expected.thresholdSessionId) &&
-    scopeString(record.walletSigningSessionId) === scopeString(expected.walletSigningSessionId) &&
+    scopeString(record.signingGrantId) === scopeString(expected.signingGrantId) &&
     scopeString(record.relayerKeyId) === scopeString(expected.relayerKeyId) &&
     scopeString(record.nearAccountId) === scopeString(expected.nearAccountId) &&
     scopeString(record.nearNetworkId) === scopeString(expected.nearNetworkId) &&
@@ -1361,7 +1361,7 @@ export class ThresholdStoreDurableObject {
       const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
       const capacity = (req as { capacity?: unknown }).capacity;
       const walletMax = isPlainObject(capacity)
-        ? parsePositiveInteger(capacity.walletSigningSessionMax)
+        ? parsePositiveInteger(capacity.signingGrantMax)
         : null;
       const globalMax = isPlainObject(capacity) ? parsePositiveInteger(capacity.globalMax) : null;
       if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
@@ -1423,7 +1423,7 @@ export class ThresholdStoreDurableObject {
       const parsed = parseRouterAbEd25519PresignRecord((req as { value?: unknown }).value);
       const capacity = (req as { capacity?: unknown }).capacity;
       const walletMax = isPlainObject(capacity)
-        ? parsePositiveInteger(capacity.walletSigningSessionMax)
+        ? parsePositiveInteger(capacity.signingGrantMax)
         : null;
       const globalMax = isPlainObject(capacity) ? parsePositiveInteger(capacity.globalMax) : null;
       if (!key) return json(err('invalid_body', 'Missing key'));

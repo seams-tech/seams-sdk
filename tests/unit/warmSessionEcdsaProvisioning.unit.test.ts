@@ -79,7 +79,7 @@ function createEnvelope(): WarmSessionEnvelope {
             keyHandle: evmRecord.keyHandle,
             walletId: evmRecord.walletId,
             authMethod: 'passkey',
-            walletSigningSessionId: evmRecord.walletSigningSessionId,
+            signingGrantId: evmRecord.signingGrantId,
             thresholdSessionId: evmRecord.thresholdSessionId,
             chainTarget: evmRecord.chainTarget,
           }),
@@ -107,7 +107,7 @@ function createEnvelope(): WarmSessionEnvelope {
             keyHandle: tempoRecord.keyHandle,
             walletId: tempoRecord.walletId,
             authMethod: 'passkey',
-            walletSigningSessionId: tempoRecord.walletSigningSessionId,
+            signingGrantId: tempoRecord.signingGrantId,
             thresholdSessionId: tempoRecord.thresholdSessionId,
             chainTarget: tempoRecord.chainTarget,
           }),
@@ -179,7 +179,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       session: {
         ok: true,
         sessionId: 'evm-session',
-        walletSigningSessionId: 'wsess-evm-session',
+        signingGrantId: 'wsess-evm-session',
         jwt: record.walletSessionJwt,
       },
     });

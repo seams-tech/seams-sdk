@@ -1068,7 +1068,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
   outputProjection: ThresholdEd25519HssOutputProjectionPolicy;
   materialBinding: {
     thresholdSessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     signingRootId: string;
     signingRootVersion: string;
     expiresAtMs: number;
@@ -1172,7 +1172,7 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     finalizedReport: finalized.finalizedReport,
     clientOutputMaskB64u,
     thresholdSessionId: args.materialBinding.thresholdSessionId,
-    walletSigningSessionId: args.materialBinding.walletSigningSessionId,
+    signingGrantId: args.materialBinding.signingGrantId,
     signingRootId: args.materialBinding.signingRootId,
     signingRootVersion: args.materialBinding.signingRootVersion,
     expiresAtMs: args.materialBinding.expiresAtMs,

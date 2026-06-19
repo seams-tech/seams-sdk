@@ -171,7 +171,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     walletSessionJwt: 'jwt',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 2,

@@ -3,7 +3,7 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
-  parseWalletSigningSessionId,
+  parseSigningGrantId,
 } from '@shared/utils/domainIds';
 import {
   buildEmailOtpWorkerIssuedSessionHandle,
@@ -99,7 +99,7 @@ const otherChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-threshold-key');
 const signingRootId = toEcdsaHssSigningRootId('root');
 const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
-const walletSigningSessionId = parsedDomain(parseWalletSigningSessionId('wallet-signing-session'));
+const signingGrantId = parsedDomain(parseSigningGrantId('signing-grant'));
 const ed25519ThresholdSessionId = parsedDomain(
   parseThresholdEd25519SessionId('threshold-ed25519-session'),
 );
@@ -204,7 +204,7 @@ function readyRecord(args: {
 const ed25519Material = {
   kind: 'ed25519_session',
   thresholdSessionId: ed25519ThresholdSessionId,
-  walletSigningSessionId,
+  signingGrantId,
   relayerKeyId: ed25519RelayerKeyId,
 } satisfies SigningSessionActivationMaterial;
 
@@ -212,7 +212,7 @@ function ecdsaMaterial(record: EcdsaRoleLocalReadyRecord): SigningSessionActivat
   return {
     kind: 'ecdsa_session',
     thresholdSessionId: ecdsaThresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     record,
   };
 }

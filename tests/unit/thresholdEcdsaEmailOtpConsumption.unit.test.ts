@@ -49,7 +49,7 @@ function createStore(nowRef: { value: number } | number): ThresholdEcdsaSessionS
 }
 
 function ecdsaEmailOtpRecord(args: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   remainingUses: number;
   updatedAtMs: number;
@@ -105,7 +105,7 @@ function ecdsaEmailOtpRecord(args: {
     participantIds,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     walletSessionJwt: `jwt-${args.thresholdSessionId}`,
     expiresAtMs: 2_000_000_000_000,
     remainingUses: args.remainingUses,
@@ -161,7 +161,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-a',
+        signingGrantId: 'wallet-session-a',
         thresholdSessionId: 'threshold-session-a',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -170,7 +170,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-b',
+        signingGrantId: 'wallet-session-b',
         thresholdSessionId: 'threshold-session-b',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -206,7 +206,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-a',
+        signingGrantId: 'wallet-session-a',
         thresholdSessionId: 'threshold-session-a',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -227,7 +227,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-a',
+        signingGrantId: 'wallet-session-a',
         thresholdSessionId: 'threshold-session-a',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -249,7 +249,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-a',
+        signingGrantId: 'wallet-session-a',
         thresholdSessionId: 'threshold-session-a',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -273,7 +273,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-a',
+        signingGrantId: 'wallet-session-a',
         thresholdSessionId: 'threshold-session-a',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -297,7 +297,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
-        walletSigningSessionId: 'wallet-session-a',
+        signingGrantId: 'wallet-session-a',
         thresholdSessionId: 'threshold-session-a',
         remainingUses: 1,
         updatedAtMs: 1_800_000_000_000,
@@ -305,7 +305,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     );
     const selectedLane = requireConsumableLane(selectedRecord);
     const otherKeyRecord = ecdsaEmailOtpRecord({
-      walletSigningSessionId: 'wallet-session-b',
+      signingGrantId: 'wallet-session-b',
       thresholdSessionId: 'threshold-session-b',
       remainingUses: 1,
       updatedAtMs: 1_800_000_000_000,

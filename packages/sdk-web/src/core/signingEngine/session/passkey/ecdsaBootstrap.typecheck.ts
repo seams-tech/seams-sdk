@@ -26,7 +26,7 @@ declare const passkeyCredentialIdB64u: string;
 
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-id',
-  walletSigningSessionId: 'wallet-signing-session-id',
+  signingGrantId: 'signing-grant-id',
 });
 
 const validReuseBootstrap = {

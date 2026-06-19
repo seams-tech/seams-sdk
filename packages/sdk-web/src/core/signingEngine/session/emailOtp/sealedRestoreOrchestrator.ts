@@ -196,7 +196,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       (!ed25519Record ||
         ed25519Record.source !== 'email_otp' ||
         ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
-        ed25519Record.walletSigningSessionId !== sealedRecord.walletSigningSessionId)
+        ed25519Record.signingGrantId !== sealedRecord.signingGrantId)
     ) {
       const diagnosticKey = `missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
       if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
@@ -207,8 +207,8 @@ export class EmailOtpSealedRestoreOrchestrator {
             sealedEd25519SessionId,
             ed25519Source: ed25519Record?.source,
             ed25519Retention: ed25519Record?.emailOtpAuthContext?.retention,
-            ed25519WalletSigningSessionId: ed25519Record?.walletSigningSessionId,
-            walletSigningSessionId: sealedRecord.walletSigningSessionId,
+            ed25519SigningGrantId: ed25519Record?.signingGrantId,
+            signingGrantId: sealedRecord.signingGrantId,
           },
         );
       }
@@ -235,7 +235,7 @@ export class EmailOtpSealedRestoreOrchestrator {
     try {
       console.debug('[EmailOtpSession] sealed refresh restore started', {
         thresholdSessionId,
-        walletSigningSessionId: sealedRecord.walletSigningSessionId,
+        signingGrantId: sealedRecord.signingGrantId,
       });
       const restored = await this.ports
         .restoreEcdsaSigningSessionMaterialFromSealedRecord({
@@ -269,7 +269,7 @@ export class EmailOtpSealedRestoreOrchestrator {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chainTarget,
-          walletSigningSessionId: sealedRecord.walletSigningSessionId,
+          signingGrantId: sealedRecord.signingGrantId,
           thresholdSessionId,
         });
       }
@@ -442,7 +442,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       if (
         args.record.curve !== 'ecdsa' ||
         !args.record.companionEd25519Recovery ||
-        args.record.walletSigningSessionId !== args.purpose.walletSigningSessionId ||
+        args.record.signingGrantId !== args.purpose.signingGrantId ||
         args.record.companionEd25519Recovery.thresholdSessionId !== args.purpose.thresholdSessionId
       ) {
         return 'deferred';
@@ -455,7 +455,7 @@ export class EmailOtpSealedRestoreOrchestrator {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chainTarget: args.record.chainTarget,
-          walletSigningSessionId: args.record.walletSigningSessionId,
+          signingGrantId: args.record.signingGrantId,
           thresholdSessionId: args.record.thresholdSessionId,
           reason: args.purpose.reason,
         },
@@ -484,7 +484,7 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.purpose.chainTarget)) {
       return 'deferred';
     }
-    if (args.record.walletSigningSessionId !== args.purpose.walletSigningSessionId) {
+    if (args.record.signingGrantId !== args.purpose.signingGrantId) {
       return 'deferred';
     }
     const restoreKey = [
@@ -492,7 +492,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       args.purpose.authMethod,
       args.purpose.curve,
       thresholdEcdsaChainTargetKey(args.purpose.chainTarget),
-      args.purpose.walletSigningSessionId,
+      args.purpose.signingGrantId,
       thresholdSessionId,
     ].join(':');
     if (this.restoreAttempts.hasCompleted(restoreKey)) return 'ready';
@@ -530,7 +530,7 @@ export class EmailOtpSealedRestoreOrchestrator {
         (!ed25519Record ||
           ed25519Record.source !== 'email_otp' ||
           ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
-          ed25519Record.walletSigningSessionId !== args.purpose.walletSigningSessionId)
+          ed25519Record.signingGrantId !== args.purpose.signingGrantId)
       ) {
         const diagnosticKey = `exact-purpose-missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
         if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
@@ -539,7 +539,7 @@ export class EmailOtpSealedRestoreOrchestrator {
             {
               thresholdSessionId,
               sealedEd25519SessionId,
-              walletSigningSessionId: args.purpose.walletSigningSessionId,
+              signingGrantId: args.purpose.signingGrantId,
             },
           );
         }
@@ -563,7 +563,7 @@ export class EmailOtpSealedRestoreOrchestrator {
         console.warn('[EmailOtpSession] wallet-scoped sealed ECDSA restore failed', {
           walletId: args.walletId,
           thresholdSessionId,
-          walletSigningSessionId: args.purpose.walletSigningSessionId,
+          signingGrantId: args.purpose.signingGrantId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       })

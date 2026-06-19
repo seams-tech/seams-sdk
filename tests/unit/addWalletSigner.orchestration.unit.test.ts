@@ -109,7 +109,7 @@ function ethereumAddress20B64u(address: string): string {
 function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): string {
   const publicIdentity = bootstrap.publicIdentity as Record<string, unknown>;
   const sessionId = String(bootstrap.sessionId || '').trim();
-  const walletSigningSessionId = String(bootstrap.walletSigningSessionId || '').trim();
+  const signingGrantId = String(bootstrap.signingGrantId || '').trim();
   const walletId = String(bootstrap.walletId || '').trim();
   const rpId = String(bootstrap.rpId || '').trim();
   const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
@@ -124,7 +124,7 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
     sub: walletId,
     walletId,
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     keyScope: 'evm-family',
     keyHandle,
     relayerKeyId,
@@ -177,7 +177,7 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
 function ed25519WalletSessionJwt(args: {
   walletId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   relayerKeyId: string;
   expiresAtMs: number;
   participantIds: readonly number[];
@@ -187,7 +187,7 @@ function ed25519WalletSessionJwt(args: {
     sub: args.walletId,
     walletId: args.walletId,
     sessionId: args.sessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     relayerKeyId: args.relayerKeyId,
     rpId: RP_ID,
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -548,7 +548,7 @@ function createContext(captures: Record<string, unknown>): any {
             state: 'ready',
             authMethod,
             thresholdSessionId: 'session-ecdsa',
-            walletSigningSessionId: 'wallet-session-ecdsa',
+            signingGrantId: 'wallet-session-ecdsa',
             remainingUses: 1,
             expiresAtMs: Date.now() + 60_000,
             key: {
@@ -579,7 +579,7 @@ function createContext(captures: Record<string, unknown>): any {
           state: 'ready',
           authMethod,
           thresholdSessionId: 'threshold-session-id',
-          walletSigningSessionId: 'wallet-session-ed25519',
+          signingGrantId: 'wallet-session-ed25519',
           remainingUses: 1,
           expiresAtMs: Date.now() + 60_000,
         };
@@ -745,7 +745,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
                   registrationPreparationId: body.registrationPreparationId,
                   requestId: 'request-ecdsa',
                   sessionId: 'session-ecdsa',
-                  walletSigningSessionId: 'wallet-session-ecdsa',
+                  signingGrantId: 'wallet-session-ecdsa',
                   ttlMs: 600_000,
                   remainingUses: 1,
                   participantIds: [1, 2],
@@ -832,7 +832,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           session: {
             sessionKind: 'jwt',
             sessionId: sessionPolicy.sessionId,
-            walletSigningSessionId: sessionPolicy.walletSigningSessionId,
+            signingGrantId: sessionPolicy.signingGrantId,
             expiresAtMs: ed25519SessionExpiresAtMs,
             participantIds: [1, 2],
             remainingUses: 1,
@@ -841,7 +841,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             jwt: ed25519WalletSessionJwt({
               walletId: nearAccountId,
               sessionId: sessionPolicy.sessionId,
-              walletSigningSessionId: sessionPolicy.walletSigningSessionId,
+              signingGrantId: sessionPolicy.signingGrantId,
               relayerKeyId: 'relayer-ed25519',
               expiresAtMs: ed25519SessionExpiresAtMs,
               participantIds: [1, 2],
@@ -1504,7 +1504,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
               relayerKeyId: 'relayer-ecdsa',
               requestId: 'request-ecdsa',
               sessionId: 'session-ecdsa',
-              walletSigningSessionId: 'wallet-session-ecdsa',
+              signingGrantId: 'wallet-session-ecdsa',
               ttlMs: 600_000,
               remainingUses: 1,
               participantIds: [1, 2],
@@ -1620,7 +1620,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           session: {
             sessionKind: 'jwt',
             sessionId: sessionPolicy.sessionId,
-            walletSigningSessionId: sessionPolicy.walletSigningSessionId,
+            signingGrantId: sessionPolicy.signingGrantId,
             expiresAtMs: ed25519SessionExpiresAtMs,
             participantIds: [1, 2],
             remainingUses: 1,
@@ -1629,7 +1629,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
             jwt: ed25519WalletSessionJwt({
               walletId: 'later.testnet',
               sessionId: sessionPolicy.sessionId,
-              walletSigningSessionId: sessionPolicy.walletSigningSessionId,
+              signingGrantId: sessionPolicy.signingGrantId,
               relayerKeyId: 'relayer-ed25519',
               expiresAtMs: ed25519SessionExpiresAtMs,
               participantIds: [1, 2],

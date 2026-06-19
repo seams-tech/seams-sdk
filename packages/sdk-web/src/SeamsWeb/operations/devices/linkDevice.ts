@@ -125,9 +125,9 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
     relayerKeyId: requireLinkDeviceString(value.relayerKeyId, 'relayerKeyId'),
     requestId: requireLinkDeviceString(value.requestId, 'requestId'),
     sessionId: requireLinkDeviceString(value.sessionId, 'sessionId'),
-    walletSigningSessionId: requireLinkDeviceString(
-      value.walletSigningSessionId,
-      'walletSigningSessionId',
+    signingGrantId: requireLinkDeviceString(
+      value.signingGrantId,
+      'signingGrantId',
     ),
     ttlMs: coercePositiveInt(value.ttlMs, 1),
     remainingUses: coercePositiveInt(value.remainingUses, 1),

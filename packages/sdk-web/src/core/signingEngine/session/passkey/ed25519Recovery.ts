@@ -24,7 +24,7 @@ import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from '
 type PasskeyEd25519SessionRestoreIdentity = {
   touchConfirm: PasskeyWarmSessionRecoveryPorts;
   walletId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 
@@ -38,8 +38,8 @@ export async function restorePasskeyEd25519SessionBeforeClaim(
   args: PasskeyEd25519SessionRestoreIdentity,
 ): Promise<void> {
   if (typeof args.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
-  const walletSigningSessionId = SigningSessionIds.walletSigningSession(
-    args.walletSigningSessionId,
+  const signingGrantId = SigningSessionIds.signingGrant(
+    args.signingGrantId,
   );
   const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(args.thresholdSessionId);
   await args.touchConfirm.restorePersistedSessionForSigning({
@@ -47,7 +47,7 @@ export async function restorePasskeyEd25519SessionBeforeClaim(
     authMethod: 'passkey',
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
     reason: 'transaction',
   });
@@ -68,7 +68,7 @@ export async function claimPasskeyEd25519PrfFirst(
       restorePasskeyEd25519SessionBeforeClaim({
         touchConfirm: args.touchConfirm,
         walletId: args.walletId,
-        walletSigningSessionId: args.walletSigningSessionId,
+        signingGrantId: args.signingGrantId,
         thresholdSessionId: args.thresholdSessionId,
       }),
   });
@@ -80,7 +80,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
   policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
   remainingUses?: number;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
@@ -90,8 +90,8 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
 }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
   const reconnectRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
   const sessionId = String(args.sessionId || '').trim();
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!sessionId || !walletSigningSessionId) {
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  if (!sessionId || !signingGrantId) {
     throw new Error('Passkey Ed25519 signing session reconnect requires exact session identity');
   }
   const provisioned = await args.provisionThresholdEd25519Session({
@@ -113,7 +113,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     participantIds: args.record.participantIds,
     sessionKind: 'jwt',
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     remainingUses: reconnectRemainingUses,
   });
   if (!provisioned.ok) {
@@ -129,7 +129,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
       '[SigningEngine][near] passkey Ed25519 reconnect did not publish the planned session record',
     );
   }
-  if (String(refreshedRecord.walletSigningSessionId || '').trim() !== walletSigningSessionId) {
+  if (String(refreshedRecord.signingGrantId || '').trim() !== signingGrantId) {
     throw new Error(
       '[SigningEngine][near] passkey Ed25519 reconnect returned a wallet signing-session mismatch',
     );
@@ -164,8 +164,8 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
   }) => Promise<void>;
 }): Promise<WarmSessionStatusResult | null> {
   const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(args.purpose.walletSigningSessionId || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !args.shamirPrimeB64u) {
+  const signingGrantId = String(args.purpose.signingGrantId || '').trim();
+  if (!thresholdSessionId || !signingGrantId || !args.shamirPrimeB64u) {
     return null;
   }
 
@@ -185,7 +185,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
         : {}),
       thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       ...(walletSessionJwt ? { walletSessionJwt: walletSessionJwt } : {}),
       expiresAtMs: policy.expiresAtMs,
       remainingUses: policy.remainingUses,
@@ -197,7 +197,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
     });
   };

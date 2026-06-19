@@ -93,7 +93,7 @@ export type CurrentEcdsaSessionFact = {
   keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
 };

@@ -31,7 +31,7 @@ type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
   chainId: number;
   reconnectSessionIdentity: {
     thresholdSessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
   };
   operationUsesNeeded?: number;
   sessionBudgetUses: number;
@@ -104,7 +104,7 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   const walletId = toWalletId(args.lane.walletId);
   const reconnectSessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: args.reconnectSessionIdentity.thresholdSessionId,
-    walletSigningSessionId: args.reconnectSessionIdentity.walletSigningSessionId,
+    signingGrantId: args.reconnectSessionIdentity.signingGrantId,
   });
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
@@ -114,7 +114,7 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
   if (
     reconnectPlanIdentity.thresholdSessionId !== reconnectSessionIdentity.thresholdSessionId ||
-    reconnectPlanIdentity.walletSigningSessionId !== reconnectSessionIdentity.walletSigningSessionId
+    reconnectPlanIdentity.signingGrantId !== reconnectSessionIdentity.signingGrantId
   ) {
     throw new Error(
       '[SigningEngine][ecdsa] reconnect plan identity does not match requested reconnect identity',
@@ -166,17 +166,17 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   }
   const refreshedSessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: refreshedRecord.thresholdSessionId,
-    walletSigningSessionId: refreshedRecord.walletSigningSessionId,
+    signingGrantId: refreshedRecord.signingGrantId,
   });
   if (
     refreshedSessionIdentity.thresholdSessionId !== reconnectSessionIdentity.thresholdSessionId ||
-    refreshedSessionIdentity.walletSigningSessionId !== reconnectSessionIdentity.walletSigningSessionId
+    refreshedSessionIdentity.signingGrantId !== reconnectSessionIdentity.signingGrantId
   ) {
     throw new Error(
       [
         '[SigningEngine] ECDSA reconnect returned a different exact session identity',
-        `expected=${reconnectSessionIdentity.walletSigningSessionId}:${reconnectSessionIdentity.thresholdSessionId}`,
-        `actual=${refreshedSessionIdentity.walletSigningSessionId}:${refreshedSessionIdentity.thresholdSessionId}`,
+        `expected=${reconnectSessionIdentity.signingGrantId}:${reconnectSessionIdentity.thresholdSessionId}`,
+        `actual=${refreshedSessionIdentity.signingGrantId}:${refreshedSessionIdentity.thresholdSessionId}`,
       ].join(' '),
     );
   }

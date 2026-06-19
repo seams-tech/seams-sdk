@@ -17,7 +17,7 @@ import {
   type SigningOperationId,
   type ThresholdEcdsaSessionId,
   type ThresholdSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
 import {
@@ -284,7 +284,7 @@ export type SigningSessionBudgetReserveInput = {
 
 export type SigningSessionBudgetReservationRecord = SigningSessionBudgetReserveInput & {
   operationFingerprint: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   reservationIdentity: SigningBudgetReservationIdentity;
   reservationIdentityKey: SigningBudgetReservationKey;
   reservedAgainstProjectionVersion: string;
@@ -302,7 +302,7 @@ export type SigningBudgetReservationIdentity = {
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   walletId: StrictAccountId | WalletId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
   thresholdSessionIds: NonEmptyThresholdSessionIds;
@@ -398,7 +398,7 @@ export type WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check';
   owner: WalletBudgetOwner;
   walletId?: never;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetBackingMaterialSessionIds?: never;
   targetThresholdSessionIds?: never;
   trustedStatusAuth?: never;
@@ -408,7 +408,7 @@ export type BackingMaterialBudgetStatusCheck = {
   kind: 'backing_material_budget_status_check';
   owner: WalletBudgetOwner;
   walletId?: never;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetBackingMaterialSessionIds: readonly [
     BackingMaterialSessionId | string,
     ...(BackingMaterialSessionId | string)[],
@@ -421,7 +421,7 @@ export type ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check';
   owner: WalletBudgetOwner;
   walletId?: never;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetThresholdSessionIds: readonly [
     ThresholdSessionId | string,
     ...(ThresholdSessionId | string)[],
@@ -434,7 +434,7 @@ export type AuthenticatedThresholdBudgetStatusCheck = {
   kind: 'authenticated_threshold_budget_status_check';
   owner: WalletBudgetOwner;
   walletId?: never;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetThresholdSessionIds: readonly [
     ThresholdSessionId | string,
     ...(ThresholdSessionId | string)[],
@@ -448,7 +448,7 @@ export type EcdsaLaneBudgetStatusCheck = {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
   walletId?: never;
   targetThresholdSessionIds?: never;
@@ -461,7 +461,7 @@ export type AuthenticatedEcdsaLaneBudgetStatusCheck = {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
   walletId?: never;
@@ -490,7 +490,7 @@ export type SigningSessionBudgetStatusAuth = {
 export type SigningSessionBudgetConsumer = (args: {
   owner: WalletBudgetOwner;
   walletId?: never;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   uses: number;
   reason: WalletSigningSpendPlan['reason'];
   budgetStatusCheck: SigningSessionBudgetStatusCheck;
@@ -505,7 +505,7 @@ export type SigningSessionBudgetDeps = {
 };
 
 export type SigningSessionPreparedBudgetIdentity = {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   projectionVersion: string;
   status: SigningSessionStatus & { status: 'active'; projectionVersion: string };
 };
@@ -546,7 +546,7 @@ export function isSigningSessionBudgetAdmissionBlockedError(error: unknown): boo
 
 export function applySigningSessionBudgetReservationsToStatus(args: {
   status: SigningSessionStatus;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   reservationsByOperationId: Map<string, SigningSessionBudgetReservationRecord>;
 }): SigningSessionStatus {
   if (args.status.status !== 'active') return args.status;
@@ -555,7 +555,7 @@ export function applySigningSessionBudgetReservationsToStatus(args: {
   const projectionVersion = String(args.status.projectionVersion || '').trim();
   const inFlightReservedUses = getSameProjectionReservedUses({
     reservationsByOperationId: args.reservationsByOperationId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     projectionVersion,
   });
   const availableUses = Math.max(0, serverAvailableUses - inFlightReservedUses);
@@ -611,7 +611,7 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
   const serverAvailableUses = availableUsesForBudgetAdmission(status);
   const reservedUses = getSameProjectionReservedUses({
     reservationsByOperationId: args.reservationsByOperationId,
-    walletSigningSessionId: spend.walletSigningSessionId,
+    signingGrantId: spend.signingGrantId,
     projectionVersion,
   });
   const availableUses = serverAvailableUses - reservedUses;
@@ -637,15 +637,15 @@ export function availableUsesForBudgetAdmission(status: SigningSessionStatus): n
 
 export function getSameProjectionReservedUses(args: {
   reservationsByOperationId: Map<string, SigningSessionBudgetReservationRecord>;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   projectionVersion?: string;
 }): number {
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.signingGrantId || '').trim();
   const projectionVersion = String(args.projectionVersion || '').trim();
-  if (!walletSigningSessionId || !projectionVersion) return 0;
+  if (!signingGrantId || !projectionVersion) return 0;
   let uses = 0;
   for (const reservation of args.reservationsByOperationId.values()) {
-    if (reservation.walletSigningSessionId !== walletSigningSessionId) continue;
+    if (reservation.signingGrantId !== signingGrantId) continue;
     if (reservation.reservedAgainstProjectionVersion !== projectionVersion) continue;
     uses += Math.max(0, Math.floor(Number(reservation.spend.uses) || 0));
   }
@@ -657,7 +657,7 @@ export function budgetUnknownStatusForSpend(
   reason: string = 'missing_trusted_status',
 ): SigningSessionStatus {
   return budgetUnknownSigningSessionStatus({
-    walletSigningSessionId: spend.walletSigningSessionId,
+    signingGrantId: spend.signingGrantId,
     reason:
       reason === 'adapter_unavailable' ||
       reason === 'status_unavailable' ||
@@ -679,7 +679,7 @@ function budgetUnknownError(spend: WalletSigningSpendPlan, reason: string): Erro
 
 function formatSpendIdentityForError(spend: WalletSigningSpendPlan): string {
   return [
-    `walletSigningSessionId=${spend.walletSigningSessionId}`,
+    `signingGrantId=${spend.signingGrantId}`,
     `thresholdSessionIds=${normalizeStringList(spend.thresholdSessionIds)?.join(',') || 'none'}`,
     `backingMaterialSessionIds=${normalizeStringList(spend.backingMaterialSessionIds)?.join(',') || 'none'}`,
   ].join(' ');
@@ -747,7 +747,7 @@ export function buildSigningBudgetReservationIdentity(args: {
       resolveWalletSigningOperationFingerprint(spend),
     ),
     walletId: walletBudgetOwnerId(walletBudgetOwnerForLane(spend.lane)),
-    walletSigningSessionId: spend.walletSigningSessionId,
+    signingGrantId: spend.signingGrantId,
     laneIdentity,
     laneIdentityKey,
     thresholdSessionIds,
@@ -768,7 +768,7 @@ export function signingBudgetReservationKey(
     operationId: String(identity.operationId),
     operationFingerprint: String(identity.operationFingerprint),
     walletId: String(identity.walletId),
-    walletSigningSessionId: String(identity.walletSigningSessionId),
+    signingGrantId: String(identity.signingGrantId),
     laneIdentityKey: String(identity.laneIdentityKey),
     thresholdSessionIds: identity.thresholdSessionIds.map(String),
     backingMaterialSessionIds: identity.backingMaterialSessionIds.map(String),
@@ -795,7 +795,7 @@ function normalizeBackingMaterialSessionIds(
   return normalized || [];
 }
 
-export function summarizeWalletSigningSessionStatus(
+export function summarizeSigningGrantStatus(
   status: SigningSessionStatus,
 ): SigningSessionBudgetTraceStatus {
   return {
@@ -873,7 +873,7 @@ export function buildWalletSigningSpendPlan(
       ? { operationFingerprint: operation.operationFingerprint }
       : {}),
     walletId: lane.curve === 'ecdsa' ? lane.walletId : lane.accountId,
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     lane,
     thresholdSessionIds: uniqueDefined([lane.thresholdSessionId]),
     backingMaterialSessionIds: uniqueDefined([lane.backingMaterialSessionId]),
@@ -889,21 +889,21 @@ export function buildWalletSigningSpendPlan(
 
 export function buildWalletBudgetStatusCheck(args: {
   owner: WalletBudgetOwner;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
 }): WalletBudgetStatusCheck {
   return {
     kind: 'wallet_budget_status_check',
     owner: args.owner,
-    walletSigningSessionId: normalizeRequired(
-      args.walletSigningSessionId,
-      'walletSigningSessionId',
-    ) as WalletSigningSessionId,
+    signingGrantId: normalizeRequired(
+      args.signingGrantId,
+      'signingGrantId',
+    ) as SigningGrantId,
   };
 }
 
 export function buildBackingMaterialBudgetStatusCheck(args: {
   owner: WalletBudgetOwner;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetBackingMaterialSessionIds: readonly (BackingMaterialSessionId | string)[];
 }): BackingMaterialBudgetStatusCheck {
   const targetBackingMaterialSessionIds = normalizeStringList(
@@ -915,10 +915,10 @@ export function buildBackingMaterialBudgetStatusCheck(args: {
   return {
     kind: 'backing_material_budget_status_check',
     owner: args.owner,
-    walletSigningSessionId: normalizeRequired(
-      args.walletSigningSessionId,
-      'walletSigningSessionId',
-    ) as WalletSigningSessionId,
+    signingGrantId: normalizeRequired(
+      args.signingGrantId,
+      'signingGrantId',
+    ) as SigningGrantId,
     targetBackingMaterialSessionIds: [
       targetBackingMaterialSessionIds[0],
       ...targetBackingMaterialSessionIds.slice(1),
@@ -928,7 +928,7 @@ export function buildBackingMaterialBudgetStatusCheck(args: {
 
 export function buildThresholdBudgetStatusCheck(args: {
   owner: WalletBudgetOwner;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
 }): ThresholdBudgetStatusCheck {
   const targetThresholdSessionIds = normalizeStringList(args.targetThresholdSessionIds) as
@@ -940,10 +940,10 @@ export function buildThresholdBudgetStatusCheck(args: {
   return {
     kind: 'threshold_budget_status_check',
     owner: args.owner,
-    walletSigningSessionId: normalizeRequired(
-      args.walletSigningSessionId,
-      'walletSigningSessionId',
-    ) as WalletSigningSessionId,
+    signingGrantId: normalizeRequired(
+      args.signingGrantId,
+      'signingGrantId',
+    ) as SigningGrantId,
     targetThresholdSessionIds: [
       targetThresholdSessionIds[0],
       ...targetThresholdSessionIds.slice(1),
@@ -953,7 +953,7 @@ export function buildThresholdBudgetStatusCheck(args: {
 
 export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
   owner: WalletBudgetOwner;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
 }): AuthenticatedThresholdBudgetStatusCheck {
@@ -961,7 +961,7 @@ export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
   return {
     kind: 'authenticated_threshold_budget_status_check',
     owner: thresholdCheck.owner,
-    walletSigningSessionId: thresholdCheck.walletSigningSessionId,
+    signingGrantId: thresholdCheck.signingGrantId,
     targetThresholdSessionIds: thresholdCheck.targetThresholdSessionIds,
     trustedStatusAuth: args.trustedStatusAuth,
   };
@@ -980,7 +980,7 @@ export function assertBudgetStatusCheckHasConcreteLaneIdentity(
   args: SigningSessionBudgetStatusCheck,
 ): void {
   if (!isEcdsaLaneBudgetStatusCheck(args)) return;
-  normalizeRequired(args.walletSigningSessionId, 'walletSigningSessionId');
+  normalizeRequired(args.signingGrantId, 'signingGrantId');
   normalizeRequired(args.thresholdSessionId, 'thresholdSessionId');
   if (!args.key) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
@@ -1041,7 +1041,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
 }): EcdsaLaneBudgetStatusCheck {
   return buildEcdsaLaneBudgetStatusCheckInternal({
@@ -1049,7 +1049,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
     key: args.key,
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
   });
 }
@@ -1058,7 +1058,7 @@ export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
 }): AuthenticatedEcdsaLaneBudgetStatusCheck {
@@ -1068,7 +1068,7 @@ export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
       key: args.key,
       keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       thresholdSessionId: args.thresholdSessionId,
     }),
     trustedStatusAuth: args.trustedStatusAuth,
@@ -1084,15 +1084,15 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
 }): TKind extends EcdsaLaneBudgetStatusCheck['kind']
   ? EcdsaLaneBudgetStatusCheck
   : Omit<AuthenticatedEcdsaLaneBudgetStatusCheck, 'trustedStatusAuth'> {
-  const walletSigningSessionId = normalizeRequired(
-    args.walletSigningSessionId,
-    'walletSigningSessionId',
-  ) as WalletSigningSessionId;
+  const signingGrantId = normalizeRequired(
+    args.signingGrantId,
+    'signingGrantId',
+  ) as SigningGrantId;
   const thresholdSessionId = normalizeRequired(
     args.thresholdSessionId,
     'thresholdSessionId',
@@ -1109,7 +1109,7 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
     key: args.key,
     keyHandle,
     chainTarget: args.chainTarget,
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
   } as TKind extends EcdsaLaneBudgetStatusCheck['kind']
     ? EcdsaLaneBudgetStatusCheck
@@ -1126,7 +1126,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
         key: args.spend.lane.key,
         keyHandle: args.spend.lane.keyHandle,
         chainTarget: args.spend.lane.chainTarget,
-        walletSigningSessionId: args.spend.walletSigningSessionId,
+        signingGrantId: args.spend.signingGrantId,
         thresholdSessionId: args.spend.lane.thresholdSessionId,
         trustedStatusAuth: args.trustedStatusAuth,
       });
@@ -1135,14 +1135,14 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
       key: args.spend.lane.key,
       keyHandle: args.spend.lane.keyHandle,
       chainTarget: args.spend.lane.chainTarget,
-      walletSigningSessionId: args.spend.walletSigningSessionId,
+      signingGrantId: args.spend.signingGrantId,
       thresholdSessionId: args.spend.lane.thresholdSessionId,
     });
   }
   if (args.trustedStatusAuth) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
       owner: walletBudgetOwnerForLane(args.spend.lane),
-      walletSigningSessionId: args.spend.walletSigningSessionId,
+      signingGrantId: args.spend.signingGrantId,
       targetThresholdSessionIds: args.spend.thresholdSessionIds,
       trustedStatusAuth: args.trustedStatusAuth,
     });
@@ -1150,20 +1150,20 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   if (args.spend.thresholdSessionIds.length) {
     return buildThresholdBudgetStatusCheck({
       owner: walletBudgetOwnerForLane(args.spend.lane),
-      walletSigningSessionId: args.spend.walletSigningSessionId,
+      signingGrantId: args.spend.signingGrantId,
       targetThresholdSessionIds: args.spend.thresholdSessionIds,
     });
   }
   if (args.spend.backingMaterialSessionIds.length) {
     return buildBackingMaterialBudgetStatusCheck({
       owner: walletBudgetOwnerForLane(args.spend.lane),
-      walletSigningSessionId: args.spend.walletSigningSessionId,
+      signingGrantId: args.spend.signingGrantId,
       targetBackingMaterialSessionIds: args.spend.backingMaterialSessionIds,
     });
   }
   return buildWalletBudgetStatusCheck({
     owner: walletBudgetOwnerForLane(args.spend.lane),
-    walletSigningSessionId: args.spend.walletSigningSessionId,
+    signingGrantId: args.spend.signingGrantId,
   });
 }
 

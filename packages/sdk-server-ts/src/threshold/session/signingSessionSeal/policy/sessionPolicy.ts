@@ -81,7 +81,7 @@ function normalizeThresholdSessionStatus(
 function normalizeWalletBudgetStatus(
   input: {
     curve: SigningSessionSealCurve;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     thresholdSessionId: string;
   },
   raw: Awaited<ReturnType<Ed25519WalletSessionStore['getSessionStatus']>>,
@@ -102,7 +102,7 @@ function normalizeWalletBudgetStatus(
   return {
     ...normalized,
     kind: 'wallet_budget',
-    walletSigningSessionId: input.walletSigningSessionId,
+    signingGrantId: input.signingGrantId,
     expiresAtMs: Math.floor(Number(raw.expiresAtMs) || normalized.expiresAtMs),
     committedRemainingUses: committedRemainingUses ?? remainingUses,
     reservedUses: reservedUses ?? 0,
@@ -162,7 +162,7 @@ function normalizeWalletBudgetStatusAcrossStores(
   stores: readonly Ed25519WalletSessionStore[],
 ): Promise<SigningSessionSealWalletBudgetStatus | null> {
   return (async () => {
-    const thresholdSessionId = walletSigningBudgetSessionId(input.walletSigningSessionId);
+    const thresholdSessionId = walletSigningBudgetSessionId(input.signingGrantId);
     for (const store of stores) {
       const normalized = normalizeWalletBudgetStatus(
         input,

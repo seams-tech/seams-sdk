@@ -79,7 +79,7 @@ import {
 import {
   buildEcdsaHssSessionPolicy,
   generateThresholdSessionId,
-  generateWalletSigningSessionId,
+  generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
@@ -336,7 +336,7 @@ type ExactEmailOtpEcdsaWarmSessionRestore = {
   userId: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   keyHandle: string;
   keyContext: ReturnType<typeof buildSessionBootstrapKeyContext>;
   relayerKeyId: string;
@@ -409,7 +409,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
     walletId: string;
     rpId: string;
     chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     keyHandle: string;
     relayerKeyId: string;
     participantIds: number[];
@@ -516,9 +516,9 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
         userId: walletId,
         rpId,
         chainTarget: args.restore.chainTarget,
-        walletSigningSessionId: readString(
-          args.restore.walletSigningSessionId,
-          'walletSigningSessionId',
+        signingGrantId: readString(
+          args.restore.signingGrantId,
+          'signingGrantId',
         ),
         keyHandle: readString(args.restore.keyHandle, 'keyHandle'),
         keyContext: buildSessionBootstrapKeyContext({
@@ -880,7 +880,7 @@ async function deriveEmailOtpEd25519RestoreSeedB64u(args: {
   userId: string;
   signingRootId: string;
   signingRootVersion?: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ed25519ThresholdSessionId: string;
   relayerKeyId: string;
   participantIds?: number[];
@@ -1450,7 +1450,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     walletId: string;
     rpId: string;
     chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     keyHandle: string;
     relayerKeyId: string;
     participantIds: number[];
@@ -1541,7 +1541,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
             userId: restore.userId,
             signingRootId: restore.ed25519.signingRootId,
             signingRootVersion: restore.ed25519.signingRootVersion,
-            walletSigningSessionId: restore.walletSigningSessionId,
+            signingGrantId: restore.signingGrantId,
             ed25519ThresholdSessionId: restore.ed25519.sessionId,
             relayerKeyId: restore.ed25519.relayerKeyId,
             participantIds: restore.ed25519.participantIds,
@@ -1568,7 +1568,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
         chainTarget: restore.chainTarget,
         thresholdSessionId: sessionId,
-        walletSigningSessionId: restore.walletSigningSessionId,
+        signingGrantId: restore.signingGrantId,
         thresholdSessionKind: restore.sessionKind,
         ttlMs: Math.max(1, policy.expiresAtMs - Date.now()),
         remainingUses: policy.remainingUses,
@@ -2847,7 +2847,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
       sessionId?: string;
-      walletSigningSessionId?: string;
+      signingGrantId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       ttlMs?: number;
       remainingUses?: number;
@@ -2859,7 +2859,7 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
       sessionKind?: 'jwt';
       chainTarget: ThresholdEcdsaChainTarget;
       sessionId?: string;
-      walletSigningSessionId?: string;
+      signingGrantId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       ttlMs?: number;
       remainingUses?: number;
@@ -3082,18 +3082,18 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const requestedSessionId = exactSessionBootstrap
     ? String(args.lanePolicy.thresholdSessionId).trim()
     : String(args.sessionId || '').trim();
-  const requestedWalletSigningSessionId = exactSessionBootstrap
-    ? String(args.lanePolicy.walletSigningSessionId).trim()
-    : String(args.walletSigningSessionId || '').trim();
+  const requestedSigningGrantId = exactSessionBootstrap
+    ? String(args.lanePolicy.signingGrantId).trim()
+    : String(args.signingGrantId || '').trim();
   const sessionId = requestedSessionId || generateThresholdSessionId();
-  const walletSigningSessionId =
-    requestedWalletSigningSessionId || generateWalletSigningSessionId();
+  const signingGrantId =
+    requestedSigningGrantId || generateSigningGrantId();
   if (
     operation === 'session_bootstrap' &&
-    (!keyHandle || !requestedSessionId || !requestedWalletSigningSessionId)
+    (!keyHandle || !requestedSessionId || !requestedSigningGrantId)
   ) {
     throw new Error(
-      'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and walletSigningSessionId',
+      'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and signingGrantId',
     );
   }
   const participantIds = exactSessionBootstrap
@@ -3110,7 +3110,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs: exactSessionBootstrap ? args.lanePolicy.ttlMs : args.ttlMs,
@@ -3175,7 +3175,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       contextBinding32B64u,
       requestId: keygenSessionId,
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       ttlMs,
       remainingUses,
       participantIds: bootstrapParticipantIds,
@@ -3308,7 +3308,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         thresholdSessionKind: sessionKind,
         ...(walletSessionJwt ? { walletSessionJwt } : {}),
         thresholdSessionId: value.sessionId,
-        walletSigningSessionId: value.walletSigningSessionId,
+        signingGrantId: value.signingGrantId,
         routerAbEcdsaHssNormalSigning: value.routerAbEcdsaHssNormalSigning,
       },
       keygen: {
@@ -3327,7 +3327,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       session: {
         ok: true,
         sessionId: value.sessionId,
-        walletSigningSessionId: value.walletSigningSessionId,
+        signingGrantId: value.signingGrantId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -3422,7 +3422,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   participantIds?: number[];
   sessionKind?: 'jwt';
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   routeAuth?: AppOrWalletSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
@@ -3436,8 +3436,8 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   if (publicationChainTargets.length > 1 && String(args.sessionId || '').trim()) {
     throw new Error('Email OTP multi-target ECDSA bootstrap requires per-target session ids');
   }
-  const walletSigningSessionId =
-    String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
+  const signingGrantId =
+    String(args.signingGrantId || '').trim() || generateSigningGrantId();
   let canonicalKeyHandle = String(args.keyHandle || '').trim();
   const bootstraps: ThresholdEcdsaSessionBootstrapResult[] = [];
 
@@ -3456,7 +3456,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
           ...(publicationChainTargets.length === 1 && args.sessionId
             ? { sessionId: args.sessionId }
             : {}),
-          walletSigningSessionId,
+          signingGrantId,
           chainTarget,
           ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -3475,7 +3475,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
           ...(publicationChainTargets.length === 1 && args.sessionId
             ? { sessionId: args.sessionId }
             : {}),
-          walletSigningSessionId,
+          signingGrantId,
           chainTarget,
           ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -3524,7 +3524,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   relayerKeyId: string;
   ecdsaThresholdKeyId: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdExpiresAtMs: number;
   participantIds: number[];
   walletSessionJwt: string;
@@ -3541,7 +3541,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
   const keyHandle = requireThresholdEcdsaHssKeyHandle(args.keyHandle, 'explicit export');
   const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.ecdsaThresholdKeyId);
   const thresholdSessionId = readString(args.thresholdSessionId, 'thresholdSessionId');
-  const walletSigningSessionId = readString(args.walletSigningSessionId, 'walletSigningSessionId');
+  const signingGrantId = readString(args.signingGrantId, 'signingGrantId');
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   if (!participantIds) {
     throw new Error('threshold export requires participantIds');
@@ -3593,7 +3593,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     relayerKeyId,
     contextBinding32B64u,
     publicIdentity,
-    clientDeviceId: walletSigningSessionId,
+    clientDeviceId: signingGrantId,
     clientSessionId: thresholdSessionId,
     exportRequestNonce32B64u,
     issuedAtUnixMs,
@@ -3615,10 +3615,10 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     confirmationDigest32B64u,
     issuedAtUnixMs,
     expiresAtUnixMs,
-    clientDeviceId: walletSigningSessionId,
+    clientDeviceId: signingGrantId,
     clientSessionId: thresholdSessionId,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     thresholdExpiresAtMs: args.thresholdExpiresAtMs,
     participantIds,
   });
@@ -3635,7 +3635,7 @@ async function runThresholdEcdsaRoleLocalExportFromReadyRecord(args: {
     authorizationDigest32B64u,
     issuedAtUnixMs,
     expiresAtUnixMs,
-    clientDeviceId: walletSigningSessionId,
+    clientDeviceId: signingGrantId,
     clientSessionId: thresholdSessionId,
     auth: routeAuth,
   });
@@ -3722,9 +3722,9 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
         'ecdsaThresholdKeyId',
       ),
       thresholdSessionId: readString(args.primaryBootstrap.session.sessionId, 'thresholdSessionId'),
-      walletSigningSessionId: readString(
-        args.primaryBootstrap.session.walletSigningSessionId,
-        'walletSigningSessionId',
+      signingGrantId: readString(
+        args.primaryBootstrap.session.signingGrantId,
+        'signingGrantId',
       ),
       thresholdExpiresAtMs: args.primaryBootstrap.session.expiresAtMs,
       participantIds: args.primaryBootstrap.thresholdEcdsaKeyRef.participantIds || [],
@@ -4012,9 +4012,9 @@ function parseWalletRegistrationEcdsaPrepareContext(
       : {}),
     requestId: readString(obj.requestId, 'prepare.requestId'),
     sessionId: readString(obj.sessionId, 'prepare.sessionId'),
-    walletSigningSessionId: readString(
-      obj.walletSigningSessionId,
-      'prepare.walletSigningSessionId',
+    signingGrantId: readString(
+      obj.signingGrantId,
+      'prepare.signingGrantId',
     ),
     ttlMs,
     remainingUses,
@@ -4340,8 +4340,8 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         ...(optionalWorkerString(payload.sessionId)
           ? { sessionId: optionalWorkerString(payload.sessionId)! }
           : {}),
-        ...(optionalWorkerString(payload.walletSigningSessionId)
-          ? { walletSigningSessionId: optionalWorkerString(payload.walletSigningSessionId)! }
+        ...(optionalWorkerString(payload.signingGrantId)
+          ? { signingGrantId: optionalWorkerString(payload.signingGrantId)! }
           : {}),
         ...(optionalWorkerPositiveInteger(payload.ttlMs)
           ? { ttlMs: optionalWorkerPositiveInteger(payload.ttlMs)! }
@@ -4432,9 +4432,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             walletId: readString(restore.walletId, 'restore.walletId'),
             rpId: readString(restore.rpId, 'restore.rpId'),
             chainTarget: parseWorkerChainTarget(restore.chainTarget),
-            walletSigningSessionId: readString(
-              restore.walletSigningSessionId,
-              'restore.walletSigningSessionId',
+            signingGrantId: readString(
+              restore.signingGrantId,
+              'restore.signingGrantId',
             ),
             keyHandle: readString(restore.keyHandle, 'restore.keyHandle'),
             relayerKeyId: readString(restore.relayerKeyId, 'restore.relayerKeyId'),
@@ -4483,9 +4483,9 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayerKeyId: readString(payload.relayerKeyId, 'relayerKeyId'),
           readyRecord: parseEcdsaRoleLocalReadyRecord(payload.readyRecord),
           thresholdSessionId: readString(payload.thresholdSessionId, 'thresholdSessionId'),
-          walletSigningSessionId: readString(
-            payload.walletSigningSessionId,
-            'walletSigningSessionId',
+          signingGrantId: readString(
+            payload.signingGrantId,
+            'signingGrantId',
           ),
           thresholdExpiresAtMs: readNumber(payload.thresholdExpiresAtMs, 'thresholdExpiresAtMs'),
           participantIds:
@@ -4987,7 +4987,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             participantIds: msg.payload.participantIds,
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
-            walletSigningSessionId: msg.payload.walletSigningSessionId,
+            signingGrantId: msg.payload.signingGrantId,
             routeAuth: msg.payload.routeAuth,
             runtimePolicyScope: msg.payload.runtimePolicyScope,
             ttlMs: msg.payload.ttlMs,
@@ -5151,9 +5151,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
             relayerKeyId: readString(msg.payload.relayerKeyId, 'relayerKeyId'),
             ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
             thresholdSessionId: readString(msg.payload.thresholdSessionId, 'thresholdSessionId'),
-            walletSigningSessionId: readString(
-              msg.payload.walletSigningSessionId,
-              'walletSigningSessionId',
+            signingGrantId: readString(
+              msg.payload.signingGrantId,
+              'signingGrantId',
             ),
             thresholdExpiresAtMs: Number(msg.payload.thresholdExpiresAtMs),
             participantIds: msg.payload.participantIds,

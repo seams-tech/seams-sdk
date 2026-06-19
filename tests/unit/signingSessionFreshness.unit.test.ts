@@ -40,7 +40,7 @@ function makeNearLane(args?: { thresholdSessionId?: string }) {
   return buildNearTransactionSigningLane({
     accountId: toAccountId('freshness-alice.testnet'),
     authMethod: 'passkey',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-near'),
+    signingGrantId: SigningSessionIds.signingGrant('wallet-session-near'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       args?.thresholdSessionId || 'threshold-session-near',
     ),
@@ -67,7 +67,7 @@ function makeEcdsaLane(args?: { thresholdSessionId?: string }) {
     keyHandle: toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key'),
     walletId: toAccountId(String(key.walletId)),
     chainTarget: tempoChainTarget,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-ecdsa'),
+    signingGrantId: SigningSessionIds.signingGrant('wallet-session-ecdsa'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
       args?.thresholdSessionId || 'threshold-session-ecdsa',
     ),
@@ -225,7 +225,7 @@ test.describe('step-up freshness identity', () => {
         chainTarget: tempoChainTarget,
         state: 'exhausted',
         source: 'runtime_and_durable',
-        walletSigningSessionId: 'wallet-session-ecdsa',
+        signingGrantId: 'wallet-session-ecdsa',
         thresholdSessionId: 'threshold-session-ecdsa',
         remainingUses: 0,
         updatedAtMs: 1_800_000_000_000,
@@ -258,7 +258,7 @@ test.describe('step-up freshness identity', () => {
         chain: 'near',
         state: 'expired',
         source: 'durable_sealed_record',
-        walletSigningSessionId: 'wallet-session-near',
+        signingGrantId: 'wallet-session-near',
         thresholdSessionId: 'threshold-session-near',
         remainingUses: 1,
         expiresAtMs: 1_700_000_000_000,
@@ -293,7 +293,7 @@ test.describe('step-up freshness identity', () => {
       laneIdentity,
       observedAtMs: 1_800_000_000_000,
       status: {
-        sessionId: String(lane.walletSigningSessionId),
+        sessionId: String(lane.signingGrantId),
         status: 'active',
         remainingUses: 2,
         expiresAtMs: 1_900_000_000_000,
@@ -306,7 +306,7 @@ test.describe('step-up freshness identity', () => {
       laneIdentity,
       observedAtMs: 1_800_000_000_000,
       status: {
-        sessionId: String(lane.walletSigningSessionId),
+        sessionId: String(lane.signingGrantId),
         status: 'exhausted',
         remainingUses: 0,
         projectionVersion: 'projection-2',
@@ -384,10 +384,10 @@ test.describe('step-up freshness identity', () => {
     });
     const budgetAdmission = {
       budgetIdentity: {
-        walletSigningSessionId: String(lane.walletSigningSessionId),
+        signingGrantId: String(lane.signingGrantId),
         projectionVersion: 'projection-1',
         status: {
-          sessionId: String(lane.walletSigningSessionId),
+          sessionId: String(lane.signingGrantId),
           status: 'active' as const,
           projectionVersion: 'projection-1',
           remainingUses: 1,
@@ -440,7 +440,7 @@ test.describe('budget reservation identity', () => {
     const baseSpend = {
       ...operation,
       walletId: lane.accountId,
-      walletSigningSessionId: lane.walletSigningSessionId,
+      signingGrantId: lane.signingGrantId,
       thresholdSessionIds: [lane.thresholdSessionId],
       backingMaterialSessionIds: [],
       uses: 1 as const,

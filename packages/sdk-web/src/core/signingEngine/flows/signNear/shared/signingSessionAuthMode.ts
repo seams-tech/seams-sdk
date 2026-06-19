@@ -138,7 +138,7 @@ export function createNearSigningSessionCoordinator(
           return await claimPasskeyEcdsaPrfFirst({
             touchConfirm,
             walletId: claimArgs.walletId,
-            walletSigningSessionId: claimArgs.walletSigningSessionId,
+            signingGrantId: claimArgs.signingGrantId,
             thresholdSessionId: claimArgs.thresholdSessionId,
             chainTarget: claimArgs.chainTarget,
             errorContext: claimArgs.errorContext,
@@ -160,7 +160,7 @@ export function createNearSigningSessionCoordinator(
           return await claimPasskeyEd25519PrfFirst({
             touchConfirm,
             walletId: claimArgs.walletId,
-            walletSigningSessionId: claimArgs.walletSigningSessionId,
+            signingGrantId: claimArgs.signingGrantId,
             thresholdSessionId: claimArgs.thresholdSessionId,
             errorContext: claimArgs.errorContext,
             uses: claimArgs.uses,
@@ -186,8 +186,8 @@ export async function resolveNearSigningSessionAuthContext(args: {
     throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
   }
   const isEmailOtpSession = record?.source === 'email_otp';
-  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) {
+  const signingGrantId = String(record?.signingGrantId || '').trim();
+  if (!signingGrantId) {
     throw new Error(
       '[SigningEngine][near] missing wallet signing session id for transaction auth planning',
     );
@@ -197,7 +197,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
       ? buildNearTransactionSigningLane({
           accountId,
           authMethod: 'email_otp',
-          walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
           retention: record.emailOtpAuthContext?.retention || 'session',
           sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
@@ -205,7 +205,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
       : buildNearTransactionSigningLane({
           accountId,
           authMethod: 'passkey',
-          walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
           storageSource: record.source,
         });
@@ -503,15 +503,15 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   const record = args.capability.record;
   if (!record || record.source === 'email_otp') return;
   if (typeof args.warmSessionReader.restorePersistedSessionForSigning !== 'function') return;
-  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+  const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();
-  if (!walletSigningSessionId || !thresholdSessionId) return;
+  if (!signingGrantId || !thresholdSessionId) return;
   await args.warmSessionReader.restorePersistedSessionForSigning({
     walletId: args.nearAccountId,
     authMethod: 'passkey',
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
     reason: 'transaction',
   });

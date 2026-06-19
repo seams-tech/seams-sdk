@@ -8,7 +8,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SENSITIVE_OPERATION_POLICIES, SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
-  toAuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
@@ -388,16 +388,16 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     if (!rpId) {
       throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
     }
-    const walletSigningSessionId = String(currentRecord.walletSigningSessionId || '').trim();
-    if (!walletSigningSessionId) {
+    const signingGrantId = String(currentRecord.signingGrantId || '').trim();
+    if (!signingGrantId) {
       throw new Error('Email OTP ECDSA export requires wallet signing-session identity');
     }
     const exportSigningSessionAuthLane = {
       kind: 'signing_session' as const,
       jwt: args.material.signerSession.routerAbEcdsaHssNormalSigning.credential.walletSessionJwt,
       thresholdSessionId: currentRecord.thresholdSessionId,
-      authorizingWalletSigningSessionId:
-        toAuthorizingWalletSigningSessionId(walletSigningSessionId),
+      authorizingSigningGrantId:
+        toAuthorizingSigningGrantId(signingGrantId),
       curve: 'ecdsa' as const,
       chainTarget: args.exportLane.session.chainTarget,
     };

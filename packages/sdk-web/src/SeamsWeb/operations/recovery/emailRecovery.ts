@@ -106,9 +106,9 @@ function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsa
     relayerKeyId: requireEmailRecoveryString(value.relayerKeyId, 'relayerKeyId'),
     requestId: requireEmailRecoveryString(value.requestId, 'requestId'),
     sessionId: requireEmailRecoveryString(value.sessionId, 'sessionId'),
-    walletSigningSessionId: requireEmailRecoveryString(
-      value.walletSigningSessionId,
-      'walletSigningSessionId',
+    signingGrantId: requireEmailRecoveryString(
+      value.signingGrantId,
+      'signingGrantId',
     ),
     ttlMs: coercePositiveInt(value.ttlMs, 1),
     remainingUses: coercePositiveInt(value.remainingUses, 1),

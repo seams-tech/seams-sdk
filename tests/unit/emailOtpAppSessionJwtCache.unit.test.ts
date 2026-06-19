@@ -34,7 +34,7 @@ function makeIdentity() {
   const lane = buildNearTransactionSigningLane({
     accountId: walletId,
     authMethod: 'email_otp',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-1'),
+    signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
   });
   return emailOtpRefreshIdentity({

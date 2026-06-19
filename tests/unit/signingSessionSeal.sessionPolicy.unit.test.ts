@@ -276,14 +276,14 @@ test.describe('signing session seal session policy', () => {
     await expect(
       policy.getWalletBudgetStatus?.({
         curve: 'ed25519',
-        walletSigningSessionId: budgetSessionId,
+        signingGrantId: budgetSessionId,
         thresholdSessionId: walletBudgetThresholdSessionId,
       }),
     ).resolves.toEqual({
       kind: 'wallet_budget',
       curve: 'ed25519',
       thresholdSessionId: walletBudgetThresholdSessionId,
-      walletSigningSessionId: budgetSessionId,
+      signingGrantId: budgetSessionId,
       userId: 'alice',
       expiresAtMs: 333_000,
       remainingUses: 2,
@@ -295,14 +295,14 @@ test.describe('signing session seal session policy', () => {
     await expect(
       policy.getWalletBudgetStatus?.({
         curve: 'ecdsa',
-        walletSigningSessionId: budgetSessionId,
+        signingGrantId: budgetSessionId,
         thresholdSessionId: walletBudgetThresholdSessionId,
       }),
     ).resolves.toEqual({
       kind: 'wallet_budget',
       curve: 'ecdsa',
       thresholdSessionId: walletBudgetThresholdSessionId,
-      walletSigningSessionId: budgetSessionId,
+      signingGrantId: budgetSessionId,
       userId: 'alice',
       expiresAtMs: 333_000,
       remainingUses: 2,
@@ -313,10 +313,10 @@ test.describe('signing session seal session policy', () => {
   });
 
   test('shares one wallet budget across signers under one wallet signing session id', async () => {
-    const walletSigningSessionId = 'shared-wallet-session';
+    const signingGrantId = 'shared-wallet-session';
     const ed25519ThresholdSessionId = 'threshold-ed25519-shared-wallet';
     const ecdsaThresholdSessionId = 'threshold-ecdsa-shared-wallet';
-    const walletBudgetSessionId = walletSigningBudgetSessionId(walletSigningSessionId);
+    const walletBudgetSessionId = walletSigningBudgetSessionId(signingGrantId);
     const walletBudgetStore = makeStore({
       sessions: {
         [walletBudgetSessionId]: makeStatus({
@@ -338,7 +338,7 @@ test.describe('signing session seal session policy', () => {
     await expect(
       policy.getWalletBudgetStatus?.({
         curve: 'ed25519',
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: ed25519ThresholdSessionId,
       }),
     ).resolves.toMatchObject({
@@ -349,7 +349,7 @@ test.describe('signing session seal session policy', () => {
     await expect(
       policy.getWalletBudgetStatus?.({
         curve: 'ecdsa',
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: ecdsaThresholdSessionId,
       }),
     ).resolves.toMatchObject({
@@ -360,7 +360,7 @@ test.describe('signing session seal session policy', () => {
     await expect(
       policy.getWalletBudgetStatus?.({
         curve: 'ecdsa',
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: ed25519ThresholdSessionId,
       }),
     ).resolves.toMatchObject({

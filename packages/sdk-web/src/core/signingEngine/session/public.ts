@@ -200,7 +200,7 @@ export function getThresholdEcdsaKeyRefForWalletTarget(
     authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     thresholdSessionId: record.thresholdSessionId,
   })?.keyRef;
   if (selected) return selected;

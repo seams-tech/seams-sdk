@@ -59,7 +59,7 @@ test.describe('threshold Ed25519 HSS material handles', () => {
         },
       },
       thresholdSessionId: 'tsess',
-      walletSigningSessionId: 'wsess',
+      signingGrantId: 'wsess',
       existingMaterialHandle: materialHandle,
       existingMaterialBindingDigest: bindingDigest,
       existingMaterialClientVerifierB64u: clientVerifyingShareB64u,
@@ -81,7 +81,7 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       bindingDigest,
       clientVerifyingShareB64u,
       thresholdSessionId: 'tsess',
-      walletSigningSessionId: 'wsess',
+      signingGrantId: 'wsess',
       signingWorkerId: 'signing-worker',
     });
     expect(calls).toEqual([
@@ -131,7 +131,7 @@ test.describe('threshold Ed25519 HSS material handles', () => {
         clientVerifyingShareB64u: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
       },
       thresholdSessionId: 'tsess-dual-store',
-      walletSigningSessionId: 'wsess-dual-store',
+      signingGrantId: 'wsess-dual-store',
       signingRootId: 'root-dual-store',
       signingRootVersion: 'v1',
       expiresAtMs: Date.now() + 60_000,

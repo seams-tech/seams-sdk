@@ -30,7 +30,7 @@ import type {
 } from '@/core/signingEngine/useCases/lifecycle';
 import type {
   ThresholdSessionId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from '@/core/signingEngine/session/operationState/types';
 
 function b64u(length: number, fill: number): string {
@@ -63,7 +63,7 @@ const credentialIdB64u = buildEcdsaRoleLocalPasskeyAuthMethod({
 }).credentialIdB64u;
 const ecdsaKeyHandle = 'key-handle-phase7';
 const thresholdSessionId = asBrand<ThresholdSessionId>('threshold-session');
-const walletSigningSessionId = asBrand<WalletSigningSessionId>('wallet-session');
+const signingGrantId = asBrand<SigningGrantId>('wallet-session');
 const expiresAtMs = asBrand<UnixTimeMs>(1_900_000_000_000);
 const remainingUses = asBrand<WarmSessionRemainingUses>(8);
 
@@ -107,7 +107,7 @@ function readyEcdsaLane(): EcdsaUseCaseReadyLane {
     readyRecord,
     relayerKeyId: buildRelayerKeyId('ecdsa-relayer') as EcdsaRelayerKeyId,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     remainingUses,
     expiresAtMs,
   };
@@ -119,7 +119,7 @@ function readyEd25519Lane(): ReadyEd25519Lane {
     walletId,
     rpId,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     relayerKeyId: buildRelayerKeyId('ed25519-relayer') as Ed25519RelayerKeyId,
     remainingUses,
     expiresAtMs,

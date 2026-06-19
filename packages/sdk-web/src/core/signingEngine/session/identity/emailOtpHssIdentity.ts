@@ -6,7 +6,7 @@ import type {
   SigningRootVersion,
   ThresholdEcdsaSessionId,
   ThresholdOwnerAddress,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from './evmFamilyEcdsaIdentity';
 import type { EmailOtpAuthSubjectId } from '@/core/platform/types';
 
@@ -17,7 +17,7 @@ export type {
   SigningRootVersion,
   ThresholdEcdsaSessionId,
   ThresholdOwnerAddress,
-  WalletSigningSessionId,
+  SigningGrantId,
 };
 
 export type WalletSessionUserId = string & { readonly __brand: 'WalletSessionUserId' };
@@ -51,7 +51,7 @@ export type SessionBootstrap = {
   participantIds?: never;
   sessionKind?: never;
   sessionId?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   runtimePolicyScope?: never;
   ttlMs?: never;
   remainingUses?: never;
@@ -102,8 +102,8 @@ export function toEcdsaHssThresholdSessionId(value: unknown): ThresholdEcdsaSess
   return requiredEmailOtpHssString(value, 'thresholdSessionId') as ThresholdEcdsaSessionId;
 }
 
-export function toEcdsaHssWalletSigningSessionId(value: unknown): WalletSigningSessionId {
-  return requiredEmailOtpHssString(value, 'walletSigningSessionId') as WalletSigningSessionId;
+export function toEcdsaHssSigningGrantId(value: unknown): SigningGrantId {
+  return requiredEmailOtpHssString(value, 'signingGrantId') as SigningGrantId;
 }
 
 export function toEcdsaHssThresholdOwnerAddress(value: unknown): ThresholdOwnerAddress {

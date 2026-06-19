@@ -14,14 +14,14 @@ import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseThresholdSessionId,
-  parseWalletSigningSessionId,
+  parseSigningGrantId,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   ThresholdSessionId,
-  WalletSigningSessionId,
+  SigningGrantId,
   EmailOtpChallengeId,
 } from '@shared/utils/domainIds';
 
@@ -30,7 +30,7 @@ export type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   ThresholdSessionId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from '@shared/utils/domainIds';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
@@ -65,7 +65,7 @@ type BaseSigningSessionPlanningLane = {
   curve: SigningCurve;
   keyKind: SigningKeyKind;
   chainFamily: SigningChainFamily;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId?: ThresholdSessionId;
   backingMaterialSessionId?: BackingMaterialSessionId;
   sessionOrigin: SigningSessionOrigin;
@@ -106,7 +106,7 @@ export type SigningSessionPlanningLane =
 
 type BaseSelectedSigningLaneIdentity = {
   authMethod: SigningAuthMethod;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
 };
 
 export type SelectedEd25519SigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
@@ -196,7 +196,7 @@ export type Ed25519WalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
   walletId: AccountId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   lane: SelectedEd25519SigningSessionPlanningLane;
   thresholdSessionIds: readonly ThresholdEd25519SessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
@@ -208,7 +208,7 @@ export type EcdsaWalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
   walletId: AccountId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   lane: SelectedEcdsaSigningSessionPlanningLane;
   ecdsaKey?: never;
   thresholdSessionIds: readonly ThresholdEcdsaSessionId[];
@@ -314,8 +314,8 @@ function requireDomainId<T>(result: DomainIdParseResult<T>, label: string): T {
 }
 
 export const SigningSessionIds = {
-  walletSigningSession(value: unknown): WalletSigningSessionId {
-    return requireDomainId(parseWalletSigningSessionId(value), 'walletSigningSessionId');
+  signingGrant(value: unknown): SigningGrantId {
+    return requireDomainId(parseSigningGrantId(value), 'signingGrantId');
   },
   thresholdEd25519Session(value: unknown): ThresholdEd25519SessionId {
     return requireDomainId(parseThresholdEd25519SessionId(value), 'thresholdEd25519SessionId');
@@ -373,7 +373,7 @@ export function findSigningLaneIdentityMismatch(
     'curve',
     'keyKind',
     'chainFamily',
-    'walletSigningSessionId',
+    'signingGrantId',
     'thresholdSessionId',
     'backingMaterialSessionId',
     'sessionOrigin',
@@ -430,15 +430,15 @@ export function normalizeWalletSigningSpendPlan(
   if (String(walletId) !== String(laneWalletId)) {
     throw new Error('[SigningSession] wallet signing spend account does not match lane');
   }
-  const walletSigningSessionId = SigningSessionIds.walletSigningSession(
-    input.walletSigningSessionId || lane.walletSigningSessionId,
+  const signingGrantId = SigningSessionIds.signingGrant(
+    input.signingGrantId || lane.signingGrantId,
   );
-  const laneWalletSigningSessionId = SigningSessionIds.walletSigningSession(
-    lane.walletSigningSessionId,
+  const laneSigningGrantId = SigningSessionIds.signingGrant(
+    lane.signingGrantId,
   );
-  if (walletSigningSessionId !== laneWalletSigningSessionId) {
+  if (signingGrantId !== laneSigningGrantId) {
     throw new Error(
-      '[SigningSession] wallet signing spend walletSigningSessionId does not match lane',
+      '[SigningSession] wallet signing spend signingGrantId does not match lane',
     );
   }
   const uses = Math.floor(Number(input.uses) || 0);
@@ -453,12 +453,12 @@ export function normalizeWalletSigningSpendPlan(
       ? {
           ...lane,
           walletId,
-          walletSigningSessionId,
+          signingGrantId,
         }
       : {
           ...lane,
           accountId: walletId,
-          walletSigningSessionId,
+          signingGrantId,
         };
   if (normalizedLane.curve === 'ecdsa') {
     assertEcdsaSpendLaneKey(input, normalizedLane);
@@ -471,7 +471,7 @@ export function normalizeWalletSigningSpendPlan(
     operationId,
     ...(operationFingerprint ? { operationFingerprint } : {}),
     walletId,
-    walletSigningSessionId,
+    signingGrantId,
     lane: normalizedLane,
     thresholdSessionIds: uniqueBrandedStrings(
       input.thresholdSessionIds,

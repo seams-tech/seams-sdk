@@ -193,7 +193,7 @@ export async function mintEd25519WalletSession(args: {
 }): Promise<{
   ok: boolean;
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -226,7 +226,7 @@ export async function mintEd25519WalletSession(args: {
   type Ed25519WalletSessionMintResponseBody = Partial<{
     ok: boolean;
     sessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     expiresAt: string;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -284,7 +284,7 @@ export async function mintEd25519WalletSession(args: {
     return {
       ok: data.ok === true,
       sessionId: data.sessionId,
-      walletSigningSessionId: data.walletSigningSessionId,
+      signingGrantId: data.signingGrantId,
       expiresAtMs,
       remainingUses: data.remainingUses,
       ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),

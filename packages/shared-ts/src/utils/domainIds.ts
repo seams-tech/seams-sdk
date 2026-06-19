@@ -46,7 +46,7 @@ export type AppSessionVersion = DomainId<'AppSessionVersion'>;
 
 // Client wallet signing-session id. This groups one local approval/session
 // budget and can cover multiple threshold-session ids.
-export type WalletSigningSessionId = DomainId<'WalletSigningSessionId'>;
+export type SigningGrantId = DomainId<'SigningGrantId'>;
 
 // Server threshold Ed25519 session id used for NEAR signing and Ed25519 export.
 export type ThresholdEd25519SessionId = DomainId<'ThresholdEd25519SessionId'>;
@@ -186,10 +186,10 @@ export function parseAppSessionVersion(raw: unknown): DomainIdParseResult<AppSes
   return parseDomainId(raw, 'appSessionVersion');
 }
 
-export function parseWalletSigningSessionId(
+export function parseSigningGrantId(
   raw: unknown,
-): DomainIdParseResult<WalletSigningSessionId> {
-  return parseDomainId(raw, 'walletSigningSessionId');
+): DomainIdParseResult<SigningGrantId> {
+  return parseDomainId(raw, 'signingGrantId');
 }
 
 export function parseThresholdEd25519SessionId(

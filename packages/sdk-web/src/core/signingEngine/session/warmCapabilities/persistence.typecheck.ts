@@ -12,7 +12,7 @@ const commonArgs = {
   relayerKeyId: 'relayer-key-1',
   participantIds: [1, 2],
   sessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-session-1',
+  signingGrantId: 'wallet-session-1',
   expiresAtMs: 1_900_000_000_000,
   remainingUses: 2,
 } as const;

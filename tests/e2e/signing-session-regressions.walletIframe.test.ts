@@ -250,7 +250,7 @@ async function runPasskeyEvmSign(
                 userId: record.userId,
                 authMethod: record.authMethod,
                 curve: record.curve,
-                walletSigningSessionId: record.walletSigningSessionId,
+                signingGrantId: record.signingGrantId,
                 thresholdSessionIds: record.thresholdSessionIds,
                 signingRootId: record.signingRootId,
                 ecdsaRestore:
@@ -304,7 +304,7 @@ async function runPasskeyEvmSign(
                   source: record.source,
                   chain: record.chain,
                   thresholdSessionId: record.thresholdSessionId,
-                  walletSigningSessionId: record.walletSigningSessionId,
+                  signingGrantId: record.signingGrantId,
                   signingRootId: record.signingRootId,
                   hasClientAdditiveShare: Boolean(record.clientAdditiveShare32B64u),
                   handleKind: record.clientAdditiveShareHandle?.kind,
@@ -317,7 +317,7 @@ async function runPasskeyEvmSign(
                   curve: identity.curve,
                   chain: identity.chain,
                   thresholdSessionId: identity.thresholdSessionId,
-                  walletSigningSessionId: identity.walletSigningSessionId,
+                  signingGrantId: identity.signingGrantId,
                 }))
               : [],
           };

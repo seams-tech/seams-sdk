@@ -29,11 +29,11 @@ import type {
 } from '@/core/signingEngine/session/persistence/records';
 
 const accountId = toAccountId('strict-ed25519-capability.testnet');
-const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-strict-ed25519');
+const signingGrantId = SigningSessionIds.signingGrant('wsess-strict-ed25519');
 const thresholdSessionId = SigningSessionIds.thresholdEd25519Session('tsess-strict-ed25519');
 const ecdsaWalletId = toAccountId('strict-ecdsa-capability.testnet');
-const ecdsaWalletSigningSessionId =
-  SigningSessionIds.walletSigningSession('wsess-strict-ecdsa');
+const ecdsaSigningGrantId =
+  SigningSessionIds.signingGrant('wsess-strict-ecdsa');
 const ecdsaThresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-strict-ecdsa');
 const ecdsaChainTarget: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -54,7 +54,7 @@ function makeLane() {
   return buildNearTransactionSigningLane({
     accountId,
     authMethod: 'passkey',
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
     storageSource: 'login',
   });
@@ -86,7 +86,7 @@ function makeEd25519Record(
     },
     thresholdSessionKind: 'jwt',
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     walletSessionJwt: 'router-ab-wallet-session-jwt',
     expiresAtMs: 2_000_000_000_000,
     remainingUses: 3,
@@ -121,7 +121,7 @@ function makeEcdsaLane() {
     keyHandle: ecdsaKeyHandle,
     walletId: ecdsaWalletId,
     chainTarget: ecdsaChainTarget,
-    walletSigningSessionId: ecdsaWalletSigningSessionId,
+    signingGrantId: ecdsaSigningGrantId,
     thresholdSessionId: ecdsaThresholdSessionId,
   });
 }
@@ -217,7 +217,7 @@ function makeEcdsaRecord(
     routerAbEcdsaHssNormalSigning: makeEcdsaRouterAbNormalSigning(),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: ecdsaThresholdSessionId,
-    walletSigningSessionId: ecdsaWalletSigningSessionId,
+    signingGrantId: ecdsaSigningGrantId,
     walletSessionJwt: 'router-ab-ecdsa-wallet-session-jwt',
     expiresAtMs: 2_000_000_000_000,
     remainingUses: 3,
@@ -298,7 +298,7 @@ test.describe('selected signing capability strict persisted records', () => {
       value: {
         curve: 'ed25519',
         thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
       },
     });
 
@@ -329,7 +329,7 @@ test.describe('selected signing capability strict persisted records', () => {
       value: {
         curve: 'ed25519',
         thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
         signingRootId: 'proj_strict:dev',
         signingRootVersion: '1',
       },
@@ -466,7 +466,7 @@ test.describe('selected signing capability strict persisted records', () => {
       value: {
         curve: 'ecdsa',
         thresholdSessionId: ecdsaThresholdSessionId,
-        walletSigningSessionId: ecdsaWalletSigningSessionId,
+        signingGrantId: ecdsaSigningGrantId,
         signingMaterial: {
           kind: 'router_ab_ecdsa_hss_signing_material_ref_v1',
           clientVerifier33B64u: ecdsaClientPublicKeyB64u,

@@ -63,7 +63,7 @@ function canonicalEcdsaRecord(overrides?: Record<string, unknown>): Record<strin
     keyHandle: ECDSA_KEY_HANDLE,
     ecdsaThresholdKeyId: targetKeyId,
     thresholdSessionId: 'canonical-ecdsa-session-1',
-    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    signingGrantId: WALLET_SIGNING_SESSION_ID,
     chainTarget,
     relayerUrl: 'https://relay.example',
     signingRootId: 'proj_local:dev',
@@ -191,7 +191,7 @@ function loginReadySigningLanes(args: {
     curve: 'ed25519',
     chain: 'near',
     state: 'ready',
-    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    signingGrantId: WALLET_SIGNING_SESSION_ID,
     thresholdSessionId: 'tsess-login-ed25519',
     remainingUses: 3,
     expiresAtMs,
@@ -206,7 +206,7 @@ function loginReadySigningLanes(args: {
         curve: 'ecdsa',
         chainTarget,
         state: 'ready',
-        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+        signingGrantId: WALLET_SIGNING_SESSION_ID,
         thresholdSessionId: `tehss-login-${targetKey}`,
         remainingUses: 3,
         expiresAtMs,
@@ -248,7 +248,7 @@ function loginReadySigningLanes(args: {
 
 function persistReadyEd25519WarmRecord(args: {
   sessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   walletSessionJwt?: string;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -261,7 +261,7 @@ function persistReadyEd25519WarmRecord(args: {
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.sessionId,
-    walletSigningSessionId: args.walletSigningSessionId || WALLET_SIGNING_SESSION_ID,
+    signingGrantId: args.signingGrantId || WALLET_SIGNING_SESSION_ID,
     walletSessionJwt: args.walletSessionJwt || 'jwt-ed25519',
     expiresAtMs: args.expiresAtMs || Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 3,
@@ -327,7 +327,7 @@ function createBaseContext(args?: {
       connectEd25519Session: async () => {
         persistReadyEd25519WarmRecord({
           sessionId: 'session-1',
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          signingGrantId: WALLET_SIGNING_SESSION_ID,
           walletSessionJwt: 'jwt-ed25519',
           expiresAtMs: now + 60_000,
           remainingUses: 3,
@@ -335,7 +335,7 @@ function createBaseContext(args?: {
         return {
           ok: true,
           sessionId: 'session-1',
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          signingGrantId: WALLET_SIGNING_SESSION_ID,
           jwt: 'jwt-ed25519',
           remainingUses: 3,
           expiresAtMs: now + 60_000,
@@ -366,7 +366,7 @@ function createBaseContext(args?: {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-1',
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          signingGrantId: WALLET_SIGNING_SESSION_ID,
           walletSessionJwt: 'jwt-ecdsa',
         },
         keygen: {
@@ -379,7 +379,7 @@ function createBaseContext(args?: {
         session: {
           ok: true,
           sessionId: 'session-1',
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          signingGrantId: WALLET_SIGNING_SESSION_ID,
           jwt: 'jwt-ecdsa',
           remainingUses: 3,
           expiresAtMs: now + 60_000,
@@ -632,7 +632,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           connectCalls.push(args);
           persistReadyEd25519WarmRecord({
             sessionId: 'session-1',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             walletSessionJwt: 'jwt-ed25519',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
@@ -640,7 +640,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'session-1',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -690,7 +690,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -703,7 +703,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -738,7 +738,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     const sharedKey = bootstrapArgs?.['key'] as Record<string, unknown> | undefined;
     const lanePolicy = bootstrapArgs?.['lanePolicy'] as Record<string, unknown> | undefined;
     expect(String(lanePolicy?.thresholdSessionId || '')).toMatch(/^threshold-ecdsa-login-/);
-    expect(lanePolicy?.walletSigningSessionId).toBe(WALLET_SIGNING_SESSION_ID);
+    expect(lanePolicy?.signingGrantId).toBe(WALLET_SIGNING_SESSION_ID);
     expect(sharedKey?.keyScope).toBe('evm-family');
     expect(sharedKey?.ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
     expect(lanePolicy?.chainTarget).toEqual(EVM_CHAIN_TARGET);
@@ -792,9 +792,9 @@ test.describe('unlock threshold warm-session requirements', () => {
               sessionIdentity.thresholdSessionId ||
               `session-stale-inventory-${bootstrapKinds.length}`,
           );
-          const walletSigningSessionId = String(
-            lanePolicy.walletSigningSessionId ||
-              sessionIdentity.walletSigningSessionId ||
+          const signingGrantId = String(
+            lanePolicy.signingGrantId ||
+              sessionIdentity.signingGrantId ||
               WALLET_SIGNING_SESSION_ID,
           );
           return {
@@ -813,7 +813,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId,
-              walletSigningSessionId,
+              signingGrantId,
               walletSessionJwt: 'jwt-ecdsa',
               ethereumAddress: returnedOwnerAddress,
             },
@@ -828,7 +828,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: thresholdSessionId,
-              walletSigningSessionId,
+              signingGrantId,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -876,7 +876,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           expect(args.remainingUses).toBe(3);
           persistReadyEd25519WarmRecord({
             sessionId: 'fresh-passkey-session-1',
-            walletSigningSessionId: 'fresh-wallet-session-1',
+            signingGrantId: 'fresh-wallet-session-1',
             walletSessionJwt: 'jwt-ed25519',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
@@ -884,7 +884,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'fresh-passkey-session-1',
-            walletSigningSessionId: 'fresh-wallet-session-1',
+            signingGrantId: 'fresh-wallet-session-1',
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -929,7 +929,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'fresh-ed25519-session',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519-fresh',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -1040,7 +1040,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: `session-inventory-${bootstrapTargets.length}`,
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1054,7 +1054,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: `session-inventory-${bootstrapTargets.length}`,
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1174,7 +1174,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: `session-webauthn-inventory-${bootstrapTargets.length}`,
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1188,7 +1188,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: `session-webauthn-inventory-${bootstrapTargets.length}`,
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1378,7 +1378,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-ecdsa-first-bootstrap',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1392,7 +1392,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-ecdsa-first-bootstrap',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1431,7 +1431,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
   test('passkey unlock without server session first-bootstraps from the prompt-first assertion', async () => {
     const bootstrapKinds: string[] = [];
-    const bootstrapWalletSigningSessionIds: string[] = [];
+    const bootstrapSigningGrantIds: string[] = [];
     let connectArgs: Record<string, unknown> | null = null;
     let credentialPrompts = 0;
     const loginCredential = {
@@ -1474,7 +1474,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'session-local-first-bootstrap',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519-local-first-bootstrap',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -1486,10 +1486,10 @@ test.describe('unlock threshold warm-session requirements', () => {
           bootstrapKinds.push(kind);
           const lanePolicy = args.lanePolicy as Record<string, unknown> | undefined;
           const sessionIdentity = args.sessionIdentity as Record<string, unknown> | undefined;
-          const walletSigningSessionId = String(
-            lanePolicy?.walletSigningSessionId || sessionIdentity?.walletSigningSessionId || '',
+          const signingGrantId = String(
+            lanePolicy?.signingGrantId || sessionIdentity?.signingGrantId || '',
           );
-          bootstrapWalletSigningSessionIds.push(walletSigningSessionId);
+          bootstrapSigningGrantIds.push(signingGrantId);
           return {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
@@ -1506,7 +1506,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: `session-local-first-bootstrap-${bootstrapKinds.length}`,
-              walletSigningSessionId: walletSigningSessionId || WALLET_SIGNING_SESSION_ID,
+              signingGrantId: signingGrantId || WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1520,7 +1520,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: `session-local-first-bootstrap-${bootstrapKinds.length}`,
-              walletSigningSessionId: walletSigningSessionId || WALLET_SIGNING_SESSION_ID,
+              signingGrantId: signingGrantId || WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1544,7 +1544,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       'passkey_fresh_ecdsa_bootstrap',
       'wallet_session_reconnect_ecdsa_bootstrap',
     ]);
-    expect(bootstrapWalletSigningSessionIds.every(Boolean)).toBe(true);
+    expect(bootstrapSigningGrantIds.every(Boolean)).toBe(true);
   });
 
   test('passkey unlock uses complete active wallet-scoped ECDSA key facts without inventory fetch', async () => {
@@ -1595,7 +1595,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           expect(auth?.kind).toBe('threshold_session_policy_webauthn');
           persistReadyEd25519WarmRecord({
             sessionId: 'session-profile-complete-ed25519',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             walletSessionJwt: 'jwt-ed25519-profile-complete',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
@@ -1603,7 +1603,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'session-profile-complete-ed25519',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519-profile-complete',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -1631,7 +1631,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-profile-complete',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1645,7 +1645,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-profile-complete',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1706,7 +1706,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1719,7 +1719,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1809,7 +1809,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1822,7 +1822,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -1917,7 +1917,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -1931,7 +1931,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -2071,7 +2071,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'fresh-ed25519-after-inventory',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519-fresh',
             remainingUses: 3,
             expiresAtMs: now + 60_000,
@@ -2107,7 +2107,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-ecdsa-after-inventory',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -2121,7 +2121,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-ecdsa-after-inventory',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: now + 60_000,
@@ -2211,7 +2211,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -2225,7 +2225,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -2298,7 +2298,7 @@ test.describe('unlock threshold warm-session requirements', () => {
   test('caps passkey unlock warm sessions at three uses', async () => {
     let ed25519RemainingUses: unknown = null;
     const ecdsaRemainingUses: unknown[] = [];
-    const ecdsaWalletSigningSessionIds: unknown[] = [];
+    const ecdsaSigningGrantIds: unknown[] = [];
     const context = createBaseContext({
       configs: {
         signing: {
@@ -2311,7 +2311,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           ed25519RemainingUses = args.remainingUses;
           persistReadyEd25519WarmRecord({
             sessionId: 'session-1',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             walletSessionJwt: 'jwt-ed25519',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: Number(args.remainingUses),
@@ -2319,7 +2319,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'session-1',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519',
             remainingUses: Number(args.remainingUses),
             expiresAtMs: Date.now() + 60_000,
@@ -2329,7 +2329,7 @@ test.describe('unlock threshold warm-session requirements', () => {
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
           const lanePolicy = bootstrapLanePolicy(args);
           ecdsaRemainingUses.push(lanePolicy.remainingUses);
-          ecdsaWalletSigningSessionIds.push(lanePolicy.walletSigningSessionId);
+          ecdsaSigningGrantIds.push(lanePolicy.signingGrantId);
           const ecdsaThresholdKeyId = bootstrapEcdsaThresholdKeyId(args);
           return {
             thresholdEcdsaKeyRef: {
@@ -2347,7 +2347,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -2360,7 +2360,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: Number(bootstrapLanePolicy(args).remainingUses),
               expiresAtMs: Date.now() + 60_000,
@@ -2382,7 +2382,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(result.success).toBe(true);
     expect(ed25519RemainingUses).toBe(3);
     expect(ecdsaRemainingUses).toEqual([3, 3]);
-    expect(ecdsaWalletSigningSessionIds).toEqual([
+    expect(ecdsaSigningGrantIds).toEqual([
       WALLET_SIGNING_SESSION_ID,
       WALLET_SIGNING_SESSION_ID,
     ]);
@@ -2397,7 +2397,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           ed25519RemainingUses = args.remainingUses;
           persistReadyEd25519WarmRecord({
             sessionId: 'session-1',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             walletSessionJwt: 'jwt-ed25519',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: Number(args.remainingUses),
@@ -2405,7 +2405,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'session-1',
-            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519',
             remainingUses: Number(args.remainingUses),
             expiresAtMs: Date.now() + 60_000,
@@ -2432,7 +2432,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -2445,7 +2445,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: Number(lanePolicy.remainingUses),
               expiresAtMs: Date.now() + 60_000,
@@ -2605,7 +2605,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
@@ -2618,7 +2618,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -2675,7 +2675,7 @@ test.describe('unlock threshold warm-session requirements', () => {
         connectEd25519Session: async () => ({
           ok: true,
           sessionId: 'session-1',
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          signingGrantId: WALLET_SIGNING_SESSION_ID,
           jwt: 'jwt-ed25519',
           remainingUses: 3,
           expiresAtMs: Date.now() + 60_000,
@@ -2710,7 +2710,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               args.chainTarget as Record<string, unknown>,
             ),
             thresholdSessionId: 'canonical-ecdsa-session-1',
-            walletSigningSessionId: 'canonical-wallet-session-1',
+            signingGrantId: 'canonical-wallet-session-1',
           }),
         ],
         connectEd25519Session: async (args: Record<string, unknown>) => {
@@ -2718,7 +2718,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'canonical-ecdsa-session-1',
-            walletSigningSessionId: 'wallet-session-fresh-1',
+            signingGrantId: 'wallet-session-fresh-1',
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -2789,7 +2789,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'ed25519-only-session-1',
-            walletSigningSessionId: 'wallet-session-ed25519-only-1',
+            signingGrantId: 'wallet-session-ed25519-only-1',
             jwt: 'jwt-ed25519-only',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -2880,7 +2880,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: String(lanePolicy.thresholdSessionId || 'session-ecdsa-only'),
-              walletSigningSessionId: String(lanePolicy.walletSigningSessionId || ''),
+              signingGrantId: String(lanePolicy.signingGrantId || ''),
               walletSessionJwt: 'jwt-ecdsa-only',
             },
             keygen: {
@@ -2893,7 +2893,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             session: {
               ok: true,
               sessionId: String(lanePolicy.thresholdSessionId || 'session-ecdsa-only'),
-              walletSigningSessionId: String(lanePolicy.walletSigningSessionId || ''),
+              signingGrantId: String(lanePolicy.signingGrantId || ''),
               jwt: 'jwt-ecdsa-only',
               remainingUses: Number(lanePolicy.remainingUses || 0),
               expiresAtMs: Date.now() + 60_000,
@@ -2927,13 +2927,13 @@ test.describe('unlock threshold warm-session requirements', () => {
           args.kind === 'wallet_session_reconnect_ecdsa_bootstrap',
       ),
     ).toBe(true);
-    const walletSigningSessionIds = bootstrapArgs.map((args) =>
-      String(bootstrapLanePolicy(args).walletSigningSessionId || ''),
+    const signingGrantIds = bootstrapArgs.map((args) =>
+      String(bootstrapLanePolicy(args).signingGrantId || ''),
     );
-    expect(new Set(walletSigningSessionIds).size).toBe(1);
+    expect(new Set(signingGrantIds).size).toBe(1);
     expect(
-      walletSigningSessionIds.every((walletSigningSessionId) =>
-        walletSigningSessionId.startsWith('wallet-ecdsa-login-'),
+      signingGrantIds.every((signingGrantId) =>
+        signingGrantId.startsWith('wallet-ecdsa-login-'),
       ),
     ).toBe(true);
     expect(bootstrapArgs.every((args) => args.passkeyPrfFirstB64u === ECDSA_PRF_FIRST_B64U)).toBe(
@@ -2982,7 +2982,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           capturedConnectArgs = args;
           persistReadyEd25519WarmRecord({
             sessionId: 'fresh-near-only-session-1',
-            walletSigningSessionId: 'wallet-session-near-only-1',
+            signingGrantId: 'wallet-session-near-only-1',
             walletSessionJwt: 'jwt-ed25519',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
@@ -2990,7 +2990,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           return {
             ok: true,
             sessionId: 'fresh-near-only-session-1',
-            walletSigningSessionId: 'wallet-session-near-only-1',
+            signingGrantId: 'wallet-session-near-only-1',
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
@@ -3242,7 +3242,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             capturedConnectArgs = args;
             persistReadyEd25519WarmRecord({
               sessionId: 'session-passkey-warm',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ed25519',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 3,
@@ -3250,7 +3250,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             return {
               ok: true,
               sessionId: 'session-passkey-warm',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ed25519',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -3328,7 +3328,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 args.chainTarget as Record<string, unknown>,
               ),
               thresholdSessionId: 'canonical-ecdsa-session-1',
-              walletSigningSessionId: 'canonical-wallet-session-1',
+              signingGrantId: 'canonical-wallet-session-1',
             }),
           ],
           bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -3351,7 +3351,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 participantIds: [1, 2],
                 thresholdSessionKind: 'jwt',
                 thresholdSessionId: 'session-1',
-                walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+                signingGrantId: WALLET_SIGNING_SESSION_ID,
                 walletSessionJwt: 'jwt-ecdsa',
               },
               keygen: {
@@ -3364,7 +3364,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               session: {
                 ok: true,
                 sessionId: 'session-1',
-                walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+                signingGrantId: WALLET_SIGNING_SESSION_ID,
                 jwt: 'jwt-ecdsa',
                 remainingUses: 3,
                 expiresAtMs: Date.now() + 60_000,
@@ -3400,7 +3400,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       });
       const lanePolicy = bootstrapLanePolicy(bootstrap || {});
       expect(String(lanePolicy.thresholdSessionId || '')).toMatch(/^threshold-ecdsa-login-/);
-      expect(lanePolicy.walletSigningSessionId).toBe(WALLET_SIGNING_SESSION_ID);
+      expect(lanePolicy.signingGrantId).toBe(WALLET_SIGNING_SESSION_ID);
       expect(bootstrap?.passkeyPrfFirstB64u).toBe(ECDSA_PRF_FIRST_B64U);
       expect(bootstrapEcdsaThresholdKeyId(bootstrap || {})).toBe(EVM_ECDSA_THRESHOLD_KEY_ID);
     } finally {
@@ -3650,7 +3650,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             capturedConnectArgs = args;
             persistReadyEd25519WarmRecord({
               sessionId: 'session-cookie-warm',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ed25519-cookie-authorized',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 3,
@@ -3658,7 +3658,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             return {
               ok: true,
               sessionId: 'session-cookie-warm',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ed25519-cookie-authorized',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
@@ -3685,7 +3685,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 participantIds: [1, 2],
                 thresholdSessionKind: String(lanePolicy.thresholdSessionKind || ''),
                 thresholdSessionId: 'session-cookie-ecdsa',
-                walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+                signingGrantId: WALLET_SIGNING_SESSION_ID,
               },
               keygen: {
                 ok: true,
@@ -3697,7 +3697,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               session: {
                 ok: true,
                 sessionId: 'session-cookie-ecdsa',
-                walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+                signingGrantId: WALLET_SIGNING_SESSION_ID,
                 jwt: 'jwt-ecdsa-cookie-authorized',
                 remainingUses: 3,
                 expiresAtMs: Date.now() + 60_000,

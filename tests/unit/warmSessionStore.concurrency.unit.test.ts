@@ -28,7 +28,7 @@ test.describe('WarmSessionStore concurrency', () => {
       nearAccountId: 'replace-passkey-target.testnet',
       chain: 'evm',
       sessionId: 'registration-ecdsa-session',
-      walletSigningSessionId: 'wsess-registration-ecdsa-session',
+      signingGrantId: 'wsess-registration-ecdsa-session',
     });
     seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'replace-passkey-target.testnet',
@@ -41,7 +41,7 @@ test.describe('WarmSessionStore concurrency', () => {
       nearAccountId: 'replace-passkey-target.testnet',
       chain: 'evm',
       sessionId: 'manual-ecdsa-session',
-      walletSigningSessionId: 'wsess-manual-ecdsa-session',
+      signingGrantId: 'wsess-manual-ecdsa-session',
       ecdsaThresholdKeyId: registrationBootstrap.keygen.ecdsaThresholdKeyId,
       keyHandle: registrationBootstrap.thresholdEcdsaKeyRef.keyHandle,
       signingRootId:
@@ -67,7 +67,7 @@ test.describe('WarmSessionStore concurrency', () => {
     expect(records).toHaveLength(1);
     expect(records[0]?.source).toBe('manual-bootstrap');
     expect(records[0]?.thresholdSessionId).toBe('manual-ecdsa-session');
-    expect(records[0]?.walletSigningSessionId).toBe('wsess-manual-ecdsa-session');
+    expect(records[0]?.signingGrantId).toBe('wsess-manual-ecdsa-session');
   });
 
   test('dedupes concurrent ensureEcdsaCapabilityReady reconnects for the same capability', async () => {

@@ -64,7 +64,7 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 
 function thresholdEcdsaSessionJwtFixture(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   keyHandle: string;
 }): string {
   return unsignedJwt({
@@ -75,7 +75,7 @@ function thresholdEcdsaSessionJwtFixture(args: {
     keyScope: 'evm-family',
     chainTarget: EVM_TARGET,
     sessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     exp: Math.floor(Date.now() / 1000) + 3600,
   });
 }
@@ -135,7 +135,7 @@ type EmailOtpExportRecordFixtureInput = {
   walletSessionJwt?: EmailOtpEcdsaSessionRecord['walletSessionJwt'];
   thresholdSessionKind?: EmailOtpEcdsaSessionRecord['thresholdSessionKind'];
   thresholdSessionId?: EmailOtpEcdsaSessionRecord['thresholdSessionId'];
-  walletSigningSessionId?: EmailOtpEcdsaSessionRecord['walletSigningSessionId'];
+  signingGrantId?: EmailOtpEcdsaSessionRecord['signingGrantId'];
   thresholdEcdsaPublicKeyB64u?: EmailOtpEcdsaSessionRecord['thresholdEcdsaPublicKeyB64u'];
 };
 
@@ -200,14 +200,14 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
       ? input.thresholdEcdsaPublicKeyB64u
       : PUBLIC_KEY_B64U;
   const thresholdSessionId = input.thresholdSessionId ?? 'threshold-session-1';
-  const walletSigningSessionId = input.walletSigningSessionId ?? 'wallet-signing-session-1';
+  const signingGrantId = input.signingGrantId ?? 'signing-grant-1';
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-export');
   const walletSessionJwt =
     'walletSessionJwt' in input
       ? input.walletSessionJwt
       : thresholdEcdsaSessionJwtFixture({
           thresholdSessionId,
-          walletSigningSessionId,
+          signingGrantId,
           keyHandle,
         });
   const record = {
@@ -227,7 +227,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     participantIds: [1, 2],
     thresholdSessionKind: input.thresholdSessionKind ?? 'jwt',
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     walletSessionJwt,
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 1,
@@ -255,7 +255,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
 
 function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
   const thresholdSessionId = 'threshold-session-1';
-  const walletSigningSessionId = 'wallet-signing-session-1';
+  const signingGrantId = 'signing-grant-1';
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-export');
   const record = {
     walletId: WALLET_ID,
@@ -270,10 +270,10 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt' as const,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     walletSessionJwt: thresholdEcdsaSessionJwtFixture({
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       keyHandle,
     }),
     expiresAtMs: 1_900_000_000_000,
@@ -307,7 +307,7 @@ async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<Exa
     session: {
       chainTarget: record.chainTarget,
       authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(record.walletSigningSessionId),
+      signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
       state: 'ready',
       source: 'runtime_session_record',
@@ -527,13 +527,13 @@ test.describe('ECDSA export material', () => {
       ecdsaThresholdKeyId: 'ehss-export-key-missing-public-key',
       thresholdEcdsaPublicKeyB64u: undefined,
       thresholdSessionId: 'threshold-session-2',
-      walletSigningSessionId: 'wallet-signing-session-2',
+      signingGrantId: 'signing-grant-2',
     });
     const selectedLane = await exactExportLane(
       makeRecord({
         ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
         thresholdSessionId: record.thresholdSessionId,
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
       }),
     );
 

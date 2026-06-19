@@ -36,7 +36,7 @@ export type RouterAbEd25519PresignPoolRefillPayload = {
   kind: 'router_ab_ed25519_presign_pool_refill_v1';
   relayUrl: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   relayerKeyId: string;
   nearAccountId: string;
   nearNetworkId: string;
@@ -433,7 +433,7 @@ function saveReadyPool(pool: Ed25519ClientPresignPoolState & { state: 'ready' })
 
 export function createRouterAbEd25519PresignScopeKey(input: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   relayerKeyId: string;
   nearAccountId: string;
   nearNetworkId: string;
@@ -450,7 +450,7 @@ export function createRouterAbEd25519PresignScopeKey(input: {
   if (!runtimePolicyScope) throw new Error('runtimePolicyScope is required');
   return [
     scopeKeyPart(input.thresholdSessionId, 'thresholdSessionId'),
-    scopeKeyPart(input.walletSigningSessionId, 'walletSigningSessionId'),
+    scopeKeyPart(input.signingGrantId, 'signingGrantId'),
     scopeKeyPart(input.relayerKeyId, 'relayerKeyId'),
     scopeKeyPart(input.nearAccountId, 'nearAccountId'),
     scopeKeyPart(input.nearNetworkId, 'nearNetworkId'),
@@ -536,7 +536,7 @@ export function scheduleRouterAbEd25519ClientPresignPoolRefill(
     const scopeKey = normalizeNonEmptyString<Ed25519PresignScopeKey>(
       createRouterAbEd25519PresignScopeKey({
         thresholdSessionId: payload.thresholdSessionId,
-        walletSigningSessionId: payload.walletSigningSessionId,
+        signingGrantId: payload.signingGrantId,
         relayerKeyId: payload.relayerKeyId,
         nearAccountId: payload.nearAccountId,
         nearNetworkId: payload.nearNetworkId,
@@ -658,7 +658,7 @@ export function applyRouterAbEd25519PresignPoolRefillResult(input: {
   const nowMs = input.nowMs ?? Date.now();
   const scopeKey = createRouterAbEd25519PresignScopeKey({
     thresholdSessionId: input.payload.thresholdSessionId,
-    walletSigningSessionId: input.payload.walletSigningSessionId,
+    signingGrantId: input.payload.signingGrantId,
     relayerKeyId: input.payload.relayerKeyId,
     nearAccountId: input.payload.nearAccountId,
     nearNetworkId: input.payload.nearNetworkId,
@@ -776,7 +776,7 @@ export function applyRouterAbEd25519PresignPoolRefillResult(input: {
 
 export function reserveRouterAbEd25519ReadyPresignForScope(input: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   relayerKeyId: string;
   nearAccountId: string;
   nearNetworkId: string;
@@ -810,7 +810,7 @@ export function reserveRouterAbEd25519ReadyPresignForScope(input: {
   try {
     scopeKey = createRouterAbEd25519PresignScopeKey({
       thresholdSessionId: input.thresholdSessionId,
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       relayerKeyId: input.relayerKeyId,
       nearAccountId: input.nearAccountId,
       nearNetworkId: input.nearNetworkId,

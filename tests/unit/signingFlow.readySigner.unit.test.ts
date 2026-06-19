@@ -47,7 +47,7 @@ const ECDSA_THRESHOLD_KEY_ID = 'ehss-shared-key';
 const SIGNING_ROOT_ID = 'project:dev';
 const SIGNING_ROOT_VERSION = 'default';
 const THRESHOLD_SESSION_ID = 'threshold-session-1';
-const WALLET_SIGNING_SESSION_ID = 'wallet-signing-session-1';
+const WALLET_SIGNING_SESSION_ID = 'signing-grant-1';
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -187,7 +187,7 @@ function makeThresholdKeyRef(
     thresholdSessionKind: 'jwt',
     walletSessionJwt: 'threshold-auth-token',
     thresholdSessionId: THRESHOLD_SESSION_ID,
-    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    signingGrantId: WALLET_SIGNING_SESSION_ID,
   };
   return {
     ...base,
@@ -223,7 +223,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
       keyHandle: publicFacts.keyHandle,
       walletId: WALLET_ID,
       authMethod: 'passkey',
-      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+      signingGrantId: WALLET_SIGNING_SESSION_ID,
       thresholdSessionId: THRESHOLD_SESSION_ID,
       chainTarget: EVM_TARGET,
     });
@@ -250,7 +250,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
       readiness: { status: 'ready', remainingUses: 1, expiresAtMs: EXPIRES_AT_MS },
       budgetAdmission: {
         budgetIdentity: {
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          signingGrantId: WALLET_SIGNING_SESSION_ID,
           projectionVersion: 'projection-1',
           status: {
             sessionId: WALLET_SIGNING_SESSION_ID,

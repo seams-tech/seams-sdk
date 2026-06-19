@@ -29,7 +29,7 @@ import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
   generateThresholdSessionId,
-  generateWalletSigningSessionId,
+  generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
@@ -165,7 +165,7 @@ function summarizeJwtClaims(jwtRaw: string | undefined): Record<string, unknown>
     walletId: payload.walletId,
     userId: payload.userId,
     sessionId: payload.sessionId,
-    walletSigningSessionId: payload.walletSigningSessionId,
+    signingGrantId: payload.signingGrantId,
     exp: payload.exp,
   };
 }
@@ -187,7 +187,7 @@ async function emitBootstrapChallengeDiagnostic(args: {
   challengeB64u?: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   challengeKind: 'ecdsa_role_local_bootstrap';
 }): Promise<void> {
   const challengeB64u = String(args.challengeB64u || '').trim();
@@ -200,7 +200,7 @@ async function emitBootstrapChallengeDiagnostic(args: {
       challengeHash8,
       requestId: args.requestId,
       thresholdSessionId: args.sessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
     });
   } catch {}
 }
@@ -679,7 +679,7 @@ type BootstrapEcdsaRegistrationArgs = BootstrapEcdsaSessionBaseArgs &
     bootstrapAuth?: ThresholdEcdsaHssRouteAuth;
     ecdsaThresholdKeyId?: string;
     sessionId?: string;
-    walletSigningSessionId?: string;
+    signingGrantId?: string;
   };
 
 type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
@@ -690,7 +690,7 @@ type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs &
     lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
     ecdsaThresholdKeyId?: never;
     sessionId?: never;
-    walletSigningSessionId?: never;
+    signingGrantId?: never;
   };
 
 type BootstrapEcdsaSessionArgs = BootstrapEcdsaRegistrationArgs | BootstrapEcdsaExactSessionArgs;
@@ -717,7 +717,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   participantIds: number[];
   chainId: number;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -794,9 +794,9 @@ export async function bootstrapEcdsaSession(
   const requestedSessionId = exactSessionBootstrap
     ? String(args.lanePolicy.thresholdSessionId).trim()
     : String(args.sessionId || '').trim();
-  const requestedWalletSigningSessionId = exactSessionBootstrap
-    ? String(args.lanePolicy.walletSigningSessionId).trim()
-    : String(args.walletSigningSessionId || '').trim();
+  const requestedSigningGrantId = exactSessionBootstrap
+    ? String(args.lanePolicy.signingGrantId).trim()
+    : String(args.signingGrantId || '').trim();
   const keyHandle = exactSessionBootstrap ? String(args.keyHandle).trim() : '';
   const ecdsaThresholdKeyId = exactSessionBootstrap
     ? ''
@@ -806,7 +806,7 @@ export async function bootstrapEcdsaSession(
     args.bootstrapAuth &&
     ecdsaThresholdKeyId &&
     requestedSessionId &&
-    requestedWalletSigningSessionId
+    requestedSigningGrantId
   ) {
     return {
       ok: false,
@@ -816,13 +816,13 @@ export async function bootstrapEcdsaSession(
   }
   if (
     exactSessionBootstrap &&
-    (!keyHandle || !requestedSessionId || !requestedWalletSigningSessionId)
+    (!keyHandle || !requestedSessionId || !requestedSigningGrantId)
   ) {
     return {
       ok: false,
       code: 'invalid_args',
       message:
-        'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and walletSigningSessionId',
+        'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and signingGrantId',
     };
   }
   try {
@@ -858,8 +858,8 @@ export async function bootstrapEcdsaSession(
         : normalizeThresholdRuntimePolicyScope(args.runtimePolicyScope)) ||
       managedBootstrapGrant?.runtimePolicyScope;
     const sessionId = requestedSessionId || generateThresholdSessionId();
-    const walletSigningSessionId =
-      requestedWalletSigningSessionId || generateWalletSigningSessionId();
+    const signingGrantId =
+      requestedSigningGrantId || generateSigningGrantId();
     const sessionPolicyChainTarget = exactSessionBootstrap
       ? args.lanePolicy.chainTarget
       : args.chainTarget;
@@ -910,7 +910,7 @@ export async function bootstrapEcdsaSession(
             relayerKeyId: exactBootstrapRelayerKeyId,
             requestId: keygenSessionId,
             sessionId,
-            walletSigningSessionId,
+            signingGrantId,
             ttlMs,
             remainingUses,
             participantIds: sessionPolicyParticipantIds || [1, 2],
@@ -930,7 +930,7 @@ export async function bootstrapEcdsaSession(
               relayerKeyId: firstBootstrapRelayerKeyId,
               requestId: keygenSessionId,
               sessionId,
-              walletSigningSessionId,
+              signingGrantId,
               ttlMs,
               remainingUses,
               participantIds: sessionPolicyParticipantIds || [1, 2],
@@ -951,7 +951,7 @@ export async function bootstrapEcdsaSession(
       challengeB64u,
       requestId: keygenSessionId,
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       challengeKind: 'ecdsa_role_local_bootstrap',
     });
     const secretSourceRequest = buildBootstrapSecretSourceRequest({
@@ -987,7 +987,7 @@ export async function bootstrapEcdsaSession(
         ? { ecdsaThresholdKeyId: ecdsaThresholdKeyId || firstBootstrapThresholdKeyId }
         : {}),
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       participantIds: sessionPolicyParticipantIds,
       ttlMs,
@@ -1014,7 +1014,7 @@ export async function bootstrapEcdsaSession(
         chainId: sessionPolicyChainTarget.chainId,
         plannedSessionPolicy: {
           sessionId: sessionPolicy.sessionId,
-          walletSigningSessionId: sessionPolicy.walletSigningSessionId,
+          signingGrantId: sessionPolicy.signingGrantId,
           remainingUses: sessionPolicy.remainingUses,
           ttlMs: sessionPolicy.ttlMs,
           participantCount: Array.isArray(sessionPolicy.participantIds)
@@ -1094,7 +1094,7 @@ export async function bootstrapEcdsaSession(
         contextBinding32B64u: prepared.clientBootstrap.contextBinding32B64u,
         requestId: keygenSessionId,
         sessionId,
-        walletSigningSessionId,
+        signingGrantId,
         ttlMs,
         remainingUses,
         participantIds: sessionPolicyParticipantIds || [1, 2],
@@ -1210,7 +1210,7 @@ export async function bootstrapEcdsaSession(
           ...hssDiagnosticIdentity,
           ok: true,
           sessionId: value.sessionId,
-          walletSigningSessionId: value.walletSigningSessionId,
+          signingGrantId: value.signingGrantId,
           keyHandle: value.keyHandle,
           signingRootId: value.signingRootId,
           signingRootVersion: value.signingRootVersion,
@@ -1249,7 +1249,7 @@ export async function bootstrapEcdsaSession(
             participantIds: value.participantIds,
             chainId: sessionPolicyChainTarget.chainId,
             sessionId: value.sessionId,
-            walletSigningSessionId: value.walletSigningSessionId,
+            signingGrantId: value.signingGrantId,
             expiresAtMs: value.expiresAtMs,
             remainingUses: value.remainingUses,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -1278,7 +1278,7 @@ export async function bootstrapEcdsaSession(
           participantIds: value.participantIds,
           chainId: sessionPolicyChainTarget.chainId,
           sessionId: value.sessionId,
-          walletSigningSessionId: value.walletSigningSessionId,
+          signingGrantId: value.signingGrantId,
           expiresAtMs: value.expiresAtMs,
           remainingUses: value.remainingUses,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -1307,7 +1307,7 @@ export async function bootstrapEcdsaSession(
           participantIds: value.participantIds,
           chainId: sessionPolicyChainTarget.chainId,
           sessionId: value.sessionId,
-          walletSigningSessionId: value.walletSigningSessionId,
+          signingGrantId: value.signingGrantId,
           expiresAtMs: value.expiresAtMs,
           remainingUses: value.remainingUses,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -1334,7 +1334,7 @@ export async function bootstrapEcdsaSession(
         participantIds: value.participantIds,
         chainId: sessionPolicyChainTarget.chainId,
         sessionId: value.sessionId,
-        walletSigningSessionId: value.walletSigningSessionId,
+        signingGrantId: value.signingGrantId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

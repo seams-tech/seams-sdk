@@ -30,14 +30,14 @@ function exactPurposeForAcceptedRecord(
   if (record.authMethod !== input.authMethod) return null;
   let exactRecord: SealedRecoveryRecord | null = null;
   let thresholdSessionId: string | null = null;
-  let walletSigningSessionId: string | null = null;
+  let signingGrantId: string | null = null;
 
   if (input.curve === 'ecdsa') {
     if (record.curve === 'ecdsa') {
       if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, input.chainTarget)) return null;
       exactRecord = record;
       thresholdSessionId = record.thresholdSessionId;
-      walletSigningSessionId = record.walletSigningSessionId;
+      signingGrantId = record.signingGrantId;
     } else if (
       record.curve === 'ed25519' &&
       record.authMethod === 'email_otp' &&
@@ -46,14 +46,14 @@ function exactPurposeForAcceptedRecord(
     ) {
       exactRecord = record.companionEcdsaRecovery;
       thresholdSessionId = record.companionEcdsaRecovery.thresholdSessionId;
-      walletSigningSessionId = record.companionEcdsaRecovery.walletSigningSessionId;
+      signingGrantId = record.companionEcdsaRecovery.signingGrantId;
     } else {
       return null;
     }
   } else if (record.curve === 'ed25519') {
     exactRecord = record;
     thresholdSessionId = record.thresholdSessionId;
-    walletSigningSessionId = record.walletSigningSessionId;
+    signingGrantId = record.signingGrantId;
   } else if (
     record.curve === 'ecdsa' &&
     record.authMethod === 'email_otp' &&
@@ -61,13 +61,13 @@ function exactPurposeForAcceptedRecord(
   ) {
     exactRecord = record;
     thresholdSessionId = record.companionEd25519Recovery.thresholdSessionId;
-    walletSigningSessionId = record.walletSigningSessionId;
+    signingGrantId = record.signingGrantId;
   } else {
     return null;
   }
 
-  if (!exactRecord || !thresholdSessionId || !walletSigningSessionId) return null;
-  if (walletSigningSessionId !== input.walletSigningSessionId) return null;
+  if (!exactRecord || !thresholdSessionId || !signingGrantId) return null;
+  if (signingGrantId !== input.signingGrantId) return null;
   if (thresholdSessionId !== input.thresholdSessionId) return null;
   return {
     record: exactRecord,
@@ -78,7 +78,7 @@ function exactPurposeForAcceptedRecord(
             authMethod: input.authMethod,
             curve: 'ecdsa',
             chainTarget: input.chainTarget,
-            walletSigningSessionId,
+            signingGrantId,
             thresholdSessionId,
             reason: input.reason,
           }
@@ -87,7 +87,7 @@ function exactPurposeForAcceptedRecord(
             authMethod: input.authMethod,
             curve: 'ed25519',
             chain: 'near',
-            walletSigningSessionId,
+            signingGrantId,
             thresholdSessionId,
             reason: input.reason,
           },
@@ -134,7 +134,7 @@ function listedPurposeForAcceptedRecord(args: {
           ? acceptedRecord
           : null;
     if (!ed25519Record) return [];
-    const walletSigningSessionId = ed25519Record.walletSigningSessionId;
+    const signingGrantId = ed25519Record.signingGrantId;
     const thresholdSessionId = (() => {
       if (ed25519Record.curve === 'ed25519') return ed25519Record.thresholdSessionId;
       const companionEd25519Recovery = ed25519Record.companionEd25519Recovery;
@@ -149,7 +149,7 @@ function listedPurposeForAcceptedRecord(args: {
           authMethod: ed25519Record.authMethod,
           curve: 'ed25519',
           chain: 'near',
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
           reason: args.reason,
         },
@@ -174,7 +174,7 @@ function listedPurposeForAcceptedRecord(args: {
   if (!ecdsaRecord) {
     return [];
   }
-  const walletSigningSessionId = ecdsaRecord.walletSigningSessionId;
+  const signingGrantId = ecdsaRecord.signingGrantId;
   return [
     {
       record: ecdsaRecord,
@@ -183,7 +183,7 @@ function listedPurposeForAcceptedRecord(args: {
         authMethod: ecdsaRecord.authMethod,
         curve: 'ecdsa',
         chainTarget: args.requestedChainTarget,
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: ecdsaRecord.thresholdSessionId,
         reason: args.reason,
       },

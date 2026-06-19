@@ -58,7 +58,7 @@ type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   chain: EcdsaLaneCandidate['chain'];
   chainTarget: ThresholdEcdsaChainTarget;
   state: EcdsaLaneCandidate['state'];
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   remainingUses: number | null;
   expiresAtMs: number | null;
@@ -255,8 +255,8 @@ function signingLaneFromExactLaneCandidate(
     keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
     chainTarget: candidate.chainTarget,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(
-      candidate.walletSigningSessionId,
+    signingGrantId: SigningSessionIds.signingGrant(
+      candidate.signingGrantId,
     ),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(candidate.thresholdSessionId),
   };
@@ -289,7 +289,7 @@ function laneCandidateDiagnosticsBase(
     chain: candidate.chain,
     chainTarget: candidate.chainTarget,
     state: candidate.state,
-    walletSigningSessionId: candidate.walletSigningSessionId,
+    signingGrantId: candidate.signingGrantId,
     thresholdSessionId: candidate.thresholdSessionId,
     remainingUses: candidate.remainingUses,
     expiresAtMs: candidate.expiresAtMs,

@@ -70,7 +70,7 @@ function createOperation() {
     ),
     intent: SigningOperationIntent.TransactionSign,
     accountId: 'nonce-coordinator.testnet',
-    walletSigningSessionId: 'wallet-session-nonce-coordinator',
+    signingGrantId: 'wallet-session-nonce-coordinator',
     chainFamily: 'tempo' as const,
   };
 }

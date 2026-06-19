@@ -71,7 +71,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
   const relayerKeyId = toOptionalTrimmedString(prepare?.relayerKeyId);
   const requestId = toOptionalTrimmedString(prepare?.requestId);
   const sessionId = toOptionalTrimmedString(prepare?.sessionId);
-  const walletSigningSessionId = toOptionalTrimmedString(prepare?.walletSigningSessionId);
+  const signingGrantId = toOptionalTrimmedString(prepare?.signingGrantId);
   const ttlMs = typeof prepare?.ttlMs === 'number' ? prepare.ttlMs : Number(prepare?.ttlMs);
   const remainingUses =
     typeof prepare?.remainingUses === 'number'
@@ -95,7 +95,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
     !relayerKeyId ||
     !requestId ||
     !sessionId ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !Number.isFinite(ttlMs) ||
     ttlMs < 0 ||
     !Number.isFinite(remainingUses) ||
@@ -119,7 +119,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
       relayerKeyId,
       requestId,
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       ttlMs: Math.floor(ttlMs),
       remainingUses: Math.floor(remainingUses),
       participantIds,

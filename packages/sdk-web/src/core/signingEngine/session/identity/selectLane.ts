@@ -169,8 +169,8 @@ function missingConcreteFields(
   ) {
     missing.push('authMethod');
   }
-  if (!('walletSigningSessionId' in lane) || !String(lane.walletSigningSessionId || '').trim()) {
-    missing.push('walletSigningSessionId');
+  if (!('signingGrantId' in lane) || !String(lane.signingGrantId || '').trim()) {
+    missing.push('signingGrantId');
   }
   if (!('thresholdSessionId' in lane) || !String(lane.thresholdSessionId || '').trim()) {
     missing.push('thresholdSessionId');
@@ -183,7 +183,7 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
     return selectedEd25519Lane({
       accountId: candidate.accountId,
       authMethod: candidate.authMethod,
-      walletSigningSessionId: candidate.walletSigningSessionId,
+      signingGrantId: candidate.signingGrantId,
       thresholdSessionId: candidate.thresholdSessionId,
     });
   }
@@ -192,7 +192,7 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
     keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
     authMethod: candidate.authMethod,
-    walletSigningSessionId: candidate.walletSigningSessionId,
+    signingGrantId: candidate.signingGrantId,
     thresholdSessionId: candidate.thresholdSessionId,
     chainTarget: candidate.chainTarget,
   });

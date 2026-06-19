@@ -39,7 +39,7 @@ function makePasskeyLane() {
     keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-step-up-passkey'),
     walletId,
     chainTarget,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-step-up-passkey'),
+    signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-passkey'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tehss-step-up-passkey'),
     storageSource: 'login',
   });
@@ -51,7 +51,7 @@ function makeEmailOtpLane() {
     keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-step-up-email-otp'),
     walletId,
     chainTarget,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-step-up-email-otp'),
+    signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-email-otp'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tehss-step-up-email-otp'),
   });
 }
@@ -61,7 +61,7 @@ test.describe('SigningSessionCoordinator ECDSA step-up preflight', () => {
     const lane = makePasskeyLane();
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: lane.walletSigningSessionId,
+        sessionId: lane.signingGrantId,
         status: 'budget_unknown',
         statusCode: 'status_unavailable',
       }),
@@ -88,7 +88,7 @@ test.describe('SigningSessionCoordinator ECDSA step-up preflight', () => {
     const lane = makeEmailOtpLane();
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: lane.walletSigningSessionId,
+        sessionId: lane.signingGrantId,
         status: 'unavailable',
       }),
     });

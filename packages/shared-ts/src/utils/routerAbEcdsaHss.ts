@@ -96,7 +96,7 @@ export type RouterAbEcdsaHssWalletRegistrationJwtBindingFactsV1 = {
   signingRootId: string;
   signingRootVersion: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   participantIds: readonly number[];
   contextBinding32B64u: string;
@@ -810,9 +810,9 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
     actual: payload.sessionId,
   });
   requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.walletSigningSessionId',
-    expected: expected.walletSigningSessionId,
-    actual: payload.walletSigningSessionId,
+    field: 'walletSessionJwt.signingGrantId',
+    expected: expected.signingGrantId,
+    actual: payload.signingGrantId,
   });
   requireWalletRegistrationMatchingNumber({
     field: 'walletSessionJwt.thresholdExpiresAtMs',

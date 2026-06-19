@@ -235,7 +235,7 @@ function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
     sessionId: 'ecdsa-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     keyScope: 'evm-family',
     relayerKeyId: 'relayer-key-1',
     keyHandle: 'ecdsa-key-handle-1',
@@ -257,8 +257,8 @@ function makeSigningSessionStatusPolicy(args?: {
   const claims = args?.claims || makeThresholdSessionClaims();
   const userId = String(claims.sub || 'alice.testnet');
   const sessionId = String(claims.sessionId || 'ecdsa-session-1');
-  const walletSigningSessionId = String(
-    claims.walletSigningSessionId || 'wallet-signing-session-1',
+  const signingGrantId = String(
+    claims.signingGrantId || 'signing-grant-1',
   );
   const rpId = String(claims.rpId || 'example.localhost');
   const relayerKeyId = String(claims.relayerKeyId || 'relayer-key-1');
@@ -281,7 +281,7 @@ function makeSigningSessionStatusPolicy(args?: {
     kind: 'wallet_budget' as const,
     curve: 'ecdsa' as const,
     thresholdSessionId: sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     userId,
     expiresAtMs,
     remainingUses: 7,
@@ -289,7 +289,7 @@ function makeSigningSessionStatusPolicy(args?: {
     rpId,
     participantIds,
   });
-  const walletBudgetId = `wallet-signing:${walletSigningSessionId}`;
+  const walletBudgetId = `wallet-signing:${signingGrantId}`;
   const statusById: Record<string, any | null> = {
     [sessionId]: makeThresholdStatus(sessionId, relayerKeyId),
     [walletBudgetId]: makeWalletBudgetStatus(walletBudgetId, 'wallet-signing-budget'),
@@ -326,14 +326,14 @@ function makeSigningSessionStatusPolicy(args?: {
       return status?.kind === 'threshold_session' ? [status] : [];
     },
     getWalletBudgetStatus: async ({
-      walletSigningSessionId: requestedWalletSigningSessionId,
+      signingGrantId: requestedSigningGrantId,
     }: {
       curve: 'ecdsa' | 'ed25519';
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
     }) => {
-      args?.onStatusRead?.(`wallet-signing:${requestedWalletSigningSessionId}`);
-      const walletStatus = statusById[`wallet-signing:${requestedWalletSigningSessionId}`] || null;
+      args?.onStatusRead?.(`wallet-signing:${requestedSigningGrantId}`);
+      const walletStatus = statusById[`wallet-signing:${requestedSigningGrantId}`] || null;
       return walletStatus?.kind === 'wallet_budget' ? walletStatus : null;
     },
     consumeUseCount: async ({
@@ -1176,7 +1176,7 @@ test.describe('Email OTP routes', () => {
         operation: 'export_key',
         sourceIp: expect.any(String),
         appSessionVersion:
-          'signing-session:threshold_ecdsa_session_v2:wallet-signing-session-1:ecdsa-session-1',
+          'signing-session:threshold_ecdsa_session_v2:signing-grant-1:ecdsa-session-1',
       });
       const issuedEvent = dispatched.find(
         (entry) => entry.eventType === 'wallet.email_otp.export_challenge_issued',
@@ -1197,7 +1197,7 @@ test.describe('Email OTP routes', () => {
         challengeId,
       });
       expect(statusReads).toContain('ecdsa-session-1');
-      expect(statusReads).toContain('wallet-signing:wallet-signing-session-1');
+      expect(statusReads).toContain('wallet-signing:signing-grant-1');
       expect(consumeUseCountCalls).toEqual([]);
     } finally {
       await srv.close();
@@ -1359,7 +1359,7 @@ test.describe('Email OTP routes', () => {
     const thresholdClaims = makeThresholdSessionClaims();
     const exhaustedThresholdClaims = makeThresholdSessionClaims({
       sessionId: 'exhausted-ecdsa-session',
-      walletSigningSessionId: 'exhausted-wallet-signing-session',
+      signingGrantId: 'exhausted-signing-grant',
     });
     const exhaustedSessionStatus = makeSigningSessionStatusPolicy({
       claims: exhaustedThresholdClaims,
@@ -1389,10 +1389,10 @@ test.describe('Email OTP routes', () => {
             }))?.[0] as any),
             remainingUses: 0,
           },
-          'wallet-signing:exhausted-wallet-signing-session': {
+          'wallet-signing:exhausted-signing-grant': {
             ...(await exhaustedSessionStatus.getWalletBudgetStatus?.({
               curve: 'ecdsa',
-              walletSigningSessionId: 'exhausted-wallet-signing-session',
+              signingGrantId: 'exhausted-signing-grant',
               thresholdSessionId: 'exhausted-ecdsa-session',
             }) as any),
             remainingUses: 0,

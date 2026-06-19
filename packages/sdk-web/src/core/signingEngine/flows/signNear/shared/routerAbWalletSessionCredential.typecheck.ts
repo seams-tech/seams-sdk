@@ -20,12 +20,12 @@ const validWalletSessionState = {
     walletSessionJwt: 'wallet-session-jwt',
   },
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   signingLane: buildNearTransactionSigningLane({
     accountId: 'alice.testnet',
     authMethod: 'passkey',
-    walletSigningSessionId:
-      SigningSessionIds.walletSigningSession('wallet-signing-session-1'),
+    signingGrantId:
+      SigningSessionIds.signingGrant('signing-grant-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
     storageSource: 'login',
   }),
@@ -56,7 +56,7 @@ const validWalletSessionState = {
       },
     },
     thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     remainingUses: 1,
     expiresAtMs: 1_900_000_000_000,
     signingMaterial: validSigningMaterial,
@@ -133,7 +133,7 @@ void obsoleteTopLevelRawMaterial;
 const validReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   nearAccountId: 'alice.testnet',
   relayerUrl: 'https://router.example',
   routerAbNormalSigning: {
@@ -163,7 +163,7 @@ void validReadyState;
 const missingRouterAbNormalSigning: RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   nearAccountId: 'alice.testnet',
   relayerUrl: 'https://router.example',
   signingWorkerId: 'signing-worker-a',
@@ -181,7 +181,7 @@ void missingRouterAbNormalSigning;
 const missingReadyMaterial: RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
   thresholdSessionId: validReadyState.thresholdSessionId,
-  walletSigningSessionId: validReadyState.walletSigningSessionId,
+  signingGrantId: validReadyState.signingGrantId,
   nearAccountId: validReadyState.nearAccountId,
   relayerUrl: validReadyState.relayerUrl,
   routerAbNormalSigning: validReadyState.routerAbNormalSigning,

@@ -51,7 +51,7 @@ void ({
   walletId,
   chainTarget,
   source: 'email_otp',
-  walletSigningSessionId: 'wallet-signing-session',
+  signingGrantId: 'signing-grant',
   thresholdSessionId: 'threshold-session',
   emailOtpRetention: 'session',
   emailOtpConsumedAtMs: null,

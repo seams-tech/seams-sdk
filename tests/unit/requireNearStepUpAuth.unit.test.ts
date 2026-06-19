@@ -20,7 +20,7 @@ test.describe('requireNearStepUpAuth', () => {
     };
     const signingLane = buildEd25519PasskeySigningLane({
       accountId: 'alice.testnet',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-warm'),
+      signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm'),
       storageSource: 'login',
     });
@@ -46,7 +46,7 @@ test.describe('requireNearStepUpAuth', () => {
     };
     const signingLane = buildEd25519EmailOtpSigningLane({
       accountId: 'alice.testnet',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-email'),
+      signingGrantId: SigningSessionIds.signingGrant('wallet-session-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
     const preparedUses: number[] = [];
@@ -80,7 +80,7 @@ test.describe('requireNearStepUpAuth', () => {
     };
     const signingLane = buildEd25519PasskeySigningLane({
       accountId: 'alice.testnet',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-passkey'),
+      signingGrantId: SigningSessionIds.signingGrant('wallet-session-passkey'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',
     });
@@ -95,7 +95,7 @@ test.describe('requireNearStepUpAuth', () => {
           preparedUses.push(requiredSignatureUses);
           return {
             sessionId: 'threshold-session-passkey',
-            walletSigningSessionId: 'wallet-session-passkey',
+            signingGrantId: 'wallet-session-passkey',
             sessionPolicyDigest32: 'digest-32',
           };
         },
@@ -108,7 +108,7 @@ test.describe('requireNearStepUpAuth', () => {
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyReconnect).toEqual({
       sessionId: 'threshold-session-passkey',
-      walletSigningSessionId: 'wallet-session-passkey',
+      signingGrantId: 'wallet-session-passkey',
       sessionPolicyDigest32: 'digest-32',
     });
   });

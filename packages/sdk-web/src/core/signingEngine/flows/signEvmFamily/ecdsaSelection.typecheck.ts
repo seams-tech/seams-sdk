@@ -35,7 +35,7 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
     chainTarget: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['material']['chainTarget'],
     identity: buildEcdsaSessionIdentity({
       thresholdSessionId: 'threshold-session-1',
-      walletSigningSessionId: 'wallet-signing-session-1',
+      signingGrantId: 'signing-grant-1',
     }),
     hasRecord: false,
   },

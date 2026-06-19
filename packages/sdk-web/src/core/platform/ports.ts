@@ -325,7 +325,7 @@ export type BootstrapEcdsaSessionRouteInput = {
   relayerKeyId: RelayerKeyId;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   sessionKind: 'jwt';
@@ -347,7 +347,7 @@ export type BootstrapEcdsaSessionRouteOutput = {
   relayerShareRetryCounter: number;
   participantIds: readonly [1, 2];
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
   walletSessionJwt: string;

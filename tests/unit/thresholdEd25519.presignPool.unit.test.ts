@@ -44,7 +44,7 @@ function payload(input?: {
     kind: 'router_ab_ed25519_presign_pool_refill_v1',
     relayUrl: 'https://relay.example',
     thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
+    signingGrantId: 'signing-grant-id',
     relayerKeyId: 'relayer-key',
     nearAccountId: 'alice.testnet',
     nearNetworkId: 'testnet',
@@ -76,7 +76,7 @@ function scopeKeyForPayload(
 ): Ed25519PresignScopeKey {
   return createRouterAbEd25519PresignScopeKey({
     thresholdSessionId: input.thresholdSessionId,
-    walletSigningSessionId: input.walletSigningSessionId,
+    signingGrantId: input.signingGrantId,
     relayerKeyId: input.relayerKeyId,
     nearAccountId: input.nearAccountId,
     nearNetworkId: input.nearNetworkId,
@@ -275,7 +275,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
     const base = scopeKeyForPayload(request);
     const variants = [
       { ...request, thresholdSessionId: 'threshold-session-next' },
-      { ...request, walletSigningSessionId: 'wallet-signing-session-next' },
+      { ...request, signingGrantId: 'signing-grant-next' },
       { ...request, relayerKeyId: 'relayer-key-next' },
       { ...request, participantIds: [1, 3] },
       payload({ clientVerifyingShareB64u: 'client-verifying-share-next' }),
@@ -375,7 +375,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
 
     const reservation = reserveRouterAbEd25519ReadyPresignForScope({
       thresholdSessionId: request.thresholdSessionId,
-      walletSigningSessionId: request.walletSigningSessionId,
+      signingGrantId: request.signingGrantId,
       relayerKeyId: request.relayerKeyId,
       nearAccountId: request.nearAccountId,
       nearNetworkId: request.nearNetworkId,
@@ -430,7 +430,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
 
     const miss = reserveRouterAbEd25519ReadyPresignForScope({
       thresholdSessionId: request.thresholdSessionId,
-      walletSigningSessionId: request.walletSigningSessionId,
+      signingGrantId: request.signingGrantId,
       relayerKeyId: request.relayerKeyId,
       nearAccountId: request.nearAccountId,
       nearNetworkId: request.nearNetworkId,
@@ -485,7 +485,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
 
     const reservation = reserveRouterAbEd25519ReadyPresignForScope({
       thresholdSessionId: request.thresholdSessionId,
-      walletSigningSessionId: request.walletSigningSessionId,
+      signingGrantId: request.signingGrantId,
       relayerKeyId: request.relayerKeyId,
       nearAccountId: request.nearAccountId,
       nearNetworkId: request.nearNetworkId,

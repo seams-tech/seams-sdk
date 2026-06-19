@@ -15,7 +15,7 @@ import {
 export async function runSuccessfulEvmFamilyPostSignCommands(args: {
   signingSessionPlan?: SigningSessionPlan;
   onTransition?: OperationTransitionObserver<SigningOperationTransitionEvent>;
-  recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
+  recordSuccessfulSigningGrantSpend: () => Promise<void>;
   applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
 }): Promise<void> {
   // EVM/Tempo touch-confirm flows return a signed raw transaction before broadcast.
@@ -24,7 +24,7 @@ export async function runSuccessfulEvmFamilyPostSignCommands(args: {
     !args.signingSessionPlan ||
     args.signingSessionPlan.kind === SigningSessionPlanKind.NotReady
   ) {
-    await args.recordSuccessfulWalletSigningSessionSpend();
+    await args.recordSuccessfulSigningGrantSpend();
     await args.applySuccessfulEcdsaPostSignPolicy();
     return;
   }
@@ -41,7 +41,7 @@ export async function runSuccessfulEvmFamilyPostSignCommands(args: {
     executor: {
       async execute(command: SigningOperationCommand) {
         if (command.kind === SigningOperationCommandKind.SpendBudget) {
-          await args.recordSuccessfulWalletSigningSessionSpend();
+          await args.recordSuccessfulSigningGrantSpend();
           return;
         }
         if (command.kind === SigningOperationCommandKind.Cleanup) {

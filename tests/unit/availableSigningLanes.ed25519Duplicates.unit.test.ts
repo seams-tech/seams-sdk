@@ -17,7 +17,7 @@ import {
 
 function sealedEd25519Record(args: {
   authMethod: 'email_otp' | 'passkey';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   updatedAtMs: number;
 }): SigningSessionSealedStoreRecord {
@@ -26,7 +26,7 @@ function sealedEd25519Record(args: {
     curve: 'ed25519',
     authMethod: args.authMethod,
     walletId: WALLET_ID,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     thresholdSessionIds: { ed25519: args.thresholdSessionId },
     sealedSecretB64u: 'sealed',
@@ -68,7 +68,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       curve: 'ed25519',
       chain: 'near',
       state: 'missing',
-      walletSigningSessionId: 'wallet-session-mixed',
+      signingGrantId: 'wallet-session-mixed',
       thresholdSessionId: 'threshold-session-mixed',
     } as never;
     const missingEcdsaWithIdentity = {
@@ -76,7 +76,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       curve: 'ecdsa',
       chainTarget: ECDSA_TARGET,
       state: 'missing',
-      walletSigningSessionId: 'wallet-session-mixed',
+      signingGrantId: 'wallet-session-mixed',
       thresholdSessionId: 'threshold-session-mixed',
     } as never;
 
@@ -89,13 +89,13 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       sealedRecords: [
         sealedEd25519Record({
           authMethod: 'email_otp',
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
           updatedAtMs: 100,
         }),
         sealedEd25519Record({
           authMethod: 'email_otp',
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
           updatedAtMs: 200,
         }),
@@ -106,7 +106,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     expect(availableLanes.candidates.ed25519.near[0]).toMatchObject({
       authMethod: 'email_otp',
       source: 'durable_sealed_record',
-      walletSigningSessionId: 'wsess-1',
+      signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
       updatedAtMs: 200,
     });
@@ -117,7 +117,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       sealedRecords: [
         sealedEd25519Record({
           authMethod: 'email_otp',
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
           updatedAtMs: 100,
         }),
@@ -128,7 +128,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           curve: 'ed25519',
           chain: 'near',
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },
       ],
@@ -150,7 +150,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       authMethod: 'email_otp',
       state: 'ready',
       source: 'runtime_and_durable',
-      walletSigningSessionId: 'wsess-1',
+      signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
       remainingUses: 1,
     });
@@ -163,7 +163,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           authMethod: 'passkey',
           curve: 'ed25519',
           chain: 'near',
-          walletSigningSessionId: 'wsess-stale-router-ab',
+          signingGrantId: 'wsess-stale-router-ab',
           thresholdSessionId: 'tsess-stale-router-ab',
         } as never,
       ],
@@ -189,7 +189,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
         reason: 'missing_router_ab_state',
         source: 'runtime_session_record',
         thresholdSessionId: 'tsess-stale-router-ab',
-        walletSigningSessionId: 'wsess-stale-router-ab',
+        signingGrantId: 'wsess-stale-router-ab',
       },
     ]);
   });
@@ -199,7 +199,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       authMethod: 'email_otp',
       chainTarget: ECDSA_TARGET,
       thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
-      walletSigningSessionId: 'wsess-ecdsa-stale-router-ab',
+      signingGrantId: 'wsess-ecdsa-stale-router-ab',
       thresholdOwnerAddress: `0x${'33'.repeat(20)}`,
     });
     const {
@@ -234,7 +234,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
         reason: 'missing_router_ab_state',
         source: 'runtime_session_record',
         thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
-        walletSigningSessionId: 'wsess-ecdsa-stale-router-ab',
+        signingGrantId: 'wsess-ecdsa-stale-router-ab',
       },
     ]);
   });
@@ -247,7 +247,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           curve: 'ed25519',
           chain: 'near',
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },
         {
@@ -255,7 +255,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           curve: 'ed25519',
           chain: 'near',
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },
       ],
@@ -284,13 +284,13 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       sealedRecords: [
         sealedEd25519Record({
           authMethod: 'email_otp',
-          walletSigningSessionId: 'wsess-1',
+          signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
           updatedAtMs: 100,
         }),
         sealedEd25519Record({
           authMethod: 'email_otp',
-          walletSigningSessionId: 'wsess-2',
+          signingGrantId: 'wsess-2',
           thresholdSessionId: 'tsess-2',
           updatedAtMs: 200,
         }),
@@ -313,7 +313,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           authMethod: 'email_otp',
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
-          walletSigningSessionId: 'wsess-email-otp-runtime-exhausted',
+          signingGrantId: 'wsess-email-otp-runtime-exhausted',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           remainingUses: 0,
         }),
@@ -328,7 +328,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       source: 'runtime_session_record',
       state: 'exhausted',
       remainingUses: 0,
-      walletSigningSessionId: 'wsess-email-otp-runtime-exhausted',
+      signingGrantId: 'wsess-email-otp-runtime-exhausted',
       thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
     });
     expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
@@ -338,7 +338,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       sourceChainTarget: ECDSA_TARGET,
       state: 'exhausted',
       remainingUses: 0,
-      walletSigningSessionId: 'wsess-email-otp-runtime-exhausted',
+      signingGrantId: 'wsess-email-otp-runtime-exhausted',
       thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
     });
   });
@@ -353,7 +353,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           authMethod: 'email_otp',
           chainTarget: ECDSA_TARGET,
           thresholdSessionId,
-          walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+          signingGrantId: 'wsess-email-otp-runtime-ready',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           remainingUses: 1,
         }),
@@ -379,7 +379,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       source: 'runtime_session_record',
       state: 'ready',
       remainingUses: 1,
-      walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+      signingGrantId: 'wsess-email-otp-runtime-ready',
       thresholdSessionId,
     });
     expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
@@ -389,7 +389,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       sourceChainTarget: ECDSA_TARGET,
       state: 'ready',
       remainingUses: 1,
-      walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+      signingGrantId: 'wsess-email-otp-runtime-ready',
       thresholdSessionId,
     });
   });
@@ -402,13 +402,13 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
         runtimeEcdsaRecord({
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-arc',
-          walletSigningSessionId: 'wsess-arc',
+          signingGrantId: 'wsess-arc',
           thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
         }),
         runtimeEcdsaRecord({
           chainTarget: TEMPO_TARGET,
           thresholdSessionId: 'tsess-tempo',
-          walletSigningSessionId: 'wsess-tempo',
+          signingGrantId: 'wsess-tempo',
           thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
         }),
       ],
@@ -430,14 +430,14 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
         runtimeEcdsaRecord({
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-arc',
-          walletSigningSessionId: 'wsess-arc',
+          signingGrantId: 'wsess-arc',
           thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
           ecdsaThresholdKeyId: 'shared-ecdsa-key-1',
         }),
         runtimeEcdsaRecord({
           chainTarget: TEMPO_TARGET,
           thresholdSessionId: 'tsess-tempo',
-          walletSigningSessionId: 'wsess-tempo',
+          signingGrantId: 'wsess-tempo',
           thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
           ecdsaThresholdKeyId: 'shared-ecdsa-key-2',
         }),

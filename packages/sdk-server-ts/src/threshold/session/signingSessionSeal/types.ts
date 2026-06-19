@@ -128,7 +128,7 @@ export interface SigningSessionSealThresholdSessionStatus
 
 export interface SigningSessionSealWalletBudgetStatus extends SigningSessionSealThresholdSessionRecord {
   kind: 'wallet_budget';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   committedRemainingUses: number;
   reservedUses: number;
   availableUses: number;
@@ -148,12 +148,12 @@ export type SigningSessionSealThresholdStatusLookup =
 export type SigningSessionSealWalletBudgetStatusLookup =
   | {
       curve: 'ecdsa';
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
     }
   | {
       curve: 'ed25519';
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
     };
 

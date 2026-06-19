@@ -319,7 +319,7 @@ const emailOtpEcdsaExportPayload: EmailOtpEcdsaExportPayload = {
   relayerKeyId: 'relayer-key',
   readyRecord: emailOtpEcdsaExportReadyRecord,
   thresholdSessionId: 'threshold-session',
-  walletSigningSessionId: 'wallet-signing-session',
+  signingGrantId: 'signing-grant',
   thresholdExpiresAtMs: 1_900_000_000_000,
   participantIds: [1, 2],
   keyHandle: 'key-handle',

@@ -11,7 +11,7 @@ deps.readEmailOtpEcdsaSessionRecord?.({
   chainTarget,
   keyHandle: 'key-handle-1',
   thresholdSessionId: 'threshold-session-id',
-  walletSigningSessionId: 'wallet-signing-session-id',
+  signingGrantId: 'signing-grant-id',
 });
 
 deps.readPasskeyEcdsaSessionRecord?.({
@@ -20,7 +20,7 @@ deps.readPasskeyEcdsaSessionRecord?.({
   storageSource: 'login',
   keyHandle: 'key-handle-1',
   thresholdSessionId: 'threshold-session-id',
-  walletSigningSessionId: 'wallet-signing-session-id',
+  signingGrantId: 'signing-grant-id',
 });
 
 // @ts-expect-error keyHandle is required for Email OTP ECDSA session reads.
@@ -28,10 +28,10 @@ deps.readEmailOtpEcdsaSessionRecord?.({
   walletId,
   chainTarget,
   thresholdSessionId: 'threshold-session-id',
-  walletSigningSessionId: 'wallet-signing-session-id',
+  signingGrantId: 'signing-grant-id',
 });
 
-// @ts-expect-error walletSigningSessionId is required for passkey ECDSA session reads.
+// @ts-expect-error signingGrantId is required for passkey ECDSA session reads.
 deps.readPasskeyEcdsaSessionRecord?.({
   walletId,
   chainTarget,

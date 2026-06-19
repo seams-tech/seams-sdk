@@ -37,7 +37,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
     const consumed = await (
       svc as unknown as {
         consumeWalletOrCurveSessionUse(input: {
-          walletSigningSessionId?: string;
+          signingGrantId?: string;
           curve: 'ed25519' | 'ecdsa';
           curveSessionId: string;
           curveStore: typeof walletSessionStore;
@@ -45,7 +45,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         }): Promise<{ ok: boolean; code?: string; message?: string; remainingUses?: number }>;
       }
     ).consumeWalletOrCurveSessionUse({
-      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+      signingGrantId: WALLET_SIGNING_SESSION_ID,
       curve: 'ed25519',
       curveSessionId: CURVE_SESSION_ID,
       curveStore: walletSessionStore,
@@ -93,7 +93,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
       (
         svc as unknown as {
           consumeWalletOrCurveSessionUse(input: {
-            walletSigningSessionId?: string;
+            signingGrantId?: string;
             curve: 'ed25519' | 'ecdsa';
             curveSessionId: string;
             curveStore: typeof walletSessionStore;
@@ -101,7 +101,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
           }): Promise<{ ok: boolean; code?: string; message?: string; remainingUses?: number }>;
         }
       ).consumeWalletOrCurveSessionUse({
-        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+        signingGrantId: WALLET_SIGNING_SESSION_ID,
         curve: 'ed25519',
         curveSessionId: CURVE_SESSION_ID,
         curveStore: walletSessionStore,

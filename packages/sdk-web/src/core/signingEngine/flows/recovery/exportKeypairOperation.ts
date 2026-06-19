@@ -59,7 +59,7 @@ function emitEcdsaExportFailureDiagnostics(args: {
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
       ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
-      walletSigningSessionId: args.exportLane?.session.walletSigningSessionId,
+      signingGrantId: args.exportLane?.session.signingGrantId,
       thresholdSessionId: args.exportLane?.session.thresholdSessionId,
       budgetProjectionVersion: undefined,
       freshAuthRetrySideEffectState: 'not_applicable',

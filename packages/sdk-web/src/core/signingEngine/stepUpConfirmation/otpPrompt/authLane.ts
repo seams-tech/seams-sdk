@@ -3,12 +3,12 @@ import type { WalletEmailOtpOperation } from '@shared/utils/emailOtpDomain';
 import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 
-export type AuthorizingWalletSigningSessionId = string & {
-  readonly __brand: 'AuthorizingWalletSigningSessionId';
+export type AuthorizingSigningGrantId = string & {
+  readonly __brand: 'AuthorizingSigningGrantId';
 };
 
-export type MintedWalletSigningSessionId = string & {
-  readonly __brand: 'MintedWalletSigningSessionId';
+export type MintedSigningGrantId = string & {
+  readonly __brand: 'MintedSigningGrantId';
 };
 
 export type EmailOtpAuthLane =
@@ -21,14 +21,14 @@ export type EmailOtpSigningSessionAuthLane =
       kind: 'signing_session';
       jwt: string;
       thresholdSessionId: string;
-      authorizingWalletSigningSessionId: AuthorizingWalletSigningSessionId;
+      authorizingSigningGrantId: AuthorizingSigningGrantId;
       curve: 'ed25519';
     }
   | {
       kind: 'signing_session';
       jwt: string;
       thresholdSessionId: string;
-      authorizingWalletSigningSessionId: AuthorizingWalletSigningSessionId;
+      authorizingSigningGrantId: AuthorizingSigningGrantId;
       curve: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
     };
@@ -46,7 +46,7 @@ export type ResolveEmailOtpAuthLaneArgs = {
   appSessionJwt?: string;
   routeAuth?: AppOrWalletSessionAuth;
   thresholdSessionId?: string;
-  authorizingWalletSigningSessionId?: string;
+  authorizingSigningGrantId?: string;
   curve?: 'ed25519' | 'ecdsa';
   chainTarget?: ThresholdEcdsaChainTarget;
 };
@@ -55,41 +55,41 @@ function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
 }
 
-export function toAuthorizingWalletSigningSessionId(
+export function toAuthorizingSigningGrantId(
   value: unknown,
-): AuthorizingWalletSigningSessionId {
+): AuthorizingSigningGrantId {
   const normalized = nonEmptyString(value);
   if (!normalized) {
     throw new Error('Email OTP auth lane requires authorizing wallet signing-session identity');
   }
-  return normalized as AuthorizingWalletSigningSessionId;
+  return normalized as AuthorizingSigningGrantId;
 }
 
-export function toMintedWalletSigningSessionId(value: unknown): MintedWalletSigningSessionId {
+export function toMintedSigningGrantId(value: unknown): MintedSigningGrantId {
   const normalized = nonEmptyString(value);
   if (!normalized) {
     throw new Error('Email OTP minting requires wallet signing-session identity');
   }
-  return normalized as MintedWalletSigningSessionId;
+  return normalized as MintedSigningGrantId;
 }
 
 function buildEmailOtpSigningSessionAuthLane(args: {
   jwt: unknown;
   thresholdSessionId: unknown;
-  authorizingWalletSigningSessionId: unknown;
+  authorizingSigningGrantId: unknown;
   curve: unknown;
   chainTarget?: ThresholdEcdsaChainTarget;
 }): EmailOtpSigningSessionAuthLane | undefined {
   const jwt = nonEmptyString(args.jwt);
   const thresholdSessionId = nonEmptyString(args.thresholdSessionId);
-  const authorizingWalletSigningSessionId = nonEmptyString(
-    args.authorizingWalletSigningSessionId,
+  const authorizingSigningGrantId = nonEmptyString(
+    args.authorizingSigningGrantId,
   );
-  if (!jwt || !thresholdSessionId || !authorizingWalletSigningSessionId) {
+  if (!jwt || !thresholdSessionId || !authorizingSigningGrantId) {
     console.warn('[EmailOtpAuthLane] rejected incomplete signing-session auth lane', {
       hasAuthToken: !!jwt,
       thresholdSessionId,
-      authorizingWalletSigningSessionId,
+      authorizingSigningGrantId,
       curve: args.curve,
       chainTarget: args.chainTarget,
     });
@@ -100,8 +100,8 @@ function buildEmailOtpSigningSessionAuthLane(args: {
       kind: 'signing_session',
       jwt,
       thresholdSessionId,
-      authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
-        authorizingWalletSigningSessionId,
+      authorizingSigningGrantId: toAuthorizingSigningGrantId(
+        authorizingSigningGrantId,
       ),
       curve: 'ed25519',
     };
@@ -111,8 +111,8 @@ function buildEmailOtpSigningSessionAuthLane(args: {
       kind: 'signing_session',
       jwt,
       thresholdSessionId,
-      authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
-        authorizingWalletSigningSessionId,
+      authorizingSigningGrantId: toAuthorizingSigningGrantId(
+        authorizingSigningGrantId,
       ),
       curve: 'ecdsa',
       chainTarget: args.chainTarget,
@@ -122,7 +122,7 @@ function buildEmailOtpSigningSessionAuthLane(args: {
     '[EmailOtpAuthLane] rejected signing-session auth lane with invalid curve or chain target',
     {
       thresholdSessionId,
-      authorizingWalletSigningSessionId,
+      authorizingSigningGrantId,
       curve: args.curve,
       chainTarget: args.chainTarget,
     },
@@ -144,7 +144,7 @@ export function resolveEmailOtpAuthLane(
     return buildEmailOtpSigningSessionAuthLane({
       jwt: args.routeAuth.jwt,
       thresholdSessionId: args.thresholdSessionId,
-      authorizingWalletSigningSessionId: args.authorizingWalletSigningSessionId,
+      authorizingSigningGrantId: args.authorizingSigningGrantId,
       curve: args.curve,
       chainTarget: args.chainTarget,
     });
@@ -230,7 +230,7 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
       kind?: unknown;
       jwt?: unknown;
       thresholdSessionId?: unknown;
-      authorizingWalletSigningSessionId?: unknown;
+      authorizingSigningGrantId?: unknown;
       curve?: unknown;
       chainTarget?: ThresholdEcdsaChainTarget;
     };
@@ -248,7 +248,7 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
     authLane = buildEmailOtpSigningSessionAuthLane({
       jwt: input.authLane?.jwt,
       thresholdSessionId: input.authLane?.thresholdSessionId,
-      authorizingWalletSigningSessionId: input.authLane?.authorizingWalletSigningSessionId,
+      authorizingSigningGrantId: input.authLane?.authorizingSigningGrantId,
       curve: input.authLane?.curve,
       chainTarget: input.authLane?.chainTarget,
     });

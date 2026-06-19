@@ -20,7 +20,7 @@ import type {
   VerifiedGoogleEmail,
   WalletId,
   WalletKeyId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from './domainIds';
 
 declare const walletId: WalletId;
@@ -32,7 +32,7 @@ declare const orgId: OrgId;
 declare const appSessionVersion: AppSessionVersion;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
-declare const walletSigningSessionId: WalletSigningSessionId;
+declare const signingGrantId: SigningGrantId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const thresholdEcdsaSessionId: ThresholdEcdsaSessionId;
 declare const walletKeyId: WalletKeyId;
@@ -82,7 +82,7 @@ function acceptsAppSessionVersion(value: AppSessionVersion): void {
   void value;
 }
 
-function acceptsWalletSigningSessionId(value: WalletSigningSessionId): void {
+function acceptsSigningGrantId(value: SigningGrantId): void {
   void value;
 }
 
@@ -144,7 +144,7 @@ acceptsOrgId(orgId);
 acceptsAppSessionVersion(appSessionVersion);
 acceptsEmailOtpChallengeId(emailOtpChallengeId);
 acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
-acceptsWalletSigningSessionId(walletSigningSessionId);
+acceptsSigningGrantId(signingGrantId);
 acceptsThresholdEd25519SessionId(thresholdEd25519SessionId);
 acceptsThresholdEcdsaSessionId(thresholdEcdsaSessionId);
 acceptsWalletKeyId(walletKeyId);
@@ -192,13 +192,13 @@ acceptsEmailOtpChallengeId(registrationAttemptId);
 acceptsEmailOtpRegistrationAttemptId(emailOtpChallengeId);
 
 // @ts-expect-error Wallet signing-session ids are not threshold Ed25519 session ids.
-acceptsThresholdEd25519SessionId(walletSigningSessionId);
+acceptsThresholdEd25519SessionId(signingGrantId);
 
 // @ts-expect-error Threshold Ed25519 and ECDSA session ids are curve-specific.
 acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
 
 // @ts-expect-error Threshold ECDSA session ids are not wallet signing-session ids.
-acceptsWalletSigningSessionId(thresholdEcdsaSessionId);
+acceptsSigningGrantId(thresholdEcdsaSessionId);
 
 // @ts-expect-error Wallet keys are not wallet ids.
 acceptsWalletId(walletKeyId);
@@ -207,10 +207,10 @@ acceptsWalletId(walletKeyId);
 acceptsWalletKeyId(walletId);
 
 // @ts-expect-error Signing lanes are not wallet signing sessions.
-acceptsWalletSigningSessionId(signingLaneId);
+acceptsSigningGrantId(signingLaneId);
 
 // @ts-expect-error Wallet signing sessions are not signing lanes.
-acceptsSigningLaneId(walletSigningSessionId);
+acceptsSigningLaneId(signingGrantId);
 
 // @ts-expect-error Lane share epochs are not signing lanes.
 acceptsSigningLaneId(laneShareEpoch);

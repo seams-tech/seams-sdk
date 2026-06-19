@@ -65,7 +65,7 @@ export type EvmFamilySharedEcdsaUnavailableState = {
   sourceChainTarget?: never;
   publishedTargets?: never;
   sharedPublicFacts?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   thresholdSessionId?: never;
   signerMaterial?: never;
 };
@@ -77,7 +77,7 @@ export type EvmFamilySharedEcdsaPublicIdentityOnlyState = {
   sourceChainTarget: ThresholdEcdsaChainTarget;
   publishedTargets: readonly ThresholdEcdsaChainTarget[];
   sharedPublicFacts: VerifiedEcdsaPublicFacts;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   thresholdSessionId?: never;
   signerMaterial?: never;
 };
@@ -89,7 +89,7 @@ export type EvmFamilySharedEcdsaRestorableState = {
   sourceChainTarget: ThresholdEcdsaChainTarget;
   publishedTargets: readonly ThresholdEcdsaChainTarget[];
   sharedPublicFacts: VerifiedEcdsaPublicFacts;
-  walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+  signingGrantId: EcdsaSessionIdentity['signingGrantId'];
   thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
   restore:
     | { kind: 'email_otp_worker'; workerSessionId: string; credentialIdB64u?: never }
@@ -104,7 +104,7 @@ export type EvmFamilySharedEcdsaReadyState = {
   sourceChainTarget: ThresholdEcdsaChainTarget;
   publishedTargets: readonly ThresholdEcdsaChainTarget[];
   sharedPublicFacts: VerifiedEcdsaPublicFacts;
-  walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+  signingGrantId: EcdsaSessionIdentity['signingGrantId'];
   thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
   remainingSignatureUses: PositiveSignatureUses;
   expiresAtMs: FutureEpochMs;
@@ -119,7 +119,7 @@ export type EvmFamilySharedEcdsaExportReadyState = {
   sourceChainTarget: ThresholdEcdsaChainTarget;
   publishedTargets: readonly ThresholdEcdsaChainTarget[];
   sharedPublicFacts: VerifiedEcdsaPublicFacts;
-  walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+  signingGrantId: EcdsaSessionIdentity['signingGrantId'];
   thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
   exportMaterial: { kind: 'canonical_export_artifact'; artifactPresent: true };
   signerMaterial?: never;
@@ -209,7 +209,7 @@ export type EcdsaMaterialSummary = {
   source: ThresholdEcdsaSessionStoreSource;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   evmFamilyKeyFingerprint?: string;
   hasRecord: boolean;
   publicIdentityPresent: boolean;
@@ -245,7 +245,7 @@ export function buildEcdsaMaterialStateForCandidate(
   }
   const identity = buildEcdsaSessionIdentity({
     thresholdSessionId: args.candidate.thresholdSessionId,
-    walletSigningSessionId: args.candidate.walletSigningSessionId,
+    signingGrantId: args.candidate.signingGrantId,
   });
   const base = {
     authMethod: args.authMethod,
@@ -268,7 +268,7 @@ export function buildEcdsaMaterialStateForCandidate(
       authMethod: args.authMethod,
       source: args.source,
       thresholdSessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
+      signingGrantId: identity.signingGrantId,
     },
   });
   if (readyResolution.kind === 'ready') {
@@ -346,7 +346,7 @@ export function buildEcdsaMaterialStateForResolvedLane(args: {
       authMethod: args.authMethod,
       curve: 'ecdsa',
       chain: args.lane.chainFamily,
-      walletSigningSessionId: String(args.lane.walletSigningSessionId),
+      signingGrantId: String(args.lane.signingGrantId),
       thresholdSessionId: String(args.lane.thresholdSessionId),
       state: 'ready',
       remainingUses: null,
@@ -429,7 +429,7 @@ export function summarizeEcdsaMaterialState(state: EcdsaMaterialState): EcdsaMat
     source: state.source,
     chainTarget: state.chainTarget,
     thresholdSessionId: state.identity.thresholdSessionId,
-    walletSigningSessionId: state.identity.walletSigningSessionId,
+    signingGrantId: state.identity.signingGrantId,
     ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
     hasRecord: state.kind === 'public_identity_unavailable' ? state.hasRecord : true,
     publicIdentityPresent,
@@ -448,7 +448,7 @@ export function summarizeVisibleEcdsaMaterial(args: {
   if (!record) return { present: false };
   const identity = buildEcdsaSessionIdentity({
     thresholdSessionId: record.thresholdSessionId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
   });
   const readyResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
@@ -459,7 +459,7 @@ export function summarizeVisibleEcdsaMaterial(args: {
       authMethod: args.authMethod,
       source: args.source,
       thresholdSessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
+      signingGrantId: identity.signingGrantId,
     },
   });
   return summarizeEcdsaMaterialState(
@@ -478,7 +478,7 @@ export function summarizeVisibleEcdsaMaterial(args: {
         authMethod: args.authMethod,
         curve: 'ecdsa',
         chain: args.chainTarget.kind,
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
         thresholdSessionId: record.thresholdSessionId,
         state: 'ready',
         remainingUses: record.remainingUses,
@@ -554,7 +554,7 @@ function buildReadySharedEcdsaState(args: {
     sourceChainTarget: args.sourceChainTarget,
     publishedTargets: uniqueChainTargets([args.sourceChainTarget, args.chainTarget]),
     sharedPublicFacts: args.publicFacts,
-    walletSigningSessionId: args.material.lane.walletSigningSessionId,
+    signingGrantId: args.material.lane.signingGrantId,
     thresholdSessionId: args.material.lane.thresholdSessionId,
     remainingSignatureUses: positiveSignatureUses(args.material.lane.remainingUses),
     expiresAtMs: futureEpochMs(args.material.lane.expiresAtMs),
@@ -690,7 +690,7 @@ export function materialIdentityMatchesResolvedLane(args: {
   const laneKeyHandle = String(args.lane.keyHandle || '').trim();
   return (
     String(args.lane.thresholdSessionId) === args.state.identity.thresholdSessionId &&
-    String(args.lane.walletSigningSessionId) === args.state.identity.walletSigningSessionId &&
+    String(args.lane.signingGrantId) === args.state.identity.signingGrantId &&
     materialKeyHandle === laneKeyHandle &&
     String(args.state.record.keyHandle || '').trim() === laneKeyHandle &&
     thresholdEcdsaChainTargetsEqual(args.lane.chainTarget, args.state.chainTarget)

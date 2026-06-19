@@ -27,7 +27,7 @@ type PersistWarmSessionEd25519CapabilityCommon = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds: readonly number[];
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
   clientVerifyingShareB64u?: string;
@@ -63,14 +63,14 @@ export function persistWarmSessionEd25519Capability(
   args: PersistWarmSessionEd25519CapabilityArgs,
 ): ThresholdEd25519SessionRecord {
   const sessionId = String(args.sessionId || '').trim();
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
   const remainingUses = normalizePositiveInteger(args.remainingUses) ?? 0;
   if (!sessionId) {
     throw new Error('Missing sessionId for warm threshold-ed25519 capability');
   }
-  if (!walletSigningSessionId) {
-    throw new Error('Missing walletSigningSessionId for warm threshold-ed25519 capability');
+  if (!signingGrantId) {
+    throw new Error('Missing signingGrantId for warm threshold-ed25519 capability');
   }
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('Invalid expiresAtMs for warm threshold-ed25519 capability');
@@ -118,7 +118,7 @@ export function persistWarmSessionEd25519Capability(
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     ...(jwt ? { walletSessionJwt: jwt } : {}),
     expiresAtMs,
     remainingUses,
@@ -136,7 +136,7 @@ export function persistWarmSessionEd25519Capability(
     authMethod,
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId: sessionId,
   });
   return record;

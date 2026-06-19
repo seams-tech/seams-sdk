@@ -42,7 +42,7 @@ const laneIdentity = exactEcdsaSigningLaneIdentity({
   chainTarget,
   key,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
-  walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session'),
+  signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
   thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
 });
 
@@ -106,7 +106,7 @@ const missingOperationFingerprint: FreshStepUpRequired = {
   curve: 'ecdsa',
   laneIdentity,
   laneIdentityKey: satisfied.laneIdentityKey,
-  walletSigningSessionId: satisfied.walletSigningSessionId,
+  signingGrantId: satisfied.signingGrantId,
   thresholdSessionIds: satisfied.thresholdSessionIds,
   projection: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
   expiry: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },

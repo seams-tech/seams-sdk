@@ -34,7 +34,7 @@ import {
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
-  generateWalletSigningSessionId,
+  generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
@@ -90,7 +90,7 @@ export type RegisteredThresholdEd25519SessionAuth =
 
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   ttlMs: number;
   remainingUses: number;
   participantIds?: number[];
@@ -104,7 +104,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     rpId: string;
     relayerKeyId?: string;
     sessionId: string;
-    walletSigningSessionId?: string;
+    signingGrantId?: string;
     participantIds?: number[];
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     routerAbNormalSigning: RouterAbEd25519NormalSigningState;
@@ -148,7 +148,7 @@ export type PersistRegisteredThresholdEd25519SessionArgs =
 type ThresholdWarmSessionRelayResult = {
   sessionKind?: string;
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   expiresAtMs?: number;
   participantIds?: number[];
   remainingUses?: number;
@@ -213,12 +213,12 @@ export function createThresholdWarmSessionPolicyDraft(
   const defaults = resolveThresholdWarmSessionDefaults(context);
   if (!defaults) return null;
   const sessionId = String(input?.sessionId || '').trim() || generateThresholdSessionId();
-  const walletSigningSessionId = generateWalletSigningSessionId();
+  const signingGrantId = generateSigningGrantId();
   const participantIds = normalizeThresholdEd25519ParticipantIds(input?.participantIds);
   const routerAbNormalSigning = createRouterAbNormalSigningPolicy(context.configs);
   return {
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     ttlMs: defaults.ttlMs,
     remainingUses: defaults.remainingUses,
     ...(participantIds ? { participantIds } : {}),
@@ -244,8 +244,8 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       rpId,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       sessionId,
-      ...(args.requestedPolicy.walletSigningSessionId
-        ? { walletSigningSessionId: args.requestedPolicy.walletSigningSessionId }
+      ...(args.requestedPolicy.signingGrantId
+        ? { signingGrantId: args.requestedPolicy.signingGrantId }
         : {}),
       ...(Array.isArray(args.requestedPolicy.participantIds)
         ? { participantIds: args.requestedPolicy.participantIds }
@@ -475,12 +475,12 @@ export function completeRegisteredThresholdEd25519Registration(args: {
   if (sessionId !== String(args.expectedSessionPolicy.sessionId || '').trim()) {
     throw new Error('threshold-ed25519 sessionId mismatch');
   }
-  const walletSigningSessionId = String(session?.walletSigningSessionId || '').trim();
-  const expectedWalletSigningSessionId = String(
-    args.expectedSessionPolicy.walletSigningSessionId || args.expectedSessionPolicy.sessionId || '',
+  const signingGrantId = String(session?.signingGrantId || '').trim();
+  const expectedSigningGrantId = String(
+    args.expectedSessionPolicy.signingGrantId || args.expectedSessionPolicy.sessionId || '',
   ).trim();
-  if (walletSigningSessionId && walletSigningSessionId !== expectedWalletSigningSessionId) {
-    throw new Error('threshold-ed25519 walletSigningSessionId mismatch');
+  if (signingGrantId && signingGrantId !== expectedSigningGrantId) {
+    throw new Error('threshold-ed25519 signingGrantId mismatch');
   }
 
   return {
@@ -603,9 +603,9 @@ export async function persistRegisteredThresholdEd25519Session(
   }
   const sessionId = String(session.sessionId || '').trim();
   const jwt = String(session.jwt || '').trim();
-  const walletSigningSessionId =
-    String(session.walletSigningSessionId || '').trim() ||
-    String(args.registrationSessionPolicy.walletSigningSessionId || '').trim() ||
+  const signingGrantId =
+    String(session.signingGrantId || '').trim() ||
+    String(args.registrationSessionPolicy.signingGrantId || '').trim() ||
     String(args.registrationSessionPolicy.sessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const remainingUsesRaw =
@@ -635,7 +635,7 @@ export async function persistRegisteredThresholdEd25519Session(
   if (
     !sessionId ||
     !jwt ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !runtimePolicyScope ||
     !signingRootId ||
     !signingRootVersion ||
@@ -669,7 +669,7 @@ export async function persistRegisteredThresholdEd25519Session(
       participantIds,
       sessionKind: 'jwt',
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       expiresAtMs,
       remainingUses,
       jwt,
@@ -697,7 +697,7 @@ export async function persistRegisteredThresholdEd25519Session(
       participantIds,
       sessionKind: 'jwt',
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       expiresAtMs,
       remainingUses,
       jwt,
@@ -727,7 +727,7 @@ export async function persistRegisteredThresholdEd25519Session(
       curve: 'ed25519',
       walletId: String(args.nearAccountId),
       relayerUrl: args.relayerUrl,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      ...(signingGrantId ? { signingGrantId } : {}),
       ...(jwt ? { walletSessionJwt: jwt } : {}),
     },
   });
@@ -773,11 +773,11 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   if (!relayerUrl || !relayerKeyId || !keyVersion) {
     throw new Error('Threshold Ed25519 warm-session reconstruction is missing relay metadata');
   }
-  const walletSigningSessionId = String(args.session.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.session.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(args.session.expiresAtMs));
   const signingWorkerId = String(args.session.routerAbNormalSigning?.signingWorkerId || '').trim();
   if (
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !signingRootVersion ||
     !Number.isFinite(expiresAtMs) ||
     expiresAtMs <= 0
@@ -833,7 +833,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
       },
       materialBinding: {
         thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
         signingRootId,
         signingRootVersion,
         expiresAtMs,
@@ -958,7 +958,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
         remainingUses: sessionRecord.remainingUses,
         jwt: walletSessionJwt,
         runtimePolicyScope: sessionRecord.runtimePolicyScope,
-        walletSigningSessionId: sessionRecord.walletSigningSessionId,
+        signingGrantId: sessionRecord.signingGrantId,
         routerAbNormalSigning: sessionRecord.routerAbNormalSigning,
       },
       keyVersion: thresholdKeyMaterial.keyVersion,
@@ -1003,9 +1003,9 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   const sessionId =
     String(args.session?.sessionId || '').trim() ||
     String(args.requestedPolicy.sessionId || '').trim();
-  const walletSigningSessionId =
-    String(args.session?.walletSigningSessionId || '').trim() ||
-    String(args.requestedPolicy.walletSigningSessionId || '').trim() ||
+  const signingGrantId =
+    String(args.session?.signingGrantId || '').trim() ||
+    String(args.requestedPolicy.signingGrantId || '').trim() ||
     String(args.requestedPolicy.sessionId || '').trim();
   const walletSessionJwt = String(args.session?.jwt || '').trim();
   const expiresAtMs = Number(args.session?.expiresAtMs);
@@ -1048,7 +1048,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     participantIds,
     sessionKind: 'jwt',
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
     jwt: walletSessionJwt,
@@ -1067,7 +1067,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
       curve: 'ed25519',
       walletId: String(args.nearAccountId),
       relayerUrl: String(args.relayerUrl || '').trim(),
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      ...(signingGrantId ? { signingGrantId } : {}),
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
     },
   });

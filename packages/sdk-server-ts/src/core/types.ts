@@ -673,7 +673,7 @@ export type WalletRegistrationEcdsaPreparePayload = {
     registrationPreparationId?: RegistrationPreparationId;
     requestId: string;
     sessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     ttlMs: number;
     remainingUses: number;
     participantIds: number[];
@@ -696,7 +696,7 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -930,7 +930,7 @@ export type WalletRegistrationFinalizeResponse =
 export type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   expiresAt?: string;
   participantIds?: number[];
@@ -1468,7 +1468,7 @@ export interface CreateAccountAndRegisterResult {
     session?: {
       sessionKind: 'jwt' | 'cookie';
       sessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       expiresAtMs: number;
       expiresAt?: string;
       participantIds?: number[];
@@ -1585,7 +1585,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   /** Optional participant ids that scope the session to a signer set. */
@@ -1610,7 +1610,7 @@ export interface ThresholdEd25519SessionResponse {
   code?: string;
   message?: string;
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   /** Server-enforced expiry (ms since epoch). */
   expiresAtMs?: number;
   expiresAt?: string;
@@ -1725,7 +1725,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   relayerVerifyingShareB64u?: string;
   chainId?: number;
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
@@ -1808,7 +1808,7 @@ interface EcdsaHssClientBootstrapRequestBase {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -1849,7 +1849,7 @@ export interface EcdsaHssServerBootstrapResponse {
   relayerVerifyingShareB64u: string;
   participantIds: number[];
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
@@ -1916,7 +1916,7 @@ export type EcdsaSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
@@ -1932,7 +1932,7 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];

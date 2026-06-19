@@ -30,7 +30,7 @@ export type EcdsaHssStableKeyPrfContext = {
   readonly ecdsaThresholdKeyId: string;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
-  readonly walletSigningSessionId?: never;
+  readonly signingGrantId?: never;
   readonly thresholdSessionId?: never;
   readonly keyPurpose: string;
   readonly keyVersion: string;

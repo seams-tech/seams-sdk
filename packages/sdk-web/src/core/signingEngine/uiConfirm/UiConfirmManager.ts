@@ -396,7 +396,7 @@ function makeWarmSessionSingleFlightKey(args: {
   curve?: 'ed25519' | 'ecdsa';
   walletId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
 }): string {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return '';
@@ -406,7 +406,7 @@ function makeWarmSessionSingleFlightKey(args: {
     String(args.curve || '').trim(),
     String(args.walletId || '').trim(),
     args.chainTarget ? thresholdEcdsaChainTargetKey(args.chainTarget) : '',
-    String(args.walletSigningSessionId || '').trim(),
+    String(args.signingGrantId || '').trim(),
     thresholdSessionId,
   ].join('|');
 }
@@ -661,7 +661,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         sealedSecretB64u: existing.sealedSecretB64u,
         curve: 'ecdsa',
         authMethod: 'passkey',
-        walletSigningSessionId: existing.walletSigningSessionId,
+        signingGrantId: existing.signingGrantId,
         thresholdSessionIds: existing.thresholdSessionIds,
         walletId,
         relayerUrl,
@@ -687,7 +687,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         sealedSecretB64u: existing.sealedSecretB64u,
         curve: 'ed25519',
         authMethod: 'passkey',
-        walletSigningSessionId: existing.walletSigningSessionId,
+        signingGrantId: existing.signingGrantId,
         thresholdSessionIds: existing.thresholdSessionIds,
         walletId,
         ...(refreshedMetadata.signingRootId
@@ -831,7 +831,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       walletId?: string;
       chainTarget?: ThresholdEcdsaChainTarget;
       relayerUrl?: string;
-      walletSigningSessionId?: string;
+      signingGrantId?: string;
       walletSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -882,11 +882,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         walletSessionJwtFromPersistedSessionAuthRecord(ecdsaRecord) ||
         '',
     ).trim();
-    const walletSigningSessionId = String(
-      explicitTransport?.walletSigningSessionId ||
-        sealedRecord?.walletSigningSessionId ||
-        ed25519Record?.walletSigningSessionId ||
-        ecdsaRecord?.walletSigningSessionId ||
+    const signingGrantId = String(
+      explicitTransport?.signingGrantId ||
+        sealedRecord?.signingGrantId ||
+        ed25519Record?.signingGrantId ||
+        ecdsaRecord?.signingGrantId ||
         '',
     ).trim();
     const walletId = String(
@@ -919,7 +919,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ...(walletId ? { walletId } : {}),
         chainTarget,
         relayerUrl,
-        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+        ...(signingGrantId ? { signingGrantId } : {}),
         ...(walletSessionJwt ? { walletSessionJwt } : {}),
         ...(keyVersion ? { keyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
@@ -930,7 +930,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       curve,
       ...(walletId ? { walletId } : {}),
       relayerUrl,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      ...(signingGrantId ? { signingGrantId } : {}),
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
       ...(keyVersion ? { keyVersion } : {}),
       ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
@@ -1064,7 +1064,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       authMethod: 'passkey',
       curve,
       ...(chainTarget ? { chainTarget } : {}),
-      walletSigningSessionId: args.purpose.walletSigningSessionId,
+      signingGrantId: args.purpose.signingGrantId,
     });
 
     const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);
@@ -1116,7 +1116,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             walletId: args.walletId,
             ...(chainTarget ? { chainTarget } : {}),
             relayerUrl: args.record.relayerUrl,
-            walletSigningSessionId: args.purpose.walletSigningSessionId,
+            signingGrantId: args.purpose.signingGrantId,
             keyVersion: args.record.keyVersion,
             shamirPrimeB64u: args.record.shamirPrimeB64u,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
@@ -1501,14 +1501,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         message: 'Missing curve for signing-session seal persistence',
       };
     }
-    const walletSigningSessionId = String(
-      args?.transport?.walletSigningSessionId || inferredTransport?.walletSigningSessionId || '',
+    const signingGrantId = String(
+      args?.transport?.signingGrantId || inferredTransport?.signingGrantId || '',
     ).trim();
-    if (!walletSigningSessionId) {
+    if (!signingGrantId) {
       return {
         ok: false,
         code: 'invalid_args',
-        message: 'Missing walletSigningSessionId for signing-session seal persistence',
+        message: 'Missing signingGrantId for signing-session seal persistence',
       };
     }
     let ecdsaTransportChainTarget: ThresholdEcdsaChainTarget | undefined;
@@ -1570,7 +1570,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       authMethod,
       curve,
       ...(chainTarget ? { chainTarget } : {}),
-      walletSigningSessionId,
+      signingGrantId,
     });
     const inFlight = signingSessionSealPersistSingleFlight.get(singleFlightKey);
     if (inFlight) {
@@ -1578,7 +1578,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         thresholdSessionId,
         authMethod,
         curve,
-        walletSigningSessionId,
+        signingGrantId,
       });
       return await inFlight;
     }
@@ -1620,7 +1620,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             sealedSecretB64u: existingRecord.sealedSecretB64u,
             curve: 'ecdsa',
             authMethod,
-            walletSigningSessionId,
+            signingGrantId,
             thresholdSessionIds: existingRecord.thresholdSessionIds,
             walletId,
             relayerUrl,
@@ -1646,7 +1646,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             sealedSecretB64u: existingRecord.sealedSecretB64u,
             curve: 'ed25519',
             authMethod,
-            walletSigningSessionId,
+            signingGrantId,
             thresholdSessionIds: existingRecord.thresholdSessionIds,
             walletId,
             ...(refreshedMetadata.signingRootId
@@ -1731,7 +1731,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               curve,
               chainTarget: chainTarget!,
               relayerUrl,
-              walletSigningSessionId,
+              signingGrantId,
               ...(walletSessionJwt ? { walletSessionJwt } : {}),
               ...(keyVersion ? { keyVersion } : {}),
               shamirPrimeB64u,
@@ -1739,7 +1739,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           : {
               curve,
               relayerUrl,
-              walletSigningSessionId,
+              signingGrantId,
               ...(walletSessionJwt ? { walletSessionJwt } : {}),
               ...(keyVersion ? { keyVersion } : {}),
               shamirPrimeB64u,
@@ -1760,7 +1760,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           sealedSecretB64u: sealed.sealedSecretB64u,
           curve: 'ecdsa',
           authMethod,
-          walletSigningSessionId,
+          signingGrantId,
           walletId,
           ecdsaRestore: recordMetadata.ecdsaRestore,
           ...(recordMetadata.ed25519Restore
@@ -1784,7 +1784,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           sealedSecretB64u: sealed.sealedSecretB64u,
           curve: 'ed25519',
           authMethod,
-          walletSigningSessionId,
+          signingGrantId,
           walletId,
           ...(recordMetadata.signingRootId
             ? { signingRootId: recordMetadata.signingRootId }

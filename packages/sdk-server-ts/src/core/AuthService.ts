@@ -876,7 +876,7 @@ type ThresholdEd25519RegistrationInput = {
 type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   expiresAt?: string;
   participantIds?: number[];
@@ -889,7 +889,7 @@ type ThresholdEd25519BootstrapSession = {
 type ThresholdEcdsaBootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   subjectId?: string;
   keyHandle?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
@@ -1458,7 +1458,7 @@ function isMatchingEcdsaClientBootstrap(
     actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
     actual.sessionId === expected.sessionId &&
-    actual.walletSigningSessionId === expected.walletSigningSessionId &&
+    actual.signingGrantId === expected.signingGrantId &&
     actual.ttlMs === expected.ttlMs &&
     actual.remainingUses === expected.remainingUses &&
     JSON.stringify(actual.participantIds) === JSON.stringify(expected.participantIds) &&
@@ -1491,7 +1491,7 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
 
 function toThresholdEd25519BootstrapSession(session: {
   sessionId?: unknown;
-  walletSigningSessionId?: unknown;
+  signingGrantId?: unknown;
   expiresAtMs?: unknown;
   expiresAt?: unknown;
   participantIds?: unknown;
@@ -1501,18 +1501,18 @@ function toThresholdEd25519BootstrapSession(session: {
   jwt?: unknown;
 }): ThresholdEd25519BootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
-  const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
+  const signingGrantId = String(session.signingGrantId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     session.routerAbNormalSigning,
   );
-  if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
+  if (!sessionId || !signingGrantId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
     return null;
   return {
     sessionKind: 'jwt',
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs: Number(expiresAtMs),
     ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
       ? { expiresAt: session.expiresAt.trim() }
@@ -1529,7 +1529,7 @@ function toThresholdEd25519BootstrapSession(session: {
 
 function toThresholdEcdsaBootstrapSession(session: {
   sessionId?: unknown;
-  walletSigningSessionId?: unknown;
+  signingGrantId?: unknown;
   subjectId?: unknown;
   keyHandle?: unknown;
   chainTarget?: unknown;
@@ -1541,18 +1541,18 @@ function toThresholdEcdsaBootstrapSession(session: {
   jwt?: unknown;
 }): ThresholdEcdsaBootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
-  const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
+  const signingGrantId = String(session.signingGrantId || '').trim();
   const subjectId = String(session.subjectId || '').trim();
   const keyHandle = String(session.keyHandle || '').trim();
   const chainTarget = thresholdEcdsaChainTargetFromValue(session.chainTarget);
   const expiresAtMs = Number(session.expiresAtMs);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
-  if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
+  if (!sessionId || !signingGrantId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
     return null;
   return {
     sessionKind: 'jwt',
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     ...(subjectId ? { subjectId } : {}),
     ...(keyHandle ? { keyHandle } : {}),
     ...(chainTarget ? { chainTarget } : {}),
@@ -5802,7 +5802,7 @@ export class AuthService {
           : {}),
         requestId: `${input.registrationCeremonyId}:ecdsa`,
         sessionId: `tehss_${randomBase64Url(24)}`,
-        walletSigningSessionId: `wss_${randomBase64Url(24)}`,
+        signingGrantId: `wss_${randomBase64Url(24)}`,
         ttlMs: 10 * 60_000,
         remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
         participantIds: [...input.participantIds],
@@ -8573,7 +8573,7 @@ export class AuthService {
           relayerKeyId,
           requestId: `${addSignerCeremonyId}:ecdsa`,
           sessionId: `tehss_${randomBase64Url(24)}`,
-          walletSigningSessionId: `wss_${randomBase64Url(24)}`,
+          signingGrantId: `wss_${randomBase64Url(24)}`,
           ttlMs: 10 * 60_000,
           remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
           participantIds: selection.ecdsa.participantIds,
@@ -14568,7 +14568,7 @@ export class AuthService {
       session?: {
         sessionKind: 'jwt' | 'cookie';
         sessionId: string;
-        walletSigningSessionId: string;
+        signingGrantId: string;
         expiresAtMs: number;
         expiresAt?: string;
         participantIds?: number[];
@@ -15079,7 +15079,7 @@ export class AuthService {
           session?: {
             sessionKind: 'jwt' | 'cookie';
             sessionId: string;
-            walletSigningSessionId: string;
+            signingGrantId: string;
             expiresAtMs: number;
             expiresAt?: string;
             participantIds?: number[];
@@ -15579,7 +15579,7 @@ export class AuthService {
           session?: {
             sessionKind: 'jwt' | 'cookie';
             sessionId: string;
-            walletSigningSessionId: string;
+            signingGrantId: string;
             expiresAtMs: number;
             expiresAt?: string;
             participantIds?: number[];

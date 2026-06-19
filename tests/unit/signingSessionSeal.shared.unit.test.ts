@@ -29,7 +29,7 @@ test.describe('shared signing-session seal specs', () => {
       authMethod: 'email_otp',
       secretKind: SIGNING_SESSION_SECRET_KIND,
       storeKey: 'wallet-session-1:email_otp:ecdsa',
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       thresholdSessionIds: {
         ed25519: 'ed-session',
         ecdsa: 'ec-session',
@@ -92,7 +92,7 @@ test.describe('shared signing-session seal specs', () => {
         userId: 'user-1',
         signingRootId: 'root',
         signingRootVersion: 'root-v1',
-        walletSigningSessionId: 'wallet-session',
+        signingGrantId: 'wallet-session',
       }),
     ).toEqual(['alice.testnet', 'user-1', 'root', 'root-v1', 'wallet-session', 'email_otp']);
     expect(
@@ -101,7 +101,7 @@ test.describe('shared signing-session seal specs', () => {
         userId: 'user-1',
         signingRootId: 'root',
         signingRootVersion: 'root-v1',
-        walletSigningSessionId: 'wallet-session',
+        signingGrantId: 'wallet-session',
       }),
     ).toEqual(['email_otp', 'alice.testnet', 'user-1', 'root', 'root-v1', 'wallet-session']);
     expect(

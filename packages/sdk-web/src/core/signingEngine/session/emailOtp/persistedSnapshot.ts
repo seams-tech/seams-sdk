@@ -56,7 +56,7 @@ function runtimeEcdsaRecordBoundaryKey(
     thresholdOwnerAddress,
     participantIds,
     publicKeyB64u,
-    record.walletSigningSessionId,
+    record.signingGrantId,
     record.thresholdSessionId,
   ]
     .map((part) => String(part))
@@ -147,7 +147,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
             thresholdSessionId: runtimeLane.thresholdSessionId,
-            walletSigningSessionId: runtimeLane.walletSigningSessionId,
+            signingGrantId: runtimeLane.signingGrantId,
             ...(runtimeLane.remainingUses == null
               ? {}
               : { remainingUses: runtimeLane.remainingUses }),
@@ -183,7 +183,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             chain: 'near',
             routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
-            walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+            signingGrantId: String(runtimeRecord.signingGrantId || '').trim(),
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
@@ -209,8 +209,8 @@ export async function readEmailOtpPersistedSessionSnapshot(
             if (
               String(storedRecord.walletId) !== String(runtimeRecord.key.walletId) ||
               String(storedRecord.keyHandle) !== String(runtimeRecord.keyHandle) ||
-              String(storedRecord.walletSigningSessionId || '').trim() !==
-                String(runtimeRecord.walletSigningSessionId || '').trim()
+              String(storedRecord.signingGrantId || '').trim() !==
+                String(runtimeRecord.signingGrantId || '').trim()
             ) {
               claims.set(claimKey, null);
               return;

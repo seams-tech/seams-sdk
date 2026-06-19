@@ -94,12 +94,12 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   if (!isObject(raw)) return undefined;
   const sessionKind = toOptionalTrimmedString(raw.sessionKind);
   const sessionId = toOptionalTrimmedString(raw.sessionId);
-  const walletSigningSessionId = toOptionalTrimmedString(raw.walletSigningSessionId);
+  const signingGrantId = toOptionalTrimmedString(raw.signingGrantId);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
   if (
     (sessionKind !== 'jwt' && sessionKind !== 'cookie') ||
     !sessionId ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !expiresAtMs
   ) {
     return undefined;
@@ -112,7 +112,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   return {
     sessionKind,
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     ...(expiresAt ? { expiresAt } : {}),
     ...(participantIds ? { participantIds } : {}),
@@ -170,7 +170,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     relayerKeyId: toOptionalTrimmedString(prepare.relayerKeyId),
     requestId: toOptionalTrimmedString(prepare.requestId),
     sessionId: toOptionalTrimmedString(prepare.sessionId),
-    walletSigningSessionId: toOptionalTrimmedString(prepare.walletSigningSessionId),
+    signingGrantId: toOptionalTrimmedString(prepare.signingGrantId),
   };
   if (
     required.formatVersion !== 'ecdsa-hss-role-local' ||
@@ -183,7 +183,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     !required.relayerKeyId ||
     !required.requestId ||
     !required.sessionId ||
-    !required.walletSigningSessionId ||
+    !required.signingGrantId ||
     ttlMs === undefined ||
     remainingUses === undefined ||
     !participantIds
@@ -204,7 +204,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
       relayerKeyId: required.relayerKeyId,
       requestId: required.requestId,
       sessionId: required.sessionId,
-      walletSigningSessionId: required.walletSigningSessionId,
+      signingGrantId: required.signingGrantId,
       ttlMs,
       remainingUses,
       participantIds,

@@ -144,7 +144,7 @@ type RouterAbWalletSessionJwtSigningInput = {
   sessionInfo: {
     sessionKind: 'jwt';
     sessionId?: unknown;
-    walletSigningSessionId?: unknown;
+    signingGrantId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
@@ -191,7 +191,7 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
   return {
     sessionKind: 'jwt',
     sessionId: input.sessionId,
-    walletSigningSessionId: input.walletSigningSessionId,
+    signingGrantId: input.signingGrantId,
     expiresAtMs: input.expiresAtMs,
     participantIds: input.participantIds,
     runtimePolicyScope: input.runtimePolicyScope,
@@ -219,7 +219,7 @@ type NormalizedRouterAbWalletSessionSigningBase = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdExpiresAtMs: number;
   participantIds: number[];
   iat: number;
@@ -238,7 +238,7 @@ function normalizeRouterAbWalletSessionSigningBase(
   const rpId = String(args.rpId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const sessionId = String(args.sessionInfo?.sessionId || '').trim();
-  const walletSigningSessionId = String(args.sessionInfo?.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.sessionInfo?.signingGrantId || '').trim();
   const thresholdExpiresAtMs = Number(args.sessionInfo?.expiresAtMs);
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
@@ -249,7 +249,7 @@ function normalizeRouterAbWalletSessionSigningBase(
     !rpId ||
     !relayerKeyId ||
     !sessionId ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !Number.isFinite(thresholdExpiresAtMs) ||
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
@@ -270,7 +270,7 @@ function normalizeRouterAbWalletSessionSigningBase(
       rpId,
       relayerKeyId,
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdExpiresAtMs,
       participantIds,
       iat: Math.floor(Date.now() / 1000),
@@ -549,7 +549,7 @@ export async function signRouterAbEd25519WalletSessionJwt(
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     walletId: base.value.userId,
     sessionId: base.value.sessionId,
-    walletSigningSessionId: base.value.walletSigningSessionId,
+    signingGrantId: base.value.signingGrantId,
     relayerKeyId: base.value.relayerKeyId,
     rpId: base.value.rpId,
     runtimePolicyScope: binding.runtimePolicyScope,
@@ -593,7 +593,7 @@ export async function signRouterAbEcdsaHssWalletSessionJwt(
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     walletId: base.value.userId,
     sessionId: base.value.sessionId,
-    walletSigningSessionId: base.value.walletSigningSessionId,
+    signingGrantId: base.value.signingGrantId,
     keyScope: 'evm-family',
     keyHandle,
     relayerKeyId: base.value.relayerKeyId,

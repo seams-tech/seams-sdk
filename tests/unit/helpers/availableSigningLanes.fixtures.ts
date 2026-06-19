@@ -109,7 +109,7 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 
 export function thresholdEcdsaSessionJwtFixture(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   keyHandle: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   kind?:
@@ -124,13 +124,13 @@ export function thresholdEcdsaSessionJwtFixture(args: {
     keyScope: 'evm-family',
     ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
     sessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
   });
 }
 
 export function sealedEcdsaAvailableLaneRecord(args: {
   authMethod?: 'email_otp' | 'passkey';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   updatedAtMs: number;
   restoreMetadata?: 'valid' | 'missing' | 'missing_rp_id';
@@ -158,7 +158,7 @@ export function sealedEcdsaAvailableLaneRecord(args: {
       ? {
           walletSessionJwt: thresholdEcdsaSessionJwtFixture({
             thresholdSessionId: args.thresholdSessionId,
-            walletSigningSessionId: args.walletSigningSessionId,
+            signingGrantId: args.signingGrantId,
             chainTarget,
             keyHandle,
           }),
@@ -180,11 +180,11 @@ export function sealedEcdsaAvailableLaneRecord(args: {
   };
   if (restoreMetadata !== 'valid') {
     return {
-      storeKey: `${authMethod}:${args.walletSigningSessionId}:${args.thresholdSessionId}:${args.updatedAtMs}:ecdsa`,
+      storeKey: `${authMethod}:${args.signingGrantId}:${args.thresholdSessionId}:${args.updatedAtMs}:ecdsa`,
       curve: 'ecdsa',
       authMethod,
       walletId: AVAILABLE_LANES_WALLET_ID,
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       thresholdSessionId: args.thresholdSessionId,
       thresholdSessionIds: { ecdsa: args.thresholdSessionId },
       sealedSecretB64u: 'sealed',
@@ -212,7 +212,7 @@ export function sealedEcdsaAvailableLaneRecord(args: {
     curve: 'ecdsa',
     authMethod,
     walletId: AVAILABLE_LANES_WALLET_ID,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     thresholdSessionIds: { ecdsa: args.thresholdSessionId },
     sealedSecretB64u: 'sealed',
@@ -234,7 +234,7 @@ export function sealedEcdsaAvailableLaneRecord(args: {
 export function runtimeEcdsaAvailableLaneRecord(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdOwnerAddress: string;
   authMethod?: 'email_otp' | 'passkey';
   ecdsaThresholdKeyId?: string;
@@ -267,7 +267,7 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: args.expiresAtMs ?? AVAILABLE_LANES_EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,

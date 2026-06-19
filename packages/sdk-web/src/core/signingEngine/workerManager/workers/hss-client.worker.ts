@@ -319,7 +319,7 @@ async function storeRouterAbEd25519HssMaterialFromClientOutput(
   }
   const persistedHandle = await buildRouterAbEd25519SigningMaterialPersistedHandle({
     thresholdSessionId: readNonEmptyString(record, 'thresholdSessionId'),
-    walletSigningSessionId: readNonEmptyString(record, 'walletSigningSessionId'),
+    signingGrantId: readNonEmptyString(record, 'signingGrantId'),
     signingRootId: readNonEmptyString(record, 'signingRootId'),
     signingRootVersion: readNonEmptyString(record, 'signingRootVersion'),
     expiresAtMs: readPositiveInteger(record, 'expiresAtMs'),

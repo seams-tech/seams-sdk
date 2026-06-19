@@ -27,7 +27,7 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
     rpId,
     relayerKeyId,
     sessionId: 'tsess-runtime-scope-ed25519',
-    walletSigningSessionId: 'wsess-runtime-scope',
+    signingGrantId: 'wsess-runtime-scope',
     participantIds: [1, 2],
     ttlMs: 300_000,
     remainingUses: 5,
@@ -91,7 +91,7 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
   const nearAccountId = 'alice.testnet';
   const rpId = 'localhost';
   const relayerKeyId = 'ed25519:wallet-budget-refresh-relayer';
-  const walletSigningSessionId = 'wsess-wallet-budget-refresh';
+  const signingGrantId = 'wsess-wallet-budget-refresh';
   const publicKey = 'ed25519:wallet-budget-refresh-public-key';
   const relayerSigningShareB64u = Buffer.alloc(32, 12).toString('base64url');
   const relayerVerifyingShareB64u = deriveThresholdEd25519VerifyingShareForUnitTests({
@@ -121,7 +121,7 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
       rpId,
       relayerKeyId,
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       participantIds: [1, 2],
       ttlMs: 300_000,
       remainingUses,
@@ -150,7 +150,7 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
 
   const firstSessionId = 'tsess-wallet-budget-refresh-1';
   const secondSessionId = 'tsess-wallet-budget-refresh-2';
-  const walletBudgetSessionId = walletSigningBudgetSessionId(walletSigningSessionId);
+  const walletBudgetSessionId = walletSigningBudgetSessionId(signingGrantId);
 
   await mintSession(firstSessionId, 2);
   expect(await walletSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({

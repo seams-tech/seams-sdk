@@ -93,7 +93,7 @@ export type NearSigningApiDeps = {
     usesNeeded?: number;
     remainingUses?: number;
     sessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
   }) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
   resolveAccountAuthMethodForSigning?: (args: {
     nearAccountId: AccountId;

@@ -95,7 +95,7 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
               digest32B64u: 'digest-32',
               requestId: 'request-1',
               thresholdSessionId: 'threshold-session-passkey',
-              walletSigningSessionId: 'wallet-session-passkey',
+              signingGrantId: 'wallet-session-passkey',
             },
           }),
           reconnect: async () => {
@@ -121,7 +121,7 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
         digest32B64u: 'digest-32',
         requestId: 'request-1',
         thresholdSessionId: 'threshold-session-passkey',
-        walletSigningSessionId: 'wallet-session-passkey',
+        signingGrantId: 'wallet-session-passkey',
       },
     });
   });

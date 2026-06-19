@@ -13,7 +13,7 @@ import {
 import {
   toEcdsaHssThresholdKeyId,
   toEcdsaHssThresholdSessionId,
-  toEcdsaHssWalletSigningSessionId,
+  toEcdsaHssSigningGrantId,
   toEmailOtpAuthSubjectId,
   toWalletSessionUserId,
   type EmailOtpExistingKeyBootstrap,
@@ -32,7 +32,7 @@ const walletId = toWalletId('wallet.testnet');
 const authSubjectId = toEmailOtpAuthSubjectId('google:subject-1');
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-key-1');
 const sessionId = toEcdsaHssThresholdSessionId('threshold-session-1');
-const walletSigningSessionId = toEcdsaHssWalletSigningSessionId('wallet-signing-session-1');
+const signingGrantId = toEcdsaHssSigningGrantId('signing-grant-1');
 const keyContext = buildSessionBootstrapKeyContext({
   walletId: walletSessionUserId,
   rpId: 'wallet.example.test',
@@ -41,7 +41,7 @@ const keyContext = buildSessionBootstrapKeyContext({
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget,
   thresholdSessionId: sessionId,
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
@@ -54,7 +54,7 @@ void ({
   chainTarget,
   ecdsaThresholdKeyId,
   sessionId,
-  walletSigningSessionId,
+  signingGrantId,
   participantIds: [1, 2],
   ttlMs: 60_000,
   remainingUses: 1,
@@ -77,7 +77,7 @@ void ({
   chainTarget,
   ecdsaThresholdKeyId,
   sessionId,
-  walletSigningSessionId,
+  signingGrantId,
   ttlMs: 60_000,
   remainingUses: 1,
 } satisfies EcdsaHssSessionPolicy);
@@ -90,7 +90,7 @@ void ({
   // @ts-expect-error raw key ids must be normalized to EcdsaThresholdKeyId first
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   sessionId,
-  walletSigningSessionId,
+  signingGrantId,
   ttlMs: 60_000,
   remainingUses: 1,
 } satisfies EcdsaHssSessionPolicy);

@@ -1,7 +1,7 @@
 export type SigningBudgetStatusActive = {
   kind: 'active';
   ok: true;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   status: 'active';
   remainingUses: number;
@@ -33,14 +33,14 @@ export function installBrowserSigningBudgetStatusReader(): () => void {
       session: {
         jwt: string;
         thresholdSessionId: string;
-        walletSigningSessionId: string;
+        signingGrantId: string;
       };
     }): Promise<SigningBudgetStatusResult> => {
       const relayerUrl = normalizeText(input.relayerUrl);
       const jwt = normalizeText(input.session.jwt);
       const thresholdSessionId = normalizeText(input.session.thresholdSessionId);
-      const walletSigningSessionId = normalizeText(input.session.walletSigningSessionId);
-      if (!relayerUrl || !jwt || !thresholdSessionId || !walletSigningSessionId) {
+      const signingGrantId = normalizeText(input.session.signingGrantId);
+      if (!relayerUrl || !jwt || !thresholdSessionId || !signingGrantId) {
         return {
           kind: 'rejected',
           ok: false,
@@ -56,7 +56,7 @@ export function installBrowserSigningBudgetStatusReader(): () => void {
           Authorization: `Bearer ${jwt}`,
         },
         body: JSON.stringify({
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
         }),
       });
@@ -76,12 +76,12 @@ export function installBrowserSigningBudgetStatusReader(): () => void {
 
       const remainingUses = normalizeNonNegativeInt(json.remainingUses);
       const expiresAtMs = normalizeNonNegativeInt(json.expiresAtMs);
-      const responseWalletSigningSessionId = normalizeText(json.walletSigningSessionId);
+      const responseSigningGrantId = normalizeText(json.signingGrantId);
       const responseThresholdSessionId = normalizeText(json.thresholdSessionId);
       if (
         remainingUses === null ||
         expiresAtMs === null ||
-        responseWalletSigningSessionId !== walletSigningSessionId ||
+        responseSigningGrantId !== signingGrantId ||
         responseThresholdSessionId !== thresholdSessionId
       ) {
         return {
@@ -95,7 +95,7 @@ export function installBrowserSigningBudgetStatusReader(): () => void {
       return {
         kind: 'active',
         ok: true,
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId,
         status: 'active',
         remainingUses,

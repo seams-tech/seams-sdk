@@ -23,7 +23,7 @@ export type EcdsaPostSignPolicySession = {
   walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   emailOtpRetention: 'session' | 'single_use' | null;
   emailOtpConsumedAtMs: number | null;
@@ -53,7 +53,7 @@ export function ecdsaPostSignPolicySessionFromRecord(
     walletId: record.walletId,
     chainTarget: record.chainTarget,
     source: record.source,
-    walletSigningSessionId: String(record.walletSigningSessionId || '').trim(),
+    signingGrantId: String(record.signingGrantId || '').trim(),
     thresholdSessionId: String(record.thresholdSessionId || '').trim(),
     emailOtpRetention: emailOtpAuthContext?.retention || null,
     emailOtpConsumedAtMs: Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null,

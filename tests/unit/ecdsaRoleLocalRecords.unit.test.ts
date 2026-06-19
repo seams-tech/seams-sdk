@@ -161,7 +161,7 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'tehss-session',
-    walletSigningSessionId: 'wss-session',
+    signingGrantId: 'wss-session',
     walletSessionJwt: 'jwt',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
@@ -213,8 +213,8 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(restored.thresholdSessionId).toBe('tehss-restored');
     expect(
       getStoredThresholdEcdsaSessionRecordByThresholdSessionId('tehss-restored')
-        ?.walletSigningSessionId,
-    ).toBe(restored.walletSigningSessionId);
+        ?.signingGrantId,
+    ).toBe(restored.signingGrantId);
   });
 
   test('reads persisted ready records without legacy role-local raw state', () => {

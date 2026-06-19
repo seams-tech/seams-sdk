@@ -49,7 +49,7 @@ import {
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../operationState/types';
 import type {
   ThresholdRuntimePolicyScope,
@@ -64,7 +64,7 @@ export type {
   SigningRootVersion,
   WalletId,
   ThresholdEcdsaSessionId,
-  WalletSigningSessionId,
+  SigningGrantId,
 };
 export type ParticipantId = number & { readonly __brand: 'ParticipantId' };
 export type ThresholdOwnerAddress = `0x${string}` & {
@@ -104,7 +104,7 @@ export type VerifiedEcdsaPublicFacts = {
   subjectId?: never;
   rpId?: never;
   thresholdSessionId?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   chainTarget?: never;
   authMethod?: never;
 };
@@ -222,7 +222,7 @@ export type ReadyThresholdEcdsaSignerTransport = Omit<ThresholdEcdsaSignerTransp
 
 export type ThresholdEcdsaSignerSessionIdentity = {
   kind: 'threshold_ecdsa_signer_session_identity';
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -236,7 +236,7 @@ export type ReadyThresholdEcdsaSessionPolicy = KnownReadyThresholdEcdsaSessionPo
 
 export type ReadyThresholdEcdsaSession = {
   kind: 'ready_threshold_ecdsa_session';
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   policy: ReadyThresholdEcdsaSessionPolicy;
   walletSessionAuth?: never;
@@ -249,7 +249,7 @@ export type EmailOtpWorkerShareHandle = {
     kind: 'email_otp_worker_share_lane_identity';
     keyHandle: EvmFamilyEcdsaKeyHandle;
     chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: WalletSigningSessionId;
+    signingGrantId: SigningGrantId;
     thresholdSessionId: ThresholdEcdsaSessionId;
   };
 };
@@ -304,7 +304,7 @@ export type EvmFamilyEcdsaKeyIdentity = {
   signingRootVersion: SigningRootVersion;
   participantIds: readonly ParticipantId[];
   thresholdOwnerAddress: ThresholdOwnerAddress;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   thresholdSessionId?: never;
   chainTarget?: never;
   authMethod?: never;
@@ -319,7 +319,7 @@ export type SessionBootstrapKeyContext = {
   signingRootId?: never;
   signingRootVersion?: never;
   thresholdOwnerAddress?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   thresholdSessionId?: never;
   chainTarget?: never;
   authMethod?: never;
@@ -331,7 +331,7 @@ export type EvmFamilyEcdsaSessionLane = {
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: ThresholdEcdsaSessionId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   walletSessionAuth: EcdsaWalletSessionTransportAuth;
   remainingUses: number;
   expiresAtMs: number;
@@ -345,7 +345,7 @@ export type EvmFamilyEcdsaSessionLane = {
 export type EvmFamilyEcdsaSessionLanePolicy = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionKind: ThresholdSessionKind;
   ttlMs: number;
   remainingUses: number;
@@ -503,7 +503,7 @@ export type BuildEvmFamilyEcdsaSessionLaneInput = {
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: unknown;
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
   walletSessionAuth: BuildEcdsaWalletSessionTransportAuthInput;
   remainingUses: unknown;
   expiresAtMs: unknown;
@@ -512,7 +512,7 @@ export type BuildEvmFamilyEcdsaSessionLaneInput = {
 export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: unknown;
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
   thresholdSessionKind: ThresholdSessionKind;
   ttlMs: unknown;
   remainingUses: unknown;
@@ -529,7 +529,7 @@ export type ResolveReadyEvmFamilyEcdsaMaterialInput = {
     authMethod: EvmFamilyEcdsaAuthMethod;
     source: ThresholdEcdsaSessionStoreSource;
     thresholdSessionId: ThresholdEcdsaSessionId | string;
-    walletSigningSessionId: WalletSigningSessionId | string;
+    signingGrantId: SigningGrantId | string;
   };
   cachedExportArtifact?: ThresholdEcdsaCanonicalExportArtifact | null;
   nowMs?: number;
@@ -1009,7 +1009,7 @@ function buildEmailOtpWorkerShareHandle(args: {
       kind: 'email_otp_worker_share_lane_identity',
       keyHandle: args.publicFacts.keyHandle,
       chainTarget: args.chainTarget,
-      walletSigningSessionId: args.session.walletSigningSessionId,
+      signingGrantId: args.session.signingGrantId,
       thresholdSessionId: args.session.thresholdSessionId,
     },
   };
@@ -1056,7 +1056,7 @@ function buildThresholdEcdsaSignerClientShare(args: {
         kind: 'role_local_worker_share',
         handle: buildEcdsaRoleLocalSigningMaterialHandle({
           thresholdSessionId: String(args.session.thresholdSessionId),
-          walletSigningSessionId: String(args.session.walletSigningSessionId),
+          signingGrantId: String(args.session.signingGrantId),
           keyHandle: String(args.publicFacts.keyHandle),
           routerAbStateSessionId: args.routerAbStateSessionId,
           chainTarget: args.chainTarget,
@@ -1101,13 +1101,13 @@ export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
 }
 
 export function buildReadyThresholdEcdsaSession(args: {
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
   thresholdSessionId: unknown;
   policy: ReadyThresholdEcdsaSessionPolicy;
 }): ReadyThresholdEcdsaSession {
   return {
     kind: 'ready_threshold_ecdsa_session',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(args.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     policy: args.policy,
   };
@@ -1134,13 +1134,13 @@ export function buildReadyEcdsaSignerSession(
 ): ReadyEcdsaSignerSession {
   const backendBinding = requireThresholdEcdsaBackendBinding(input.keyRef.backendBinding);
   const session = buildReadyThresholdEcdsaSession({
-    walletSigningSessionId: input.keyRef.walletSigningSessionId,
+    signingGrantId: input.keyRef.signingGrantId,
     thresholdSessionId: input.keyRef.thresholdSessionId,
     policy: input.sessionPolicy,
   });
   const signerIdentity: ThresholdEcdsaSignerSessionIdentity = {
     kind: 'threshold_ecdsa_signer_session_identity',
-    walletSigningSessionId: session.walletSigningSessionId,
+    signingGrantId: session.signingGrantId,
     thresholdSessionId: session.thresholdSessionId,
   };
   const chainTarget = input.keyRef.chainTarget;
@@ -1220,7 +1220,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
     participantIds: record.participantIds,
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     ...(record.walletSessionJwt
       ? { walletSessionJwt: record.walletSessionJwt }
       : {}),
@@ -1424,7 +1424,7 @@ export function buildEvmFamilyEcdsaSessionLane(
     authMethod: input.authMethod,
     source: input.source,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     walletSessionAuth: buildEcdsaWalletSessionTransportAuth(input.walletSessionAuth),
     remainingUses,
     expiresAtMs,
@@ -1445,7 +1445,7 @@ export function buildEvmFamilyEcdsaSessionLanePolicy(
   return {
     chainTarget: input.chainTarget,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     thresholdSessionKind: input.thresholdSessionKind,
     ttlMs,
     remainingUses,
@@ -1509,8 +1509,8 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
   const expectedThresholdSessionId = SigningSessionIds.thresholdEcdsaSession(
     input.expected.thresholdSessionId,
   );
-  const expectedWalletSigningSessionId = SigningSessionIds.walletSigningSession(
-    input.expected.walletSigningSessionId,
+  const expectedSigningGrantId = SigningSessionIds.signingGrant(
+    input.expected.signingGrantId,
   );
   if (!input.record) {
     return { kind: 'missing', reason: staleReason('invalid_identity') };
@@ -1557,15 +1557,15 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
   }
   if (
     String(input.record.thresholdSessionId) !== String(expectedThresholdSessionId) ||
-    String(input.record.walletSigningSessionId) !== String(expectedWalletSigningSessionId)
+    String(input.record.signingGrantId) !== String(expectedSigningGrantId)
   ) {
     return {
       kind: 'identity_mismatch',
       reason: mismatch(
         'session_identity_mismatch',
         'sessionIdentity',
-        `${String(expectedWalletSigningSessionId)}:${String(expectedThresholdSessionId)}`,
-        `${String(input.record.walletSigningSessionId)}:${String(input.record.thresholdSessionId)}`,
+        `${String(expectedSigningGrantId)}:${String(expectedThresholdSessionId)}`,
+        `${String(input.record.signingGrantId)}:${String(input.record.thresholdSessionId)}`,
       ),
     };
   }
@@ -1589,7 +1589,7 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
       authMethod: input.expected.authMethod,
       source: input.expected.source,
       thresholdSessionId: expectedThresholdSessionId,
-      walletSigningSessionId: expectedWalletSigningSessionId,
+      signingGrantId: expectedSigningGrantId,
       walletSessionAuth: walletSessionAuthInputFromPersistedThresholdSession({
         thresholdSessionKind: input.record.thresholdSessionKind,
         walletSessionJwt: input.record.walletSessionJwt,

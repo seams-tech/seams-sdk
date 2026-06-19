@@ -19,7 +19,7 @@ import {
 } from '@/core/signingEngine/session/budget/budget';
 import {
   buildDiscoveredLaneForRecord,
-  consumeWalletSigningSessionUse,
+  consumeSigningGrantUse,
   readWalletScopedLaneClaimsForWallet,
 } from '@/core/signingEngine/session/availability/readiness';
 import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
@@ -139,14 +139,14 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     const discoveredLane = buildDiscoveredLaneForRecord(record);
     expect(discoveredLane).toMatchObject({
       thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: record.walletSigningSessionId,
+      signingGrantId: record.signingGrantId,
       backing: 'record_policy',
     });
 
     let touchConfirmConsumeCalls = 0;
     const readModel = thresholdEcdsaSessionRecordReadModel(record);
     const statusOverrides = new Map();
-    const status = await consumeWalletSigningSessionUse({
+    const status = await consumeSigningGrantUse({
       deps: {
         touchConfirm: {
           consumeWarmSessionUses: async () => {
@@ -161,7 +161,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       },
       statusOverrides,
       readStatus: async () => ({
-        sessionId: record.walletSigningSessionId,
+        sessionId: record.signingGrantId,
         status: 'active',
         remainingUses: 4,
         expiresAtMs: record.expiresAtMs,
@@ -169,13 +169,13 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       }),
       input: {
         owner: ecdsaWalletBudgetOwner(toWalletId(record.walletId)),
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
         uses: 1,
         budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
           key: readModel.key,
           keyHandle: record.keyHandle,
           chainTarget: record.chainTarget,
-          walletSigningSessionId: record.walletSigningSessionId,
+          signingGrantId: record.signingGrantId,
           thresholdSessionId: record.thresholdSessionId,
         }),
       },
@@ -183,7 +183,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
 
     expect(touchConfirmConsumeCalls).toBe(0);
     expect(status).toMatchObject({
-      sessionId: record.walletSigningSessionId,
+      sessionId: record.signingGrantId,
       status: 'active',
       remainingUses: 3,
     });
@@ -193,11 +193,11 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     const walletId = 'shared-budget-record-policy.testnet';
-    const walletSigningSessionId = 'wsess-shared-budget-record-policy';
+    const signingGrantId = 'wsess-shared-budget-record-policy';
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: walletId,
       thresholdSessionId: 'shared-budget-ed25519-session',
-      walletSigningSessionId,
+      signingGrantId,
       walletSessionJwt: 'jwt:shared-budget-ed25519-session',
       remainingUses: 3,
     });
@@ -210,18 +210,18 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         chain: 'tempo',
         ecdsaThresholdKeyId: 'ek-shared-budget-record-policy',
         sessionId: 'shared-budget-tempo-session',
-        walletSigningSessionId,
+        signingGrantId,
         walletSessionJwt: 'jwt:shared-budget-tempo-session',
       }),
     });
     const readModel = thresholdEcdsaSessionRecordReadModel(ecdsaRecord);
     const statusOverrides = new Map();
 
-    const status = await consumeWalletSigningSessionUse({
+    const status = await consumeSigningGrantUse({
       deps: {},
       statusOverrides,
       readStatus: async () => ({
-        sessionId: walletSigningSessionId,
+        sessionId: signingGrantId,
         status: 'active',
         remainingUses: 3,
         expiresAtMs: ecdsaRecord.expiresAtMs,
@@ -229,20 +229,20 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       }),
       input: {
         owner: ecdsaWalletBudgetOwner(toWalletId(ecdsaRecord.walletId)),
-        walletSigningSessionId,
+        signingGrantId,
         uses: 1,
         budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
           key: readModel.key,
           keyHandle: ecdsaRecord.keyHandle,
           chainTarget: ecdsaRecord.chainTarget,
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId: ecdsaRecord.thresholdSessionId,
         }),
       },
     });
 
     expect(status).toMatchObject({
-      sessionId: walletSigningSessionId,
+      sessionId: signingGrantId,
       status: 'active',
       remainingUses: 2,
     });
@@ -434,7 +434,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'status-unavailable.testnet',
       thresholdSessionId: 'status-unavailable-session',
-      walletSigningSessionId: 'status-unavailable-wallet-session',
+      signingGrantId: 'status-unavailable-wallet-session',
       walletSessionJwt: 'jwt:status-unavailable-session',
     });
 
@@ -464,7 +464,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'wallet-budget-exhausted-ed25519.testnet',
       thresholdSessionId: 'wallet-budget-exhausted-ed25519-session',
-      walletSigningSessionId: 'wallet-budget-exhausted-ed25519-wallet-session',
+      signingGrantId: 'wallet-budget-exhausted-ed25519-wallet-session',
       walletSessionJwt: 'jwt:wallet-budget-exhausted-ed25519-session',
       remainingUses: 1,
       expiresAtMs: Date.now() + 60_000,

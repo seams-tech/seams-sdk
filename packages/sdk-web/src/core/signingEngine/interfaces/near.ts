@@ -40,7 +40,7 @@ export type NearResolvedEd25519WalletSessionAuth = {
 
 export type NearPasskeyReconnectPlan = {
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   sessionPolicyDigest32: string;
 };
 
@@ -67,7 +67,7 @@ export type NearEd25519StepUpAuthorization =
 export type NearResolvedEd25519SigningSessionState = {
   walletSessionAuth: NearResolvedEd25519WalletSessionAuth;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
   signingMaterial: RouterAbEd25519SigningMaterialRef;
@@ -107,7 +107,7 @@ export type NearEd25519WarmupHook = {
 export type NearPasskeyEd25519ReconnectHook = {
   prepare: (args: { requiredSignatureUses: number }) => Promise<{
     sessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     sessionPolicyDigest32: string;
   }>;
   reconnect: (args: {

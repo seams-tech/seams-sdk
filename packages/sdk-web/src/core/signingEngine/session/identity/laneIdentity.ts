@@ -10,7 +10,7 @@ import {
   type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../operationState/types';
 import {
   toEvmFamilyEcdsaKeyHandle,
@@ -61,7 +61,7 @@ export type BaseSelectedLane = {
   kind: 'selected_lane';
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdSessionId;
 };
 
@@ -87,7 +87,7 @@ export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
 export type SelectedEd25519LaneInput = {
   accountId: AccountId;
   authMethod: SigningAuthMethod;
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
   thresholdSessionId: unknown;
 };
 
@@ -96,7 +96,7 @@ export type SelectedEcdsaLaneInput = {
   keyHandle: unknown;
   walletId: AccountId;
   authMethod: SigningAuthMethod;
-  walletSigningSessionId: unknown;
+  signingGrantId: unknown;
   thresholdSessionId: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
 };
@@ -108,7 +108,7 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
     authMethod: input.authMethod,
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(input.thresholdSessionId),
   };
 }
@@ -129,7 +129,7 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
     key: input.key,
     keyHandle,
     walletId: input.walletId,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
     chainTarget: input.chainTarget,
   };
@@ -148,7 +148,7 @@ export type BaseLaneCandidate = {
   kind: 'lane_candidate';
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   state: LaneCandidateState;
   remainingUses: number | null;

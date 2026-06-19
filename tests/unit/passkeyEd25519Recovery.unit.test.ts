@@ -36,7 +36,7 @@ const TEST_WEBAUTHN_CREDENTIAL = {
 
 function writeEd25519Record(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   remainingUses?: number;
 }) {
   const record = upsertStoredThresholdEd25519SessionRecord({
@@ -47,7 +47,7 @@ function writeEd25519Record(args: {
     participantIds: PARTICIPANT_IDS,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     walletSessionJwt: `jwt:${args.thresholdSessionId}`,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 1,
@@ -69,11 +69,11 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
   test('retains exact Ed25519 lane records when another account record becomes current', () => {
     const planned = writeEd25519Record({
       thresholdSessionId: 'tsess-ed25519-planned',
-      walletSigningSessionId: 'wsess-ed25519-planned',
+      signingGrantId: 'wsess-ed25519-planned',
     });
     const competing = writeEd25519Record({
       thresholdSessionId: 'tsess-ed25519-competing',
-      walletSigningSessionId: 'wsess-ed25519-competing',
+      signingGrantId: 'wsess-ed25519-competing',
     });
 
     expect(getStoredThresholdEd25519SessionRecordForAccount(ACCOUNT_ID)?.thresholdSessionId).toBe(
@@ -81,18 +81,18 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
     );
     expect(
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(planned.thresholdSessionId)
-        ?.walletSigningSessionId,
-    ).toBe(planned.walletSigningSessionId);
+        ?.signingGrantId,
+    ).toBe(planned.signingGrantId);
   });
 
   test('returns the exact planned reconnect record after a concurrent current-record update', async () => {
     const oldRecord = writeEd25519Record({
       thresholdSessionId: 'tsess-ed25519-old',
-      walletSigningSessionId: 'wsess-ed25519-old',
+      signingGrantId: 'wsess-ed25519-old',
       remainingUses: 0,
     });
     const plannedSessionId = 'tsess-ed25519-planned-reconnect';
-    const plannedWalletSigningSessionId = 'wsess-ed25519-planned-reconnect';
+    const plannedSigningGrantId = 'wsess-ed25519-planned-reconnect';
     const competingSessionId = 'tsess-ed25519-competing-current';
 
     const result = await reconnectPasskeyEd25519CapabilityForSigning({
@@ -104,23 +104,23 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
       }),
       remainingUses: 1,
       sessionId: plannedSessionId,
-      walletSigningSessionId: plannedWalletSigningSessionId,
+      signingGrantId: plannedSigningGrantId,
       provisionThresholdEd25519Session: async (request) => {
         expect(request.kind).toBe('exact_ed25519_provisioning');
         expect(request.sessionId).toBe(plannedSessionId);
-        expect(request.walletSigningSessionId).toBe(plannedWalletSigningSessionId);
+        expect(request.signingGrantId).toBe(plannedSigningGrantId);
         writeEd25519Record({
           thresholdSessionId: plannedSessionId,
-          walletSigningSessionId: plannedWalletSigningSessionId,
+          signingGrantId: plannedSigningGrantId,
         });
         writeEd25519Record({
           thresholdSessionId: competingSessionId,
-          walletSigningSessionId: 'wsess-ed25519-competing-current',
+          signingGrantId: 'wsess-ed25519-competing-current',
         });
         return {
           ok: true,
           sessionId: plannedSessionId,
-          walletSigningSessionId: plannedWalletSigningSessionId,
+          signingGrantId: plannedSigningGrantId,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           jwt: `jwt:${plannedSessionId}`,
@@ -130,7 +130,7 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
 
     expect(result.sessionId).toBe(plannedSessionId);
     expect(result.record?.thresholdSessionId).toBe(plannedSessionId);
-    expect(result.record?.walletSigningSessionId).toBe(plannedWalletSigningSessionId);
+    expect(result.record?.signingGrantId).toBe(plannedSigningGrantId);
     expect(getStoredThresholdEd25519SessionRecordForAccount(ACCOUNT_ID)?.thresholdSessionId).toBe(
       competingSessionId,
     );

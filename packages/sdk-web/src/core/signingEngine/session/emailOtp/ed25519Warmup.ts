@@ -16,7 +16,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  generateWalletSigningSessionId,
+  generateSigningGrantId,
   parseThresholdRuntimePolicyScopeFromJwt,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -122,7 +122,7 @@ function emailOtpEcdsaBootstrapRouteAuthFromRecord(
   const lane = resolveEmailOtpAuthLane({
     routeAuth: jwt ? { kind: 'wallet_session', jwt } : undefined,
     thresholdSessionId: record.thresholdSessionId,
-    authorizingWalletSigningSessionId: record.walletSigningSessionId,
+    authorizingSigningGrantId: record.signingGrantId,
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
   });
@@ -134,7 +134,7 @@ function emailOtpEcdsaBootstrapRouteAuthFromRecord(
     jwt: lane.jwt,
     curve: 'ecdsa',
     thresholdSessionId: lane.thresholdSessionId,
-    walletSigningSessionId: lane.authorizingWalletSigningSessionId,
+    signingGrantId: lane.authorizingSigningGrantId,
     chainTarget: lane.chainTarget,
   };
 }
@@ -284,7 +284,7 @@ export class EmailOtpEd25519Warmup {
       runtimePolicyScope,
       routerAbNormalSigning: routerAbNormalSigningStateFromConfigs(this.ports.configs),
       ed25519Key: args.ed25519SessionReconstruction.ed25519Key,
-      walletSigningSessionId: generateWalletSigningSessionId(),
+      signingGrantId: generateSigningGrantId(),
       ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
       ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     });
@@ -315,7 +315,7 @@ export class EmailOtpEd25519Warmup {
                 : resolveEmailOtpAuthLane({
                     routeAuth: providedRouteAuth,
                     thresholdSessionId: args.record.thresholdSessionId,
-                    authorizingWalletSigningSessionId: args.record.walletSigningSessionId,
+                    authorizingSigningGrantId: args.record.signingGrantId,
                     curve: 'ed25519',
                   }),
             ),
@@ -341,7 +341,7 @@ export class EmailOtpEd25519Warmup {
     const defaultRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
     const ecdsaRecord = selectEmailOtpEcdsaRecordForEd25519Signing({
       walletId: toWalletId(nearAccountId),
-      walletSigningSessionFilter: args.record.walletSigningSessionId,
+      signingGrantFilter: args.record.signingGrantId,
       listThresholdEcdsaSessionRecordsForWallet:
         this.ports.listThresholdEcdsaSessionRecordsForWallet,
     });

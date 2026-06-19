@@ -125,7 +125,7 @@ async function expectReservationLifecycleContract(input: {
 
   const [first, second] = await Promise.all([
     input.store.reserveUseCountOnce({
-      walletSigningSessionId: sessionId,
+      signingGrantId: sessionId,
       curve: 'ed25519',
       thresholdSessionId,
       operationId: `${input.label}-operation-1`,
@@ -134,7 +134,7 @@ async function expectReservationLifecycleContract(input: {
       expiresAtMs,
     }),
     input.store.reserveUseCountOnce({
-      walletSigningSessionId: sessionId,
+      signingGrantId: sessionId,
       curve: 'ed25519',
       thresholdSessionId,
       operationId: `${input.label}-operation-2`,
@@ -150,7 +150,7 @@ async function expectReservationLifecycleContract(input: {
   if (!reserved?.ok) throw new Error(`${input.label} did not reserve budget`);
 
   const duplicateReserve = await input.store.reserveUseCountOnce({
-    walletSigningSessionId: sessionId,
+    signingGrantId: sessionId,
     curve: 'ed25519',
     thresholdSessionId,
     operationId: reserved.reservation.operationId,
@@ -164,14 +164,14 @@ async function expectReservationLifecycleContract(input: {
   });
 
   const committed = await input.store.commitReservedUseCountOnce({
-    walletSigningSessionId: sessionId,
+    signingGrantId: sessionId,
     reservationId: reserved.reservation.reservationId,
     operationId: reserved.reservation.operationId,
     requestDigest: reserved.reservation.requestDigest,
   });
   expect(committed).toEqual({ ok: true, remainingUses: 0 });
   const duplicateCommit = await input.store.commitReservedUseCountOnce({
-    walletSigningSessionId: sessionId,
+    signingGrantId: sessionId,
     reservationId: reserved.reservation.reservationId,
     operationId: reserved.reservation.operationId,
     requestDigest: reserved.reservation.requestDigest,
@@ -187,7 +187,7 @@ async function expectReservationLifecycleContract(input: {
     remainingUses: 1,
   });
   const releaseReservation = await input.store.reserveUseCountOnce({
-    walletSigningSessionId: releaseSessionId,
+    signingGrantId: releaseSessionId,
     curve: 'ed25519',
     thresholdSessionId: releaseThresholdSessionId,
     operationId: `${input.label}-release-operation`,
@@ -199,7 +199,7 @@ async function expectReservationLifecycleContract(input: {
   if (!releaseReservation.ok) throw new Error(releaseReservation.message);
   await expect(
     input.store.releaseReservedUseCount({
-      walletSigningSessionId: releaseSessionId,
+      signingGrantId: releaseSessionId,
       reservationId: releaseReservation.reservation.reservationId,
     }),
   ).resolves.toMatchObject({
@@ -216,7 +216,7 @@ test.describe('Wallet Session budget reservations', () => {
     const { store, expiresAtMs } = await putWalletSession({ remainingUses: 1 });
 
     const reservation = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-1',
@@ -230,7 +230,7 @@ test.describe('Wallet Session budget reservations', () => {
     expect(reservation.availableUses).toBe(0);
 
     const duplicate = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-1',
@@ -243,7 +243,7 @@ test.describe('Wallet Session budget reservations', () => {
     expect(duplicate.reservation.reservationId).toBe(reservation.reservation.reservationId);
 
     const inFlight = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-2',
@@ -262,7 +262,7 @@ test.describe('Wallet Session budget reservations', () => {
     });
 
     const committed = await store.commitReservedUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
@@ -270,7 +270,7 @@ test.describe('Wallet Session budget reservations', () => {
     expect(committed).toEqual({ ok: true, remainingUses: 0 });
 
     const duplicateCommit = await store.commitReservedUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
@@ -282,7 +282,7 @@ test.describe('Wallet Session budget reservations', () => {
     const { store, expiresAtMs } = await putWalletSession({ remainingUses: 1 });
 
     const reservation = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-1',
@@ -294,7 +294,7 @@ test.describe('Wallet Session budget reservations', () => {
     if (!reservation.ok) throw new Error(reservation.message);
 
     const release = await store.releaseReservedUseCount({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
     });
 
@@ -315,7 +315,7 @@ test.describe('Wallet Session budget reservations', () => {
     const { store, expiresAtMs } = await putWalletSession({ remainingUses: 0 });
 
     const reservation = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-1',
@@ -333,7 +333,7 @@ test.describe('Wallet Session budget reservations', () => {
   test('commit rejects expired reservations and releases visible availability', async () => {
     const { store } = await putWalletSession({ remainingUses: 1 });
     const expiredReservation = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-1',
@@ -347,7 +347,7 @@ test.describe('Wallet Session budget reservations', () => {
     await delay(5);
 
     const committed = await store.commitReservedUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       reservationId: expiredReservation.reservation.reservationId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
@@ -369,7 +369,7 @@ test.describe('Wallet Session budget reservations', () => {
     const { store, expiresAtMs } = await putWalletSession({ remainingUses: 1 });
 
     const reservation = await store.reserveUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
       operationId: 'operation-1',
@@ -381,7 +381,7 @@ test.describe('Wallet Session budget reservations', () => {
     if (!reservation.ok) throw new Error(reservation.message);
 
     const committed = await store.commitReservedUseCountOnce({
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
       operationId: 'operation-1',
       requestDigest: 'digest-2',

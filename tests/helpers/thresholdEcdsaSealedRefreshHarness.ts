@@ -212,7 +212,7 @@ async function installThresholdRegistrationBootstrapMock(
           | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
           | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
         sessionId: string;
-        walletSigningSessionId: string;
+        signingGrantId: string;
         relayerKeyId: string;
         participantIds: number[];
         expiresAtMs: number;
@@ -226,7 +226,7 @@ async function installThresholdRegistrationBootstrapMock(
           kind: args.kind,
           walletId: accountId,
           sessionId: args.sessionId,
-          walletSigningSessionId: args.walletSigningSessionId,
+          signingGrantId: args.signingGrantId,
           relayerKeyId: args.relayerKeyId,
           rpId,
           participantIds: args.participantIds,
@@ -252,8 +252,8 @@ async function installThresholdRegistrationBootstrapMock(
 
         const policy = thresholdEd?.session_policy || {};
         const sessionId = String(policy?.sessionId || policy?.session_id || `ed-session-${nowMs}`);
-        const walletSigningSessionId = String(
-          policy?.walletSigningSessionId || policy?.wallet_signing_session_id || sessionId,
+        const signingGrantId = String(
+          policy?.signingGrantId || policy?.signing_grant_id || sessionId,
         ).trim();
         const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
         const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
@@ -263,7 +263,7 @@ async function installThresholdRegistrationBootstrapMock(
         const jwt = await signWalletSessionJwt({
           kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
           sessionId,
-          walletSigningSessionId,
+          signingGrantId,
           relayerKeyId: thresholdEdRelayerKeyId,
           participantIds,
           expiresAtMs,
@@ -288,7 +288,7 @@ async function installThresholdRegistrationBootstrapMock(
             remainingUses,
           });
           await threshold.walletSessionStore.putSession(
-            walletSigningBudgetSessionId(walletSigningSessionId),
+            walletSigningBudgetSessionId(signingGrantId),
             {
               ...sessionRecord,
               walletBudgetBinding: {
@@ -313,7 +313,7 @@ async function installThresholdRegistrationBootstrapMock(
           session: {
             sessionKind: 'jwt',
             sessionId,
-            walletSigningSessionId,
+            signingGrantId,
             expiresAtMs,
             participantIds,
             remainingUses,
@@ -333,8 +333,8 @@ async function installThresholdRegistrationBootstrapMock(
         const sessionId = String(
           policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`,
         );
-        const walletSigningSessionId = String(
-          policy?.walletSigningSessionId || policy?.wallet_signing_session_id || sessionId,
+        const signingGrantId = String(
+          policy?.signingGrantId || policy?.signing_grant_id || sessionId,
         ).trim();
         const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
         const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
@@ -377,7 +377,7 @@ async function installThresholdRegistrationBootstrapMock(
           contextBinding32B64u: clientBootstrap.contextBinding32B64u,
           requestId: `threshold-ecdsa-registration-${nowMs}`,
           sessionId,
-          walletSigningSessionId,
+          signingGrantId,
           ttlMs,
           remainingUses,
           participantIds,
@@ -403,7 +403,7 @@ async function installThresholdRegistrationBootstrapMock(
         const jwt = await signWalletSessionJwt({
           kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
           sessionId: bootstrapSessionId,
-          walletSigningSessionId,
+          signingGrantId,
           relayerKeyId: bootstrapRelayerKeyId,
           participantIds: bootstrapParticipantIds,
           expiresAtMs,
@@ -466,7 +466,7 @@ async function installThresholdRegistrationBootstrapMock(
           session: {
             sessionKind: 'jwt',
             sessionId: bootstrapSessionId,
-            walletSigningSessionId,
+            signingGrantId,
             expiresAtMs,
             participantIds: bootstrapParticipantIds,
             remainingUses: Number(bootstrap.remainingUses || remainingUses),

@@ -299,7 +299,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
       relayerKeyId: request.relayerKeyId,
       requestId: request.requestId,
       sessionId: request.sessionId,
-      walletSigningSessionId: request.walletSigningSessionId,
+      signingGrantId: request.signingGrantId,
       ttlMs: request.ttlMs,
       remainingUses: request.remainingUses,
       participantIds: request.participantIds,
@@ -625,7 +625,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       sessionInfo: {
         sessionKind: 'jwt',
         sessionId: result.value.sessionId,
-        walletSigningSessionId: result.value.walletSigningSessionId,
+        signingGrantId: result.value.signingGrantId,
         expiresAtMs: result.value.expiresAtMs,
         participantIds: result.value.participantIds,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

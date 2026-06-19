@@ -191,20 +191,20 @@ carry an old threshold-session id through a derivation or worker boundary.
 - [ ] Classify each `sessionId` as one of:
       `thresholdSessionId`, app/browser session id, request id, ceremony id, or
       unrelated local variable.
-- [ ] Inventory all `walletSigningSessionId` usages.
+- [x] Inventory all `walletSigningSessionId` usages.
 - [ ] Identify persisted field owners:
       `SessionStore`, `WalletSessionStore`, Cloudflare Durable Object records,
       sealed-refresh records, IndexedDB records, test fixtures, and docs.
 - [ ] Identify public request/response contracts that currently expose
-      `sessionId` or `walletSigningSessionId`.
+      `sessionId` or `signingGrantId`.
 - [ ] Decide whether each public wire contract receives a route/protocol version
       bump or a temporary request-boundary parser for old names.
 
 ## Phase 2: Add Branded Domain IDs
 
-- [ ] Add `ThresholdSessionId` and `SigningGrantId` branded string types in the
+- [x] Add `ThresholdSessionId` and `SigningGrantId` branded string types in the
       shared/server domain layer that already owns session-token parsing.
-- [ ] Add boundary parsers:
+- [x] Add boundary parsers:
       `parseThresholdSessionId(...)` and `parseSigningGrantId(...)`.
 - [ ] Add builders for wallet-session claims and verified wallet-session objects.
 - [ ] Replace broad object spreads in wallet-session claim construction with
@@ -293,20 +293,20 @@ Run the cheapest checks that cover the affected layer while implementing each
 phase:
 
 ```sh
-rtk rg "walletSigningSessionId|thresholdSessionId|signingGrantId"
-rtk pnpm -C packages/sdk-server-ts type-check
-rtk pnpm -C packages/sdk-web type-check
-rtk pnpm -C tests test tests/unit/thresholdSessionClaims.unit.test.ts
-rtk pnpm -C tests test tests/unit/sessionTokens.unit.test.ts
-rtk pnpm -C tests test tests/unit/routerAbEd25519.walletSessionState.unit.test.ts
-rtk pnpm -C tests test tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts
+rg "walletSigningSessionId|thresholdSessionId|signingGrantId"
+pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/sdk-web type-check
+pnpm -C tests test tests/unit/thresholdSessionClaims.unit.test.ts
+pnpm -C tests test tests/unit/sessionTokens.unit.test.ts
+pnpm -C tests test tests/unit/routerAbEd25519.walletSessionState.unit.test.ts
+pnpm -C tests test tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts
 ```
 
 For Router A/B Rust changes:
 
 ```sh
-rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards
-rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint
+cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards
+cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint
 ```
 
 Run broader suites only when the rename crosses public route schemas,

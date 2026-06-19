@@ -168,9 +168,9 @@ async function hydratePasskeyRegistrationSession(args: {
     throw new Error('Passkey ECDSA registration persistence requires passkey PRF material');
   }
   const thresholdSessionId = String(args.bootstrap.session.sessionId || '').trim();
-  const walletSigningSessionId = String(
-    args.bootstrap.session.walletSigningSessionId ||
-      args.bootstrap.thresholdEcdsaKeyRef.walletSigningSessionId ||
+  const signingGrantId = String(
+    args.bootstrap.session.signingGrantId ||
+      args.bootstrap.thresholdEcdsaKeyRef.signingGrantId ||
       '',
   ).trim();
   const walletSessionJwt = String(
@@ -182,8 +182,8 @@ async function hydratePasskeyRegistrationSession(args: {
     chainTarget: args.walletKey.chainTarget,
     relayerUrl: args.relayerUrl,
   };
-  if (walletSigningSessionId) {
-    transport.walletSigningSessionId = walletSigningSessionId;
+  if (signingGrantId) {
+    transport.signingGrantId = signingGrantId;
   }
   if (walletSessionJwt) {
     transport.walletSessionJwt = walletSessionJwt;

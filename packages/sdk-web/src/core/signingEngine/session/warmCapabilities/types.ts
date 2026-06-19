@@ -338,11 +338,11 @@ function assertCapabilityStateInvariant(args: {
       );
     }
     if (
-      String(capability.lane.walletSigningSessionId) !==
-      String(capability.record.walletSigningSessionId)
+      String(capability.lane.signingGrantId) !==
+      String(capability.record.signingGrantId)
     ) {
       throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: lane walletSigningSessionId does not match record`,
+        `[WarmSessionStore] invalid ${args.label} capability: lane signingGrantId does not match record`,
       );
     }
     const expectedAuthMethod = capability.record.source === 'email_otp' ? 'email_otp' : 'passkey';
@@ -514,13 +514,13 @@ type ProvisionWarmEd25519CapabilityCommonArgs = {
 export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'fresh_ed25519_provisioning';
   sessionId?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
 };
 
 export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'exact_ed25519_provisioning';
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 };
 
 export type ProvisionWarmEd25519CapabilityArgs =
@@ -530,7 +530,7 @@ export type ProvisionWarmEd25519CapabilityArgs =
 export type ProvisionWarmEd25519CapabilitySuccessResult = {
   ok: true;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -620,7 +620,7 @@ export type ThresholdOnlyWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase &
   kind: 'threshold_only_claim';
   walletId?: never;
   authMethod?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   curve?: never;
   chain?: never;
   chainTarget?: never;
@@ -630,7 +630,7 @@ export type WalletScopedEd25519WarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgs
   kind: 'wallet_scoped_ed25519_claim';
   walletId: string;
   authMethod: 'passkey' | 'email_otp';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: 'ed25519';
   chain: 'near';
   chainTarget?: never;
@@ -640,7 +640,7 @@ export type WalletScopedEcdsaWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBa
   kind: 'wallet_scoped_ecdsa_claim';
   walletId: string;
   authMethod: 'passkey';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: 'ecdsa';
   chain: 'near';
   chainTarget: ThresholdEcdsaChainTarget;
@@ -656,14 +656,14 @@ export type WarmEcdsaRecordBackedSigningSessionStatus = SigningSessionStatus & {
   lane: SelectedEcdsaLane;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 };
 
 export type WarmEcdsaMissingSigningSessionStatus = SigningSessionStatus & {
   status: 'not_found';
   chainTarget: ThresholdEcdsaChainTarget;
   source?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
 };
 
 export type WarmEcdsaSigningSessionStatus =

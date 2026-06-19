@@ -11,7 +11,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  generateWalletSigningSessionId,
+  generateSigningGrantId,
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -212,9 +212,9 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const mintingSession = buildEmailOtpEcdsaMintingSession({
     emailOtpAuthPolicy,
     routePlan,
-    generateWalletSigningSessionId,
+    generateSigningGrantId,
   });
-  const walletSigningSessionId = mintingSession.walletSigningSessionId;
+  const signingGrantId = mintingSession.signingGrantId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
   const runtimePolicyScope =
     args.runtimePolicyScope ||
@@ -312,7 +312,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
       ? { participantIds: args.participantIds }
       : {}),
-    walletSigningSessionId,
+    signingGrantId,
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     remainingUses,
   };
@@ -347,7 +347,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       walletId: args.walletSession.walletId,
       publicationChainTargets,
       bootstraps: bootstrapResult.bootstraps,
-      walletSigningSessionId,
+      signingGrantId,
       emailOtpAuthContext: resolvedEmailOtpAuthContext,
       relayerUrl: relayUrl,
       shamirPrimeB64u,

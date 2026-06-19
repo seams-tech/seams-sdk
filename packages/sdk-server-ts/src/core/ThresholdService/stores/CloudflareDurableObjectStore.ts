@@ -527,7 +527,7 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
       availableUses: number;
     }>(this.stub, {
       op: 'authReserveBudgetUseCount',
-      key: this.key(input.walletSigningSessionId),
+      key: this.key(input.signingGrantId),
       input,
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
@@ -545,7 +545,7 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
   ): Promise<WalletSessionConsumeUsesResult> {
     const resp = await callDo<{ remainingUses: number }>(this.stub, {
       op: 'authCommitReservedBudgetUseCount',
-      key: this.key(input.walletSigningSessionId),
+      key: this.key(input.signingGrantId),
       input,
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
@@ -562,7 +562,7 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
       availableUses: number;
     }>(this.stub, {
       op: 'authReleaseReservedBudgetUseCount',
-      key: this.key(input.walletSigningSessionId),
+      key: this.key(input.signingGrantId),
       input,
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
@@ -638,8 +638,8 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     return `${this.presignPrefix}idx:global`;
   }
 
-  private presignWalletIndexKey(walletSigningSessionId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(walletSigningSessionId)}`;
+  private presignWalletIndexKey(signingGrantId: string): string {
+    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
   }
 
   private presignRateLimitKey(
@@ -783,7 +783,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
       value,
       ttlMs,
       capacity,
-      walletIndexKey: this.presignWalletIndexKey(parsed.walletSigningSessionId),
+      walletIndexKey: this.presignWalletIndexKey(parsed.signingGrantId),
       globalIndexKey: this.presignGlobalIndexKey(),
     });
     if (!resp.ok) return { ok: false, code: 'capacity_exceeded' };
@@ -791,10 +791,10 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
   }
 
   async checkPresignCapacity(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(walletSigningSessionId);
+    const walletId = toOptionalTrimmedString(signingGrantId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const resp = await callDo<RouterAbEd25519CheckPresignCapacityResult>(this.stub, {
       op: 'ed25519PresignCheckCapacity',
@@ -830,7 +830,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
       key: this.presignKey(id),
       presignId: id,
       expectedScope,
-      walletIndexKey: this.presignWalletIndexKey(expectedScope.walletSigningSessionId),
+      walletIndexKey: this.presignWalletIndexKey(expectedScope.signingGrantId),
       globalIndexKey: this.presignGlobalIndexKey(),
     });
     if (!resp.ok) return { ok: false, code: 'not_found' };

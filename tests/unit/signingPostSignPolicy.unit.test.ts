@@ -100,7 +100,7 @@ function ecdsaRecord(args: {
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt' as const,
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: `wallet-${args.thresholdSessionId}`,
+    signingGrantId: `wallet-${args.thresholdSessionId}`,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
     ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -166,7 +166,7 @@ test.describe('SigningPostSignPolicy', () => {
       toAccountId('alice.testnet'),
     );
     expect(consumed[0]?.command.lane.laneRef.exactIdentity.chainTarget).toEqual(EVM_CHAIN_TARGET);
-    expect(consumed[0]?.command.lane.laneRef.exactIdentity.walletSigningSessionId).toBe(
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.signingGrantId).toBe(
       'wallet-otp-session',
     );
     expect(consumed[0]?.command.lane.laneRef.exactIdentity.thresholdSessionId).toBe('otp-session');

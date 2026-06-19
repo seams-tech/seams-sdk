@@ -112,7 +112,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'restoreCoordinator',
       'availableSigningLanes',
       'WalletSigningBudget',
-      'consumeWalletSigningSession',
+      'consumeSigningGrant',
     ];
     const offenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce').filter(
       (relativePath) => {
@@ -244,7 +244,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(preparedOperationStart).toBeGreaterThanOrEqual(0);
     expect(preparedOperationEnd).toBeGreaterThan(preparedOperationStart);
     const preparedOperationSource = nonceTypes.slice(preparedOperationStart, preparedOperationEnd);
-    expect(preparedOperationSource).not.toContain('walletSigningSessionId');
+    expect(preparedOperationSource).not.toContain('signingGrantId');
     expect(preparedOperationSource).not.toContain('chainFamily');
     expect(nonceTypes).not.toContain('export type NonceOperationContext');
 
@@ -278,7 +278,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const recoverySource = source.slice(recoveryStart, recoveryEnd);
 
     expect(recoverySource).not.toContain('WalletSigningBudget');
-    expect(recoverySource).not.toContain('consumeWalletSigningSession');
+    expect(recoverySource).not.toContain('consumeSigningGrant');
     expect(recoverySource).not.toContain('sendRawTransaction');
     expect(recoverySource).not.toContain('broadcastTransaction');
     expect(recoverySource).not.toContain('submitSignedTransaction');

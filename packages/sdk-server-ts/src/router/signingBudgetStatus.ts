@@ -17,7 +17,7 @@ type BaseVerifiedWalletSessionAuth = {
   kind: 'wallet_session';
   curve: 'ecdsa' | 'ed25519';
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   userId: string;
   rpId: string;
   relayerKeyId: string;
@@ -46,7 +46,7 @@ export type EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status';
   auth: VerifiedEcdsaWalletSessionAuth;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 
   // Curve-specific fields.
   keyHandle: string;
@@ -57,7 +57,7 @@ export type Ed25519WalletSigningBudgetStatusRequest = {
   kind: 'ed25519_wallet_budget_status';
   auth: VerifiedEd25519WalletSessionAuth;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 
   // Curve-specific fields.
   ed25519RelayerKeyId: string;
@@ -95,7 +95,7 @@ export type ParseWalletSigningBudgetStatusResult =
     };
 
 export type WalletSigningBudgetStatusExpectations = {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string | null;
 };
 
@@ -103,10 +103,10 @@ export function parseWalletSigningBudgetStatusExpectations(
   body: unknown,
 ): WalletSigningBudgetStatusExpectations {
   const record = (body || {}) as Record<string, unknown>;
-  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+  const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || '').trim() || null;
   return {
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
   };
 }
@@ -144,7 +144,7 @@ function walletBudgetMatches(
       status.kind === 'wallet_budget' &&
       status.curve === auth.curve &&
       status.thresholdSessionId === auth.thresholdSessionId &&
-      status.walletSigningSessionId === auth.walletSigningSessionId &&
+      status.signingGrantId === auth.signingGrantId &&
       status.userId === auth.userId &&
       status.rpId === auth.rpId &&
       sameParticipants(auth.participantIds, status.participantIds),
@@ -158,7 +158,7 @@ function buildVerifiedEcdsaWalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ecdsa',
     thresholdSessionId: claims.sessionId,
-    walletSigningSessionId: claims.walletSigningSessionId,
+    signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
     rpId: claims.rpId,
     relayerKeyId: claims.relayerKeyId,
@@ -175,7 +175,7 @@ function buildVerifiedEd25519WalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ed25519',
     thresholdSessionId: claims.sessionId,
-    walletSigningSessionId: claims.walletSigningSessionId,
+    signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
     rpId: claims.rpId,
     relayerKeyId: claims.relayerKeyId,
@@ -212,7 +212,7 @@ export async function parseEcdsaWalletSigningBudgetStatusRequest(args: {
       kind: 'ecdsa_wallet_budget_status',
       auth,
       thresholdSessionId: args.claims.sessionId,
-      walletSigningSessionId: args.claims.walletSigningSessionId,
+      signingGrantId: args.claims.signingGrantId,
       keyHandle: auth.keyHandle,
     },
     claimsKind: args.claims.kind,
@@ -235,7 +235,7 @@ export async function parseEd25519WalletSigningBudgetStatusRequest(args: {
       kind: 'ed25519_wallet_budget_status',
       auth,
       thresholdSessionId: args.claims.sessionId,
-      walletSigningSessionId: args.claims.walletSigningSessionId,
+      signingGrantId: args.claims.signingGrantId,
       ed25519RelayerKeyId: args.claims.relayerKeyId,
     },
     claimsKind: args.claims.kind,
@@ -310,7 +310,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
   if (
     !args.auth.userId ||
     !args.auth.thresholdSessionId ||
-    !args.auth.walletSigningSessionId ||
+    !args.auth.signingGrantId ||
     !hasCompleteCurveSpecificAuth(args.auth) ||
     args.auth.expiresAtMs <= nowMs()
   ) {
@@ -335,7 +335,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
   const curveStatus = selectMatchingCurveStatus(curveStatuses, args.auth);
   const walletBudgetStatus = await sessionPolicy.getWalletBudgetStatus({
     curve: args.auth.curve,
-    walletSigningSessionId: args.auth.walletSigningSessionId,
+    signingGrantId: args.auth.signingGrantId,
     thresholdSessionId: args.auth.thresholdSessionId,
   });
   if (!curveStatus || !walletBudgetStatus || !walletBudgetMatches(args.auth, walletBudgetStatus)) {
@@ -345,7 +345,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     ok: true,
     claims: args.rawClaims,
     userId: args.auth.userId,
-    appSessionVersion: `signing-session:${args.claimsKind}:${args.auth.walletSigningSessionId}:${args.auth.thresholdSessionId}`,
+    appSessionVersion: `signing-session:${args.claimsKind}:${args.auth.signingGrantId}:${args.auth.thresholdSessionId}`,
     sessionHash: await hashEmailOtpSigningSessionClaims(args.rawClaims),
     request: args.request,
     walletBudgetStatus: {

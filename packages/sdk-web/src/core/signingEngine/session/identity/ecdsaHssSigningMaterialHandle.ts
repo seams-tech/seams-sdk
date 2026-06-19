@@ -5,7 +5,7 @@ import type { ReadyEcdsaSignerSession } from './evmFamilyEcdsaIdentity';
 
 export type BuildEcdsaRoleLocalSigningMaterialHandleInput = {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   keyHandle: string;
   routerAbStateSessionId: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -19,10 +19,10 @@ export function buildEcdsaRoleLocalSigningMaterialHandle(
   input: BuildEcdsaRoleLocalSigningMaterialHandleInput,
 ): ThresholdEcdsaRoleLocalWorkerShareHandle {
   const thresholdSessionId = String(input.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(input.walletSigningSessionId || '').trim();
+  const signingGrantId = String(input.signingGrantId || '').trim();
   const keyHandle = String(input.keyHandle || '').trim();
   const routerAbStateSessionId = String(input.routerAbStateSessionId || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !keyHandle || !routerAbStateSessionId) {
+  if (!thresholdSessionId || !signingGrantId || !keyHandle || !routerAbStateSessionId) {
     throw new Error('[evm-family-ecdsa] ECDSA role-local material handle identity is incomplete');
   }
   const bindingDigest = alphabetizeStringify({
@@ -35,7 +35,7 @@ export function buildEcdsaRoleLocalSigningMaterialHandle(
     relayerKeyId: String(input.relayerKeyId || '').trim(),
     routerAbStateSessionId,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
   });
   return {
     kind: 'role_local_worker_session',
@@ -49,7 +49,7 @@ export function ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession(
 ): ThresholdEcdsaRoleLocalWorkerShareHandle {
   return buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
-    walletSigningSessionId: String(signerSession.session.walletSigningSessionId),
+    signingGrantId: String(signerSession.session.signingGrantId),
     keyHandle: String(signerSession.publicFacts.keyHandle),
     routerAbStateSessionId: String(
       signerSession.routerAbEcdsaHssNormalSigning.walletSessionSessionId,

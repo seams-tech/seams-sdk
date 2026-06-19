@@ -272,7 +272,7 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
   includeEcdsaExportArtifact?: boolean;
@@ -603,7 +603,7 @@ export interface EmailOtpWorkerOperationMap {
         walletId: string;
         rpId: string;
         chainTarget: ThresholdEcdsaChainTarget;
-        walletSigningSessionId: string;
+        signingGrantId: string;
         keyHandle: string;
         relayerKeyId: string;
         participantIds: number[];
@@ -659,7 +659,7 @@ export interface EmailOtpWorkerOperationMap {
       relayerKeyId: string;
       readyRecord: EcdsaRoleLocalReadyRecord;
       thresholdSessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdExpiresAtMs: number;
       participantIds: number[];
       keyHandle: string;
@@ -988,7 +988,7 @@ export type StoreRouterAbEd25519HssMaterialFromClientOutputRequest = {
   clientOutputMaskB64u: string;
   expectedContextBindingB64u: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   signingRootId: string;
   signingRootVersion: string;
   expiresAtMs: number;

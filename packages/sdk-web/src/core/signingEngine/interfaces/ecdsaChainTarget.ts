@@ -46,7 +46,7 @@ export type ThresholdEcdsaSessionRecordKey = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 
@@ -264,7 +264,7 @@ export function thresholdEcdsaLaneKey(lane: ThresholdEcdsaSessionRecordKey): str
     laneKeyPart(lane.authMethod),
     'ecdsa',
     laneKeyPart(thresholdEcdsaChainTargetKey(lane.chainTarget)),
-    laneKeyPart(lane.walletSigningSessionId),
+    laneKeyPart(lane.signingGrantId),
     laneKeyPart(lane.thresholdSessionId),
   ].join(':');
 }

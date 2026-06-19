@@ -40,7 +40,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   if (
     existing?.source === 'email_otp' &&
     existing.emailOtpAuthContext?.retention === 'session' &&
-    existing.walletSigningSessionId === args.purpose.walletSigningSessionId
+    existing.signingGrantId === args.purpose.signingGrantId
   ) {
     return existing;
   }
@@ -56,7 +56,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
     participantIds: [...args.record.participantIds],
     thresholdSessionKind: sealedRecoverySessionKind(args.record.walletSessionAuth),
     thresholdSessionId: args.purpose.thresholdSessionId,
-    walletSigningSessionId: args.purpose.walletSigningSessionId,
+    signingGrantId: args.purpose.signingGrantId,
     ...(sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth)
       ? {
           walletSessionJwt: sealedRecoveryWalletSessionJwt(

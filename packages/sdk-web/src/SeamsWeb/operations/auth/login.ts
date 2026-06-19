@@ -279,25 +279,25 @@ type LoginWarmupEd25519MintPlan =
   | {
       kind: 'not_requested';
       sessionId?: never;
-      walletSigningSessionId?: never;
+      signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'fresh';
       sessionId?: never;
-      walletSigningSessionId?: never;
+      signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'ecdsa_authorized';
       sessionId: string;
-      walletSigningSessionId?: never;
+      signingGrantId?: never;
       authorization?: never;
     }
   | {
       kind: 'session_policy_webauthn';
       sessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       authorization: Ed25519WalletSessionMintAuthorization;
     };
 
@@ -897,7 +897,7 @@ export async function unlock(
           ed25519MintPlan = {
             kind: 'session_policy_webauthn',
             sessionId: plannedEd25519SessionId,
-            walletSigningSessionId: plannedEd25519Policy.policy.walletSigningSessionId,
+            signingGrantId: plannedEd25519Policy.policy.signingGrantId,
             authorization: {
               kind: 'threshold_session_policy_webauthn',
               policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
@@ -1519,7 +1519,7 @@ type ThresholdLoginWarmupTask = {
 
 type ThresholdLoginWarmEd25519State = {
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   jwt: string;
   ecdsaHssPasskeyPrfFirstB64u: string;
 };
@@ -1544,7 +1544,7 @@ type ThresholdEcdsaAuthorizedEd25519Mint = {
   thresholdEcdsaSessionJwt: string;
   passkeyPrfFirstB64u: string;
   passkeyCredentialIdB64u: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 };
 
 function passkeyCredentialIdB64uFromEcdsaRecord(record: ThresholdEcdsaSessionRecord): string {
@@ -1755,7 +1755,7 @@ async function primeThresholdLoginWarmSigners(args: {
   let activeCanonicalEcdsaContext = initialCanonicalEcdsaContext;
   const warmState: ThresholdLoginWarmEd25519State = {
     sessionId: '',
-    walletSigningSessionId: '',
+    signingGrantId: '',
     jwt: '',
     ecdsaHssPasskeyPrfFirstB64u: '',
   };
@@ -1790,7 +1790,7 @@ async function primeThresholdLoginWarmSigners(args: {
               return {
                 kind: 'exact_ed25519_provisioning' as const,
                 sessionId: args.ed25519MintPlan.sessionId,
-                walletSigningSessionId: args.ed25519MintPlan.walletSigningSessionId,
+                signingGrantId: args.ed25519MintPlan.signingGrantId,
               };
             case 'fresh':
               return { kind: 'fresh_ed25519_provisioning' as const };
@@ -1803,7 +1803,7 @@ async function primeThresholdLoginWarmSigners(args: {
               return {
                 kind: 'exact_ed25519_provisioning' as const,
                 sessionId: args.ed25519MintPlan.sessionId,
-                walletSigningSessionId: ecdsaMint.walletSigningSessionId,
+                signingGrantId: ecdsaMint.signingGrantId,
               };
             default:
               return assertNeverLoginState(args.ed25519MintPlan);
@@ -1844,12 +1844,12 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
         }
 
-        const connectedWalletSigningSessionId = String(
-          connected.walletSigningSessionId || '',
+        const connectedSigningGrantId = String(
+          connected.signingGrantId || '',
         ).trim();
-        if (!connectedWalletSigningSessionId) {
+        if (!connectedSigningGrantId) {
           throw new Error(
-            '[login] threshold Ed25519 warm-up did not return a walletSigningSessionId',
+            '[login] threshold Ed25519 warm-up did not return a signingGrantId',
           );
         }
 
@@ -1863,7 +1863,7 @@ async function primeThresholdLoginWarmSigners(args: {
         }
 
         warmState.sessionId = connectedSessionId;
-        warmState.walletSigningSessionId = connectedWalletSigningSessionId;
+        warmState.signingGrantId = connectedSigningGrantId;
         warmState.jwt = connectedJwt;
         warmState.ecdsaHssPasskeyPrfFirstB64u = connectedEcdsaHssPasskeyPrfFirstB64u;
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
@@ -1941,16 +1941,16 @@ async function primeThresholdLoginWarmSigners(args: {
             String(bootstrap.passkeyCredentialIdB64u || '').trim() ||
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
-          const walletSigningSessionId = String(
-            bootstrap.thresholdEcdsaKeyRef?.walletSigningSessionId ||
-              bootstrap.session?.walletSigningSessionId ||
+          const signingGrantId = String(
+            bootstrap.thresholdEcdsaKeyRef?.signingGrantId ||
+              bootstrap.session?.signingGrantId ||
               '',
           ).trim();
           if (
             !thresholdEcdsaSessionJwt ||
             !passkeyPrfFirstB64u ||
             !passkeyCredentialIdB64u ||
-            !walletSigningSessionId
+            !signingGrantId
           ) {
             return;
           }
@@ -1958,11 +1958,11 @@ async function primeThresholdLoginWarmSigners(args: {
             thresholdEcdsaSessionJwt,
             passkeyPrfFirstB64u,
             passkeyCredentialIdB64u,
-            walletSigningSessionId,
+            signingGrantId,
           };
         };
-        const ecdsaOnlyWalletSigningSessionId =
-          String(warmState.walletSigningSessionId || '').trim() ||
+        const ecdsaOnlySigningGrantId =
+          String(warmState.signingGrantId || '').trim() ||
           createThresholdLoginWarmSessionId('wallet-ecdsa-login');
         const resolveCurrentBootstrapIdentity = (): ThresholdLoginWarmEcdsaBootstrapIdentity => {
           if (bootstrapIdentity) return bootstrapIdentity;
@@ -1992,7 +1992,7 @@ async function primeThresholdLoginWarmSigners(args: {
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
             thresholdSessionId,
-            walletSigningSessionId: ecdsaOnlyWalletSigningSessionId,
+            signingGrantId: ecdsaOnlySigningGrantId,
             thresholdSessionKind: 'jwt',
             ttlMs: args.ttlMs,
             remainingUses: unlockRemainingUses,
@@ -2136,7 +2136,7 @@ async function primeThresholdLoginWarmSigners(args: {
                   })();
           const sessionIdentity = buildEcdsaSessionIdentity({
             thresholdSessionId,
-            walletSigningSessionId: ecdsaOnlyWalletSigningSessionId,
+            signingGrantId: ecdsaOnlySigningGrantId,
           });
           const appSessionJwt =
             args.routeAuthorization.kind === 'app_session_jwt'

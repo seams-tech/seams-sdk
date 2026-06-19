@@ -37,7 +37,7 @@ function roleLocalBootstrapChallenge(id: string): WebAuthnChallenge {
     digest32B64u: `role-local-bootstrap-digest-${id}`,
     requestId: `tecdsa-keygen-${id}`,
     thresholdSessionId: `threshold-session-${id}`,
-    walletSigningSessionId: `wallet-session-${id}`,
+    signingGrantId: `wallet-session-${id}`,
   };
 }
 
@@ -135,7 +135,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       digest32B64u: 'role-local-bootstrap-digest',
       requestId: 'tecdsa-keygen-request-1',
       thresholdSessionId: 'threshold-session-passkey',
-      walletSigningSessionId: 'wallet-session-passkey',
+      signingGrantId: 'wallet-session-passkey',
     };
 
     await orchestrateSigningConfirmation({

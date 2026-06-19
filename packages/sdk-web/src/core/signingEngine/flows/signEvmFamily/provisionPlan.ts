@@ -30,7 +30,7 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
   material: {
     lane: Pick<
       ResolvedEvmFamilyEcdsaSigningLane,
-      'chainTarget' | 'thresholdSessionId' | 'walletSigningSessionId'
+      'chainTarget' | 'thresholdSessionId' | 'signingGrantId'
     >;
     record: ThresholdEcdsaSessionRecord;
   };
@@ -40,7 +40,7 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
     chainTarget: args.material.lane.chainTarget,
     existingSessionIdentity: buildEcdsaSessionIdentity({
       thresholdSessionId: args.material.lane.thresholdSessionId,
-      walletSigningSessionId: args.material.lane.walletSigningSessionId,
+      signingGrantId: args.material.lane.signingGrantId,
     }),
     sessionBudgetUses: args.sessionBudgetUses,
     reconnectMaterial: buildEcdsaReconnectMaterial({
@@ -73,8 +73,8 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
     newSessionIdentity: buildEcdsaSessionIdentity({
       thresholdSessionId:
         args.authorization.plannedPasskeyReconnect.webauthnChallenge.thresholdSessionId,
-      walletSigningSessionId:
-        args.authorization.plannedPasskeyReconnect.webauthnChallenge.walletSigningSessionId,
+      signingGrantId:
+        args.authorization.plannedPasskeyReconnect.webauthnChallenge.signingGrantId,
     }),
     signingKeyContext: buildEcdsaSigningKeyContextFromRecord(args.material.record),
     sessionKind: 'jwt' as const,

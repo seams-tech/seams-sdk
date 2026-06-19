@@ -31,11 +31,11 @@ import {
 test.describe('ECDSA available signing lane duplicate normalization', () => {
   test('restores Email OTP ECDSA durable lanes written through the sealed record builder', async () => {
     const thresholdSessionId = 'tsess-email-otp-durable-builder';
-    const walletSigningSessionId = 'wsess-email-otp-durable-builder';
+    const signingGrantId = 'wsess-email-otp-durable-builder';
     const keyHandle = 'ehss-key-email-otp-durable-builder';
     const sealedRecord = sealedEcdsaRecord({
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       keyHandle,
       authMethod: 'email_otp',
       chainTarget: TEMPO_TARGET,
@@ -57,7 +57,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       state: 'exhausted',
       remainingUses: 0,
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
     });
   });
 
@@ -68,7 +68,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           authMethod: 'email_otp',
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-email-otp-runtime-exhausted-1',
-          walletSigningSessionId: 'wsess-email-otp-runtime-exhausted-1',
+          signingGrantId: 'wsess-email-otp-runtime-exhausted-1',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           remainingUses: 0,
           updatedAtMs: 700,
@@ -77,7 +77,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           authMethod: 'email_otp',
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-email-otp-runtime-exhausted-2',
-          walletSigningSessionId: 'wsess-email-otp-runtime-exhausted-2',
+          signingGrantId: 'wsess-email-otp-runtime-exhausted-2',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           remainingUses: 0,
           updatedAtMs: 800,
@@ -92,7 +92,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       source: 'runtime_session_record',
       state: 'exhausted',
       remainingUses: 0,
-      walletSigningSessionId: 'wsess-email-otp-runtime-exhausted-2',
+      signingGrantId: 'wsess-email-otp-runtime-exhausted-2',
       thresholdSessionId: 'tsess-email-otp-runtime-exhausted-2',
       publicFacts: {
         keyHandle: expect.stringMatching(/^ehss-key-/),
@@ -108,7 +108,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         runtimeEcdsaRecord({
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-runtime-expired-1',
-          walletSigningSessionId: 'wsess-runtime-expired-1',
+          signingGrantId: 'wsess-runtime-expired-1',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           expiresAtMs: 1,
           updatedAtMs: 700,
@@ -116,7 +116,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         runtimeEcdsaRecord({
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-runtime-expired-2',
-          walletSigningSessionId: 'wsess-runtime-expired-2',
+          signingGrantId: 'wsess-runtime-expired-2',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           expiresAtMs: 1,
           updatedAtMs: 900,
@@ -129,7 +129,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
       source: 'runtime_session_record',
       state: 'expired',
-      walletSigningSessionId: 'wsess-runtime-expired-2',
+      signingGrantId: 'wsess-runtime-expired-2',
       thresholdSessionId: 'tsess-runtime-expired-2',
     });
   });
@@ -139,7 +139,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       authMethod: 'email_otp',
       chainTarget: ECDSA_TARGET,
       thresholdSessionId: 'tsess-runtime-durable',
-      walletSigningSessionId: 'wsess-runtime-durable',
+      signingGrantId: 'wsess-runtime-durable',
       thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
       ecdsaThresholdKeyId: 'shared-ecdsa-key',
       remainingUses: 2,
@@ -150,7 +150,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       sealedRecords: [
         sealedEcdsaRecord({
           authMethod: 'email_otp',
-          walletSigningSessionId: 'wsess-runtime-durable',
+          signingGrantId: 'wsess-runtime-durable',
           thresholdSessionId: 'tsess-runtime-durable',
           updatedAtMs: 500,
           ecdsaThresholdKeyId: 'shared-ecdsa-key',
@@ -181,7 +181,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       source: 'runtime_and_durable',
       state: 'ready',
       remainingUses: 2,
-      walletSigningSessionId: 'wsess-runtime-durable',
+      signingGrantId: 'wsess-runtime-durable',
       thresholdSessionId: 'tsess-runtime-durable',
       updatedAtMs: 800,
     });
@@ -191,7 +191,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     const staleRecord = runtimeEcdsaRecord({
       chainTarget: ECDSA_TARGET,
       thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
-      walletSigningSessionId: 'wsess-ecdsa-stale-router-ab',
+      signingGrantId: 'wsess-ecdsa-stale-router-ab',
       thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
       remainingUses: 2,
       updatedAtMs: 800,
@@ -226,7 +226,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         sealedEcdsaRecord({
           authMethod: 'email_otp',
           chainTarget: ECDSA_TARGET,
-          walletSigningSessionId: 'wsess-email-otp-arc-restorable',
+          signingGrantId: 'wsess-email-otp-arc-restorable',
           thresholdSessionId: 'tsess-email-otp-arc-restorable',
           updatedAtMs: 900,
           ecdsaThresholdKeyId: 'shared-ecdsa-key',
@@ -241,7 +241,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           authMethod: 'email_otp',
           chainTarget: TEMPO_TARGET,
           thresholdSessionId: tempoThresholdSessionId,
-          walletSigningSessionId: 'wsess-email-otp-tempo-ready',
+          signingGrantId: 'wsess-email-otp-tempo-ready',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
           ecdsaThresholdKeyId: 'shared-ecdsa-key',
           keyHandle: TEST_ECDSA_KEY_HANDLE,
@@ -271,7 +271,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       source: 'evm_family_shared_key',
       sourceChainTarget: TEMPO_TARGET,
       state: 'ready',
-      walletSigningSessionId: 'wsess-email-otp-tempo-ready',
+      signingGrantId: 'wsess-email-otp-tempo-ready',
       thresholdSessionId: tempoThresholdSessionId,
       remainingUses: 2,
     });
@@ -285,14 +285,14 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
 
   test('does not share Email OTP runtime claims across ECDSA chain targets with the same threshold session id', async () => {
     const thresholdSessionId = 'tsess-email-otp-shared-session-target-claims';
-    const walletSigningSessionId = 'wsess-email-otp-shared-session-target-claims';
+    const signingGrantId = 'wsess-email-otp-shared-session-target-claims';
     const ecdsaThresholdKeyId = 'shared-ecdsa-key-target-claim';
     const thresholdOwnerAddress = `0x${'EF'.repeat(20)}`;
     const tempoRecord = runtimeEcdsaRecord({
       authMethod: 'email_otp',
       chainTarget: TEMPO_TARGET,
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdOwnerAddress,
       ecdsaThresholdKeyId,
       keyHandle: TEST_ECDSA_KEY_HANDLE,
@@ -303,7 +303,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       authMethod: 'email_otp',
       chainTarget: ECDSA_TARGET,
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdOwnerAddress,
       ecdsaThresholdKeyId,
       keyHandle: TEST_ECDSA_KEY_HANDLE,
@@ -336,7 +336,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       sourceChainTarget: TEMPO_TARGET,
       state: 'ready',
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       remainingUses: 2,
     });
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
@@ -352,7 +352,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           authMethod: 'passkey',
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-passkey-runtime',
-          walletSigningSessionId: 'wsess-passkey-runtime',
+          signingGrantId: 'wsess-passkey-runtime',
           thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
         }),
       ],
@@ -406,7 +406,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       chainTarget: ECDSA_TARGET,
       state: 'ready',
       source: 'runtime_session_record',
-      walletSigningSessionId: 'wallet-session-auth-binding-rp',
+      signingGrantId: 'wallet-session-auth-binding-rp',
       thresholdSessionId: 'threshold-session-auth-binding-rp',
     };
 
@@ -422,7 +422,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       authMethod: 'passkey',
       chainTarget: ECDSA_TARGET,
       thresholdSessionId: 'tsess-runtime-boundary-identity',
-      walletSigningSessionId: 'wsess-runtime-boundary-identity',
+      signingGrantId: 'wsess-runtime-boundary-identity',
       thresholdOwnerAddress: `0x${'AB'.repeat(20)}`,
       ecdsaThresholdKeyId: 'shared-ecdsa-key-runtime-boundary',
     });
@@ -445,7 +445,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       authMethod: 'email_otp',
       chainTarget: ECDSA_TARGET,
       thresholdSessionId: 'tsess-runtime-missing-key-handle',
-      walletSigningSessionId: 'wsess-runtime-missing-key-handle',
+      signingGrantId: 'wsess-runtime-missing-key-handle',
       thresholdOwnerAddress: `0x${'AB'.repeat(20)}`,
       ecdsaThresholdKeyId: 'shared-ecdsa-key-missing-handle',
     });
@@ -463,7 +463,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     const availableLanes = await readAvailableLanes({
       sealedRecords: [
         sealedEcdsaRecord({
-          walletSigningSessionId: 'wsess-owner-drift-durable',
+          signingGrantId: 'wsess-owner-drift-durable',
           thresholdSessionId: 'tsess-owner-drift-durable',
           updatedAtMs: 500,
           ecdsaThresholdKeyId: 'shared-ecdsa-key',
@@ -474,7 +474,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         runtimeEcdsaRecord({
           chainTarget: ECDSA_TARGET,
           thresholdSessionId: 'tsess-owner-drift-runtime',
-          walletSigningSessionId: 'wsess-owner-drift-runtime',
+          signingGrantId: 'wsess-owner-drift-runtime',
           thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
           ecdsaThresholdKeyId: 'shared-ecdsa-key',
           updatedAtMs: 800,

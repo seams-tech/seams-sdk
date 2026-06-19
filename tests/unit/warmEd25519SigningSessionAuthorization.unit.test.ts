@@ -44,7 +44,7 @@ function ed25519Record(
     routerAbNormalSigning,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     walletSessionJwt: 'wallet-session-jwt',
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
@@ -69,7 +69,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       value: {
         kind: 'warm_ed25519_signing_session_authorized',
         materialState: 'material_pending',
-        walletSigningSessionId: 'wallet-signing-session-1',
+        signingGrantId: 'signing-grant-1',
         signingWorkerId: 'signing-worker-a',
         prfClaim: {
           kind: 'hot_prf_claim',

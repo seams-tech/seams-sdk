@@ -67,11 +67,11 @@ type EvmFamilyTransactionSigningExecutorArgs<TRequest extends EvmFamilyTransacti
     thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
     onConfirmationDisplayed: () => void;
     thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
-    reserveWalletSigningSessionBudget: (
+    reserveSigningGrantBudget: (
       operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
     ) => Promise<SigningSessionBudgetReserveResult>;
-    recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
-    recordFailedWalletSigningSessionSpend: (error: unknown) => void;
+    recordSuccessfulSigningGrantSpend: () => Promise<void>;
+    recordFailedSigningGrantSpend: (error: unknown) => void;
     applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
     deferSuccessfulSigningSessionFinalization?: boolean;
     deferFailedSigningSessionFinalization?: boolean;
@@ -157,7 +157,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       request: args.request,
       onConfirmationDisplayed: args.onConfirmationDisplayed,
       thresholdEcdsaStepUp: args.thresholdEcdsaStepUp,
-      reserveWalletSigningSessionBudget: args.reserveWalletSigningSessionBudget,
+      reserveSigningGrantBudget: args.reserveSigningGrantBudget,
       prepareRequestWithManagedNonce: async () =>
         await config.prepareRequestWithManagedNonce({
           deps: args.deps,
@@ -176,7 +176,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
             ? args.thresholdEcdsaState.signingSessionPlan
             : undefined,
         onTransition: emitEvmFamilySigningOperationTrace,
-        recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
+        recordSuccessfulSigningGrantSpend: args.recordSuccessfulSigningGrantSpend,
         applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
       });
     }
@@ -194,7 +194,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       chainId: args.chainTarget.chainId,
     });
     if (!args.deferFailedSigningSessionFinalization) {
-      args.recordFailedWalletSigningSessionSpend(finalError);
+      args.recordFailedSigningGrantSpend(finalError);
     }
     throw finalError;
   }
@@ -209,11 +209,11 @@ export async function executeEvmFamilyTransactionSigning(args: {
   thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
   onConfirmationDisplayed: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
-  reserveWalletSigningSessionBudget: (
+  reserveSigningGrantBudget: (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
   ) => Promise<SigningSessionBudgetReserveResult>;
-  recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
-  recordFailedWalletSigningSessionSpend: (error: unknown) => void;
+  recordSuccessfulSigningGrantSpend: () => Promise<void>;
+  recordFailedSigningGrantSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
   deferSuccessfulSigningSessionFinalization?: boolean;
   deferFailedSigningSessionFinalization?: boolean;

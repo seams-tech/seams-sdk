@@ -81,7 +81,7 @@ const validEd25519SigningWalletSession = {
   curve: 'ed25519',
   auth: walletSessionAuth,
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
   signingMaterial: ed25519SigningMaterial,
@@ -96,7 +96,7 @@ const validEcdsaSigningWalletSession = {
   curve: 'ecdsa',
   auth: walletSessionAuth,
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
   signingMaterial: ecdsaSigningMaterial,
@@ -132,12 +132,12 @@ const ed25519MissingMaterialHandle = {
 } satisfies RouterAbEd25519SigningWalletSession;
 void ed25519MissingMaterialHandle;
 
-const ed25519MissingWalletSigningSession = {
+const ed25519MissingSigningGrant = {
   ...validEd25519SigningWalletSession,
   // @ts-expect-error Signable Ed25519 Wallet Session state requires the wallet signing session id.
-  walletSigningSessionId: undefined,
+  signingGrantId: undefined,
 } satisfies RouterAbEd25519SigningWalletSession;
-void ed25519MissingWalletSigningSession;
+void ed25519MissingSigningGrant;
 
 const ed25519MissingSigningRootId = {
   ...validEd25519SigningWalletSession,

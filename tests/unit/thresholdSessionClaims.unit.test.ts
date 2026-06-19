@@ -45,7 +45,7 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
     sessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     relayerKeyId: 'relayer-key-1',
     rpId: 'example.localhost',
     thresholdExpiresAtMs: Date.now() + 60 * 60 * 1000,
@@ -176,7 +176,7 @@ function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
     relayerVerifyingShareB64u: issuer.publicIdentity.relayerPublicKey33B64u,
     participantIds: [1, 2],
     sessionId: 'threshold-ecdsa-session',
-    walletSigningSessionId: 'wallet-signing-session-ecdsa',
+    signingGrantId: 'signing-grant-ecdsa',
     expiresAtMs: Date.now() + 60_000,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     remainingUses: 3,
@@ -251,17 +251,17 @@ test.describe('threshold session auth token claims', () => {
     expect(parseThresholdEcdsaSessionClaims({ ...claims, walletId: undefined })).toBeNull();
   });
 
-  test('requires explicit walletSigningSessionId on threshold session tokens', () => {
+  test('requires explicit signingGrantId on threshold session tokens', () => {
     expect(
       parseThresholdEd25519SessionClaims({
         ...baseClaims('threshold_ed25519_session_v1'),
-        walletSigningSessionId: undefined,
+        signingGrantId: undefined,
       }),
     ).toBeNull();
     expect(
       parseThresholdEcdsaSessionClaims({
         ...baseClaims('threshold_ecdsa_session_v2'),
-        walletSigningSessionId: undefined,
+        signingGrantId: undefined,
       }),
     ).toBeNull();
   });
@@ -421,7 +421,7 @@ test.describe('threshold session auth token claims', () => {
         sessionInfo: {
           sessionKind: 'jwt',
           sessionId: 'threshold-ed25519-session',
-          walletSigningSessionId: 'wallet-signing-session-ed25519',
+          signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
@@ -441,7 +441,7 @@ test.describe('threshold session auth token claims', () => {
         sessionInfo: {
           sessionKind: 'jwt',
           sessionId: 'threshold-ed25519-session',
-          walletSigningSessionId: 'wallet-signing-session-ed25519',
+          signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
@@ -470,7 +470,7 @@ test.describe('threshold session auth token claims', () => {
         sessionInfo: {
           sessionKind: 'jwt',
           sessionId: ecdsaBootstrap.sessionId,
-          walletSigningSessionId: ecdsaBootstrap.walletSigningSessionId,
+          signingGrantId: ecdsaBootstrap.signingGrantId,
           expiresAtMs: ecdsaBootstrap.expiresAtMs,
           participantIds: ecdsaBootstrap.participantIds,
           runtimePolicyScope,
@@ -519,7 +519,7 @@ test.describe('threshold session auth token claims', () => {
         sessionInfo: {
           sessionKind: 'jwt',
           sessionId: 'threshold-ecdsa-session',
-          walletSigningSessionId: 'wallet-signing-session-ecdsa',
+          signingGrantId: 'signing-grant-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           runtimePolicyScope,
@@ -541,7 +541,7 @@ test.describe('threshold session auth token claims', () => {
       routerAbEcdsaHssIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
       sessionId: ecdsaBootstrap.sessionId,
-      walletSigningSessionId: ecdsaBootstrap.walletSigningSessionId,
+      signingGrantId: ecdsaBootstrap.signingGrantId,
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
       participantIds: ecdsaBootstrap.participantIds,
       runtimePolicyScope,

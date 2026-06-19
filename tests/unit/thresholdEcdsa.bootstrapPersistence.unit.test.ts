@@ -99,7 +99,7 @@ function bootstrap(args: {
         ecdsaRoleLocalReadyRecord,
       },
       thresholdSessionId: 'tehss_1',
-      walletSigningSessionId: 'wss_1',
+      signingGrantId: 'wss_1',
     },
     keygen: {
       ok: true,
@@ -116,7 +116,7 @@ function bootstrap(args: {
     session: {
       ok: true,
       sessionId: 'tehss_1',
-      walletSigningSessionId: 'wss_1',
+      signingGrantId: 'wss_1',
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,
     } as ThresholdEcdsaSessionBootstrapResult['session'],

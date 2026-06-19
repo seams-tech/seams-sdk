@@ -48,7 +48,7 @@ function buildRoleLocalWorkerShareHandleFromRecord(record: ThresholdEcdsaSession
   }
   return buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: record.thresholdSessionId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     keyHandle: String(record.keyHandle),
     routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(routerAbState),
     chainTarget: record.chainTarget,

@@ -19,7 +19,7 @@ const accountId = toAccountId('transaction-state.testnet');
 const lane = buildNearTransactionSigningLane({
   accountId,
   authMethod: 'passkey',
-  walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-1'),
+  signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
   storageSource: 'login',
 });
@@ -40,10 +40,10 @@ const preparedOperation = {
 } satisfies Parameters<typeof recordPreparedTransactionBudgetAdmissionFromFreshness>[0];
 const budgetAdmission = {
   budgetIdentity: {
-    walletSigningSessionId: String(lane.walletSigningSessionId),
+    signingGrantId: String(lane.signingGrantId),
     projectionVersion: 'projection-1',
     status: {
-      sessionId: String(lane.walletSigningSessionId),
+      sessionId: String(lane.signingGrantId),
       status: 'active',
       projectionVersion: 'projection-1',
       remainingUses: 1,

@@ -201,7 +201,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       'hssClientSharePublicKey33B64u',
       'contextBinding32B64u',
       'sessionId',
-      'walletSigningSessionId',
+      'signingGrantId',
       'participantIds',
     ];
 
@@ -329,7 +329,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
         'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
       ],
     ] as const) {
-      for (const field of ['walletSigningSessionId', 'thresholdSessionId']) {
+      for (const field of ['signingGrantId', 'thresholdSessionId']) {
         if (new RegExp(`\\b${field}\\s*:`).test(block)) {
           offenders.push(`${context} carries concrete ${field}`);
         }

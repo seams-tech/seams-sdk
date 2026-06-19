@@ -82,11 +82,11 @@ export async function getWarmThresholdEd25519SessionStatus(
 ): Promise<SigningSessionStatus | null> {
   const status = await deps.statusReader.getEd25519SigningSessionStatus(nearAccountId);
   const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
-  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-  const budgetStatusCheck = walletSigningSessionId
+  const signingGrantId = String(record?.signingGrantId || '').trim();
+  const budgetStatusCheck = signingGrantId
     ? buildWalletBudgetStatusCheckForSession({
         owner: ed25519WalletBudgetOwner(toAccountId(nearAccountId)),
-        walletSigningSessionId,
+        signingGrantId,
       })
     : null;
   const walletBudgetStatus = budgetStatusCheck
@@ -121,7 +121,7 @@ export async function getWarmThresholdEcdsaSessionStatus(
           key: status.key,
           keyHandle: status.lane.keyHandle,
           chainTarget: status.chainTarget,
-          walletSigningSessionId: status.walletSigningSessionId,
+          signingGrantId: status.signingGrantId,
           thresholdSessionId,
         }),
       )
@@ -149,7 +149,7 @@ export async function listWarmThresholdEcdsaSessionStatuses(
           key: status.key,
           keyHandle: status.lane.keyHandle,
           chainTarget: status.chainTarget,
-          walletSigningSessionId: status.walletSigningSessionId,
+          signingGrantId: status.signingGrantId,
           thresholdSessionId: status.sessionId,
         }),
       );
@@ -161,7 +161,7 @@ export async function listWarmThresholdEcdsaSessionStatuses(
 function isRecordBackedEcdsaStatus(
   status: WarmEcdsaSigningSessionStatus | null,
 ): status is WarmEcdsaRecordBackedSigningSessionStatus {
-  return Boolean(status && typeof status.walletSigningSessionId === 'string');
+  return Boolean(status && typeof status.signingGrantId === 'string');
 }
 
 export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(

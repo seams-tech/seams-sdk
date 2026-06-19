@@ -11,7 +11,7 @@ import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
 import {
-  toAuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -40,8 +40,8 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
 ): ResolvedRouterAbEd25519WalletSessionState | null {
   if (!record) return null;
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId) return null;
+  const signingGrantId = String(record.signingGrantId || '').trim();
+  if (!thresholdSessionId || !signingGrantId) return null;
   const signingWalletSession = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
   if (!signingWalletSession.ok) return null;
   const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(record);
@@ -51,8 +51,8 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
       ? buildNearTransactionSigningLane({
           accountId: record.nearAccountId,
           authMethod: 'email_otp',
-          walletSigningSessionId:
-            SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          signingGrantId:
+            SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
           retention: record.emailOtpAuthContext?.retention || 'session',
           sessionOrigin:
@@ -61,14 +61,14 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
       : buildNearTransactionSigningLane({
           accountId: record.nearAccountId,
           authMethod: 'passkey',
-          walletSigningSessionId:
-            SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          signingGrantId:
+            SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
           storageSource: resolveEd25519PasskeyStorageSource(record.source),
         });
   const common = {
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     signingLane,
     remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
     signingMaterial: signingWalletSession.value.signingMaterial,
@@ -103,15 +103,15 @@ export function emailOtpEd25519AuthLaneFromRecord(
 ): EmailOtpAuthLane | undefined {
   const jwt = walletSessionJwtFromPersistedEd25519Record(record);
   const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-  if (record?.source !== 'email_otp' || !jwt || !thresholdSessionId || !walletSigningSessionId) {
+  const signingGrantId = String(record?.signingGrantId || '').trim();
+  if (record?.source !== 'email_otp' || !jwt || !thresholdSessionId || !signingGrantId) {
     return undefined;
   }
   return {
     kind: 'signing_session',
     jwt,
     thresholdSessionId,
-    authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(walletSigningSessionId),
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(signingGrantId),
     curve: 'ed25519',
   };
 }
@@ -127,19 +127,19 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
   const persist = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
   if (typeof persist !== 'function') return;
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(
-    args.walletSessionState.walletSigningSessionId || '',
+  const signingGrantId = String(
+    args.walletSessionState.signingGrantId || '',
   ).trim();
   const relayerUrl = String(args.walletSessionState.relayerUrl || '').trim();
   const materialHandle = String(args.materialHandle || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !materialHandle) return;
+  if (!thresholdSessionId || !signingGrantId || !relayerUrl || !materialHandle) return;
   const result = await persist({
     sessionId: thresholdSessionId,
     transport: {
       curve: 'ed25519',
       walletId: String(args.nearAccountId || '').trim(),
       relayerUrl,
-      walletSigningSessionId,
+      signingGrantId,
       ...(args.walletSessionState.walletSessionAuth.kind === 'wallet_session_jwt'
         ? { walletSessionJwt: args.walletSessionState.walletSessionAuth.walletSessionJwt }
         : {}),

@@ -264,7 +264,7 @@ test.describe('WarmSessionStore capability resolution', () => {
           kind: 'tempo',
         },
         thresholdSessionId: 'ecdsa-warm-session',
-        walletSigningSessionId: 'wsess-ecdsa-warm-session',
+        signingGrantId: 'wsess-ecdsa-warm-session',
       },
       routeAuth: {
         kind: 'wallet_session',

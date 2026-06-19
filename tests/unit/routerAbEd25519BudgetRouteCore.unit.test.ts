@@ -16,7 +16,7 @@ type Ed25519RouteInput = Parameters<typeof handleRouterAbEd25519NormalSigningRou
 type Ed25519ThresholdService = NonNullable<ReturnType<Ed25519RouteInput['getThreshold']>>;
 
 const thresholdSessionId = 'threshold-ed25519-session-1';
-const walletSigningSessionId = 'wallet-signing-session-1';
+const signingGrantId = 'signing-grant-1';
 const walletId = 'alice.test.near';
 const signingWorkerId = 'local-signing-worker';
 const expiresAtMs = Date.now() + 60_000;
@@ -34,7 +34,7 @@ function walletSessionClaims(): Record<string, unknown> {
     walletId,
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     sessionId: thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     relayerKeyId: 'near-relayer-key-1',
     rpId: 'localhost',
     runtimePolicyScope: {
@@ -231,7 +231,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
           curve: 'ed25519',
           phase: 'finalize',
           sessionId: thresholdSessionId,
-          walletSigningSessionId,
+          signingGrantId,
           requestId: 'presign-finalize-request-1',
         },
       ]);
@@ -274,7 +274,7 @@ test.describe('Router A/B Ed25519 route-core budget gates', () => {
           curve: 'ed25519',
           phase: 'prepare',
           sessionId: thresholdSessionId,
-          walletSigningSessionId,
+          signingGrantId,
           reservationId: 'budget-reservation-1',
         },
       ]);

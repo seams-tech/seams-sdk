@@ -24,7 +24,7 @@ function makeRecord(
     },
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'tsess-export-ed25519',
-    walletSigningSessionId: 'wsess-export-ed25519',
+    signingGrantId: 'wsess-export-ed25519',
     walletSessionJwt: 'router-ab-ed25519-wallet-session-jwt',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 2,
@@ -44,7 +44,7 @@ test.describe('near Ed25519 export Wallet Session auth', () => {
         kind: 'router_ab_ed25519_export_wallet_session_auth_v1',
         walletSessionJwt: 'router-ab-ed25519-wallet-session-jwt',
         thresholdSessionId: 'tsess-export-ed25519',
-        walletSigningSessionId: 'wsess-export-ed25519',
+        signingGrantId: 'wsess-export-ed25519',
         signingWorkerId: 'signing-worker-local',
       },
     });

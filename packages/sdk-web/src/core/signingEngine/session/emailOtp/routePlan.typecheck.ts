@@ -1,11 +1,11 @@
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEmailOtpRoutePlan,
-  toAuthorizingWalletSigningSessionId,
-  toMintedWalletSigningSessionId,
-  type AuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
+  toMintedSigningGrantId,
+  type AuthorizingSigningGrantId,
   type EmailOtpSigningSessionAuthLane,
-  type MintedWalletSigningSessionId,
+  type MintedSigningGrantId,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession,
@@ -19,18 +19,18 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
 });
-const authorizingWalletSigningSessionId = toAuthorizingWalletSigningSessionId(
-  'authorizing-wallet-signing-session',
+const authorizingSigningGrantId = toAuthorizingSigningGrantId(
+  'authorizing-signing-grant',
 );
-const mintedWalletSigningSessionId = toMintedWalletSigningSessionId(
-  'minted-wallet-signing-session',
+const mintedSigningGrantId = toMintedSigningGrantId(
+  'minted-signing-grant',
 );
 
 void ({
   kind: 'signing_session',
   jwt: 'threshold-session-jwt',
   thresholdSessionId: 'threshold-session',
-  authorizingWalletSigningSessionId,
+  authorizingSigningGrantId,
   curve: 'ecdsa',
   chainTarget,
 } satisfies EmailOtpSigningSessionAuthLane);
@@ -41,7 +41,7 @@ const routePlan = buildEmailOtpRoutePlan({
     kind: 'signing_session',
     jwt: 'threshold-session-jwt',
     thresholdSessionId: 'threshold-session',
-    authorizingWalletSigningSessionId,
+    authorizingSigningGrantId,
     curve: 'ecdsa',
     chainTarget,
   },
@@ -50,7 +50,7 @@ const routePlan = buildEmailOtpRoutePlan({
 
 void buildPerOperationEmailOtpEcdsaMintingSession({
   routePlan,
-  generateWalletSigningSessionId: () => mintedWalletSigningSessionId,
+  generateSigningGrantId: () => mintedSigningGrantId,
 });
 
 const ecdsaBootstrapRouteAuth = {
@@ -58,7 +58,7 @@ const ecdsaBootstrapRouteAuth = {
   jwt: 'threshold-ecdsa-session-jwt',
   curve: 'ecdsa',
   thresholdSessionId: 'ecdsa-threshold-session',
-  walletSigningSessionId: authorizingWalletSigningSessionId,
+  signingGrantId: authorizingSigningGrantId,
   chainTarget,
 } satisfies EmailOtpEcdsaBootstrapRouteAuth;
 
@@ -72,7 +72,7 @@ const ed25519RouteAuth = {
   jwt: 'threshold-ed25519-session-jwt',
   curve: 'ed25519',
   thresholdSessionId: 'ed25519-threshold-session',
-  walletSigningSessionId: authorizingWalletSigningSessionId,
+  signingGrantId: authorizingSigningGrantId,
 } satisfies EmailOtpThresholdEd25519RouteAuth;
 
 void ed25519RouteAuth;
@@ -84,23 +84,23 @@ void ({
 } satisfies EmailOtpEcdsaBootstrapAuthorization);
 
 assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
-  mintedWalletSigningSessionId,
-  authorizingWalletSigningSessionId,
+  mintedSigningGrantId,
+  authorizingSigningGrantId,
 });
 
 // @ts-expect-error authorizing session ids cannot be used as minted session ids
-const invalidMintedWalletSigningSessionId: MintedWalletSigningSessionId =
-  authorizingWalletSigningSessionId;
+const invalidMintedSigningGrantId: MintedSigningGrantId =
+  authorizingSigningGrantId;
 
 // @ts-expect-error minted session ids cannot authorize signing-session routes
-const invalidAuthorizingWalletSigningSessionId: AuthorizingWalletSigningSessionId =
-  mintedWalletSigningSessionId;
+const invalidAuthorizingSigningGrantId: AuthorizingSigningGrantId =
+  mintedSigningGrantId;
 
 const invalidAuthLane = {
   kind: 'signing_session',
   jwt: 'threshold-session-jwt',
   thresholdSessionId: 'threshold-session',
-  walletSigningSessionId: mintedWalletSigningSessionId,
+  signingGrantId: mintedSigningGrantId,
   curve: 'ecdsa',
   chainTarget,
 };
@@ -110,11 +110,11 @@ void (invalidAuthLane satisfies EmailOtpSigningSessionAuthLane);
 
 assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
   // @ts-expect-error per-operation minting requires a minted wallet signing-session id
-  mintedWalletSigningSessionId: authorizingWalletSigningSessionId,
-  authorizingWalletSigningSessionId,
+  mintedSigningGrantId: authorizingSigningGrantId,
+  authorizingSigningGrantId,
 });
 
-void invalidMintedWalletSigningSessionId;
-void invalidAuthorizingWalletSigningSessionId;
+void invalidMintedSigningGrantId;
+void invalidAuthorizingSigningGrantId;
 
 export {};

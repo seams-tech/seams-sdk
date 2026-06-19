@@ -24,7 +24,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
 });
 const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('threshold-session-1');
 

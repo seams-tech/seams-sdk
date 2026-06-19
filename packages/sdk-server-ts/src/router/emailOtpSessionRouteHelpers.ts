@@ -267,7 +267,7 @@ export function stableEmailOtpSigningSessionBindingClaims(
     'kind',
     'sub',
     'sessionId',
-    'walletSigningSessionId',
+    'signingGrantId',
     'relayerKeyId',
     'rpId',
     'runtimePolicyScope',

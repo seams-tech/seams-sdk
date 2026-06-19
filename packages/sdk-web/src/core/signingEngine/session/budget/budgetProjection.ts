@@ -3,13 +3,13 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import type {
   SigningOperationFingerprint,
   SigningOperationId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from '../operationState/types';
 
 export type TrustedWalletBudgetStatus =
   | {
       source: 'server_status' | 'server_consume';
-      sessionId: WalletSigningSessionId | string;
+      sessionId: SigningGrantId | string;
       status: 'active';
       remainingUses: number;
       expiresAtMs?: number;
@@ -17,7 +17,7 @@ export type TrustedWalletBudgetStatus =
     }
   | {
       source: 'server_status' | 'server_consume';
-      sessionId: WalletSigningSessionId | string;
+      sessionId: SigningGrantId | string;
       status: 'expired' | 'exhausted' | 'not_found';
       remainingUses?: number;
       expiresAtMs?: number;
@@ -31,13 +31,13 @@ export type WalletBudgetUnknownReason =
 
 export type WalletBudgetUnknown = {
   source: 'budget_unknown';
-  sessionId: WalletSigningSessionId | string;
+  sessionId: SigningGrantId | string;
   status: 'budget_unknown';
   reason: WalletBudgetUnknownReason;
 };
 
 export type WalletBudgetPolicyHint = {
-  sessionId: WalletSigningSessionId | string;
+  sessionId: SigningGrantId | string;
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
@@ -97,7 +97,7 @@ export type WalletBudgetProjectionState =
 
 export type WalletBudgetProjection = {
   walletId: AccountId;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   state: WalletBudgetProjectionState;
   reservationsByOperationId: Map<string, WalletBudgetReservationProjection>;
   localReservedUses: number;
@@ -132,11 +132,11 @@ export type WalletBudgetProjectionEvent =
 
 export function createWalletBudgetProjection(args: {
   walletId: AccountId;
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
 }): WalletBudgetProjection {
   return {
     walletId: args.walletId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     state: { kind: 'missing' },
     reservationsByOperationId: new Map(),
     localReservedUses: 0,
@@ -215,11 +215,11 @@ export function trustedBudgetStatusFromSigningSessionStatus(args: {
 }
 
 export function budgetUnknownSigningSessionStatus(args: {
-  walletSigningSessionId: WalletSigningSessionId | string;
+  signingGrantId: SigningGrantId | string;
   reason: WalletBudgetUnknownReason;
 }): SigningSessionStatus {
   return {
-    sessionId: String(args.walletSigningSessionId),
+    sessionId: String(args.signingGrantId),
     status: 'budget_unknown',
     statusCode: args.reason,
   };
@@ -231,12 +231,12 @@ export function projectionToSigningSessionStatus(
   switch (projection.state.kind) {
     case 'missing':
       return budgetUnknownSigningSessionStatus({
-        walletSigningSessionId: projection.walletSigningSessionId,
+        signingGrantId: projection.signingGrantId,
         reason: 'missing_trusted_status',
       });
     case 'unknown':
       return budgetUnknownSigningSessionStatus({
-        walletSigningSessionId: projection.walletSigningSessionId,
+        signingGrantId: projection.signingGrantId,
         reason: projection.state.unknown.reason,
       });
     case 'expired': {

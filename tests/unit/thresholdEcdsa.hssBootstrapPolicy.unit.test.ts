@@ -79,7 +79,7 @@ async function createRoleLocalBootstrap(args: {
   rpId: string;
   clientRootShare32B64u: string;
   sessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   participantIds?: number[];
   signingRootId?: string;
   signingRootVersion?: string;
@@ -125,7 +125,7 @@ async function createRoleLocalBootstrap(args: {
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: `request:${args.sessionId}`,
     sessionId: args.sessionId,
-    walletSigningSessionId: args.walletSigningSessionId || `${args.sessionId}:wallet-signing`,
+    signingGrantId: args.signingGrantId || `${args.sessionId}:wallet-signing`,
     ttlMs: 60_000,
     remainingUses: 3,
     participantIds,
@@ -163,7 +163,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     expect(first.ethereumAddress).toBe(second.ethereumAddress);
     expect(first.publicIdentity).toEqual(second.publicIdentity);
     expect(first.sessionId).not.toBe(second.sessionId);
-    expect(first.walletSigningSessionId).not.toBe(second.walletSigningSessionId);
+    expect(first.signingGrantId).not.toBe(second.signingGrantId);
     expectNoCanonicalExportMaterial(first as unknown as Record<string, unknown>);
   });
 
@@ -245,7 +245,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
         contextBinding32B64u: fixedB64u(32, 1),
         requestId: `request:${name}`,
         sessionId: `ecdsa-session-${name}`,
-        walletSigningSessionId: `wallet-signing-${name}`,
+        signingGrantId: `wallet-signing-${name}`,
         ttlMs: 60_000,
         remainingUses: 2,
         participantIds: [1, 2],
@@ -287,7 +287,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       contextBinding32B64u: first.contextBinding32B64u,
       requestId: 'request:identity-sum-retry',
       sessionId: 'ecdsa-session-identity-sum-retry',
-      walletSigningSessionId: 'wallet-signing-identity-sum-retry',
+      signingGrantId: 'wallet-signing-identity-sum-retry',
       ttlMs: 60_000,
       remainingUses: 2,
       participantIds: [1, 2],
@@ -340,7 +340,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       contextBinding32B64u: clientBootstrap.contextBinding32B64u,
       requestId: 'request:relayer-rotation',
       sessionId: 'ecdsa-session-relayer-rotation-second',
-      walletSigningSessionId: 'wallet-signing-relayer-rotation-second',
+      signingGrantId: 'wallet-signing-relayer-rotation-second',
       ttlMs: 60_000,
       remainingUses: 2,
       participantIds: [1, 2],
@@ -392,7 +392,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       contextBinding32B64u: changedClientBootstrap.contextBinding32B64u,
       requestId: 'request:client-share-change',
       sessionId: 'ecdsa-session-client-share-second',
-      walletSigningSessionId: 'wallet-signing-client-share-second',
+      signingGrantId: 'wallet-signing-client-share-second',
       ttlMs: 60_000,
       remainingUses: 2,
       participantIds: [1, 2],

@@ -20,14 +20,14 @@ import type {
 } from '../../session/persistence/records';
 import { thresholdEcdsaSessionRecordReadModel } from '../../session/persistence/records';
 import {
-  toAuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   SigningSessionIds,
   type ResolvedEcdsaSigningSessionIdentity,
   type ThresholdEcdsaSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../../session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
@@ -61,7 +61,7 @@ export type ResolvedEvmFamilyEcdsaSigningLane = EcdsaTransactionSigningLane & {
     chainFamily: EvmFamilyChain;
     key: EvmFamilyEcdsaKeyIdentity;
     chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: WalletSigningSessionId;
+    signingGrantId: SigningGrantId;
     thresholdSessionId: ThresholdEcdsaSessionId;
   } & ResolvedEcdsaSigningSessionIdentity;
 
@@ -75,7 +75,7 @@ export function summarizeEvmFamilyEcdsaSessionRecord(
     source: record.source,
     chain: record.chainTarget.kind,
     thresholdSessionId: record.thresholdSessionId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     keyHandle: record.keyHandle,
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,
@@ -103,7 +103,7 @@ export function summarizeEvmFamilyEcdsaLane(
     sessionOrigin: 'sessionOrigin' in lane ? lane.sessionOrigin : undefined,
     storageSource: 'storageSource' in lane ? lane.storageSource : undefined,
     retention: 'retention' in lane ? lane.retention : undefined,
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
     chainTarget: lane.chainTarget,
     evmFamilyKeyPresent: Boolean('key' in lane && lane.key),
@@ -214,7 +214,7 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     keyHandle: lane.keyHandle,
     walletId: lane.walletId,
     authMethod: lane.authMethod,
-    walletSigningSessionId: laneIdentity.walletSigningSessionId,
+    signingGrantId: laneIdentity.signingGrantId,
     thresholdSessionId: laneIdentity.thresholdSessionId,
     chainTarget,
   });
@@ -232,7 +232,7 @@ export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   chain: EvmFamilyChain;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   context: string;
   diagnostics?: Record<string, unknown>;
 }): ResolvedEvmFamilyEcdsaSigningLane {
@@ -256,7 +256,7 @@ export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args: {
   }
   return {
     ...lane,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(identity.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(identity.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(identity.thresholdSessionId),
   };
 }
@@ -286,7 +286,7 @@ export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args: {
     walletId: args.lane.walletId,
     authMethod: args.lane.authMethod,
     chainTarget: args.chainTarget,
-    walletSigningSessionId: args.lane.walletSigningSessionId,
+    signingGrantId: args.lane.signingGrantId,
     thresholdSessionId: args.lane.thresholdSessionId,
   });
 }
@@ -362,7 +362,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     key,
     keyHandle: record.keyHandle,
     walletId: toAccountId(key.walletId),
-    walletSigningSessionId: materialLane.walletSigningSessionId,
+    signingGrantId: materialLane.signingGrantId,
     thresholdSessionId: materialLane.thresholdSessionId,
   };
   const buildLane =
@@ -490,8 +490,8 @@ export function emailOtpEcdsaAuthLaneFromRecord(
     kind: 'signing_session',
     jwt: walletSessionAuth.walletSessionJwt,
     thresholdSessionId: identity.thresholdSessionId,
-    authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
-      identity.walletSigningSessionId,
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(
+      identity.signingGrantId,
     ),
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
@@ -589,7 +589,7 @@ export function findSharedEvmFamilyEcdsaSessionRecordForLane(args: {
       const candidateKey = [
         record.source,
         thresholdEcdsaChainTargetKey(record.chainTarget),
-        record.walletSigningSessionId,
+        record.signingGrantId,
         record.thresholdSessionId,
       ].join(':');
       if (seen.has(candidateKey)) continue;
@@ -641,7 +641,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   if (!recordIdentity || recordIdentity.thresholdSessionId !== laneIdentity.thresholdSessionId) {
     return 'threshold session id mismatch';
   }
-  if (recordIdentity.walletSigningSessionId !== laneIdentity.walletSigningSessionId) {
+  if (recordIdentity.signingGrantId !== laneIdentity.signingGrantId) {
     return 'wallet signing session id mismatch';
   }
   if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)) {

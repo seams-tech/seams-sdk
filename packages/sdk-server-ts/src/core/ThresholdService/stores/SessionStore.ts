@@ -99,7 +99,7 @@ export type RouterAbEd25519PresignRecord = ParsedRouterAbEd25519PresignRecord;
 
 export type RouterAbEd25519PresignExpectedScope = {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   relayerKeyId: string;
   nearAccountId: string;
   nearNetworkId: string;
@@ -116,7 +116,7 @@ export type RouterAbEd25519TakePresignForFinalizeResult =
   | { ok: false; code: 'not_found' | 'expired' | 'scope_mismatch' | 'invalid_record' };
 
 export type RouterAbEd25519PresignCapacity = {
-  walletSigningSessionMax: number;
+  signingGrantMax: number;
   globalMax: number;
 };
 
@@ -169,7 +169,7 @@ export interface ThresholdEd25519SessionStore {
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519PutPresignWithCapacityResult>;
   checkPresignCapacity(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519CheckPresignCapacityResult>;
   consumePresignRefillRateLimit(
@@ -205,7 +205,7 @@ function presignRecordMatchesExpectedScope(
 ): boolean {
   return (
     record.thresholdSessionId === expected.thresholdSessionId &&
-    record.walletSigningSessionId === expected.walletSigningSessionId &&
+    record.signingGrantId === expected.signingGrantId &&
     record.relayerKeyId === expected.relayerKeyId &&
     record.nearAccountId === expected.nearAccountId &&
     record.nearNetworkId === expected.nearNetworkId &&
@@ -298,8 +298,8 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     return `${this.presignPrefix}idx:global`;
   }
 
-  private presignWalletIndexKey(walletSigningSessionId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(walletSigningSessionId)}`;
+  private presignWalletIndexKey(signingGrantId: string): string {
+    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
   }
 
   private pruneExpiredPresigns(nowMs: number): void {
@@ -313,7 +313,7 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   private presignCounts(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     nowMs: number,
   ): {
     wallet: number;
@@ -327,7 +327,7 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       const parsed = parseStoredPresignRecord(entry.value);
       if (!parsed || parsed.expiresAtMs <= nowMs) continue;
       global += 1;
-      if (parsed.walletSigningSessionId === walletSigningSessionId) wallet += 1;
+      if (parsed.signingGrantId === signingGrantId) wallet += 1;
     }
     return { wallet, global };
   }
@@ -442,11 +442,11 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const parsed = parseStoredPresignRecord(record);
     if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
-    const counts = this.presignCounts(parsed.walletSigningSessionId, Date.now());
+    const counts = this.presignCounts(parsed.signingGrantId, Date.now());
     if (counts.wallet >= walletMax || counts.global >= globalMax) {
       return { ok: false, code: 'capacity_exceeded' };
     }
@@ -455,14 +455,14 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   async checkPresignCapacity(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(walletSigningSessionId);
+    const walletId = toOptionalTrimmedString(signingGrantId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const counts = this.presignCounts(walletId, Date.now());
@@ -554,8 +554,8 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     return `${this.presignPrefix}idx:global`;
   }
 
-  private presignWalletIndexKey(walletSigningSessionId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(walletSigningSessionId)}`;
+  private presignWalletIndexKey(signingGrantId: string): string {
+    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
   }
 
   async putMpcSession(
@@ -667,8 +667,8 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const result = await this.client.eval(
@@ -698,7 +698,7 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
       ].join('\n'),
       [
         this.presignKey(k),
-        this.presignWalletIndexKey(parsed.walletSigningSessionId),
+        this.presignWalletIndexKey(parsed.signingGrantId),
         this.presignGlobalIndexKey(),
       ],
       [
@@ -715,14 +715,14 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
   }
 
   async checkPresignCapacity(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(walletSigningSessionId);
+    const walletId = toOptionalTrimmedString(signingGrantId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const result = await this.client.eval(
@@ -786,7 +786,7 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
       await this.client.del(key);
       await this.client.eval(
         "redis.call('ZREM', KEYS[1], ARGV[1]); redis.call('ZREM', KEYS[2], ARGV[1]); return 'ok'",
-        [this.presignWalletIndexKey(parsed.walletSigningSessionId), this.presignGlobalIndexKey()],
+        [this.presignWalletIndexKey(parsed.signingGrantId), this.presignGlobalIndexKey()],
         [k],
       );
       return { ok: false, code: 'expired' };
@@ -798,7 +798,7 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
       "local v=redis.call('GET', KEYS[1]); if v == ARGV[1] then redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[2]); redis.call('ZREM', KEYS[3], ARGV[2]); return v else return nil end",
       [
         key,
-        this.presignWalletIndexKey(parsed.walletSigningSessionId),
+        this.presignWalletIndexKey(parsed.signingGrantId),
         this.presignGlobalIndexKey(),
       ],
       [raw as string, k],
@@ -842,8 +842,8 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     return `${this.presignPrefix}idx:global`;
   }
 
-  private presignWalletIndexKey(walletSigningSessionId: string): string {
-    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(walletSigningSessionId)}`;
+  private presignWalletIndexKey(signingGrantId: string): string {
+    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(signingGrantId)}`;
   }
 
   async putMpcSession(
@@ -952,8 +952,8 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const result = await redisEval(
@@ -984,7 +984,7 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       ].join('\n'),
       [
         this.presignKey(k),
-        this.presignWalletIndexKey(parsed.walletSigningSessionId),
+        this.presignWalletIndexKey(parsed.signingGrantId),
         this.presignGlobalIndexKey(),
       ],
       [
@@ -1003,14 +1003,14 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   async checkPresignCapacity(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(walletSigningSessionId);
+    const walletId = toOptionalTrimmedString(signingGrantId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const result = await redisEval(
@@ -1083,7 +1083,7 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
         "redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[1]); redis.call('ZREM', KEYS[3], ARGV[1]); return nil",
         [
           key,
-          this.presignWalletIndexKey(parsed.walletSigningSessionId),
+          this.presignWalletIndexKey(parsed.signingGrantId),
           this.presignGlobalIndexKey(),
         ],
         [k],
@@ -1098,7 +1098,7 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       "local v=redis.call('GET', KEYS[1]); if v == ARGV[1] then redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[2]); redis.call('ZREM', KEYS[3], ARGV[2]); return v else return nil end",
       [
         key,
-        this.presignWalletIndexKey(parsed.walletSigningSessionId),
+        this.presignWalletIndexKey(parsed.signingGrantId),
         this.presignGlobalIndexKey(),
       ],
       [raw, k],
@@ -1346,8 +1346,8 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const parsed = parseStoredPresignRecord({ ...record, expiresAtMs });
     if (!parsed) throw new Error('Invalid Router A/B Ed25519 presign record');
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const client = await this.connectForPresignTransaction();
@@ -1364,8 +1364,8 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
         [this.namespace, 'presign', nowMs],
       );
       const walletRows = await client.query(
-        "SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3 AND record_json->>'walletSigningSessionId' = $4",
-        [this.namespace, 'presign', nowMs, parsed.walletSigningSessionId],
+        "SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3 AND record_json->>'signingGrantId' = $4",
+        [this.namespace, 'presign', nowMs, parsed.signingGrantId],
       );
       const globalCount = Number(globalRows.rows[0]?.count);
       const walletCount = Number(walletRows.rows[0]?.count);
@@ -1398,14 +1398,14 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   async checkPresignCapacity(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     capacity: RouterAbEd25519PresignCapacity,
   ): Promise<RouterAbEd25519CheckPresignCapacityResult> {
-    const walletId = toOptionalTrimmedString(walletSigningSessionId);
+    const walletId = toOptionalTrimmedString(signingGrantId);
     if (!walletId) return { ok: false, code: 'capacity_exceeded' };
     const walletMax = positiveIntegerCapacity(
-      capacity.walletSigningSessionMax,
-      'walletSigningSessionMax',
+      capacity.signingGrantMax,
+      'signingGrantMax',
     );
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const nowMs = Date.now();
@@ -1415,7 +1415,7 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       [this.namespace, 'presign', nowMs],
     );
     const walletRows = await pool.query(
-      "SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3 AND record_json->>'walletSigningSessionId' = $4",
+      "SELECT COUNT(*) AS count FROM threshold_ed25519_sessions WHERE namespace = $1 AND kind = $2 AND expires_at_ms > $3 AND record_json->>'signingGrantId' = $4",
       [this.namespace, 'presign', nowMs, walletId],
     );
     const globalCount = Number(globalRows.rows[0]?.count);

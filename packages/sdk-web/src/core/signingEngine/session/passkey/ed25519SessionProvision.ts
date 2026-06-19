@@ -58,7 +58,7 @@ export async function provisionThresholdEd25519Session(
     sessionKind,
     sessionId,
     ...(args.kind === 'exact_ed25519_provisioning'
-      ? { walletSigningSessionId: args.walletSigningSessionId }
+      ? { signingGrantId: args.signingGrantId }
       : {}),
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
@@ -73,14 +73,14 @@ export async function provisionThresholdEd25519Session(
   }
 
   const resolvedSessionId = String(connected.sessionId || sessionId).trim();
-  const walletSigningSessionId = String(connected.walletSigningSessionId || '').trim();
+  const signingGrantId = String(connected.signingGrantId || '').trim();
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
   const prfFirstB64u = String(connected.ecdsaHssPasskeyPrfFirstB64u || '').trim();
   if (
     !resolvedSessionId ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
     !jwt
@@ -106,7 +106,7 @@ export async function provisionThresholdEd25519Session(
     participantIds,
     sessionKind: 'jwt',
     sessionId: resolvedSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     remainingUses,
     jwt,
@@ -124,7 +124,7 @@ export async function provisionThresholdEd25519Session(
           curve: 'ed25519',
           walletId: String(nearAccountId),
           relayerUrl,
-          walletSigningSessionId,
+          signingGrantId,
           ...(jwt ? { walletSessionJwt: jwt } : {}),
         },
       });
@@ -145,7 +145,7 @@ export async function provisionThresholdEd25519Session(
   return {
     ok: true,
     sessionId: resolvedSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     remainingUses,
     ...(connected.runtimePolicyScope ? { runtimePolicyScope: connected.runtimePolicyScope } : {}),

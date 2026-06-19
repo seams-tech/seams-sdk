@@ -18,7 +18,7 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 function thresholdEcdsaSessionJwt(args: {
   walletId: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   keyHandle: string;
   chainTarget: Record<string, unknown>;
 }): string {
@@ -29,7 +29,7 @@ function thresholdEcdsaSessionJwt(args: {
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
     sessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
   });
 }
 
@@ -650,7 +650,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-rehydrate',
-          walletSigningSessionId: 'wallet-session-rehydrate',
+          signingGrantId: 'wallet-session-rehydrate',
           curve: 'ecdsa',
           authMethod: 'passkey',
           signingRootId: 'sr-test:dev',
@@ -693,7 +693,7 @@ test.describe('UserConfirm worker router', () => {
             curve: 'ecdsa',
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
             relayerUrl: 'https://relay.example',
-            walletSigningSessionId: 'wallet-session-rehydrate',
+            signingGrantId: 'wallet-session-rehydrate',
             walletSessionJwt: 'jwt-session',
             shamirPrimeB64u: 'AQAB',
           };
@@ -705,7 +705,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           chain: 'tempo',
           chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-          walletSigningSessionId: 'wallet-session-rehydrate',
+          signingGrantId: 'wallet-session-rehydrate',
           thresholdSessionId: 'session-rehydrate',
           reason: 'transaction',
         });
@@ -815,7 +815,7 @@ test.describe('UserConfirm worker router', () => {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-from-record',
-          walletSigningSessionId: 'wallet-session-from-record',
+          signingGrantId: 'wallet-session-from-record',
           walletSessionJwt: 'jwt:session-from-record',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,
@@ -920,7 +920,7 @@ test.describe('UserConfirm worker router', () => {
       sessionId: 'session-from-record',
       transport: {
         relayerUrl: 'https://relay.example',
-        walletSigningSessionId: 'wallet-session-from-record',
+        signingGrantId: 'wallet-session-from-record',
         walletSessionJwt: 'jwt:session-from-record',
         keyVersion: 'kek-v-ed25519',
         shamirPrimeB64u: 'AQAB',
@@ -936,7 +936,7 @@ test.describe('UserConfirm worker router', () => {
     const canonicalSessionJwt = thresholdEcdsaSessionJwt({
       walletId: 'alice.testnet',
       thresholdSessionId: 'session-ecdsa-record',
-      walletSigningSessionId: 'wallet-session-ecdsa-record',
+      signingGrantId: 'wallet-session-ecdsa-record',
       keyHandle: 'key-handle-ecdsa-record',
       chainTarget: {
         kind: 'evm',
@@ -980,7 +980,7 @@ test.describe('UserConfirm worker router', () => {
           participantIds: [3, 7],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-ecdsa-record',
-          walletSigningSessionId: 'wallet-session-ecdsa-record',
+          signingGrantId: 'wallet-session-ecdsa-record',
           walletSessionJwt: canonicalSessionJwt,
           signingSessionSealKeyVersion: 'kek-v-ecdsa',
           signingSessionSealShamirPrimeB64u: 'AQID',
@@ -1056,7 +1056,7 @@ test.describe('UserConfirm worker router', () => {
               networkSlug: 'arc-testnet',
             },
             relayerUrl: 'https://relay-ecdsa.example',
-            walletSigningSessionId: 'wallet-session-ecdsa-record',
+            signingGrantId: 'wallet-session-ecdsa-record',
             walletSessionJwt: canonicalSessionJwt,
             keyVersion: 'kek-v-ecdsa',
             shamirPrimeB64u: 'AQID',
@@ -1116,7 +1116,7 @@ test.describe('UserConfirm worker router', () => {
       sessionId: 'session-ecdsa-record',
       transport: {
         relayerUrl: 'https://relay-ecdsa.example',
-        walletSigningSessionId: 'wallet-session-ecdsa-record',
+        signingGrantId: 'wallet-session-ecdsa-record',
         walletSessionJwt: canonicalSessionJwt,
         keyVersion: 'kek-v-ecdsa',
         shamirPrimeB64u: 'AQID',
@@ -1149,7 +1149,7 @@ test.describe('UserConfirm worker router', () => {
         };
         const record = sealedStoreMod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'session-ecdsa-policy-refresh',
-          walletSigningSessionId: 'wallet-session-ecdsa-policy-refresh',
+          signingGrantId: 'wallet-session-ecdsa-policy-refresh',
           curve: 'ecdsa',
           authMethod: 'passkey',
           walletId: 'alice.testnet',
@@ -1294,7 +1294,7 @@ test.describe('UserConfirm worker router', () => {
           participantIds: [1, 2, 3],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-single-flight-apply',
-          walletSigningSessionId: 'wallet-single-flight-apply',
+          signingGrantId: 'wallet-single-flight-apply',
           walletSessionJwt: 'jwt-session',
           xClientBaseB64u: 'x-client-base',
           expiresAtMs: Date.now() + 60_000,
@@ -1306,7 +1306,7 @@ test.describe('UserConfirm worker router', () => {
           transport: {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
-            walletSigningSessionId: 'wallet-single-flight-apply',
+            signingGrantId: 'wallet-single-flight-apply',
             walletSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1317,7 +1317,7 @@ test.describe('UserConfirm worker router', () => {
           transport: {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
-            walletSigningSessionId: 'wallet-single-flight-apply',
+            signingGrantId: 'wallet-single-flight-apply',
             walletSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1439,7 +1439,7 @@ test.describe('UserConfirm worker router', () => {
           participantIds: [1, 2, 3],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-cross-manager-apply',
-          walletSigningSessionId: 'wallet-cross-manager-apply',
+          signingGrantId: 'wallet-cross-manager-apply',
           walletSessionJwt: 'jwt-session',
           xClientBaseB64u: 'x-client-base',
           expiresAtMs: Date.now() + 60_000,
@@ -1456,7 +1456,7 @@ test.describe('UserConfirm worker router', () => {
           transport: {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
-            walletSigningSessionId: 'wallet-cross-manager-apply',
+            signingGrantId: 'wallet-cross-manager-apply',
             walletSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1467,7 +1467,7 @@ test.describe('UserConfirm worker router', () => {
           transport: {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
-            walletSigningSessionId: 'wallet-cross-manager-apply',
+            signingGrantId: 'wallet-cross-manager-apply',
             walletSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1567,7 +1567,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-single-flight-remove',
-          walletSigningSessionId: 'wallet-session-single-flight-remove',
+          signingGrantId: 'wallet-session-single-flight-remove',
           curve: 'ecdsa',
           authMethod: 'passkey',
           signingRootId: 'sr-test:dev',
@@ -1604,7 +1604,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           relayerUrl: 'https://relay.example',
-          walletSigningSessionId: 'wallet-session-single-flight-remove',
+          signingGrantId: 'wallet-session-single-flight-remove',
           walletSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
@@ -1616,7 +1616,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa' as const,
           chain: 'tempo' as const,
           chainTarget: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
-          walletSigningSessionId: 'wallet-session-single-flight-remove',
+          signingGrantId: 'wallet-session-single-flight-remove',
           thresholdSessionId: 'session-single-flight-remove',
           reason: 'transaction' as const,
         };
@@ -1748,7 +1748,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-cross-manager-remove',
-          walletSigningSessionId: 'wallet-session-cross-manager-remove',
+          signingGrantId: 'wallet-session-cross-manager-remove',
           curve: 'ecdsa',
           authMethod: 'passkey',
           signingRootId: 'sr-test:dev',
@@ -1785,7 +1785,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           relayerUrl: 'https://relay.example',
-          walletSigningSessionId: 'wallet-session-cross-manager-remove',
+          signingGrantId: 'wallet-session-cross-manager-remove',
           walletSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
@@ -1796,7 +1796,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           relayerUrl: 'https://relay.example',
-          walletSigningSessionId: 'wallet-session-cross-manager-remove',
+          signingGrantId: 'wallet-session-cross-manager-remove',
           walletSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
@@ -1808,7 +1808,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa' as const,
           chain: 'tempo' as const,
           chainTarget: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
-          walletSigningSessionId: 'wallet-session-cross-manager-remove',
+          signingGrantId: 'wallet-session-cross-manager-remove',
           thresholdSessionId: 'session-cross-manager-remove',
           reason: 'transaction' as const,
         };
@@ -1924,7 +1924,7 @@ test.describe('UserConfirm worker router', () => {
         });
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'session-no-rehydrate',
-          walletSigningSessionId: 'wallet-session-no-rehydrate',
+          signingGrantId: 'wallet-session-no-rehydrate',
           curve: 'ecdsa',
           authMethod: 'passkey',
           signingRootId: 'sr-test:dev',
@@ -2135,7 +2135,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-expired',
-          walletSigningSessionId: 'wallet-session-expired',
+          signingGrantId: 'wallet-session-expired',
           curve: 'ecdsa',
           authMethod: 'passkey',
           signingRootId: 'sr-test:dev',
@@ -2172,7 +2172,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           relayerUrl: 'https://relay.example',
-          walletSigningSessionId: 'wallet-session-expired',
+          signingGrantId: 'wallet-session-expired',
           walletSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
         });
@@ -2183,7 +2183,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           chain: 'tempo',
           chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-          walletSigningSessionId: 'wallet-session-expired',
+          signingGrantId: 'wallet-session-expired',
           thresholdSessionId: 'session-expired',
           reason: 'transaction',
         });

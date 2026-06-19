@@ -88,7 +88,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
       lanePolicy: {
         chainTarget: primaryEcdsaRecord.chainTarget,
         thresholdSessionId: 'sess-ecdsa-jwt',
-        walletSigningSessionId: 'wsess-sess-ecdsa-jwt',
+        signingGrantId: 'wsess-sess-ecdsa-jwt',
         thresholdSessionKind: 'jwt',
       },
       routeAuth: {

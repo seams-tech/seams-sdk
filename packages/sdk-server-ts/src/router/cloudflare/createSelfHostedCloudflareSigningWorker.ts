@@ -47,7 +47,7 @@ type SelfHostedEcdsaSigningRootWalletVerifier = {
     readonly walletId: HssWalletId;
     readonly chainTarget: ThresholdEcdsaChainTarget;
     readonly ecdsaThresholdKeyId: string;
-    readonly walletSigningSessionId: string;
+    readonly signingGrantId: string;
     readonly thresholdSessionId: string;
     readonly rpId: string;
     readonly clientPublicKey33B64u: string;
@@ -285,7 +285,7 @@ async function handleSigningRootAdminRoutes(
       ? thresholdEcdsaChainTargetFromValue(body.chainTarget)
       : null;
     const ecdsaThresholdKeyId = requireBodyString(body, 'ecdsaThresholdKeyId');
-    const walletSigningSessionId = requireBodyString(body, 'walletSigningSessionId');
+    const signingGrantId = requireBodyString(body, 'signingGrantId');
     const thresholdSessionId = requireBodyString(body, 'thresholdSessionId');
     const rpId = requireBodyString(body, 'rpId');
     const clientPublicKey33B64u = requireBodyString(body, 'clientPublicKey33B64u');
@@ -296,7 +296,7 @@ async function handleSigningRootAdminRoutes(
       !hssWalletId ||
       !chainTarget ||
       !ecdsaThresholdKeyId ||
-      !walletSigningSessionId ||
+      !signingGrantId ||
       !thresholdSessionId ||
       !rpId ||
       !clientPublicKey33B64u
@@ -306,7 +306,7 @@ async function handleSigningRootAdminRoutes(
           ok: false,
           code: 'invalid_request',
           message:
-            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, walletSigningSessionId, thresholdSessionId, rpId, and clientPublicKey33B64u are required',
+            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, signingGrantId, thresholdSessionId, rpId, and clientPublicKey33B64u are required',
         },
         { status: 400 },
       );
@@ -332,7 +332,7 @@ async function handleSigningRootAdminRoutes(
       walletId: hssWalletId,
       chainTarget,
       ecdsaThresholdKeyId,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
       rpId,
       clientPublicKey33B64u,

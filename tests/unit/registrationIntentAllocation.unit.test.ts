@@ -419,7 +419,7 @@ function ecdsaServerBootstrapValue(input: {
     relayerVerifyingShareB64u: 'relayer-public-key',
     participantIds: input.request.participantIds,
     sessionId: input.request.sessionId,
-    walletSigningSessionId: input.request.walletSigningSessionId,
+    signingGrantId: input.request.signingGrantId,
     expiresAtMs,
     expiresAt: new Date(expiresAtMs).toISOString(),
     remainingUses: input.request.remainingUses,
@@ -1779,7 +1779,7 @@ test.describe('registration intent allocation', () => {
     expect(replayJson).not.toContain('app-session-jwt');
     expect(replayJson).not.toContain('"jwt"');
     expect(replayJson).not.toContain('"session"');
-    expect(replayJson).not.toContain('walletSigningSessionId');
+    expect(replayJson).not.toContain('signingGrantId');
   });
 
   test('Google Email OTP registration identity-link failure does not publish wallet state', async () => {

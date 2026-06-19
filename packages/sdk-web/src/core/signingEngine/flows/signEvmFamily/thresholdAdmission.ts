@@ -162,9 +162,9 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
       );
     }
     if (
-      String(result.operation.lane.walletSigningSessionId || '').trim() !==
+      String(result.operation.lane.signingGrantId || '').trim() !==
         args.confirmation.authorization.plannedPasskeyReconnect.webauthnChallenge
-          .walletSigningSessionId
+          .signingGrantId
     ) {
       throw new Error(
         '[chains] threshold ECDSA reconnect admitted a different wallet signing-session id than the confirmed session policy',

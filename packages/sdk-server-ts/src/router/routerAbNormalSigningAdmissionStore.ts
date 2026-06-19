@@ -529,7 +529,7 @@ function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): string {
     input.curve,
     input.phase,
     input.sessionId,
-    input.walletSigningSessionId,
+    input.signingGrantId,
     input.requestId,
     input.signingWorkerId,
   ];
@@ -553,7 +553,7 @@ function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): s
     input.walletId,
     input.rpId,
     input.sessionId,
-    input.walletSigningSessionId,
+    input.signingGrantId,
     input.requestId,
     input.signingWorkerId,
   ];

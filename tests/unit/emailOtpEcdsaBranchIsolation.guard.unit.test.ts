@@ -43,7 +43,7 @@ test.describe('Email OTP ECDSA branch isolation guards', () => {
       'EmailOtpRegistrationAttemptId',
       'OrgId',
       'AppSessionVersion',
-      'WalletSigningSessionId',
+      'SigningGrantId',
       'ThresholdEd25519SessionId',
       'ThresholdEcdsaSessionId',
     ];

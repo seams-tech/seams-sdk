@@ -94,7 +94,7 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
   routeAuth: AppOrWalletSessionAuth;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ecdsaThresholdSessionId?: string;
   ed25519Key: EmailOtpEd25519SessionReconstructionKey;
   registrationAttemptId?: never;
@@ -140,7 +140,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
   const rpId = String(input.rpId || '').trim();
   const prfFirstB64u = String(input.prfFirstB64u || '').trim();
   const routeAuthJwt = String(input.routeAuth.jwt || '').trim();
-  const walletSigningSessionId = normalizeOptionalString(input.walletSigningSessionId);
+  const signingGrantId = normalizeOptionalString(input.signingGrantId);
   const ecdsaThresholdSessionId = normalizeOptionalString(input.ecdsaThresholdSessionId);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(input.runtimePolicyScope);
   const participantIds = normalizeThresholdEd25519ParticipantIds(input.ed25519Key.participantIds);
@@ -163,7 +163,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'Email OTP threshold-ed25519 session reconstruction requires canonical runtime scope',
     );
   }
-  if (!walletSigningSessionId) {
+  if (!signingGrantId) {
     throw new Error(
       'Email OTP threshold-ed25519 session reconstruction requires wallet session identity',
     );
@@ -200,7 +200,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     runtimePolicyScope,
     routerAbNormalSigning: input.routerAbNormalSigning,
     participantIds,
-    walletSigningSessionId,
+    signingGrantId,
     ttlMs: input.ttlMs,
     remainingUses: input.remainingUses,
   });
@@ -263,7 +263,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     },
     materialBinding: {
       thresholdSessionId: sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       signingRootId: signingRootScope.signingRootId,
       signingRootVersion,
       expiresAtMs,
@@ -294,7 +294,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     participantIds,
     sessionKind: 'jwt',
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     remainingUses,
     jwt,
@@ -315,7 +315,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
       authMethod: 'email_otp',
       walletId: String(nearAccountId),
       relayerUrl,
-      walletSigningSessionId,
+      signingGrantId,
       walletSessionJwt: jwt,
     },
   });

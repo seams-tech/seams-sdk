@@ -136,14 +136,14 @@ type EvmFamilyThresholdEcdsaRecordUpdateResult = EvmFamilyThresholdEcdsaReauthRe
 
 function requirePlannedReconnectSessionIdentity(args: {
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 }): {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 } {
   return buildEcdsaSessionIdentity({
     thresholdSessionId: args.sessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
   });
 }
 
@@ -294,7 +294,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               relayerKeyId,
               requestId,
               sessionId: policy.sessionId,
-              walletSigningSessionId: policy.walletSigningSessionId,
+              signingGrantId: policy.signingGrantId,
               ttlMs: policy.ttlMs,
               remainingUses: policy.remainingUses,
               participantIds: policy.participantIds || participantIds,
@@ -306,7 +306,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             digest32B64u: passkeyBootstrapDigest32B64u,
             requestId,
             thresholdSessionId: policy.sessionId,
-            walletSigningSessionId: policy.walletSigningSessionId,
+            signingGrantId: policy.signingGrantId,
           },
         };
       },
@@ -338,7 +338,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const selectedRecord = material.record;
         const reconnectSessionIdentity = requirePlannedReconnectSessionIdentity({
           sessionId: reconnectPlan.newSessionIdentity.thresholdSessionId,
-          walletSigningSessionId: reconnectPlan.newSessionIdentity.walletSigningSessionId,
+          signingGrantId: reconnectPlan.newSessionIdentity.signingGrantId,
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_start',
@@ -347,7 +347,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           chainId: requestChainId,
           lane: {
             authMethod: lane.authMethod,
-            walletSigningSessionId: String(lane.walletSigningSessionId),
+            signingGrantId: String(lane.signingGrantId),
             thresholdSessionId: String(lane.thresholdSessionId),
           },
           reconnectSessionIdentity,
@@ -379,7 +379,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           chain: args.request.chain,
           chainId: requestChainId,
           record: {
-            walletSigningSessionId: readyRecord.walletSigningSessionId,
+            signingGrantId: readyRecord.signingGrantId,
             thresholdSessionId: readyRecord.thresholdSessionId,
             hasRouterAbWalletSessionAuth: walletSessionAuth.kind === 'ready',
           },
@@ -437,7 +437,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                     record,
                     reconnectSessionIdentity: buildEcdsaSessionIdentity({
                       thresholdSessionId: lane.thresholdSessionId,
-                      walletSigningSessionId: lane.walletSigningSessionId,
+                      signingGrantId: lane.signingGrantId,
                     }),
                     reconnectPlan,
                     operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),

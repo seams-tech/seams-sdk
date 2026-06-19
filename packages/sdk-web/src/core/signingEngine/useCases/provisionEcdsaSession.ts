@@ -348,7 +348,7 @@ function buildActivationKeyAndLanePolicy(args: {
       planKind: args.plan.kind,
       chainTarget: args.plan.chainTarget,
       thresholdSessionId: sessionIdentity.thresholdSessionId,
-      walletSigningSessionId: sessionIdentity.walletSigningSessionId,
+      signingGrantId: sessionIdentity.signingGrantId,
       ecdsaThresholdKeyId: args.plan.signingKeyContext.ecdsaThresholdKeyId,
     });
     throw new Error('[WarmSessionStore] ECDSA activation requires an exact session record');
@@ -413,7 +413,7 @@ function buildActivationKeyAndLanePolicy(args: {
     lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
       chainTarget: args.plan.chainTarget,
       thresholdSessionId: sessionIdentity.thresholdSessionId,
-      walletSigningSessionId: sessionIdentity.walletSigningSessionId,
+      signingGrantId: sessionIdentity.signingGrantId,
       thresholdSessionKind: args.plan.sessionKind,
       ttlMs: DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
       remainingUses: args.plan.sessionBudgetUses,
@@ -606,7 +606,7 @@ async function reconnectWalletSessionEcdsaSession(
   const passkeyPrfFirstB64u = await claimPasskeyEcdsaPrfFirst({
     touchConfirm: deps.touchConfirm,
     walletId: activation.walletId,
-    walletSigningSessionId: plan.existingSessionIdentity.walletSigningSessionId,
+    signingGrantId: plan.existingSessionIdentity.signingGrantId,
     thresholdSessionId: plan.existingSessionIdentity.thresholdSessionId,
     chainTarget: plan.chainTarget,
     errorContext: 'threshold-ecdsa authorization bootstrap',
@@ -862,7 +862,7 @@ export async function ensureWarmEcdsaCapabilityReady(
   const plannedRecordIdentity = plannedRecord
     ? buildEcdsaSessionIdentity({
         thresholdSessionId: plannedRecord.thresholdSessionId,
-        walletSigningSessionId: plannedRecord.walletSigningSessionId,
+        signingGrantId: plannedRecord.signingGrantId,
       })
     : null;
   if (
@@ -884,7 +884,7 @@ export async function ensureWarmEcdsaCapabilityReady(
     const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate.record);
     const candidateKey = [
       candidate.source,
-      candidateIdentity?.walletSigningSessionId || '',
+      candidateIdentity?.signingGrantId || '',
       candidateIdentity?.thresholdSessionId || '',
       String(resolveThresholdEcdsaKeyIdFromRecord({ record: candidate.record }) || '').trim(),
     ].join(':');
@@ -1319,7 +1319,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
       participantIds: record.participantIds,
       thresholdSessionKind: record.thresholdSessionKind,
       thresholdSessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
+      signingGrantId: identity.signingGrantId,
       walletSessionJwt: String(auth.walletSessionJwt || keyRef.walletSessionJwt || '').trim(),
     },
     keygen: {
@@ -1336,7 +1336,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
     session: {
       ok: true,
       sessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
+      signingGrantId: identity.signingGrantId,
       ...(String(auth.walletSessionJwt || '').trim()
         ? { jwt: String(auth.walletSessionJwt || '').trim() }
         : {}),

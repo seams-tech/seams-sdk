@@ -404,7 +404,7 @@ async function attachEcdsaWalletSessionJwt(
     sessionInfo: {
       sessionKind: 'jwt',
       sessionId: bootstrap.sessionId,
-      walletSigningSessionId: bootstrap.walletSigningSessionId,
+      signingGrantId: bootstrap.signingGrantId,
       expiresAtMs: bootstrap.expiresAtMs,
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -1603,7 +1603,7 @@ function parseWalletRegistrationHssRespondRequest(
         contextBinding32B64u: parsed.contextBinding32B64u,
         requestId: parsed.requestId,
         sessionId: parsed.sessionId,
-        walletSigningSessionId: parsed.walletSigningSessionId,
+        signingGrantId: parsed.signingGrantId,
         ttlMs: parsed.ttlMs,
         remainingUses: parsed.remainingUses,
         participantIds: parsed.participantIds,

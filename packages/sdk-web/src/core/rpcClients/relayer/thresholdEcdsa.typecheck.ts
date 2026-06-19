@@ -27,7 +27,7 @@ const bootstrapBase = {
   contextBinding32B64u: 'context-binding',
   requestId: 'request-id',
   sessionId: 'threshold-session',
-  walletSigningSessionId: 'wallet-signing-session',
+  signingGrantId: 'signing-grant',
   ttlMs: 60_000,
   remainingUses: 2,
   participantIds: [1, 2],

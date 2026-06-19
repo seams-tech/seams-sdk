@@ -29,7 +29,7 @@ export type WarmEd25519SigningSessionAuthorization = {
   participantIds: readonly number[];
   thresholdSessionKind: 'jwt';
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   walletSessionJwt: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingRootId: string;
@@ -53,7 +53,7 @@ export type WarmEd25519SigningSessionAuthorizationFailureReason =
   | 'cookie_session'
   | 'missing_wallet_session_jwt'
   | 'missing_threshold_session_id'
-  | 'missing_wallet_signing_session_id'
+  | 'missing_signing_grant_id'
   | 'missing_runtime_policy_scope'
   | 'missing_signing_root'
   | 'signing_root_mismatch'
@@ -171,9 +171,9 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
   const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
   if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id', details: {} };
 
-  const walletSigningSessionId = nonEmptyString(record.walletSigningSessionId);
-  if (!walletSigningSessionId) {
-    return { ok: false, reason: 'missing_wallet_signing_session_id', details: { thresholdSessionId } };
+  const signingGrantId = nonEmptyString(record.signingGrantId);
+  if (!signingGrantId) {
+    return { ok: false, reason: 'missing_signing_grant_id', details: { thresholdSessionId } };
   }
 
   const walletSessionJwt = nonEmptyString(record.walletSessionJwt);
@@ -230,7 +230,7 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
       participantIds: record.participantIds,
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       walletSessionJwt,
       runtimePolicyScope: record.runtimePolicyScope,
       signingRootId: signingRoot.value.signingRootId,

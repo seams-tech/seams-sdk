@@ -238,7 +238,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         appSessionVersion: string;
         sessionHash: string;
         thresholdSessionId: string;
-        walletSigningSessionId: string;
+        signingGrantId: string;
         walletBudgetStatus: VerifiedSigningBudgetStatus;
       }
     | { ok: false; status: number; body: Record<string, unknown> }
@@ -259,7 +259,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       appSessionVersion: validated.appSessionVersion,
       sessionHash: validated.sessionHash,
       thresholdSessionId: request.thresholdSessionId,
-      walletSigningSessionId: request.walletSigningSessionId,
+      signingGrantId: request.signingGrantId,
       walletBudgetStatus: validated.walletBudgetStatus,
     };
   };
@@ -1175,15 +1175,15 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
   // the budget authority.
   router.post('/session/signing-budget/status', async (req: any, res: any) => {
     try {
-      const { walletSigningSessionId: expectedWalletSigningSessionId, thresholdSessionId } =
+      const { signingGrantId: expectedSigningGrantId, thresholdSessionId } =
         parseWalletSigningBudgetStatusExpectations(req.body);
       const expectedThresholdSessionId = thresholdSessionId || '';
       const validated = await readAndValidateEmailOtpSigningSession(req.headers || {});
       if (!validated.ok) {
-        if (expectedWalletSigningSessionId && validated.status === 401) {
+        if (expectedSigningGrantId && validated.status === 401) {
           res.status(200).json({
             ok: true,
-            walletSigningSessionId: expectedWalletSigningSessionId,
+            signingGrantId: expectedSigningGrantId,
             ...(expectedThresholdSessionId
               ? { thresholdSessionId: expectedThresholdSessionId }
               : {}),
@@ -1196,8 +1196,8 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return;
       }
       if (
-        expectedWalletSigningSessionId &&
-        expectedWalletSigningSessionId !== validated.walletSigningSessionId
+        expectedSigningGrantId &&
+        expectedSigningGrantId !== validated.signingGrantId
       ) {
         res.status(403).json({
           ok: false,
@@ -1231,7 +1231,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       );
       res.status(200).json({
         ok: true,
-        walletSigningSessionId: validated.walletSigningSessionId,
+        signingGrantId: validated.signingGrantId,
         thresholdSessionId: validated.thresholdSessionId,
         status: availableUses > 0 ? 'active' : 'exhausted',
         committedRemainingUses,
@@ -1241,7 +1241,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
         projectionVersion: [
           'wallet-budget',
-          validated.walletSigningSessionId,
+          validated.signingGrantId,
           validated.walletBudgetStatus.expiresAtMs,
           committedRemainingUses,
           reservedUses,

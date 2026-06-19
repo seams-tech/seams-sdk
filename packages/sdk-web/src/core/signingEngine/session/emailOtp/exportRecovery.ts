@@ -151,13 +151,13 @@ function requireProvidedEmailOtpSigningSessionAuthLane(args: {
 type EmailOtpRecordBackedSigningSessionIdentity =
   | {
       thresholdSessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       chain: 'near';
       chainTarget?: never;
     }
   | {
       thresholdSessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       chain: EmailOtpEcdsaRouteChain;
       chainTarget: ThresholdEcdsaChainTarget;
     };
@@ -173,7 +173,7 @@ function requireRecordBackedEmailOtpSigningSessionAuthLane(args: {
       : resolveEmailOtpAuthLane({
           routeAuth: args.routeAuth,
           thresholdSessionId: args.recordIdentity.thresholdSessionId,
-          authorizingWalletSigningSessionId: args.recordIdentity.walletSigningSessionId,
+          authorizingSigningGrantId: args.recordIdentity.signingGrantId,
           curve: args.recordIdentity.chain === 'near' ? 'ed25519' : 'ecdsa',
           chainTarget:
             args.recordIdentity.chain === 'near' ? undefined : args.recordIdentity.chainTarget,
@@ -184,10 +184,10 @@ function requireRecordBackedEmailOtpSigningSessionAuthLane(args: {
   return authLane;
 }
 
-function requireWalletSigningSessionIdForEmailOtpSigningSession(
-  walletSigningSessionId: string | undefined,
+function requireSigningGrantIdForEmailOtpSigningSession(
+  signingGrantId: string | undefined,
 ): string {
-  const normalized = String(walletSigningSessionId || '').trim();
+  const normalized = String(signingGrantId || '').trim();
   if (!normalized) {
     throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
   }
@@ -225,7 +225,7 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
       routeAuth: providedRouteAuth,
       recordIdentity: {
         thresholdSessionId: args.record.thresholdSessionId,
-        walletSigningSessionId: args.record.walletSigningSessionId,
+        signingGrantId: args.record.signingGrantId,
         chain: args.record.chainTarget.kind,
         chainTarget: args.record.chainTarget,
       },
@@ -501,8 +501,8 @@ export async function exportEd25519SeedWithAuthorization(
       routeAuth: providedRouteAuth,
       recordIdentity: {
         thresholdSessionId: args.record.thresholdSessionId,
-        walletSigningSessionId: requireWalletSigningSessionIdForEmailOtpSigningSession(
-          args.record.walletSigningSessionId,
+        signingGrantId: requireSigningGrantIdForEmailOtpSigningSession(
+          args.record.signingGrantId,
         ),
         chain: 'near',
       },
@@ -598,7 +598,7 @@ export async function exportEcdsaKeyWithAuthorization(
         relayerKeyId: record.relayerKeyId,
         readyRecord: exportInput.roleLocalMaterial.readyRecord,
         thresholdSessionId: record.thresholdSessionId,
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
         thresholdExpiresAtMs: record.expiresAtMs,
         participantIds: record.participantIds,
         keyHandle: exportInput.keyHandle,

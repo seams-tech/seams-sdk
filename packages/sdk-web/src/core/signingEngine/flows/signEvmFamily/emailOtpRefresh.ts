@@ -78,7 +78,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
       source: SIGNER_AUTH_METHODS.emailOtp,
       thresholdSessionId: recordIdentity.thresholdSessionId,
-      walletSigningSessionId: recordIdentity.walletSigningSessionId,
+      signingGrantId: recordIdentity.signingGrantId,
     },
   });
   if (materialResolution.kind !== 'ready') {

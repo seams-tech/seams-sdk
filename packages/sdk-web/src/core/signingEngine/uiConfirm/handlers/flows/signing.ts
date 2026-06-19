@@ -106,7 +106,7 @@ function resolveTypedWebAuthnChallenge(args: {
   challengeKind: WebAuthnChallenge['kind'];
   requestId?: string;
   thresholdSessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
 } {
   const fallbackChallengeB64u = String(args.fallbackChallengeB64u || '').trim();
   if (!args.webauthnChallenge) {
@@ -136,7 +136,7 @@ function resolveTypedWebAuthnChallenge(args: {
         challengeKind: args.webauthnChallenge.kind,
         requestId: args.webauthnChallenge.requestId,
         thresholdSessionId: args.webauthnChallenge.thresholdSessionId,
-        walletSigningSessionId: args.webauthnChallenge.walletSigningSessionId,
+        signingGrantId: args.webauthnChallenge.signingGrantId,
       };
   }
   return assertNever(args.webauthnChallenge);
@@ -148,7 +148,7 @@ async function emitWebAuthnChallengeDiagnostic(args: {
   challengeKind: WebAuthnChallenge['kind'];
   requestId?: string;
   thresholdSessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
 }): Promise<void> {
   try {
     const challengeHash8 = base64UrlEncode(await sha256BytesUtf8(args.challengeB64u)).slice(0, 8);
@@ -158,8 +158,8 @@ async function emitWebAuthnChallengeDiagnostic(args: {
       challengeHash8,
       ...(args.requestId ? { requestId: args.requestId } : {}),
       ...(args.thresholdSessionId ? { thresholdSessionId: args.thresholdSessionId } : {}),
-      ...(args.walletSigningSessionId
-        ? { walletSigningSessionId: args.walletSigningSessionId }
+      ...(args.signingGrantId
+        ? { signingGrantId: args.signingGrantId }
         : {}),
     });
   } catch {}
@@ -498,8 +498,8 @@ export async function handleTransactionSigningFlow(
       ...(resolvedWebAuthnChallenge.thresholdSessionId
         ? { thresholdSessionId: resolvedWebAuthnChallenge.thresholdSessionId }
         : {}),
-      ...(resolvedWebAuthnChallenge.walletSigningSessionId
-        ? { walletSigningSessionId: resolvedWebAuthnChallenge.walletSigningSessionId }
+      ...(resolvedWebAuthnChallenge.signingGrantId
+        ? { signingGrantId: resolvedWebAuthnChallenge.signingGrantId }
         : {}),
     });
     const serializedCredential = await collectAuthenticationCredentialForChallengeB64u({
@@ -736,8 +736,8 @@ export async function handleIntentDigestSigningFlow(
       ...(resolvedWebAuthnChallenge.thresholdSessionId
         ? { thresholdSessionId: resolvedWebAuthnChallenge.thresholdSessionId }
         : {}),
-      ...(resolvedWebAuthnChallenge.walletSigningSessionId
-        ? { walletSigningSessionId: resolvedWebAuthnChallenge.walletSigningSessionId }
+      ...(resolvedWebAuthnChallenge.signingGrantId
+        ? { signingGrantId: resolvedWebAuthnChallenge.signingGrantId }
         : {}),
     });
 

@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { WalletSigningSessionId } from '../operationState/types';
+import type { SigningGrantId } from '../operationState/types';
 import type {
   TrustedWalletBudgetStatus,
   WalletBudgetProjection,
@@ -8,7 +8,7 @@ import type {
 } from './budgetProjection';
 
 declare const walletId: AccountId;
-declare const walletSigningSessionId: WalletSigningSessionId;
+declare const signingGrantId: SigningGrantId;
 declare const activeStatus: Extract<TrustedWalletBudgetStatus, { status: 'active' }>;
 declare const unknown: WalletBudgetUnknown;
 
@@ -38,7 +38,7 @@ void unknownProjectionWithTrustedStatus;
 
 const projection: WalletBudgetProjection = {
   walletId,
-  walletSigningSessionId,
+  signingGrantId,
   state: knownProjectionState,
   reservationsByOperationId: new Map(),
   localReservedUses: 0,

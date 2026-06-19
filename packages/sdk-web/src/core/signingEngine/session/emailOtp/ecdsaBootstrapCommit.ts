@@ -91,9 +91,9 @@ function canonicalizeWorkerProvisionedBootstrap(
       '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
     );
   }
-  const walletSigningSessionId = String(
-    bootstrap.session.walletSigningSessionId ||
-      bootstrap.thresholdEcdsaKeyRef.walletSigningSessionId ||
+  const signingGrantId = String(
+    bootstrap.session.signingGrantId ||
+      bootstrap.thresholdEcdsaKeyRef.signingGrantId ||
       '',
   ).trim();
   return {
@@ -101,11 +101,11 @@ function canonicalizeWorkerProvisionedBootstrap(
     thresholdEcdsaKeyRef: {
       ...bootstrap.thresholdEcdsaKeyRef,
       ecdsaThresholdKeyId,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      ...(signingGrantId ? { signingGrantId } : {}),
     },
     session: {
       ...bootstrap.session,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      ...(signingGrantId ? { signingGrantId } : {}),
     },
   };
 }

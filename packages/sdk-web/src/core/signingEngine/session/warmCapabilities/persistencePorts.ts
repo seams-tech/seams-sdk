@@ -7,7 +7,7 @@ import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity
 import type {
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from '../operationState/types';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 
@@ -42,7 +42,7 @@ export type PasskeyEd25519WarmSessionMaterial = {
 type BaseEmailOtpReadyPersistInput = {
   authMethod: 'email_otp';
   walletId: WalletId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   credentialIdB64u?: never;
   passkeyPrfSealMaterial?: never;
 };
@@ -50,7 +50,7 @@ type BaseEmailOtpReadyPersistInput = {
 type BasePasskeyReadyPersistInput = {
   authMethod: 'passkey';
   walletId: WalletId;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   credentialIdB64u: string;
   emailOtpAuthContext?: never;
   material?: never;

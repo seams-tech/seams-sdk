@@ -232,7 +232,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
             thresholdSessionId: runtimeLane.thresholdSessionId,
-            walletSigningSessionId: runtimeLane.walletSigningSessionId,
+            signingGrantId: runtimeLane.signingGrantId,
             ...(runtimeLane.remainingUses == null
               ? {}
               : { remainingUses: runtimeLane.remainingUses }),
@@ -278,7 +278,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             chain: 'near',
             routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
-            walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
+            signingGrantId: String(runtimeRecord.signingGrantId || '').trim(),
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
@@ -298,8 +298,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
               return;
             }
             const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
-            const walletSigningSessionId = String(
-              runtimeRecord.walletSigningSessionId || '',
+            const signingGrantId = String(
+              runtimeRecord.signingGrantId || '',
             ).trim();
             const ecdsaRecord = getThresholdEcdsaSessionRecordByKey(deps.ecdsaSessions, {
               walletId: toAccountId(runtimeRecord.key.walletId),
@@ -307,7 +307,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
               authMethod: runtimeRecord.authMethod,
               curve: 'ecdsa',
               chainTarget: runtimeRecord.chainTarget,
-              walletSigningSessionId,
+              signingGrantId,
               thresholdSessionId: sessionId,
             });
             let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
@@ -358,7 +358,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                         key: thresholdEcdsaSessionRecordReadModel(ecdsaRecord).key,
                         keyHandle: ecdsaRecord.keyHandle,
                         chainTarget: ecdsaRecord.chainTarget,
-                        walletSigningSessionId,
+                        signingGrantId,
                         thresholdSessionId: ecdsaRecord.thresholdSessionId,
                       }),
                     )
@@ -408,16 +408,16 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
                 : null;
             }
-            const walletSigningSessionId = String(
-              ed25519Record?.walletSigningSessionId || '',
+            const signingGrantId = String(
+              ed25519Record?.signingGrantId || '',
             ).trim();
             const walletBudgetStatus =
-              walletSigningSessionId && deps.getWalletSigningBudgetStatus
+              signingGrantId && deps.getWalletSigningBudgetStatus
                 ? await deps
                     .getWalletSigningBudgetStatus(
                       buildThresholdBudgetStatusCheck({
                         owner: ed25519WalletBudgetOwner(walletAccountId),
-                        walletSigningSessionId,
+                        signingGrantId,
                         targetThresholdSessionIds: [sessionId],
                       }),
                     )

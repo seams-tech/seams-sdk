@@ -252,7 +252,7 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
         relayerKeyId: 'rk_add_signer',
         requestId: 'request-add-signer',
         sessionId: 'session-add-signer',
-        walletSigningSessionId: 'wallet-session-add-signer',
+        signingGrantId: 'wallet-session-add-signer',
         ttlMs: 300_000,
         remainingUses: 1,
         participantIds: [1, 2],
@@ -434,7 +434,7 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
           session: {
             sessionKind: 'jwt',
             sessionId: 'session',
-            walletSigningSessionId: 'wallet-session',
+            signingGrantId: 'wallet-session',
             expiresAtMs: Date.now() + 60_000,
             jwt: 'secret-jwt',
           },

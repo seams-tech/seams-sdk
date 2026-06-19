@@ -53,7 +53,7 @@ test.describe('touchConfirm signing auth plan validation', () => {
           digest32B64u: 'challenge-digest',
           requestId: 'request-1',
           thresholdSessionId: 'threshold-session-1',
-          walletSigningSessionId: 'wallet-session-1',
+          signingGrantId: 'wallet-session-1',
         },
       }),
     );

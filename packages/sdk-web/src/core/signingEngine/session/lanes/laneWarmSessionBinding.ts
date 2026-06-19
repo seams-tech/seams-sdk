@@ -5,6 +5,6 @@ export type LaneWarmSessionBinding = {
   walletKeyId: WalletKeyId;
   laneId: SigningLaneId;
   laneShareEpoch: LaneShareEpoch;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };

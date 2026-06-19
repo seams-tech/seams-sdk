@@ -15,7 +15,7 @@ import {
   type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../operationState/types';
 
 export type ExactSigningLaneIdentityKey = string & {
@@ -30,7 +30,7 @@ export type ExactEd25519SigningLaneIdentity = {
   chainFamily: 'near';
   accountId: AccountId;
   authMethod: SigningAuthMethod;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEd25519SessionId;
   walletId?: never;
   chainTarget?: never;
@@ -46,7 +46,7 @@ export type ExactEcdsaSigningLaneIdentity = {
   authMethod: SigningAuthMethod;
   chainTarget: ThresholdEcdsaChainTarget;
   key: EvmFamilyEcdsaKeyIdentity;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   accountId?: never;
   keyHandle?: never;
@@ -67,7 +67,7 @@ type CanonicalExactSigningLaneIdentity =
       chainFamily: 'near';
       accountId: string;
       authMethod: SigningAuthMethod;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
     }
   | {
@@ -92,7 +92,7 @@ type CanonicalExactSigningLaneIdentity =
         participantIds: readonly number[];
         thresholdOwnerAddress: string;
       };
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
     };
 
@@ -139,7 +139,7 @@ function canonicalExactSigningLaneIdentity(
       chainFamily: 'near',
       accountId: String(identity.accountId),
       authMethod: identity.authMethod,
-      walletSigningSessionId: String(identity.walletSigningSessionId),
+      signingGrantId: String(identity.signingGrantId),
       thresholdSessionId: String(identity.thresholdSessionId),
     };
   }
@@ -151,7 +151,7 @@ function canonicalExactSigningLaneIdentity(
     authMethod: identity.authMethod,
     chainTarget: canonicalChainTarget(identity.chainTarget),
     key: canonicalKeyIdentity(identity.key),
-    walletSigningSessionId: String(identity.walletSigningSessionId),
+    signingGrantId: String(identity.signingGrantId),
     thresholdSessionId: String(identity.thresholdSessionId),
   };
 }
@@ -173,7 +173,7 @@ export function exactEd25519SigningLaneIdentity(
     chainFamily: 'near',
     accountId: lane.accountId,
     authMethod: lane.authMethod,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(lane.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(lane.thresholdSessionId),
   };
 }
@@ -196,7 +196,7 @@ export function exactEcdsaSigningLaneIdentity(
     authMethod: lane.authMethod,
     chainTarget: lane.chainTarget,
     key: lane.key,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(lane.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(lane.thresholdSessionId),
   };
 }

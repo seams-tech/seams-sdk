@@ -10,7 +10,7 @@ import type { RouterAbEd25519SigningMaterialRef } from '@/core/signingEngine/thr
 export type RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1';
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   nearAccountId: string;
   relayerUrl: string;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
@@ -71,15 +71,15 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
   requireEqual(stateThresholdSessionId, thresholdSessionId, 'thresholdSessionId');
   requireEqual(laneThresholdSessionId, thresholdSessionId, 'lane thresholdSessionId');
 
-  const walletSigningSessionId = requireNonEmpty(
-    state.walletSigningSessionId,
-    'state.walletSigningSessionId',
+  const signingGrantId = requireNonEmpty(
+    state.signingGrantId,
+    'state.signingGrantId',
   );
-  const laneWalletSigningSessionId = requireNonEmpty(
-    state.signingLane.walletSigningSessionId,
-    'state.signingLane.walletSigningSessionId',
+  const laneSigningGrantId = requireNonEmpty(
+    state.signingLane.signingGrantId,
+    'state.signingLane.signingGrantId',
   );
-  requireEqual(laneWalletSigningSessionId, walletSigningSessionId, 'walletSigningSessionId');
+  requireEqual(laneSigningGrantId, signingGrantId, 'signingGrantId');
 
   const nearAccountId = requireNonEmpty(args.nearAccountId, 'nearAccountId');
   requireEqual(
@@ -122,7 +122,7 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
   return {
     kind: 'router_ab_ed25519_normal_signing_ready_state_v1',
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     nearAccountId,
     relayerUrl: requireNonEmpty(state.relayerUrl, 'relayerUrl'),
     routerAbNormalSigning: routerAbState,

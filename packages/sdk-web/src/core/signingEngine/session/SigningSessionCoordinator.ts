@@ -56,8 +56,8 @@ export {
 };
 import {
   applyWalletBudgetStatusToSigningSessionReadiness,
-  clearWalletSigningSession,
-  consumeWalletSigningSessionUse,
+  clearSigningGrant,
+  consumeSigningGrantUse,
   discoverLanesForWallet,
   normalizeNonEmpty,
   readDirectSigningSessionStatusForTargets,
@@ -65,8 +65,8 @@ import {
   readWalletScopedLaneClaimsForWallet,
   statusFromClaim,
   walletScopedClaimsForLanes,
-  type WalletSigningSessionReadinessDeps,
-  type WalletSigningSessionStatusOverride,
+  type SigningGrantReadinessDeps,
+  type SigningGrantStatusOverride,
 } from './availability/readiness';
 import type {
   SelectedSigningSessionPlanningLane,
@@ -74,7 +74,7 @@ import type {
   SigningOperationId,
   SigningOperationIntent,
   SigningSessionPlan,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from './operationState/types';
 import type { WarmSessionPrfClaim } from './warmCapabilities/types';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -101,9 +101,9 @@ export type ResolveSigningSessionAuthPlanFromReadinessResult = {
   remainingUses: number;
 };
 
-export type WalletSigningSessionConsumeUseArgs = {
+export type SigningGrantConsumeUseArgs = {
   owner: WalletBudgetOwner;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   uses: number;
   reason: SigningOperationIntent;
   budgetStatusCheck: SigningSessionBudgetStatusCheck;
@@ -114,7 +114,7 @@ export type WalletSigningSessionConsumeUseArgs = {
 export type SigningSessionStatusPort = {
   getStatus(args: {
     walletId: AccountId | string;
-    walletSigningSessionId?: string;
+    signingGrantId?: string;
     targetBackingMaterialSessionIds?: string[];
     targetThresholdSessionIds?: string[];
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
@@ -122,14 +122,14 @@ export type SigningSessionStatusPort = {
   getLaneClaimsForWallet(
     walletId: AccountId | string,
   ): Promise<Map<string, WarmSessionPrfClaim | null>>;
-  consumeUse(args: WalletSigningSessionConsumeUseArgs): Promise<SigningSessionStatus>;
-  clear(args: { walletId: AccountId | string; walletSigningSessionId: string }): Promise<void>;
+  consumeUse(args: SigningGrantConsumeUseArgs): Promise<SigningSessionStatus>;
+  clear(args: { walletId: AccountId | string; signingGrantId: string }): Promise<void>;
 };
 
-export type SigningSessionStatusDeps = WalletSigningSessionReadinessDeps;
+export type SigningSessionStatusDeps = SigningGrantReadinessDeps;
 
 export type SigningSessionStatusState = {
-  statusOverrides: Map<string, WalletSigningSessionStatusOverride>;
+  statusOverrides: Map<string, SigningGrantStatusOverride>;
 };
 
 export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
@@ -161,13 +161,13 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       statusOverrides: new Map(),
     };
     this.operationIdBindings = new SigningOperationIdBindingRegistry();
-    const canConsumeWalletSessionUses = hasWalletSigningSessionConsumeDeps(deps);
+    const canConsumeWalletSessionUses = hasSigningGrantConsumeDeps(deps);
     this.walletBudgetStatusReader = deps.getStatus;
     this.walletBudgetStatusSource = 'provided';
     const walletBudgetConsumer = Object.prototype.hasOwnProperty.call(deps, 'consumeUse')
       ? deps.consumeUse
       : canConsumeWalletSessionUses
-        ? (consumeArgs: WalletSigningSessionConsumeUseArgs) => this.consumeUse(consumeArgs)
+        ? (consumeArgs: SigningGrantConsumeUseArgs) => this.consumeUse(consumeArgs)
         : undefined;
     this.walletBudget = new BudgetCoordinator({
       readStatus: (args) => this.readWalletBudgetStatus(args),
@@ -210,7 +210,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     args: Parameters<SigningSessionStatusPort['getStatus']>[0],
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
     const walletId = toWalletId(args.walletId);
-    const walletSigningSessionIdFilter = normalizeNonEmpty(args.walletSigningSessionId);
+    const signingGrantIdFilter = normalizeNonEmpty(args.signingGrantId);
     const targetBacking = new Set(
       (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
@@ -219,24 +219,24 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     );
     const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
     const readDirectTargetStatus = async (): Promise<SigningSessionStatus | null> => {
-      if (!hasExplicitTarget || !walletSigningSessionIdFilter) return null;
+      if (!hasExplicitTarget || !signingGrantIdFilter) return null;
       // Budget reservation already carries the exact selected material ids.
       // Use those ids directly so a missing volatile lane projection cannot
       // hide a restored, usable session.
       return await readDirectSigningSessionStatusForTargets({
         deps: this.walletSessionDeps,
-        walletSigningSessionId: walletSigningSessionIdFilter,
+        signingGrantId: signingGrantIdFilter,
         targetBackingMaterialSessionIds: targetBacking,
         targetThresholdSessionIds: targetThreshold,
       });
     };
     const lanes = discoverLanesForWallet(this.walletSessionDeps, walletId).filter(
       (lane) =>
-        !walletSigningSessionIdFilter ||
-        lane.walletSigningSessionId === walletSigningSessionIdFilter,
+        !signingGrantIdFilter ||
+        lane.signingGrantId === signingGrantIdFilter,
     );
     if (!lanes.length) return await readDirectTargetStatus();
-    const walletSigningSessionId = walletSigningSessionIdFilter || lanes[0].walletSigningSessionId;
+    const signingGrantId = signingGrantIdFilter || lanes[0].signingGrantId;
     const statusLanes = hasExplicitTarget
       ? lanes.filter(
           (lane) =>
@@ -247,7 +247,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     if (hasExplicitTarget && !statusLanes.length) {
       return (
         (await readDirectTargetStatus()) || {
-          sessionId: walletSigningSessionId,
+          sessionId: signingGrantId,
           status: 'not_found',
         }
       );
@@ -270,7 +270,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       claims.find((candidate) => candidate?.state === 'unavailable') ||
       claims.find((candidate) => candidate?.state === 'warm') ||
       null;
-    return statusFromClaim({ walletSigningSessionId, lanes: statusLanes, claim });
+    return statusFromClaim({ signingGrantId, lanes: statusLanes, claim });
   }
 
   async getLaneClaimsForWallet(
@@ -284,12 +284,12 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   }
 
   async consumeUse(
-    args: WalletSigningSessionConsumeUseArgs,
+    args: SigningGrantConsumeUseArgs,
   ): ReturnType<SigningSessionStatusPort['consumeUse']> {
     const hasAlreadyConsumedMaterial =
       (args.alreadyConsumedBackingMaterialSessionIds || []).length > 0 ||
       (args.alreadyConsumedThresholdSessionIds || []).length > 0;
-    return await consumeWalletSigningSessionUse({
+    return await consumeSigningGrantUse({
       deps: this.walletSessionDeps,
       statusOverrides: this.walletSessionState.statusOverrides,
       readStatus: async (statusArgs) => {
@@ -306,11 +306,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   async clear(
     args: Parameters<SigningSessionStatusPort['clear']>[0],
   ): ReturnType<SigningSessionStatusPort['clear']> {
-    await clearWalletSigningSession({
+    await clearSigningGrant({
       deps: this.walletSessionDeps,
       statusOverrides: this.walletSessionState.statusOverrides,
       walletId: toWalletId(args.walletId),
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
     });
   }
 
@@ -324,15 +324,15 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   async reserve(
     input: SigningSessionBudgetReserveInput,
   ): ReturnType<SigningSessionBudget['reserve']> {
-    const walletSigningSessionId = normalizeRequired(
-      input.spend.walletSigningSessionId,
-      'walletSigningSessionId',
+    const signingGrantId = normalizeRequired(
+      input.spend.signingGrantId,
+      'signingGrantId',
     );
     return await this.walletBudget.reserve({
       ...input,
       spend: {
         ...input.spend,
-        walletSigningSessionId: walletSigningSessionId as WalletSigningSessionId,
+        signingGrantId: signingGrantId as SigningGrantId,
       },
     });
   }
@@ -340,10 +340,10 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   async getAvailableStatus(
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
-    const walletSigningSessionId = normalizeRequired(input.walletSigningSessionId, 'walletSigningSessionId');
+    const signingGrantId = normalizeRequired(input.signingGrantId, 'signingGrantId');
     return await this.walletBudget.getAvailableStatus({
       ...input,
-      walletSigningSessionId,
+      signingGrantId,
     });
   }
 
@@ -352,9 +352,9 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
     operationUsesNeeded?: number;
   }): Promise<SigningSessionPreparedBudgetIdentity> {
-    const walletSigningSessionId = normalizeRequired(
-      input.lane.walletSigningSessionId,
-      'walletSigningSessionId',
+    const signingGrantId = normalizeRequired(
+      input.lane.signingGrantId,
+      'signingGrantId',
     );
     const status = await this.getAvailableStatus(
       buildBudgetStatusCheckForLane({
@@ -382,7 +382,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
     }
     return {
-      walletSigningSessionId,
+      signingGrantId,
       projectionVersion,
       status: {
         ...status,
@@ -395,17 +395,17 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   private async readWalletBudgetStatus(
     budgetStatusCheck: SigningSessionBudgetStatusCheck,
   ): Promise<SigningSessionStatus> {
-    const walletSigningSessionId = budgetStatusCheck.walletSigningSessionId;
+    const signingGrantId = budgetStatusCheck.signingGrantId;
     if (!this.walletBudgetStatusReader) {
       return budgetUnknownSigningSessionStatus({
-        walletSigningSessionId,
+        signingGrantId,
         reason: 'adapter_unavailable',
       });
     }
     const status = await this.walletBudgetStatusReader(budgetStatusCheck);
     if (!status) {
       return budgetUnknownSigningSessionStatus({
-        walletSigningSessionId,
+        signingGrantId,
         reason: 'missing_trusted_status',
       });
     }
@@ -414,14 +414,14 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       (status.status === 'not_found' || status.status === 'unavailable')
     ) {
       return budgetUnknownSigningSessionStatus({
-        walletSigningSessionId,
+        signingGrantId,
         reason: status.status === 'unavailable' ? 'status_unavailable' : 'missing_trusted_status',
       });
     }
     const projectionVersion = String(status.projectionVersion || '').trim();
     if (status.status === 'active' && !projectionVersion) {
       return budgetUnknownSigningSessionStatus({
-        walletSigningSessionId,
+        signingGrantId,
         reason: 'missing_trusted_status',
       });
     }
@@ -450,8 +450,8 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       'readiness' | 'expiresAtMs' | 'remainingUses'
     >
   > {
-    const walletSigningSessionId = String(input.lane.walletSigningSessionId || '').trim();
-    const walletBudgetStatus = walletSigningSessionId
+    const signingGrantId = String(input.lane.signingGrantId || '').trim();
+    const walletBudgetStatus = signingGrantId
       ? await this.walletBudget
           .getAvailableStatus(
             buildBudgetStatusCheckForLane({
@@ -459,7 +459,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
             }),
           )
           .catch(() => ({
-            sessionId: walletSigningSessionId,
+            sessionId: signingGrantId,
             status: 'unavailable' as const,
           }))
       : null;
@@ -483,14 +483,14 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       (emailOtpEd25519PreflightUnavailable || ecdsaStepUpPreflightUnavailable) &&
       walletBudgetStatus
         ? {
-            sessionId: walletSigningSessionId,
+            sessionId: signingGrantId,
             status: 'not_found' as const,
             statusCode: walletBudgetStatus.status,
           }
         : walletBudgetStatus;
     if (emailOtpEd25519PreflightUnavailable && walletBudgetStatus) {
       console.warn('[SigningSessionCoordinator][email-otp-ed25519] budget preflight unavailable', {
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
         budgetStatus: walletBudgetStatus.status,
         readiness: input.readiness.status,
@@ -500,7 +500,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     }
     if (ecdsaStepUpPreflightUnavailable && walletBudgetStatus) {
       console.warn('[SigningSessionCoordinator][ecdsa] budget preflight unavailable', {
-        walletSigningSessionId,
+        signingGrantId,
         thresholdSessionId: input.lane.thresholdSessionId,
         budgetStatus: walletBudgetStatus.status,
         readiness: input.readiness.status,
@@ -519,7 +519,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   }
 }
 
-function hasWalletSigningSessionConsumeDeps(deps: SigningSessionCoordinatorDeps): boolean {
+function hasSigningGrantConsumeDeps(deps: SigningSessionCoordinatorDeps): boolean {
   return Boolean(
     deps.consumeUse ||
     deps.touchConfirm?.consumeWarmSessionUses ||
@@ -539,7 +539,7 @@ function buildBudgetStatusCheckForLane(args: {
         key: args.lane.key,
         keyHandle: args.lane.keyHandle,
         chainTarget: args.lane.chainTarget,
-        walletSigningSessionId: args.lane.walletSigningSessionId,
+        signingGrantId: args.lane.signingGrantId,
         thresholdSessionId: args.lane.thresholdSessionId,
         trustedStatusAuth: args.trustedStatusAuth,
       });
@@ -548,14 +548,14 @@ function buildBudgetStatusCheckForLane(args: {
       key: args.lane.key,
       keyHandle: args.lane.keyHandle,
       chainTarget: args.lane.chainTarget,
-      walletSigningSessionId: args.lane.walletSigningSessionId,
+      signingGrantId: args.lane.signingGrantId,
       thresholdSessionId: args.lane.thresholdSessionId,
     });
   }
   if (args.trustedStatusAuth && args.lane.thresholdSessionId) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
       owner,
-      walletSigningSessionId: args.lane.walletSigningSessionId,
+      signingGrantId: args.lane.signingGrantId,
       targetThresholdSessionIds: [args.lane.thresholdSessionId],
       trustedStatusAuth: args.trustedStatusAuth,
     });
@@ -563,26 +563,26 @@ function buildBudgetStatusCheckForLane(args: {
   if (args.lane.thresholdSessionId) {
     return buildThresholdBudgetStatusCheck({
       owner,
-      walletSigningSessionId: args.lane.walletSigningSessionId,
+      signingGrantId: args.lane.signingGrantId,
       targetThresholdSessionIds: [args.lane.thresholdSessionId],
     });
   }
   if (args.lane.backingMaterialSessionId) {
     return buildBackingMaterialBudgetStatusCheck({
       owner,
-      walletSigningSessionId: args.lane.walletSigningSessionId,
+      signingGrantId: args.lane.signingGrantId,
       targetBackingMaterialSessionIds: [args.lane.backingMaterialSessionId],
     });
   }
   return buildWalletBudgetStatusCheck({
     owner,
-    walletSigningSessionId: args.lane.walletSigningSessionId,
+    signingGrantId: args.lane.signingGrantId,
   });
 }
 
 function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusCheck): {
   walletId: AccountId | string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   targetBackingMaterialSessionIds?: string[];
   targetThresholdSessionIds?: string[];
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
@@ -590,7 +590,7 @@ function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusC
   if (isEcdsaLaneBudgetStatusCheck(args)) {
     return {
       walletId: walletBudgetOwnerId(ownerForBudgetStatusCheck(args)),
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       targetThresholdSessionIds: thresholdSessionIdsForBudgetStatusCheck(args),
       ...(args.kind === 'authenticated_ecdsa_lane_budget_status_check'
         ? { trustedStatusAuth: args.trustedStatusAuth }
@@ -600,7 +600,7 @@ function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusC
   if (args.kind === 'authenticated_threshold_budget_status_check') {
     return {
       walletId: walletBudgetOwnerId(args.owner),
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       targetThresholdSessionIds: [...args.targetThresholdSessionIds],
       trustedStatusAuth: args.trustedStatusAuth,
     };
@@ -608,19 +608,19 @@ function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusC
   if (args.kind === 'threshold_budget_status_check') {
     return {
       walletId: walletBudgetOwnerId(args.owner),
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       targetThresholdSessionIds: [...args.targetThresholdSessionIds],
     };
   }
   if (args.kind === 'backing_material_budget_status_check') {
     return {
       walletId: walletBudgetOwnerId(args.owner),
-      walletSigningSessionId: args.walletSigningSessionId,
+      signingGrantId: args.signingGrantId,
       targetBackingMaterialSessionIds: [...args.targetBackingMaterialSessionIds],
     };
   }
   return {
     walletId: walletBudgetOwnerId(args.owner),
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
   };
 }

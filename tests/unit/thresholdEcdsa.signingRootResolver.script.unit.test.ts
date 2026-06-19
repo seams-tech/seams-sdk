@@ -145,7 +145,7 @@ async function roleLocalBootstrapWithClientShare(args: {
   service: ReturnType<typeof createThresholdSigningService>;
   clientRootShare32B64u: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   signingRootId?: string;
   signingRootVersion?: string;
 }) {
@@ -180,7 +180,7 @@ async function roleLocalBootstrapWithClientShare(args: {
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: `request:${args.sessionId}`,
     sessionId: args.sessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     ttlMs: 60_000,
     remainingUses: 1,
     participantIds: [1, 2],
@@ -207,7 +207,7 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
     service,
     clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
     sessionId: 'ecdsa-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
   });
 
   if (!bootstrapped.ok) throw new Error(bootstrapped.message);
@@ -216,7 +216,7 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
   expect(bootstrapped.value.thresholdEcdsaPublicKeyB64u).toBeTruthy();
   expect(bootstrapped.value.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
   expect(bootstrapped.value.sessionId).toBe('ecdsa-session-1');
-  expect(bootstrapped.value.walletSigningSessionId).toBe('wallet-signing-session-1');
+  expect(bootstrapped.value.signingGrantId).toBe('signing-grant-1');
   expect(decryptCalls).toEqual([1, 2]);
 });
 
@@ -243,7 +243,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
     service,
     clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
     sessionId: 'ecdsa-self-host-session-1',
-    walletSigningSessionId: 'wallet-signing-self-host-1',
+    signingGrantId: 'wallet-signing-self-host-1',
   });
 
   expect(bootstrapped.ok).toBe(true);

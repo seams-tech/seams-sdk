@@ -63,7 +63,7 @@ function createEnvelope(): WarmSessionEnvelope {
               keyHandle: 'ek-tempo-handle',
               walletId: 'transition-summary.testnet' as any,
               authMethod: 'passkey',
-              walletSigningSessionId: 'wallet-tempo-session',
+              signingGrantId: 'wallet-tempo-session',
               thresholdSessionId: 'tempo-session',
               chainTarget,
             });
@@ -80,7 +80,7 @@ function createEnvelope(): WarmSessionEnvelope {
                 participantIds: [1, 2],
                 ethereumAddress: `0x${'11'.repeat(20)}`,
                 thresholdSessionId: 'tempo-session',
-                walletSigningSessionId: 'wallet-tempo-session',
+                signingGrantId: 'wallet-tempo-session',
                 thresholdSessionKind: 'jwt',
                 relayerUrl: 'https://relay.example',
                 relayerKeyId: 'relayer-key',

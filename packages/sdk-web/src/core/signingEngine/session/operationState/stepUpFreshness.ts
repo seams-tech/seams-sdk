@@ -14,7 +14,7 @@ import type {
   SigningCurve,
   SigningOperationFingerprint,
   SigningOperationId,
-  WalletSigningSessionId,
+  SigningGrantId,
 } from './types';
 
 export type SigningStatusProvenance =
@@ -71,7 +71,7 @@ export type FreshStepUpRequired = {
   curve: SigningCurve;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionIds: NonEmptyThresholdSessionIds;
   projection: StepUpProjectionState;
   expiry: StepUpExpiryState;
@@ -92,7 +92,7 @@ export type FreshStepUpSatisfied = {
   curve: SigningCurve;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionIds: NonEmptyThresholdSessionIds;
   projection: StepUpProjectionState;
   expiry: StepUpExpiryState;
@@ -118,7 +118,7 @@ export type StepUpFreshnessDiagnostics = {
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
   laneIdentityKey: ExactSigningLaneIdentityKey;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionIds: NonEmptyThresholdSessionIds;
   projection: StepUpProjectionState;
   expiry: StepUpExpiryState;
@@ -196,7 +196,7 @@ export function buildFreshStepUpRequired(
     curve: input.laneIdentity.curve,
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
-    walletSigningSessionId: input.laneIdentity.walletSigningSessionId,
+    signingGrantId: input.laneIdentity.signingGrantId,
     thresholdSessionIds: validated.thresholdSessionIds,
     projection: input.projection,
     expiry: input.expiry,
@@ -220,7 +220,7 @@ export function buildFreshStepUpSatisfied(
     curve: input.laneIdentity.curve,
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
-    walletSigningSessionId: input.laneIdentity.walletSigningSessionId,
+    signingGrantId: input.laneIdentity.signingGrantId,
     thresholdSessionIds: validated.thresholdSessionIds,
     projection: input.projection,
     expiry: input.expiry,
@@ -262,7 +262,7 @@ export function stepUpFreshnessDiagnostics(
     authMethod: freshness.authMethod,
     curve: freshness.curve,
     laneIdentityKey: freshness.laneIdentityKey,
-    walletSigningSessionId: freshness.walletSigningSessionId,
+    signingGrantId: freshness.signingGrantId,
     thresholdSessionIds: freshness.thresholdSessionIds,
     projection: freshness.projection,
     expiry: freshness.expiry,

@@ -164,7 +164,7 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
-  reserveWalletSigningSessionBudget?: (
+  reserveSigningGrantBudget?: (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
   ) => Promise<SigningSessionBudgetReserveResult>;
 };
@@ -291,9 +291,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (walletBudgetReservationAttempted) return;
     walletBudgetReservationAttempted = true;
     const thresholdEcdsaOperation = await getBudgetAdmittedThresholdEcdsaOperation();
-    if (!input.reserveWalletSigningSessionBudget) return;
+    if (!input.reserveSigningGrantBudget) return;
     const reservationResult =
-      await input.reserveWalletSigningSessionBudget(thresholdEcdsaOperation);
+      await input.reserveSigningGrantBudget(thresholdEcdsaOperation);
     if (reservationResult?.kind === 'reservation_identity_mismatch') {
       throw new Error('[SigningSessionBudget] wallet signing-session reservation identity mismatch');
     }

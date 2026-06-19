@@ -74,7 +74,7 @@ function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate
     }),
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
     chainTarget,
-    walletSigningSessionId: 'wsess-restorable',
+    signingGrantId: 'wsess-restorable',
     thresholdSessionId: 'tsess-restorable',
     state,
     remainingUses: null,
@@ -131,8 +131,8 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
           walletId: input.walletId,
           authMethod: 'email_otp',
           chainTarget: input.chainTarget,
-          walletSigningSessionId: SigningSessionIds.walletSigningSession(
-            input.walletSigningSessionId,
+          signingGrantId: SigningSessionIds.signingGrant(
+            input.signingGrantId,
           ),
           thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
           retention: 'session',
@@ -144,8 +144,8 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
           walletId: input.walletId,
           authMethod: 'passkey',
           chainTarget: input.chainTarget,
-          walletSigningSessionId: SigningSessionIds.walletSigningSession(
-            input.walletSigningSessionId,
+          signingGrantId: SigningSessionIds.signingGrant(
+            input.signingGrantId,
           ),
           thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
           storageSource: 'login',
@@ -267,7 +267,7 @@ function recordForChainTarget(
     }),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: input.thresholdSessionId,
-    walletSigningSessionId: input.walletSigningSessionId,
+    signingGrantId: input.signingGrantId,
     walletSessionJwt: 'threshold-session-token',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,

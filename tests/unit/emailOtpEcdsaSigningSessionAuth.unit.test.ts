@@ -13,7 +13,7 @@ import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/sign
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '@/core/signingEngine/session/emailOtp/exportRecovery';
 import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
 import {
-  toAuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '@/core/signingEngine/interfaces/operationDeps';
@@ -46,7 +46,7 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 
 function thresholdEcdsaSessionJwt(args: {
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   walletId: string;
   keyHandle: string;
 }) {
@@ -57,7 +57,7 @@ function thresholdEcdsaSessionJwt(args: {
     keyHandle: args.keyHandle,
     chainTarget: sourceChainTarget,
     sessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     runtimePolicyScope: {
       orgId: 'org-local',
       projectId: 'proj_local',
@@ -96,7 +96,7 @@ function reauthAnchorForLane(
       curve: 'ecdsa',
       laneIdentity,
       laneIdentityKey,
-      walletSigningSessionId: laneIdentity.walletSigningSessionId,
+      signingGrantId: laneIdentity.signingGrantId,
       thresholdSessionIds: [laneIdentity.thresholdSessionId],
       projection: { kind: 'known', version: 'test' },
       expiry: { kind: 'known', expiresAtMs: 1 },
@@ -129,12 +129,12 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
   const walletId = toAccountId('otp-refresh.testnet');
   const ecdsaWalletId = toWalletId(walletId);
   const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-sealed-ecdsa');
-  const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-sealed-wallet');
+  const signingGrantId = SigningSessionIds.signingGrant('wsess-sealed-wallet');
   const authLane: EmailOtpAuthLane = {
     kind: 'signing_session',
     jwt: 'threshold-session-jwt',
     thresholdSessionId,
-    authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(walletSigningSessionId),
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(signingGrantId),
     curve: 'ecdsa',
     chainTarget: sourceChainTarget,
   };
@@ -155,7 +155,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     walletId,
     authMethod: 'email_otp',
     chainTarget: tempoChainTarget,
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
   });
   const anchorLane = buildEvmTransactionSigningLane({
@@ -164,7 +164,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     walletId,
     authMethod: 'email_otp',
     chainTarget: sourceChainTarget,
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
   });
   const bridge = createEmailOtpEcdsaTransactionSigningBridge({
@@ -215,7 +215,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
   const walletId = toAccountId('otp-refresh.testnet');
   const ecdsaWalletId = toWalletId(walletId);
   const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-sealed-ecdsa');
-  const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-sealed-wallet');
+  const signingGrantId = SigningSessionIds.signingGrant('wsess-sealed-wallet');
   let challengeCalls = 0;
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
@@ -232,7 +232,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
     walletId,
     authMethod: 'email_otp',
     chainTarget: sourceChainTarget,
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId,
   });
   const bridge = createEmailOtpEcdsaTransactionSigningBridge({
@@ -246,7 +246,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
       walletId,
       authMethod: 'email_otp',
       chainTarget: tempoChainTarget,
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
     }),
     signingSessionRecord: null,
@@ -305,7 +305,7 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
 
 test('sealed Email OTP ECDSA auth lane remains available after wallet signing budget exhaustion', () => {
   const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-exhausted-ecdsa');
-  const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-exhausted-wallet');
+  const signingGrantId = SigningSessionIds.signingGrant('wsess-exhausted-wallet');
   const walletId = 'otp-refresh.testnet';
   const keyHandle = 'key-handle-email-otp';
   const sealedRecord = buildCurrentSealedSessionRecord({
@@ -313,7 +313,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     thresholdSessionIds: { ecdsa: thresholdSessionId },
     sealedSecretB64u: 'sealed-secret',
     authMethod: 'email_otp',
-    walletSigningSessionId,
+    signingGrantId,
     curve: 'ecdsa',
     walletId,
     relayerUrl: 'https://relay.example.test',
@@ -322,7 +322,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       rpId: 'example.localhost',
       walletSessionJwt: thresholdEcdsaSessionJwt({
         thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
         walletId,
         keyHandle,
       }),
@@ -350,12 +350,12 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     kind: 'signing_session',
     jwt: thresholdEcdsaSessionJwt({
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       walletId,
       keyHandle,
     }),
     thresholdSessionId,
-    authorizingWalletSigningSessionId: walletSigningSessionId,
+    authorizingSigningGrantId: signingGrantId,
     curve: 'ecdsa',
     chainTarget: sourceChainTarget,
   });

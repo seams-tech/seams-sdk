@@ -33,7 +33,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
     ]);
     const offenders: string[] = [];
     const pattern =
-      /sessionId\?: string|walletSigningSessionId\?: string|thresholdSessionId\?: string|walletSessionRouteAuth\?:(?!\s*never\b)|webauthnAuthentication\?:(?!\s*never\b)|clientRootShare32B64u\?:(?!\s*never\b)|warmRecord\?:|warmKeyRef\?:|reauthRecord\?:|emailOtpAuthContext\?:(?!\s*never\b)/;
+      /sessionId\?: string|signingGrantId\?: string|thresholdSessionId\?: string|walletSessionRouteAuth\?:(?!\s*never\b)|webauthnAuthentication\?:(?!\s*never\b)|clientRootShare32B64u\?:(?!\s*never\b)|warmRecord\?:|warmKeyRef\?:|reauthRecord\?:|emailOtpAuthContext\?:(?!\s*never\b)/;
     for (const root of searchRoots) {
       for (const relativePath of listTsFiles(root)) {
         const source = readRepoFile(relativePath);
@@ -113,7 +113,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
       for (const forbidden of [
         'parseThresholdEcdsaSessionClaims',
         'parseThresholdEd25519SessionClaims',
-        'body.walletSigningSessionId',
+        'body.signingGrantId',
         'body.thresholdSessionId',
       ]) {
         if (source.includes(forbidden)) {
@@ -141,22 +141,22 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
       {
         name: 'object field identity parsing',
         pattern:
-          /(thresholdSessionId|walletSigningSessionId)\s*:\s*String\((?:[^)\n]*)(?:thresholdSessionId|walletSigningSessionId)(?:[^)\n]*)\)\.trim\(/g,
+          /(thresholdSessionId|signingGrantId)\s*:\s*String\((?:[^)\n]*)(?:thresholdSessionId|signingGrantId)(?:[^)\n]*)\)\.trim\(/g,
       },
       {
         name: 'raw identity comparison',
         pattern:
-          /String\([^;\n]*(?:thresholdSessionId|walletSigningSessionId)[^;\n]*\)\.trim\(\)\s*(?:={2,3}|!={1,2})\s*String\([^;\n]*(?:thresholdSessionId|walletSigningSessionId)[^;\n]*\)\.trim\(\)/g,
+          /String\([^;\n]*(?:thresholdSessionId|signingGrantId)[^;\n]*\)\.trim\(\)\s*(?:={2,3}|!={1,2})\s*String\([^;\n]*(?:thresholdSessionId|signingGrantId)[^;\n]*\)\.trim\(\)/g,
       },
       {
         name: 'paired local identity parsing',
         pattern:
-          /\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*WalletSigningSessionId\s*=\s*String\([^;\n]*walletSigningSessionId[^;\n]*\)\.trim\(\)/g,
+          /\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*SigningGrantId\s*=\s*String\([^;\n]*signingGrantId[^;\n]*\)\.trim\(\)/g,
       },
       {
         name: 'paired local identity parsing',
         pattern:
-          /\b(?:const|let)\s+\w*WalletSigningSessionId\s*=\s*String\([^;\n]*walletSigningSessionId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)/g,
+          /\b(?:const|let)\s+\w*SigningGrantId\s*=\s*String\([^;\n]*signingGrantId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)/g,
       },
     ];
     for (const root of searchRoots) {

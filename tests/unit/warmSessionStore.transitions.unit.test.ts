@@ -45,12 +45,12 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
           remainingUses: 7,
           expiresAtMs,
           source: 'login',
-          walletSigningSessionId: 'wsess-ed25519-transition',
+          signingGrantId: 'wsess-ed25519-transition',
         });
         return {
           ok: true,
           sessionId,
-          walletSigningSessionId: 'wsess-ed25519-transition',
+          signingGrantId: 'wsess-ed25519-transition',
           jwt: `jwt:${sessionId}`,
           remainingUses: 7,
           expiresAtMs,
@@ -98,7 +98,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
 
     const accountId = toAccountId('transition-ed25519-pending.testnet');
     const sessionId = 'ed25519-pending-material-session';
-    const walletSigningSessionId = 'wsess-ed25519-pending-material';
+    const signingGrantId = 'wsess-ed25519-pending-material';
     const expiresAtMs = Date.now() + 120_000;
     const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
@@ -112,7 +112,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         seedEd25519WarmSessionRecord({
           nearAccountId: String(nearAccountId),
           thresholdSessionId: sessionId,
-          walletSigningSessionId,
+          signingGrantId,
           walletSessionJwt: `jwt:${sessionId}`,
           runtimePolicyScope: {
             orgId: 'org-transition',
@@ -133,7 +133,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         return {
           ok: true,
           sessionId,
-          walletSigningSessionId,
+          signingGrantId,
           jwt: `jwt:${sessionId}`,
           remainingUses: 7,
           expiresAtMs,
@@ -155,14 +155,14 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       state: 'material_pending',
       record: {
         thresholdSessionId: sessionId,
-        walletSigningSessionId,
+        signingGrantId,
       },
     });
 
     const lane = buildNearTransactionSigningLane({
       accountId,
       authMethod: 'passkey',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
       storageSource: 'login',
     });
@@ -198,7 +198,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       provisionThresholdEd25519Session: async () => ({
         ok: true,
         sessionId,
-        walletSigningSessionId: 'wsess-ed25519-unpersisted',
+        signingGrantId: 'wsess-ed25519-unpersisted',
         jwt: `jwt:${sessionId}`,
         remainingUses: 5,
         expiresAtMs: Date.now() + 120_000,
@@ -229,7 +229,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       ecdsaThresholdKeyId: 'ek-transition-stale',
       sessionId: 'ecdsa-stale-session',
       walletSessionJwt: 'jwt:ecdsa-stale-session',
-      walletSigningSessionId: 'wsess-ecdsa-transition',
+      signingGrantId: 'wsess-ecdsa-transition',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'transition-ecdsa.testnet',
@@ -264,7 +264,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
           walletSessionJwt: 'jwt:ecdsa-fresh-session',
-          walletSigningSessionId: 'wsess-ecdsa-transition',
+          signingGrantId: 'wsess-ecdsa-transition',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(request.walletKey.walletId),

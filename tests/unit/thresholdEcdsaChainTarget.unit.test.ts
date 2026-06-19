@@ -23,7 +23,7 @@ function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): Thre
       chainId: 5_042_002,
       networkSlug: 'arc-testnet',
     },
-    walletSigningSessionId: 'wsess-arc',
+    signingGrantId: 'wsess-arc',
     thresholdSessionId: 'tsess-arc',
     ...overrides,
   };

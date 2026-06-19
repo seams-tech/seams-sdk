@@ -214,21 +214,21 @@ function shouldPersistIdempotentResult(result: SigningSessionSealRouteResult): b
   return SIGNING_SESSION_SEAL_REPLAYABLE_ERROR_CODES.has(String(result.code || '').trim());
 }
 
-function hasWalletSigningSessionBudgetClaim(auth: { claims: Record<string, unknown> }): boolean {
-  return Boolean(String(auth.claims.walletSigningSessionId || '').trim());
+function hasSigningGrantBudgetClaim(auth: { claims: Record<string, unknown> }): boolean {
+  return Boolean(String(auth.claims.signingGrantId || '').trim());
 }
 
 function parseCurveBoundWalletBudgetLookup(
   claims: Record<string, unknown>,
 ):
-  | { curve: 'ecdsa'; walletSigningSessionId: string; thresholdSessionId: string }
-  | { curve: 'ed25519'; walletSigningSessionId: string; thresholdSessionId: string }
+  | { curve: 'ecdsa'; signingGrantId: string; thresholdSessionId: string }
+  | { curve: 'ed25519'; signingGrantId: string; thresholdSessionId: string }
   | null {
   const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(claims);
   if (ecdsaClaims) {
     return {
       curve: 'ecdsa',
-      walletSigningSessionId: ecdsaClaims.walletSigningSessionId,
+      signingGrantId: ecdsaClaims.signingGrantId,
       thresholdSessionId: ecdsaClaims.sessionId,
     };
   }
@@ -236,7 +236,7 @@ function parseCurveBoundWalletBudgetLookup(
   if (ed25519Claims) {
     return {
       curve: 'ed25519',
-      walletSigningSessionId: ed25519Claims.walletSigningSessionId,
+      signingGrantId: ed25519Claims.signingGrantId,
       thresholdSessionId: ed25519Claims.sessionId,
     };
   }
@@ -574,7 +574,7 @@ export function createSigningSessionSealService(
     auth: SigningSessionSealAuthInput,
   ): Promise<SigningSessionSealRouteResult> => {
     const operationKey = await makeOperationRequestKey({ operation, request, auth });
-    const allowPersistentReplay = !hasWalletSigningSessionBudgetClaim(auth);
+    const allowPersistentReplay = !hasSigningGrantBudgetClaim(auth);
     if (allowPersistentReplay) {
       const idempotentReplay = await tryReplayIdempotentResult(
         operation,

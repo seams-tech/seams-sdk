@@ -24,7 +24,7 @@ function makeEmailOtpEcdsaSealedRecord(
     authMethod: 'email_otp',
     secretKind: 'signing_session_secret32',
     storeKey: 'email_otp:ecdsa:tempo:tsess-ecdsa',
-    walletSigningSessionId: 'wsess-ecdsa',
+    signingGrantId: 'wsess-ecdsa',
     thresholdSessionIds: {
       ecdsa: 'tsess-ecdsa',
       ed25519: 'tsess-ed25519',
@@ -86,7 +86,7 @@ test.describe('sealed recovery method adapters', () => {
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
       storeKey: 'email_otp:ecdsa:tempo:tsess-ecdsa',
-      walletSigningSessionId: 'wsess-ecdsa',
+      signingGrantId: 'wsess-ecdsa',
       thresholdSessionIds: {
         ecdsa: 'tsess-ecdsa',
       },
@@ -135,7 +135,7 @@ test.describe('sealed recovery method adapters', () => {
       authMethod: 'passkey',
       secretKind: 'signing_session_secret32',
       storeKey: 'passkey:ed25519:near:tsess-ed25519',
-      walletSigningSessionId: 'wsess-passkey-ed25519',
+      signingGrantId: 'wsess-passkey-ed25519',
       thresholdSessionIds: {
         ed25519: 'tsess-passkey-ed25519',
       },
@@ -189,7 +189,7 @@ test.describe('sealed recovery method adapters', () => {
         },
       },
       walletId: 'alice.testnet',
-      walletSigningSessionId: 'wsess-passkey-ecdsa',
+      signingGrantId: 'wsess-passkey-ecdsa',
       thresholdSessionId: 'tsess-passkey-ecdsa',
       chainTarget: TEMPO_CHAIN_TARGET,
       errorContext: 'passkey ECDSA test',
@@ -203,7 +203,7 @@ test.describe('sealed recovery method adapters', () => {
         walletId: 'alice.testnet',
         authMethod: 'passkey',
         curve: 'ecdsa',
-        walletSigningSessionId: 'wsess-passkey-ecdsa',
+        signingGrantId: 'wsess-passkey-ecdsa',
         thresholdSessionId: 'tsess-passkey-ecdsa',
       },
     });
@@ -238,7 +238,7 @@ test.describe('sealed recovery method adapters', () => {
           source: 'email_otp',
           nearAccountId: 'alice.testnet',
           thresholdSessionId: 'tsess-ecdsa',
-          walletSigningSessionId: 'wsess-mismatch',
+          signingGrantId: 'wsess-mismatch',
           relayerUrl: 'https://relay.example',
           walletSessionJwt: 'jwt-ecdsa',
           signingSessionSealShamirPrimeB64u: 'prime-b64u',
@@ -303,7 +303,7 @@ test.describe('sealed recovery method adapters', () => {
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
       storeKey: 'email_otp:ed25519:near:tsess-ed25519',
-      walletSigningSessionId: 'wsess-ecdsa',
+      signingGrantId: 'wsess-ecdsa',
       thresholdSessionIds: {
         ecdsa: 'tsess-ecdsa',
         ed25519: 'tsess-ed25519',

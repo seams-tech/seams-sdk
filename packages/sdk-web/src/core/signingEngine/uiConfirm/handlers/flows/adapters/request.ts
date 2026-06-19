@@ -98,7 +98,7 @@ function isWebAuthnChallenge(value: unknown): boolean {
     digest32B64u?: unknown;
     requestId?: unknown;
     thresholdSessionId?: unknown;
-    walletSigningSessionId?: unknown;
+    signingGrantId?: unknown;
   };
   if (challenge.kind === 'intent_digest') return isString(challenge.challengeB64u);
   if (challenge.kind === 'threshold_session_policy') return isString(challenge.digest32B64u);
@@ -107,7 +107,7 @@ function isWebAuthnChallenge(value: unknown): boolean {
       isString(challenge.digest32B64u) &&
       isString(challenge.requestId) &&
       isString(challenge.thresholdSessionId) &&
-      isString(challenge.walletSigningSessionId)
+      isString(challenge.signingGrantId)
     );
   }
   return false;

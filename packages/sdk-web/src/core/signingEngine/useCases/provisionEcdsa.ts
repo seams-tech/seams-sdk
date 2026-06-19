@@ -80,7 +80,7 @@ export type ProvisionEcdsaRouteFacts = {
   relayerKeyId: RelayerKeyId;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   sessionKind: 'jwt';
@@ -309,7 +309,7 @@ function routeInputFromPrepared(args: {
     relayerKeyId: args.input.route.relayerKeyId,
     requestId: args.input.route.requestId,
     sessionId: args.input.route.sessionId,
-    walletSigningSessionId: args.input.route.walletSigningSessionId,
+    signingGrantId: args.input.route.signingGrantId,
     ttlMs: args.input.route.ttlMs,
     remainingUses: args.input.route.remainingUses,
     sessionKind: args.input.route.sessionKind,

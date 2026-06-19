@@ -238,7 +238,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
       appSessionVersion: string;
       sessionHash: string;
       thresholdSessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       walletBudgetStatus: VerifiedSigningBudgetStatus;
     }
   | { ok: false; response: Response }
@@ -262,7 +262,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
     appSessionVersion: validated.appSessionVersion,
     sessionHash: validated.sessionHash,
     thresholdSessionId: request.thresholdSessionId,
-    walletSigningSessionId: request.walletSigningSessionId,
+    signingGrantId: request.signingGrantId,
     walletBudgetStatus: validated.walletBudgetStatus,
   };
 }
@@ -1188,16 +1188,16 @@ export async function handleSigningBudgetStatus(
 ): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/signing-budget/status') return null;
   try {
-    const { walletSigningSessionId: expectedWalletSigningSessionId, thresholdSessionId } =
+    const { signingGrantId: expectedSigningGrantId, thresholdSessionId } =
       parseWalletSigningBudgetStatusExpectations(await readJson(ctx.request));
     const expectedThresholdSessionId = thresholdSessionId || '';
     const validated = await readAndValidateEmailOtpSigningSession(ctx);
     if (!validated.ok) {
-      if (expectedWalletSigningSessionId && validated.response.status === 401) {
+      if (expectedSigningGrantId && validated.response.status === 401) {
         return json(
           {
             ok: true,
-            walletSigningSessionId: expectedWalletSigningSessionId,
+            signingGrantId: expectedSigningGrantId,
             ...(expectedThresholdSessionId
               ? { thresholdSessionId: expectedThresholdSessionId }
               : {}),
@@ -1210,8 +1210,8 @@ export async function handleSigningBudgetStatus(
       return validated.response;
     }
     if (
-      expectedWalletSigningSessionId &&
-      expectedWalletSigningSessionId !== validated.walletSigningSessionId
+      expectedSigningGrantId &&
+      expectedSigningGrantId !== validated.signingGrantId
     ) {
       return json(
         {
@@ -1247,7 +1247,7 @@ export async function handleSigningBudgetStatus(
     return json(
       {
         ok: true,
-        walletSigningSessionId: validated.walletSigningSessionId,
+        signingGrantId: validated.signingGrantId,
         thresholdSessionId: validated.thresholdSessionId,
         status: availableUses > 0 ? 'active' : 'exhausted',
         committedRemainingUses,
@@ -1257,7 +1257,7 @@ export async function handleSigningBudgetStatus(
         expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
         projectionVersion: [
           'wallet-budget',
-          validated.walletSigningSessionId,
+          validated.signingGrantId,
           validated.walletBudgetStatus.expiresAtMs,
           committedRemainingUses,
           reservedUses,

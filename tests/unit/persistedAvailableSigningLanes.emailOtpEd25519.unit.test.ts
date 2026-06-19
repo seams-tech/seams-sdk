@@ -20,7 +20,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
 
   test('treats inline registration client material as ready without worker status', async () => {
     const thresholdSessionId = 'ed25519-registration-session';
-    const walletSigningSessionId = 'wallet-signing-session-ed25519-registration';
+    const signingGrantId = 'signing-grant-ed25519-registration';
     let emailOtpStatusReads = 0;
     let passkeyStatusReads = 0;
 
@@ -34,7 +34,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       xClientBaseB64u: 'ed25519-registration-client-base',
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       walletSessionJwt: 'jwt-ed25519-registration',
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 1,
@@ -80,7 +80,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       chain: 'near',
       state: 'ready',
       source: 'runtime_session_record',
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
       remainingUses: 1,
     });
@@ -88,7 +88,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
 
   test('treats freshly hydrated Email OTP material as ready before client-base caching', async () => {
     const thresholdSessionId = 'ed25519-registration-session-deferred-client-base';
-    const walletSigningSessionId = 'wallet-signing-session-ed25519-deferred-client-base';
+    const signingGrantId = 'signing-grant-ed25519-deferred-client-base';
     let emailOtpStatusReads = 0;
 
     clearAllStoredThresholdEd25519SessionRecords();
@@ -100,7 +100,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       participantIds: [1, 2],
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       walletSessionJwt: 'jwt-ed25519-registration',
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 3,
@@ -146,7 +146,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       chain: 'near',
       state: 'ready',
       source: 'runtime_session_record',
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
       remainingUses: 3,
     });

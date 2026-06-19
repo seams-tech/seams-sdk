@@ -189,7 +189,7 @@ export type RouterAbNormalSigningAdmissionInput =
       walletId: string;
       rpId: string;
       sessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       requestId: string;
       expiresAtMs: number;
       signingWorkerId: string;
@@ -201,7 +201,7 @@ export type RouterAbNormalSigningAdmissionInput =
       walletId: string;
       rpId: string;
       sessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       requestId: string;
       expiresAtMs: number;
       signingWorkerId: string;
@@ -243,7 +243,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
       walletId: input.claims.walletId,
       rpId: input.claims.rpId,
       sessionId: input.admission.sessionId,
-      walletSigningSessionId: input.claims.walletSigningSessionId,
+      signingGrantId: input.claims.signingGrantId,
       requestId: input.admission.requestId,
       expiresAtMs: input.admission.expiresAtMs,
       signingWorkerId: input.claims.routerAbNormalSigning.signingWorkerId,
@@ -266,7 +266,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     walletId: input.claims.walletId,
     rpId: input.claims.rpId,
     sessionId: input.admission.sessionId,
-    walletSigningSessionId: input.claims.walletSigningSessionId,
+    signingGrantId: input.claims.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
     signingWorkerId: input.claims.routerAbEcdsaHssNormalSigning.scope.signing_worker.server_id,
@@ -644,7 +644,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       curve: 'ed25519',
       phase: 'prepare',
       sessionId: admission.sessionId,
-      walletSigningSessionId: validated.claims.walletSigningSessionId,
+      signingGrantId: validated.claims.signingGrantId,
       operationId,
       requestDigest,
       signatureUses: 1,
@@ -671,7 +671,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
         curve: 'ed25519',
         phase: 'finalize',
         sessionId: admission.sessionId,
-        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        signingGrantId: validated.claims.signingGrantId,
         requestId: admission.requestId,
       });
       if (!budget.ok) {
@@ -713,7 +713,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       curve: 'ed25519',
       phase: 'finalize',
       sessionId: admission.sessionId,
-      walletSigningSessionId: validated.claims.walletSigningSessionId,
+      signingGrantId: validated.claims.signingGrantId,
       reservationId,
       operationId,
       requestDigest,
@@ -758,7 +758,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
         curve: 'ed25519',
         phase: 'prepare',
         sessionId: admission.sessionId,
-        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        signingGrantId: validated.claims.signingGrantId,
         reservationId: budgetReservation.reservationId,
       });
     }
@@ -1088,7 +1088,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
       curve: 'ecdsa-hss',
       phase: 'prepare',
       sessionId: admission.sessionId,
-      walletSigningSessionId: validated.claims.walletSigningSessionId,
+      signingGrantId: validated.claims.signingGrantId,
       operationId: admission.requestId,
       requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
       signatureUses: 1,
@@ -1122,7 +1122,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
       curve: 'ecdsa-hss',
       phase: 'finalize',
       sessionId: admission.sessionId,
-      walletSigningSessionId: validated.claims.walletSigningSessionId,
+      signingGrantId: validated.claims.signingGrantId,
       reservationId,
       operationId: admission.requestId,
       requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
@@ -1155,7 +1155,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         curve: 'ecdsa-hss',
         phase: input.phase,
         sessionId: admission.sessionId,
-        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        signingGrantId: validated.claims.signingGrantId,
         reservationId: prepareBudgetReservation.reservationId,
       });
     }

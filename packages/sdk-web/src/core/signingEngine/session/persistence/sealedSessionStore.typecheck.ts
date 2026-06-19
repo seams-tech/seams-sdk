@@ -25,7 +25,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   sealedSecretB64u: 'sealed-secret',
   curve: 'ecdsa',
   authMethod: 'passkey',
-  walletSigningSessionId: 'wsess-ecdsa',
+  signingGrantId: 'wsess-ecdsa',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
   ecdsaRestore: {

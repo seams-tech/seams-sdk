@@ -12,7 +12,7 @@ import {
   normalizeWalletBudgetSuccessInput,
   normalizeStringList,
   resolveWalletSigningOperationFingerprint,
-  summarizeWalletSigningSessionStatus,
+  summarizeSigningGrantStatus,
   signingBudgetReservationKey,
   walletBudgetOwnerForLane,
   type SigningBudgetReservationIdentity,
@@ -67,9 +67,9 @@ export class BudgetCoordinator implements SigningSessionBudget {
     };
     const spend = normalizedInput.spend;
     const operationId = normalizeRequired(spend.operationId, 'operationId');
-    const walletSigningSessionId = normalizeRequired(
-      spend.walletSigningSessionId,
-      'walletSigningSessionId',
+    const signingGrantId = normalizeRequired(
+      spend.signingGrantId,
+      'signingGrantId',
     );
     const existingSpend = this.successfulSpendsByOperationId.get(operationId);
     if (existingSpend) {
@@ -93,7 +93,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
       return null;
     }
 
-    return await this.enqueueWalletReservation(walletSigningSessionId, async () => {
+    return await this.enqueueWalletReservation(signingGrantId, async () => {
       const admittedReservation = this.reservationsByOperationId.get(operationId);
       if (admittedReservation) {
         const conflict = reserveConflictForReservation({
@@ -130,7 +130,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         ...normalizedInput,
         expectedBudgetProjectionVersion: admittedStatus.projectionVersion,
         operationFingerprint: resolveWalletSigningOperationFingerprint(spend),
-        walletSigningSessionId,
+        signingGrantId,
         reservationIdentity,
         reservationIdentityKey: signingBudgetReservationKey(reservationIdentity),
         reservedAgainstProjectionVersion: admittedStatus.projectionVersion,
@@ -141,7 +141,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         createdAtMs: Date.now(),
       });
       this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_succeeded', {
-        status: summarizeWalletSigningSessionStatus(admittedStatus),
+        status: summarizeSigningGrantStatus(admittedStatus),
       });
       return this.createReservation(spend.operationId, (reason) => {
         this.releaseReservation(normalizedInput, reason);
@@ -153,17 +153,17 @@ export class BudgetCoordinator implements SigningSessionBudget {
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
     assertBudgetStatusCheckHasConcreteLaneIdentity(input);
-    const walletSigningSessionId = normalizeRequired(
-      input.walletSigningSessionId,
-      'walletSigningSessionId',
+    const signingGrantId = normalizeRequired(
+      input.signingGrantId,
+      'signingGrantId',
     );
     const status = await this.readStatusWithSuccessfulSpendProjection({
       ...input,
-      walletSigningSessionId,
+      signingGrantId,
     });
     return applySigningSessionBudgetReservationsToStatus({
       status,
-      walletSigningSessionId,
+      signingGrantId,
       reservationsByOperationId: this.reservationsByOperationId,
     });
   }
@@ -364,19 +364,19 @@ export class BudgetCoordinator implements SigningSessionBudget {
   }
 
   private async enqueueWalletReservation<TValue>(
-    walletSigningSessionId: string,
+    signingGrantId: string,
     task: () => Promise<TValue>,
   ): Promise<TValue> {
-    const previous = this.walletReservationQueues.get(walletSigningSessionId) || Promise.resolve();
+    const previous = this.walletReservationQueues.get(signingGrantId) || Promise.resolve();
     const next = previous.catch(() => undefined).then(task);
     const queueEntry = next
       .catch(() => undefined)
       .then(() => {
-        if (this.walletReservationQueues.get(walletSigningSessionId) === queueEntry) {
-          this.walletReservationQueues.delete(walletSigningSessionId);
+        if (this.walletReservationQueues.get(signingGrantId) === queueEntry) {
+          this.walletReservationQueues.delete(signingGrantId);
         }
       });
-    this.walletReservationQueues.set(walletSigningSessionId, queueEntry);
+    this.walletReservationQueues.set(signingGrantId, queueEntry);
     return await next;
   }
 
@@ -439,9 +439,9 @@ export class BudgetCoordinator implements SigningSessionBudget {
       );
     }
     const spend = input.spend;
-    const walletSigningSessionId = normalizeRequired(
-      spend.walletSigningSessionId,
-      'walletSigningSessionId',
+    const signingGrantId = normalizeRequired(
+      spend.signingGrantId,
+      'signingGrantId',
     );
     this.emitTrace(input, 'wallet_signing_budget_spend_started', {});
     const budgetStatusCheck = buildSigningSessionBudgetStatusCheckForSpend({
@@ -450,7 +450,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
     });
     const status = await this.deps.consumeUse({
       owner: walletBudgetOwnerForLane(spend.lane),
-      walletSigningSessionId,
+      signingGrantId,
       uses: spend.uses,
       reason: spend.reason,
       budgetStatusCheck,
@@ -466,7 +466,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         : {}),
     });
     if (!status) {
-      return budgetStatusUnavailable('missing_status', spend.walletSigningSessionId);
+      return budgetStatusUnavailable('missing_status', spend.signingGrantId);
     }
     if (status.status === 'not_found') {
       return status;
@@ -487,26 +487,26 @@ export class BudgetCoordinator implements SigningSessionBudget {
   private async readStatusWithSuccessfulSpendProjection(
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): Promise<SigningSessionStatus> {
-    const walletSigningSessionId = normalizeRequired(
-      input.walletSigningSessionId,
-      'walletSigningSessionId',
+    const signingGrantId = normalizeRequired(
+      input.signingGrantId,
+      'signingGrantId',
     );
     const status = await this.deps.readStatus({
       ...input,
-      walletSigningSessionId,
+      signingGrantId,
     });
-    return this.projectSuccessfulSpends(status, walletSigningSessionId);
+    return this.projectSuccessfulSpends(status, signingGrantId);
   }
 
   private projectSuccessfulSpends(
     status: SigningSessionStatus,
-    walletSigningSessionId: string,
+    signingGrantId: string,
   ): SigningSessionStatus {
     if (status.status !== 'active') return status;
     const projectionVersion = String(status.projectionVersion || '').trim();
     if (!projectionVersion) return status;
     const successfulSpendUses = this.sameProjectionSuccessfulSpendUses({
-      walletSigningSessionId,
+      signingGrantId,
       projectionVersion,
     });
     if (successfulSpendUses <= 0) return status;
@@ -521,13 +521,13 @@ export class BudgetCoordinator implements SigningSessionBudget {
   }
 
   private sameProjectionSuccessfulSpendUses(args: {
-    walletSigningSessionId: string;
+    signingGrantId: string;
     projectionVersion: string;
   }): number {
     let uses = 0;
     for (const spend of this.successfulSpendsByOperationId.values()) {
       const identity = spend.reservationIdentity;
-      if (String(identity.walletSigningSessionId) !== args.walletSigningSessionId) continue;
+      if (String(identity.signingGrantId) !== args.signingGrantId) continue;
       if (String(identity.admittedProjection.version) !== args.projectionVersion) continue;
       uses += Math.max(0, Math.floor(Number(identity.reservedUses) || 0));
     }

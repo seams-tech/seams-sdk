@@ -12,7 +12,7 @@ import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/per
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
-  toAuthorizingWalletSigningSessionId,
+  toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { walletSessionJwtFromPersistedEd25519Record } from '../../session/walletSessionAuthBoundary';
@@ -79,7 +79,7 @@ export type RouterAbEd25519ExportWalletSessionAuth = {
   kind: 'router_ab_ed25519_export_wallet_session_auth_v1';
   walletSessionJwt: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
@@ -95,7 +95,7 @@ export type RouterAbEd25519ExportWalletSessionAuthFailureReason =
   | 'cookie_session'
   | 'missing_wallet_session_jwt'
   | 'missing_threshold_session_id'
-  | 'missing_wallet_signing_session_id'
+  | 'missing_signing_grant_id'
   | 'missing_relayer_url'
   | 'missing_relayer_key_id'
   | 'missing_participant_ids'
@@ -125,8 +125,8 @@ export function resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(
   if (!walletSessionJwt) return { ok: false, reason: 'missing_wallet_session_jwt' };
   const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
   if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
-  const walletSigningSessionId = nonEmptyString(record.walletSigningSessionId);
-  if (!walletSigningSessionId) return { ok: false, reason: 'missing_wallet_signing_session_id' };
+  const signingGrantId = nonEmptyString(record.signingGrantId);
+  if (!signingGrantId) return { ok: false, reason: 'missing_signing_grant_id' };
   const relayerUrl = nonEmptyString(record.relayerUrl);
   if (!relayerUrl) return { ok: false, reason: 'missing_relayer_url' };
   const relayerKeyId = nonEmptyString(record.relayerKeyId);
@@ -152,7 +152,7 @@ export function resolveRouterAbEd25519ExportWalletSessionAuthFromRecord(
       kind: 'router_ab_ed25519_export_wallet_session_auth_v1',
       walletSessionJwt,
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       relayerUrl,
       relayerKeyId,
       participantIds,
@@ -178,7 +178,7 @@ function assertNearEd25519ExportRecordMatchesLane(args: {
   if (recordAuthMethod !== args.exportLane.authMethod) {
     throw new Error('[SigningEngine][ed25519-export] exact export auth method drifted');
   }
-  if (String(record.walletSigningSessionId || '').trim() !== args.exportLane.walletSigningSessionId) {
+  if (String(record.signingGrantId || '').trim() !== args.exportLane.signingGrantId) {
     throw new Error('[SigningEngine][ed25519-export] exact export wallet session drifted');
   }
   if (String(record.thresholdSessionId || '').trim() !== args.exportLane.thresholdSessionId) {
@@ -329,7 +329,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     record: getStoredThresholdEd25519SessionRecordForLane({
       nearAccountId,
       authMethod: args.exportLane.authMethod,
-      walletSigningSessionId: args.exportLane.walletSigningSessionId,
+      signingGrantId: args.exportLane.signingGrantId,
       thresholdSessionId: args.exportLane.thresholdSessionId,
     }),
     exportLane: args.exportLane,
@@ -421,16 +421,16 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
 
   try {
     if (sessionRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
-      const walletSigningSessionId = String(sessionRecord.walletSigningSessionId || '').trim();
-      if (!walletSigningSessionId) {
+      const signingGrantId = String(sessionRecord.signingGrantId || '').trim();
+      if (!signingGrantId) {
         throw new Error('Email OTP Ed25519 export requires wallet signing-session identity');
       }
       const exportSigningSessionAuthLane = {
         kind: 'signing_session' as const,
         jwt: walletSessionJwt,
         thresholdSessionId,
-        authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
-          walletSigningSessionId,
+        authorizingSigningGrantId: toAuthorizingSigningGrantId(
+          signingGrantId,
         ),
         curve: 'ed25519' as const,
       };

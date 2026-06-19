@@ -16,7 +16,7 @@ test.describe('near signing session selection', () => {
 
   test('treats passkey Ed25519 auth-missing state as step-up reauthable', async () => {
     const nearAccountId = 'passkey-ed25519-auth-missing.testnet';
-    const walletSigningSessionId = 'wallet-passkey-ed25519-auth-missing';
+    const signingGrantId = 'wallet-passkey-ed25519-auth-missing';
     const thresholdSessionId = 'threshold-passkey-ed25519-auth-missing';
     const expiresAtMs = Date.now() + 60_000;
     const warmSessionReader = {
@@ -35,7 +35,7 @@ test.describe('near signing session selection', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId,
-              walletSigningSessionId,
+              signingGrantId,
               expiresAtMs,
               remainingUses: 0,
               source: 'login',
@@ -81,7 +81,7 @@ test.describe('near signing session selection', () => {
     });
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: walletSigningSessionId,
+        sessionId: signingGrantId,
         status: 'active',
         remainingUses: 1,
         expiresAtMs,
@@ -98,7 +98,7 @@ test.describe('near signing session selection', () => {
   test('plans passkey Ed25519 pending material as warm-session repair without reauth', async () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = 'pending-material-passkey-ed25519.testnet';
-    const walletSigningSessionId = 'wallet-pending-material-passkey-ed25519';
+    const signingGrantId = 'wallet-pending-material-passkey-ed25519';
     const thresholdSessionId = 'threshold-pending-material-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
     persistWarmSessionEd25519Capability({
@@ -110,7 +110,7 @@ test.describe('near signing session selection', () => {
       participantIds: [1, 2],
       sessionKind: 'jwt' as const,
       sessionId: thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       expiresAtMs,
       remainingUses: 2,
       jwt: 'router-ab-ed25519-pending-material-wallet-session-jwt',
@@ -145,7 +145,7 @@ test.describe('near signing session selection', () => {
     });
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: walletSigningSessionId,
+        sessionId: signingGrantId,
         status: 'active',
         remainingUses: 2,
         expiresAtMs,
@@ -200,7 +200,7 @@ test.describe('near signing session selection', () => {
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',
-      walletSigningSessionId: 'wallet-session',
+      signingGrantId: 'wallet-session',
     });
     await coordinator.claimPrfFirstByThresholdSessionId({
       kind: 'wallet_scoped_ed25519_claim',
@@ -211,7 +211,7 @@ test.describe('near signing session selection', () => {
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',
-      walletSigningSessionId: 'wallet-session',
+      signingGrantId: 'wallet-session',
     });
 
     expect(restoreCalls).toEqual(['restored-passkey-ed25519', 'restored-passkey-ed25519']);
@@ -250,7 +250,7 @@ test.describe('near signing session selection', () => {
       authMethod: 'email_otp',
       curve: 'ed25519',
       chain: 'near',
-      walletSigningSessionId: 'wallet-session',
+      signingGrantId: 'wallet-session',
     });
 
     expect(restoreCalls).toEqual([]);

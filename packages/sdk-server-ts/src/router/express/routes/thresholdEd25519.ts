@@ -121,7 +121,7 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
   runtimePolicyScope: NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope'];
 }): Promise<string> {
   const sessionId = String(args.sessionResult.sessionId || '').trim();
-  const walletSigningSessionId = String(args.sessionResult.walletSigningSessionId || '').trim();
+  const signingGrantId = String(args.sessionResult.signingGrantId || '').trim();
   const expiresAtMs = Number(args.sessionResult.expiresAtMs);
   if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('threshold-ed25519 session bootstrap returned incomplete session state');
@@ -134,7 +134,7 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
     sessionInfo: {
       sessionKind: 'jwt',
       sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       expiresAtMs,
       participantIds: args.participantIds,
       runtimePolicyScope: args.runtimePolicyScope,
@@ -414,7 +414,7 @@ export function registerThresholdEd25519Routes(
           sessionInfo: {
             sessionKind: 'jwt',
             sessionId,
-            walletSigningSessionId: result.walletSigningSessionId,
+            signingGrantId: result.signingGrantId,
             expiresAtMs: thresholdExpiresAtMs,
             participantIds,
             runtimePolicyScope,

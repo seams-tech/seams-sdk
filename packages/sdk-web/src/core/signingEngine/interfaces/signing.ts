@@ -125,7 +125,7 @@ export type KeyRef =
       thresholdSessionKind?: 'jwt' | 'cookie';
       walletSessionJwt?: string;
       thresholdSessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       mpcSessionId?: string;
     }
   | {

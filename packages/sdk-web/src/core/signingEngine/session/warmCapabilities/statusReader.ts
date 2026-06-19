@@ -459,13 +459,13 @@ export function createWarmSessionStatusReader(
         keyHandle: args.record.keyHandle,
         walletId: args.record.walletId,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
-        walletSigningSessionId: identity.walletSigningSessionId,
+        signingGrantId: identity.signingGrantId,
         thresholdSessionId: identity.thresholdSessionId,
         chainTarget: args.record.chainTarget,
       }),
       chainTarget: args.record.chainTarget,
       source: args.record.source,
-      walletSigningSessionId: identity.walletSigningSessionId,
+      signingGrantId: identity.signingGrantId,
     };
   }
 

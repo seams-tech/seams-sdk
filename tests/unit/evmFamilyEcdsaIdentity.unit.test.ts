@@ -74,7 +74,7 @@ type PasskeyRecordFixtureInput = {
   signingRootVersion?: PasskeyEcdsaSessionRecord['signingRootVersion'];
   participantIds?: PasskeyEcdsaSessionRecord['participantIds'];
   thresholdSessionId?: PasskeyEcdsaSessionRecord['thresholdSessionId'];
-  walletSigningSessionId?: PasskeyEcdsaSessionRecord['walletSigningSessionId'];
+  signingGrantId?: PasskeyEcdsaSessionRecord['signingGrantId'];
   remainingUses?: PasskeyEcdsaSessionRecord['remainingUses'];
   thresholdEcdsaPublicKeyB64u?: PasskeyEcdsaSessionRecord['thresholdEcdsaPublicKeyB64u'];
   ethereumAddress?: PasskeyEcdsaSessionRecord['ethereumAddress'];
@@ -84,7 +84,7 @@ type EmailOtpRecordFixtureInput = {
   keyHandle?: EmailOtpEcdsaSessionRecord['keyHandle'];
   chainTarget?: EmailOtpEcdsaSessionRecord['chainTarget'];
   thresholdSessionId?: EmailOtpEcdsaSessionRecord['thresholdSessionId'];
-  walletSigningSessionId?: EmailOtpEcdsaSessionRecord['walletSigningSessionId'];
+  signingGrantId?: EmailOtpEcdsaSessionRecord['signingGrantId'];
 };
 type KeyRefFixtureInput = {
   backendBinding?: ThresholdEcdsaSecp256k1KeyRef['backendBinding'];
@@ -220,7 +220,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     participantIds: input.participantIds ?? [2, 1],
     thresholdSessionKind: 'jwt' as const,
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-1',
-    walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-1',
+    signingGrantId: input.signingGrantId ?? 'signing-grant-1',
     walletSessionJwt: 'threshold-auth-token',
     expiresAtMs: 1_900_000_000_000,
     remainingUses: input.remainingUses ?? 3,
@@ -266,7 +266,7 @@ function makeEmailOtpRecord(input: EmailOtpRecordFixtureInput = {}): EmailOtpEcd
     keyHandle: keyHandleForRecord,
     chainTarget,
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-email-otp',
-    walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-email-otp',
+    signingGrantId: input.signingGrantId ?? 'signing-grant-email-otp',
   });
   return {
     ...base,
@@ -295,7 +295,7 @@ function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyR
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-shared'),
     ecdsaThresholdKeyId: 'ehss-shared-key',
     thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     backendBinding:
       'backendBinding' in input
         ? input.backendBinding
@@ -336,7 +336,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record: makeRecord({
         chainTarget: EVM_TARGET,
         thresholdSessionId: 'threshold-session-evm',
-        walletSigningSessionId: 'wallet-session-evm',
+        signingGrantId: 'wallet-session-evm',
       }),
       rpId: RP_ID,
     });
@@ -344,7 +344,7 @@ test.describe('EVM-family ECDSA identity', () => {
       record: makeRecord({
         chainTarget: TEMPO_TARGET,
         thresholdSessionId: 'threshold-session-tempo',
-        walletSigningSessionId: 'wallet-session-tempo',
+        signingGrantId: 'wallet-session-tempo',
       }),
       rpId: RP_ID,
     });
@@ -567,7 +567,7 @@ test.describe('EVM-family ECDSA identity', () => {
         authMethod: 'passkey',
         source: 'login',
         thresholdSessionId: record.thresholdSessionId,
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
       },
     });
     expect(resolution.kind).toBe('ready');
@@ -585,7 +585,7 @@ test.describe('EVM-family ECDSA identity', () => {
     });
 
     expect(signerSession.session.thresholdSessionId).toBe(record.thresholdSessionId);
-    expect(signerSession.session.walletSigningSessionId).toBe(record.walletSigningSessionId);
+    expect(signerSession.session.signingGrantId).toBe(record.signingGrantId);
     expect(signerSession.publicFacts.publicKeyB64u).toBe(VALID_PUBLIC_KEY_B64U);
     expect(signerSession.clientShare.kind).toBe('role_local_worker_share');
   });
@@ -613,7 +613,7 @@ test.describe('EVM-family ECDSA identity', () => {
         authMethod: 'email_otp',
         source: 'email_otp',
         thresholdSessionId: record.thresholdSessionId,
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
       },
     });
 
@@ -638,7 +638,7 @@ test.describe('EVM-family ECDSA identity', () => {
         authMethod: 'passkey',
         source: 'login',
         thresholdSessionId: record.thresholdSessionId,
-        walletSigningSessionId: record.walletSigningSessionId,
+        signingGrantId: record.signingGrantId,
       },
     });
     expect(resolution.kind).toBe('ready');
@@ -697,7 +697,7 @@ test.describe('EVM-family ECDSA identity', () => {
       kind: 'email_otp_worker_share_lane_identity',
       keyHandle: publicFacts.keyHandle,
       chainTarget: EVM_TARGET,
-      walletSigningSessionId: 'wallet-signing-session-1',
+      signingGrantId: 'signing-grant-1',
       thresholdSessionId: 'threshold-session-1',
     });
   });
@@ -812,7 +812,7 @@ test.describe('EVM-family ECDSA identity', () => {
         authMethod: 'passkey',
         source: 'login',
         thresholdSessionId: 'threshold-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
+        signingGrantId: 'signing-grant-1',
       },
       nowMs: 1_800_000_000_000,
     });
@@ -856,7 +856,7 @@ test.describe('EVM-family ECDSA identity', () => {
         authMethod: 'passkey',
         source: 'login',
         thresholdSessionId: 'threshold-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
+        signingGrantId: 'signing-grant-1',
       },
       nowMs: 1_800_000_000_000,
     });
@@ -877,7 +877,7 @@ test.describe('EVM-family ECDSA identity', () => {
         authMethod: 'passkey',
         source: 'login',
         thresholdSessionId: 'threshold-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
+        signingGrantId: 'signing-grant-1',
       },
       nowMs: 1_800_000_000_000,
     });
@@ -906,7 +906,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(readModel.lane.key).toBe(readModel.key);
     expect(readModel.lane.chainTarget).toEqual(EVM_TARGET);
     expect(readModel.lane.thresholdSessionId).toBe('threshold-session-1');
-    expect(readModel.lane.walletSigningSessionId).toBe('wallet-signing-session-1');
+    expect(readModel.lane.signingGrantId).toBe('signing-grant-1');
   });
 
   test('runtime ECDSA lane listing returns the canonical record read model', () => {
@@ -981,7 +981,7 @@ test.describe('EVM-family ECDSA identity', () => {
       makeRecord({
         chainTarget: EVM_TARGET,
         thresholdSessionId: 'threshold-session-clear-target',
-        walletSigningSessionId: 'wallet-session-clear-target-evm',
+        signingGrantId: 'wallet-session-clear-target-evm',
       }),
     );
     upsertStoredThresholdEcdsaSessionRecord(
@@ -989,7 +989,7 @@ test.describe('EVM-family ECDSA identity', () => {
       makeRecord({
         chainTarget: TEMPO_TARGET,
         thresholdSessionId: 'threshold-session-clear-target',
-        walletSigningSessionId: 'wallet-session-clear-target-tempo',
+        signingGrantId: 'wallet-session-clear-target-tempo',
       }),
     );
 
@@ -1024,7 +1024,7 @@ test.describe('EVM-family ECDSA identity', () => {
       makeEmailOtpRecord({
         keyHandle: sharedKeyHandle,
         thresholdSessionId: 'threshold-session-clear-shared-a',
-        walletSigningSessionId: 'wallet-session-clear-shared-a',
+        signingGrantId: 'wallet-session-clear-shared-a',
       }),
     );
     upsertStoredThresholdEcdsaSessionRecord(
@@ -1033,7 +1033,7 @@ test.describe('EVM-family ECDSA identity', () => {
         keyHandle: sharedKeyHandle,
         chainTarget: TEMPO_TARGET,
         thresholdSessionId: 'threshold-session-clear-shared-b',
-        walletSigningSessionId: 'wallet-session-clear-shared-b',
+        signingGrantId: 'wallet-session-clear-shared-b',
       }),
     );
     upsertStoredThresholdEcdsaSessionRecord(
@@ -1041,7 +1041,7 @@ test.describe('EVM-family ECDSA identity', () => {
       makeEmailOtpRecord({
         keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-clear-other'),
         thresholdSessionId: 'threshold-session-clear-other',
-        walletSigningSessionId: 'wallet-session-clear-other',
+        signingGrantId: 'wallet-session-clear-other',
       }),
     );
 
@@ -1109,7 +1109,7 @@ test.describe('EVM-family ECDSA identity', () => {
         signingRootId: 'project:client-shared-key',
         chainTarget: EVM_TARGET,
         thresholdSessionId: 'threshold-session-evm-shared',
-        walletSigningSessionId: 'wallet-session-evm-shared',
+        signingGrantId: 'wallet-session-evm-shared',
       }),
     );
 
@@ -1120,7 +1120,7 @@ test.describe('EVM-family ECDSA identity', () => {
           signingRootId: 'project:client-shared-key',
           chainTarget: TEMPO_TARGET,
           thresholdSessionId: 'threshold-session-tempo-shared',
-          walletSigningSessionId: 'wallet-session-tempo-shared',
+          signingGrantId: 'wallet-session-tempo-shared',
         }),
       ),
     ).not.toThrow();
@@ -1143,7 +1143,7 @@ test.describe('EVM-family ECDSA identity', () => {
         runtimePolicyScope,
         signingRootId: 'project-client-conflict:dev',
         thresholdSessionId: 'threshold-session-first-key',
-        walletSigningSessionId: 'wallet-session-first-key',
+        signingGrantId: 'wallet-session-first-key',
       }),
     );
 
@@ -1157,7 +1157,7 @@ test.describe('EVM-family ECDSA identity', () => {
           keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-conflicting'),
           ecdsaThresholdKeyId: 'ehss-conflicting-key',
           thresholdSessionId: 'threshold-session-second-key',
-          walletSigningSessionId: 'wallet-session-second-key',
+          signingGrantId: 'wallet-session-second-key',
         }),
       ),
     ).toThrow(/EVM-family ECDSA key identity/);
@@ -1181,7 +1181,7 @@ test.describe('EVM-family ECDSA identity', () => {
       keyHandle: record.keyHandle,
       walletId: WALLET_ID,
       authMethod: 'passkey',
-      walletSigningSessionId: 'wallet-signing-session-1',
+      signingGrantId: 'signing-grant-1',
       thresholdSessionId: 'threshold-session-1',
       chainTarget: EVM_TARGET,
     });

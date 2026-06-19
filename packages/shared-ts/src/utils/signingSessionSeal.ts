@@ -124,7 +124,7 @@ export type SealedSigningSessionRecord = {
   authMethod: SigningSessionSealAuthMethod;
   secretKind: typeof SIGNING_SESSION_SECRET_KIND;
   storeKey: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionIds: {
     ed25519?: string;
     ecdsa?: string;
@@ -152,7 +152,7 @@ export type EmailOtpSigningSessionSecretInfoInput = {
   userId: string;
   signingRootId: string;
   signingRootVersion?: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 };
 
 export type EmailOtpSigningSessionRestoreRootInfoInput = EmailOtpSigningSessionSecretInfoInput;
@@ -222,7 +222,7 @@ export function emailOtpSigningSessionSecretInfoFields(
     trimString(args.userId),
     trimString(args.signingRootId),
     trimString(args.signingRootVersion),
-    trimString(args.walletSigningSessionId),
+    trimString(args.signingGrantId),
     'email_otp',
   ];
 }
@@ -236,7 +236,7 @@ export function emailOtpSigningSessionRestoreRootInfoFields(
     trimString(args.userId),
     trimString(args.signingRootId),
     trimString(args.signingRootVersion),
-    trimString(args.walletSigningSessionId),
+    trimString(args.signingGrantId),
   ];
 }
 

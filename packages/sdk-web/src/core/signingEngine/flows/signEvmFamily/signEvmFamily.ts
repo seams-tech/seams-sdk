@@ -102,9 +102,9 @@ import {
   type PreparedEvmFamilyEcdsaSigningSession,
 } from './preparedSigning';
 import {
-  recordFailedEvmFamilyWalletSigningSessionSpend,
-  recordSuccessfulEvmFamilyWalletSigningSessionSpend,
-  reserveEvmFamilyWalletSigningSessionBudget,
+  recordFailedEvmFamilySigningGrantSpend,
+  recordSuccessfulEvmFamilySigningGrantSpend,
+  reserveEvmFamilySigningGrantBudget,
   type EvmFamilyTransactionSigningOperationContext,
 } from './budgetSpending';
 import {
@@ -358,10 +358,10 @@ async function signEvmFamilyAttempt(
         (material && material.kind === 'ready_to_sign'
           ? material.signingKeyContext.ecdsaThresholdKeyId
           : undefined),
-      walletSigningSessionId: prepared
-        ? String(prepared.signingLane.walletSigningSessionId)
+      signingGrantId: prepared
+        ? String(prepared.signingLane.signingGrantId)
         : material
-          ? material.identity.walletSigningSessionId
+          ? material.identity.signingGrantId
           : undefined,
       thresholdSessionId: prepared
         ? String(prepared.signingLane.thresholdSessionId)
@@ -554,7 +554,7 @@ async function signEvmFamilyAttempt(
     trustedStatusAuth?: SigningSessionBudgetStatusAuth,
   ): PreparedEvmFamilyEcdsaSigningSession => {
     if (
-      budgetIdentity.walletSigningSessionId !== String(prepared.signingLane.walletSigningSessionId)
+      budgetIdentity.signingGrantId !== String(prepared.signingLane.signingGrantId)
     ) {
       throw new Error('[SigningEngine][ecdsa] budget identity does not match prepared wallet lane');
     }
@@ -583,7 +583,7 @@ async function signEvmFamilyAttempt(
     diagnostics: Record<string, unknown>;
     signingSessionIdentity?: {
       thresholdSessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
     };
     forceRefreshBudgetIdentity?: boolean;
   }): PreparedEvmFamilyEcdsaSigningSession => {
@@ -601,9 +601,9 @@ async function signEvmFamilyAttempt(
       thresholdSessionId:
         argsForRefresh.signingSessionIdentity?.thresholdSessionId ||
         String(currentLane.thresholdSessionId),
-      walletSigningSessionId:
-        argsForRefresh.signingSessionIdentity?.walletSigningSessionId ||
-        String(currentLane.walletSigningSessionId),
+      signingGrantId:
+        argsForRefresh.signingSessionIdentity?.signingGrantId ||
+        String(currentLane.signingGrantId),
       context: argsForRefresh.context,
       diagnostics: argsForRefresh.diagnostics,
     });
@@ -670,8 +670,8 @@ async function signEvmFamilyAttempt(
     const preservedBudgetIdentity =
       !argsForRefresh.forceRefreshBudgetIdentity &&
       admittedBudgetIdentity &&
-      admittedBudgetIdentity.walletSigningSessionId ===
-        String(signingLane.walletSigningSessionId) &&
+      admittedBudgetIdentity.signingGrantId ===
+        String(signingLane.signingGrantId) &&
       String(prepared.transactionOperation.lane.thresholdSessionId) ===
         String(signingLane.thresholdSessionId)
         ? admittedBudgetIdentity
@@ -789,7 +789,7 @@ async function signEvmFamilyAttempt(
             chainTarget: requestChainTarget,
             state: 'ready',
             source: 'runtime_session_record',
-            walletSigningSessionId: String(preparedOperation.lane.walletSigningSessionId),
+            signingGrantId: String(preparedOperation.lane.signingGrantId),
             thresholdSessionId: String(preparedOperation.lane.thresholdSessionId),
             remainingUses: null,
             expiresAtMs: null,
@@ -825,8 +825,8 @@ async function signEvmFamilyAttempt(
     const admittedBudgetIdentity = getAdmittedEcdsaBudgetIdentity(prepared);
     if (
       admittedBudgetIdentity &&
-      admittedBudgetIdentity.walletSigningSessionId ===
-        String(prepared.signingLane.walletSigningSessionId) &&
+      admittedBudgetIdentity.signingGrantId ===
+        String(prepared.signingLane.signingGrantId) &&
       String(prepared.transactionOperation.lane.thresholdSessionId) ===
         String(prepared.signingLane.thresholdSessionId)
     ) {
@@ -1082,23 +1082,23 @@ async function signEvmFamilyAttempt(
       if (args.request.senderSignatureAlgorithm === 'secp256k1' && preparedEcdsaSigningSession) {
         const currentPrepared = preparedEcdsaSigningSession;
         const refreshedThresholdSessionId = String(record.thresholdSessionId || '').trim();
-        const refreshedWalletSigningSessionId = String(record.walletSigningSessionId || '').trim();
-        if (!refreshedThresholdSessionId || !refreshedWalletSigningSessionId) {
+        const refreshedSigningGrantId = String(record.signingGrantId || '').trim();
+        if (!refreshedThresholdSessionId || !refreshedSigningGrantId) {
           throw new Error(
             '[SigningEngine][ecdsa] record update requires explicit session identity',
           );
         }
         const replacedLaneIdentity =
           refreshedThresholdSessionId !== String(currentPrepared.signingLane.thresholdSessionId) ||
-          refreshedWalletSigningSessionId !==
-            String(currentPrepared.signingLane.walletSigningSessionId);
+          refreshedSigningGrantId !==
+            String(currentPrepared.signingLane.signingGrantId);
         let updatedPrepared: PreparedEvmFamilyEcdsaSigningSession;
         if (replacedLaneIdentity) {
           const refreshedLane = updateResolvedEvmFamilyEcdsaSigningLaneIdentity({
             lane: currentPrepared.signingLane,
             chain: requestChain,
             thresholdSessionId: refreshedThresholdSessionId,
-            walletSigningSessionId: refreshedWalletSigningSessionId,
+            signingGrantId: refreshedSigningGrantId,
             context: 'EVM-family signing record refresh',
             diagnostics: {
               ...ecdsaAttemptDiagnostics,
@@ -1126,9 +1126,9 @@ async function signEvmFamilyAttempt(
             },
             signingSessionIdentity: {
               thresholdSessionId: refreshedThresholdSessionId,
-              walletSigningSessionId: refreshedWalletSigningSessionId,
+              signingGrantId: refreshedSigningGrantId,
             },
-            forceRefreshBudgetIdentity: !walletSigningSessionBudgetReserved,
+            forceRefreshBudgetIdentity: !signingGrantBudgetReserved,
           });
         }
         const refreshedReadyToSignMaterial = requireReadyEcdsaMaterial(
@@ -1224,7 +1224,7 @@ async function signEvmFamilyAttempt(
     freshAuthRetryHandledFinalization = true;
     return result;
   };
-  const recordSuccessfulWalletSigningSessionSpend = async (
+  const recordSuccessfulSigningGrantSpend = async (
     expectedPrepared?: PreparedEvmFamilyEcdsaSigningSession,
   ): Promise<void> => {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return;
@@ -1239,17 +1239,17 @@ async function signEvmFamilyAttempt(
       chain: args.request.chain,
       chainTarget: requestChainTarget,
       lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
-      reserved: walletSigningSessionBudgetReserved,
+      reserved: signingGrantBudgetReserved,
       ...budgetDiagnostics,
     });
     try {
-      await recordSuccessfulEvmFamilyWalletSigningSessionSpend({
+      await recordSuccessfulEvmFamilySigningGrantSpend({
         signingSessionCoordinator,
         walletSession: args.walletSession,
         operation: createTransactionSigningOperation(),
         admittedTransaction: prepared.budget.operation,
         finalizedSigningLane: prepared.signingLane,
-        reserved: walletSigningSessionBudgetReserved,
+        reserved: signingGrantBudgetReserved,
         ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
       });
       emitSigningSessionFlowTrace('evm-family', {
@@ -1258,7 +1258,7 @@ async function signEvmFamilyAttempt(
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
-        reserved: walletSigningSessionBudgetReserved,
+        reserved: signingGrantBudgetReserved,
         ...budgetDiagnostics,
       });
     } catch (error: unknown) {
@@ -1268,15 +1268,15 @@ async function signEvmFamilyAttempt(
         chain: args.request.chain,
         chainTarget: requestChainTarget,
         lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
-        reserved: walletSigningSessionBudgetReserved,
+        reserved: signingGrantBudgetReserved,
         error: error instanceof Error ? error.message : String(error || 'unknown error'),
         ...budgetDiagnostics,
       });
       throw error;
     }
   };
-  let walletSigningSessionBudgetReserved = false;
-  const reserveWalletSigningSessionBudget = async (
+  let signingGrantBudgetReserved = false;
+  const reserveSigningGrantBudget = async (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
   ): Promise<SigningSessionBudgetReserveResult> => {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
@@ -1285,8 +1285,8 @@ async function signEvmFamilyAttempt(
       'wallet signing-session reservation',
     );
     if (
-      String(operation.lane.walletSigningSessionId) !==
-        String(prepared.transactionOperation.lane.walletSigningSessionId) ||
+      String(operation.lane.signingGrantId) !==
+        String(prepared.transactionOperation.lane.signingGrantId) ||
       String(operation.lane.thresholdSessionId) !==
         String(prepared.transactionOperation.lane.thresholdSessionId)
     ) {
@@ -1294,7 +1294,7 @@ async function signEvmFamilyAttempt(
         '[SigningEngine][ecdsa] budget reservation operation does not match prepared transaction lane',
       );
     }
-    const reservation = await reserveEvmFamilyWalletSigningSessionBudget({
+    const reservation = await reserveEvmFamilySigningGrantBudget({
       signingSessionCoordinator,
       walletSession: args.walletSession,
       operation: createTransactionSigningOperation(),
@@ -1302,10 +1302,10 @@ async function signEvmFamilyAttempt(
       finalizedSigningLane: prepared.signingLane,
       ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
     });
-    walletSigningSessionBudgetReserved = isSigningSessionBudgetReservation(reservation);
+    signingGrantBudgetReserved = isSigningSessionBudgetReservation(reservation);
     return reservation;
   };
-  const recordFailedWalletSigningSessionSpend = (
+  const recordFailedSigningGrantSpend = (
     error: unknown,
     expectedPrepared?: PreparedEvmFamilyEcdsaSigningSession,
   ): void => {
@@ -1323,7 +1323,7 @@ async function signEvmFamilyAttempt(
       error: error instanceof Error ? error.message : String(error || 'unknown error'),
       ...buildBudgetFailureDiagnostics(prepared),
     });
-    recordFailedEvmFamilyWalletSigningSessionSpend({
+    recordFailedEvmFamilySigningGrantSpend({
       signingSessionCoordinator,
       walletSession: args.walletSession,
       operation: createTransactionSigningOperation(),
@@ -1370,7 +1370,7 @@ async function signEvmFamilyAttempt(
       chain: requestChain,
       chainTarget: requestChainTarget,
       ...(nonceFingerprint ? { evmFamilyKeyFingerprint: nonceFingerprint } : {}),
-      walletSigningSessionId: String(preparedNonceSession.signingLane.walletSigningSessionId),
+      signingGrantId: String(preparedNonceSession.signingLane.signingGrantId),
       thresholdSessionId: String(preparedNonceSession.signingLane.thresholdSessionId),
     });
   }
@@ -1472,9 +1472,9 @@ async function signEvmFamilyAttempt(
     thresholdEcdsaState,
     onConfirmationDisplayed: markConfirmationDisplayed,
     thresholdEcdsaStepUp,
-    reserveWalletSigningSessionBudget,
-    recordSuccessfulWalletSigningSessionSpend,
-    recordFailedWalletSigningSessionSpend,
+    reserveSigningGrantBudget,
+    recordSuccessfulSigningGrantSpend,
+    recordFailedSigningGrantSpend,
     applySuccessfulEcdsaPostSignPolicy,
     deferSuccessfulSigningSessionFinalization: Boolean(preparedExecutorSession),
     deferFailedSigningSessionFinalization: Boolean(preparedExecutorSession),
@@ -1500,7 +1500,7 @@ async function signEvmFamilyAttempt(
     } catch (error: unknown) {
       const failedPreparedSession = preparedEcdsaSigningSession || preparedExecutorSession;
       assertPreparedEcdsaOperationLane(failedPreparedSession, 'failed prepared finalization');
-      recordFailedWalletSigningSessionSpend(error, failedPreparedSession);
+      recordFailedSigningGrantSpend(error, failedPreparedSession);
       throw error;
     }
     if (freshAuthRetryHandledFinalization) {
@@ -1518,7 +1518,7 @@ async function signEvmFamilyAttempt(
       },
       {
         recordSuccess: async () => {
-          await recordSuccessfulWalletSigningSessionSpend(finalPreparedSession);
+          await recordSuccessfulSigningGrantSpend(finalPreparedSession);
         },
         cleanup: async () => {
           await applySuccessfulEcdsaPostSignPolicy(finalPreparedSession);

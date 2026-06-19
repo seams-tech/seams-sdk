@@ -225,7 +225,7 @@ export async function storeWalletRegistrationEcdsaClientSigningMaterial(
 ): Promise<StoreWalletRegistrationEcdsaClientSigningMaterialOutput> {
   const signingMaterialHandle = buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: args.bootstrap.thresholdSessionId,
-    walletSigningSessionId: args.bootstrap.walletSigningSessionId,
+    signingGrantId: args.bootstrap.signingGrantId,
     keyHandle: args.bootstrap.keyHandle,
     routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(
       args.bootstrap.routerAbEcdsaHssNormalSigning,

@@ -47,7 +47,7 @@ export type WalletSessionBudgetCurve = 'ed25519' | 'ecdsa';
 
 export type WalletSigningBudgetReservation = {
   kind: 'wallet_signing_budget_reservation_v1';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: WalletSessionBudgetCurve;
   thresholdSessionId: string;
   operationId: string;
@@ -58,7 +58,7 @@ export type WalletSigningBudgetReservation = {
 };
 
 export type WalletSessionBudgetReserveUseCountInput = {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: WalletSessionBudgetCurve;
   thresholdSessionId: string;
   operationId: string;
@@ -68,14 +68,14 @@ export type WalletSessionBudgetReserveUseCountInput = {
 };
 
 export type WalletSessionBudgetCommitReservedUseCountInput = {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   reservationId: string;
   operationId: string;
   requestDigest: string;
 };
 
 export type WalletSessionBudgetReleaseReservedUseCountInput = {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   reservationId: string;
 };
 
@@ -289,7 +289,7 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   async reserveUseCountOnce(
     input: WalletSessionBudgetReserveUseCountInput,
   ): Promise<WalletSessionBudgetReservationResult> {
-    const key = this.key(input.walletSigningSessionId);
+    const key = this.key(input.signingGrantId);
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
@@ -327,7 +327,7 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
     }
     const reservation: WalletSigningBudgetReservation = {
       kind: 'wallet_signing_budget_reservation_v1',
-      walletSigningSessionId: parsed.value.walletSigningSessionId,
+      signingGrantId: parsed.value.signingGrantId,
       curve: parsed.value.curve,
       thresholdSessionId: parsed.value.thresholdSessionId,
       operationId: parsed.value.operationId,
@@ -351,7 +351,7 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   async commitReservedUseCountOnce(
     input: WalletSessionBudgetCommitReservedUseCountInput,
   ): Promise<WalletSessionConsumeUsesResult> {
-    const key = this.key(input.walletSigningSessionId);
+    const key = this.key(input.signingGrantId);
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
@@ -406,7 +406,7 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   async releaseReservedUseCount(
     input: WalletSessionBudgetReleaseReservedUseCountInput,
   ): Promise<WalletSessionBudgetReleaseResult> {
-    const key = this.key(input.walletSigningSessionId);
+    const key = this.key(input.signingGrantId);
     const entry = this.map.get(key);
     const nowMs = Date.now();
     if (!entry)
@@ -520,14 +520,14 @@ function parseBudgetReservationInput(
 ):
   | { ok: true; value: WalletSessionBudgetReserveUseCountInput }
   | { ok: false; code: string; message: string } {
-  const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+  const signingGrantId = normalizeBudgetField(input.signingGrantId);
   const thresholdSessionId = normalizeBudgetField(input.thresholdSessionId);
   const operationId = normalizeBudgetField(input.operationId);
   const requestDigest = normalizeBudgetField(input.requestDigest);
   const signatureUses = parseBudgetSignatureUses(input.signatureUses);
   const expiresAtMs = Math.min(Number(input.expiresAtMs), sessionExpiresAtMs);
   if (
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !thresholdSessionId ||
     !operationId ||
     !requestDigest ||
@@ -545,7 +545,7 @@ function parseBudgetReservationInput(
   return {
     ok: true,
     value: {
-      walletSigningSessionId,
+      signingGrantId,
       curve: input.curve,
       thresholdSessionId,
       operationId,
@@ -561,11 +561,11 @@ function parseBudgetCommitInput(
 ):
   | { ok: true; value: WalletSessionBudgetCommitReservedUseCountInput }
   | { ok: false; code: string; message: string } {
-  const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+  const signingGrantId = normalizeBudgetField(input.signingGrantId);
   const reservationId = normalizeBudgetField(input.reservationId);
   const operationId = normalizeBudgetField(input.operationId);
   const requestDigest = normalizeBudgetField(input.requestDigest);
-  if (!walletSigningSessionId || !reservationId || !operationId || !requestDigest) {
+  if (!signingGrantId || !reservationId || !operationId || !requestDigest) {
     return {
       ok: false,
       code: 'invalid_budget_request',
@@ -576,7 +576,7 @@ function parseBudgetCommitInput(
   return {
     ok: true,
     value: {
-      walletSigningSessionId,
+      signingGrantId,
       reservationId,
       operationId,
       requestDigest,
@@ -857,7 +857,7 @@ function parseWalletSigningBudgetReservation(
   record: Record<string, unknown> | null,
 ): WalletSigningBudgetReservation | null {
   if (!record || record.kind !== 'wallet_signing_budget_reservation_v1') return null;
-  const walletSigningSessionId = normalizeBudgetField(record.walletSigningSessionId);
+  const signingGrantId = normalizeBudgetField(record.signingGrantId);
   const curve = record.curve === 'ed25519' || record.curve === 'ecdsa' ? record.curve : null;
   const thresholdSessionId = normalizeBudgetField(record.thresholdSessionId);
   const operationId = normalizeBudgetField(record.operationId);
@@ -866,7 +866,7 @@ function parseWalletSigningBudgetReservation(
   const signatureUses = parseBudgetSignatureUses(record.signatureUses);
   const expiresAtMs = Number(record.expiresAtMs);
   if (
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !curve ||
     !thresholdSessionId ||
     !operationId ||
@@ -879,7 +879,7 @@ function parseWalletSigningBudgetReservation(
   }
   return {
     kind: 'wallet_signing_budget_reservation_v1',
-    walletSigningSessionId,
+    signingGrantId,
     curve,
     thresholdSessionId,
     operationId,
@@ -891,12 +891,12 @@ function parseWalletSigningBudgetReservation(
 }
 
 function parsePostgresBudgetReservation(
-  walletSigningSessionId: string,
+  signingGrantId: string,
   row: Record<string, unknown>,
 ): WalletSigningBudgetReservation | null {
   return parseWalletSigningBudgetReservation({
     kind: 'wallet_signing_budget_reservation_v1',
-    walletSigningSessionId,
+    signingGrantId,
     curve: row.curve,
     thresholdSessionId: row.threshold_session_id,
     operationId: row.operation_id,
@@ -1045,7 +1045,7 @@ end
 local ttl_seconds = math.max(1, math.ceil((expires_at_ms - now_ms) / 1000))
 local reservation = {
   kind = 'wallet_signing_budget_reservation_v1',
-  walletSigningSessionId = ARGV[1],
+  signingGrantId = ARGV[1],
   curve = ARGV[2],
   thresholdSessionId = ARGV[3],
   operationId = ARGV[4],
@@ -1294,17 +1294,17 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
       const raw = await this.client.eval(
         BUDGET_RESERVE_LUA,
         [
-          this.usesKey(parsed.value.walletSigningSessionId),
-          this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+          this.usesKey(parsed.value.signingGrantId),
+          this.budgetReservationIndexKey(parsed.value.signingGrantId),
           this.budgetOperationKey(
-            parsed.value.walletSigningSessionId,
+            parsed.value.signingGrantId,
             parsed.value.operationId,
             parsed.value.requestDigest,
           ),
-          this.budgetReservationKey(parsed.value.walletSigningSessionId, reservationId),
+          this.budgetReservationKey(parsed.value.signingGrantId, reservationId),
         ],
         [
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           parsed.value.curve,
           parsed.value.thresholdSessionId,
           parsed.value.operationId,
@@ -1331,13 +1331,13 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
       const raw = await this.client.eval(
         BUDGET_COMMIT_LUA,
         [
-          this.usesKey(parsed.value.walletSigningSessionId),
-          this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+          this.usesKey(parsed.value.signingGrantId),
+          this.budgetReservationIndexKey(parsed.value.signingGrantId),
           this.budgetReservationKey(
-            parsed.value.walletSigningSessionId,
+            parsed.value.signingGrantId,
             parsed.value.reservationId,
           ),
-          this.budgetCommitKey(parsed.value.walletSigningSessionId, parsed.value.reservationId),
+          this.budgetCommitKey(parsed.value.signingGrantId, parsed.value.reservationId),
         ],
         [parsed.value.operationId, parsed.value.requestDigest, String(Date.now()), '60'],
       );
@@ -1351,9 +1351,9 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
   async releaseReservedUseCount(
     input: WalletSessionBudgetReleaseReservedUseCountInput,
   ): Promise<WalletSessionBudgetReleaseResult> {
-    const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+    const signingGrantId = normalizeBudgetField(input.signingGrantId);
     const reservationId = normalizeBudgetField(input.reservationId);
-    if (!walletSigningSessionId || !reservationId) {
+    if (!signingGrantId || !reservationId) {
       return {
         ok: false,
         code: 'invalid_budget_request',
@@ -1364,9 +1364,9 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
       const raw = await this.client.eval(
         BUDGET_RELEASE_LUA,
         [
-          this.usesKey(walletSigningSessionId),
-          this.budgetReservationIndexKey(walletSigningSessionId),
-          this.budgetReservationKey(walletSigningSessionId, reservationId),
+          this.usesKey(signingGrantId),
+          this.budgetReservationIndexKey(signingGrantId),
+          this.budgetReservationKey(signingGrantId, reservationId),
         ],
         [String(Date.now())],
       );
@@ -1575,15 +1575,15 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         'EVAL',
         BUDGET_RESERVE_LUA,
         '4',
-        this.usesKey(parsed.value.walletSigningSessionId),
-        this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+        this.usesKey(parsed.value.signingGrantId),
+        this.budgetReservationIndexKey(parsed.value.signingGrantId),
         this.budgetOperationKey(
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           parsed.value.operationId,
           parsed.value.requestDigest,
         ),
-        this.budgetReservationKey(parsed.value.walletSigningSessionId, reservationId),
-        parsed.value.walletSigningSessionId,
+        this.budgetReservationKey(parsed.value.signingGrantId, reservationId),
+        parsed.value.signingGrantId,
         parsed.value.curve,
         parsed.value.thresholdSessionId,
         parsed.value.operationId,
@@ -1613,13 +1613,13 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         'EVAL',
         BUDGET_COMMIT_LUA,
         '4',
-        this.usesKey(parsed.value.walletSigningSessionId),
-        this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+        this.usesKey(parsed.value.signingGrantId),
+        this.budgetReservationIndexKey(parsed.value.signingGrantId),
         this.budgetReservationKey(
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           parsed.value.reservationId,
         ),
-        this.budgetCommitKey(parsed.value.walletSigningSessionId, parsed.value.reservationId),
+        this.budgetCommitKey(parsed.value.signingGrantId, parsed.value.reservationId),
         parsed.value.operationId,
         parsed.value.requestDigest,
         String(Date.now()),
@@ -1638,9 +1638,9 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   async releaseReservedUseCount(
     input: WalletSessionBudgetReleaseReservedUseCountInput,
   ): Promise<WalletSessionBudgetReleaseResult> {
-    const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+    const signingGrantId = normalizeBudgetField(input.signingGrantId);
     const reservationId = normalizeBudgetField(input.reservationId);
-    if (!walletSigningSessionId || !reservationId) {
+    if (!signingGrantId || !reservationId) {
       return {
         ok: false,
         code: 'invalid_budget_request',
@@ -1652,9 +1652,9 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         'EVAL',
         BUDGET_RELEASE_LUA,
         '3',
-        this.usesKey(walletSigningSessionId),
-        this.budgetReservationIndexKey(walletSigningSessionId),
-        this.budgetReservationKey(walletSigningSessionId, reservationId),
+        this.usesKey(signingGrantId),
+        this.budgetReservationIndexKey(signingGrantId),
+        this.budgetReservationKey(signingGrantId, reservationId),
         String(Date.now()),
       ]);
       if (resp.type === 'error') {
@@ -2044,7 +2044,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           WHERE namespace = $1 AND kind = $2 AND session_id = $3
           FOR UPDATE
         `,
-        [this.namespace, 'wallet_session', input.walletSigningSessionId],
+        [this.namespace, 'wallet_session', input.signingGrantId],
       );
       const session = rows[0];
       if (!session) {
@@ -2066,7 +2066,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         await client.query('ROLLBACK');
         return parsed;
       }
-      await this.cleanupExpiredBudgetReservations(client, parsed.value.walletSigningSessionId, nowMs);
+      await this.cleanupExpiredBudgetReservations(client, parsed.value.signingGrantId, nowMs);
       const existing = await client.query(
         `
           SELECT reservation_id, operation_id, request_digest, curve, threshold_session_id,
@@ -2077,21 +2077,21 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         `,
         [
           this.namespace,
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           parsed.value.operationId,
           parsed.value.requestDigest,
         ],
       );
       const existingRow = existing.rows[0];
       if (existingRow && existingRow.status === 'reserved') {
-        const reservation = parsePostgresBudgetReservation(parsed.value.walletSigningSessionId, existingRow);
+        const reservation = parsePostgresBudgetReservation(parsed.value.signingGrantId, existingRow);
         if (!reservation) {
           await client.query('ROLLBACK');
           return { ok: false, code: 'internal', message: 'Postgres returned invalid reservation' };
         }
         const reservedUses = await this.activeReservedUses(
           client,
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           nowMs,
         );
         await client.query('COMMIT');
@@ -2113,7 +2113,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       }
       const reservedUses = await this.activeReservedUses(
         client,
-        parsed.value.walletSigningSessionId,
+        parsed.value.signingGrantId,
         nowMs,
       );
       const availableUses = Math.max(0, committedRemainingUses - reservedUses);
@@ -2127,7 +2127,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       }
       const reservation: WalletSigningBudgetReservation = {
         kind: 'wallet_signing_budget_reservation_v1',
-        walletSigningSessionId: parsed.value.walletSigningSessionId,
+        signingGrantId: parsed.value.signingGrantId,
         curve: parsed.value.curve,
         thresholdSessionId: parsed.value.thresholdSessionId,
         operationId: parsed.value.operationId,
@@ -2145,7 +2145,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         `,
         [
           this.namespace,
-          reservation.walletSigningSessionId,
+          reservation.signingGrantId,
           reservation.reservationId,
           reservation.operationId,
           reservation.requestDigest,
@@ -2198,7 +2198,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           WHERE namespace = $1 AND kind = $2 AND session_id = $3
           FOR UPDATE
         `,
-        [this.namespace, 'wallet_session', parsed.value.walletSigningSessionId],
+        [this.namespace, 'wallet_session', parsed.value.signingGrantId],
       );
       const session = sessionRows.rows[0];
       if (!session) {
@@ -2223,7 +2223,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
           FOR UPDATE
         `,
-        [this.namespace, parsed.value.walletSigningSessionId, parsed.value.reservationId],
+        [this.namespace, parsed.value.signingGrantId, parsed.value.reservationId],
       );
       const reservation = reservationRows.rows[0];
       if (!reservation) {
@@ -2251,7 +2251,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
             DELETE FROM threshold_wallet_session_budget_reservations
             WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
           `,
-          [this.namespace, parsed.value.walletSigningSessionId, parsed.value.reservationId],
+          [this.namespace, parsed.value.signingGrantId, parsed.value.reservationId],
         );
         await client.query('ROLLBACK');
         return budgetReservationExpired();
@@ -2275,7 +2275,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         [
           this.namespace,
           'wallet_session',
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           nowMs,
           nextRemainingUses,
         ],
@@ -2288,7 +2288,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
         `,
         [
           this.namespace,
-          parsed.value.walletSigningSessionId,
+          parsed.value.signingGrantId,
           parsed.value.reservationId,
           'reserved',
           'committed',
@@ -2310,9 +2310,9 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   async releaseReservedUseCount(
     input: WalletSessionBudgetReleaseReservedUseCountInput,
   ): Promise<WalletSessionBudgetReleaseResult> {
-    const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+    const signingGrantId = normalizeBudgetField(input.signingGrantId);
     const reservationId = normalizeBudgetField(input.reservationId);
-    if (!walletSigningSessionId || !reservationId) {
+    if (!signingGrantId || !reservationId) {
       return {
         ok: false,
         code: 'invalid_budget_request',
@@ -2337,7 +2337,7 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           WHERE namespace = $1 AND kind = $2 AND session_id = $3
           FOR UPDATE
         `,
-        [this.namespace, 'wallet_session', walletSigningSessionId],
+        [this.namespace, 'wallet_session', signingGrantId],
       );
       const session = sessionRows.rows[0];
       if (!session) {
@@ -2355,9 +2355,9 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3 AND status = $4
           RETURNING 1
         `,
-        [this.namespace, walletSigningSessionId, reservationId, 'reserved'],
+        [this.namespace, signingGrantId, reservationId, 'reserved'],
       );
-      const reservedUses = await this.activeReservedUses(client, walletSigningSessionId, nowMs);
+      const reservedUses = await this.activeReservedUses(client, signingGrantId, nowMs);
       await client.query('COMMIT');
       return {
         ok: true,

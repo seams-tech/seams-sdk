@@ -17,12 +17,12 @@ const _freshProvisionWithSessionId: FreshWarmEd25519CapabilityProvisionArgs = {
   sessionId: 'threshold-ed25519-session',
 };
 
-const _freshProvisionWithWalletSigningSessionId: FreshWarmEd25519CapabilityProvisionArgs = {
+const _freshProvisionWithSigningGrantId: FreshWarmEd25519CapabilityProvisionArgs = {
   kind: 'fresh_ed25519_provisioning',
   nearAccountId: 'alice.testnet',
   relayerKeyId: 'rk-ed25519',
   // @ts-expect-error fresh Ed25519 provisioning cannot carry wallet signing-session identity
-  walletSigningSessionId: 'wallet-signing-session',
+  signingGrantId: 'signing-grant',
 };
 
 // @ts-expect-error exact Ed25519 provisioning requires sessionId
@@ -30,11 +30,11 @@ const _exactProvisionMissingSessionId: ExactWarmEd25519CapabilityProvisionArgs =
   kind: 'exact_ed25519_provisioning',
   nearAccountId: 'alice.testnet',
   relayerKeyId: 'rk-ed25519',
-  walletSigningSessionId: 'wallet-signing-session',
+  signingGrantId: 'signing-grant',
 };
 
-// @ts-expect-error exact Ed25519 provisioning requires walletSigningSessionId
-const _exactProvisionMissingWalletSigningSessionId: ExactWarmEd25519CapabilityProvisionArgs = {
+// @ts-expect-error exact Ed25519 provisioning requires signingGrantId
+const _exactProvisionMissingSigningGrantId: ExactWarmEd25519CapabilityProvisionArgs = {
   kind: 'exact_ed25519_provisioning',
   nearAccountId: 'alice.testnet',
   relayerKeyId: 'rk-ed25519',

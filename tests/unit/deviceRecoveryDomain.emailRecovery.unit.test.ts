@@ -317,7 +317,7 @@ test.describe('EmailRecoveryDomain', () => {
                 session: {
                   sessionKind: 'jwt',
                   sessionId: 'sync-session-1',
-                  walletSigningSessionId: 'wallet-signing-session-1',
+                  signingGrantId: 'signing-grant-1',
                   expiresAtMs: Date.now() + 60_000,
                   remainingUses: 5,
                   participantIds: [1, 2],
@@ -348,7 +348,7 @@ test.describe('EmailRecoveryDomain', () => {
                   relayerKeyId: 'ecdsa-relayer-key',
                   requestId: 'ABC123:ecdsa',
                   sessionId: 'tehss_ABC123',
-                  walletSigningSessionId: 'wss_ABC123',
+                  signingGrantId: 'wss_ABC123',
                   ttlMs: 60_000,
                   remainingUses: 1,
                   participantIds: [1, 2],
@@ -377,7 +377,7 @@ test.describe('EmailRecoveryDomain', () => {
               session: {
                 sessionKind: 'jwt',
                 sessionId: 'sync-session-1',
-                walletSigningSessionId: 'wallet-signing-session-1',
+                signingGrantId: 'signing-grant-1',
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 5,
                 participantIds: [1, 2],

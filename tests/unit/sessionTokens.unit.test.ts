@@ -18,7 +18,7 @@ test.describe('session JWT kind helpers', () => {
       kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       keyHandle: 'key-handle-1',
       ecdsaThresholdKeyId: 'ecdsa-key-1',
     });
@@ -61,7 +61,7 @@ test.describe('session JWT kind helpers', () => {
       kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
-      walletSigningSessionId: 'wallet-session-1',
+      signingGrantId: 'wallet-session-1',
       keyHandle: 'key-handle-1',
       ecdsaThresholdKeyId: 'ecdsa-key-1',
     });

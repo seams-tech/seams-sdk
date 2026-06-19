@@ -404,7 +404,7 @@ export function resolveEcdsaSealTransport(args: {
   if (!relayerUrl) return null;
   const keyVersion = String(args.keyVersion || '').trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
-  const walletSigningSessionId = args.record.walletSigningSessionId;
+  const signingGrantId = args.record.signingGrantId;
   const walletSessionJwt = String(args.auth?.walletSessionJwt || '').trim();
   const walletSessionJwtSource =
     args.auth?.walletSessionJwtSource === 'ecdsa_record' ? 'ecdsa' : 'none';
@@ -413,7 +413,7 @@ export function resolveEcdsaSealTransport(args: {
     walletId: String(args.record.walletId),
     chainTarget: args.record.chainTarget,
     relayerUrl,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    ...(signingGrantId ? { signingGrantId } : {}),
     ...(walletSessionJwt
       ? { walletSessionJwt: walletSessionJwt }
       : {}),

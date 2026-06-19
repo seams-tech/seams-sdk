@@ -328,7 +328,7 @@ export async function runNearDelegateActionSigning({
       const signingMaterial = await requireThresholdEd25519HssSigningMaterialHandle({
         ctx,
         thresholdSessionId: canonicalThresholdSessionId,
-        walletSigningSessionId: walletSessionState.walletSigningSessionId,
+        signingGrantId: walletSessionState.signingGrantId,
         existingMaterialHandle:
           walletSessionState.signingWalletSession.signingMaterial.materialHandle,
         existingMaterialBindingDigest:

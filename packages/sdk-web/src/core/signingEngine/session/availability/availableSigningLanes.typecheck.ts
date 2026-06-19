@@ -63,7 +63,7 @@ const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
   chainTarget,
   state: 'ready',
   source: 'runtime_session_record',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLane;
@@ -89,7 +89,7 @@ const passkeyLaneIdentity: EcdsaAvailableLaneIdentityInput = {
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLaneIdentity;
@@ -117,7 +117,7 @@ const passkeyLaneMissingResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   chainTarget,
   state: 'ready',
   source: 'runtime_session_record',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLaneMissingResolvedKey;
@@ -132,7 +132,7 @@ const passkeyLaneWithEmailOtpResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   chainTarget,
   state: 'ready',
   source: 'runtime_session_record',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLaneWithEmailOtpResolvedKey;
@@ -144,7 +144,7 @@ const passkeyLaneIdentityMissingResolvedKey: EcdsaAvailableLaneIdentityInput = {
   authMethod: 'passkey',
   curve: 'ecdsa',
   chainTarget,
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void passkeyLaneIdentityMissingResolvedKey;
@@ -159,7 +159,7 @@ const emailOtpLaneWithResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   chainTarget,
   state: 'ready',
   source: 'runtime_session_record',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void emailOtpLaneWithResolvedKey;
@@ -169,7 +169,7 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void ed25519Lane;
@@ -179,20 +179,20 @@ const readyEd25519LaneMissingAuthMethod: ConcreteAvailableEd25519SigningLane = {
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
 void readyEd25519LaneMissingAuthMethod;
 
 // @ts-expect-error ready Ed25519 lanes require a wallet signing session id.
-const readyEd25519LaneMissingWalletSigningSessionId: ConcreteAvailableEd25519SigningLane = {
+const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
   authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',
   thresholdSessionId: 'threshold-session-1',
 };
-void readyEd25519LaneMissingWalletSigningSessionId;
+void readyEd25519LaneMissingSigningGrantId;
 
 // @ts-expect-error ready Ed25519 lanes require a threshold session id.
 const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519SigningLane = {
@@ -200,7 +200,7 @@ const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519Signing
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
 };
 void readyEd25519LaneMissingThresholdSessionId;
 

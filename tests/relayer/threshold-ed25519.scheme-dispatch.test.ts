@@ -61,7 +61,7 @@ function legacyEd25519SessionClaims() {
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
     sessionId: 'legacy-threshold-session',
-    walletSigningSessionId: 'wallet-session-1',
+    signingGrantId: 'wallet-session-1',
     relayerKeyId: 'ed25519:relayer-key',
     rpId: 'wallet.example.test',
     thresholdExpiresAtMs: Date.now() + 60_000,

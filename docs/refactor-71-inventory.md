@@ -26,10 +26,10 @@ classification pass. A mechanical replacement is incorrect.
 Run these from the repo root before and after implementation:
 
 ```sh
-rtk rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
-rtk rg "ThresholdSessionId|thresholdSessionId|threshold_session_id|threshold-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
-rtk rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs wasm crates apps voiceId --glob '!**/target/**' --glob '!**/node_modules/**'
-rtk rg "signingGrantId|SigningGrantId|signing_grant_id|signing-grant" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
+rg "ThresholdSessionId|thresholdSessionId|threshold_session_id|threshold-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
+rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs wasm crates apps voiceId --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "signingGrantId|SigningGrantId|signing_grant_id|signing-grant" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
 ```
 
 Current baseline:
@@ -37,7 +37,15 @@ Current baseline:
 - Old grant name: 3,764 matches across 311 files.
 - Existing `thresholdSessionId` spelling: 5,103 matches across 348 files.
 - Plain `sessionId`: 291 files across code, tests, docs, Wasm, Rust, and apps.
-- Existing target `signingGrantId`: docs only.
+- Existing target `signingGrantId`: docs only before the grant-ID rename slice.
+
+Post-grant rename slice evidence:
+
+- `pnpm -C packages/shared-ts type-check`
+- `pnpm -C packages/sdk-server-ts type-check`
+- `pnpm -C packages/sdk-web type-check`
+- `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/domainIds.boundary.unit.test.ts ./unit/thresholdSessionClaims.unit.test.ts ./unit/signingBudgetStatus.parser.unit.test.ts ./unit/walletSessionBudgetReservation.store.unit.test.ts ./unit/routerAbEd25519BudgetRouteCore.unit.test.ts --reporter=line`
+- `rg "WalletSigningSessionId|parseWalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/shared-ts/src packages/sdk-server-ts/src packages/sdk-web/src tests -g '*.ts'`
 
 ## Boundary Decisions
 
@@ -839,8 +847,8 @@ After implementation, these should return no current-code hits outside the
 inventory, historical docs, or intentional boundary parsers:
 
 ```sh
-rtk rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
-rtk rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests --glob '!**/target/**' --glob '!**/node_modules/**'
 ```
 
 The second guard needs an allowlist because unrelated app/recovery/worker

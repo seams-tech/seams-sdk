@@ -62,7 +62,7 @@ import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresh
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
-  type WalletSigningSessionId,
+  type SigningGrantId,
 } from '../operationState/types';
 import {
   normalizeThresholdSessionKind,
@@ -100,7 +100,7 @@ type ThresholdEcdsaSessionRecordCore = {
   routerAbEcdsaHssNormalSigning?: RouterAbEcdsaHssNormalSigningStateV1;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   walletSessionJwt?: string;
   signingSessionSealKeyVersion?: string;
   signingSessionSealShamirPrimeB64u?: string;
@@ -166,7 +166,7 @@ export type ExactEcdsaLaneIdentity = {
   authMethod: 'email_otp' | 'passkey';
   chainTarget: ThresholdEcdsaChainTarget;
   key: EvmFamilyEcdsaKeyIdentity;
-  walletSigningSessionId: WalletSigningSessionId;
+  signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -200,7 +200,7 @@ export type ConsumeSingleUseEmailOtpEcdsaLaneCommand = {
   subjectId?: never;
   chainTarget?: never;
   thresholdSessionId?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
 };
 
 export type ConsumeSingleUseEmailOtpEcdsaLaneResult =
@@ -249,7 +249,7 @@ export type ThresholdEd25519SessionRecord = {
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   walletSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -270,7 +270,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       curve: 'ed25519';
       walletId?: string;
       relayerUrl: string;
-      walletSigningSessionId?: string;
+      signingGrantId?: string;
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
       keyVersion?: string;
@@ -281,7 +281,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       walletId?: string;
       chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
-      walletSigningSessionId?: string;
+      signingGrantId?: string;
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
       keyVersion?: string;
@@ -319,7 +319,7 @@ export type ThresholdEcdsaRuntimeRecordCandidate = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   remainingUses?: number;
   expiresAtMs?: number;
@@ -392,7 +392,7 @@ export function thresholdEcdsaSessionRecordReadModel(
     authMethod: thresholdEcdsaAuthMethodForRecord(record),
     source: record.source,
     thresholdSessionId: record.thresholdSessionId,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     walletSessionAuth: walletSessionAuthInputFromPersistedThresholdSession({
       thresholdSessionKind: record.thresholdSessionKind,
       walletSessionJwt: record.walletSessionJwt,
@@ -469,7 +469,7 @@ function thresholdEcdsaRecordMatchesLookupKey(args: {
     readModel.lane.authMethod === identity.authMethod &&
     identity.curve === 'ecdsa' &&
     thresholdEcdsaChainTargetsEqual(readModel.lane.chainTarget, identity.chainTarget) &&
-    String(readModel.lane.walletSigningSessionId) === String(identity.walletSigningSessionId) &&
+    String(readModel.lane.signingGrantId) === String(identity.signingGrantId) &&
     String(readModel.lane.thresholdSessionId) === String(identity.thresholdSessionId)
   );
 }
@@ -483,7 +483,7 @@ function thresholdEcdsaRuntimeRecordCandidateLaneKey(
     authMethod: candidate.authMethod,
     curve: 'ecdsa',
     chainTarget: candidate.chainTarget,
-    walletSigningSessionId: candidate.walletSigningSessionId,
+    signingGrantId: candidate.signingGrantId,
     thresholdSessionId: candidate.thresholdSessionId,
   });
 }
@@ -522,7 +522,7 @@ export function thresholdEcdsaLaneCandidateFromSessionRecord(args: {
     curve: 'ecdsa',
     chain: args.record.chainTarget.kind,
     chainTarget: args.record.chainTarget,
-    walletSigningSessionId: args.record.walletSigningSessionId,
+    signingGrantId: args.record.signingGrantId,
     thresholdSessionId: args.record.thresholdSessionId,
     state: laneCandidateStateFromRuntimePolicy({
       remainingUses: args.record.remainingUses,
@@ -1021,7 +1021,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const thresholdSessionKind = normalizeThresholdSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
+  const signingGrantId = normalizeOptionalNonEmptyString(obj.signingGrantId);
   const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
     obj.signingSessionSealKeyVersion,
@@ -1070,7 +1070,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     !clientVerifyingShareB64u ||
     !participantIds ||
     !thresholdSessionId ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !chainTarget ||
     !ethereumAddress
   ) {
@@ -1144,7 +1144,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ...(routerAbEcdsaHssNormalSigning ? { routerAbEcdsaHssNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
@@ -1297,7 +1297,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const thresholdSessionKind: 'jwt' | 'cookie' =
     thresholdSessionKindRaw === 'cookie' ? 'cookie' : 'jwt';
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
+  const signingGrantId = normalizeOptionalNonEmptyString(obj.signingGrantId);
   const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizeInteger(obj.remainingUses);
@@ -1347,7 +1347,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    ...(signingGrantId ? { signingGrantId } : {}),
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     expiresAtMs,
     remainingUses,
@@ -1517,7 +1517,7 @@ type ThresholdEd25519SessionAuthMethod = 'email_otp' | 'passkey';
 export type ThresholdEd25519SessionRecordKey = {
   nearAccountId: AccountId;
   authMethod: ThresholdEd25519SessionAuthMethod;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 
@@ -1531,17 +1531,17 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
   record: ThresholdEd25519SessionRecord;
   nowMs?: number;
 }): Ed25519LaneCandidate | null {
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(
-    args.record.walletSigningSessionId,
+  const signingGrantId = normalizeOptionalNonEmptyString(
+    args.record.signingGrantId,
   );
-  if (!walletSigningSessionId) return null;
+  if (!signingGrantId) return null;
   return {
     kind: 'lane_candidate',
     accountId: args.record.nearAccountId,
     authMethod: thresholdEd25519AuthMethodForRecord(args.record),
     curve: 'ed25519',
     chain: 'near',
-    walletSigningSessionId,
+    signingGrantId,
     thresholdSessionId: args.record.thresholdSessionId,
     state: laneCandidateStateFromRuntimePolicy({
       remainingUses: args.record.remainingUses,
@@ -1558,17 +1558,17 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
 export function serializeThresholdEd25519SessionLaneKey(args: {
   nearAccountId: AccountId | string;
   authMethod: ThresholdEd25519SessionAuthMethod;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 }): string {
   const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
   const authMethod = String(args.authMethod || '').trim();
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(args.walletSigningSessionId);
+  const signingGrantId = normalizeOptionalNonEmptyString(args.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(args.thresholdSessionId);
   if (
     !nearAccountId ||
     (authMethod !== 'email_otp' && authMethod !== 'passkey') ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !thresholdSessionId
   ) {
     throw new Error('[SigningEngine] invalid threshold Ed25519 lane key input');
@@ -1576,7 +1576,7 @@ export function serializeThresholdEd25519SessionLaneKey(args: {
   return [
     encodeLaneToken(nearAccountId),
     encodeLaneToken(authMethod),
-    encodeLaneToken(walletSigningSessionId),
+    encodeLaneToken(signingGrantId),
     encodeLaneToken(thresholdSessionId),
   ].join('|');
 }
@@ -1584,14 +1584,14 @@ export function serializeThresholdEd25519SessionLaneKey(args: {
 function getThresholdEd25519SessionLaneKeyForRecord(
   record: ThresholdEd25519SessionRecord,
 ): string | null {
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(record.walletSigningSessionId);
+  const signingGrantId = normalizeOptionalNonEmptyString(record.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionId);
-  if (!walletSigningSessionId || !thresholdSessionId) return null;
+  if (!signingGrantId || !thresholdSessionId) return null;
   try {
     return serializeThresholdEd25519SessionLaneKey({
       nearAccountId: record.nearAccountId,
       authMethod: thresholdEd25519AuthMethodForRecord(record),
-      walletSigningSessionId,
+      signingGrantId,
       thresholdSessionId,
     });
   } catch {
@@ -1606,7 +1606,7 @@ function thresholdEd25519RecordMatchesLane(
   return (
     String(record.nearAccountId) === String(lane.nearAccountId) &&
     thresholdEd25519AuthMethodForRecord(record) === lane.authMethod &&
-    String(record.walletSigningSessionId || '').trim() === lane.walletSigningSessionId &&
+    String(record.signingGrantId || '').trim() === lane.signingGrantId &&
     String(record.thresholdSessionId || '').trim() === lane.thresholdSessionId
   );
 }
@@ -1698,7 +1698,7 @@ function getThresholdEcdsaSessionLaneKeyForRecord(
     authMethod: thresholdEcdsaAuthMethodForRecord(record),
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
-    walletSigningSessionId: record.walletSigningSessionId,
+    signingGrantId: record.signingGrantId,
     thresholdSessionId: record.thresholdSessionId,
   }) as ThresholdEcdsaRuntimeLaneKey;
 }
@@ -1740,7 +1740,7 @@ export function toExactEcdsaLaneIdentity(
       authMethod: input.authMethod,
       chainTarget: input.chainTarget,
       key: input.key,
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
     };
   }
@@ -1753,7 +1753,7 @@ export function toExactEcdsaLaneIdentity(
       record: input,
       rpId: thresholdEcdsaRecordRpId(input),
     }),
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
+    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
   };
 }
@@ -1857,9 +1857,9 @@ function buildEcdsaRecordFromBootstrap(
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionId');
   }
   const thresholdSessionKind = normalizeThresholdSessionKind(keyRef.thresholdSessionKind || 'jwt');
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(
-    keyRef.walletSigningSessionId ||
-      (args.bootstrap.session as { walletSigningSessionId?: unknown }).walletSigningSessionId,
+  const signingGrantId = normalizeOptionalNonEmptyString(
+    keyRef.signingGrantId ||
+      (args.bootstrap.session as { signingGrantId?: unknown }).signingGrantId,
   );
   const walletSessionJwt = normalizeOptionalNonEmptyString(
     keyRef.walletSessionJwt || args.bootstrap.session.jwt,
@@ -1929,7 +1929,7 @@ function buildEcdsaRecordFromBootstrap(
     participantIds,
     thresholdSessionKind,
     thresholdSessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    ...(signingGrantId ? { signingGrantId } : {}),
     walletSessionJwt: walletSessionJwt,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(keyRef.routerAbEcdsaHssNormalSigning
@@ -2392,7 +2392,7 @@ function exactEcdsaLaneIdentityMismatchReason(args: {
     return 'chain_target_mismatch';
   }
   if (
-    String(args.actual.walletSigningSessionId) !== String(args.expected.walletSigningSessionId) ||
+    String(args.actual.signingGrantId) !== String(args.expected.signingGrantId) ||
     String(args.actual.thresholdSessionId) !== String(args.expected.thresholdSessionId)
   ) {
     return 'session_identity_mismatch';
@@ -2587,7 +2587,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   walletSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -2629,8 +2629,8 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
       .trim()
       .toLowerCase(),
     thresholdSessionId: String(args.thresholdSessionId || '').trim(),
-    ...(String(args.walletSigningSessionId || '').trim()
-      ? { walletSigningSessionId: String(args.walletSigningSessionId || '').trim() }
+    ...(String(args.signingGrantId || '').trim()
+      ? { signingGrantId: String(args.signingGrantId || '').trim() }
       : {}),
     ...(String(args.walletSessionJwt || '').trim()
       ? { walletSessionJwt: String(args.walletSessionJwt || '').trim() }
@@ -2685,8 +2685,8 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
       : {}),
     thresholdSessionKind: existing.thresholdSessionKind,
     thresholdSessionId: existing.thresholdSessionId,
-    ...(existing.walletSigningSessionId
-      ? { walletSigningSessionId: existing.walletSigningSessionId }
+    ...(existing.signingGrantId
+      ? { signingGrantId: existing.signingGrantId }
       : {}),
     walletSessionJwt: existing.walletSessionJwt,
     expiresAtMs: existing.expiresAtMs,
@@ -2737,8 +2737,8 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
       : {}),
     thresholdSessionKind: existing.thresholdSessionKind,
     thresholdSessionId: existing.thresholdSessionId,
-    ...(existing.walletSigningSessionId
-      ? { walletSigningSessionId: existing.walletSigningSessionId }
+    ...(existing.signingGrantId
+      ? { signingGrantId: existing.signingGrantId }
       : {}),
     walletSessionJwt: existing.walletSessionJwt,
     expiresAtMs: existing.expiresAtMs,
@@ -2838,7 +2838,7 @@ function ecdsaRuntimeLaneFromRecord(args: {
     curve: 'ecdsa',
     walletId: candidate.walletId,
     chainTarget: candidate.chainTarget,
-    walletSigningSessionId: candidate.walletSigningSessionId,
+    signingGrantId: candidate.signingGrantId,
     thresholdSessionId: candidate.thresholdSessionId,
     source: 'runtime_session_record',
     ...(candidate.remainingUses == null ? {} : { remainingUses: candidate.remainingUses }),
@@ -2894,7 +2894,7 @@ export function getThresholdEcdsaRuntimeRecordCandidateByKey(
 export function getStoredThresholdEd25519SessionRecordForLane(args: {
   nearAccountId: AccountId | string;
   authMethod: ThresholdEd25519SessionAuthMethod;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 }): ThresholdEd25519SessionRecord | null {
   let lane: ThresholdEd25519SessionRecordKey;
@@ -2903,7 +2903,7 @@ export function getStoredThresholdEd25519SessionRecordForLane(args: {
     lane = {
       nearAccountId: toAccountId(args.nearAccountId),
       authMethod: args.authMethod,
-      walletSigningSessionId: String(args.walletSigningSessionId || '').trim(),
+      signingGrantId: String(args.signingGrantId || '').trim(),
       thresholdSessionId: String(args.thresholdSessionId || '').trim(),
     };
     laneKey = serializeThresholdEd25519SessionLaneKey(lane);
@@ -2967,8 +2967,8 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
       : {}),
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
-    ...(record.walletSigningSessionId
-      ? { walletSigningSessionId: record.walletSigningSessionId }
+    ...(record.signingGrantId
+      ? { signingGrantId: record.signingGrantId }
       : {}),
     ...(record.walletSessionJwt
       ? { walletSessionJwt: record.walletSessionJwt }

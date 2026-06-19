@@ -47,7 +47,7 @@ export type ThresholdEcdsaTempoConnectedSession = {
   kind: 'connected';
   ok: true;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   jwt: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -388,13 +388,13 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
         localPrfCredential,
       });
-      const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
+      const signingGrantId = String(connectedEd25519?.signingGrantId || '').trim();
       const passkeyPrfFirstB64u = String(
         connectedEd25519?.ecdsaHssPasskeyPrfFirstB64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
           '',
       ).trim();
-      if (!connectedEd25519?.ok || !walletSigningSessionId || !passkeyPrfFirstB64u) {
+      if (!connectedEd25519?.ok || !signingGrantId || !passkeyPrfFirstB64u) {
         throw new Error(
           String(
             connectedEd25519?.message ||
@@ -448,7 +448,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
           : `threshold-ecdsa-browser-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const sessionIdentity = {
         thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
       };
       const routeAuth = null;
       const authMaterial = routeAuth
@@ -493,7 +493,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
                 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
                   chainTarget,
                   thresholdSessionId: sessionIdentity.thresholdSessionId,
-                  walletSigningSessionId: sessionIdentity.walletSigningSessionId,
+                  signingGrantId: sessionIdentity.signingGrantId,
                   thresholdSessionKind: 'jwt',
                   ttlMs: input.ttlMs,
                   remainingUses: input.remainingUses,
@@ -803,13 +803,13 @@ export async function runThresholdEcdsaTempoFlow(
         ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
         localPrfCredential,
       });
-      const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
+      const signingGrantId = String(connectedEd25519?.signingGrantId || '').trim();
       const passkeyPrfFirstB64u = String(
         connectedEd25519?.ecdsaHssPasskeyPrfFirstB64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
           '',
       ).trim();
-      if (!connectedEd25519?.ok || !walletSigningSessionId || !passkeyPrfFirstB64u) {
+      if (!connectedEd25519?.ok || !signingGrantId || !passkeyPrfFirstB64u) {
         return {
           ok: false,
           accountId,
@@ -821,14 +821,14 @@ export async function runThresholdEcdsaTempoFlow(
 
       const normalizeTempoFlowSession = (raw: any) => {
         const sessionId = String(raw?.sessionId || '').trim();
-        const walletSigningSessionId = String(raw?.walletSigningSessionId || '').trim();
+        const signingGrantId = String(raw?.signingGrantId || '').trim();
         const jwt = String(raw?.jwt || '').trim();
         const expiresAtMs = Number(raw?.expiresAtMs);
         const remainingUses = Number(raw?.remainingUses);
         if (
           raw?.ok === true &&
           sessionId &&
-          walletSigningSessionId &&
+          signingGrantId &&
           jwt &&
           Number.isFinite(expiresAtMs) &&
           Number.isFinite(remainingUses)
@@ -837,7 +837,7 @@ export async function runThresholdEcdsaTempoFlow(
             kind: 'connected' as const,
             ok: true as const,
             sessionId,
-            walletSigningSessionId,
+            signingGrantId,
             jwt,
             expiresAtMs: Math.floor(expiresAtMs),
             remainingUses: Math.max(0, Math.floor(remainingUses)),
@@ -917,7 +917,7 @@ export async function runThresholdEcdsaTempoFlow(
               : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? `threshold-ecdsa-browser-${crypto.randomUUID()}`
                 : `threshold-ecdsa-browser-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            walletSigningSessionId,
+            signingGrantId,
           };
           const ttlMs =
             typeof input.connectSessionTtlMs === 'number' ? input.connectSessionTtlMs : 120_000;
@@ -963,7 +963,7 @@ export async function runThresholdEcdsaTempoFlow(
                     const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
                       chainTarget: signingChainTarget,
                       thresholdSessionId: sessionIdentity.thresholdSessionId,
-                      walletSigningSessionId: sessionIdentity.walletSigningSessionId,
+                      signingGrantId: sessionIdentity.signingGrantId,
                       thresholdSessionKind: 'jwt',
                       ttlMs,
                       remainingUses,
@@ -1011,7 +1011,7 @@ export async function runThresholdEcdsaTempoFlow(
                     session: {
                       jwt: session.jwt,
                       thresholdSessionId: session.sessionId,
-                      walletSigningSessionId: session.walletSigningSessionId,
+                      signingGrantId: session.signingGrantId,
                     },
                   })
                 : {

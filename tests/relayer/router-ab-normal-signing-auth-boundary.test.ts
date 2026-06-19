@@ -35,7 +35,7 @@ type RouterAbBudgetConsumeCall = {
   curve: 'ed25519' | 'ecdsa-hss';
   phase: 'finalize';
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   requestId: string;
 };
 
@@ -95,7 +95,7 @@ const ROUTER_AB_ED25519_CLAIMS = {
   sub: 'alice.testnet',
   walletId: 'alice.testnet',
   sessionId: 'threshold-session-1',
-  walletSigningSessionId: 'wallet-signing-session-1',
+  signingGrantId: 'signing-grant-1',
   relayerKeyId: 'relayer-key-1',
   rpId: 'example.localhost',
   thresholdExpiresAtMs: ROUTER_AB_TEST_EXPIRES_AT_MS,
@@ -145,7 +145,7 @@ const ROUTER_AB_ECDSA_HSS_CLAIMS = {
   sub: 'alice.testnet',
   walletId: 'alice.testnet',
   sessionId: 'threshold-ecdsa-session-1',
-  walletSigningSessionId: 'wallet-signing-session-ecdsa-1',
+  signingGrantId: 'signing-grant-ecdsa-1',
   keyScope: 'evm-family',
   keyHandle: ECDSA_HSS_SCOPE.context.ecdsa_threshold_key_id,
   relayerKeyId: 'relayer-key-1',
@@ -170,7 +170,7 @@ function legacyThresholdClaims(kind: LegacyThresholdSessionKind): Record<string,
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
     sessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    signingGrantId: 'signing-grant-1',
     relayerKeyId: 'relayer-key-1',
     rpId: 'example.localhost',
     thresholdExpiresAtMs: ROUTER_AB_TEST_EXPIRES_AT_MS,
@@ -475,14 +475,14 @@ async function withBudgetedNormalSigningRouter<T>(
       curve: 'ed25519' | 'ecdsa-hss';
       phase: 'finalize';
       sessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       operationId: string;
     }) =>
       consumeRouterAbNormalSigningBudget({
         curve: input.curve,
         phase: input.phase,
         sessionId: input.sessionId,
-        walletSigningSessionId: input.walletSigningSessionId,
+        signingGrantId: input.signingGrantId,
         requestId: input.operationId,
       }),
     releaseRouterAbNormalSigningBudget: async () => ({
@@ -577,7 +577,7 @@ async function ecdsaFinalizeBudgetCase(input: {
   label: string;
   token: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   requestId: string;
   keyHandle: string;
   signingRootId: string;
@@ -617,7 +617,7 @@ async function ecdsaFinalizeBudgetCase(input: {
   const claims = {
     ...ROUTER_AB_ECDSA_HSS_CLAIMS,
     sessionId: input.sessionId,
-    walletSigningSessionId: input.walletSigningSessionId,
+    signingGrantId: input.signingGrantId,
     keyHandle: input.keyHandle,
     runtimePolicyScope: {
       ...ROUTER_AB_ECDSA_HSS_CLAIMS.runtimePolicyScope,
@@ -639,7 +639,7 @@ async function ecdsaFinalizeBudgetCase(input: {
       curve: 'ecdsa-hss',
       phase: 'finalize',
       sessionId: input.sessionId,
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       requestId: input.requestId,
     },
   };
@@ -668,7 +668,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
       curve: 'ed25519' as const,
       phase: 'finalize' as const,
       sessionId: ROUTER_AB_ED25519_CLAIMS.sessionId,
-      walletSigningSessionId: ROUTER_AB_ED25519_CLAIMS.walletSigningSessionId,
+      signingGrantId: ROUTER_AB_ED25519_CLAIMS.signingGrantId,
       requestId: `${ed25519RequestId}-operation`,
     },
   };
@@ -676,7 +676,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
     label: 'ECDSA EVM final signing',
     token: 'router-ab-budget-ecdsa-evm',
     sessionId: 'threshold-ecdsa-session-evm-budget',
-    walletSigningSessionId: 'wallet-signing-session-ecdsa-evm-budget',
+    signingGrantId: 'signing-grant-ecdsa-evm-budget',
     requestId: 'router-ab-ecdsa-evm-budget-finalize',
     keyHandle: 'ehss-key-budget-evm',
     signingRootId: 'evm-signing-root',
@@ -686,7 +686,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
     label: 'ECDSA Tempo final signing',
     token: 'router-ab-budget-ecdsa-tempo',
     sessionId: 'threshold-ecdsa-session-tempo-budget',
-    walletSigningSessionId: 'wallet-signing-session-ecdsa-tempo-budget',
+    signingGrantId: 'signing-grant-ecdsa-tempo-budget',
     requestId: 'router-ab-ecdsa-tempo-budget-finalize',
     keyHandle: 'ehss-key-budget-tempo',
     signingRootId: 'tempo-signing-root',
@@ -1090,7 +1090,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           input.curve,
           input.phase,
           input.sessionId,
-          input.walletSigningSessionId,
+          input.signingGrantId,
           input.requestId,
         ].join(':');
         if (!consumedKeys.has(key)) {

@@ -75,7 +75,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -110,7 +110,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -145,7 +145,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBody = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -184,7 +184,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   relayerVerifyingShareB64u: string;
   participantIds: number[];
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
@@ -313,7 +313,7 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'relayerVerifyingShareB64u',
   'participantIds',
   'sessionId',
-  'walletSigningSessionId',
+  'signingGrantId',
   'expiresAtMs',
   'expiresAt',
   'remainingUses',
@@ -385,9 +385,9 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
   );
   const participantIds = requireParticipantIds(record.participantIds);
   const sessionId = requireNonEmptyString(record.sessionId, 'sessionId');
-  const walletSigningSessionId = requireNonEmptyString(
-    record.walletSigningSessionId,
-    'walletSigningSessionId',
+  const signingGrantId = requireNonEmptyString(
+    record.signingGrantId,
+    'signingGrantId',
   );
   const expiresAtMs = requireNumber(record.expiresAtMs, 'expiresAtMs');
   const jwt = String(record.jwt || '').trim();
@@ -403,7 +403,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
         signingRootId,
         signingRootVersion,
         thresholdSessionId: sessionId,
-        walletSigningSessionId,
+        signingGrantId,
         expiresAtMs,
         participantIds,
         contextBinding32B64u,
@@ -443,7 +443,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
     ),
     participantIds,
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
     remainingUses: requireNumber(record.remainingUses, 'remainingUses'),
@@ -545,9 +545,9 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       ),
       requestId: requireNonEmptyString(args.requestId, 'requestId'),
       sessionId: requireNonEmptyString(args.sessionId, 'sessionId'),
-      walletSigningSessionId: requireNonEmptyString(
-        args.walletSigningSessionId,
-        'walletSigningSessionId',
+      signingGrantId: requireNonEmptyString(
+        args.signingGrantId,
+        'signingGrantId',
       ),
       ttlMs: requireNonNegativeInteger(args.ttlMs, 'ttlMs'),
       remainingUses: requireNonNegativeInteger(args.remainingUses, 'remainingUses'),

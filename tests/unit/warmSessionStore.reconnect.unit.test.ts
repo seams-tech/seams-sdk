@@ -179,8 +179,8 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           expect(args).toMatchObject({
             kind: 'claim_no_prompt_ecdsa_prf_first',
             walletId,
-            walletSigningSessionId:
-              restoredBootstrap.thresholdEcdsaKeyRef.walletSigningSessionId,
+            signingGrantId:
+              restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
             thresholdSessionId: 'no-prompt-reconnect-restored-session',
             chainTarget,
             uses: 1,
@@ -200,8 +200,8 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             lanePolicy: {
               chainTarget,
               thresholdSessionId: 'no-prompt-reconnect-restored-session',
-              walletSigningSessionId:
-                restoredBootstrap.thresholdEcdsaKeyRef.walletSigningSessionId,
+              signingGrantId:
+                restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
             },
             routeAuth: {
               kind: 'wallet_session',
@@ -323,7 +323,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       usesNeeded: 2,
       sessionBudgetUses: 2,
       thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: record.walletSigningSessionId,
+      signingGrantId: record.signingGrantId,
     });
 
     expect(provisionCalls).toBe(0);
@@ -407,7 +407,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       usesNeeded: 1,
       sessionBudgetUses: 1,
       thresholdSessionId: staleRecord.thresholdSessionId,
-      walletSigningSessionId: staleRecord.walletSigningSessionId,
+      signingGrantId: staleRecord.signingGrantId,
       passkeyPrfFirstB64u: 'reconnect-passkey-prf-first',
     });
 
@@ -471,7 +471,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-restored-source',
           sessionId: request.lanePolicy.thresholdSessionId,
-          walletSigningSessionId: request.lanePolicy.walletSigningSessionId,
+          signingGrantId: request.lanePolicy.signingGrantId,
           walletSessionJwt: 'jwt:restored-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -493,7 +493,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chainTarget: testEcdsaChainTarget('evm'),
       sessionIdentity: buildEcdsaSessionIdentity({
         thresholdSessionId: restoredRecord.thresholdSessionId,
-        walletSigningSessionId: restoredRecord.walletSigningSessionId,
+        signingGrantId: restoredRecord.signingGrantId,
       }),
       sessionBudgetUses: 1,
       reconnectMaterial: buildEcdsaReconnectMaterial({
@@ -515,7 +515,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     expect(capturedRequest).toBe(null);
     expect(ready.record).toMatchObject({
       thresholdSessionId: restoredRecord.thresholdSessionId,
-      walletSigningSessionId: restoredRecord.walletSigningSessionId,
+      signingGrantId: restoredRecord.signingGrantId,
     });
   });
 });

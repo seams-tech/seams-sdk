@@ -48,7 +48,7 @@ export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
   const lane = resolveEmailOtpAuthLane({
     routeAuth: { kind: 'wallet_session', jwt },
     thresholdSessionId,
-    authorizingWalletSigningSessionId: record.walletSigningSessionId,
+    authorizingSigningGrantId: record.signingGrantId,
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
   });

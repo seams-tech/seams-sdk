@@ -17,10 +17,10 @@ import type {
 
 export function selectEmailOtpEcdsaRecordForEd25519Signing(args: {
   walletId: WalletId;
-  walletSigningSessionFilter?: string | null;
+  signingGrantFilter?: string | null;
   listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
 }): ThresholdEcdsaSessionRecord | null {
-  const walletSigningSessionFilter = String(args.walletSigningSessionFilter || '').trim();
+  const signingGrantFilter = String(args.signingGrantFilter || '').trim();
   const records = (
     args.listThresholdEcdsaSessionRecordsForWallet?.(args.walletId) ??
     listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId)
@@ -33,8 +33,8 @@ export function selectEmailOtpEcdsaRecordForEd25519Signing(args: {
   );
   if (!records.length) return null;
 
-  const walletScopedRecords = walletSigningSessionFilter
-    ? records.filter((record) => record.walletSigningSessionId === walletSigningSessionFilter)
+  const walletScopedRecords = signingGrantFilter
+    ? records.filter((record) => record.signingGrantId === signingGrantFilter)
     : [];
   const candidates = walletScopedRecords.length ? walletScopedRecords : records;
 
@@ -113,7 +113,7 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
     !ed25519Record ||
     ed25519Record.source !== 'email_otp' ||
     ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
-    ed25519Record.walletSigningSessionId !== candidate.existingRecord.walletSigningSessionId
+    ed25519Record.signingGrantId !== candidate.existingRecord.signingGrantId
   ) {
     return;
   }

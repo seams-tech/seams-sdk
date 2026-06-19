@@ -18,7 +18,7 @@ import {
 } from './exactSigningLaneIdentity';
 
 const accountId = 'alice.testnet' as AccountId;
-const walletSigningSessionId = SigningSessionIds.walletSigningSession('wallet-session-1');
+const signingGrantId = SigningSessionIds.signingGrant('wallet-session-1');
 const ed25519ThresholdSessionId = SigningSessionIds.thresholdEd25519Session(
   'ed25519-threshold-session-1',
 );
@@ -47,7 +47,7 @@ const ed25519Identity = exactEd25519SigningLaneIdentity({
   chain: 'near',
   accountId,
   authMethod: 'passkey',
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId: ed25519ThresholdSessionId,
 });
 exactSigningLaneIdentityKey(ed25519Identity);
@@ -66,7 +66,7 @@ const ecdsaIdentity = exactEcdsaSigningLaneIdentity({
   chainTarget: evmTarget,
   key: ecdsaKey,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
 });
 const thresholdSessionIds: NonEmptyThresholdSessionIds =
@@ -103,7 +103,7 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
   authMethod: 'passkey',
   chainTarget: evmTarget,
   key: ecdsaKey,
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
   accountId,
 };
@@ -117,7 +117,7 @@ const invalidEcdsaWithoutKey: ExactEcdsaSigningLaneIdentity = {
   walletId: accountId,
   authMethod: 'passkey',
   chainTarget: evmTarget,
-  walletSigningSessionId,
+  signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
 };
 void invalidEcdsaWithoutKey;

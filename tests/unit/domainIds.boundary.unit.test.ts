@@ -10,7 +10,7 @@ import {
   parseThresholdEd25519SessionId,
   parseThresholdSessionId,
   parseWalletId,
-  parseWalletSigningSessionId,
+  parseSigningGrantId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -23,7 +23,7 @@ const parsers = [
   { name: 'emailOtpRegistrationAttemptId', parse: parseEmailOtpRegistrationAttemptId },
   { name: 'orgId', parse: parseOrgId },
   { name: 'appSessionVersion', parse: parseAppSessionVersion },
-  { name: 'walletSigningSessionId', parse: parseWalletSigningSessionId },
+  { name: 'signingGrantId', parse: parseSigningGrantId },
   { name: 'thresholdEd25519SessionId', parse: parseThresholdEd25519SessionId },
   { name: 'thresholdEcdsaSessionId', parse: parseThresholdEcdsaSessionId },
   { name: 'thresholdSessionId', parse: parseThresholdSessionId },

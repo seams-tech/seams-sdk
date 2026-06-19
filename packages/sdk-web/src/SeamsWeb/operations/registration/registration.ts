@@ -1638,7 +1638,7 @@ function assertStrictRegistrationEcdsaSigningRecord(args: {
       authMethod: args.authMethod,
       source,
       thresholdSessionId: parsed.value.thresholdSessionId,
-      walletSigningSessionId: parsed.value.walletSigningSessionId,
+      signingGrantId: parsed.value.signingGrantId,
     },
   });
   if (material.kind !== 'ready') {

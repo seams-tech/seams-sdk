@@ -13,7 +13,7 @@ const laneIdentity = exactSigningLaneIdentity(
   buildNearTransactionSigningLane({
     accountId: walletId,
     authMethod: 'email_otp',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session'),
+    signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session'),
   }),
 );

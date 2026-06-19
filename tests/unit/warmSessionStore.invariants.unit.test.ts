@@ -55,7 +55,7 @@ function createEcdsaIdentityArgs(args: {
   walletId: string;
   subjectId: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   chain: 'evm' | 'tempo';
   source: 'login' | 'email_otp';
 }) {
@@ -73,7 +73,7 @@ function createEcdsaIdentityArgs(args: {
     keyHandle: `ek-${args.chain}-handle`,
     thresholdSessionKind: 'cookie',
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     relayerUrl: 'https://relay.example',
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: 'AQ',
@@ -98,7 +98,7 @@ function createEcdsaIdentityArgs(args: {
     keyHandle: record.keyHandle,
     walletId: args.walletId as any,
     authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     chainTarget,
   });
@@ -166,7 +166,7 @@ test.describe('WarmSessionStore invariants', () => {
       walletId: 'invariants.testnet',
       subjectId: 'wallet-invariants',
       thresholdSessionId: 'record-session',
-      walletSigningSessionId: 'wallet-session-record',
+      signingGrantId: 'wallet-session-record',
       chain: 'evm',
       source: 'login',
     });
@@ -207,7 +207,7 @@ test.describe('WarmSessionStore invariants', () => {
       walletId: 'invariants.testnet',
       subjectId: 'wallet-invariants',
       thresholdSessionId: 'tempo-bad-claim',
-      walletSigningSessionId: 'wallet-session-tempo',
+      signingGrantId: 'wallet-session-tempo',
       chain: 'tempo',
       source: 'login',
     });

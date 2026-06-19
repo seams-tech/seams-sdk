@@ -326,7 +326,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
       relayerKeyId: request.relayerKeyId,
       requestId: request.requestId,
       sessionId: request.sessionId,
-      walletSigningSessionId: request.walletSigningSessionId,
+      signingGrantId: request.signingGrantId,
       ttlMs: request.ttlMs,
       remainingUses: request.remainingUses,
       participantIds: request.participantIds,
@@ -721,7 +721,7 @@ export function registerThresholdEcdsaRoutes(
           sessionInfo: {
             sessionKind: 'jwt',
             sessionId: bootstrap.value.sessionId,
-            walletSigningSessionId: bootstrap.value.walletSigningSessionId,
+            signingGrantId: bootstrap.value.signingGrantId,
             expiresAtMs: bootstrap.value.expiresAtMs,
             participantIds: bootstrap.value.participantIds,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

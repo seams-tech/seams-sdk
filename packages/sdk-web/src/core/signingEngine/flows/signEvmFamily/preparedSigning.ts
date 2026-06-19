@@ -192,7 +192,7 @@ function summarizeEcdsaAvailableLane(
     ...(lane.source === 'evm_family_shared_key'
       ? { sourceChainTarget: lane.sourceChainTarget }
       : {}),
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
     expiresAtMs: lane.expiresAtMs,
@@ -247,7 +247,7 @@ function summarizeEcdsaLaneCandidate(
       : {}),
     state: candidate.state,
     source: candidate.source,
-    walletSigningSessionId: candidate.walletSigningSessionId,
+    signingGrantId: candidate.signingGrantId,
     thresholdSessionId: candidate.thresholdSessionId,
     remainingUses: candidate.remainingUses,
     expiresAtMs: candidate.expiresAtMs,
@@ -270,7 +270,7 @@ function assertSelectionMatchesLaneCandidate(args: {
       '[SigningEngine][ecdsa] prepared restore threshold session did not match selected lane',
     );
   }
-  if (candidate.walletSigningSessionId !== String(args.selection.lane.walletSigningSessionId)) {
+  if (candidate.signingGrantId !== String(args.selection.lane.signingGrantId)) {
     throw new Error(
       '[SigningEngine][ecdsa] prepared restore wallet signing session did not match selected lane',
     );
@@ -644,7 +644,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
                   payload: {
                     walletId,
                     chainTarget,
-                    walletSigningSessionId: laneCandidate.walletSigningSessionId,
+                    signingGrantId: laneCandidate.signingGrantId,
                     thresholdSessionId: laneCandidate.thresholdSessionId,
                   },
                 })),
@@ -706,7 +706,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               authMethod,
               curve: 'ecdsa',
               chainTarget: restoreChainTarget,
-              walletSigningSessionId: laneCandidate.walletSigningSessionId,
+              signingGrantId: laneCandidate.signingGrantId,
               thresholdSessionId: laneCandidate.thresholdSessionId,
               reason: 'transaction',
             });

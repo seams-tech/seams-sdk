@@ -40,7 +40,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             chainId: 42431,
             networkSlug: 'tempo-42431',
           };
-          const walletSigningSessionId = `wallet-${args.thresholdSessionId}`;
+          const signingGrantId = `wallet-${args.thresholdSessionId}`;
           const ecdsaThresholdKeyId = `ek-${args.walletId}`;
           const keyHandle = `key-handle-${args.thresholdSessionId}`;
           const ecdsaRoleLocalReadyRecord = ecdsaRoleLocalMod.buildEcdsaRoleLocalReadyRecord({
@@ -88,7 +88,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             participantIds: [1, 2],
             thresholdSessionKind: args.thresholdSessionKind,
             thresholdSessionId: args.thresholdSessionId,
-            walletSigningSessionId,
+            signingGrantId,
             ...(args.walletSessionJwt
               ? { walletSessionJwt: args.walletSessionJwt }
               : {}),
@@ -112,7 +112,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'sess-ed25519',
-          walletSigningSessionId: 'wallet-sess-ed25519',
+          signingGrantId: 'wallet-sess-ed25519',
           walletSessionJwt: 'jwt-ed25519-fallback',
           expiresAtMs: now + 120_000,
           remainingUses: 7,

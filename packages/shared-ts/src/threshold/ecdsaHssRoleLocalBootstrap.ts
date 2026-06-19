@@ -40,7 +40,7 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
   contextBinding32B64u: string;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -103,7 +103,7 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
       contextBinding32B64u: input.contextBinding32B64u,
       requestId: input.requestId,
       sessionId: input.sessionId,
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       ttlMs: input.ttlMs,
       remainingUses: input.remainingUses,
       participantIds: input.participantIds,
@@ -132,7 +132,7 @@ export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
       relayerKeyId: input.relayerKeyId,
       requestId: input.requestId,
       sessionId: input.sessionId,
-      walletSigningSessionId: input.walletSigningSessionId,
+      signingGrantId: input.signingGrantId,
       ttlMs: input.ttlMs,
       remainingUses: input.remainingUses,
       participantIds: input.participantIds,

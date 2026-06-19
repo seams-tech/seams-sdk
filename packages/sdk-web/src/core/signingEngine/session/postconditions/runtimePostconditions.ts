@@ -27,7 +27,7 @@ export type ReadyRuntimeLane =
       state: 'ready';
       authMethod: RuntimePostconditionAuthMethod;
       target: { curve: 'ed25519'; chainTarget?: never };
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
@@ -37,7 +37,7 @@ export type ReadyRuntimeLane =
       state: 'ready';
       authMethod: RuntimePostconditionAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      walletSigningSessionId: string;
+      signingGrantId: string;
       thresholdSessionId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;
@@ -133,7 +133,7 @@ function readReadyEd25519Lane(args: {
   if (lane.state !== 'ready') return 'ed25519_lane_missing';
   const remainingSignatureUses = positiveInteger(lane.remainingUses);
   const expiresAtMs = futureEpochMs(lane.expiresAtMs, args.nowMs);
-  if (!lane.walletSigningSessionId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
+  if (!lane.signingGrantId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
   const material = ed25519MaterialForLane(lane);
@@ -142,7 +142,7 @@ function readReadyEd25519Lane(args: {
     state: 'ready',
     authMethod: args.authMethod,
     target: { curve: 'ed25519' },
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingSignatureUses,
     expiresAtMs,
@@ -163,7 +163,7 @@ function readEcdsaUseCaseReadyLane(args: {
   if (lane.state !== 'ready') return 'ecdsa_lane_missing';
   const remainingSignatureUses = positiveInteger(lane.remainingUses);
   const expiresAtMs = futureEpochMs(lane.expiresAtMs, args.nowMs);
-  if (!lane.walletSigningSessionId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
+  if (!lane.signingGrantId || !lane.thresholdSessionId || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
   const material = ecdsaMaterialForLane(lane);
@@ -172,7 +172,7 @@ function readEcdsaUseCaseReadyLane(args: {
     state: 'ready',
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
-    walletSigningSessionId: lane.walletSigningSessionId,
+    signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingSignatureUses,
     expiresAtMs,

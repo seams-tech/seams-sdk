@@ -405,7 +405,7 @@ export type WalletRegistrationFinalizeResponse = {
     session?: {
       sessionKind: 'jwt' | 'cookie';
       sessionId: string;
-      walletSigningSessionId: string;
+      signingGrantId: string;
       expiresAtMs: number;
       expiresAt?: string;
       participantIds?: number[];
@@ -608,7 +608,7 @@ export type WalletRegistrationEcdsaPrepareContext = {
   registrationPreparationId?: RegistrationPreparationId;
   requestId: string;
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -671,7 +671,7 @@ export type WalletRegistrationEcdsaHssRespondBootstrap = {
   relayerVerifyingShareB64u: string;
   participantIds: number[];
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
   walletSessionJwt: string;
@@ -743,7 +743,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
       signingRootId: String(serverBootstrap.signingRootId || '').trim(),
       signingRootVersion: String(serverBootstrap.signingRootVersion || '').trim(),
       thresholdSessionId: String(serverBootstrap.sessionId || '').trim(),
-      walletSigningSessionId: String(serverBootstrap.walletSigningSessionId || '').trim(),
+      signingGrantId: String(serverBootstrap.signingGrantId || '').trim(),
       expiresAtMs: Number(serverBootstrap.expiresAtMs),
       participantIds: serverBootstrap.participantIds.map((participantId) =>
         Math.floor(Number(participantId)),
@@ -776,7 +776,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   const relayerKeyId = String(serverBootstrap.relayerKeyId || '').trim();
   const relayerVerifyingShareB64u = String(serverBootstrap.relayerVerifyingShareB64u || '').trim();
   const thresholdSessionId = String(serverBootstrap.sessionId || '').trim();
-  const walletSigningSessionId = String(serverBootstrap.walletSigningSessionId || '').trim();
+  const signingGrantId = String(serverBootstrap.signingGrantId || '').trim();
   const remainingUses = Math.max(0, Math.floor(Number(serverBootstrap.remainingUses)));
   const expiresAtMs = Math.max(0, Math.floor(Number(serverBootstrap.expiresAtMs)));
   const participantIds = serverBootstrap.participantIds.map((participantId) =>
@@ -794,7 +794,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     !relayerKeyId ||
     !relayerVerifyingShareB64u ||
     !thresholdSessionId ||
-    !walletSigningSessionId ||
+    !signingGrantId ||
     !walletSessionJwt ||
     !participantIds.length ||
     participantIds.some(
@@ -820,7 +820,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
     relayerVerifyingShareB64u,
     participantIds,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     remainingUses,
     walletSessionJwt,
@@ -911,7 +911,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   const walletSessionJwt = serverBootstrap.walletSessionJwt;
   const routerAbEcdsaHssNormalSigning = serverBootstrap.routerAbEcdsaHssNormalSigning;
   const thresholdSessionId = serverBootstrap.thresholdSessionId;
-  const walletSigningSessionId = serverBootstrap.walletSigningSessionId;
+  const signingGrantId = serverBootstrap.signingGrantId;
   const remainingUses = serverBootstrap.remainingUses;
   const expiresAtMs = serverBootstrap.expiresAtMs;
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
@@ -975,7 +975,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     thresholdSessionKind: 'jwt',
     walletSessionJwt,
     thresholdSessionId,
-    walletSigningSessionId,
+    signingGrantId,
   };
   return {
     thresholdEcdsaKeyRef: keyRef,
@@ -999,7 +999,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     session: {
       ok: true,
       sessionId: thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       expiresAtMs,
       remainingUses,
       jwt: walletSessionJwt,

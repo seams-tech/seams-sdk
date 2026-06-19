@@ -42,7 +42,7 @@ export async function connectEd25519Session(args: {
   };
   sessionKind?: 'jwt';
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
   auth?: Ed25519WalletSessionMintAuthorization;
@@ -50,7 +50,7 @@ export async function connectEd25519Session(args: {
 }): Promise<{
   ok: boolean;
   sessionId?: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -78,7 +78,7 @@ export async function connectEd25519Session(args: {
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     participantIds: args.participantIds,
     sessionId: args.sessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
   });
@@ -128,8 +128,8 @@ export async function connectEd25519Session(args: {
   const requestedSessionId = String(policy.sessionId || '').trim();
   const resolvedSessionId =
     String(minted.sessionId || requestedSessionId).trim() || requestedSessionId;
-  const walletSigningSessionId = String(
-    minted.walletSigningSessionId || policy.walletSigningSessionId || '',
+  const signingGrantId = String(
+    minted.signingGrantId || policy.signingGrantId || '',
   ).trim();
 
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
@@ -139,7 +139,7 @@ export async function connectEd25519Session(args: {
   return {
     ok: true,
     sessionId: resolvedSessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    ...(signingGrantId ? { signingGrantId } : {}),
     expiresAtMs,
     remainingUses,
     ...(mintedRuntimePolicyScope ? { runtimePolicyScope: mintedRuntimePolicyScope } : {}),

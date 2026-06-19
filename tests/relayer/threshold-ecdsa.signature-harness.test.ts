@@ -260,7 +260,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     walletId: args.userId,
     rpId: args.rpId,
   });
-  const walletSigningSessionId = `${args.sessionId}:wallet-signing`;
+  const signingGrantId = `${args.sessionId}:wallet-signing`;
   const ttlMs = args.ttlMs ?? 60_000;
   const remainingUses = args.remainingUses ?? 3;
 
@@ -294,7 +294,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
       contextBinding32B64u: preparedClientBootstrap.contextBinding32B64u,
       requestId: `bootstrap-request-${Date.now()}`,
       sessionId: args.sessionId,
-      walletSigningSessionId,
+      signingGrantId,
       ttlMs,
       remainingUses,
       participantIds: args.participantIds,
@@ -334,7 +334,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     walletId: args.userId,
     sessionId: String(value.sessionId || args.sessionId),
-    walletSigningSessionId: String(value.walletSigningSessionId || walletSigningSessionId),
+    signingGrantId: String(value.signingGrantId || signingGrantId),
     keyScope: 'evm-family',
     keyHandle: String(value.keyHandle || ''),
     relayerKeyId: String(value.relayerKeyId || relayerKeyId),
@@ -548,7 +548,7 @@ async function buildRoleLocalExportShareRequest(args: {
       clientDeviceId: requestWithoutDigests.clientDeviceId,
       clientSessionId: requestWithoutDigests.clientSessionId,
       thresholdSessionId: String(args.bootstrapJson.sessionId || ''),
-      walletSigningSessionId: String(args.bootstrapJson.walletSigningSessionId || ''),
+      signingGrantId: String(args.bootstrapJson.signingGrantId || ''),
       thresholdExpiresAtMs: Number(args.bootstrapJson.expiresAtMs || 0),
       participantIds: args.bootstrapJson.participantIds,
     }),

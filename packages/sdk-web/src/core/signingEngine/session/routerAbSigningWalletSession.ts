@@ -29,7 +29,7 @@ export type RouterAbEd25519SigningWalletSession = {
   curve: 'ed25519';
   auth: RouterAbSigningWalletSessionAuth;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   remainingUses: number;
   expiresAtMs: number;
   signingMaterial: RouterAbEd25519SigningMaterialRef;
@@ -43,7 +43,7 @@ export type RouterAbEcdsaHssSigningWalletSession = {
   curve: 'ecdsa';
   auth: RouterAbSigningWalletSessionAuth;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   remainingUses: number;
   expiresAtMs: number;
   signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
@@ -57,7 +57,7 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_record'
   | 'cookie_session'
   | 'missing_wallet_session_jwt'
-  | 'missing_wallet_signing_session_id'
+  | 'missing_signing_grant_id'
   | 'missing_threshold_session_id'
   | 'missing_signing_root'
   | 'signing_root_mismatch'
@@ -189,9 +189,9 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
   const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
   if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
-  const walletSigningSessionId = nonEmptyString(record.walletSigningSessionId);
-  if (!walletSigningSessionId) {
-    return { ok: false, reason: 'missing_wallet_signing_session_id' };
+  const signingGrantId = nonEmptyString(record.signingGrantId);
+  if (!signingGrantId) {
+    return { ok: false, reason: 'missing_signing_grant_id' };
   }
   const signingRoot = resolveRouterAbEd25519SigningRootFromRecord(record);
   if (!signingRoot.ok) return signingRoot;
@@ -229,7 +229,7 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
       curve: 'ed25519',
       auth,
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       remainingUses,
       expiresAtMs,
       signingMaterial,
@@ -254,9 +254,9 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
   const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
   if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
-  const walletSigningSessionId = nonEmptyString(record.walletSigningSessionId);
-  if (!walletSigningSessionId) {
-    return { ok: false, reason: 'missing_wallet_signing_session_id' };
+  const signingGrantId = nonEmptyString(record.signingGrantId);
+  if (!signingGrantId) {
+    return { ok: false, reason: 'missing_signing_grant_id' };
   }
   if (!record.runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
   if (!record.routerAbEcdsaHssNormalSigning) {
@@ -286,7 +286,7 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
       curve: 'ecdsa',
       auth,
       thresholdSessionId,
-      walletSigningSessionId,
+      signingGrantId,
       remainingUses,
       expiresAtMs,
       signingMaterial,

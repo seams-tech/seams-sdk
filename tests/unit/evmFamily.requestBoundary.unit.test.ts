@@ -32,7 +32,7 @@ const budgetChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 
 function authenticatedEcdsaBudgetCheck(args: {
   walletId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   walletSessionJwt: string;
 }): AuthenticatedEcdsaLaneBudgetStatusCheck {
@@ -50,7 +50,7 @@ function authenticatedEcdsaBudgetCheck(args: {
     key,
     keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle'),
     chainTarget: budgetChainTarget,
-    walletSigningSessionId: args.walletSigningSessionId,
+    signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     trustedStatusAuth: {
       relayerUrl: 'https://relay.example',
@@ -172,7 +172,7 @@ test.describe('Trusted wallet signing budget status', () => {
     resetWarmSessionFixtureState(ecdsaSessions);
     const walletId = 'budget-shared-target.testnet';
     const thresholdSessionId = 'threshold-session-shared-target';
-    const walletSigningSessionId = 'wallet-session-shared-target';
+    const signingGrantId = 'wallet-session-shared-target';
     const ecdsaThresholdKeyId = 'ecdsa-budget-key';
     const keyHandle = 'ecdsa-budget-key-handle';
     const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
@@ -183,7 +183,7 @@ test.describe('Trusted wallet signing budget status', () => {
         nearAccountId: walletId,
         chain: 'tempo',
         sessionId: thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
         ecdsaThresholdKeyId,
         keyHandle,
         walletSessionJwt: 'tempo-target-token',
@@ -198,7 +198,7 @@ test.describe('Trusted wallet signing budget status', () => {
         nearAccountId: walletId,
         chain: 'evm',
         sessionId: thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
         ecdsaThresholdKeyId,
         keyHandle,
         walletSessionJwt: 'evm-target-token',
@@ -218,7 +218,7 @@ test.describe('Trusted wallet signing budget status', () => {
       return new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
           status: 'active',
           remainingUses: 2,
@@ -239,13 +239,13 @@ test.describe('Trusted wallet signing budget status', () => {
           key: thresholdEcdsaSessionRecordReadModel(evmRecord).key,
           keyHandle: evmRecord.keyHandle,
           chainTarget: evmTarget,
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
         }),
       );
 
       expect(status).toMatchObject({
-        sessionId: walletSigningSessionId,
+        sessionId: signingGrantId,
         status: 'active',
         remainingUses: 2,
       });
@@ -260,7 +260,7 @@ test.describe('Trusted wallet signing budget status', () => {
     resetWarmSessionFixtureState(ecdsaSessions);
     const walletId = 'budget-cookie-only.testnet';
     const thresholdSessionId = 'threshold-session-cookie-only';
-    const walletSigningSessionId = 'wallet-session-cookie-only';
+    const signingGrantId = 'wallet-session-cookie-only';
     const record = seedEcdsaWarmSessionRecord(ecdsaSessions, {
       nearAccountId: walletId,
       chain: 'evm',
@@ -269,7 +269,7 @@ test.describe('Trusted wallet signing budget status', () => {
         nearAccountId: walletId,
         chain: 'evm',
         sessionId: thresholdSessionId,
-        walletSigningSessionId,
+        signingGrantId,
         sessionKind: 'cookie',
       }),
     });
@@ -292,7 +292,7 @@ test.describe('Trusted wallet signing budget status', () => {
           key: thresholdEcdsaSessionRecordReadModel(record).key,
           keyHandle: record.keyHandle,
           chainTarget: testEcdsaChainTarget('evm'),
-          walletSigningSessionId,
+          signingGrantId,
           thresholdSessionId,
         }),
       );
@@ -312,7 +312,7 @@ test.describe('Trusted wallet signing budget status', () => {
       new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId: 'wallet-session-missing',
+          signingGrantId: 'wallet-session-missing',
           thresholdSessionId: 'threshold-session-missing',
           status: 'not_found',
           statusCode: 'unauthorized',
@@ -328,7 +328,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         authenticatedEcdsaBudgetCheck({
           walletId: 'budget-not-found.testnet',
-          walletSigningSessionId: 'wallet-session-missing',
+          signingGrantId: 'wallet-session-missing',
           thresholdSessionId: 'threshold-session-missing',
           walletSessionJwt: 'stale-jwt',
         }),
@@ -366,7 +366,7 @@ test.describe('Trusted wallet signing budget status', () => {
         return new Response(
           JSON.stringify({
             ok: true,
-            walletSigningSessionId: 'wallet-session-fresh',
+            signingGrantId: 'wallet-session-fresh',
             thresholdSessionId: 'threshold-session-fresh',
             status: 'active',
             remainingUses: 3,
@@ -390,7 +390,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         authenticatedEcdsaBudgetCheck({
           walletId: 'budget-current.testnet',
-          walletSigningSessionId: 'wallet-session-fresh',
+          signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
           walletSessionJwt: 'fresh-jwt',
         }),
@@ -428,7 +428,7 @@ test.describe('Trusted wallet signing budget status', () => {
       return new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId: 'wallet-session-coalesced',
+          signingGrantId: 'wallet-session-coalesced',
           thresholdSessionId: 'threshold-session-coalesced',
           status: 'active',
           remainingUses: 3,
@@ -444,7 +444,7 @@ test.describe('Trusted wallet signing budget status', () => {
 
     const args = authenticatedEcdsaBudgetCheck({
       walletId: 'budget-coalesced.testnet',
-      walletSigningSessionId: 'wallet-session-coalesced',
+      signingGrantId: 'wallet-session-coalesced',
       thresholdSessionId: 'threshold-session-coalesced',
       walletSessionJwt: 'fresh-jwt',
     });
@@ -479,7 +479,7 @@ test.describe('Trusted wallet signing budget status', () => {
       return new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId: 'wallet-session-fresh-read',
+          signingGrantId: 'wallet-session-fresh-read',
           thresholdSessionId: 'threshold-session-fresh-read',
           status: 'active',
           remainingUses: 3,
@@ -495,7 +495,7 @@ test.describe('Trusted wallet signing budget status', () => {
 
     const args = authenticatedEcdsaBudgetCheck({
       walletId: 'budget-fresh-read.testnet',
-      walletSigningSessionId: 'wallet-session-fresh-read',
+      signingGrantId: 'wallet-session-fresh-read',
       thresholdSessionId: 'threshold-session-fresh-read',
       walletSessionJwt: 'fresh-jwt',
     });
@@ -520,7 +520,7 @@ test.describe('Trusted wallet signing budget status', () => {
       new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId: 'wallet-session-other',
+          signingGrantId: 'wallet-session-other',
           thresholdSessionId: 'threshold-session-fresh',
           status: 'active',
           remainingUses: 3,
@@ -538,7 +538,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         authenticatedEcdsaBudgetCheck({
           walletId: 'budget-mismatch.testnet',
-          walletSigningSessionId: 'wallet-session-fresh',
+          signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
           walletSessionJwt: 'fresh-jwt',
         }),
@@ -558,7 +558,7 @@ test.describe('Trusted wallet signing budget status', () => {
       new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId: 'wallet-session-fresh',
+          signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-other',
           status: 'active',
           remainingUses: 3,
@@ -576,7 +576,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         authenticatedEcdsaBudgetCheck({
           walletId: 'budget-threshold-mismatch.testnet',
-          walletSigningSessionId: 'wallet-session-fresh',
+          signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
           walletSessionJwt: 'fresh-jwt',
         }),
@@ -596,7 +596,7 @@ test.describe('Trusted wallet signing budget status', () => {
       new Response(
         JSON.stringify({
           ok: true,
-          walletSigningSessionId: 'wallet-session-fresh',
+          signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
           status: 'active',
           remainingUses: 3,
@@ -613,7 +613,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         authenticatedEcdsaBudgetCheck({
           walletId: 'budget-projection-missing.testnet',
-          walletSigningSessionId: 'wallet-session-fresh',
+          signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
           walletSessionJwt: 'fresh-jwt',
         }),

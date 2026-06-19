@@ -46,7 +46,7 @@ test.describe('signing session PRF cache utilities', () => {
               walletId: 'wallet.testnet',
               chainTarget: { kind: 'tempo', chainId: 42431 },
               relayerUrl: 'https://relay.example.test',
-              walletSigningSessionId: 'wallet-session',
+              signingGrantId: 'wallet-session',
             },
           },
         );
@@ -67,7 +67,7 @@ test.describe('signing session PRF cache utilities', () => {
           walletId: 'wallet.testnet',
           chainTarget: { kind: 'tempo', chainId: 42431 },
           relayerUrl: 'https://relay.example.test',
-          walletSigningSessionId: 'wallet-session',
+          signingGrantId: 'wallet-session',
         },
       },
     ]);

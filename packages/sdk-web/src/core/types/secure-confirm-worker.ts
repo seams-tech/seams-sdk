@@ -13,7 +13,7 @@ export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 type WarmSessionSealTransportCommon = {
   walletId?: string;
   relayerUrl: string;
-  walletSigningSessionId?: string;
+  signingGrantId?: string;
   walletSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;

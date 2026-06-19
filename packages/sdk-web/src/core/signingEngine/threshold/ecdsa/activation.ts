@@ -60,13 +60,13 @@ export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
 };
 
 function buildWalletBudgetProjectionVersion(args: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;
 }): string {
   return [
     'wallet-budget',
-    args.walletSigningSessionId,
+    args.signingGrantId,
     args.expiresAtMs,
     Math.max(0, Math.floor(Number(args.remainingUses) || 0)),
   ].join(':');
@@ -82,7 +82,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   keygen: EcdsaKeygenSuccess;
   session: EcdsaSessionSuccess & {
     sessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     expiresAtMs: number;
     remainingUses: number;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -260,7 +260,7 @@ type ActivateEcdsaRegistrationSessionPlan = {
   kind: 'requested_session';
   sessionKind: 'jwt';
   sessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
 };
 
 type ActivateEcdsaRegistrationRequestBase = ActivateEcdsaSessionRequestCommon & {
@@ -279,7 +279,7 @@ type ActivateEcdsaRegistrationRequestBase = ActivateEcdsaSessionRequestCommon & 
   participantIds?: never;
   sessionKind?: never;
   sessionId?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
 };
 
 type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon & {
@@ -295,7 +295,7 @@ type ActivateEcdsaExistingSessionRequestBase = ActivateEcdsaSessionRequestCommon
   participantIds?: never;
   sessionKind?: never;
   sessionId?: never;
-  walletSigningSessionId?: never;
+  signingGrantId?: never;
   runtimePolicyScope?: never;
   ttlMs?: never;
   remainingUses?: never;
@@ -539,10 +539,10 @@ export async function activateEcdsaSession(
   const requestedSessionId = String(
     exactActivation ? args.lanePolicy.thresholdSessionId : args.sessionPlan?.sessionId || '',
   ).trim();
-  const requestedWalletSigningSessionId = String(
+  const requestedSigningGrantId = String(
     exactActivation
-      ? args.lanePolicy.walletSigningSessionId
-      : args.sessionPlan?.walletSigningSessionId || '',
+      ? args.lanePolicy.signingGrantId
+      : args.sessionPlan?.signingGrantId || '',
   ).trim();
   const requestedEcdsaThresholdKeyId = String(
     exactActivation ? '' : args.keyIntent?.ecdsaThresholdKeyId || '',
@@ -591,13 +591,13 @@ export async function activateEcdsaSession(
       : {}),
     chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
     ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId || null,
-    walletSigningSessionId: requestedWalletSigningSessionId || null,
+    signingGrantId: requestedSigningGrantId || null,
     thresholdSessionId: requestedSessionId || null,
     budgetProjectionVersion: undefined,
     freshAuthRetrySideEffectState: 'not_applicable',
     hasRequestedEcdsaThresholdKeyId: Boolean(requestedEcdsaThresholdKeyId),
     requestedSessionId: requestedSessionId || null,
-    requestedWalletSigningSessionId: requestedWalletSigningSessionId || null,
+    requestedSigningGrantId: requestedSigningGrantId || null,
     sessionKind: exactActivation
       ? args.lanePolicy.thresholdSessionKind
       : args.sessionPlan?.sessionKind || 'jwt',
@@ -616,7 +616,7 @@ export async function activateEcdsaSession(
       args.walletSessionRouteAuth &&
       requestedEcdsaThresholdKeyId &&
       requestedSessionId &&
-      requestedWalletSigningSessionId
+      requestedSigningGrantId
     ) {
       throw new Error(
         'Threshold ECDSA session bootstrap requires shared key identity and lane policy',
@@ -643,8 +643,8 @@ export async function activateEcdsaSession(
             sessionId:
               requestedSessionId ||
               deps.getOrCreateActiveThresholdEcdsaSessionId(walletId, chainTarget),
-            ...(requestedWalletSigningSessionId
-              ? { walletSigningSessionId: requestedWalletSigningSessionId }
+            ...(requestedSigningGrantId
+              ? { signingGrantId: requestedSigningGrantId }
               : {}),
           });
   } catch (error: unknown) {
@@ -692,9 +692,9 @@ export async function activateEcdsaSession(
   if (!sessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty sessionId');
   }
-  const walletSigningSessionId = String(bootstrap.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) {
-    throw new Error('threshold-ecdsa bootstrap returned empty walletSigningSessionId');
+  const signingGrantId = String(bootstrap.signingGrantId || '').trim();
+  if (!signingGrantId) {
+    throw new Error('threshold-ecdsa bootstrap returned empty signingGrantId');
   }
   const expiresAtMs = Number(bootstrap.expiresAtMs);
   if (!Number.isFinite(expiresAtMs)) {
@@ -755,7 +755,7 @@ export async function activateEcdsaSession(
   });
   const roleLocalMaterialHandle = buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     keyHandle,
     routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(
       routerAbEcdsaHssNormalSigning,
@@ -797,12 +797,12 @@ export async function activateEcdsaSession(
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
     sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     expiresAtMs,
     remainingUses,
     ...(bootstrap.runtimePolicyScope ? { runtimePolicyScope: bootstrap.runtimePolicyScope } : {}),
     projectionVersion: buildWalletBudgetProjectionVersion({
-      walletSigningSessionId,
+      signingGrantId,
       expiresAtMs,
       remainingUses,
     }),
@@ -838,7 +838,7 @@ export async function activateEcdsaSession(
       ? args.lanePolicy.thresholdSessionKind
       : args.sessionPlan?.sessionKind || 'jwt',
     thresholdSessionId: sessionId,
-    walletSigningSessionId,
+    signingGrantId,
     routerAbEcdsaHssNormalSigning,
     ...(typeof session.jwt === 'string' && session.jwt.trim()
       ? { walletSessionJwt: session.jwt.trim() }

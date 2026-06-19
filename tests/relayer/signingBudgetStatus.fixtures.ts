@@ -29,7 +29,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
     walletId: `budget-curve-collision-${label}.testnet`,
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sessionId: `threshold-login-curve-collision-${label}`,
-    walletSigningSessionId: `wsess-curve-collision-${label}`,
+    signingGrantId: `wsess-curve-collision-${label}`,
     keyScope: 'evm-family',
     subjectId: `budget-curve-collision-${label}.testnet`,
     chainTarget: {
@@ -102,12 +102,12 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
   });
   const makeWalletBudgetStatus = (input: {
     thresholdSessionId: string;
-    walletSigningSessionId: string;
+    signingGrantId: string;
     relayerKeyId: string;
     remainingUses: number;
   }): SigningSessionSealWalletBudgetStatus => ({
     kind: 'wallet_budget',
-    walletSigningSessionId: input.walletSigningSessionId,
+    signingGrantId: input.signingGrantId,
     ...baseStatus({
       curve: 'ecdsa',
       thresholdSessionId: input.thresholdSessionId,
@@ -135,7 +135,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
     }),
     walletBudgetStatus: makeWalletBudgetStatus({
       thresholdSessionId: claims.sessionId,
-      walletSigningSessionId: claims.walletSigningSessionId,
+      signingGrantId: claims.signingGrantId,
       relayerKeyId: claims.relayerKeyId,
       remainingUses: walletRemainingUses,
     }),

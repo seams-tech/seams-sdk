@@ -73,12 +73,12 @@ void ({
   ecdsaThresholdKeyId: 'ehss-stable',
 } satisfies ThresholdEcdsaHssStableKeyContext);
 
-const stableContextWithWalletSigningSessionId: ThresholdEcdsaHssStableKeyContext = {
+const stableContextWithSigningGrantId: ThresholdEcdsaHssStableKeyContext = {
   ...locallyConstructedStableContext,
   // @ts-expect-error stable ECDSA HSS key context rejects volatile wallet session ids.
-  walletSigningSessionId: 'wsess-1',
+  signingGrantId: 'wsess-1',
 };
-void stableContextWithWalletSigningSessionId;
+void stableContextWithSigningGrantId;
 
 const stableContextWithThresholdSessionId: ThresholdEcdsaHssStableKeyContext = {
   ...locallyConstructedStableContext,
