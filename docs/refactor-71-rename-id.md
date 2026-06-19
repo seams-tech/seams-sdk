@@ -260,7 +260,7 @@ Phase 3 evidence:
 - [ ] Update IndexedDB writers to persist new field names only.
 - [ ] Update `walletSessionJwt` claim readers to expose the new names.
 - [ ] Update Router A/B normal-signing request builders and status readers.
-- [ ] Add source guards preventing `walletSigningSessionId` from returning in SDK
+- [x] Add source guards preventing `walletSigningSessionId` from returning in SDK
       public types after the refactor.
 
 ## Phase 5: Router A/B Cloudflare And Rust Contracts
@@ -277,8 +277,8 @@ Phase 3 evidence:
 
 ## Phase 6: Tests, Fixtures, And Docs
 
-- [ ] Delete fixtures that encode old names as intended current behavior.
-- [ ] Update tests that still verify valid behavior under the new names.
+- [x] Delete fixtures that encode old names as intended current behavior.
+- [x] Update tests that still verify valid behavior under the new names.
 - [ ] Add targeted negative tests for:
       threshold session mismatch, signing grant mismatch, RP mismatch, relayer key
       mismatch, signer-set mismatch, and cross-curve grant reuse.
@@ -287,6 +287,16 @@ Phase 3 evidence:
       `thresholdSessionId` and `signingGrantId`.
 - [ ] Update examples and README snippets so no newly documented surface emits
       `walletSigningSessionId`.
+
+Phase 6 evidence:
+
+- Current package/test sources have a dedicated
+  `refactor71WalletSessionNaming.guard.unit.test.ts` guard rejecting old
+  signing-grant names and Router A/B Wallet Session JWT payloads that put
+  `sessionId` next to the current Wallet Session JWT kinds.
+- Active Router A/B Wallet Session fixtures now mint `thresholdSessionId` and
+  `signingGrantId`; request/protocol-local `sessionId` fields remain only where
+  they still identify threshold/MPC request bodies or unrelated local sessions.
 
 ## Phase 7: Cleanup
 
