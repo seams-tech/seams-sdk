@@ -624,7 +624,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       relayerKeyId: parsed.relayerKeyId,
       sessionInfo: {
         sessionKind: 'jwt',
-        sessionId: result.value.sessionId,
+        thresholdSessionId: result.value.sessionId,
         signingGrantId: result.value.signingGrantId,
         expiresAtMs: result.value.expiresAtMs,
         participantIds: result.value.participantIds,

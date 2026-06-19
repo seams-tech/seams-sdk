@@ -214,27 +214,40 @@ carry an old threshold-session id through a derivation or worker boundary.
 
 ## Phase 3: Rename Server Claims And Records
 
-- [ ] Rename threshold-session JWT claim fields:
+- [x] Rename threshold-session JWT claim fields:
       `sessionId -> thresholdSessionId` and
       `walletSigningSessionId -> signingGrantId`.
-- [ ] Update `parseThresholdEd25519SessionClaims` and
+- [x] Update `parseThresholdEd25519SessionClaims` and
       `parseThresholdEcdsaSessionClaims` to return only new internal fields.
-- [ ] Keep old claim field parsing only at the JWT boundary if existing route
+- [x] Keep old claim field parsing only at the JWT boundary if existing route
       versions require it, then immediately normalize to the new internal type.
-- [ ] Version Router A/B Wallet Session claims so signing-capable routes reject
+- [x] Version Router A/B Wallet Session claims so signing-capable routes reject
       old threshold-session JWTs that lack Router A/B binding.
-- [ ] Bind Router A/B Wallet Session claims to the SigningWorker identity,
+- [x] Bind Router A/B Wallet Session claims to the SigningWorker identity,
       runtime scope, curve-specific public identity, and activation/keyset
       context required by the route.
-- [ ] Update `signWalletSessionJwt` so newly minted tokens emit only
+- [x] Update `signWalletSessionJwt` so newly minted tokens emit only
       `thresholdSessionId` and `signingGrantId`.
-- [ ] Update server-side wallet budget binding to derive from
+- [x] Update server-side wallet budget binding to derive from
       `signingGrantId + curve + thresholdSessionId`.
 - [ ] Update ECDSA and Ed25519 threshold session stores and record parsers.
 - [ ] Update route handlers to consume a verified wallet-session object instead
       of independent loose strings.
 - [ ] Reject `sessionKind: "cookie"` on Router A/B signing-capable issuance,
       bootstrap, HSS, key-identity, export, and normal-signing routes.
+
+Phase 3 evidence:
+
+- New Router A/B Ed25519 and ECDSA-HSS Wallet Session JWTs emit
+  `thresholdSessionId` and `signingGrantId`.
+- Active Router A/B Wallet Session claim parsers reject the old `sessionId`
+  claim shape instead of carrying compatibility through core signing paths.
+- Route admission returns `thresholdSessionId` for trusted threshold-session
+  identity; replay and budget adapters still receive the same value through
+  their existing local parameter names.
+- Focused validation covered threshold claim parsing, signing budget status,
+  relay registration JWT issuance, ECDSA-HSS export policy, and available-lane
+  hydration fixtures.
 
 ## Phase 4: Rename SDK And Browser Surfaces
 

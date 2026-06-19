@@ -9,6 +9,7 @@ import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { EMAIL_OTP_RECOVERY_KEY_COUNT } from '@shared/utils/emailOtpRecoveryKey';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   callCf,
   fetchJson,
@@ -41,6 +42,10 @@ const DEFAULT_RUNTIME_POLICY_SCOPE = {
   envId: 'env_email_otp_routes',
   signingRootVersion: 'v1',
 } as const;
+
+function b64u(bytes: number[]): string {
+  return base64UrlEncode(Uint8Array.from(bytes));
+}
 
 function encodePositiveBigIntB64u(value: bigint): string {
   if (value <= 0n) throw new Error('value must be > 0');
@@ -229,21 +234,73 @@ function makeTokenBoundAppSessionAdapter(
   });
 }
 
-function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record<string, unknown> {
+function makeRouterAbEcdsaHssNormalSigningState(args: {
+  walletId: string;
+  rpId: string;
+  thresholdSessionId: string;
+  ecdsaThresholdKeyId: string;
+}) {
   return {
-    kind: 'threshold_ecdsa_session_v2',
-    sub: 'alice.testnet',
-    walletId: 'alice.testnet',
-    sessionId: 'ecdsa-session-1',
-    signingGrantId: 'signing-grant-1',
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      context: {
+        wallet_id: args.walletId,
+        rp_id: args.rpId,
+        key_scope: 'evm-family',
+        ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
+        signing_root_id: 'email-otp-signing-root-1',
+        signing_root_version: DEFAULT_RUNTIME_POLICY_SCOPE.signingRootVersion,
+        key_purpose: 'evm-signing',
+        key_version: 'v1',
+      },
+      public_identity: {
+        context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
+        client_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
+        server_public_key33_b64u: b64u([0x03, ...Array.from({ length: 32 }, () => 2)]),
+        threshold_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
+        ethereum_address20_b64u: b64u(Array.from({ length: 20 }, () => 0x11)),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-email-otp-routes',
+        key_epoch: 'signing-worker-email-otp-routes-epoch',
+        recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+      },
+      activation_epoch: args.thresholdSessionId,
+    },
+  } as const;
+}
+
+function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record<string, unknown> {
+  const walletId = String(overrides?.walletId || overrides?.sub || 'alice.testnet');
+  const thresholdSessionId = String(overrides?.thresholdSessionId || 'ecdsa-session-1');
+  const signingGrantId = String(overrides?.signingGrantId || 'signing-grant-1');
+  const rpId = String(overrides?.rpId || 'example.localhost');
+  const ecdsaThresholdKeyId = String(
+    overrides?.ecdsaThresholdKeyId || 'ecdsa-threshold-key-email-otp-routes',
+  );
+  return {
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    sub: walletId,
+    walletId,
+    thresholdSessionId,
+    signingGrantId,
     keyScope: 'evm-family',
     relayerKeyId: 'relayer-key-1',
     keyHandle: 'ecdsa-key-handle-1',
-    rpId: 'example.localhost',
+    rpId,
     orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
     runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
+    ecdsaThresholdKeyId,
+    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState({
+      walletId,
+      rpId,
+      thresholdSessionId,
+      ecdsaThresholdKeyId,
+    }),
     ...overrides,
   };
 }
@@ -256,7 +313,7 @@ function makeSigningSessionStatusPolicy(args?: {
 }) {
   const claims = args?.claims || makeThresholdSessionClaims();
   const userId = String(claims.sub || 'alice.testnet');
-  const sessionId = String(claims.sessionId || 'ecdsa-session-1');
+  const sessionId = String(claims.thresholdSessionId || 'ecdsa-session-1');
   const signingGrantId = String(
     claims.signingGrantId || 'signing-grant-1',
   );
@@ -292,7 +349,7 @@ function makeSigningSessionStatusPolicy(args?: {
   const walletBudgetId = `wallet-signing:${signingGrantId}`;
   const statusById: Record<string, any | null> = {
     [sessionId]: makeThresholdStatus(sessionId, relayerKeyId),
-    [walletBudgetId]: makeWalletBudgetStatus(walletBudgetId, 'wallet-signing-budget'),
+    [walletBudgetId]: makeWalletBudgetStatus(walletBudgetId, relayerKeyId),
     ...(args?.statusById || {}),
   };
   return {
@@ -303,7 +360,7 @@ function makeSigningSessionStatusPolicy(args?: {
       thresholdSessionId: string;
     }) => {
       const status = statusById[thresholdSessionId];
-      if (!status || status.kind !== 'threshold_session') return null;
+      if (!status || status.kind !== 'wallet_session') return null;
       return {
         curve: 'ecdsa' as const,
         thresholdSessionId,
@@ -323,7 +380,7 @@ function makeSigningSessionStatusPolicy(args?: {
     }) => {
       args?.onStatusRead?.(thresholdSessionId);
       const status = statusById[thresholdSessionId] || null;
-      return status?.kind === 'threshold_session' ? [status] : [];
+      return status?.kind === 'wallet_session' ? [status] : [];
     },
     getWalletBudgetStatus: async ({
       signingGrantId: requestedSigningGrantId,
@@ -1176,7 +1233,7 @@ test.describe('Email OTP routes', () => {
         operation: 'export_key',
         sourceIp: expect.any(String),
         appSessionVersion:
-          'signing-session:threshold_ecdsa_session_v2:signing-grant-1:ecdsa-session-1',
+          'signing-session:router_ab_ecdsa_hss_wallet_session_v1:signing-grant-1:ecdsa-session-1',
       });
       const issuedEvent = dispatched.find(
         (entry) => entry.eventType === 'wallet.email_otp.export_challenge_issued',
@@ -1358,7 +1415,7 @@ test.describe('Email OTP routes', () => {
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
     const thresholdClaims = makeThresholdSessionClaims();
     const exhaustedThresholdClaims = makeThresholdSessionClaims({
-      sessionId: 'exhausted-ecdsa-session',
+      thresholdSessionId: 'exhausted-ecdsa-session',
       signingGrantId: 'exhausted-signing-grant',
     });
     const exhaustedSessionStatus = makeSigningSessionStatusPolicy({
@@ -1374,7 +1431,7 @@ test.describe('Email OTP routes', () => {
         },
         'threshold-session': thresholdClaims,
         'expired-threshold-session': makeThresholdSessionClaims({
-          sessionId: 'expired-ecdsa-session',
+          thresholdSessionId: 'expired-ecdsa-session',
           thresholdExpiresAtMs: Date.now() - 1_000,
         }),
         'exhausted-threshold-session': exhaustedThresholdClaims,

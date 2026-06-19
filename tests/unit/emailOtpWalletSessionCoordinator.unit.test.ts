@@ -190,7 +190,7 @@ function thresholdEcdsaSessionJwt(args: {
     walletId: args.walletId,
     keyScope: 'evm-family',
     keyHandle: args.keyHandle,
-    sessionId: args.thresholdSessionId,
+    thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),

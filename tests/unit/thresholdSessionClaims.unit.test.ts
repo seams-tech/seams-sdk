@@ -44,7 +44,7 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     kind,
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
-    sessionId: 'threshold-session-1',
+    thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     relayerKeyId: 'relayer-key-1',
     rpId: 'example.localhost',
@@ -420,7 +420,7 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
-          sessionId: 'threshold-ed25519-session',
+          thresholdSessionId: 'threshold-ed25519-session',
           signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
@@ -440,7 +440,7 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
-          sessionId: 'threshold-ed25519-session',
+          thresholdSessionId: 'threshold-ed25519-session',
           signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
@@ -469,7 +469,7 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
-          sessionId: ecdsaBootstrap.sessionId,
+          thresholdSessionId: ecdsaBootstrap.sessionId,
           signingGrantId: ecdsaBootstrap.signingGrantId,
           expiresAtMs: ecdsaBootstrap.expiresAtMs,
           participantIds: ecdsaBootstrap.participantIds,
@@ -505,7 +505,7 @@ test.describe('threshold session auth token claims', () => {
       }),
     ).toMatchObject({
       ok: true,
-      sessionId: signedEcdsaClaims.sessionId,
+      thresholdSessionId: signedEcdsaClaims.thresholdSessionId,
       requestId: prepareRequest.request_id,
       expiresAtMs: prepareRequest.expires_at_ms,
     });
@@ -518,7 +518,7 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: 'ecdsa-relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
-          sessionId: 'threshold-ecdsa-session',
+          thresholdSessionId: 'threshold-ecdsa-session',
           signingGrantId: 'signing-grant-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
@@ -540,7 +540,7 @@ test.describe('threshold session auth token claims', () => {
       ...routerAbEcdsaIssuerBinding(),
       routerAbEcdsaHssIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
-      sessionId: ecdsaBootstrap.sessionId,
+      thresholdSessionId: ecdsaBootstrap.sessionId,
       signingGrantId: ecdsaBootstrap.signingGrantId,
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
       participantIds: ecdsaBootstrap.participantIds,
@@ -573,7 +573,7 @@ test.describe('threshold session auth token claims', () => {
       scope: {
         request_id: 'router-ab-ed25519-private-validator-prepare',
         account_id: claims.walletId,
-        session_id: claims.sessionId,
+        session_id: claims.thresholdSessionId,
         signing_worker_id: claims.routerAbNormalSigning.signingWorkerId,
       },
       expires_at_ms: claims.thresholdExpiresAtMs,
@@ -585,7 +585,7 @@ test.describe('threshold session auth token claims', () => {
       }),
     ).toMatchObject({
       ok: true,
-      sessionId: claims.sessionId,
+      thresholdSessionId: claims.thresholdSessionId,
       requestId: validBody.scope.request_id,
       expiresAtMs: validBody.expires_at_ms,
     });
@@ -712,7 +712,7 @@ test.describe('threshold session auth token claims', () => {
       }),
     ).toMatchObject({
       ok: true,
-      sessionId: claims.sessionId,
+      thresholdSessionId: claims.thresholdSessionId,
       requestId: prepareRequest.request_id,
       expiresAtMs: prepareRequest.expires_at_ms,
     });
@@ -723,7 +723,7 @@ test.describe('threshold session auth token claims', () => {
       }),
     ).toMatchObject({
       ok: true,
-      sessionId: claims.sessionId,
+      thresholdSessionId: claims.thresholdSessionId,
       requestId: finalizeRequest.request_id,
       expiresAtMs: finalizeRequest.expires_at_ms,
     });

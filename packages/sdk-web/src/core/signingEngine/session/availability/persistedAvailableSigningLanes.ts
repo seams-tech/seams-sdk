@@ -63,21 +63,21 @@ function applyWalletBudgetStatusToRuntimeClaim(args: {
     const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
     return {
       state: 'warm',
-      sessionId: args.sessionId,
+      thresholdSessionId: args.sessionId,
       remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
       expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localClaim.expiresAtMs,
     };
   }
   if (budgetStatus.status === 'not_found') {
-    return { state: 'missing', sessionId: args.sessionId, code: 'wallet_budget_not_found' };
+    return { state: 'missing', thresholdSessionId: args.sessionId, code: 'wallet_budget_not_found' };
   }
-  if (budgetStatus.status === 'expired') return { state: 'expired', sessionId: args.sessionId };
+  if (budgetStatus.status === 'expired') return { state: 'expired', thresholdSessionId: args.sessionId };
   if (budgetStatus.status === 'exhausted') {
-    return { state: 'exhausted', sessionId: args.sessionId, remainingUses: 0 };
+    return { state: 'exhausted', thresholdSessionId: args.sessionId, remainingUses: 0 };
   }
   return {
     state: 'unavailable',
-    sessionId: args.sessionId,
+    thresholdSessionId: args.sessionId,
     code: budgetStatus.status,
   };
 }
@@ -328,14 +328,14 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   )
                   .catch(() => null);
                 localClaim = status
-                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
                   : null;
               } else if (
                 roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
                 roleLocalState.inlineSigningMaterial.kind === 'role_local_ready_state_blob'
               ) {
                 localClaim = runtimeRecordPolicyClaim({
-                  sessionId,
+                  thresholdSessionId: sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
                 });
@@ -347,7 +347,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 .getWarmSessionStatus({ sessionId })
                 .catch(() => null);
               localClaim = status
-                ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
                 : null;
             }
             const walletBudgetStatus =
@@ -390,14 +390,14 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 String(ed25519Record.clientVerifyingShareB64u || '').trim()
               ) {
                 localClaim = runtimeRecordPolicyClaim({
-                  sessionId,
+                  thresholdSessionId: sessionId,
                   remainingUses: ed25519Record.remainingUses,
                   expiresAtMs: ed25519Record.expiresAtMs,
                 });
               } else {
                 const status = await deps.getEmailOtpWarmSessionStatus(sessionId).catch(() => null);
                 localClaim = status
-                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
                   : null;
               }
             } else {
@@ -405,7 +405,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 .getWarmSessionStatus({ sessionId })
                 .catch(() => null);
               localClaim = status
-                ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
                 : null;
             }
             const signingGrantId = String(

@@ -1772,7 +1772,7 @@ export class ThresholdSigningService {
         kind: 'router_ab_ed25519_signing_worker_material_v1',
         account_public_key: stored.publicKey,
         x_server_base_b64u: xServerBaseB64u,
-        signing_worker_material_handle: `ed25519-hss/${claims.relayerKeyId}/${claims.sessionId}`,
+        signing_worker_material_handle: `ed25519-hss/${claims.relayerKeyId}/${claims.thresholdSessionId}`,
         activated_at_ms: activatedAtMs,
       },
     };
@@ -3633,7 +3633,7 @@ export class ThresholdSigningService {
         expiresAtUnixMs: request.expiresAtUnixMs,
         clientDeviceId: request.clientDeviceId,
         clientSessionId: request.clientSessionId,
-        thresholdSessionId: claims.sessionId,
+        thresholdSessionId: claims.thresholdSessionId,
         signingGrantId: claims.signingGrantId,
         thresholdExpiresAtMs: claims.thresholdExpiresAtMs,
         participantIds: claims.participantIds,
@@ -3653,7 +3653,7 @@ export class ThresholdSigningService {
       input.request.ecdsaThresholdKeyId,
       input.request.relayerKeyId,
       input.keyHandle,
-      input.claims.sessionId,
+      input.claims.thresholdSessionId,
     ].join(':');
   }
 
@@ -4065,7 +4065,7 @@ export class ThresholdSigningService {
     context: ThresholdEd25519HssCanonicalContext;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   }): ThresholdEd25519HssSessionError | null {
-    const sessionId = toOptionalTrimmedString(input.claims?.sessionId);
+    const sessionId = toOptionalTrimmedString(input.claims?.thresholdSessionId);
     if (!sessionId) {
       return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
     }

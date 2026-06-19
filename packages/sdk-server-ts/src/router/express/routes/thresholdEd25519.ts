@@ -133,7 +133,7 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
     relayerKeyId: args.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
-      sessionId,
+      thresholdSessionId: sessionId,
       signingGrantId,
       expiresAtMs,
       participantIds: args.participantIds,
@@ -413,7 +413,7 @@ export function registerThresholdEd25519Routes(
           relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',
-            sessionId,
+            thresholdSessionId: sessionId,
             signingGrantId: result.signingGrantId,
             expiresAtMs: thresholdExpiresAtMs,
             participantIds,

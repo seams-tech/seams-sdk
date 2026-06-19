@@ -47,8 +47,6 @@ function sealedEd25519Record(args: {
         envId: 'dev',
         signingRootVersion: 'default',
       },
-      xClientBaseB64u: 'x-client-base',
-      clientVerifyingShareB64u: 'client-verifying-share',
     },
     issuedAtMs,
     expiresAtMs: issuedAtMs + 60_000,
@@ -137,7 +135,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           'tsess-1',
           {
             state: 'warm',
-            sessionId: 'tsess-1',
+            thresholdSessionId: 'tsess-1',
             remainingUses: 1,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -172,7 +170,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           'tsess-stale-router-ab',
           {
             state: 'warm',
-            sessionId: 'tsess-stale-router-ab',
+            thresholdSessionId: 'tsess-stale-router-ab',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -216,7 +214,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           thresholdEcdsaChainTargetKey(ECDSA_TARGET),
           {
             state: 'warm',
-            sessionId: 'tsess-ecdsa-stale-router-ab',
+            thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -264,7 +262,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           'tsess-1',
           {
             state: 'warm',
-            sessionId: 'tsess-1',
+            thresholdSessionId: 'tsess-1',
             remainingUses: 1,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -363,7 +361,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           thresholdSessionId,
           {
             state: 'warm',
-            sessionId: thresholdSessionId,
+            thresholdSessionId: thresholdSessionId,
             remainingUses: 1,
             expiresAtMs: EXPIRES_AT_MS,
           },

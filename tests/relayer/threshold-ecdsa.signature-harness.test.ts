@@ -333,7 +333,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
   const jwt = await args.session.signJwt(args.userId, {
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     walletId: args.userId,
-    sessionId: String(value.sessionId || args.sessionId),
+    thresholdSessionId: String(value.thresholdSessionId || value.sessionId || args.sessionId),
     signingGrantId: String(value.signingGrantId || signingGrantId),
     keyScope: 'evm-family',
     keyHandle: String(value.keyHandle || ''),

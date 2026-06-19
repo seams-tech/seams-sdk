@@ -95,7 +95,7 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
     sub: 'wallet-ecdsa',
     walletId: 'wallet-ecdsa',
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-    sessionId: 'threshold-session-ecdsa',
+    thresholdSessionId: 'threshold-session-ecdsa',
     signingGrantId: 'signing-grant-ecdsa',
     keyScope: 'evm-family',
     subjectId: 'wallet-ecdsa',
@@ -149,7 +149,7 @@ function makeEd25519Claims(overrides: Record<string, unknown> = {}): Record<stri
     sub: 'wallet-ed25519',
     walletId: 'wallet-ed25519',
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    sessionId: 'threshold-session-ed25519',
+    thresholdSessionId: 'threshold-session-ed25519',
     signingGrantId: 'signing-grant-ed25519',
     relayerKeyId: 'ed25519-relayer-1',
     rpId: 'example.localhost',
@@ -385,7 +385,7 @@ test.describe('signing budget status parser', () => {
       headers: { Authorization: 'Bearer missing-threshold-session' },
       session: makeSession(
         makeEd25519Claims({
-          sessionId: '',
+          thresholdSessionId: '',
         }),
       ),
       sessionPolicy: null,

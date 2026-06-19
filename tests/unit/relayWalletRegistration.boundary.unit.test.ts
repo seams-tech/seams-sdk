@@ -333,7 +333,7 @@ function validEcdsaServerBootstrap() {
 function signingSession() {
   return {
     signJwt: async (sub: string, claims: Record<string, unknown>) =>
-      `signed:${sub}:${String(claims.kind || '')}:${String(claims.sessionId || '')}`,
+      `signed:${sub}:${String(claims.kind || '')}:${String(claims.thresholdSessionId || '')}`,
   };
 }
 
@@ -342,7 +342,7 @@ function signingSessionWithCapturedClaims(out: { claims: Record<string, unknown>
     signJwt: async (sub: string, claims: Record<string, unknown>) => {
       void sub;
       out.claims = claims;
-      return `signed:${String(claims.kind || '')}:${String(claims.sessionId || '')}`;
+      return `signed:${String(claims.kind || '')}:${String(claims.thresholdSessionId || '')}`;
     },
   };
 }

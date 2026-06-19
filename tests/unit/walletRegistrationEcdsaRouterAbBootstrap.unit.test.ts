@@ -125,7 +125,7 @@ function walletSessionJwt(args: {
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
-    sessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     keyScope: 'evm-family',
     keyHandle: KEY_HANDLE,

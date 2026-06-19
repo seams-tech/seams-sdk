@@ -177,42 +177,42 @@ export type AvailableEd25519SigningLane =
 export type AvailableSigningLanesRuntimeClaim =
   | {
       state: 'warm';
-      sessionId: string;
+      thresholdSessionId: string;
       remainingUses: number;
       expiresAtMs: number;
       code?: never;
     }
   | {
       state: 'exhausted';
-      sessionId: string;
+      thresholdSessionId: string;
       remainingUses: 0;
       expiresAtMs?: never;
       code?: never;
     }
   | {
       state: 'expired';
-      sessionId: string;
+      thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
       code?: never;
     }
   | {
       state: 'missing';
-      sessionId: string;
+      thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
       code?: string;
     }
   | {
       state: 'unavailable';
-      sessionId: string;
+      thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
       code: string;
     };
 
 export function runtimeRecordPolicyClaim(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   remainingUses: unknown;
   expiresAtMs: unknown;
 }): AvailableSigningLanesRuntimeClaim | null {
@@ -222,14 +222,14 @@ export function runtimeRecordPolicyClaim(args: {
     return null;
   }
   if (remainingUses <= 0) {
-    return { state: 'exhausted', sessionId: args.sessionId, remainingUses: 0 };
+    return { state: 'exhausted', thresholdSessionId: args.thresholdSessionId, remainingUses: 0 };
   }
   if (expiresAtMs <= Date.now()) {
-    return { state: 'expired', sessionId: args.sessionId };
+    return { state: 'expired', thresholdSessionId: args.thresholdSessionId };
   }
   return {
     state: 'warm',
-    sessionId: args.sessionId,
+    thresholdSessionId: args.thresholdSessionId,
     remainingUses,
     expiresAtMs,
   };
@@ -801,7 +801,7 @@ function ecdsaRecoveryRecordForDurableLane(
 type DurableEcdsaWalletSessionJwtClaims = {
   walletId: string;
   keyHandle: string;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
 };
 
@@ -816,15 +816,15 @@ function parseDurableEcdsaWalletSessionJwtClaims(
     return null;
   }
   if (String(payload.keyScope || '').trim() !== 'evm-family') return null;
-  const sessionId = String(payload.sessionId || '').trim();
+  const thresholdSessionId = String(payload.thresholdSessionId || '').trim();
   const signingGrantId = String(payload.signingGrantId || '').trim();
   const walletId = String(payload.walletId || '').trim();
   const keyHandle = String(payload.keyHandle || '').trim();
-  if (!sessionId || !signingGrantId || !walletId || !keyHandle) return null;
+  if (!thresholdSessionId || !signingGrantId || !walletId || !keyHandle) return null;
   return {
     walletId,
     keyHandle,
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
   };
 }
@@ -846,7 +846,7 @@ function durableEcdsaJwtMatchesRecord(args: {
   if (claims.keyHandle !== args.expectedKeyHandle) return false;
 
   return (
-    claims.sessionId === args.thresholdSessionId &&
+    claims.thresholdSessionId === args.thresholdSessionId &&
     claims.signingGrantId === args.signingGrantId
   );
 }
@@ -1094,25 +1094,29 @@ function recordToEd25519Lane(args: {
 }
 
 export function warmStatusToAvailableSigningLanesRuntimeClaim(args: {
-  sessionId: string;
+  thresholdSessionId: string;
   status: { ok: true; remainingUses: number; expiresAtMs: number } | { ok: false; code: string };
 }): AvailableSigningLanesRuntimeClaim {
   if (args.status.ok) {
     return {
       state: 'warm',
-      sessionId: args.sessionId,
+      thresholdSessionId: args.thresholdSessionId,
       remainingUses: args.status.remainingUses,
       expiresAtMs: args.status.expiresAtMs,
     };
   }
-  if (args.status.code === 'expired') return { state: 'expired', sessionId: args.sessionId };
-  if (args.status.code === 'exhausted') {
-    return { state: 'exhausted', sessionId: args.sessionId, remainingUses: 0 };
+  if (args.status.code === 'expired') {
+    return { state: 'expired', thresholdSessionId: args.thresholdSessionId };
   }
-  if (args.status.code === 'not_found') return { state: 'missing', sessionId: args.sessionId };
+  if (args.status.code === 'exhausted') {
+    return { state: 'exhausted', thresholdSessionId: args.thresholdSessionId, remainingUses: 0 };
+  }
+  if (args.status.code === 'not_found') {
+    return { state: 'missing', thresholdSessionId: args.thresholdSessionId };
+  }
   return {
     state: 'unavailable',
-    sessionId: args.sessionId,
+    thresholdSessionId: args.thresholdSessionId,
     code: args.status.code,
   };
 }

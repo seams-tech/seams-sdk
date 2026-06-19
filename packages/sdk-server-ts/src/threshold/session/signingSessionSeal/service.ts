@@ -229,7 +229,7 @@ function parseCurveBoundWalletBudgetLookup(
     return {
       curve: 'ecdsa',
       signingGrantId: ecdsaClaims.signingGrantId,
-      thresholdSessionId: ecdsaClaims.sessionId,
+      thresholdSessionId: ecdsaClaims.thresholdSessionId,
     };
   }
   const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(claims);
@@ -237,7 +237,7 @@ function parseCurveBoundWalletBudgetLookup(
     return {
       curve: 'ed25519',
       signingGrantId: ed25519Claims.signingGrantId,
-      thresholdSessionId: ed25519Claims.sessionId,
+      thresholdSessionId: ed25519Claims.thresholdSessionId,
     };
   }
   return null;
@@ -251,7 +251,7 @@ function parseCurveBoundThresholdLookup(args: {
   if (!requestedThresholdSessionId) return null;
   const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
-    return ecdsaClaims.sessionId === requestedThresholdSessionId
+    return ecdsaClaims.thresholdSessionId === requestedThresholdSessionId
       ? {
           curve: 'ecdsa',
           thresholdSessionId: requestedThresholdSessionId,
@@ -260,7 +260,7 @@ function parseCurveBoundThresholdLookup(args: {
   }
   const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
   if (ed25519Claims) {
-    return ed25519Claims.sessionId === requestedThresholdSessionId
+    return ed25519Claims.thresholdSessionId === requestedThresholdSessionId
       ? {
           curve: 'ed25519',
           thresholdSessionId: requestedThresholdSessionId,

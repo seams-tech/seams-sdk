@@ -363,6 +363,7 @@ async function attachEd25519WalletSessionJwt(
     sessionInfo: {
       ...session,
       sessionKind: 'jwt',
+      thresholdSessionId: session.sessionId,
       runtimePolicyScope: session.runtimePolicyScope,
       routerAbNormalSigning: session.routerAbNormalSigning,
     },
@@ -403,7 +404,7 @@ async function attachEcdsaWalletSessionJwt(
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
-      sessionId: bootstrap.sessionId,
+      thresholdSessionId: bootstrap.sessionId,
       signingGrantId: bootstrap.signingGrantId,
       expiresAtMs: bootstrap.expiresAtMs,
       participantIds: bootstrap.participantIds,

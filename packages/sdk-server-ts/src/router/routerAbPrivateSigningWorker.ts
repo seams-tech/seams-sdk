@@ -152,7 +152,7 @@ type RouterAbEcdsaHssNormalSigningThresholdService = {
 export type RouterAbNormalSigningRouteAdmission =
   | {
       ok: true;
-      sessionId: string;
+      thresholdSessionId: string;
       requestId: string;
       expiresAtMs: number;
     }
@@ -242,7 +242,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
       phase: input.phase,
       walletId: input.claims.walletId,
       rpId: input.claims.rpId,
-      sessionId: input.admission.sessionId,
+      sessionId: input.admission.thresholdSessionId,
       signingGrantId: input.claims.signingGrantId,
       requestId: input.admission.requestId,
       expiresAtMs: input.admission.expiresAtMs,
@@ -265,7 +265,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     phase: input.phase,
     walletId: input.claims.walletId,
     rpId: input.claims.rpId,
-    sessionId: input.admission.sessionId,
+    sessionId: input.admission.thresholdSessionId,
     signingGrantId: input.claims.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
@@ -606,7 +606,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
       curve: 'ed25519',
       phase: input.phase,
-      sessionId: admission.sessionId,
+      sessionId: admission.thresholdSessionId,
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
     });
@@ -643,7 +643,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     const reservation = await threshold.reserveRouterAbNormalSigningBudget({
       curve: 'ed25519',
       phase: 'prepare',
-      sessionId: admission.sessionId,
+      sessionId: admission.thresholdSessionId,
       signingGrantId: validated.claims.signingGrantId,
       operationId,
       requestDigest,
@@ -670,7 +670,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       const budget = await threshold.consumeRouterAbNormalSigningBudget({
         curve: 'ed25519',
         phase: 'finalize',
-        sessionId: admission.sessionId,
+        sessionId: admission.thresholdSessionId,
         signingGrantId: validated.claims.signingGrantId,
         requestId: admission.requestId,
       });
@@ -712,7 +712,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     const budget = await threshold.commitRouterAbNormalSigningBudget({
       curve: 'ed25519',
       phase: 'finalize',
-      sessionId: admission.sessionId,
+      sessionId: admission.thresholdSessionId,
       signingGrantId: validated.claims.signingGrantId,
       reservationId,
       operationId,
@@ -757,7 +757,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ed25519',
         phase: 'prepare',
-        sessionId: admission.sessionId,
+        sessionId: admission.thresholdSessionId,
         signingGrantId: validated.claims.signingGrantId,
         reservationId: budgetReservation.reservationId,
       });
@@ -799,7 +799,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
       ),
     };
   }
-  if (accountId !== input.claims.walletId || sessionId !== input.claims.sessionId) {
+  if (accountId !== input.claims.walletId || sessionId !== input.claims.thresholdSessionId) {
     return {
       ok: false,
       error: routerAbSigningError(
@@ -853,7 +853,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   }
   return {
     ok: true,
-    sessionId,
+    thresholdSessionId: sessionId,
     requestId,
     expiresAtMs,
   };
@@ -915,7 +915,7 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
   }
   return {
     ok: true,
-    sessionId: input.claims.sessionId,
+    thresholdSessionId: input.claims.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
   };
@@ -977,7 +977,7 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
   }
   return {
     ok: true,
-    sessionId: input.claims.sessionId,
+    thresholdSessionId: input.claims.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
   };
@@ -1074,7 +1074,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
       curve: 'ecdsa-hss',
       phase: 'prepare',
-      sessionId: admission.sessionId,
+      sessionId: admission.thresholdSessionId,
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
     });
@@ -1087,7 +1087,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     const reservation = await threshold.reserveRouterAbNormalSigningBudget({
       curve: 'ecdsa-hss',
       phase: 'prepare',
-      sessionId: admission.sessionId,
+      sessionId: admission.thresholdSessionId,
       signingGrantId: validated.claims.signingGrantId,
       operationId: admission.requestId,
       requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
@@ -1121,7 +1121,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     const budget = await threshold.commitRouterAbNormalSigningBudget({
       curve: 'ecdsa-hss',
       phase: 'finalize',
-      sessionId: admission.sessionId,
+      sessionId: admission.thresholdSessionId,
       signingGrantId: validated.claims.signingGrantId,
       reservationId,
       operationId: admission.requestId,
@@ -1154,7 +1154,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ecdsa-hss',
         phase: input.phase,
-        sessionId: admission.sessionId,
+        sessionId: admission.thresholdSessionId,
         signingGrantId: validated.claims.signingGrantId,
         reservationId: prepareBudgetReservation.reservationId,
       });

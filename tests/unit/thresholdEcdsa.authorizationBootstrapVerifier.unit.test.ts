@@ -219,7 +219,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           keyScope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
           keyHandle: TEST_KEY_HANDLE,
           relayerKeyId: body.relayerKeyId,
-          sessionId: body.sessionId,
+          thresholdSessionId: body.sessionId,
           signingGrantId: body.signingGrantId,
           thresholdExpiresAtMs: expiresAtMs,
           participantIds,

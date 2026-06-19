@@ -34,7 +34,7 @@ type LegacyThresholdSessionKind =
 type RouterAbBudgetConsumeCall = {
   curve: 'ed25519' | 'ecdsa-hss';
   phase: 'finalize';
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   requestId: string;
 };
@@ -94,7 +94,7 @@ const ROUTER_AB_ED25519_CLAIMS = {
   kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   sub: 'alice.testnet',
   walletId: 'alice.testnet',
-  sessionId: 'threshold-session-1',
+  thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   relayerKeyId: 'relayer-key-1',
   rpId: 'example.localhost',
@@ -144,7 +144,7 @@ const ROUTER_AB_ECDSA_HSS_CLAIMS = {
   kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
   sub: 'alice.testnet',
   walletId: 'alice.testnet',
-  sessionId: 'threshold-ecdsa-session-1',
+  thresholdSessionId: 'threshold-ecdsa-session-1',
   signingGrantId: 'signing-grant-ecdsa-1',
   keyScope: 'evm-family',
   keyHandle: ECDSA_HSS_SCOPE.context.ecdsa_threshold_key_id,
@@ -169,7 +169,7 @@ function legacyThresholdClaims(kind: LegacyThresholdSessionKind): Record<string,
     kind,
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
-    sessionId: 'threshold-session-1',
+    thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     relayerKeyId: 'relayer-key-1',
     rpId: 'example.localhost',
@@ -481,7 +481,7 @@ async function withBudgetedNormalSigningRouter<T>(
       consumeRouterAbNormalSigningBudget({
         curve: input.curve,
         phase: input.phase,
-        sessionId: input.sessionId,
+        thresholdSessionId: input.sessionId,
         signingGrantId: input.signingGrantId,
         requestId: input.operationId,
       }),
@@ -522,7 +522,7 @@ function ed25519NormalSigningBody(
     scope: {
       request_id: requestId,
       account_id: ROUTER_AB_ED25519_CLAIMS.walletId,
-      session_id: ROUTER_AB_ED25519_CLAIMS.sessionId,
+      session_id: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
       signing_worker_id: ROUTER_AB_ED25519_CLAIMS.routerAbNormalSigning.signingWorkerId,
     },
     expires_at_ms: ROUTER_AB_ED25519_CLAIMS.thresholdExpiresAtMs,
@@ -576,7 +576,7 @@ function parseSessionFromClaimsByToken(
 async function ecdsaFinalizeBudgetCase(input: {
   label: string;
   token: string;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   requestId: string;
   keyHandle: string;
@@ -616,7 +616,7 @@ async function ecdsaFinalizeBudgetCase(input: {
   });
   const claims = {
     ...ROUTER_AB_ECDSA_HSS_CLAIMS,
-    sessionId: input.sessionId,
+    thresholdSessionId: input.thresholdSessionId,
     signingGrantId: input.signingGrantId,
     keyHandle: input.keyHandle,
     runtimePolicyScope: {
@@ -638,7 +638,7 @@ async function ecdsaFinalizeBudgetCase(input: {
     budget: {
       curve: 'ecdsa-hss',
       phase: 'finalize',
-      sessionId: input.sessionId,
+      thresholdSessionId: input.thresholdSessionId,
       signingGrantId: input.signingGrantId,
       requestId: input.requestId,
     },
@@ -667,7 +667,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
     budget: {
       curve: 'ed25519' as const,
       phase: 'finalize' as const,
-      sessionId: ROUTER_AB_ED25519_CLAIMS.sessionId,
+      thresholdSessionId: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
       signingGrantId: ROUTER_AB_ED25519_CLAIMS.signingGrantId,
       requestId: `${ed25519RequestId}-operation`,
     },
@@ -675,7 +675,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
   const ecdsaEvmCase = await ecdsaFinalizeBudgetCase({
     label: 'ECDSA EVM final signing',
     token: 'router-ab-budget-ecdsa-evm',
-    sessionId: 'threshold-ecdsa-session-evm-budget',
+    thresholdSessionId: 'threshold-ecdsa-session-evm-budget',
     signingGrantId: 'signing-grant-ecdsa-evm-budget',
     requestId: 'router-ab-ecdsa-evm-budget-finalize',
     keyHandle: 'ehss-key-budget-evm',
@@ -685,7 +685,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
   const tempoCase = await ecdsaFinalizeBudgetCase({
     label: 'ECDSA Tempo final signing',
     token: 'router-ab-budget-ecdsa-tempo',
-    sessionId: 'threshold-ecdsa-session-tempo-budget',
+    thresholdSessionId: 'threshold-ecdsa-session-tempo-budget',
     signingGrantId: 'signing-grant-ecdsa-tempo-budget',
     requestId: 'router-ab-ecdsa-tempo-budget-finalize',
     keyHandle: 'ehss-key-budget-tempo',
@@ -758,7 +758,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               scope: {
                 request_id: `router-ab-ed25519-scope-drift-${route.path}`,
                 account_id: 'mallory.testnet',
-                session_id: ROUTER_AB_ED25519_CLAIMS.sessionId,
+                session_id: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
                 signing_worker_id: ROUTER_AB_ED25519_CLAIMS.routerAbNormalSigning.signingWorkerId,
               },
               expires_at_ms: ROUTER_AB_ED25519_CLAIMS.thresholdExpiresAtMs,
@@ -875,7 +875,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               scope: {
                 request_id: `router-ab-ed25519-expired-${route.path}`,
                 account_id: ROUTER_AB_ED25519_CLAIMS.walletId,
-                session_id: ROUTER_AB_ED25519_CLAIMS.sessionId,
+                session_id: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
                 signing_worker_id: ROUTER_AB_ED25519_CLAIMS.routerAbNormalSigning.signingWorkerId,
               },
               expires_at_ms: 1,
@@ -1079,7 +1079,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
     const cases = await routerAbBudgetFinalizationCases();
     const claimsByToken = new Map(cases.map((testCase) => [testCase.token, testCase.claims]));
     const remainingBySession = new Map(
-      cases.map((testCase) => [testCase.budget.sessionId, 1]),
+      cases.map((testCase) => [testCase.budget.thresholdSessionId, 1]),
     );
     const consumedKeys = new Set<string>();
 
@@ -1089,12 +1089,12 @@ test.describe('Router A/B normal signing auth boundary', () => {
         const key = [
           input.curve,
           input.phase,
-          input.sessionId,
+          input.thresholdSessionId,
           input.signingGrantId,
           input.requestId,
         ].join(':');
         if (!consumedKeys.has(key)) {
-          const remaining = remainingBySession.get(input.sessionId) ?? 0;
+          const remaining = remainingBySession.get(input.thresholdSessionId) ?? 0;
           if (remaining <= 0) {
             return {
               ok: false as const,
@@ -1103,12 +1103,12 @@ test.describe('Router A/B normal signing auth boundary', () => {
               message: 'wallet signing session exhausted',
             };
           }
-          remainingBySession.set(input.sessionId, remaining - 1);
+          remainingBySession.set(input.thresholdSessionId, remaining - 1);
           consumedKeys.add(key);
         }
         return {
           ok: true as const,
-          remainingUses: remainingBySession.get(input.sessionId) ?? 0,
+          remainingUses: remainingBySession.get(input.thresholdSessionId) ?? 0,
         };
       },
       async (srv) => {
@@ -1310,7 +1310,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           scope: {
             request_id: 'router-ab-ed25519-quota-prepare',
             account_id: ROUTER_AB_ED25519_CLAIMS.walletId,
-            session_id: ROUTER_AB_ED25519_CLAIMS.sessionId,
+            session_id: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
             signing_worker_id: ROUTER_AB_ED25519_CLAIMS.routerAbNormalSigning.signingWorkerId,
           },
           expires_at_ms: ROUTER_AB_ED25519_CLAIMS.thresholdExpiresAtMs,
@@ -1337,7 +1337,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           scope: {
             request_id: 'router-ab-ed25519-abuse-finalize',
             account_id: ROUTER_AB_ED25519_CLAIMS.walletId,
-            session_id: ROUTER_AB_ED25519_CLAIMS.sessionId,
+            session_id: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
             signing_worker_id: ROUTER_AB_ED25519_CLAIMS.routerAbNormalSigning.signingWorkerId,
           },
           expires_at_ms: ROUTER_AB_ED25519_CLAIMS.thresholdExpiresAtMs,

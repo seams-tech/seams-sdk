@@ -720,7 +720,7 @@ export function registerThresholdEcdsaRoutes(
           relayerKeyId: parsed.relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',
-            sessionId: bootstrap.value.sessionId,
+            thresholdSessionId: bootstrap.value.sessionId,
             signingGrantId: bootstrap.value.signingGrantId,
             expiresAtMs: bootstrap.value.expiresAtMs,
             participantIds: bootstrap.value.participantIds,

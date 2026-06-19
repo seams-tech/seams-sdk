@@ -3767,7 +3767,7 @@ test.describe('relayer router (express) – P0', () => {
           sub: 'budget-stale.testnet',
           walletId: 'budget-stale.testnet',
           kind: 'threshold_ecdsa_session_v1',
-          sessionId: 'threshold-login-stale-express',
+          thresholdSessionId: 'threshold-login-stale-express',
           signingGrantId: 'wsess-stale-express',
           subjectId: 'budget-stale.testnet',
           chainTarget: {
@@ -3842,7 +3842,7 @@ test.describe('relayer router (express) – P0', () => {
           getWalletBudgetStatus: async ({ signingGrantId }) =>
             signingGrantId === claims.signingGrantId ? walletBudgetStatus : null,
           getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
-            thresholdSessionId === claims.sessionId ? [wrongCurveStatus, ecdsaStatus] : [],
+            thresholdSessionId === claims.thresholdSessionId ? [wrongCurveStatus, ecdsaStatus] : [],
         },
       },
     });
@@ -3853,14 +3853,14 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
           signingGrantId: claims.signingGrantId,
-          thresholdSessionId: claims.sessionId,
+          thresholdSessionId: claims.thresholdSessionId,
         }),
       });
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({
         ok: true,
         signingGrantId: claims.signingGrantId,
-        thresholdSessionId: claims.sessionId,
+        thresholdSessionId: claims.thresholdSessionId,
         status: 'active',
         committedRemainingUses: 5,
         reservedUses: 3,
@@ -3896,7 +3896,7 @@ test.describe('relayer router (express) – P0', () => {
           getWalletBudgetStatus: async ({ signingGrantId }) =>
             signingGrantId === claims.signingGrantId ? walletBudgetStatus : null,
           getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
-            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+            thresholdSessionId === claims.thresholdSessionId ? [ecdsaStatus] : [],
         },
       },
     });
@@ -3907,14 +3907,14 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
           signingGrantId: claims.signingGrantId,
-          thresholdSessionId: claims.sessionId,
+          thresholdSessionId: claims.thresholdSessionId,
         }),
       });
       expect(res.status).toBe(200);
       expect(res.json).toMatchObject({
         ok: true,
         signingGrantId: claims.signingGrantId,
-        thresholdSessionId: claims.sessionId,
+        thresholdSessionId: claims.thresholdSessionId,
         status: 'exhausted',
         committedRemainingUses: 0,
         reservedUses: 0,
@@ -3947,7 +3947,7 @@ test.describe('relayer router (express) – P0', () => {
           getWalletBudgetStatus: async ({ signingGrantId }) =>
             signingGrantId === claims.signingGrantId ? walletBudgetStatus : null,
           getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
-            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+            thresholdSessionId === claims.thresholdSessionId ? [ecdsaStatus] : [],
         },
       },
     });
@@ -3958,14 +3958,14 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
           signingGrantId: claims.signingGrantId,
-          thresholdSessionId: claims.sessionId,
+          thresholdSessionId: claims.thresholdSessionId,
         }),
       });
       expect(res.status).toBe(200);
       expect(res.json).toEqual({
         ok: true,
         signingGrantId: claims.signingGrantId,
-        thresholdSessionId: claims.sessionId,
+        thresholdSessionId: claims.thresholdSessionId,
         status: 'not_found',
         statusCode: 'unauthorized',
       });
@@ -3993,7 +3993,7 @@ test.describe('relayer router (express) – P0', () => {
           getWalletBudgetStatus: async ({ signingGrantId }) =>
             signingGrantId === claims.signingGrantId ? walletBudgetStatus : null,
           getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
-            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+            thresholdSessionId === claims.thresholdSessionId ? [ecdsaStatus] : [],
         },
       },
     });
@@ -4004,7 +4004,7 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
           signingGrantId: claims.signingGrantId,
-          thresholdSessionId: `${claims.sessionId}-other`,
+          thresholdSessionId: `${claims.thresholdSessionId}-other`,
         }),
       });
       expect(res.status).toBe(403);
@@ -4046,14 +4046,14 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
         body: JSON.stringify({
           signingGrantId: claims.signingGrantId,
-          thresholdSessionId: claims.sessionId,
+          thresholdSessionId: claims.thresholdSessionId,
         }),
       });
       expect(res.status).toBe(200);
       expect(res.json).toEqual({
         ok: true,
         signingGrantId: claims.signingGrantId,
-        thresholdSessionId: claims.sessionId,
+        thresholdSessionId: claims.thresholdSessionId,
         status: 'not_found',
         statusCode: 'unauthorized',
       });

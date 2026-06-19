@@ -211,7 +211,7 @@ async function installThresholdRegistrationBootstrapMock(
         kind:
           | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
           | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
-        sessionId: string;
+        thresholdSessionId: string;
         signingGrantId: string;
         relayerKeyId: string;
         participantIds: number[];
@@ -225,7 +225,7 @@ async function installThresholdRegistrationBootstrapMock(
         return await input.session.signJwt(accountId, {
           kind: args.kind,
           walletId: accountId,
-          sessionId: args.sessionId,
+          thresholdSessionId: args.thresholdSessionId,
           signingGrantId: args.signingGrantId,
           relayerKeyId: args.relayerKeyId,
           rpId,
@@ -262,7 +262,7 @@ async function installThresholdRegistrationBootstrapMock(
         const runtimePolicyScope = resolveRuntimePolicyScope(policy);
         const jwt = await signWalletSessionJwt({
           kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-          sessionId,
+          thresholdSessionId: sessionId,
           signingGrantId,
           relayerKeyId: thresholdEdRelayerKeyId,
           participantIds,
@@ -402,7 +402,7 @@ async function installThresholdRegistrationBootstrapMock(
         const bootstrapRelayerKeyId = String(bootstrap.relayerKeyId || relayerKeyId);
         const jwt = await signWalletSessionJwt({
           kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-          sessionId: bootstrapSessionId,
+          thresholdSessionId: bootstrapSessionId,
           signingGrantId,
           relayerKeyId: bootstrapRelayerKeyId,
           participantIds: bootstrapParticipantIds,

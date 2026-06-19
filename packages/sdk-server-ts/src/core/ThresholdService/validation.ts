@@ -1019,7 +1019,7 @@ export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionC
   sub: string;
   walletId: string;
   kind: Kind;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
   rpId: string;
@@ -1063,7 +1063,9 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   if (kind !== expectedKind) return null;
   const sub = toOptionalString(raw.sub);
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const sessionId = toOptionalString(raw.sessionId);
+  const thresholdSessionId = toOptionalString(
+    (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
+  );
   const signingGrantId = toOptionalString(
     (raw as { signingGrantId?: unknown }).signingGrantId,
   );
@@ -1073,7 +1075,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !sub ||
     !walletId ||
     walletId !== sub ||
-    !sessionId ||
+    !thresholdSessionId ||
     !signingGrantId ||
     !relayerKeyId ||
     !rpId
@@ -1089,7 +1091,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     sub,
     walletId,
     kind: expectedKind,
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
     relayerKeyId,
     rpId,
@@ -1374,7 +1376,7 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   sub: string;
   walletId: string;
   kind: Kind;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   keyScope: 'evm-family';
   keyHandle: string;
@@ -1411,7 +1413,9 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   if (kind !== expectedKind) return null;
   const sub = toOptionalString(raw.sub);
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const sessionId = toOptionalString(raw.sessionId);
+  const thresholdSessionId = toOptionalString(
+    (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
+  );
   const signingGrantId = toOptionalString(
     (raw as { signingGrantId?: unknown }).signingGrantId,
   );
@@ -1423,7 +1427,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     !sub ||
     !walletId ||
     walletId !== sub ||
-    !sessionId ||
+    !thresholdSessionId ||
     !signingGrantId ||
     keyScope !== 'evm-family' ||
     !keyHandle ||
@@ -1441,7 +1445,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     sub,
     walletId,
     kind: expectedKind,
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
     keyScope,
     keyHandle,

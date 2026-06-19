@@ -123,7 +123,7 @@ export function thresholdEcdsaSessionJwtFixture(args: {
     keyHandle: args.keyHandle,
     keyScope: 'evm-family',
     ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
-    sessionId: args.thresholdSessionId,
+    thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
   });
 }

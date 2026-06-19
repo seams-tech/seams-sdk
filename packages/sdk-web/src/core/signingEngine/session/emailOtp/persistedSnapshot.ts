@@ -223,7 +223,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             const status = await ports.readWarmSessionStatusOnly(statusSessionId);
             claims.set(
               claimKey,
-              warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status }),
+              warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status }),
             );
           }),
         );
@@ -236,7 +236,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             const status = await ports.readWarmSessionStatusOnly(sessionId);
             claims.set(
               sessionId,
-              warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status }),
+              warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status }),
             );
           }),
         );

@@ -805,9 +805,9 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
     actual: payload.relayerKeyId,
   });
   requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.sessionId',
+    field: 'walletSessionJwt.thresholdSessionId',
     expected: expected.thresholdSessionId,
-    actual: payload.sessionId,
+    actual: payload.thresholdSessionId,
   });
   requireWalletRegistrationMatchingString({
     field: 'walletSessionJwt.signingGrantId',

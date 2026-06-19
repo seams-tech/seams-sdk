@@ -157,7 +157,7 @@ function buildVerifiedEcdsaWalletSessionAuth(
   return {
     kind: 'wallet_session',
     curve: 'ecdsa',
-    thresholdSessionId: claims.sessionId,
+    thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
     rpId: claims.rpId,
@@ -174,7 +174,7 @@ function buildVerifiedEd25519WalletSessionAuth(
   return {
     kind: 'wallet_session',
     curve: 'ed25519',
-    thresholdSessionId: claims.sessionId,
+    thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
     rpId: claims.rpId,
@@ -211,7 +211,7 @@ export async function parseEcdsaWalletSigningBudgetStatusRequest(args: {
     request: {
       kind: 'ecdsa_wallet_budget_status',
       auth,
-      thresholdSessionId: args.claims.sessionId,
+      thresholdSessionId: args.claims.thresholdSessionId,
       signingGrantId: args.claims.signingGrantId,
       keyHandle: auth.keyHandle,
     },
@@ -234,7 +234,7 @@ export async function parseEd25519WalletSigningBudgetStatusRequest(args: {
     request: {
       kind: 'ed25519_wallet_budget_status',
       auth,
-      thresholdSessionId: args.claims.sessionId,
+      thresholdSessionId: args.claims.thresholdSessionId,
       signingGrantId: args.claims.signingGrantId,
       ed25519RelayerKeyId: args.claims.relayerKeyId,
     },

@@ -302,7 +302,7 @@ function tryBuildEcdsaSessionIdentityFromClaims(
   claims: Record<string, unknown>,
 ): EcdsaSessionIdentity | null {
   return tryBuildEcdsaSessionIdentity({
-    thresholdSessionId: claims.sessionId,
+    thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
   });
 }

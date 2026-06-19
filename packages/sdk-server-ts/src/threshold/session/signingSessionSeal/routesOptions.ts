@@ -91,13 +91,13 @@ function parseCurveBoundThresholdLookup(args: {
   if (!thresholdSessionId) return null;
   const ecdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(args.claims);
   if (ecdsaClaims) {
-    return ecdsaClaims.sessionId === thresholdSessionId
+    return ecdsaClaims.thresholdSessionId === thresholdSessionId
       ? { curve: 'ecdsa', thresholdSessionId }
       : null;
   }
   const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
   if (ed25519Claims) {
-    return ed25519Claims.sessionId === thresholdSessionId
+    return ed25519Claims.thresholdSessionId === thresholdSessionId
       ? { curve: 'ed25519', thresholdSessionId }
       : null;
   }

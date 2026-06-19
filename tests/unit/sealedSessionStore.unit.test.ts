@@ -35,8 +35,6 @@ const EMAIL_OTP_ED25519_RESTORE = {
   ...PASSKEY_ED25519_RESTORE,
   sessionKind: 'jwt',
   walletSessionJwt: 'threshold-session-jwt',
-  xClientBaseB64u: 'x-client-base-b64u',
-  clientVerifyingShareB64u: 'client-verifying-share-b64u',
 } as const;
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
@@ -200,7 +198,7 @@ test.describe('signing session sealed store', () => {
       kind: 'router_ab_ecdsa_hss_wallet_session_v1',
       sub: walletId,
       walletId,
-      sessionId: 'router-ab-ecdsa-session',
+      thresholdSessionId: 'router-ab-ecdsa-session',
       signingGrantId: 'router-ab-wallet-session',
       keyScope: 'evm-family',
       keyHandle: ECDSA_RESTORE.keyHandle,

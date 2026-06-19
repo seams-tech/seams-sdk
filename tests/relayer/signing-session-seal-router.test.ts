@@ -37,7 +37,7 @@ function makeThresholdSessionClaims(input?: { userId?: string; signingGrantId?: 
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: userId,
     walletId: userId,
-    sessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId,
     keyScope: 'evm-family' as const,
     keyHandle: 'ehss-key-seal-test',

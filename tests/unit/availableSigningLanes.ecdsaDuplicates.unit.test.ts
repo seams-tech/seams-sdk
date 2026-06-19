@@ -166,7 +166,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           'tsess-runtime-durable',
           {
             state: 'warm',
-            sessionId: 'tsess-runtime-durable',
+            thresholdSessionId: 'tsess-runtime-durable',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -205,7 +205,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           'tsess-ecdsa-stale-router-ab',
           {
             state: 'warm',
-            sessionId: 'tsess-ecdsa-stale-router-ab',
+            thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -254,7 +254,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           tempoThresholdSessionId,
           {
             state: 'warm',
-            sessionId: tempoThresholdSessionId,
+            thresholdSessionId: tempoThresholdSessionId,
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -321,7 +321,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           tempoClaimKey,
           {
             state: 'warm',
-            sessionId: thresholdSessionId,
+            thresholdSessionId: thresholdSessionId,
             remainingUses: 2,
             expiresAtMs: EXPIRES_AT_MS,
           },
@@ -468,6 +468,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
           updatedAtMs: 500,
           ecdsaThresholdKeyId: 'shared-ecdsa-key',
           ethereumAddress: `0x${'11'.repeat(20)}`,
+          sessionKind: 'jwt',
         }),
       ],
       runtimeEcdsaRecords: [

@@ -10,6 +10,10 @@ import {
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import {
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  type RouterAbPublicKeysetV2,
+} from '@shared/utils/routerAbPublicKeyset';
 import { fetchJson, makeSessionAdapter, startExpressRouter } from './helpers';
 
 const RUNTIME_POLICY_SCOPE = {
@@ -28,6 +32,31 @@ const PASSKEY_BOOTSTRAP_HEADERS = {
   'Content-Type': 'application/json',
   Origin: `https://${RP_ID}`,
 } as const;
+const TEST_ROUTER_AB_PUBLIC_KEYSET = {
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  signer_envelope_hpke: {
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: `x25519:${'11'.repeat(32)}`,
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: `x25519:${'22'.repeat(32)}`,
+      },
+    },
+  },
+  signer_peer_verifying_keys: {
+    deriver_a: { role: 'signer_a', verifying_key_hex: 'aa'.repeat(32) },
+    deriver_b: { role: 'signer_b', verifying_key_hex: 'bb'.repeat(32) },
+  },
+  signing_worker_server_output_hpke: {
+    key_epoch: 'signing-worker-output-epoch',
+    public_key: `x25519:${'33'.repeat(32)}`,
+  },
+} satisfies RouterAbPublicKeysetV2;
 
 function b64u(bytes: Uint8Array): string {
   return base64UrlEncode(bytes);
@@ -145,6 +174,8 @@ async function startPasskeyBootstrapRoute(input: {
           relayerVerifyingShareB64u: b64u(
             Uint8Array.from([0x03, ...Array.from({ length: 32 }, (_, index) => index + 2)]),
           ),
+          clientShareRetryCounter: Number(parsedRequest.clientShareRetryCounter),
+          relayerShareRetryCounter: 0,
           participantIds: PARTICIPANT_IDS,
           sessionId: parsedRequest.sessionId,
           signingGrantId: parsedRequest.signingGrantId,
@@ -168,6 +199,7 @@ async function startPasskeyBootstrapRoute(input: {
   const router = createRelayRouter(service as any, {
     threshold: makeThresholdAdapter() as any,
     session: makeSessionAdapter(input.parseSession ? { parse: input.parseSession } : {}),
+    routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     logger: null,
   });
   const server = await startExpressRouter(router);
@@ -348,7 +380,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
           kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
           sub: WALLET_SESSION_USER_ID,
           walletId: WALLET_SESSION_USER_ID,
-          sessionId: 'threshold-ed25519-login-session',
+          thresholdSessionId: 'threshold-ed25519-login-session',
           signingGrantId: body.signingGrantId,
           relayerKeyId: 'ed25519-relayer-key',
           rpId: RP_ID,

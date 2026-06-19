@@ -33,7 +33,7 @@ function walletSessionClaims(): Record<string, unknown> {
     sub: walletId,
     walletId,
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    sessionId: thresholdSessionId,
+    thresholdSessionId,
     signingGrantId,
     relayerKeyId: 'near-relayer-key-1',
     rpId: 'localhost',
