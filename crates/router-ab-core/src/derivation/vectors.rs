@@ -233,14 +233,14 @@ pub fn generated_contract_vectors_v1() -> RouterAbDerivationResult<ContractVecto
     let transcript = sample_transcript(context.clone())?;
     let transcript_digest = transcript_digest_v1(&transcript)?;
     let export_context = sample_context_for(
-        CandidateId::SplitRootDerivationV1,
+        CandidateId::MpcThresholdPrfV1,
         RequestKind::Export,
         "epoch-1",
         "ceremony-export-1",
     )?;
     let export_transcript = sample_transcript(export_context.clone())?;
     let refresh_context = sample_context_for(
-        CandidateId::SplitRootDerivationV1,
+        CandidateId::MpcThresholdPrfV1,
         RequestKind::Refresh,
         "epoch-2",
         "ceremony-refresh-1",
@@ -469,7 +469,7 @@ fn require_committed_digest_hex(
 
 fn sample_context() -> RouterAbDerivationResult<DerivationContext> {
     sample_context_for(
-        CandidateId::SplitRootDerivationV1,
+        CandidateId::MpcThresholdPrfV1,
         RequestKind::Registration,
         "epoch-1",
         "ceremony-1",
@@ -523,17 +523,15 @@ fn sample_context_transcript_vector(
 
 fn sample_candidate_output_vectors() -> RouterAbDerivationResult<Vec<CandidateOutputVectorV1>> {
     let mut vectors = Vec::new();
-    for candidate_id in [
-        CandidateId::SplitRootDerivationV1,
-        CandidateId::MpcThresholdPrfV1,
+    for request_kind in [
+        RequestKind::Registration,
+        RequestKind::Export,
+        RequestKind::Refresh,
     ] {
-        for request_kind in [
-            RequestKind::Registration,
-            RequestKind::Export,
-            RequestKind::Refresh,
-        ] {
-            vectors.push(sample_candidate_output_vector(candidate_id, request_kind)?);
-        }
+        vectors.push(sample_candidate_output_vector(
+            CandidateId::MpcThresholdPrfV1,
+            request_kind,
+        )?);
     }
     Ok(vectors)
 }
@@ -572,24 +570,15 @@ fn sample_candidate_output_vector(
 }
 
 fn expected_candidate_gate_error(
-    candidate_id: CandidateId,
+    _candidate_id: CandidateId,
     context: DerivationContext,
     transcript: TranscriptBinding,
 ) -> RouterAbDerivationResult<RouterAbDerivationErrorCode> {
-    let result = match candidate_id {
-        CandidateId::SplitRootDerivationV1 => disabled_candidate_gate_error(
-            context,
-            transcript,
-            "split_root_derivation_v1 candidate-level output gate is disabled; selected path is mpc_threshold_prf_v1",
-        ),
-        CandidateId::MpcThresholdPrfV1 => {
-            disabled_candidate_gate_error(
-                context,
-                transcript,
-                "mpc_threshold_prf_v1 candidate-level output gate is disabled; use proof-bundle backend APIs",
-            )
-        }
-    };
+    let result = disabled_candidate_gate_error(
+        context,
+        transcript,
+        "mpc_threshold_prf_v1 candidate-level output gate is disabled; use proof-bundle backend APIs",
+    );
 
     match result {
         Ok(()) => Err(RouterAbDerivationError::new(

@@ -273,7 +273,6 @@ fn parse_public_digest32_v1(
 fn parse_candidate_id_v1(raw: &str) -> RouterAbDerivationResult<CandidateId> {
     match raw {
         "mpc_threshold_prf_v1" => Ok(CandidateId::MpcThresholdPrfV1),
-        "split_root_derivation_v1" => Ok(CandidateId::SplitRootDerivationV1),
         _ => Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::UnsupportedCandidate,
             format!("unsupported candidate_id `{raw}`"),

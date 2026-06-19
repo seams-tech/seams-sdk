@@ -38,8 +38,7 @@ binding = "SIGNING_WORKER"
 service = "router-ab-strict-signing-worker"
 
 [vars]
-ROUTER_AB_WORKER_ROLE = "router"
-ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 ROUTER_JWT_ISSUER = "https://issuer.example"
 ROUTER_JWT_AUDIENCE = "router-ab"
 ROUTER_JWT_JWKS_URL = "https://issuer.example/.well-known/jwks.json"
@@ -108,8 +107,7 @@ binding = "SIGNING_WORKER"
 service = "router-ab-strict-signing-worker-staging"
 
 [env.staging.vars]
-ROUTER_AB_WORKER_ROLE = "router"
-ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 ROUTER_JWT_ISSUER = "https://issuer-staging.example"
 ROUTER_JWT_AUDIENCE = "router-ab"
 ROUTER_JWT_JWKS_URL = "https://issuer-staging.example/.well-known/jwks.json"
@@ -177,8 +175,7 @@ binding = "SIGNING_WORKER"
 service = "router-ab-strict-signing-worker-prod"
 
 [env.production.vars]
-ROUTER_AB_WORKER_ROLE = "router"
-ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 ROUTER_JWT_ISSUER = "https://issuer.example"
 ROUTER_JWT_AUDIENCE = "router-ab"
 ROUTER_JWT_JWKS_URL = "https://issuer.example/.well-known/jwks.json"

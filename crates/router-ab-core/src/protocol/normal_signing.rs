@@ -11,6 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 
 const ROUTER_AB_ED25519_NORMAL_SIGNING_INTENT_VERSION_V2: &[u8] =
     b"router-ab-protocol/ed25519-normal-signing/intent/v2";
@@ -18,6 +19,9 @@ const ROUTER_AB_ED25519_SIGNING_PAYLOAD_VERSION_V2: &[u8] =
     b"router-ab-protocol/ed25519-normal-signing/payload/v2";
 const ROUTER_AB_ED25519_ROUND1_BINDING_VERSION_V2: &[u8] =
     b"router-ab-protocol/ed25519-normal-signing/round1-binding/v2";
+const ROUTER_AB_ED25519_PRESIGN_POOL_ENTRY_BINDING_VERSION_V2: &[u8] =
+    b"router-ab-protocol/ed25519-normal-signing/presign-pool-entry-binding/v2";
+const MAX_ROUTER_AB_ED25519_PRESIGN_POOL_OFFERS_V2: usize = 64;
 const NEP413_PREFIX: u32 = 2_147_484_061;
 const NEP461_DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 
@@ -737,6 +741,396 @@ pub fn parse_router_ab_ed25519_normal_signing_prepare_request_v2_json(
     Ok(request)
 }
 
+/// Client-offered Ed25519/FROST round-1 material for Router A/B presign-pool refill.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEd25519PresignPoolClientOfferV2 {
+    /// Client-selected presign id tracked by the SDK pool.
+    pub client_presign_id: String,
+    /// Client-local nonce handle needed to produce the final signature share.
+    pub client_nonce_handle: String,
+    /// Client public round-1 commitments.
+    pub client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    /// Client verifying share used later to verify the client signature share.
+    pub client_verifying_share_b64u: String,
+}
+
+impl RouterAbEd25519PresignPoolClientOfferV2 {
+    /// Creates a validated client presign-pool offer.
+    pub fn new(
+        client_presign_id: impl Into<String>,
+        client_nonce_handle: impl Into<String>,
+        client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+        client_verifying_share_b64u: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let offer = Self {
+            client_presign_id: client_presign_id.into(),
+            client_nonce_handle: client_nonce_handle.into(),
+            client_commitments,
+            client_verifying_share_b64u: client_verifying_share_b64u.into(),
+        };
+        offer.validate()?;
+        Ok(offer)
+    }
+
+    /// Validates required offer fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("client_presign_id", &self.client_presign_id)?;
+        require_non_empty("client_nonce_handle", &self.client_nonce_handle)?;
+        require_non_empty(
+            "client_verifying_share_b64u",
+            &self.client_verifying_share_b64u,
+        )?;
+        self.client_commitments.validate()
+    }
+}
+
+/// Wallet Session authenticated Router A/B Ed25519 presign-pool refill request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEd25519PresignPoolPrepareRequestV2 {
+    /// Normal signing identity and active SigningWorker scope.
+    pub scope: NormalSigningScopeV1,
+    /// Expiry for accepted unbound pool records.
+    pub expires_at_ms: u64,
+    /// SDK pool generation used to reject stale refill results.
+    pub generation: u64,
+    /// Client-generated message-agnostic commitment offers.
+    pub client_offers: Vec<RouterAbEd25519PresignPoolClientOfferV2>,
+}
+
+impl RouterAbEd25519PresignPoolPrepareRequestV2 {
+    /// Creates a validated Router A/B Ed25519 presign-pool refill request.
+    pub fn new(
+        scope: NormalSigningScopeV1,
+        expires_at_ms: u64,
+        generation: u64,
+        client_offers: Vec<RouterAbEd25519PresignPoolClientOfferV2>,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            scope,
+            expires_at_ms,
+            generation,
+            client_offers,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Validates the pool refill request without consulting clock state.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_positive_ms("presign pool expires_at_ms", self.expires_at_ms)?;
+        require_positive_ms("presign pool generation", self.generation)?;
+        if self.client_offers.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "presign pool refill requires at least one client offer",
+            ));
+        }
+        if self.client_offers.len() > MAX_ROUTER_AB_ED25519_PRESIGN_POOL_OFFERS_V2 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                "presign pool refill carries too many client offers",
+            ));
+        }
+        let mut client_presign_ids = BTreeSet::new();
+        let mut client_nonce_handles = BTreeSet::new();
+        for offer in &self.client_offers {
+            offer.validate()?;
+            if !client_presign_ids.insert(offer.client_presign_id.as_str()) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "presign pool refill client_presign_id is duplicated",
+                ));
+            }
+            if !client_nonce_handles.insert(offer.client_nonce_handle.as_str()) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "presign pool refill client_nonce_handle is duplicated",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates the pool refill request against Router time.
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        if now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "presign pool refill request expired",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns a message-agnostic digest binding one client offer to this pool refill scope.
+    pub fn pool_entry_binding_digest(
+        &self,
+        offer: &RouterAbEd25519PresignPoolClientOfferV2,
+    ) -> RouterAbProtocolResult<PublicDigest32> {
+        router_ab_ed25519_presign_pool_entry_binding_digest_v2(
+            &self.scope,
+            self.expires_at_ms,
+            self.generation,
+            offer,
+        )
+    }
+}
+
+/// Parses and validates a raw JSON v2 presign-pool refill request.
+pub fn parse_router_ab_ed25519_presign_pool_prepare_request_v2_json(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<RouterAbEd25519PresignPoolPrepareRequestV2> {
+    let request = parse_normal_signing_boundary_json_v2::<
+        RouterAbEd25519PresignPoolPrepareRequestV2,
+    >("normal signing v2 presign-pool prepare request", bytes)?;
+    request.validate()?;
+    Ok(request)
+}
+
+/// SigningWorker-accepted server side of one Router A/B Ed25519 presign-pool offer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEd25519PresignPoolAcceptedEntryV2 {
+    /// Client-selected presign id accepted by the SigningWorker.
+    pub client_presign_id: String,
+    /// SDK pool generation accepted by the SigningWorker.
+    pub generation: u64,
+    /// Message-agnostic binding digest for the accepted client offer.
+    pub pool_entry_binding_digest: PublicDigest32,
+    /// Active SigningWorker identity that prepared the server nonces.
+    pub signing_worker: ServerIdentityV1,
+    /// SigningWorker-local handle for the stored unbound round-1 server nonces.
+    pub server_round1_handle: String,
+    /// Server public round-1 commitments.
+    pub server_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    /// Server verifying share used by the client to construct its signature share.
+    pub server_verifying_share_b64u: String,
+    /// Signature scheme this prepared state supports.
+    pub signature_scheme: NormalSigningSignatureSchemeV1,
+    /// Prepare timestamp in Unix milliseconds.
+    pub prepared_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl RouterAbEd25519PresignPoolAcceptedEntryV2 {
+    /// Creates a validated accepted presign-pool entry.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        client_presign_id: impl Into<String>,
+        generation: u64,
+        pool_entry_binding_digest: PublicDigest32,
+        signing_worker: ServerIdentityV1,
+        server_round1_handle: impl Into<String>,
+        server_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+        server_verifying_share_b64u: impl Into<String>,
+        signature_scheme: NormalSigningSignatureSchemeV1,
+        prepared_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let entry = Self {
+            client_presign_id: client_presign_id.into(),
+            generation,
+            pool_entry_binding_digest,
+            signing_worker,
+            server_round1_handle: server_round1_handle.into(),
+            server_commitments,
+            server_verifying_share_b64u: server_verifying_share_b64u.into(),
+            signature_scheme,
+            prepared_at_ms,
+            expires_at_ms,
+        };
+        entry.validate()?;
+        Ok(entry)
+    }
+
+    /// Validates accepted entry identity and timing fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("accepted.client_presign_id", &self.client_presign_id)?;
+        require_positive_ms("accepted.generation", self.generation)?;
+        self.signing_worker.validate()?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)?;
+        self.server_commitments.validate()?;
+        require_non_empty(
+            "server_verifying_share_b64u",
+            &self.server_verifying_share_b64u,
+        )?;
+        require_positive_ms("accepted.prepared_at_ms", self.prepared_at_ms)?;
+        require_positive_ms("accepted.expires_at_ms", self.expires_at_ms)?;
+        if self.expires_at_ms <= self.prepared_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "accepted presign pool entry expiry must be after prepare time",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates this accepted entry against its originating refill request and offer.
+    pub fn validate_for_offer(
+        &self,
+        request: &RouterAbEd25519PresignPoolPrepareRequestV2,
+        offer: &RouterAbEd25519PresignPoolClientOfferV2,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate()?;
+        offer.validate()?;
+        if self.client_presign_id == offer.client_presign_id
+            && self.generation == request.generation
+            && self.pool_entry_binding_digest == request.pool_entry_binding_digest(offer)?
+            && self.signing_worker.server_id == request.scope.signing_worker_id
+            && self.expires_at_ms == request.expires_at_ms
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "accepted presign pool entry does not match refill request",
+        ))
+    }
+}
+
+/// Router A/B Ed25519 presign-pool refill response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEd25519PresignPoolPrepareResponseV2 {
+    /// Normal signing identity and active SigningWorker scope.
+    pub scope: NormalSigningScopeV1,
+    /// SDK pool generation accepted by the SigningWorker.
+    pub generation: u64,
+    /// Accepted server-backed presign entries.
+    pub accepted: Vec<RouterAbEd25519PresignPoolAcceptedEntryV2>,
+    /// Client presign ids rejected by the SigningWorker.
+    pub rejected_client_presign_ids: Vec<String>,
+}
+
+impl RouterAbEd25519PresignPoolPrepareResponseV2 {
+    /// Creates a validated Router A/B Ed25519 presign-pool refill response.
+    pub fn new(
+        scope: NormalSigningScopeV1,
+        generation: u64,
+        accepted: Vec<RouterAbEd25519PresignPoolAcceptedEntryV2>,
+        rejected_client_presign_ids: Vec<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self {
+            scope,
+            generation,
+            accepted,
+            rejected_client_presign_ids,
+        };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Validates accepted/rejected identity and duplicate handling.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_positive_ms("presign pool response generation", self.generation)?;
+        let mut accepted_ids = BTreeSet::new();
+        let mut server_handles = BTreeSet::new();
+        for entry in &self.accepted {
+            entry.validate()?;
+            if entry.generation != self.generation {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "accepted presign pool entry generation does not match response",
+                ));
+            }
+            if entry.signing_worker.server_id != self.scope.signing_worker_id {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "accepted presign pool entry SigningWorker does not match response scope",
+                ));
+            }
+            if !accepted_ids.insert(entry.client_presign_id.as_str()) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "accepted presign pool client_presign_id is duplicated",
+                ));
+            }
+            if !server_handles.insert(entry.server_round1_handle.as_str()) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "accepted presign pool server_round1_handle is duplicated",
+                ));
+            }
+        }
+        let mut rejected_ids = BTreeSet::new();
+        for rejected in &self.rejected_client_presign_ids {
+            require_non_empty("rejected_client_presign_id", rejected)?;
+            if !rejected_ids.insert(rejected.as_str()) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "rejected presign pool client_presign_id is duplicated",
+                ));
+            }
+            if accepted_ids.contains(rejected.as_str()) {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "presign pool client_presign_id cannot be both accepted and rejected",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates this response against the originating pool refill request.
+    pub fn validate_for_request(
+        &self,
+        request: &RouterAbEd25519PresignPoolPrepareRequestV2,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate()?;
+        if self.scope != request.scope || self.generation != request.generation {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "presign pool response scope or generation does not match request",
+            ));
+        }
+        for entry in &self.accepted {
+            let offer = request
+                .client_offers
+                .iter()
+                .find(|offer| offer.client_presign_id == entry.client_presign_id)
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                        "accepted presign pool entry has no matching client offer",
+                    )
+                })?;
+            entry.validate_for_offer(request, offer)?;
+        }
+        for rejected in &self.rejected_client_presign_ids {
+            if !request
+                .client_offers
+                .iter()
+                .any(|offer| offer.client_presign_id == *rejected)
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    "rejected presign pool id has no matching client offer",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Parses and validates a raw JSON v2 presign-pool refill response.
+pub fn parse_router_ab_ed25519_presign_pool_prepare_response_v2_json(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<RouterAbEd25519PresignPoolPrepareResponseV2> {
+    let response = parse_normal_signing_boundary_json_v2::<
+        RouterAbEd25519PresignPoolPrepareResponseV2,
+    >("normal signing v2 presign-pool prepare response", bytes)?;
+    response.validate()?;
+    Ok(response)
+}
+
 /// Prepare output binding carried by a typed v2 finalize request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -782,8 +1176,6 @@ impl RouterAbEd25519NormalSigningPrepareBindingV2 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAbEd25519TwoPartyFrostFinalizeProtocolV2 {
-    /// Group public key bound to the threshold Ed25519 account.
-    pub group_public_key: String,
     /// Client round-1 commitments.
     pub client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
     /// Server round-1 commitments returned for this server nonce handle.
@@ -798,9 +1190,7 @@ pub struct RouterAbEd25519TwoPartyFrostFinalizeProtocolV2 {
 
 impl RouterAbEd25519TwoPartyFrostFinalizeProtocolV2 {
     /// Creates validated Ed25519/FROST v2 finalization material.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        group_public_key: impl Into<String>,
         client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
         server_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
         client_verifying_share_b64u: impl Into<String>,
@@ -808,7 +1198,6 @@ impl RouterAbEd25519TwoPartyFrostFinalizeProtocolV2 {
         client_signature_share_b64u: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let protocol = Self {
-            group_public_key: group_public_key.into(),
             client_commitments,
             server_commitments,
             client_verifying_share_b64u: client_verifying_share_b64u.into(),
@@ -821,7 +1210,6 @@ impl RouterAbEd25519TwoPartyFrostFinalizeProtocolV2 {
 
     /// Validates required Ed25519/FROST finalization fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("group_public_key", &self.group_public_key)?;
         require_non_empty(
             "client_verifying_share_b64u",
             &self.client_verifying_share_b64u,
@@ -860,28 +1248,6 @@ impl RouterAbEd25519NormalSigningFinalizeProtocolV2 {
     pub fn signature_scheme(&self) -> NormalSigningSignatureSchemeV1 {
         match self {
             Self::Ed25519TwoPartyFrostFinalizeV1(_) => NormalSigningSignatureSchemeV1::Ed25519V1,
-        }
-    }
-
-    /// Converts v2 public finalization material into the existing private FROST protocol shape.
-    pub fn to_v1_protocol(
-        &self,
-        server_round1_handle: impl Into<String>,
-    ) -> RouterAbProtocolResult<NormalSigningProtocolV1> {
-        match self {
-            Self::Ed25519TwoPartyFrostFinalizeV1(protocol) => {
-                Ok(NormalSigningProtocolV1::Ed25519TwoPartyFrostFinalizeV1(
-                    NormalSigningEd25519TwoPartyFrostFinalizeV1::new(
-                        server_round1_handle,
-                        protocol.group_public_key.clone(),
-                        protocol.client_commitments.clone(),
-                        protocol.server_commitments.clone(),
-                        protocol.client_verifying_share_b64u.clone(),
-                        protocol.server_verifying_share_b64u.clone(),
-                        protocol.client_signature_share_b64u.clone(),
-                    )?,
-                ))
-            }
         }
     }
 }
@@ -971,6 +1337,168 @@ impl RouterAbEd25519NormalSigningFinalizeRequestV2 {
     pub fn server_round1_handle(&self) -> &str {
         &self.prepare_binding.server_round1_handle
     }
+}
+
+/// Pool entry selected for a one-request Router A/B Ed25519 pool-hit finalize.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEd25519PresignPoolHitBindingV2 {
+    /// Client-selected presign id accepted during pool refill.
+    pub client_presign_id: String,
+    /// Client-local nonce handle needed to produce the final signature share.
+    pub client_nonce_handle: String,
+    /// SDK pool generation used when this entry was accepted.
+    pub generation: u64,
+    /// SigningWorker-local handle for the stored unbound round-1 server nonces.
+    pub server_round1_handle: String,
+    /// Message-agnostic binding digest returned by pool refill.
+    pub pool_entry_binding_digest: PublicDigest32,
+}
+
+impl RouterAbEd25519PresignPoolHitBindingV2 {
+    /// Creates a validated pool-hit binding.
+    pub fn new(
+        client_presign_id: impl Into<String>,
+        client_nonce_handle: impl Into<String>,
+        generation: u64,
+        server_round1_handle: impl Into<String>,
+        pool_entry_binding_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let binding = Self {
+            client_presign_id: client_presign_id.into(),
+            client_nonce_handle: client_nonce_handle.into(),
+            generation,
+            server_round1_handle: server_round1_handle.into(),
+            pool_entry_binding_digest,
+        };
+        binding.validate()?;
+        Ok(binding)
+    }
+
+    /// Validates required pool-hit binding fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("pool_hit.client_presign_id", &self.client_presign_id)?;
+        require_non_empty("pool_hit.client_nonce_handle", &self.client_nonce_handle)?;
+        require_positive_ms("pool_hit.generation", self.generation)?;
+        require_non_empty("pool_hit.server_round1_handle", &self.server_round1_handle)
+    }
+}
+
+/// One-request Router A/B Ed25519 finalize request for a client-side presign-pool hit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEd25519PresignPoolHitFinalizeRequestV2 {
+    /// Normal signing identity and active SigningWorker scope.
+    pub scope: NormalSigningScopeV1,
+    /// Request expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+    /// Selected pool entry and handles.
+    pub pool_binding: RouterAbEd25519PresignPoolHitBindingV2,
+    /// Typed normal-signing intent for Router admission.
+    pub intent: RouterAbEd25519NormalSigningIntentV2,
+    /// Typed signing payload for Router admission.
+    pub signing_payload: RouterAbEd25519SigningPayloadV2,
+    /// Role-separated finalization material.
+    pub protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2,
+}
+
+impl RouterAbEd25519PresignPoolHitFinalizeRequestV2 {
+    /// Creates a validated pool-hit finalize request.
+    pub fn new(
+        scope: NormalSigningScopeV1,
+        expires_at_ms: u64,
+        pool_binding: RouterAbEd25519PresignPoolHitBindingV2,
+        intent: RouterAbEd25519NormalSigningIntentV2,
+        signing_payload: RouterAbEd25519SigningPayloadV2,
+        protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            scope,
+            expires_at_ms,
+            pool_binding,
+            intent,
+            signing_payload,
+            protocol,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Validates this pool-hit finalize request without consulting clock state.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_positive_ms("pool-hit finalize expires_at_ms", self.expires_at_ms)?;
+        self.pool_binding.validate()?;
+        derive_router_ab_ed25519_normal_signing_admission_material_v2(
+            &self.intent,
+            &self.signing_payload,
+        )?;
+        self.protocol.validate()
+    }
+
+    /// Validates the pool-hit finalize request against Router time.
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        if now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "pool-hit finalize request expired",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns Router-derived admission material for this pool-hit finalize.
+    pub fn admission_material(
+        &self,
+    ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningAdmissionMaterialV2> {
+        derive_router_ab_ed25519_normal_signing_admission_material_v2(
+            &self.intent,
+            &self.signing_payload,
+        )
+    }
+
+    /// Returns the round-1 binding digest after this pool entry is claimed.
+    pub fn round1_binding_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        self.admission_material()?
+            .round1_binding_digest(&self.scope, self.expires_at_ms)
+    }
+
+    /// Returns the selected SigningWorker-local server round-1 handle.
+    pub fn server_round1_handle(&self) -> &str {
+        &self.pool_binding.server_round1_handle
+    }
+
+    /// Lowers a pool-hit finalize into the existing v2 finalize shape after pool admission.
+    pub fn to_normal_finalize_request_v2(
+        &self,
+    ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningFinalizeRequestV2> {
+        self.validate()?;
+        let material = self.admission_material()?;
+        let prepare_binding = RouterAbEd25519NormalSigningPrepareBindingV2::new(
+            self.pool_binding.server_round1_handle.clone(),
+            self.round1_binding_digest()?,
+            material.intent_digest,
+            material.signing_payload_digest,
+        )?;
+        RouterAbEd25519NormalSigningFinalizeRequestV2::new(
+            self.scope.clone(),
+            self.expires_at_ms,
+            prepare_binding,
+            self.protocol.clone(),
+        )
+    }
+}
+
+/// Parses and validates a raw JSON v2 pool-hit finalize request.
+pub fn parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<RouterAbEd25519PresignPoolHitFinalizeRequestV2> {
+    let request = parse_normal_signing_boundary_json_v2::<
+        RouterAbEd25519PresignPoolHitFinalizeRequestV2,
+    >("normal signing v2 presign-pool hit finalize request", bytes)?;
+    request.validate()?;
+    Ok(request)
 }
 
 /// Derives all Router admission digests from typed normal-signing request data.
@@ -1270,6 +1798,8 @@ pub struct ActiveSigningWorkerStateV1 {
     pub account_id: String,
     /// Canonical session id.
     pub session_id: String,
+    /// Account public key bound into the activation transcript.
+    pub account_public_key: String,
     /// Active SigningWorker identity.
     pub signing_worker: ServerIdentityV1,
     /// Transcript that activated the SigningWorker output.
@@ -1288,6 +1818,7 @@ impl ActiveSigningWorkerStateV1 {
     pub fn new(
         account_id: impl Into<String>,
         session_id: impl Into<String>,
+        account_public_key: impl Into<String>,
         signing_worker: ServerIdentityV1,
         activation_transcript_digest: PublicDigest32,
         activation_digest: PublicDigest32,
@@ -1297,6 +1828,7 @@ impl ActiveSigningWorkerStateV1 {
         let state = Self {
             account_id: account_id.into(),
             session_id: session_id.into(),
+            account_public_key: account_public_key.into(),
             signing_worker,
             activation_transcript_digest,
             activation_digest,
@@ -1311,6 +1843,10 @@ impl ActiveSigningWorkerStateV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("active signing worker account_id", &self.account_id)?;
         require_non_empty("active signing worker session_id", &self.session_id)?;
+        require_non_empty(
+            "active signing worker account_public_key",
+            &self.account_public_key,
+        )?;
         require_non_empty(
             "active signing worker material handle",
             &self.signing_worker_material_handle,
@@ -1452,6 +1988,32 @@ fn router_ab_ed25519_normal_signing_round1_binding_bytes_v2(
     out.extend_from_slice(material.signing_payload_digest.as_bytes());
     out.extend_from_slice(material.admitted_signing_digest.as_bytes());
     Ok(out)
+}
+
+fn router_ab_ed25519_presign_pool_entry_binding_digest_v2(
+    scope: &NormalSigningScopeV1,
+    expires_at_ms: u64,
+    generation: u64,
+    offer: &RouterAbEd25519PresignPoolClientOfferV2,
+) -> RouterAbProtocolResult<PublicDigest32> {
+    scope.validate()?;
+    require_positive_ms("presign pool entry binding expires_at_ms", expires_at_ms)?;
+    require_positive_ms("presign pool entry binding generation", generation)?;
+    offer.validate()?;
+    let mut out = Vec::new();
+    push_len32(
+        &mut out,
+        ROUTER_AB_ED25519_PRESIGN_POOL_ENTRY_BINDING_VERSION_V2,
+    );
+    push_normal_signing_scope(&mut out, scope);
+    push_u64(&mut out, expires_at_ms);
+    push_u64(&mut out, generation);
+    push_len32(&mut out, offer.client_presign_id.as_bytes());
+    push_len32(&mut out, offer.client_nonce_handle.as_bytes());
+    push_len32(&mut out, offer.client_commitments.hiding.as_bytes());
+    push_len32(&mut out, offer.client_commitments.binding.as_bytes());
+    push_len32(&mut out, offer.client_verifying_share_b64u.as_bytes());
+    Ok(public_digest(&out))
 }
 
 fn decode_near_transaction_from_b64u(

@@ -5,7 +5,6 @@
 //! material. Router, signer, and server networking lives in adapters around
 //! this crate.
 
-mod bench;
 mod boundary;
 mod candidate_mpc_prf;
 mod candidate_mpc_prf_threshold_backend;
@@ -23,12 +22,6 @@ mod transcript;
 mod vectors;
 mod wire;
 
-pub use self::bench::{
-    candidate_measurement_gate_report_v1, candidate_round_trip_profiles_v1,
-    CandidateBenchmarkMeasurement, CandidateBenchmarkReport, CandidateMeasurementGateReportV1,
-    CandidateMeasurementGateStatus, CandidateMeasurementGateV1, CandidateRoundTripProfileV1,
-    CANDIDATE_MEASUREMENT_GATES_VERSION_V1,
-};
 pub use self::boundary::{
     parse_context_v1, parse_envelope_header_v1, parse_minimum_level_c_evidence_v1,
     parse_transcript_v1, RawAccountScopeV1, RawContextV1, RawEnvelopeHeaderV1,

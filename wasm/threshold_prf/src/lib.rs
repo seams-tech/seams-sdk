@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
 
 use js_sys::{Object, Reflect, Uint8Array};
+use rand_core::OsRng;
 use sha2::{Digest, Sha256};
 use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_verified_partials, evaluate_partial, PrfDleqProof, PrfPartialProofBundle,
-    PrfPartialWire, SigningRootShare, SigningRootShareCommitment, SigningRootShareWire,
-    ThresholdPolicy, ValidatedThresholdSet,
+    combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof, PrfDleqProof,
+    PrfPartialProofBundle, PrfPartialWire, SigningRootShare, SigningRootShareCommitment,
+    SigningRootShareWire, ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 use wasm_bindgen::prelude::*;
@@ -195,6 +196,23 @@ fn decode_signing_root_share_set(
     ValidatedThresholdSet::from_signing_root_shares(policy, shares?).map_err(js_threshold_error)
 }
 
+fn decode_single_signing_root_share(
+    mut share_wire_bytes: Vec<u8>,
+) -> Result<SigningRootShare, JsValue> {
+    if share_wire_bytes.len() != SigningRootShareWire::LEN {
+        share_wire_bytes.zeroize();
+        return Err(js_error(format!(
+            "share_wire must be exactly {} bytes",
+            SigningRootShareWire::LEN
+        )));
+    }
+    let share = SigningRootShareWire::decode_slice(&share_wire_bytes)
+        .and_then(|wire| wire.to_share())
+        .map_err(js_threshold_error);
+    share_wire_bytes.zeroize();
+    share
+}
+
 fn decode_proof_bundle_set(
     threshold: u32,
     share_count: u32,
@@ -242,6 +260,14 @@ fn decode_proof_bundle(chunk: &[u8]) -> Result<PrfPartialProofBundle, JsValue> {
         commitment,
         proof,
     })
+}
+
+fn encode_proof_bundle(bundle: PrfPartialProofBundle) -> Vec<u8> {
+    let mut out = Vec::with_capacity(PROOF_BUNDLE_WIRE_LEN);
+    out.extend_from_slice(&PrfPartialWire::from_partial(&bundle.partial).to_bytes());
+    out.extend_from_slice(&bundle.commitment.to_bytes());
+    out.extend_from_slice(&bundle.proof.to_bytes());
+    out
 }
 
 fn derive_hss_output_from_shares(
@@ -354,6 +380,20 @@ pub fn threshold_prf_combine_verified_partials(
         purpose,
         context_bytes,
     )
+}
+
+#[wasm_bindgen]
+pub fn threshold_prf_evaluate_partial_with_dleq_proof(
+    share_wire: Vec<u8>,
+    purpose: String,
+    context_bytes: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let share = decode_single_signing_root_share(share_wire)?;
+    let context = prf_context(&purpose, context_bytes)?;
+    let mut rng = OsRng;
+    let bundle =
+        evaluate_partial_with_dleq_proof(&share, &context, &mut rng).map_err(js_threshold_error)?;
+    Ok(encode_proof_bundle(bundle))
 }
 
 #[wasm_bindgen]

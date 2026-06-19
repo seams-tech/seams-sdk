@@ -8,8 +8,9 @@ import {
 } from '../../../wasm/eth_signer/pkg/eth_signer.js';
 import {
   initSync as initHssClientSignerSync,
-  threshold_ecdsa_hss_role_local_client_bootstrap,
-  threshold_ecdsa_hss_role_local_export_artifact,
+  build_ecdsa_role_local_export_artifact_v1,
+  finalize_ecdsa_client_bootstrap_v1,
+  prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
 } from '../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,43 +91,115 @@ function contextPayload(fixture) {
   return {
     walletId: fixture.walletId,
     rpId: fixture.rpId,
+    chainTarget: {
+      kind: 'evm',
+      namespace: 'eip155',
+      chainId: 1,
+      networkSlug: 'ethereum',
+    },
     ecdsaThresholdKeyId: fixture.ecdsaThresholdKeyId,
     signingRootId: fixture.signingRootId,
     signingRootVersion: fixture.signingRootVersion,
-    keyPurpose: fixture.keyPurpose,
-    keyVersion: fixture.keyVersion,
+    keyPurpose: 'evm-signing',
+    keyVersion: 'v1',
   };
 }
 
 function clientBootstrapPayload(fixture) {
   return {
+    kind: 'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
+    algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+    context: contextPayload(fixture),
+    participants: {
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+    },
+    resolvedEmailOtpRootShare32B64u: bytesToB64u(fixture.yClient32Le),
+  };
+}
+
+function prepareClientBootstrap(payload) {
+  return JSON.parse(
+    prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(JSON.stringify(payload)),
+  );
+}
+
+function relayerContextPayload(fixture) {
+  return {
     ...contextPayload(fixture),
-    clientRootShare32: fixture.yClient32Le,
   };
 }
 
 function relayerBootstrapPayload(fixture, clientBootstrap) {
   return {
-    ...contextPayload(fixture),
+    ...relayerContextPayload(fixture),
     relayerKeyId: fixture.relayerKeyId,
     yRelayer32Le: Array.from(fixture.yRelayer32Le),
-    clientPublicKey33: Array.from(b64uToBytes(clientBootstrap.clientPublicKey33B64u)),
-    clientShareRetryCounter: Number(clientBootstrap.clientShareRetryCounter),
+    clientPublicKey33: Array.from(
+      b64uToBytes(clientBootstrap.clientBootstrap.hssClientSharePublicKey33B64u),
+    ),
+    clientShareRetryCounter: Number(clientBootstrap.clientBootstrap.clientShareRetryCounter),
   };
 }
 
-function exportArtifactPayload(fixture, clientBootstrap, relayerBootstrap) {
+function relayerPublicIdentityPayload(fixture, relayerBootstrap) {
   return {
-    ...contextPayload(fixture),
-    clientRootShare32: fixture.yClient32Le,
-    serverExportShare32B64u: bytesToB64u(relayerBootstrap.relayerShare32),
-    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
-    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+    relayerKeyId: fixture.relayerKeyId,
     relayerPublicKey33B64u: bytesToB64u(relayerBootstrap.relayerPublicKey33),
     groupPublicKey33B64u: bytesToB64u(relayerBootstrap.groupPublicKey33),
     ethereumAddress: bytesToHexPrefixed(relayerBootstrap.ethereumAddress20),
-    clientShareRetryCounter: Number(clientBootstrap.clientShareRetryCounter),
   };
+}
+
+function finalizeClientBootstrapPayload(fixture, clientBootstrap, relayerBootstrap) {
+  return {
+    kind: 'finalize_ecdsa_client_bootstrap_v1',
+    pendingStateBlob: clientBootstrap.pendingStateBlob,
+    relayerPublicIdentity: relayerPublicIdentityPayload(fixture, relayerBootstrap),
+  };
+}
+
+function finalizeClientBootstrap(payload) {
+  return JSON.parse(finalize_ecdsa_client_bootstrap_v1(JSON.stringify(payload)));
+}
+
+function exportArtifactPayload(fixture, finalizedBootstrap, relayerBootstrap) {
+  const context = contextPayload(fixture);
+  return {
+    kind: 'build_ecdsa_role_local_export_artifact_v1',
+    algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+    stateBlob: finalizedBootstrap.stateBlob,
+    publicFacts: {
+      walletId: fixture.walletId,
+      rpId: fixture.rpId,
+      chainTarget: context.chainTarget,
+      keyHandle: fixture.ecdsaThresholdKeyId,
+      ecdsaThresholdKeyId: fixture.ecdsaThresholdKeyId,
+      signingRootId: fixture.signingRootId,
+      signingRootVersion: fixture.signingRootVersion,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      contextBinding32B64u: finalizedBootstrap.publicFacts.contextBinding32B64u,
+      hssClientSharePublicKey33B64u:
+        finalizedBootstrap.publicFacts.hssClientSharePublicKey33B64u,
+      relayerPublicKey33B64u: finalizedBootstrap.publicFacts.relayerPublicKey33B64u,
+      groupPublicKey33B64u: finalizedBootstrap.publicFacts.groupPublicKey33B64u,
+      ethereumAddress: finalizedBootstrap.publicFacts.ethereumAddress,
+    },
+    authorization: {
+      kind: 'passkey_export_authorized',
+      walletId: fixture.walletId,
+      rpId: fixture.rpId,
+      credentialIdB64u: bytesToB64u(new Uint8Array([1])),
+    },
+    serverExportShare32B64u: bytesToB64u(relayerBootstrap.relayerShare32),
+  };
+}
+
+function buildExportArtifact(payload) {
+  return JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload)));
 }
 
 function assertBytesEqual(label, actual, expected) {
@@ -137,27 +210,68 @@ function assertBytesEqual(label, actual, expected) {
   }
 }
 
-function validateFixturePath(fixture, clientBootstrap, relayerBootstrap) {
+function assertByteLength(label, actual, expectedLength) {
+  const actualLength = Buffer.from(actual).length;
+  if (actualLength !== expectedLength) {
+    throw new Error(`${label} must be ${expectedLength} bytes, got ${actualLength}`);
+  }
+}
+
+function assertNonEmptyBytes(label, actual) {
+  const actualLength = Buffer.from(actual).length;
+  if (actualLength === 0) {
+    throw new Error(`${label} must be non-empty`);
+  }
+}
+
+function validateActivePath(clientBootstrap, relayerBootstrap, finalizedBootstrap) {
   assertBytesEqual(
-    'client public key',
-    b64uToBytes(clientBootstrap.clientPublicKey33B64u),
-    fixture.expected.clientPublicKey33,
+    'context binding',
+    b64uToBytes(clientBootstrap.clientBootstrap.contextBinding32B64u),
+    relayerBootstrap.contextBinding32,
   );
   assertBytesEqual(
-    'relayer public key',
+    'client public key public facts',
+    b64uToBytes(clientBootstrap.publicFacts.hssClientSharePublicKey33B64u),
+    b64uToBytes(clientBootstrap.clientBootstrap.hssClientSharePublicKey33B64u),
+  );
+  assertBytesEqual(
+    'finalized context binding',
+    b64uToBytes(finalizedBootstrap.publicFacts.contextBinding32B64u),
+    relayerBootstrap.contextBinding32,
+  );
+  assertBytesEqual(
+    'finalized client public key',
+    b64uToBytes(finalizedBootstrap.publicFacts.hssClientSharePublicKey33B64u),
+    b64uToBytes(clientBootstrap.clientBootstrap.hssClientSharePublicKey33B64u),
+  );
+  assertBytesEqual(
+    'finalized relayer public key',
+    b64uToBytes(finalizedBootstrap.publicFacts.relayerPublicKey33B64u),
     relayerBootstrap.relayerPublicKey33,
-    fixture.expected.relayerPublicKey33,
   );
   assertBytesEqual(
-    'group public key',
+    'finalized group public key',
+    b64uToBytes(finalizedBootstrap.publicFacts.groupPublicKey33B64u),
     relayerBootstrap.groupPublicKey33,
-    fixture.expected.groupPublicKey33,
   );
   assertBytesEqual(
-    'ethereum address',
+    'finalized ethereum address',
+    Buffer.from(finalizedBootstrap.publicFacts.ethereumAddress.slice(2), 'hex'),
     relayerBootstrap.ethereumAddress20,
-    fixture.expected.ethereumAddress20,
   );
+  assertNonEmptyBytes(
+    'pending state blob',
+    b64uToBytes(clientBootstrap.pendingStateBlob.stateBlobB64u),
+  );
+  assertNonEmptyBytes(
+    'ready state blob',
+    b64uToBytes(finalizedBootstrap.stateBlob.stateBlobB64u),
+  );
+  assertByteLength('relayer share', relayerBootstrap.relayerShare32, 32);
+  assertByteLength('relayer public key', relayerBootstrap.relayerPublicKey33, 33);
+  assertByteLength('group public key', relayerBootstrap.groupPublicKey33, 33);
+  assertByteLength('ethereum address', relayerBootstrap.ethereumAddress20, 20);
 }
 
 function median(values) {
@@ -300,31 +414,26 @@ async function measureBrowserClientBootstrap(fixture) {
             `${pageOrigin}/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm`,
           );
           for (let i = 0; i < 20; i += 1) {
-            mod.threshold_ecdsa_hss_role_local_client_bootstrap({
-              ...payload,
-              clientRootShare32: new Uint8Array(payload.clientRootShare32),
-            });
+            mod.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(
+              JSON.stringify(payload),
+            );
           }
           const samplesMs = [];
           for (let i = 0; i < 120; i += 1) {
             const started = performance.now();
-            mod.threshold_ecdsa_hss_role_local_client_bootstrap({
-              ...payload,
-              clientRootShare32: new Uint8Array(payload.clientRootShare32),
-            });
+            mod.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1(
+              JSON.stringify(payload),
+            );
             samplesMs.push(performance.now() - started);
           }
           return samplesMs;
         },
         {
           origin,
-          payload: {
-            ...contextPayload(fixture),
-            clientRootShare32: Array.from(fixture.yClient32Le),
-          },
+          payload: clientBootstrapPayload(fixture),
         },
       );
-      return summarizeSamples('browser_role_local_client_bootstrap_wasm', result, {
+      return summarizeSamples('browser_role_local_client_prepare_resolved_email_otp_wasm', result, {
         warmup: 20,
         iterations: 120,
       });
@@ -337,26 +446,35 @@ async function measureBrowserClientBootstrap(fixture) {
 async function main() {
   ensureWasm();
   const fixture = readRepresentativeFixture();
-  const initialClientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap(
-    clientBootstrapPayload(fixture),
-  );
+  const initialClientBootstrap = prepareClientBootstrap(clientBootstrapPayload(fixture));
   const initialRelayerBootstrap = threshold_ecdsa_hss_role_local_relayer_bootstrap(
     relayerBootstrapPayload(fixture, initialClientBootstrap),
   );
-  validateFixturePath(fixture, initialClientBootstrap, initialRelayerBootstrap);
+  const initialFinalizePayload = finalizeClientBootstrapPayload(
+    fixture,
+    initialClientBootstrap,
+    initialRelayerBootstrap,
+  );
+  const initialFinalizedBootstrap = finalizeClientBootstrap(initialFinalizePayload);
+  validateActivePath(initialClientBootstrap, initialRelayerBootstrap, initialFinalizedBootstrap);
 
   const clientPayload = clientBootstrapPayload(fixture);
   const relayerPayload = relayerBootstrapPayload(fixture, initialClientBootstrap);
   const artifactPayload = exportArtifactPayload(
     fixture,
-    initialClientBootstrap,
+    initialFinalizedBootstrap,
     initialRelayerBootstrap,
   );
 
   const benchmarks = [
     measure(
-      'role_local_client_bootstrap_wasm',
-      () => threshold_ecdsa_hss_role_local_client_bootstrap(clientPayload),
+      'role_local_client_prepare_resolved_email_otp_wasm',
+      () => prepareClientBootstrap(clientPayload),
+      { warmup: 20, iterations: 200 },
+    ),
+    measure(
+      'role_local_client_finalize_wasm',
+      () => finalizeClientBootstrap(initialFinalizePayload),
       { warmup: 20, iterations: 200 },
     ),
     measure(
@@ -367,16 +485,17 @@ async function main() {
     measure(
       'role_local_full_bootstrap_wasm',
       () => {
-        const client = threshold_ecdsa_hss_role_local_client_bootstrap(clientPayload);
-        return threshold_ecdsa_hss_role_local_relayer_bootstrap(
+        const client = prepareClientBootstrap(clientPayload);
+        const relayer = threshold_ecdsa_hss_role_local_relayer_bootstrap(
           relayerBootstrapPayload(fixture, client),
         );
+        return finalizeClientBootstrap(finalizeClientBootstrapPayload(fixture, client, relayer));
       },
       { warmup: 20, iterations: 120 },
     ),
     measure(
       'role_local_export_artifact_wasm',
-      () => threshold_ecdsa_hss_role_local_export_artifact(artifactPayload),
+      () => buildExportArtifact(artifactPayload),
       { warmup: 20, iterations: 200 },
     ),
   ];
@@ -388,6 +507,11 @@ async function main() {
       label: 'client_bootstrap_response_json',
       bytes: byteLengthJson(initialClientBootstrap),
     },
+    { label: 'client_finalize_request_json', bytes: byteLengthJson(initialFinalizePayload) },
+    {
+      label: 'client_finalize_response_json',
+      bytes: byteLengthJson(initialFinalizedBootstrap),
+    },
     { label: 'server_bootstrap_request_json', bytes: byteLengthJson(relayerPayload) },
     {
       label: 'server_bootstrap_response_json',
@@ -397,13 +521,8 @@ async function main() {
     {
       label: 'role_local_client_state_json',
       bytes: byteLengthJson({
-        contextBinding32B64u: initialClientBootstrap.contextBinding32B64u,
-        clientShare32B64u: initialClientBootstrap.clientShare32B64u,
-        clientPublicKey33B64u: initialClientBootstrap.clientPublicKey33B64u,
-        clientShareRetryCounter: initialClientBootstrap.clientShareRetryCounter,
-        relayerPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.relayerPublicKey33),
-        groupPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.groupPublicKey33),
-        ethereumAddress: bytesToHexPrefixed(initialRelayerBootstrap.ethereumAddress20),
+        stateBlob: initialFinalizedBootstrap.stateBlob,
+        publicFacts: initialFinalizedBootstrap.publicFacts,
       }),
     },
     {
@@ -412,7 +531,8 @@ async function main() {
         contextBinding32B64u: bytesToB64u(initialRelayerBootstrap.contextBinding32),
         relayerShare32B64u: bytesToB64u(initialRelayerBootstrap.relayerShare32),
         relayerPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.relayerPublicKey33),
-        clientPublicKey33B64u: initialClientBootstrap.clientPublicKey33B64u,
+        clientPublicKey33B64u:
+          initialClientBootstrap.clientBootstrap.hssClientSharePublicKey33B64u,
         groupPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.groupPublicKey33),
         ethereumAddress: bytesToHexPrefixed(initialRelayerBootstrap.ethereumAddress20),
         publicTranscriptDigest32B64u: bytesToB64u(initialRelayerBootstrap.publicTranscriptDigest32),

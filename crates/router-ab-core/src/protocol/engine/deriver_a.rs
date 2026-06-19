@@ -6,21 +6,14 @@ use crate::derivation::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
 };
 
-/// Platform-agnostic Deriver A engine wrapper.
-#[derive(Debug, Clone)]
-pub struct DeriverAEngine<H> {
-    host: H,
-}
+/// Platform-agnostic Deriver A role guard.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeriverAEngine;
 
-impl<H> DeriverAEngine<H> {
-    /// Creates a Deriver A engine over a host implementation.
-    pub fn new(host: H) -> Self {
-        Self { host }
-    }
-
-    /// Returns the host implementation.
-    pub fn host(&self) -> &H {
-        &self.host
+impl DeriverAEngine {
+    /// Creates a Deriver A role guard.
+    pub fn new() -> Self {
+        Self
     }
 
     /// Evaluates Deriver A's selected threshold-PRF output batch.

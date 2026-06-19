@@ -1,7 +1,7 @@
 name = "router-ab-strict-signer-b"
 main = "build/signer-b/worker/shim.mjs"
 compatibility_date = "2026-06-12"
-workers_dev = true
+workers_dev = false
 
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && worker-build --release --out-dir build/signer-b --features strict-worker-signer-b-entrypoint"
@@ -19,9 +19,12 @@ new_classes = ["RouterAbSignerBRootShareDurableObject"]
 binding = "SIGNER_A"
 service = "router-ab-strict-signer-a"
 
+[[services]]
+binding = "SIGNING_WORKER"
+service = "router-ab-strict-signing-worker"
+
 [vars]
-ROUTER_AB_WORKER_ROLE = "signer_b"
-ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 SIGNER_B_ROOT_SHARE_DO_BINDING = "SIGNER_B_ROOT_SHARE_DO"
 SIGNER_B_ROOT_SHARE_DO_OBJECT = "signer-b-root-share"
 SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX = "signer-b-root-share/"
@@ -34,10 +37,11 @@ SIGNER_B_PEER_SIGNING_KEY_EPOCH = "epoch-1"
 SIGNER_A_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_A_ED25519_VERIFYING_KEY_HEX"
 SIGNER_B_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_B_ED25519_VERIFYING_KEY_HEX"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
+SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [env.staging]
 name = "router-ab-strict-signer-b-staging"
-workers_dev = true
+workers_dev = false
 
 [[env.staging.durable_objects.bindings]]
 name = "SIGNER_B_ROOT_SHARE_DO"
@@ -47,9 +51,12 @@ class_name = "RouterAbSignerBRootShareDurableObject"
 binding = "SIGNER_A"
 service = "router-ab-strict-signer-a-staging"
 
+[[env.staging.services]]
+binding = "SIGNING_WORKER"
+service = "router-ab-strict-signing-worker-staging"
+
 [env.staging.vars]
-ROUTER_AB_WORKER_ROLE = "signer_b"
-ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 SIGNER_B_ROOT_SHARE_DO_BINDING = "SIGNER_B_ROOT_SHARE_DO"
 SIGNER_B_ROOT_SHARE_DO_OBJECT = "signer-b-root-share"
 SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX = "signer-b-root-share/"
@@ -62,10 +69,11 @@ SIGNER_B_PEER_SIGNING_KEY_EPOCH = "epoch-1"
 SIGNER_A_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_A_ED25519_VERIFYING_KEY_HEX"
 SIGNER_B_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_B_ED25519_VERIFYING_KEY_HEX"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
+SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [env.production]
 name = "router-ab-strict-signer-b-prod"
-workers_dev = true
+workers_dev = false
 
 [[env.production.durable_objects.bindings]]
 name = "SIGNER_B_ROOT_SHARE_DO"
@@ -75,9 +83,12 @@ class_name = "RouterAbSignerBRootShareDurableObject"
 binding = "SIGNER_A"
 service = "router-ab-strict-signer-a-prod"
 
+[[env.production.services]]
+binding = "SIGNING_WORKER"
+service = "router-ab-strict-signing-worker-prod"
+
 [env.production.vars]
-ROUTER_AB_WORKER_ROLE = "signer_b"
-ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 SIGNER_B_ROOT_SHARE_DO_BINDING = "SIGNER_B_ROOT_SHARE_DO"
 SIGNER_B_ROOT_SHARE_DO_OBJECT = "signer-b-root-share"
 SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX = "signer-b-root-share/"
@@ -90,6 +101,7 @@ SIGNER_B_PEER_SIGNING_KEY_EPOCH = "epoch-1"
 SIGNER_A_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_A_ED25519_VERIFYING_KEY_HEX"
 SIGNER_B_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_B_ED25519_VERIFYING_KEY_HEX"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
+SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 
 [observability]
   [observability.logs]

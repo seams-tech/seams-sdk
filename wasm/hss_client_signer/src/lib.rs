@@ -15,5 +15,6 @@ pub use threshold_hss::{
     threshold_ed25519_hss_derive_client_output_mask, threshold_ed25519_hss_open_client_output,
     threshold_ed25519_hss_open_seed_output, threshold_ed25519_hss_prepare_client_request,
     threshold_ed25519_hss_prepare_session,
+    threshold_ed25519_role_separated_client_verifying_share_from_base_share,
     threshold_ed25519_role_separated_normal_signing_create_client_share,
 };

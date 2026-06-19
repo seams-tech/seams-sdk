@@ -118,6 +118,19 @@ fn parse_context_rejects_unknown_candidate() {
 }
 
 #[test]
+fn parse_context_rejects_retired_split_root_candidate() {
+    let mut raw = raw_context();
+    raw.candidate_id = "split_root_derivation_v1".to_owned();
+
+    let err = parse_context_v1(raw).expect_err("retired candidate should fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbDerivationErrorCode::UnsupportedCandidate
+    );
+}
+
+#[test]
 fn parse_transcript_rejects_non_v1_quorum() {
     let mut raw = raw_transcript();
     raw.signer_set = raw_signer_set("all(3)");

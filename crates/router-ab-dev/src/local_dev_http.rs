@@ -6,16 +6,7 @@ use std::{
 };
 
 use super::{
-    handle_local_deriver_peer_message_json_v1,
-    handle_local_router_ecdsa_hss_finalize_request_in_process_json_v1,
-    handle_local_router_ecdsa_hss_finalize_request_json_v1,
-    handle_local_router_ecdsa_hss_prepare_request_in_process_json_v1,
-    handle_local_router_ecdsa_hss_prepare_request_json_v1,
-    handle_local_router_normal_signing_request_in_process_json_v1,
-    handle_local_router_normal_signing_request_json_v1,
-    handle_local_router_normal_signing_round1_prepare_request_in_process_json_v1,
-    handle_local_router_normal_signing_round1_prepare_request_json_v1,
-    handle_local_signing_worker_activation_json_v1,
+    handle_local_deriver_peer_message_json_v1, handle_local_signing_worker_activation_json_v1,
     handle_local_signing_worker_ecdsa_hss_finalize_json_v1,
     handle_local_signing_worker_ecdsa_hss_prepare_json_v1,
     handle_local_signing_worker_ecdsa_hss_presignature_pool_put_json_v1,
@@ -24,10 +15,8 @@ use super::{
     handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1,
     handle_local_signing_worker_normal_signing_round1_prepare_json_v1,
     local_worker_health_response_json_v1, local_worker_owns_path_v1, LocalSigningWorkerConfigV1,
-    LocalWorkerHealthResponseV1, LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH_V1,
-    LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1,
-    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
-    LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1,
+    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1,
     LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
@@ -41,9 +30,6 @@ use super::{
 #[derive(Debug, Clone, Copy)]
 pub enum LocalDevHttpTopologyV1<'a> {
     FourWorker(&'a LocalWorkerRoleConfigV1),
-    Bundled {
-        signing_worker: &'a LocalSigningWorkerConfigV1,
-    },
 }
 
 pub fn local_dev_http_handle_request_v1(
@@ -56,108 +42,10 @@ pub fn local_dev_http_handle_request_v1(
     if path == LOCAL_WORKER_HEALTH_PATH_V1 || path == LOCAL_WORKER_READY_PATH_V1 {
         let role = topology.local_http_error_role();
         if method == "GET" {
-            return match topology {
-                LocalDevHttpTopologyV1::FourWorker(config) => {
-                    Ok((200, local_worker_health_response_json_v1(config)?))
-                }
-                LocalDevHttpTopologyV1::Bundled { .. } => Ok((
-                    200,
-                    serde_json::to_string(&LocalWorkerHealthResponseV1 {
-                        role: LocalServiceRoleV1::Router,
-                        role_label: "bundled".to_owned(),
-                        bind_url: "bundled".to_owned(),
-                        status: "ready".to_owned(),
-                        startup_epoch: "local-dev".to_owned(),
-                        config_branch: "bundled_single_server".to_owned(),
-                    })?,
-                )),
-            };
+            let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+            return Ok((200, local_worker_health_response_json_v1(config)?));
         }
         return local_dev_http_error_body_v1(role, path, 405, "method not allowed");
-    }
-
-    if path == LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2 {
-        return local_dev_router_public_signing_route_v1(
-            topology,
-            request,
-            |router| match router {
-                LocalDevRouterTargetV1::FourWorker { signing_worker_url } => {
-                    handle_local_router_normal_signing_round1_prepare_request_json_v1(
-                        signing_worker_url,
-                        &request.body,
-                    )
-                }
-                LocalDevRouterTargetV1::Bundled { signing_worker } => {
-                    handle_local_router_normal_signing_round1_prepare_request_in_process_json_v1(
-                        signing_worker,
-                        &request.body,
-                    )
-                }
-            },
-        );
-    }
-
-    if path == LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2 {
-        return local_dev_router_public_signing_route_v1(
-            topology,
-            request,
-            |router| match router {
-                LocalDevRouterTargetV1::FourWorker { signing_worker_url } => {
-                    handle_local_router_normal_signing_request_json_v1(
-                        signing_worker_url,
-                        &request.body,
-                    )
-                }
-                LocalDevRouterTargetV1::Bundled { signing_worker } => {
-                    handle_local_router_normal_signing_request_in_process_json_v1(
-                        signing_worker,
-                        &request.body,
-                    )
-                }
-            },
-        );
-    }
-
-    if path == LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1 {
-        return local_dev_router_public_signing_route_v1(
-            topology,
-            request,
-            |router| match router {
-                LocalDevRouterTargetV1::FourWorker { signing_worker_url } => {
-                    handle_local_router_ecdsa_hss_prepare_request_json_v1(
-                        signing_worker_url,
-                        &request.body,
-                    )
-                }
-                LocalDevRouterTargetV1::Bundled { signing_worker } => {
-                    handle_local_router_ecdsa_hss_prepare_request_in_process_json_v1(
-                        signing_worker,
-                        &request.body,
-                    )
-                }
-            },
-        );
-    }
-
-    if path == LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1 {
-        return local_dev_router_public_signing_route_v1(
-            topology,
-            request,
-            |router| match router {
-                LocalDevRouterTargetV1::FourWorker { signing_worker_url } => {
-                    handle_local_router_ecdsa_hss_finalize_request_json_v1(
-                        signing_worker_url,
-                        &request.body,
-                    )
-                }
-                LocalDevRouterTargetV1::Bundled { signing_worker } => {
-                    handle_local_router_ecdsa_hss_finalize_request_in_process_json_v1(
-                        signing_worker,
-                        &request.body,
-                    )
-                }
-            },
-        );
     }
 
     if path == LOCAL_DERIVER_A_PEER_PATH_V1 {
@@ -249,112 +137,38 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    match topology {
-        LocalDevHttpTopologyV1::FourWorker(config) => {
-            if local_worker_owns_path_v1(config.role(), path) {
-                if method == "POST" {
-                    local_dev_http_error_body_v1(
-                        config.role(),
-                        path,
-                        501,
-                        "local protocol route is not implemented yet",
-                    )
-                } else {
-                    local_dev_http_error_body_v1(config.role(), path, 405, "method not allowed")
-                }
-            } else {
-                local_dev_http_error_body_v1(
-                    config.role(),
-                    path,
-                    404,
-                    "path is not owned by this worker",
-                )
-            }
+    let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+    if local_worker_owns_path_v1(config.role(), path) {
+        if method == "POST" {
+            local_dev_http_error_body_v1(
+                config.role(),
+                path,
+                501,
+                "local protocol route is not implemented yet",
+            )
+        } else {
+            local_dev_http_error_body_v1(config.role(), path, 405, "method not allowed")
         }
-        LocalDevHttpTopologyV1::Bundled { .. } => {
-            if local_worker_owns_path_v1(LocalServiceRoleV1::Router, path) {
-                local_dev_http_error_body_v1(
-                    LocalServiceRoleV1::Router,
-                    path,
-                    501,
-                    "local protocol route is not implemented yet",
-                )
-            } else {
-                local_dev_http_error_body_v1(
-                    LocalServiceRoleV1::Router,
-                    path,
-                    404,
-                    "path is not owned by bundled server",
-                )
-            }
-        }
+    } else {
+        local_dev_http_error_body_v1(config.role(), path, 404, "path is not owned by this worker")
     }
 }
 
 impl LocalDevHttpTopologyV1<'_> {
     fn local_http_error_role(self) -> LocalServiceRoleV1 {
-        match self {
-            LocalDevHttpTopologyV1::FourWorker(config) => config.role(),
-            LocalDevHttpTopologyV1::Bundled { .. } => LocalServiceRoleV1::Router,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum LocalDevRouterTargetV1<'a> {
-    FourWorker {
-        signing_worker_url: &'a str,
-    },
-    Bundled {
-        signing_worker: &'a LocalSigningWorkerConfigV1,
-    },
-}
-
-fn local_dev_router_target_v1(
-    topology: LocalDevHttpTopologyV1<'_>,
-) -> Option<LocalDevRouterTargetV1<'_>> {
-    match topology {
-        LocalDevHttpTopologyV1::FourWorker(LocalWorkerRoleConfigV1::Router(router_config)) => {
-            Some(LocalDevRouterTargetV1::FourWorker {
-                signing_worker_url: &router_config.signing_worker_url,
-            })
-        }
-        LocalDevHttpTopologyV1::FourWorker(_) => None,
-        LocalDevHttpTopologyV1::Bundled { signing_worker } => {
-            Some(LocalDevRouterTargetV1::Bundled { signing_worker })
-        }
+        let LocalDevHttpTopologyV1::FourWorker(config) = self;
+        config.role()
     }
 }
 
 fn local_dev_signing_worker_config_v1(
     topology: LocalDevHttpTopologyV1<'_>,
 ) -> Option<&LocalSigningWorkerConfigV1> {
-    match topology {
-        LocalDevHttpTopologyV1::FourWorker(LocalWorkerRoleConfigV1::SigningWorker(config)) => {
-            Some(config)
-        }
-        LocalDevHttpTopologyV1::FourWorker(_) => None,
-        LocalDevHttpTopologyV1::Bundled { signing_worker } => Some(signing_worker),
+    let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+    match config {
+        LocalWorkerRoleConfigV1::SigningWorker(config) => Some(config),
+        _ => None,
     }
-}
-
-fn local_dev_router_public_signing_route_v1(
-    topology: LocalDevHttpTopologyV1<'_>,
-    request: &LocalDevHttpRequestPartsV1,
-    handler: impl FnOnce(LocalDevRouterTargetV1<'_>) -> RouterAbProtocolResult<String>,
-) -> Result<(u16, String), Box<dyn std::error::Error>> {
-    let role = topology.local_http_error_role();
-    let path = request.path.as_str();
-    if request.method != "POST" {
-        return local_dev_http_error_body_v1(role, path, 405, "method not allowed");
-    }
-    let Some(router) = local_dev_router_target_v1(topology) else {
-        return local_dev_http_error_body_v1(role, path, 404, "path is not owned by this worker");
-    };
-    if let Err(message) = require_local_dev_normal_signing_wallet_session_v2(request) {
-        return local_dev_http_error_body_v1(role, path, 401, message);
-    }
-    local_dev_protocol_response_v1(role, path, handler(router))
 }
 
 fn local_dev_deriver_peer_route_v1(
@@ -366,10 +180,8 @@ fn local_dev_deriver_peer_route_v1(
     if request.method != "POST" {
         return local_dev_http_error_body_v1(route_role, path, 405, "method not allowed");
     }
-    let owned = match topology {
-        LocalDevHttpTopologyV1::FourWorker(config) => config.role() == route_role,
-        LocalDevHttpTopologyV1::Bundled { .. } => true,
-    };
+    let LocalDevHttpTopologyV1::FourWorker(config) = topology;
+    let owned = config.role() == route_role;
     if !owned {
         return local_dev_http_error_body_v1(
             topology.local_http_error_role(),

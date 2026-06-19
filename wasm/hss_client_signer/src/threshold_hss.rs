@@ -917,6 +917,26 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
 }
 
 #[wasm_bindgen]
+pub fn threshold_ed25519_role_separated_client_verifying_share_from_base_share(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let x_client_base = decode_fixed_32(
+        &get_required_string(&args, "xClientBaseB64u")?,
+        "xClientBaseB64u",
+    )?;
+    let client_verifying_share =
+        role_separated_ed25519_client_verifying_share_v1(x_client_base)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let out = object();
+    set_string(
+        &out,
+        "clientVerifyingShareB64u",
+        &base64_url_encode(&client_verifying_share),
+    )?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
 pub fn threshold_ed25519_role_separated_normal_signing_create_client_share(
     args: JsValue,
 ) -> Result<JsValue, JsValue> {

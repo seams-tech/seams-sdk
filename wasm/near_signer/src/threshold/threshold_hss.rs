@@ -15,6 +15,7 @@ use ed25519_hss::protocol::prepare_prime_order_succinct_hss_client;
 use ed25519_hss::protocol::PreparedSession;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::runtime::EvaluateTiming;
+use ed25519_hss::role_signing::role_separated_ed25519_client_verifying_share_v1;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerDriverState;
 #[cfg(feature = "hss-server-exports")]
@@ -514,6 +515,18 @@ struct ThresholdEd25519HssVerifyingShareFromSigningShareOutput {
     verifying_share_b64u: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareArgs {
+    x_client_base_b64u: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareOutput {
+    client_verifying_share_b64u: String,
+}
+
 #[wasm_bindgen]
 #[cfg(feature = "hss-client-exports")]
 pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
@@ -905,6 +918,29 @@ pub fn threshold_ed25519_hss_verifying_share_from_signing_share(
         verifying_share_b64u: base64_url_encode(&verifying_share),
     })
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize verifying share: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_role_separated_client_verifying_share_from_base_share(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareArgs =
+        serde_wasm_bindgen::from_value(args)
+            .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let x_client_base = decode_fixed_32(&args.x_client_base_b64u, "xClientBaseB64u")?;
+    let client_verifying_share = role_separated_ed25519_client_verifying_share_v1(x_client_base)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    serde_wasm_bindgen::to_value(
+        &ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareOutput {
+            client_verifying_share_b64u: base64_url_encode(&client_verifying_share),
+        },
+    )
+    .map_err(|e| {
+        JsValue::from_str(&format!(
+            "Failed to serialize role-separated client verifying share: {e}"
+        ))
+    })
 }
 
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]

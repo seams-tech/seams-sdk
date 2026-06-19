@@ -36,14 +36,6 @@ pub struct LocalWorkerProcessSpec {
 
 pub const LOCAL_WORKER_PROCESS_SPECS: &[LocalWorkerProcessSpec] = &[
     LocalWorkerProcessSpec {
-        role: LocalServiceRoleV1::Router,
-        role_label: "router",
-        env_file: LOCAL_ROUTER_ENV_FILE_V1,
-        pid_file: "router.pid",
-        stdout_file: "router.stdout.log",
-        stderr_file: "router.stderr.log",
-    },
-    LocalWorkerProcessSpec {
         role: LocalServiceRoleV1::DeriverA,
         role_label: "deriver-a",
         env_file: LOCAL_DERIVER_A_ENV_FILE_V1,
@@ -127,43 +119,6 @@ impl ManagedChild {
         &mut self.child
     }
 
-    pub fn spawn_bundled(
-        bundled_binary: &Path,
-        root: &Path,
-        url: &str,
-    ) -> Result<(Self, LocalWorkerSpawnReceipt), Box<dyn std::error::Error>> {
-        let logs = root.join(LOG_DIR);
-        fs::create_dir_all(&logs)?;
-        let stdout_log = logs.join("bundled.stdout.log");
-        let stderr_log = logs.join("bundled.stderr.log");
-        let stdout = File::create(&stdout_log)?;
-        let stderr = File::create(&stderr_log)?;
-        let mut command = Command::new(bundled_binary);
-        command
-            .arg("--root")
-            .arg(root)
-            .arg("--url")
-            .arg(url)
-            .current_dir(root)
-            .stdout(Stdio::from(stdout))
-            .stderr(Stdio::from(stderr));
-        #[cfg(unix)]
-        command.process_group(0);
-        let child = command.spawn()?;
-        let pid = child.id();
-        Ok((
-            Self { child },
-            LocalWorkerSpawnReceipt {
-                role: LocalServiceRoleV1::Router,
-                role_label: "bundled",
-                pid,
-                url: url.to_owned(),
-                stdout_log: stdout_log.display().to_string(),
-                stderr_log: stderr_log.display().to_string(),
-            },
-        ))
-    }
-
     pub fn disarm(self) {
         std::mem::forget(self);
     }
@@ -192,18 +147,6 @@ pub fn resolve_worker_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
     if !binary.exists() {
         return Err(format!(
             "router_ab_local_worker was not found next to {}; build it first",
-            std::env::current_exe()?.display()
-        )
-        .into());
-    }
-    Ok(binary)
-}
-
-pub fn resolve_bundled_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let binary = std::env::current_exe()?.with_file_name("router_ab_local_bundled");
-    if !binary.exists() {
-        return Err(format!(
-            "router_ab_local_bundled was not found next to {}; build it first",
             std::env::current_exe()?.display()
         )
         .into());
@@ -295,7 +238,7 @@ pub fn post_json_to_path_with_authorization<T: Serialize>(
     post_json_to_path_with_headers(base_url, path, body, &[("authorization", authorization)])
 }
 
-fn post_json_to_path_with_headers<T: Serialize>(
+pub fn post_json_to_path_with_headers<T: Serialize>(
     base_url: &str,
     path: &str,
     body: &T,
@@ -348,10 +291,10 @@ pub fn write_materialized_envs_with_urls(
     for file in plan.files {
         let contents = file
             .contents
-            .replace("http://127.0.0.1:8787", &urls.router)
-            .replace("http://127.0.0.1:8788", &urls.deriver_a)
-            .replace("http://127.0.0.1:8789", &urls.deriver_b)
-            .replace("http://127.0.0.1:8790", &urls.signing_worker);
+            .replace("http://127.0.0.1:9090", &urls.router)
+            .replace("http://127.0.0.1:9091", &urls.deriver_a)
+            .replace("http://127.0.0.1:9092", &urls.deriver_b)
+            .replace("http://127.0.0.1:9093", &urls.signing_worker);
         let path = root.join(file.path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -370,20 +313,11 @@ pub struct LocalWorkerUrls {
 }
 
 impl LocalWorkerUrls {
-    pub fn bundled(url: String) -> Self {
-        Self {
-            router: url.clone(),
-            deriver_a: url.clone(),
-            deriver_b: url.clone(),
-            signing_worker: url,
-        }
-    }
-
     pub fn from_env(root: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let router = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[0])?;
-        let deriver_a = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[1])?;
-        let deriver_b = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[2])?;
-        let signing_worker = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[3])?;
+        let router = read_router_public_url(root)?;
+        let deriver_a = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[0])?;
+        let deriver_b = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[1])?;
+        let signing_worker = worker_bind_url(root, LOCAL_WORKER_PROCESS_SPECS[2])?;
         Ok(Self {
             router,
             deriver_a,
@@ -391,6 +325,17 @@ impl LocalWorkerUrls {
             signing_worker,
         })
     }
+}
+
+fn read_router_public_url(root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let env_path = root.join(LOCAL_ROUTER_ENV_FILE_V1);
+    let env_contents = fs::read_to_string(&env_path)
+        .map_err(|error| format!("failed to read {}: {error}", env_path.display()))?;
+    let config = parse_local_worker_role_config_for_role_v1(
+        LocalServiceRoleV1::Router,
+        parse_local_env_file_contents_v1(&env_contents)?,
+    )?;
+    Ok(config.bind_url().to_owned())
 }
 
 pub fn ephemeral_root(label: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {

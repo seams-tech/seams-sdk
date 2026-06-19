@@ -21,20 +21,9 @@ switch (command) {
     cargoBuild('router_ab_local_smoke');
     cargoRun('router_ab_local_smoke', args);
     break;
-  case 'smoke':
-    cargoBuild('router_ab_local_worker', 'router_ab_local_smoke');
-    cargoRun('router_ab_local_smoke', ['--ephemeral', ...args]);
-    break;
-  case 'smoke-bundled':
-    cargoBuild('router_ab_local_bundled', 'router_ab_local_smoke');
-    cargoRun('router_ab_local_smoke', ['--ephemeral', '--topology', 'bundled', ...args]);
-    break;
-  case 'bundled':
-    cargoBuild('router_ab_local_bundled');
-    cargoRun('router_ab_local_bundled', args);
-    break;
-  case 'dev-signer':
-    cargoRunWithManifest('crates/router-ab-core/Cargo.toml', 'dev_router_ab_signer', args);
+  case 'release-evidence':
+    cargoBuild('router_ab_local_release_evidence');
+    cargoRun('router_ab_local_release_evidence', args);
     break;
   case 'seed-sqlite':
     cargoRun('dev_seed_router_ab_sqlite', args);
@@ -84,12 +73,9 @@ function printUsage() {
 
 Commands:
   router:init             materialize local env and seed data
-  router:up               start detached four-worker local topology
-  router:check            smoke-test already running local topology
+  router:up               start detached private local workers
+  router:check            smoke-test the running SDK Router and private workers
   router:down             stop detached local workers
-  router:smoke            run ephemeral four-worker smoke
-  router:smoke:bundled    run ephemeral bundled smoke
-  router:bundled          start bundled single-server topology
-  router:dev:signer       run the core dev signer smoke
+  router:evidence         run local protocol timing evidence
   router:seed:sqlite      seed local SQLite state`);
 }

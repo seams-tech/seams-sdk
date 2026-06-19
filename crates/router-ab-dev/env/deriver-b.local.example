@@ -1,6 +1,6 @@
 ROUTER_AB_LOCAL_WORKER_ROLE=deriver-b
-DERIVER_B_URL=http://127.0.0.1:8789
-DERIVER_A_URL=http://127.0.0.1:8788
+DERIVER_B_URL=http://127.0.0.1:9092
+DERIVER_A_URL=http://127.0.0.1:9091
 DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=dev-only-deriver-b-envelope-hpke-private-key
 DERIVER_B_ROOT_SHARE_WIRE_SECRET=dev-only-deriver-b-root-share-wire-secret
 DERIVER_B_PEER_SIGNING_KEY=dev-only-deriver-b-peer-signing-key

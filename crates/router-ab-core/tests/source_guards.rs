@@ -243,6 +243,83 @@ fn router_boundary_does_not_import_signer_plaintext_decoder() {
 }
 
 #[test]
+fn ecdsa_hss_public_boundary_does_not_carry_private_key_material() {
+    let ecdsa_hss_rs = read_manifest_file("src/protocol/ecdsa_hss.rs");
+    for required in [
+        "pub client_presignature_id: String",
+        "normal_signing.client_presignature_id",
+        "push_len32(&mut out, self.client_presignature_id.as_bytes())",
+        "self.server_presignature_id == request.client_presignature_id",
+    ] {
+        assert!(
+            ecdsa_hss_rs.contains(required),
+            "ECDSA-HSS prepare boundary must include `{required}`"
+        );
+    }
+    for forbidden in [
+        "privateKeyHex",
+        "private_key_hex",
+        "x_client",
+        "x_server",
+        "y_client",
+        "y_server",
+        "SecretMaterial32",
+        "MpcPrfSigningRootShareWireV1",
+        "MpcPrfThresholdSignerInputV1",
+        "MpcPrfThresholdSignerBatchInputV1",
+    ] {
+        assert!(
+            !ecdsa_hss_rs.contains(forbidden),
+            "ECDSA-HSS Router A/B public boundary contains forbidden private material token `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn ecdsa_hss_deriver_envelope_plaintext_carries_only_public_metadata() {
+    let ecdsa_hss_rs = read_manifest_file("src/protocol/ecdsa_hss.rs");
+    for required in [
+        "pub enum RouterAbEcdsaHssDeriverEnvelopePlaintextV1",
+        "pub request_digest: PublicDigest32",
+        "pub aad_digest: PublicDigest32",
+        "pub output_kind: RouterAbEcdsaHssOutputKindV1",
+        "validate_for_envelope",
+    ] {
+        assert!(
+            ecdsa_hss_rs.contains(required),
+            "ECDSA-HSS Deriver envelope plaintext must include `{required}`"
+        );
+    }
+
+    for struct_name in [
+        "RouterAbEcdsaHssDeriverEnvelopeCommonV1",
+        "RouterAbEcdsaHssDeriverRegistrationEnvelopePlaintextV1",
+        "RouterAbEcdsaHssDeriverExportEnvelopePlaintextV1",
+        "RouterAbEcdsaHssDeriverRecoveryEnvelopePlaintextV1",
+        "RouterAbEcdsaHssDeriverRefreshEnvelopePlaintextV1",
+    ] {
+        let block = extract_struct_block(&ecdsa_hss_rs, struct_name);
+        for forbidden in [
+            "privateKeyHex",
+            "private_key_hex",
+            "x_client",
+            "x_server",
+            "y_client",
+            "y_server",
+            "SecretMaterial32",
+            "MpcPrfSigningRootShareWireV1",
+            "MpcPrfThresholdSignerInputV1",
+            "MpcPrfThresholdSignerBatchInputV1",
+        ] {
+            assert!(
+                !block.contains(forbidden),
+                "{struct_name} carries forbidden private material token `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[test]
 fn ab_peer_payloads_do_not_carry_combined_or_root_secret_material() {
     let payload_rs = read_manifest_file("src/protocol/payload.rs");
     for forbidden in [

@@ -70,34 +70,6 @@ fn signer_input_plaintext_decoder_rejects_trailing_bytes() {
 }
 
 #[test]
-fn signer_input_plaintext_rejects_unsupported_candidate() {
-    let err = SignerInputPlaintextV1::new(
-        CandidateId::SplitRootDerivationV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
-        RequestKind::Registration,
-        "lifecycle-1",
-        "signer-set-v1",
-        SignerInputQuorumPolicyV1::All2,
-        Role::SignerA,
-        "signer-a",
-        "signer-key-epoch-a",
-        root_epoch(),
-        "server-a",
-        "server-key-epoch",
-        digest(0x11),
-        digest(0x22),
-        digest(0x33),
-        vec![client_output()],
-    )
-    .expect_err("split-root candidate must fail at signer input plaintext");
-
-    assert_eq!(
-        err.code(),
-        RouterAbDerivationErrorCode::UnsupportedCandidate
-    );
-}
-
-#[test]
 fn signer_input_plaintext_rejects_duplicate_output_request() {
     let err = SignerInputPlaintextV1::new(
         CandidateId::MpcThresholdPrfV1,

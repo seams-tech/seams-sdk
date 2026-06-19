@@ -1,0 +1,218 @@
+{
+  "runId": "2026-06-17T08-47-53-975Z",
+  "runtime": "node-hosted wasm/threshold_prf",
+  "purpose": "router-ab/x_client_base/v1",
+  "contextUtf8": "router-ab-threshold-prf-wasm-benchmark/v1",
+  "threshold": 2,
+  "shareCount": 3,
+  "proofBundleBytes": 328,
+  "benchmarks": [
+    {
+      "label": "router_ab_mpc_threshold_prf_two_proofs_wasm",
+      "warmup": 3,
+      "iterations": 12,
+      "wall": {
+        "median": 0.672,
+        "p95": 0.807,
+        "mean": 0.695,
+        "min": 0.661,
+        "max": 0.807
+      },
+      "outputBytes": {
+        "median": 328,
+        "p95": 328,
+        "mean": 328,
+        "min": 328,
+        "max": 328
+      },
+      "samples": [
+        {
+          "wallMs": 0.807,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.67,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.661,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.668,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.663,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.666,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.689,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.679,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.716,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.673,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.781,
+          "outputBytes": 328
+        },
+        {
+          "wallMs": 0.661,
+          "outputBytes": 328
+        }
+      ]
+    },
+    {
+      "label": "router_ab_mpc_threshold_prf_verified_combine_wasm",
+      "warmup": 3,
+      "iterations": 12,
+      "wall": {
+        "median": 0.854,
+        "p95": 0.926,
+        "mean": 0.862,
+        "min": 0.825,
+        "max": 0.926
+      },
+      "outputBytes": {
+        "median": 32,
+        "p95": 32,
+        "mean": 32,
+        "min": 32,
+        "max": 32
+      },
+      "samples": [
+        {
+          "wallMs": 0.881,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.894,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.875,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.872,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.851,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.926,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.854,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.827,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.849,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.855,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.834,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 0.825,
+          "outputBytes": 32
+        }
+      ]
+    },
+    {
+      "label": "router_ab_mpc_threshold_prf_two_proofs_plus_combine_wasm",
+      "warmup": 3,
+      "iterations": 12,
+      "wall": {
+        "median": 1.454,
+        "p95": 1.799,
+        "mean": 1.48,
+        "min": 1.394,
+        "max": 1.799
+      },
+      "outputBytes": {
+        "median": 32,
+        "p95": 32,
+        "mean": 32,
+        "min": 32,
+        "max": 32
+      },
+      "samples": [
+        {
+          "wallMs": 1.476,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.432,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.442,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.466,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.467,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.502,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.519,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.799,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.394,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.438,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.41,
+          "outputBytes": 32
+        },
+        {
+          "wallMs": 1.415,
+          "outputBytes": 32
+        }
+      ]
+    }
+  ]
+}

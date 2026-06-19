@@ -53,32 +53,26 @@ fn generated_contract_vectors_include_required_sections() {
         assert_eq!(case.evidence.client_package_commitments().len(), 2);
         assert_eq!(case.evidence.server_package_commitments().len(), 2);
     }
-    assert_eq!(corpus.candidate_output_cases.len(), 6);
-    for candidate_id in [
-        CandidateId::SplitRootDerivationV1,
-        CandidateId::MpcThresholdPrfV1,
+    assert_eq!(corpus.candidate_output_cases.len(), 3);
+    for request_kind in [
+        RequestKind::Registration,
+        RequestKind::Export,
+        RequestKind::Refresh,
     ] {
-        for request_kind in [
-            RequestKind::Registration,
-            RequestKind::Export,
-            RequestKind::Refresh,
-        ] {
-            let vector = corpus
-                .candidate_output_cases
-                .iter()
-                .find(|vector| {
-                    vector.candidate_id == candidate_id && vector.request_kind == request_kind
-                })
-                .unwrap_or_else(|| {
-                    panic!("missing candidate vector: {candidate_id:?}/{request_kind:?}")
-                });
-            assert_eq!(
-                vector.expected_error_code,
-                RouterAbDerivationErrorCode::NotImplemented
-            );
-            assert!(!vector.context_digest_hex.is_empty());
-            assert!(!vector.transcript_digest_hex.is_empty());
-        }
+        let vector = corpus
+            .candidate_output_cases
+            .iter()
+            .find(|vector| {
+                vector.candidate_id == CandidateId::MpcThresholdPrfV1
+                    && vector.request_kind == request_kind
+            })
+            .unwrap_or_else(|| panic!("missing candidate vector: {request_kind:?}"));
+        assert_eq!(
+            vector.expected_error_code,
+            RouterAbDerivationErrorCode::NotImplemented
+        );
+        assert!(!vector.context_digest_hex.is_empty());
+        assert!(!vector.transcript_digest_hex.is_empty());
     }
     assert_eq!(corpus.mpc_threshold_prf_backend_cases.len(), 6);
     for request_kind in [

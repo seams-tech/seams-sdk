@@ -15,38 +15,29 @@ const workerBinary = join(
   'debug',
   process.platform === 'win32' ? 'router_ab_local_worker.exe' : 'router_ab_local_worker',
 );
-const frontendRelayHost = '127.0.0.1';
-const frontendRelayPort = 8444;
-const frontendRelayBaseUrl = `http://${frontendRelayHost}:${frontendRelayPort}`;
-const frontendRelayPublicUrl = 'https://localhost:9444';
-const frontendRelayPublicWellKnownUrl = `${frontendRelayPublicUrl}/.well-known/webauthn`;
-const frontendRelayPublicHost = 'localhost';
-const frontendRelayPublicPort = 9444;
+const routerServerHost = '127.0.0.1';
+const routerServerPort = 9090;
+const routerServerBaseUrl = `http://${routerServerHost}:${routerServerPort}`;
+const routerServerInternalWellKnownUrl = `${routerServerBaseUrl}/.well-known/webauthn`;
+const routerServerPublicUrl = 'https://localhost:9444';
+const routerServerPublicWellKnownUrl = `${routerServerPublicUrl}/.well-known/webauthn`;
+const routerServerPublicHost = 'localhost';
+const routerServerPublicPort = 9444;
 
-const roles = [
+const staleWorkerRoles = [
   {
-    title: 'Router',
     role: 'router',
     envFile: '.env.router-ab.router.local',
-    urlKey: 'ROUTER_PUBLIC_URL',
-    requiredKeys: [
-      'ROUTER_AB_LOCAL_WORKER_ROLE',
-      'ROUTER_PUBLIC_URL',
-      'DERIVER_A_URL',
-      'DERIVER_B_URL',
-      'SIGNING_WORKER_URL',
-      'ROUTER_REPLAY_STORAGE_PATH',
-      'ROUTER_LIFECYCLE_STORAGE_PATH',
-      'ROUTER_PROJECT_POLICY_STORAGE_PATH',
-      'ROUTER_QUOTA_STORAGE_PATH',
-      'ROUTER_ABUSE_STORAGE_PATH',
-    ],
   },
+];
+
+const workerRoles = [
   {
     title: 'Deriver A',
     role: 'deriver-a',
     envFile: '.env.router-ab.deriver-a.local',
     urlKey: 'DERIVER_A_URL',
+    defaultUrl: 'http://127.0.0.1:9091',
     requiredKeys: [
       'ROUTER_AB_LOCAL_WORKER_ROLE',
       'DERIVER_A_URL',
@@ -65,6 +56,7 @@ const roles = [
     role: 'deriver-b',
     envFile: '.env.router-ab.deriver-b.local',
     urlKey: 'DERIVER_B_URL',
+    defaultUrl: 'http://127.0.0.1:9092',
     requiredKeys: [
       'ROUTER_AB_LOCAL_WORKER_ROLE',
       'DERIVER_B_URL',
@@ -83,6 +75,7 @@ const roles = [
     role: 'signing-worker',
     envFile: '.env.router-ab.signing-worker.local',
     urlKey: 'SIGNING_WORKER_URL',
+    defaultUrl: 'http://127.0.0.1:9093',
     requiredKeys: [
       'ROUTER_AB_LOCAL_WORKER_ROLE',
       'SIGNING_WORKER_URL',
@@ -104,8 +97,18 @@ const argv = process.argv.slice(2);
 const options = parseArgs(argv);
 const root = resolvePath(options.root);
 const displayMode = options.mode === 'multiplex' && process.stdout.isTTY ? 'multiplex' : 'logs';
-const labelWidth = Math.max(...roles.map((role) => role.role.length));
-const panes = roles.map((role) => ({
+const labelWidth = Math.max('router-server'.length, ...workerRoles.map((role) => role.role.length));
+const routerServerPane = {
+  title: 'Router Server',
+  role: 'router-server',
+  status: 'pending',
+  pid: null,
+  url: routerServerBaseUrl,
+  lines: [],
+  child: null,
+  exitPromise: null,
+};
+const workerPanes = workerRoles.map((role) => ({
   ...role,
   status: 'pending',
   pid: null,
@@ -114,24 +117,26 @@ const panes = roles.map((role) => ({
   child: null,
   exitPromise: null,
 }));
+const panes = [routerServerPane, ...workerPanes];
+staleWorkerRoles.push(...workerRoles);
 
 let screenActive = false;
 let renderTimer = null;
 let shutdownStarted = false;
 let rawModeEnabled = false;
-const frontendRelay = {
+const routerServer = {
   child: null,
   exitPromise: null,
   killAsGroup: false,
 };
-const frontendProxy = {
+const routerHttpsProxy = {
   child: null,
   exitPromise: null,
   killAsGroup: false,
 };
 
 const labelColors = {
-  router: '\x1b[36m',
+  'router-server': '\x1b[36m',
   'deriver-a': '\x1b[32m',
   'deriver-b': '\x1b[33m',
   'signing-worker': '\x1b[35m',
@@ -149,7 +154,8 @@ try {
   ensureLocalEnv();
   await stopStaleLocalWorkers();
   buildWorkerBinary();
-  await ensureFrontendRelay();
+  await assertWorkerPortsAvailable();
+  await ensureRouterServer();
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
@@ -168,16 +174,14 @@ try {
 }
 
 function ensureLocalEnv() {
-  const missing = roles.filter((role) => !existsSync(join(root, role.envFile)));
+  const missing = workerRoles.filter((role) => !existsSync(join(root, role.envFile)));
   const invalid = missing.length > 0 ? [] : collectInvalidLocalEnvFiles();
   if (options.noInit && (missing.length > 0 || invalid.length > 0)) {
     const details = [
       ...missing.map((role) => `${role.envFile}: missing`),
       ...invalid.map((entry) => `${entry.role.envFile}: ${entry.reason}`),
     ];
-    throw new Error(
-      `invalid Router A/B local env files: ${details.join(', ')}`,
-    );
+    throw new Error(`invalid Router A/B local env files: ${details.join(', ')}`);
   }
   if (!options.fresh && missing.length === 0 && invalid.length === 0) {
     return;
@@ -200,7 +204,7 @@ function ensureLocalEnv() {
     root,
     '--force',
   ];
-  if (!options.defaultPorts) {
+  if (options.ephemeralPorts) {
     args.push('--ephemeral-ports');
   }
   run('cargo', args);
@@ -208,7 +212,7 @@ function ensureLocalEnv() {
 
 function collectInvalidLocalEnvFiles() {
   const invalid = [];
-  for (const role of roles) {
+  for (const role of workerRoles) {
     const path = join(root, role.envFile);
     const env = readEnvFile(path);
     const missingKey = role.requiredKeys.find((key) => !env.has(key) || !env.get(key));
@@ -219,6 +223,13 @@ function collectInvalidLocalEnvFiles() {
     const forbiddenKey = role.forbiddenKeys?.find((key) => env.has(key));
     if (forbiddenKey) {
       invalid.push({ role, reason: `contains obsolete ${forbiddenKey}` });
+      continue;
+    }
+    if (!options.ephemeralPorts && env.get(role.urlKey) !== role.defaultUrl) {
+      invalid.push({
+        role,
+        reason: `${role.urlKey} is ${env.get(role.urlKey) || 'missing'}; expected ${role.defaultUrl}`,
+      });
     }
   }
   return invalid;
@@ -268,7 +279,7 @@ function findStaleLocalWorkers() {
     if (!Number.isSafeInteger(pid) || pid === process.pid) {
       continue;
     }
-    for (const role of roles) {
+    for (const role of staleWorkerRoles) {
       const envPath = join(root, role.envFile);
       if (
         command.includes('router_ab_local_worker') &&
@@ -293,7 +304,7 @@ function buildWorkerBinary() {
 }
 
 function startWorkers() {
-  for (const pane of panes) {
+  for (const pane of workerPanes) {
     pane.url = readEnvValue(join(root, pane.envFile), pane.urlKey);
     appendLine(pane, `env ${relative(repoRoot, join(root, pane.envFile))}`);
     appendLine(pane, `url ${pane.url}`);
@@ -332,120 +343,189 @@ function startWorkers() {
   }
 }
 
-async function ensureFrontendRelay() {
+async function assertWorkerPortsAvailable() {
+  const conflicts = [];
+  for (const pane of workerPanes) {
+    const url = readEnvValue(join(root, pane.envFile), pane.urlKey);
+    const endpoint = localTcpEndpoint(url);
+    if (!endpoint) {
+      continue;
+    }
+    if (await tcpIsListening(endpoint.host, endpoint.port)) {
+      conflicts.push({
+        role: pane.role,
+        url,
+        owner: describeListeningProcess(endpoint.port),
+      });
+    }
+  }
+  if (conflicts.length === 0) {
+    return;
+  }
+  throw new Error(
+    [
+      'Router A/B local worker port conflict:',
+      ...conflicts.map(
+        (conflict) =>
+          `- ${conflict.role} ${conflict.url} is already listening${conflict.owner ? ` (${conflict.owner})` : ''}`,
+      ),
+      'Stop the listed process, or regenerate Router A/B env files with --fresh.',
+    ].join('\n'),
+  );
+}
+
+function localTcpEndpoint(urlValue) {
+  let url;
+  try {
+    url = new URL(urlValue);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' || !url.hostname || !url.port) {
+    return null;
+  }
+  return { host: url.hostname, port: Number(url.port) };
+}
+
+function describeListeningProcess(port) {
+  if (process.platform === 'win32') {
+    return '';
+  }
+  const child = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], {
+    encoding: 'utf8',
+  });
+  if (child.status !== 0 || !child.stdout) {
+    return '';
+  }
+  const [, firstProcess] = child.stdout.trim().split(/\r?\n/);
+  return firstProcess ? firstProcess.replace(/\s+/g, ' ') : '';
+}
+
+async function ensureRouterServer() {
   const pane = getRouterPane();
-  if (options.noRelay) {
-    appendLine(pane, 'frontend relay auto-start disabled');
+  if (options.noRouterServer) {
+    appendLine(pane, 'router server auto-start disabled');
     return;
   }
-  if (await healthzIsReady(frontendRelayBaseUrl)) {
-    appendLine(pane, `frontend relay ready at ${frontendRelayBaseUrl}`);
-    await ensureFrontendRelayPublicProxy();
+  if (await routerServerIsReady()) {
+    appendLine(pane, `router server ready at ${routerServerBaseUrl}`);
+    await ensureRouterServerHttpsProxy();
     return;
   }
-  if (await tcpIsListening(frontendRelayHost, frontendRelayPort)) {
+  if (await tcpIsListening(routerServerHost, routerServerPort)) {
+    const healthStatus = await describeUrlStatus(`${routerServerBaseUrl}/healthz`);
+    const wellKnownStatus = await describeUrlStatus(routerServerInternalWellKnownUrl);
     throw new Error(
-      `${frontendRelayBaseUrl} is already listening, but /healthz did not return 200. Stop that process or start the relay with pnpm server.`,
+      `${routerServerBaseUrl} is already listening but is not the Router server (${healthStatus}, well-known ${wellKnownStatus}). Stop that process or start the Router server with pnpm server.`,
     );
   }
 
-  appendLine(pane, 'frontend relay not running; starting pnpm server...');
+  appendLine(pane, 'router server not running; starting pnpm server...');
+  const signingWorkerUrl = readEnvValue(
+    join(root, '.env.router-ab.signing-worker.local'),
+    'SIGNING_WORKER_URL',
+  );
   const child = spawn('pnpm', ['run', 'server'], {
     cwd: repoRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      ROUTER_AB_SIGNING_WORKER_URL: signingWorkerUrl,
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:
+        process.env.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET || 'dev-router-ab-internal-service-auth',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
-  frontendRelay.child = child;
-  frontendRelay.killAsGroup = process.platform !== 'win32';
-  frontendRelay.exitPromise = new Promise((resolve) => child.once('exit', resolve));
+  routerServer.child = child;
+  routerServer.killAsGroup = process.platform !== 'win32';
+  routerServer.exitPromise = new Promise((resolve) => child.once('exit', resolve));
 
-  child.stdout.on('data', (chunk) => appendChunk(pane, chunk, 'relay: '));
-  child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'relay stderr: '));
+  child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
+  child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
   child.once('spawn', () => {
-    appendLine(pane, `frontend relay pid ${child.pid}`);
+    appendLine(pane, `router server pid ${child.pid}`);
     appendProcessStatus(pane, child.pid);
   });
   child.once('exit', (code, signal) => {
     const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-    appendLine(pane, `frontend relay stopped: ${status}`);
+    appendLine(pane, `router server stopped: ${status}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(exitCodeForChildExit(code, signal));
     }
   });
   child.once('error', (error) => {
-    appendLine(pane, `frontend relay spawn error: ${error.message}`);
+    appendLine(pane, `router server spawn error: ${error.message}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(1);
     }
   });
 
-  await waitForHealthz(frontendRelayBaseUrl, 90_000);
-  appendLine(pane, `frontend relay ready at ${frontendRelayBaseUrl}`);
-  await ensureFrontendRelayPublicProxy();
+  await waitForHealthz(routerServerBaseUrl, 90_000);
+  appendLine(pane, `router server ready at ${routerServerBaseUrl}`);
+  await ensureRouterServerHttpsProxy();
 }
 
-async function ensureFrontendRelayPublicProxy() {
+async function ensureRouterServerHttpsProxy() {
   const pane = getRouterPane();
-  if (await urlStatusIsReady(frontendRelayPublicWellKnownUrl)) {
-    await waitForStableUrlStatus(frontendRelayPublicWellKnownUrl, 2_000, 15_000);
-    appendLine(pane, `frontend relay HTTPS proxy ready at ${frontendRelayPublicUrl}`);
+  if (await urlStatusIsReady(routerServerPublicWellKnownUrl)) {
+    await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
+    appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
     return;
   }
 
-  if (await tcpIsListening(frontendRelayPublicHost, frontendRelayPublicPort)) {
+  if (await tcpIsListening(routerServerPublicHost, routerServerPublicPort)) {
     try {
-      await waitForUrlStatus(frontendRelayPublicWellKnownUrl, 5_000);
-      await waitForStableUrlStatus(frontendRelayPublicWellKnownUrl, 2_000, 15_000);
-      appendLine(pane, `frontend relay HTTPS proxy ready at ${frontendRelayPublicUrl}`);
+      await waitForUrlStatus(routerServerPublicWellKnownUrl, 5_000);
+      await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
+      appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
       return;
     } catch {
-      const status = await describeUrlStatus(frontendRelayPublicWellKnownUrl);
+      const status = await describeUrlStatus(routerServerPublicWellKnownUrl);
       throw new Error(
-        `${frontendRelayPublicWellKnownUrl} is listening but not healthy (${status}). ` +
-          `${frontendRelayBaseUrl}/healthz is healthy, so restart the local Caddy proxy with pnpm caddy or stop the process on ${frontendRelayPublicPort}.`,
+        `${routerServerPublicWellKnownUrl} is listening but not healthy (${status}). ` +
+          `${routerServerBaseUrl}/healthz is healthy, so restart the local Caddy proxy with pnpm caddy or stop the process on ${routerServerPublicPort}.`,
       );
     }
   }
 
-  appendLine(pane, 'frontend relay HTTPS proxy not running; starting pnpm caddy...');
+  appendLine(pane, 'router HTTPS proxy not running; starting pnpm caddy...');
   const child = spawn('pnpm', ['run', 'caddy'], {
     cwd: repoRoot,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
-  frontendProxy.child = child;
-  frontendProxy.killAsGroup = process.platform !== 'win32';
-  frontendProxy.exitPromise = new Promise((resolve) => child.once('exit', resolve));
+  routerHttpsProxy.child = child;
+  routerHttpsProxy.killAsGroup = process.platform !== 'win32';
+  routerHttpsProxy.exitPromise = new Promise((resolve) => child.once('exit', resolve));
 
   child.stdout.on('data', (chunk) => appendChunk(pane, chunk, 'caddy: '));
   child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'caddy stderr: '));
   child.once('spawn', () => {
-    appendLine(pane, `frontend relay HTTPS proxy pid ${child.pid}`);
+    appendLine(pane, `router HTTPS proxy pid ${child.pid}`);
     appendProcessStatus(pane, child.pid);
   });
   child.once('exit', (code, signal) => {
     const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-    appendLine(pane, `frontend relay HTTPS proxy stopped: ${status}`);
+    appendLine(pane, `router HTTPS proxy stopped: ${status}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(exitCodeForChildExit(code, signal));
     }
   });
   child.once('error', (error) => {
-    appendLine(pane, `frontend relay HTTPS proxy spawn error: ${error.message}`);
+    appendLine(pane, `router HTTPS proxy spawn error: ${error.message}`);
     scheduleRender();
     if (!shutdownStarted) {
       shutdown(1);
     }
   });
 
-  await waitForUrlStatus(frontendRelayPublicWellKnownUrl, 90_000);
-  await waitForStableUrlStatus(frontendRelayPublicWellKnownUrl, 2_000, 15_000);
-  appendLine(pane, `frontend relay HTTPS proxy ready at ${frontendRelayPublicUrl}`);
+  await waitForUrlStatus(routerServerPublicWellKnownUrl, 90_000);
+  await waitForStableUrlStatus(routerServerPublicWellKnownUrl, 2_000, 15_000);
+  appendLine(pane, `router HTTPS proxy ready at ${routerServerPublicUrl}`);
 }
 
 function pollReady(pane, attempts = 0) {
@@ -485,6 +565,13 @@ async function healthzIsReady(baseUrl) {
   }
 }
 
+async function routerServerIsReady() {
+  if (!(await healthzIsReady(routerServerBaseUrl))) {
+    return false;
+  }
+  return urlStatusIsReady(routerServerInternalWellKnownUrl);
+}
+
 function tcpIsListening(host, port) {
   return new Promise((resolve) => {
     const socket = net.createConnection({ host, port });
@@ -512,7 +599,7 @@ async function waitForHealthz(baseUrl, timeoutMs) {
     }
     await sleep(250);
   }
-  throw new Error(`frontend relay did not become healthy at ${baseUrl}/healthz`);
+  throw new Error(`router server did not become healthy at ${baseUrl}/healthz`);
 }
 
 async function urlStatusIsReady(url) {
@@ -588,15 +675,15 @@ async function shutdown(exitCode) {
     return;
   }
   shutdownStarted = true;
-  if (isChildRunning(frontendProxy.child)) {
-    appendLine(getRouterPane(), 'stopping frontend relay HTTPS proxy...');
-    killChild(frontendProxy.child, 'SIGTERM', frontendProxy.killAsGroup);
+  if (isChildRunning(routerHttpsProxy.child)) {
+    appendLine(getRouterPane(), 'stopping router HTTPS proxy...');
+    killChild(routerHttpsProxy.child, 'SIGTERM', routerHttpsProxy.killAsGroup);
   }
-  if (isChildRunning(frontendRelay.child)) {
-    appendLine(getRouterPane(), 'stopping frontend relay...');
-    killChild(frontendRelay.child, 'SIGTERM', frontendRelay.killAsGroup);
+  if (isChildRunning(routerServer.child)) {
+    appendLine(getRouterPane(), 'stopping router server...');
+    killChild(routerServer.child, 'SIGTERM', routerServer.killAsGroup);
   }
-  for (const pane of panes) {
+  for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
       pane.status = 'stopping';
       appendLine(pane, 'stopping worker...');
@@ -608,48 +695,48 @@ async function shutdown(exitCode) {
   await Promise.race([
     Promise.all(
       [
-        frontendProxy.exitPromise,
-        frontendRelay.exitPromise,
-        ...panes.map((pane) => pane.exitPromise),
+        routerHttpsProxy.exitPromise,
+        routerServer.exitPromise,
+        ...workerPanes.map((pane) => pane.exitPromise),
       ].filter(Boolean),
     ),
     sleep(1200),
   ]);
 
-  if (isChildRunning(frontendProxy.child)) {
-    killChild(frontendProxy.child, 'SIGKILL', frontendProxy.killAsGroup);
+  if (isChildRunning(routerHttpsProxy.child)) {
+    killChild(routerHttpsProxy.child, 'SIGKILL', routerHttpsProxy.killAsGroup);
   }
-  if (isChildRunning(frontendRelay.child)) {
-    killChild(frontendRelay.child, 'SIGKILL', frontendRelay.killAsGroup);
+  if (isChildRunning(routerServer.child)) {
+    killChild(routerServer.child, 'SIGKILL', routerServer.killAsGroup);
   }
-  for (const pane of panes) {
+  for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
       killChild(pane.child, 'SIGKILL');
     }
   }
   restoreTerminal();
-  console.log('Stopped Router A/B local dev workers, frontend relay, and HTTPS proxy.');
+  console.log('Stopped Router A/B local dev workers, Router server, and HTTPS proxy.');
   process.exit(exitCode);
 }
 
 async function stopStartedChildren() {
-  for (const pane of panes) {
+  for (const pane of workerPanes) {
     if (isChildRunning(pane.child)) {
       killChild(pane.child, 'SIGTERM');
     }
   }
-  if (isChildRunning(frontendRelay.child)) {
-    killChild(frontendRelay.child, 'SIGTERM', frontendRelay.killAsGroup);
+  if (isChildRunning(routerServer.child)) {
+    killChild(routerServer.child, 'SIGTERM', routerServer.killAsGroup);
   }
-  if (isChildRunning(frontendProxy.child)) {
-    killChild(frontendProxy.child, 'SIGTERM', frontendProxy.killAsGroup);
+  if (isChildRunning(routerHttpsProxy.child)) {
+    killChild(routerHttpsProxy.child, 'SIGTERM', routerHttpsProxy.killAsGroup);
   }
   await Promise.race([
     Promise.all(
       [
-        frontendProxy.exitPromise,
-        frontendRelay.exitPromise,
-        ...panes.map((pane) => pane.exitPromise),
+        routerHttpsProxy.exitPromise,
+        routerServer.exitPromise,
+        ...workerPanes.map((pane) => pane.exitPromise),
       ].filter(Boolean),
     ),
     sleep(1200),
@@ -1007,9 +1094,9 @@ function parseArgs(args) {
     root: '.',
     mode: 'logs',
     fresh: false,
-    defaultPorts: false,
+    ephemeralPorts: false,
     noInit: false,
-    noRelay: false,
+    noRouterServer: false,
     help: false,
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -1031,14 +1118,14 @@ function parseArgs(args) {
       case '--fresh':
         parsed.fresh = true;
         break;
-      case '--default-ports':
-        parsed.defaultPorts = true;
+      case '--ephemeral-ports':
+        parsed.ephemeralPorts = true;
         break;
       case '--no-init':
         parsed.noInit = true;
         break;
-      case '--no-relay':
-        parsed.noRelay = true;
+      case '--no-router-server':
+        parsed.noRouterServer = true;
         break;
       case '--help':
       case '-h':
@@ -1072,20 +1159,21 @@ function printUsage() {
 }
 
 function usage() {
-  return `usage: pnpm router [-- --root <path>] [--fresh] [--default-ports] [--no-init] [--no-relay]
-       pnpm router:multiplex [-- --root <path>] [--fresh] [--default-ports] [--no-init] [--no-relay]
+  return `usage: pnpm router [-- --root <path>] [--fresh] [--ephemeral-ports] [--no-init] [--no-router-server]
+       pnpm router:multiplex [-- --root <path>] [--fresh] [--ephemeral-ports] [--no-init] [--no-router-server]
 
-Runs Router, Deriver A, Deriver B, and SigningWorker in one terminal.
-Also starts the frontend relay server on 127.0.0.1:8444 when it is not already running.
+Runs the Router server, Deriver A, Deriver B, and SigningWorker in one terminal.
+Also starts the Router server on 127.0.0.1:9090 when it is not already running.
 Also verifies https://localhost:9444/.well-known/webauthn and starts Caddy when that local HTTPS proxy is absent.
 
 Options:
   --root <path>      Local root containing generated env files. Defaults to repo root.
   --mode <mode>      Display mode: logs or multiplex. Defaults to logs.
   --fresh           Regenerate env files before launch.
-  --default-ports   Use 8787-8790 when generating env files. Fresh init defaults to free ports.
+  --ephemeral-ports Use free localhost ports instead of the default 9090-9093 ports.
   --no-init         Require env files to already exist.
-  --no-relay        Do not start the frontend relay server.
+  --no-router-server
+                    Do not start the Router server.
 
-Press Ctrl-C to stop all workers, stop started relay/proxy processes, and restore the terminal.`;
+Press Ctrl-C to stop all workers, stop started Router/proxy processes, and restore the terminal.`;
 }

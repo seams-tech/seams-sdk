@@ -6,6 +6,7 @@
 
 use base64::Engine;
 use curve25519_dalek::scalar::Scalar;
+use ecdsa_hss::ECDSA_HSS_PARTICIPANT_IDS;
 use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
 use ed25519_hss::role_signing::{
     create_role_separated_ed25519_client_signature_share_v1,
@@ -24,6 +25,7 @@ use router_ab_core::{
     decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
     router_ab_delegate_action_fingerprint_from_canonical_borsh_b64u_v2,
+    router_ab_ecdsa_hss_active_state_session_id_v1,
     router_ab_near_transaction_action_fingerprint_from_unsigned_borsh_b64u_v2,
     router_transcript_digest_v1, ActiveSigningWorkerStateV1, CandidateId, CanonicalWireBytesV1,
     CorrectnessLevel, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1,
@@ -32,15 +34,20 @@ use router_ab_core::{
     LocalInProcessCeremonyResultV1, LocalPersistenceSeedV1, LocalPersistenceSqlDialectV1,
     LocalPersistenceSqlExecutionReceiptV1, LocalPersistenceSqlSeedExecutorV1,
     LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalRouterEndpointV1,
-    LocalRouterRecipientProofBundleResponseV1, LocalSealedRootShareRecordV1, LocalServiceRoleV1,
-    LocalServiceStackV1, LocalServiceStartupV1, LocalSigningRootMetadataV1,
-    LocalSigningWorkerEndpointV1, LocalSigningWorkerRecipientProofBundleActivationV1,
-    LocalTransportEnvelopeV1, LocalTransportRouteV1,
-    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
+    LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1,
+    LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
+    LocalSigningWorkerRecipientProofBundleActivationV1, LocalTransportEnvelopeV1,
+    LocalTransportRouteV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
     NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
-    PublicRouterRequestV1, RoleEncryptedEnvelopeV1, RouterAbEd25519NormalSigningFinalizeProtocolV2,
+    PublicRouterRequestV1, RoleEncryptedEnvelopeV1,
+    RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1, RouterAbEcdsaHssEvmDigestSigningRequestV1,
+    RouterAbEcdsaHssEvmDigestSigningResponseV1, RouterAbEcdsaHssNormalSigningScopeV1,
+    RouterAbEcdsaHssSignatureSchemeV1, RouterAbEd25519NormalSigningFinalizeProtocolV2,
     RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningIntentV2,
     RouterAbEd25519NormalSigningPrepareBindingV2, RouterAbEd25519NormalSigningPrepareRequestV2,
+    RouterAbEd25519PresignPoolAcceptedEntryV2, RouterAbEd25519PresignPoolHitFinalizeRequestV2,
+    RouterAbEd25519PresignPoolPrepareRequestV2, RouterAbEd25519PresignPoolPrepareResponseV2,
     RouterAbEd25519SigningPayloadV2, RouterAbEd25519TwoPartyFrostFinalizeProtocolV2,
     RouterAbNearDelegateActionIntentV1, RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
@@ -51,22 +58,45 @@ use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch};
 use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use signer_core::threshold_ecdsa::threshold_ecdsa_finalize_signature;
 use std::{
     collections::BTreeMap,
     fmt,
-    io::{Read, Write},
-    net::{Shutdown, TcpStream},
     sync::{Mutex, OnceLock},
-    time::Duration,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+mod local_dev_http;
+mod local_ecdsa_hss_pool_store;
+mod local_service_http;
+mod local_worker_topology;
+
+pub use local_dev_http::{
+    local_dev_http_error_body_v1, local_dev_http_handle_request_v1, local_dev_http_route_error_v1,
+    read_local_dev_http_request_v1, require_local_dev_internal_service_auth_v1,
+    require_local_dev_normal_signing_wallet_session_v2, write_local_dev_http_response_v1,
+    LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1, LocalDevHttpTopologyV1,
+};
+use local_ecdsa_hss_pool_store::{
+    local_signing_worker_ecdsa_hss_presignature_pool_store_put_v1,
+    local_signing_worker_ecdsa_hss_presignature_pool_store_take_v1,
+};
+pub use local_service_http::{
+    local_http_service_binding_endpoint_v1, local_http_service_binding_owner_v1,
+    local_http_service_binding_path_v1, local_http_service_binding_url_v1,
+    LocalHttpServiceBindingClientV1, LocalHttpServiceBindingEndpointV1,
+};
+pub use local_worker_topology::{
+    local_worker_bind_addr_v1, local_worker_health_response_json_v1,
+    local_worker_health_response_v1, local_worker_owned_paths_v1, local_worker_owns_path_v1,
+    LocalWorkerHealthResponseV1,
 };
 
 const LOCAL_ED25519_HSS_SPLIT_SERVER_LABEL_V1: &[u8] = b"router-ab-dev/ed25519-hss/split-server/v1";
 const LOCAL_ED25519_HSS_DEFAULT_SPLIT_EPOCH_V1: &str = "split-epoch-1";
-const LOCAL_NORMAL_SIGNING_FIXED_FIXTURE_V1: &str = "derived-gamma";
-const LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1: &str = "gamma.test.near";
 const LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1: u64 = 1_700_000_000_000;
 
-/// Local worker role env key used by the four-process development harness.
+/// Local worker role env key used by the private-worker development harness.
 pub const LOCAL_WORKER_ROLE_ENV_V1: &str = "ROUTER_AB_LOCAL_WORKER_ROLE";
 /// Router public URL env key.
 pub const LOCAL_ROUTER_PUBLIC_URL_ENV_V1: &str = "ROUTER_PUBLIC_URL";
@@ -152,15 +182,23 @@ pub const LOCAL_WORKER_STARTUP_EPOCH_V1: &str = "local-dev-v1";
 pub const LOCAL_WORKER_HEALTH_PATH_V1: &str = "/healthz";
 /// Local readiness endpoint path.
 pub const LOCAL_WORKER_READY_PATH_V1: &str = "/readyz";
-/// Router public setup/export/refresh path mirrored from production.
-pub const LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1: &str = "/v1/hss/split-derivation";
 /// Router public normal-signing path mirrored from production.
-pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2: &str = "/v2/hss/sign";
+pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2: &str = "/v2/router-ab/ed25519/sign";
 /// Router public normal-signing round-1 prepare path mirrored from production.
-pub const LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2: &str = "/v2/hss/sign/prepare";
-/// Local Wallet Session bearer header used by normal-signing smoke routes.
-pub const LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2: &str =
-    "Bearer local-wallet-session-v2";
+pub const LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2: &str = "/v2/router-ab/ed25519/sign/prepare";
+/// Router public ECDSA-HSS digest-signing prepare path mirrored from production.
+pub const LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1: &str = "/v1/hss/ecdsa/sign/prepare";
+/// Router public ECDSA-HSS digest-signing finalize path mirrored from production.
+pub const LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1: &str = "/v1/hss/ecdsa/sign";
+/// Local private service-auth secret env key shared with the TypeScript relay.
+pub const LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_ENV_V1: &str =
+    "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET";
+/// Local default private service-auth secret used when the env key is unset.
+pub const LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1: &str =
+    "dev-router-ab-internal-service-auth";
+/// Local private service-auth header mirrored from strict Cloudflare.
+pub const LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1: &str =
+    "x-router-ab-internal-service-auth";
 /// Deriver A private Router-dispatch path mirrored from production.
 pub const LOCAL_DERIVER_A_PRIVATE_PATH_V1: &str = "/router-ab/v1/signer-a";
 /// Deriver B private Router-dispatch path mirrored from production.
@@ -177,12 +215,73 @@ pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1: &str = "/router-ab/v1/sig
 /// SigningWorker normal-signing round-1 prepare path mirrored from production.
 pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1: &str =
     "/router-ab/v1/signing-worker/sign/prepare";
+/// SigningWorker Ed25519 presign-pool prepare path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1: &str =
+    "/router-ab/v1/signing-worker/sign/presign-pool/prepare";
+/// SigningWorker Ed25519 presign-pool-hit finalize path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1: &str =
+    "/router-ab/v1/signing-worker/sign/presign-pool";
+/// SigningWorker ECDSA-HSS presignature pool-fill path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1: &str =
+    "/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put";
+/// SigningWorker ECDSA-HSS digest-signing prepare path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1: &str =
+    "/router-ab/v1/signing-worker/ecdsa-hss/sign/prepare";
+/// SigningWorker ECDSA-HSS digest-signing finalize path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1: &str =
+    "/router-ab/v1/signing-worker/ecdsa-hss/sign";
 /// Local HTTP service-binding content type for canonical protocol bytes.
 pub const LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1: &str = "application/octet-stream";
 /// Local HTTP service-binding content type for Worker-shaped JSON protocol calls.
 pub const LOCAL_HTTP_JSON_CONTENT_TYPE_V1: &str = "application/json";
 /// Default local HTTP service-binding timeout.
 pub const LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1: u64 = 10_000;
+
+pub fn validate_local_router_wallet_session_authorization_header_v2(
+    authorization: Option<&str>,
+) -> Result<(), &'static str> {
+    let Some(header) = authorization else {
+        return Err("local Router normal-signing Wallet Session authorization is missing");
+    };
+    let Some(token) = header.trim().strip_prefix("Bearer ") else {
+        return Err("local Router normal-signing Wallet Session authorization must use Bearer");
+    };
+    if token.is_empty() || token.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return Err("local Router normal-signing Wallet Session bearer token is invalid");
+    }
+    let mut segments = token.split('.');
+    let Some(header_segment) = segments.next() else {
+        return Err("local Router normal-signing Wallet Session JWT is invalid");
+    };
+    let Some(claims_segment) = segments.next() else {
+        return Err("local Router normal-signing Wallet Session JWT is invalid");
+    };
+    let Some(signature_segment) = segments.next() else {
+        return Err("local Router normal-signing Wallet Session JWT is invalid");
+    };
+    if segments.next().is_some() {
+        return Err("local Router normal-signing Wallet Session JWT is invalid");
+    }
+    for segment in [header_segment, claims_segment, signature_segment] {
+        if segment.is_empty()
+            || !segment
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        {
+            return Err("local Router normal-signing Wallet Session JWT is invalid");
+        }
+    }
+    Ok(())
+}
+
+/// Returns the local private service-auth secret used between Router and workers.
+pub fn local_router_ab_internal_service_auth_secret_v1() -> String {
+    std::env::var(LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_ENV_V1)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1.to_owned())
+}
 
 const LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
@@ -333,23 +432,6 @@ pub struct LocalSigningWorkerConfigV1 {
     pub server_output_storage_path: String,
 }
 
-/// Redacted local worker health response.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LocalWorkerHealthResponseV1 {
-    /// Local worker role.
-    pub role: LocalServiceRoleV1,
-    /// Stable role label.
-    pub role_label: String,
-    /// URL this worker is expected to bind.
-    pub bind_url: String,
-    /// Redacted startup status.
-    pub status: String,
-    /// Local startup epoch safe for diagnostics.
-    pub startup_epoch: String,
-    /// Config branch label safe for diagnostics.
-    pub config_branch: String,
-}
-
 /// Role-specific local worker config.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
@@ -386,289 +468,7 @@ impl LocalWorkerRoleConfigV1 {
     }
 }
 
-/// Returns the host:port bind address from one local worker config.
-pub fn local_worker_bind_addr_v1(
-    config: &LocalWorkerRoleConfigV1,
-) -> RouterAbProtocolResult<String> {
-    parse_http_bind_addr_v1(config.bind_url())
-}
-
-/// Returns known local HTTP paths owned by one worker role.
-pub fn local_worker_owned_paths_v1(role: LocalServiceRoleV1) -> &'static [&'static str] {
-    match role {
-        LocalServiceRoleV1::Router => &[
-            LOCAL_WORKER_HEALTH_PATH_V1,
-            LOCAL_WORKER_READY_PATH_V1,
-            LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1,
-            LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
-            LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
-        ],
-        LocalServiceRoleV1::DeriverA => &[
-            LOCAL_WORKER_HEALTH_PATH_V1,
-            LOCAL_WORKER_READY_PATH_V1,
-            LOCAL_DERIVER_A_PRIVATE_PATH_V1,
-            LOCAL_DERIVER_A_PEER_PATH_V1,
-        ],
-        LocalServiceRoleV1::DeriverB => &[
-            LOCAL_WORKER_HEALTH_PATH_V1,
-            LOCAL_WORKER_READY_PATH_V1,
-            LOCAL_DERIVER_B_PRIVATE_PATH_V1,
-            LOCAL_DERIVER_B_PEER_PATH_V1,
-        ],
-        LocalServiceRoleV1::SigningWorker => &[
-            LOCAL_WORKER_HEALTH_PATH_V1,
-            LOCAL_WORKER_READY_PATH_V1,
-            LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
-            LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1,
-            LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
-        ],
-    }
-}
-
-/// Returns true when a path is owned by the selected local worker role.
-pub fn local_worker_owns_path_v1(role: LocalServiceRoleV1, path: &str) -> bool {
-    local_worker_owned_paths_v1(role).contains(&path)
-}
-
-/// Builds a redacted health response for one local worker config.
-pub fn local_worker_health_response_v1(
-    config: &LocalWorkerRoleConfigV1,
-) -> RouterAbProtocolResult<LocalWorkerHealthResponseV1> {
-    let bind_url = config.bind_url();
-    require_non_empty("local worker bind URL", bind_url)?;
-    Ok(LocalWorkerHealthResponseV1 {
-        role: config.role(),
-        role_label: config.role().as_str().to_owned(),
-        bind_url: bind_url.to_owned(),
-        status: "ready".to_owned(),
-        startup_epoch: LOCAL_WORKER_STARTUP_EPOCH_V1.to_owned(),
-        config_branch: config.role().as_str().to_owned(),
-    })
-}
-
-/// Builds a redacted health response JSON body for one local worker config.
-pub fn local_worker_health_response_json_v1(
-    config: &LocalWorkerRoleConfigV1,
-) -> RouterAbProtocolResult<String> {
-    serde_json::to_string(&local_worker_health_response_v1(config)?).map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("local worker health response JSON failed: {error}"),
-        )
-    })
-}
-
-/// Parsed local HTTP service-binding endpoint.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalHttpServiceBindingEndpointV1 {
-    /// Role that owns the target path.
-    pub owner: LocalServiceRoleV1,
-    /// Full URL requested by the local transport.
-    pub url: String,
-    /// Host header value.
-    pub host_header: String,
-    /// Host:port address used by `TcpStream`.
-    pub bind_addr: String,
-    /// Production-style request path.
-    pub path: String,
-}
-
-/// Blocking local HTTP client for service-binding parity tests.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalHttpServiceBindingClientV1 {
-    timeout: Duration,
-}
-
-impl LocalHttpServiceBindingClientV1 {
-    /// Creates a local HTTP service-binding client with a non-zero timeout.
-    pub fn new(timeout: Duration) -> RouterAbProtocolResult<Self> {
-        if timeout.is_zero() {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "local HTTP service-binding timeout must be non-zero",
-            ));
-        }
-        Ok(Self { timeout })
-    }
-
-    /// Posts canonical wire bytes to one checked local service-binding path.
-    pub fn post_canonical_wire_bytes_v1(
-        &self,
-        base_url: &str,
-        path: LocalHttpPathV1,
-        body: &CanonicalWireBytesV1,
-    ) -> RouterAbProtocolResult<CanonicalWireBytesV1> {
-        let endpoint = local_http_service_binding_endpoint_v1(base_url, path)?;
-        let response_body = self.post_bytes_to_endpoint_v1(
-            &endpoint,
-            LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1,
-            body.as_bytes(),
-        )?;
-        CanonicalWireBytesV1::new(response_body)
-    }
-
-    /// Posts JSON to one checked local service-binding path and parses JSON response.
-    pub fn post_json_v1<Request, Response>(
-        &self,
-        base_url: &str,
-        path: LocalHttpPathV1,
-        body: &Request,
-    ) -> RouterAbProtocolResult<Response>
-    where
-        Request: Serialize,
-        Response: DeserializeOwned,
-    {
-        let endpoint = local_http_service_binding_endpoint_v1(base_url, path)?;
-        let request_body = serde_json::to_vec(body).map_err(|error| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("local HTTP service-binding JSON request serialization failed: {error}"),
-            )
-        })?;
-        let response_body = self.post_bytes_to_endpoint_v1(
-            &endpoint,
-            LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
-            &request_body,
-        )?;
-        serde_json::from_slice(&response_body).map_err(|error| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("local HTTP service-binding JSON response parse failed: {error}"),
-            )
-        })
-    }
-
-    fn post_bytes_to_endpoint_v1(
-        &self,
-        endpoint: &LocalHttpServiceBindingEndpointV1,
-        content_type: &str,
-        body: &[u8],
-    ) -> RouterAbProtocolResult<Vec<u8>> {
-        let mut stream = TcpStream::connect(&endpoint.bind_addr).map_err(|error| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
-                format!(
-                    "local HTTP service-binding connect to {} failed: {error}",
-                    endpoint.bind_addr
-                ),
-            )
-        })?;
-        stream
-            .set_read_timeout(Some(self.timeout))
-            .map_err(|error| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
-                    format!("local HTTP service-binding read-timeout setup failed: {error}"),
-                )
-            })?;
-        stream
-            .set_write_timeout(Some(self.timeout))
-            .map_err(|error| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
-                    format!("local HTTP service-binding write-timeout setup failed: {error}"),
-                )
-            })?;
-
-        write!(
-            stream,
-            "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-            endpoint.path,
-            endpoint.host_header,
-            content_type,
-            body.len()
-        )
-        .map_err(map_local_http_io_error_v1)?;
-        stream.write_all(body).map_err(map_local_http_io_error_v1)?;
-        stream.flush().map_err(map_local_http_io_error_v1)?;
-        stream
-            .shutdown(Shutdown::Write)
-            .map_err(map_local_http_io_error_v1)?;
-
-        let mut response = Vec::new();
-        stream
-            .read_to_end(&mut response)
-            .map_err(map_local_http_io_error_v1)?;
-        let (status, response_body) = split_local_http_response_v1(&response)?;
-        if !(200..=299).contains(&status) {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
-                format!("local HTTP service-binding request failed with status {status}"),
-            ));
-        }
-        Ok(response_body)
-    }
-}
-
-impl Default for LocalHttpServiceBindingClientV1 {
-    fn default() -> Self {
-        Self {
-            timeout: Duration::from_millis(LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1),
-        }
-    }
-}
-
-/// Returns the production-style path for a checked local transport path.
-pub fn local_http_service_binding_path_v1(path: LocalHttpPathV1) -> &'static str {
-    match path {
-        LocalHttpPathV1::RouterToSignerA => LOCAL_DERIVER_A_PRIVATE_PATH_V1,
-        LocalHttpPathV1::RouterToSignerB => LOCAL_DERIVER_B_PRIVATE_PATH_V1,
-        LocalHttpPathV1::SignerAToSignerB => LOCAL_DERIVER_B_PEER_PATH_V1,
-        LocalHttpPathV1::SignerBToSignerA => LOCAL_DERIVER_A_PEER_PATH_V1,
-    }
-}
-
-/// Returns the destination role that owns a checked local transport path.
-pub fn local_http_service_binding_owner_v1(path: LocalHttpPathV1) -> LocalServiceRoleV1 {
-    match path {
-        LocalHttpPathV1::RouterToSignerA | LocalHttpPathV1::SignerBToSignerA => {
-            LocalServiceRoleV1::DeriverA
-        }
-        LocalHttpPathV1::RouterToSignerB | LocalHttpPathV1::SignerAToSignerB => {
-            LocalServiceRoleV1::DeriverB
-        }
-    }
-}
-
-/// Builds the full production-style local service-binding URL for a base URL.
-pub fn local_http_service_binding_url_v1(
-    base_url: &str,
-    path: LocalHttpPathV1,
-) -> RouterAbProtocolResult<String> {
-    require_non_empty("local HTTP service-binding base URL", base_url)?;
-    let route_path = local_http_service_binding_path_v1(path);
-    let base = base_url.trim_end_matches('/');
-    Ok(format!("{base}{route_path}"))
-}
-
-/// Builds the parsed endpoint used by the blocking local HTTP transport.
-pub fn local_http_service_binding_endpoint_v1(
-    base_url: &str,
-    path: LocalHttpPathV1,
-) -> RouterAbProtocolResult<LocalHttpServiceBindingEndpointV1> {
-    let url = local_http_service_binding_url_v1(base_url, path)?;
-    let parts = parse_http_url_parts_v1(&url)?;
-    let owner = local_http_service_binding_owner_v1(path);
-    if !local_worker_owns_path_v1(owner, &parts.path) {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
-            format!(
-                "local HTTP service-binding path {} is not owned by {}",
-                parts.path,
-                owner.as_str()
-            ),
-        ));
-    }
-    Ok(LocalHttpServiceBindingEndpointV1 {
-        owner,
-        url,
-        host_header: parts.authority.clone(),
-        bind_addr: parts.authority,
-        path: parts.path,
-    })
-}
-
-/// Local Durable Object storage scope for the four-process harness.
+/// Local Durable Object storage scope for the private-worker harness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalDurableObjectScopeV1 {
@@ -1506,99 +1306,17 @@ pub struct LocalRouterAbHssDevHttpCeremonyResultV1 {
     pub hss_parity: LocalEd25519HssSplitServerParityReportV1,
 }
 
-/// Public local Router setup-smoke request body.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LocalRouterSetupSmokeRequestV1 {
-    /// Committed Ed25519-HSS fixture name to drive through local Router/A/B.
-    pub fixture_name: String,
-    /// Local split epoch for role-scoped HSS shares.
-    pub split_epoch: String,
-}
-
-impl LocalRouterSetupSmokeRequestV1 {
-    /// Creates a validated local Router setup-smoke request.
-    pub fn new(
-        fixture_name: impl Into<String>,
-        split_epoch: impl Into<String>,
-    ) -> RouterAbProtocolResult<Self> {
-        let request = Self {
-            fixture_name: fixture_name.into(),
-            split_epoch: split_epoch.into(),
-        };
-        request.validate()?;
-        Ok(request)
-    }
-
-    /// Validates required smoke request fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("local setup-smoke fixture_name", &self.fixture_name)?;
-        require_non_empty("local setup-smoke split_epoch", &self.split_epoch)
-    }
-}
-
-/// Public local Router setup-smoke response body.
+/// Local Postgres seed for the SDK server Ed25519 key-store record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LocalRouterSetupSmokeResponseV1 {
-    /// Public fixture name used by the smoke request.
-    pub fixture_name: String,
-    /// Public split epoch used by the smoke request.
-    pub split_epoch: String,
-    /// Account public key for the fixture.
-    pub near_public_key: String,
-    /// Raw public key hex for cross-checks.
-    pub public_key_hex: String,
-    /// Router response carrying only client-output proof bundles.
-    pub router_response: LocalRouterRecipientProofBundleResponseV1,
-    /// Digest proving the SigningWorker accepted server-output activation.
-    pub signing_worker_activation_digest_hex: String,
-    /// Redacted activation status.
-    pub signing_worker_activation_status: String,
-}
-
-/// Handles the public local Router setup-smoke request body.
-pub fn handle_local_router_setup_smoke_request_v1(
-    request: LocalRouterSetupSmokeRequestV1,
-) -> RouterAbProtocolResult<LocalRouterSetupSmokeResponseV1> {
-    request.validate()?;
-    let result = run_example_local_router_ab_hss_dev_http_ceremony_v1(
-        &request.fixture_name,
-        &request.split_epoch,
-    )?;
-    result.core_http_ceremony.router_response.validate()?;
-    Ok(LocalRouterSetupSmokeResponseV1 {
-        fixture_name: request.fixture_name,
-        split_epoch: request.split_epoch,
-        near_public_key: result.hss_derivation.near_public_key,
-        public_key_hex: result.hss_derivation.public_key_hex,
-        router_response: result.core_http_ceremony.router_response,
-        signing_worker_activation_digest_hex: hex::encode(
-            result
-                .core_http_ceremony
-                .signing_worker_activation_receipt
-                .activation_digest
-                .as_bytes(),
-        ),
-        signing_worker_activation_status: "activated".to_owned(),
-    })
-}
-
-/// Parses and handles a public local Router setup-smoke request JSON body.
-pub fn handle_local_router_setup_smoke_request_json_v1(
-    body: &[u8],
-) -> RouterAbProtocolResult<String> {
-    let request =
-        serde_json::from_slice::<LocalRouterSetupSmokeRequestV1>(body).map_err(|error| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("local Router setup-smoke request JSON parse failed: {error}"),
-            )
-        })?;
-    serde_json::to_string(&handle_local_router_setup_smoke_request_v1(request)?).map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("local Router setup-smoke response JSON serialization failed: {error}"),
-        )
-    })
+#[serde(rename_all = "camelCase")]
+pub struct LocalRouterEd25519KeyStoreSeedV1 {
+    pub relayer_key_id: String,
+    pub near_account_id: String,
+    pub rp_id: String,
+    pub public_key: String,
+    pub relayer_signing_share_b64u: String,
+    pub key_version: String,
+    pub recovery_export_capable: bool,
 }
 
 /// Redacted receipt from a local Deriver peer-message route.
@@ -1734,15 +1452,6 @@ pub struct LocalSigningWorkerActivationRouteReceiptV1 {
     pub status: String,
 }
 
-/// Raw local HTTP response from a direct JSON POST.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalHttpPostResponseV1 {
-    /// HTTP status code.
-    pub status: u16,
-    /// Response body bytes.
-    pub body: Vec<u8>,
-}
-
 /// Local SigningWorker round-1 nonce record.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalSigningWorkerRound1RecordV1 {
@@ -1764,6 +1473,459 @@ pub struct LocalSigningWorkerRound1RecordV1 {
     pub prepared_at_ms: u64,
     /// Expiry timestamp in Unix milliseconds.
     pub expires_at_ms: u64,
+}
+
+/// Private SigningWorker request to fill the local ECDSA-HSS presignature pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
+    /// Normal-signing identity and active SigningWorker scope.
+    pub scope: RouterAbEcdsaHssNormalSigningScopeV1,
+    /// Client-selected presignature id shared by the client and SigningWorker.
+    pub server_presignature_id: String,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
+    pub server_k_share32_b64u: String,
+    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
+    pub server_sigma_share32_b64u: String,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1 {
+    /// Validates request fields without applying wall-clock expiry.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        decode_base64url_fixed_33_v1("server_big_r33_b64u", &self.server_big_r33_b64u)?;
+        decode_base64url_fixed_32_v1("server_k_share32_b64u", &self.server_k_share32_b64u)?;
+        decode_base64url_fixed_32_v1("server_sigma_share32_b64u", &self.server_sigma_share32_b64u)?;
+        require_positive_unix_ms_v1(
+            "ECDSA-HSS presignature pool fill expires_at_ms",
+            self.expires_at_ms,
+        )
+    }
+
+    /// Validates this pool-fill request can be accepted at the supplied timestamp.
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        require_positive_unix_ms_v1("ECDSA-HSS presignature pool fill now_unix_ms", now_unix_ms)?;
+        if self.expires_at_ms <= now_unix_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "ECDSA-HSS presignature pool fill request expired",
+            ));
+        }
+        Ok(())
+    }
+
+    fn to_pool_record(
+        &self,
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<LocalSigningWorkerEcdsaHssPresignaturePoolRecordV1> {
+        self.validate_at(now_unix_ms)?;
+        LocalSigningWorkerEcdsaHssPresignaturePoolRecordV1::new(
+            active_signing_worker_state,
+            self.server_presignature_id.clone(),
+            self.server_big_r33_b64u.clone(),
+            self.server_k_share32_b64u.clone(),
+            self.server_sigma_share32_b64u.clone(),
+            now_unix_ms,
+            self.expires_at_ms,
+        )
+    }
+}
+
+/// Redacted receipt returned by the local ECDSA-HSS presignature pool-fill route.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1 {
+    /// Active SigningWorker state selected for this pool entry.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local presignature id accepted by the route.
+    pub server_presignature_id: String,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// Whether the entry was inserted into the one-use pool.
+    pub stored: bool,
+}
+
+impl LocalSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1 {
+    fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        server_big_r33_b64u: impl Into<String>,
+        stored: bool,
+    ) -> RouterAbProtocolResult<Self> {
+        let receipt = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            stored,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty(
+            "receipt.server_presignature_id",
+            &self.server_presignature_id,
+        )?;
+        decode_base64url_fixed_33_v1("receipt.server_big_r33_b64u", &self.server_big_r33_b64u)?;
+        Ok(())
+    }
+}
+
+/// Local Router admission attached to a private ECDSA-HSS SigningWorker request.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalRouterEcdsaHssTrustedAdmissionV1 {
+    /// Wallet/account id admitted by Router.
+    pub account_id: String,
+    /// Active ECDSA-HSS signing session id admitted by Router.
+    pub session_id: String,
+    /// Canonical request digest admitted by Router.
+    pub request_digest: PublicDigest32,
+    /// Exact EVM digest admitted for SigningWorker signing.
+    pub signing_digest: PublicDigest32,
+    /// Admission timestamp in Unix milliseconds.
+    pub admitted_at_ms: u64,
+    /// Expiry timestamp copied from the admitted request.
+    pub expires_at_ms: u64,
+}
+
+impl LocalRouterEcdsaHssTrustedAdmissionV1 {
+    fn validate_common(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("local ECDSA-HSS admission account_id", &self.account_id)?;
+        require_non_empty("local ECDSA-HSS admission session_id", &self.session_id)?;
+        require_positive_unix_ms_v1(
+            "local ECDSA-HSS admission admitted_at_ms",
+            self.admitted_at_ms,
+        )?;
+        require_positive_unix_ms_v1(
+            "local ECDSA-HSS admission expires_at_ms",
+            self.expires_at_ms,
+        )?;
+        if self.expires_at_ms <= self.admitted_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS admission expiry must be after admission",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_for_prepare(
+        &self,
+        request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_common()?;
+        request.validate()?;
+        if self.account_id != request.scope.context.wallet_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS prepare admission account_id does not match request scope",
+            ));
+        }
+        if self.session_id
+            != router_ab_ecdsa_hss_active_state_session_id_v1(
+                &request.scope.context,
+                &request.scope.activation_epoch,
+            )?
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS prepare admission session_id does not match request scope",
+            ));
+        }
+        if self.request_digest != request.request_digest()?
+            || self.signing_digest != request.signing_digest()?
+            || self.expires_at_ms != request.expires_at_ms
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS prepare admission does not match request",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_for_finalize(
+        &self,
+        request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_common()?;
+        request.validate()?;
+        if self.account_id != request.scope.context.wallet_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS finalize admission account_id does not match request scope",
+            ));
+        }
+        if self.session_id
+            != router_ab_ecdsa_hss_active_state_session_id_v1(
+                &request.scope.context,
+                &request.scope.activation_epoch,
+            )?
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS finalize admission session_id does not match request scope",
+            ));
+        }
+        if self.request_digest != request.request_digest()?
+            || self.signing_digest != request.signing_digest()?
+            || self.expires_at_ms != request.expires_at_ms
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "local ECDSA-HSS finalize admission does not match request",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Local Router-admitted ECDSA-HSS prepare request sent to SigningWorker.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSigningWorkerAdmittedEcdsaHssPrepareRequestV1 {
+    /// Typed public ECDSA-HSS prepare request accepted by Router.
+    pub request: RouterAbEcdsaHssEvmDigestSigningRequestV1,
+    /// Trusted local Router admission for this exact request.
+    pub trusted_admission: LocalRouterEcdsaHssTrustedAdmissionV1,
+}
+
+impl LocalSigningWorkerAdmittedEcdsaHssPrepareRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.trusted_admission.validate_for_prepare(&self.request)
+    }
+}
+
+/// Local Router-admitted ECDSA-HSS finalize request sent to SigningWorker.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSigningWorkerAdmittedEcdsaHssFinalizeRequestV1 {
+    /// Typed public ECDSA-HSS finalize request accepted by Router.
+    pub request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+    /// Trusted local Router admission for this exact finalize request.
+    pub trusted_admission: LocalRouterEcdsaHssTrustedAdmissionV1,
+}
+
+impl LocalSigningWorkerAdmittedEcdsaHssFinalizeRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.trusted_admission.validate_for_finalize(&self.request)
+    }
+}
+
+/// One-use local ECDSA-HSS presignature pool record.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSigningWorkerEcdsaHssPresignaturePoolRecordV1 {
+    /// Active SigningWorker state selected for this pool entry.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local presignature id.
+    pub server_presignature_id: String,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
+    pub server_k_share32_b64u: String,
+    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
+    pub server_sigma_share32_b64u: String,
+    /// Insertion timestamp in Unix milliseconds.
+    pub created_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl LocalSigningWorkerEcdsaHssPresignaturePoolRecordV1 {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        server_big_r33_b64u: impl Into<String>,
+        server_k_share32_b64u: impl Into<String>,
+        server_sigma_share32_b64u: impl Into<String>,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            server_k_share32_b64u: server_k_share32_b64u.into(),
+            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
+            created_at_ms,
+            expires_at_ms,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty(
+            "ECDSA-HSS pool record server_presignature_id",
+            &self.server_presignature_id,
+        )?;
+        decode_base64url_fixed_33_v1(
+            "ECDSA-HSS pool record server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )?;
+        decode_base64url_fixed_32_v1(
+            "ECDSA-HSS pool record server_k_share32_b64u",
+            &self.server_k_share32_b64u,
+        )?;
+        decode_base64url_fixed_32_v1(
+            "ECDSA-HSS pool record server_sigma_share32_b64u",
+            &self.server_sigma_share32_b64u,
+        )?;
+        require_positive_unix_ms_v1("ECDSA-HSS pool record created_at_ms", self.created_at_ms)?;
+        require_positive_unix_ms_v1("ECDSA-HSS pool record expires_at_ms", self.expires_at_ms)?;
+        if self.expires_at_ms <= self.created_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "ECDSA-HSS pool record expiry must be after creation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn same_pool_identity_and_material(&self, other: &Self) -> bool {
+        self.active_signing_worker_state == other.active_signing_worker_state
+            && self.server_presignature_id == other.server_presignature_id
+            && self.server_big_r33_b64u == other.server_big_r33_b64u
+            && self.server_k_share32_b64u == other.server_k_share32_b64u
+            && self.server_sigma_share32_b64u == other.server_sigma_share32_b64u
+            && self.expires_at_ms == other.expires_at_ms
+    }
+}
+
+/// One-use local ECDSA-HSS presignature record bound to an exact signing request.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSigningWorkerEcdsaHssPresignatureRecordV1 {
+    /// Active SigningWorker state selected for this signing request.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local presignature id consumed by finalize.
+    pub server_presignature_id: String,
+    /// Canonical prepare request digest.
+    pub request_digest: PublicDigest32,
+    /// Exact 32-byte EVM digest this presignature may sign.
+    pub admitted_signing_digest: PublicDigest32,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// Public 32-byte rerandomization entropy both ECDSA parties must use.
+    pub rerandomization_entropy32_b64u: String,
+    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
+    pub server_k_share32_b64u: String,
+    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
+    pub server_sigma_share32_b64u: String,
+    /// Insertion timestamp in Unix milliseconds.
+    pub created_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl LocalSigningWorkerEcdsaHssPresignatureRecordV1 {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        request_digest: PublicDigest32,
+        admitted_signing_digest: PublicDigest32,
+        server_big_r33_b64u: impl Into<String>,
+        rerandomization_entropy32_b64u: impl Into<String>,
+        server_k_share32_b64u: impl Into<String>,
+        server_sigma_share32_b64u: impl Into<String>,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            request_digest,
+            admitted_signing_digest,
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            rerandomization_entropy32_b64u: rerandomization_entropy32_b64u.into(),
+            server_k_share32_b64u: server_k_share32_b64u.into(),
+            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
+            created_at_ms,
+            expires_at_ms,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty(
+            "ECDSA-HSS prepared record server_presignature_id",
+            &self.server_presignature_id,
+        )?;
+        decode_base64url_fixed_33_v1(
+            "ECDSA-HSS prepared record server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )?;
+        decode_base64url_fixed_32_v1(
+            "ECDSA-HSS prepared record rerandomization_entropy32_b64u",
+            &self.rerandomization_entropy32_b64u,
+        )?;
+        decode_base64url_fixed_32_v1(
+            "ECDSA-HSS prepared record server_k_share32_b64u",
+            &self.server_k_share32_b64u,
+        )?;
+        decode_base64url_fixed_32_v1(
+            "ECDSA-HSS prepared record server_sigma_share32_b64u",
+            &self.server_sigma_share32_b64u,
+        )?;
+        require_positive_unix_ms_v1(
+            "ECDSA-HSS prepared record created_at_ms",
+            self.created_at_ms,
+        )?;
+        require_positive_unix_ms_v1(
+            "ECDSA-HSS prepared record expires_at_ms",
+            self.expires_at_ms,
+        )?;
+        if self.expires_at_ms <= self.created_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "ECDSA-HSS prepared record expiry must be after creation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_for_finalize(
+        &self,
+        active_signing_worker_state: &ActiveSigningWorkerStateV1,
+        request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate_at(now_unix_ms)?;
+        if self.active_signing_worker_state != *active_signing_worker_state {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "local ECDSA-HSS prepared record active SigningWorker mismatch",
+            ));
+        }
+        if self.server_presignature_id != request.server_presignature_id
+            || self.request_digest != request.prepare_request_digest()?
+            || self.admitted_signing_digest != request.signing_digest()?
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "local ECDSA-HSS finalize request does not match prepared presignature",
+            ));
+        }
+        if now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "local ECDSA-HSS prepared presignature expired",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl LocalSigningWorkerRound1RecordV1 {
@@ -1855,14 +2017,23 @@ pub fn handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
             ),
         ));
     }
-    let request = parse_local_json_body_v1::<RouterAbEd25519NormalSigningPrepareRequestV2>(
-        "local normal-signing round-1 prepare request",
-        body,
-    )?;
-    request.validate()?;
+    let private_request = parse_local_json_body_v1::<
+        LocalSigningWorkerEd25519PreparePrivateRequestV1,
+    >("local normal-signing round-1 prepare private request", body)?;
+    private_request.validate()?;
+    let request = &private_request.request;
+    let prepared_at_ms = local_now_unix_ms_v1()?;
+    if prepared_at_ms >= request.expires_at_ms {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ExpiredLocalRequest,
+            "local normal-signing round-1 prepare request expired",
+        ));
+    }
     let admission = request.admission_material()?;
-    let active_signing_worker = local_active_signing_worker_state_v1(config, &request.scope)?;
-    let material = local_signing_worker_normal_signing_material_v1(&request.scope)?;
+    let active_signing_worker = private_request
+        .server_material
+        .active_signing_worker_state(config, &request.scope)?;
+    let material = private_request.server_material.normal_signing_material()?;
     let mut rng = OsRng;
     let round1_state = prepare_role_separated_ed25519_round1_v1(&mut rng)
         .map_err(map_hss_normal_signing_error_v1)?;
@@ -1878,7 +2049,6 @@ pub fn handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
             .map_err(map_hss_normal_signing_error_v1)?;
     let server_commitments =
         local_normal_signing_commitments_wire_from_role_separated_v1(round1_state.commitments)?;
-    let prepared_at_ms = LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1 + 1;
     let round1_binding_digest = request.round1_binding_digest()?;
     let record = LocalSigningWorkerRound1RecordV1::new(
         active_signing_worker.clone(),
@@ -1903,7 +2073,7 @@ pub fn handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
         prepared_at_ms,
         request.expires_at_ms,
     )?;
-    response.validate_for_v2_prepare_request(&request)?;
+    response.validate_for_v2_prepare_request(request)?;
     local_signing_worker_round1_store_put_v1(record)?;
     serde_json::to_string(&response).map_err(|error| {
         RouterAbProtocolError::new(
@@ -1913,6 +2083,169 @@ pub fn handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
             ),
         )
     })
+}
+
+/// Handles the local SigningWorker Ed25519 presign-pool prepare route.
+pub fn handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1(
+    config: &LocalSigningWorkerConfigV1,
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local normal-signing presign-pool prepare route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "SigningWorker normal-signing presign-pool prepare route must be served at {}",
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1
+            ),
+        ));
+    }
+    let private_request =
+        parse_local_json_body_v1::<LocalSigningWorkerEd25519PresignPoolPreparePrivateRequestV1>(
+            "local normal-signing presign-pool prepare private request",
+            body,
+        )?;
+    private_request.validate()?;
+    let request = &private_request.request;
+    let prepared_at_ms = local_now_unix_ms_v1()?;
+    request.validate_at(prepared_at_ms)?;
+    let active_signing_worker = private_request
+        .server_material
+        .active_signing_worker_state(config, &request.scope)?;
+    let material = private_request.server_material.normal_signing_material()?;
+    let server_verifying_share =
+        role_separated_ed25519_server_verifying_share_v1(material.x_server_base)
+            .map_err(map_hss_normal_signing_error_v1)?;
+    let server_verifying_share_b64u = encode_base64url_bytes_v1(&server_verifying_share);
+    let mut rng = OsRng;
+    let mut accepted = Vec::with_capacity(request.client_offers.len());
+    let mut records = Vec::with_capacity(request.client_offers.len());
+    for offer in &request.client_offers {
+        let round1_state = prepare_role_separated_ed25519_round1_v1(&mut rng)
+            .map_err(map_hss_normal_signing_error_v1)?;
+        let mut handle_random = [0u8; 16];
+        rand_core::RngCore::fill_bytes(&mut rng, &mut handle_random);
+        let server_round1_handle = format!(
+            "local-server-round1-pool/{}/{}/{}",
+            request.generation,
+            offer.client_presign_id,
+            encode_base64url_bytes_v1(&handle_random)
+        );
+        let pool_entry_binding_digest = request.pool_entry_binding_digest(offer)?;
+        let server_commitments =
+            local_normal_signing_commitments_wire_from_role_separated_v1(round1_state.commitments)?;
+        let record = LocalSigningWorkerEd25519PresignPoolRecordV1 {
+            active_signing_worker: active_signing_worker.clone(),
+            scope: request.scope.clone(),
+            client_presign_id: offer.client_presign_id.clone(),
+            client_nonce_handle: offer.client_nonce_handle.clone(),
+            generation: request.generation,
+            pool_entry_binding_digest,
+            server_round1_handle: server_round1_handle.clone(),
+            client_commitments: offer.client_commitments.clone(),
+            client_verifying_share_b64u: offer.client_verifying_share_b64u.clone(),
+            round1_state,
+            server_verifying_share_b64u: server_verifying_share_b64u.clone(),
+            prepared_at_ms,
+            expires_at_ms: request.expires_at_ms,
+        };
+        record.validate()?;
+        let accepted_entry = RouterAbEd25519PresignPoolAcceptedEntryV2::new(
+            offer.client_presign_id.clone(),
+            request.generation,
+            pool_entry_binding_digest,
+            active_signing_worker.signing_worker.clone(),
+            server_round1_handle,
+            server_commitments,
+            server_verifying_share_b64u.clone(),
+            NormalSigningSignatureSchemeV1::Ed25519V1,
+            prepared_at_ms,
+            request.expires_at_ms,
+        )?;
+        records.push(record);
+        accepted.push(accepted_entry);
+    }
+    for record in records {
+        local_signing_worker_ed25519_presign_pool_store_put_v1(record)?;
+    }
+    let response = RouterAbEd25519PresignPoolPrepareResponseV2::new(
+        request.scope.clone(),
+        request.generation,
+        accepted,
+        vec![],
+    )?;
+    response.validate_for_request(request)?;
+    serde_json::to_string(&response).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!(
+                "local SigningWorker normal-signing presign-pool prepare response JSON serialization failed: {error}"
+            ),
+        )
+    })
+}
+
+fn local_finalize_normal_signing_response_v1(
+    request: &RouterAbEd25519NormalSigningFinalizeRequestV2,
+    active_signing_worker: ActiveSigningWorkerStateV1,
+    material: LocalSigningWorkerNormalSigningMaterialV1,
+    round1_state: &RoleSeparatedEd25519Round1StateV1,
+    admitted_signing_digest: PublicDigest32,
+    prepared_at_ms: u64,
+) -> RouterAbProtocolResult<NormalSigningResponseV1> {
+    let RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(protocol) =
+        &request.protocol;
+    let server_commitments =
+        decode_local_normal_signing_commitments_v1(&protocol.server_commitments)?;
+    if server_commitments != round1_state.commitments {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local normal-signing server commitments do not match stored round-1 material",
+        ));
+    }
+    let output = finalize_role_separated_ed25519_server_signature_v1(
+        RoleSeparatedEd25519ServerFinalizeRequestV1 {
+            x_server_base: material.x_server_base,
+            server_round1: round1_state,
+            group_public_key: decode_near_ed25519_public_key_v1(
+                "local normal-signing group_public_key",
+                &active_signing_worker.account_public_key,
+            )?,
+            client_commitments: decode_local_normal_signing_commitments_v1(
+                &protocol.client_commitments,
+            )?,
+            server_commitments,
+            client_verifying_share: decode_base64url_fixed_32_v1(
+                "local normal-signing client_verifying_share_b64u",
+                &protocol.client_verifying_share_b64u,
+            )?,
+            server_verifying_share: decode_base64url_fixed_32_v1(
+                "local normal-signing server_verifying_share_b64u",
+                &protocol.server_verifying_share_b64u,
+            )?,
+            client_signature_share: decode_base64url_fixed_32_v1(
+                "local normal-signing client_signature_share_b64u",
+                &protocol.client_signature_share_b64u,
+            )?,
+            signing_payload: admitted_signing_digest.as_bytes(),
+        },
+    )
+    .map_err(map_hss_normal_signing_error_v1)?;
+    NormalSigningResponseV1::new(
+        request.scope.clone(),
+        request.signing_payload_digest(),
+        active_signing_worker.signing_worker,
+        request.protocol.signature_scheme(),
+        CanonicalWireBytesV1::new(output.signature.to_vec())?,
+        prepared_at_ms + 1,
+    )
 }
 
 /// Handles the local SigningWorker normal-signing finalize route.
@@ -1937,15 +2270,15 @@ pub fn handle_local_signing_worker_normal_signing_json_v1(
             ),
         ));
     }
-    let request = parse_local_json_body_v1::<RouterAbEd25519NormalSigningFinalizeRequestV2>(
-        "local normal-signing request",
-        body,
-    )?;
-    request.validate()?;
-    let active_signing_worker = local_active_signing_worker_state_v1(config, &request.scope)?;
-    let material = local_signing_worker_normal_signing_material_v1(&request.scope)?;
-    let RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(protocol) =
-        &request.protocol;
+    let private_request = parse_local_json_body_v1::<
+        LocalSigningWorkerEd25519FinalizePrivateRequestV1,
+    >("local normal-signing finalize private request", body)?;
+    private_request.validate()?;
+    let request = &private_request.request;
+    let active_signing_worker = private_request
+        .server_material
+        .active_signing_worker_state(config, &request.scope)?;
+    let material = private_request.server_material.normal_signing_material()?;
     let record = local_signing_worker_round1_store_take_v1(
         request.server_round1_handle(),
         request.round1_binding_digest(),
@@ -1966,51 +2299,15 @@ pub fn handle_local_signing_worker_normal_signing_json_v1(
             "local normal-signing v2 finalize request does not match prepared admission",
         ));
     }
-    let server_commitments =
-        decode_local_normal_signing_commitments_v1(&protocol.server_commitments)?;
-    if server_commitments != record.round1_state.commitments {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "local normal-signing server commitments do not match stored round-1 material",
-        ));
-    }
-    let output = finalize_role_separated_ed25519_server_signature_v1(
-        RoleSeparatedEd25519ServerFinalizeRequestV1 {
-            x_server_base: material.x_server_base,
-            server_round1: &record.round1_state,
-            group_public_key: decode_near_ed25519_public_key_v1(
-                "local normal-signing group_public_key",
-                &protocol.group_public_key,
-            )?,
-            client_commitments: decode_local_normal_signing_commitments_v1(
-                &protocol.client_commitments,
-            )?,
-            server_commitments,
-            client_verifying_share: decode_base64url_fixed_32_v1(
-                "local normal-signing client_verifying_share_b64u",
-                &protocol.client_verifying_share_b64u,
-            )?,
-            server_verifying_share: decode_base64url_fixed_32_v1(
-                "local normal-signing server_verifying_share_b64u",
-                &protocol.server_verifying_share_b64u,
-            )?,
-            client_signature_share: decode_base64url_fixed_32_v1(
-                "local normal-signing client_signature_share_b64u",
-                &protocol.client_signature_share_b64u,
-            )?,
-            signing_payload: record.admitted_signing_digest.as_bytes(),
-        },
-    )
-    .map_err(map_hss_normal_signing_error_v1)?;
-    let response = NormalSigningResponseV1::new(
-        request.scope.clone(),
-        request.signing_payload_digest(),
-        active_signing_worker.signing_worker,
-        request.protocol.signature_scheme(),
-        CanonicalWireBytesV1::new(output.signature.to_vec())?,
-        record.prepared_at_ms + 1,
+    let response = local_finalize_normal_signing_response_v1(
+        request,
+        active_signing_worker,
+        material,
+        &record.round1_state,
+        record.admitted_signing_digest,
+        record.prepared_at_ms,
     )?;
-    response.validate_for_v2_finalize_request(&request)?;
+    response.validate_for_v2_finalize_request(request)?;
     serde_json::to_string(&response).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -2021,109 +2318,336 @@ pub fn handle_local_signing_worker_normal_signing_json_v1(
     })
 }
 
-/// Handles the local Router normal-signing round-1 prepare public route.
-pub fn handle_local_router_normal_signing_round1_prepare_request_json_v1(
-    signing_worker_url: &str,
+/// Handles the local SigningWorker Ed25519 presign-pool-hit finalize route.
+pub fn handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1(
+    config: &LocalSigningWorkerConfigV1,
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
     body: &[u8],
 ) -> RouterAbProtocolResult<String> {
-    let request = parse_local_json_body_v1::<RouterAbEd25519NormalSigningPrepareRequestV2>(
-        "local Router normal-signing round-1 prepare request",
-        body,
-    )?;
-    request.validate()?;
-    let url = format!(
-        "{}{}",
-        signing_worker_url.trim_end_matches('/'),
-        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1
-    );
-    let response = local_http_post_json_url_v1(
-        &url,
-        &request,
-        Duration::from_millis(LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1),
-    )?;
-    if response.status != 200 {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local normal-signing presign-pool-hit route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1 {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
-                "local Router normal-signing round-1 prepare expected SigningWorker status 200, received {}",
-                response.status
+                "SigningWorker normal-signing presign-pool-hit route must be served at {}",
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1
             ),
         ));
     }
-    let signing_worker =
-        serde_json::from_slice::<NormalSigningRound1PrepareResponseV1>(&response.body).map_err(
-            |error| {
-                RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MalformedWirePayload,
-                    format!(
-                        "local SigningWorker normal-signing round-1 prepare response JSON parse failed: {error}"
-                    ),
-                )
-            },
+    let private_request =
+        parse_local_json_body_v1::<LocalSigningWorkerEd25519PresignPoolHitPrivateRequestV1>(
+            "local normal-signing presign-pool-hit private request",
+            body,
         )?;
-    signing_worker.validate_for_v2_prepare_request(&request)?;
-    serde_json::to_string(&signing_worker).map_err(|error| {
+    private_request.validate()?;
+    let pool_hit_request = &private_request.request;
+    let now_unix_ms = local_now_unix_ms_v1()?;
+    pool_hit_request.validate_at(now_unix_ms)?;
+    let active_signing_worker = private_request
+        .server_material
+        .active_signing_worker_state(config, &pool_hit_request.scope)?;
+    let material = private_request.server_material.normal_signing_material()?;
+    let pool_entry = local_signing_worker_ed25519_presign_pool_store_take_v1(
+        pool_hit_request.server_round1_handle(),
+        pool_hit_request.pool_binding.pool_entry_binding_digest,
+    )?;
+    pool_entry.validate()?;
+    if pool_entry.active_signing_worker != active_signing_worker
+        || pool_entry.scope != pool_hit_request.scope
+        || pool_entry.client_presign_id != pool_hit_request.pool_binding.client_presign_id
+        || pool_entry.client_nonce_handle != pool_hit_request.pool_binding.client_nonce_handle
+        || pool_entry.generation != pool_hit_request.pool_binding.generation
+        || pool_entry.expires_at_ms != pool_hit_request.expires_at_ms
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local presign-pool-hit request does not match prepared pool entry",
+        ));
+    }
+    let normal_request = pool_hit_request.to_normal_finalize_request_v2()?;
+    let admission = pool_hit_request.admission_material()?;
+    let response = local_finalize_normal_signing_response_v1(
+        &normal_request,
+        active_signing_worker,
+        material,
+        &pool_entry.round1_state,
+        admission.admitted_signing_digest,
+        pool_entry.prepared_at_ms,
+    )?;
+    response.validate_for_v2_finalize_request(&normal_request)?;
+    serde_json::to_string(&response).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             format!(
-                "local Router normal-signing round-1 prepare response JSON serialization failed: {error}"
+                "local SigningWorker normal-signing presign-pool-hit response JSON serialization failed: {error}"
             ),
         )
     })
 }
 
-/// Handles the local Router normal-signing public route by forwarding only to SigningWorker.
-pub fn handle_local_router_normal_signing_request_json_v1(
-    signing_worker_url: &str,
+/// Handles the local SigningWorker ECDSA-HSS presignature pool-fill route.
+pub fn handle_local_signing_worker_ecdsa_hss_presignature_pool_put_json_v1(
+    config: &LocalSigningWorkerConfigV1,
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
     body: &[u8],
 ) -> RouterAbProtocolResult<String> {
-    let request = parse_local_json_body_v1::<RouterAbEd25519NormalSigningFinalizeRequestV2>(
-        "local Router normal-signing request",
-        body,
-    )?;
-    request.validate()?;
-    let url = format!(
-        "{}{}",
-        signing_worker_url.trim_end_matches('/'),
-        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
-    );
-    let response = local_http_post_json_url_v1(
-        &url,
-        &request,
-        Duration::from_millis(LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1),
-    )?;
-    if response.status != 200 {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local ECDSA-HSS presignature pool-fill route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1 {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
-                "local Router normal-signing expected SigningWorker status 200, received {}",
-                response.status
+                "SigningWorker ECDSA-HSS presignature pool-fill route must be served at {}",
+                LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1
             ),
         ));
     }
-    let signing_worker = serde_json::from_slice::<NormalSigningResponseV1>(&response.body)
-        .map_err(|error| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                format!("local SigningWorker normal-signing response JSON parse failed: {error}"),
-            )
-        })?;
-    signing_worker.validate_for_v2_finalize_request(&request)?;
-    serde_json::to_string(&signing_worker).map_err(|error| {
+    let now_unix_ms = local_now_unix_ms_v1()?;
+    let request = parse_local_json_body_v1::<LocalSigningWorkerEcdsaHssPresignaturePoolPutRequestV1>(
+        "local ECDSA-HSS presignature pool-fill request",
+        body,
+    )?;
+    request.validate_at(now_unix_ms)?;
+    let active_signing_worker_state =
+        local_active_ecdsa_hss_signing_worker_state_v1(config, &request.scope)?;
+    let record = request.to_pool_record(active_signing_worker_state.clone(), now_unix_ms)?;
+    let stored = local_signing_worker_ecdsa_hss_presignature_pool_store_put_v1(record)?;
+    let receipt = LocalSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1::new(
+        active_signing_worker_state,
+        request.server_presignature_id,
+        request.server_big_r33_b64u,
+        stored,
+    )?;
+    serde_json::to_string(&receipt).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("local Router normal-signing response JSON serialization failed: {error}"),
+            format!(
+                "local SigningWorker ECDSA-HSS presignature pool-fill receipt JSON serialization failed: {error}"
+            ),
         )
     })
+}
+
+/// Handles the local SigningWorker ECDSA-HSS digest-signing prepare route.
+pub fn handle_local_signing_worker_ecdsa_hss_prepare_json_v1(
+    config: &LocalSigningWorkerConfigV1,
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local ECDSA-HSS prepare route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "SigningWorker ECDSA-HSS prepare route must be served at {}",
+                LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1
+            ),
+        ));
+    }
+    let now_unix_ms = local_now_unix_ms_v1()?;
+    let admitted = parse_local_json_body_v1::<LocalSigningWorkerAdmittedEcdsaHssPrepareRequestV1>(
+        "local admitted ECDSA-HSS prepare request",
+        body,
+    )?;
+    admitted.validate()?;
+    let request = admitted.request;
+    request.validate_at(now_unix_ms)?;
+    let active_signing_worker_state =
+        local_active_ecdsa_hss_signing_worker_state_v1(config, &request.scope)?;
+    let pool_record = local_signing_worker_ecdsa_hss_presignature_pool_store_take_v1(
+        &active_signing_worker_state,
+        &request.client_presignature_id,
+        now_unix_ms,
+    )?;
+    let mut rerandomization_entropy32 = [0u8; 32];
+    let mut rng = OsRng;
+    rand_core::RngCore::fill_bytes(&mut rng, &mut rerandomization_entropy32);
+    let rerandomization_entropy32_b64u = encode_base64url_bytes_v1(&rerandomization_entropy32);
+    let response = RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1::new_for_request(
+        &request,
+        pool_record.server_presignature_id.clone(),
+        pool_record.server_big_r33_b64u.clone(),
+        rerandomization_entropy32_b64u.clone(),
+        now_unix_ms,
+    )?;
+    let prepared_record = LocalSigningWorkerEcdsaHssPresignatureRecordV1::new(
+        active_signing_worker_state,
+        pool_record.server_presignature_id,
+        request.request_digest()?,
+        request.signing_digest()?,
+        pool_record.server_big_r33_b64u,
+        rerandomization_entropy32_b64u,
+        pool_record.server_k_share32_b64u,
+        pool_record.server_sigma_share32_b64u,
+        now_unix_ms,
+        request.expires_at_ms,
+    )?;
+    local_signing_worker_ecdsa_hss_presignature_store_put_v1(prepared_record)?;
+    serde_json::to_string(&response).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!(
+                "local SigningWorker ECDSA-HSS prepare response JSON serialization failed: {error}"
+            ),
+        )
+    })
+}
+
+/// Handles the local SigningWorker ECDSA-HSS digest-signing finalize route.
+pub fn handle_local_signing_worker_ecdsa_hss_finalize_json_v1(
+    config: &LocalSigningWorkerConfigV1,
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local ECDSA-HSS finalize route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "SigningWorker ECDSA-HSS finalize route must be served at {}",
+                LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1
+            ),
+        ));
+    }
+    let now_unix_ms = local_now_unix_ms_v1()?;
+    let admitted = parse_local_json_body_v1::<LocalSigningWorkerAdmittedEcdsaHssFinalizeRequestV1>(
+        "local admitted ECDSA-HSS finalize request",
+        body,
+    )?;
+    admitted.validate()?;
+    let request = admitted.request;
+    request.validate_at(now_unix_ms)?;
+    let active_signing_worker_state =
+        local_active_ecdsa_hss_signing_worker_state_v1(config, &request.scope)?;
+    let prepare_request_digest = request.prepare_request_digest()?;
+    let record = local_signing_worker_ecdsa_hss_presignature_store_take_v1(
+        &request.server_presignature_id,
+        prepare_request_digest,
+    )?;
+    record.validate_for_finalize(&active_signing_worker_state, &request, now_unix_ms)?;
+    let participant_ids = ECDSA_HSS_PARTICIPANT_IDS.map(u32::from);
+    let signature65 = threshold_ecdsa_finalize_signature(
+        &participant_ids,
+        2,
+        &decode_base64url_fixed_33_v1(
+            "local ECDSA-HSS threshold_public_key33_b64u",
+            &request.scope.public_identity.threshold_public_key33_b64u,
+        )?,
+        &decode_base64url_fixed_33_v1(
+            "local ECDSA-HSS server_big_r33_b64u",
+            &record.server_big_r33_b64u,
+        )?,
+        &decode_base64url_fixed_32_v1(
+            "local ECDSA-HSS server_k_share32_b64u",
+            &record.server_k_share32_b64u,
+        )?,
+        &decode_base64url_fixed_32_v1(
+            "local ECDSA-HSS server_sigma_share32_b64u",
+            &record.server_sigma_share32_b64u,
+        )?,
+        record.admitted_signing_digest.as_bytes(),
+        &decode_base64url_fixed_32_v1(
+            "local ECDSA-HSS rerandomization_entropy32_b64u",
+            &record.rerandomization_entropy32_b64u,
+        )?,
+        &request.client_signature_share32()?,
+    )
+    .map_err(map_signer_core_ecdsa_error_v1)?;
+    let response = RouterAbEcdsaHssEvmDigestSigningResponseV1 {
+        scope: request.scope.clone(),
+        request_id: request.request_id.clone(),
+        request_digest: request.request_digest()?,
+        signing_digest: request.signing_digest()?,
+        signature_scheme: RouterAbEcdsaHssSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
+        signature65_b64u: encode_base64url_bytes_v1(&signature65),
+    };
+    response.validate()?;
+    serde_json::to_string(&response).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!(
+                "local SigningWorker ECDSA-HSS finalize response JSON serialization failed: {error}"
+            ),
+        )
+    })
+}
+
+/// Explicit fixture input for local normal-signing smoke helpers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalNormalSigningSmokeFixtureV1 {
+    pub fixture_name: String,
+    pub split_epoch: String,
+    pub account_id: String,
+    pub session_id: String,
+    pub signing_worker_id: String,
+}
+
+impl LocalNormalSigningSmokeFixtureV1 {
+    pub fn new(
+        fixture_name: impl Into<String>,
+        split_epoch: impl Into<String>,
+        account_id: impl Into<String>,
+        session_id: impl Into<String>,
+        signing_worker_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let fixture = Self {
+            fixture_name: fixture_name.into(),
+            split_epoch: split_epoch.into(),
+            account_id: account_id.into(),
+            session_id: session_id.into(),
+            signing_worker_id: signing_worker_id.into(),
+        };
+        fixture.validate()?;
+        Ok(fixture)
+    }
+
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "local normal-signing smoke fixture_name",
+            &self.fixture_name,
+        )?;
+        require_non_empty("local normal-signing smoke split_epoch", &self.split_epoch)?;
+        require_non_empty("local normal-signing smoke account_id", &self.account_id)?;
+        require_non_empty("local normal-signing smoke session_id", &self.session_id)?;
+        require_non_empty(
+            "local normal-signing smoke signing_worker_id",
+            &self.signing_worker_id,
+        )
+    }
 }
 
 /// Builds a typed v2 NEAR transaction prepare request for local smoke flows.
 pub fn build_local_normal_signing_near_transaction_prepare_request_v2(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
     request_id: impl Into<String>,
     unsigned_transaction_borsh: &[u8],
 ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningPrepareRequestV2> {
+    fixture.validate()?;
     let request_id = request_id.into();
-    let scope = local_normal_signing_scope_v2(request_id.clone())?;
+    let scope = local_normal_signing_scope_v2(fixture, request_id.clone())?;
     let unsigned_transaction_borsh_b64u = encode_base64url_bytes_v1(unsigned_transaction_borsh);
     let expected_signing_digest_b64u =
         local_normal_signing_expected_digest_b64u_v2(unsigned_transaction_borsh);
@@ -2136,7 +2660,7 @@ pub fn build_local_normal_signing_near_transaction_prepare_request_v2(
     let intent = RouterAbEd25519NormalSigningIntentV2::NearTransactionV1 {
         operation_id: format!("local-normal-signing/{request_id}"),
         operation_fingerprint: operation_fingerprint.clone(),
-        near_account_id: LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1.to_owned(),
+        near_account_id: fixture.account_id.clone(),
         near_network_id: RouterAbNearNetworkIdV2::Testnet,
         transactions: vec![RouterAbNearTransactionIntentV1::new(
             "local-router.test.near",
@@ -2158,15 +2682,17 @@ pub fn build_local_normal_signing_near_transaction_prepare_request_v2(
 
 /// Builds a typed v2 NEP-413 prepare request for local smoke flows.
 pub fn build_local_normal_signing_nep413_prepare_request_v2(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
     request_id: impl Into<String>,
     message: impl Into<String>,
     recipient: impl Into<String>,
     callback_url: Option<String>,
 ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningPrepareRequestV2> {
+    fixture.validate()?;
     let request_id = request_id.into();
     let message = message.into();
     let recipient = recipient.into();
-    let scope = local_normal_signing_scope_v2(request_id.clone())?;
+    let scope = local_normal_signing_scope_v2(fixture, request_id.clone())?;
     let nonce_b64u = encode_base64url_bytes_v1(&[0x41; 32]);
     let canonical_message_b64u =
         router_ab_core::router_ab_ed25519_nep413_canonical_message_b64u_v2(
@@ -2186,7 +2712,7 @@ pub fn build_local_normal_signing_nep413_prepare_request_v2(
     let intent = RouterAbEd25519NormalSigningIntentV2::Nep413V1 {
         operation_id: format!("local-normal-signing/{request_id}"),
         operation_fingerprint,
-        near_account_id: LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1.to_owned(),
+        near_account_id: fixture.account_id.clone(),
         near_network_id: RouterAbNearNetworkIdV2::Testnet,
         recipient,
         message,
@@ -2207,11 +2733,13 @@ pub fn build_local_normal_signing_nep413_prepare_request_v2(
 
 /// Builds a typed v2 delegate-action prepare request for local smoke flows.
 pub fn build_local_normal_signing_delegate_action_prepare_request_v2(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
     request_id: impl Into<String>,
     canonical_delegate_borsh: &[u8],
 ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningPrepareRequestV2> {
+    fixture.validate()?;
     let request_id = request_id.into();
-    let scope = local_normal_signing_scope_v2(request_id.clone())?;
+    let scope = local_normal_signing_scope_v2(fixture, request_id.clone())?;
     let canonical_delegate_borsh_b64u = encode_base64url_bytes_v1(canonical_delegate_borsh);
     let expected_signing_digest_b64u =
         local_normal_signing_expected_digest_b64u_v2(canonical_delegate_borsh);
@@ -2221,7 +2749,7 @@ pub fn build_local_normal_signing_delegate_action_prepare_request_v2(
         &canonical_delegate_borsh_b64u,
     )?;
     let delegate = RouterAbNearDelegateActionIntentV1::new(
-        LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1,
+        &fixture.account_id,
         "local-router.test.near",
         "ed25519:11111111111111111111111111111111",
         "7",
@@ -2232,7 +2760,7 @@ pub fn build_local_normal_signing_delegate_action_prepare_request_v2(
     let intent = RouterAbEd25519NormalSigningIntentV2::NearDelegateActionV1 {
         operation_id: format!("local-normal-signing/{request_id}"),
         operation_fingerprint,
-        near_account_id: LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1.to_owned(),
+        near_account_id: fixture.account_id.clone(),
         near_network_id: RouterAbNearNetworkIdV2::Testnet,
         delegate,
     };
@@ -2250,12 +2778,15 @@ pub fn build_local_normal_signing_delegate_action_prepare_request_v2(
 
 /// Builds the v2 client finalization request for the local role-separated Ed25519 path.
 pub fn build_local_normal_signing_finalize_request_v2(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
     prepare_request: RouterAbEd25519NormalSigningPrepareRequestV2,
     prepare_response: NormalSigningRound1PrepareResponseV1,
 ) -> RouterAbProtocolResult<RouterAbEd25519NormalSigningFinalizeRequestV2> {
+    fixture.validate()?;
     prepare_response.validate_for_v2_prepare_request(&prepare_request)?;
     let admission = prepare_request.admission_material()?;
-    let derivation = local_normal_signing_hss_derivation_for_scope_v1(&prepare_request.scope)?;
+    let derivation =
+        local_normal_signing_smoke_hss_derivation_for_scope_v1(fixture, &prepare_request.scope)?;
     let mut rng = OsRng;
     let client_round1 = prepare_role_separated_ed25519_round1_v1(&mut rng)
         .map_err(map_hss_normal_signing_error_v1)?;
@@ -2292,7 +2823,6 @@ pub fn build_local_normal_signing_finalize_request_v2(
         admission.signing_payload_digest,
     )?;
     let finalize = RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
-        derivation.near_public_key,
         client_commitments,
         prepare_response.server_commitments,
         encode_base64url_bytes_v1(&client_verifying_share),
@@ -2319,6 +2849,257 @@ struct LocalSigningWorkerNormalSigningMaterialV1 {
     x_server_base: [u8; 32],
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalSigningWorkerEd25519PrivateMaterialV1 {
+    pub kind: String,
+    pub account_public_key: String,
+    pub x_server_base_b64u: String,
+    pub signing_worker_material_handle: String,
+    pub activated_at_ms: u64,
+}
+
+impl LocalSigningWorkerEd25519PrivateMaterialV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.kind != "router_ab_ed25519_signing_worker_material_v1" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "local Ed25519 SigningWorker material kind is invalid",
+            ));
+        }
+        decode_near_ed25519_public_key_v1(
+            "local Ed25519 SigningWorker material account_public_key",
+            &self.account_public_key,
+        )?;
+        decode_base64url_fixed_32_v1(
+            "local Ed25519 SigningWorker material x_server_base_b64u",
+            &self.x_server_base_b64u,
+        )?;
+        require_non_empty(
+            "local Ed25519 SigningWorker material handle",
+            &self.signing_worker_material_handle,
+        )?;
+        require_positive_unix_ms_v1(
+            "local Ed25519 SigningWorker material activated_at_ms",
+            self.activated_at_ms,
+        )
+    }
+
+    fn active_signing_worker_state(
+        &self,
+        config: &LocalSigningWorkerConfigV1,
+        scope: &NormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
+        self.validate()?;
+        scope.validate()?;
+        let state = ActiveSigningWorkerStateV1::new(
+            scope.account_id.clone(),
+            scope.session_id.clone(),
+            self.account_public_key.clone(),
+            ServerIdentityV1::new(
+                config.signing_worker_id.clone(),
+                config.signing_worker_key_epoch.clone(),
+                config.server_output_hpke_public_key.clone(),
+            )?,
+            local_normal_signing_digest_v1(b"activation-transcript"),
+            local_normal_signing_digest_v1(b"activation"),
+            self.signing_worker_material_handle.clone(),
+            self.activated_at_ms,
+        )?;
+        state.validate_for_scope(scope)?;
+        Ok(state)
+    }
+
+    fn normal_signing_material(
+        &self,
+    ) -> RouterAbProtocolResult<LocalSigningWorkerNormalSigningMaterialV1> {
+        self.validate()?;
+        Ok(LocalSigningWorkerNormalSigningMaterialV1 {
+            x_server_base: decode_base64url_fixed_32_v1(
+                "local Ed25519 SigningWorker material x_server_base_b64u",
+                &self.x_server_base_b64u,
+            )?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalSigningWorkerEd25519PreparePrivateRequestV1 {
+    kind: String,
+    request: RouterAbEd25519NormalSigningPrepareRequestV2,
+    server_material: LocalSigningWorkerEd25519PrivateMaterialV1,
+}
+
+impl LocalSigningWorkerEd25519PreparePrivateRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.kind != "router_ab_ed25519_signing_worker_private_request_v1" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "local Ed25519 prepare private request kind is invalid",
+            ));
+        }
+        self.request.validate()?;
+        self.server_material.validate()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalSigningWorkerEd25519FinalizePrivateRequestV1 {
+    kind: String,
+    request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+    server_material: LocalSigningWorkerEd25519PrivateMaterialV1,
+}
+
+impl LocalSigningWorkerEd25519FinalizePrivateRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.kind != "router_ab_ed25519_signing_worker_private_request_v1" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "local Ed25519 finalize private request kind is invalid",
+            ));
+        }
+        self.request.validate()?;
+        self.server_material.validate()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalSigningWorkerEd25519PresignPoolPreparePrivateRequestV1 {
+    kind: String,
+    request: RouterAbEd25519PresignPoolPrepareRequestV2,
+    server_material: LocalSigningWorkerEd25519PrivateMaterialV1,
+}
+
+impl LocalSigningWorkerEd25519PresignPoolPreparePrivateRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.kind != "router_ab_ed25519_signing_worker_private_request_v1" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "local Ed25519 presign-pool private request kind is invalid",
+            ));
+        }
+        self.request.validate()?;
+        self.server_material.validate()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalSigningWorkerEd25519PresignPoolHitPrivateRequestV1 {
+    kind: String,
+    request: RouterAbEd25519PresignPoolHitFinalizeRequestV2,
+    server_material: LocalSigningWorkerEd25519PrivateMaterialV1,
+}
+
+impl LocalSigningWorkerEd25519PresignPoolHitPrivateRequestV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        if self.kind != "router_ab_ed25519_signing_worker_private_request_v1" {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "local Ed25519 presign-pool-hit private request kind is invalid",
+            ));
+        }
+        self.request.validate()?;
+        self.server_material.validate()
+    }
+}
+
+fn local_normal_signing_fixture_name_for_scope_v1(
+    scope: &NormalSigningScopeV1,
+) -> RouterAbProtocolResult<String> {
+    scope.validate()?;
+    let fixtures = committed_fixture_corpus().map_err(map_hss_error)?;
+    if fixtures.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local normal-signing fixture corpus is empty",
+        ));
+    }
+    let selector = local_normal_signing_digest_v1(
+        format!(
+            "{}:{}:{}",
+            scope.account_id, scope.session_id, scope.signing_worker_id
+        )
+        .as_bytes(),
+    );
+    let index = usize::from(selector.as_bytes()[0]) % fixtures.len();
+    Ok(fixtures[index].name.clone())
+}
+
+/// Builds the local normal-signing smoke fixture bound to a request scope.
+pub fn local_normal_signing_smoke_fixture_for_scope_v1(
+    scope: &NormalSigningScopeV1,
+) -> RouterAbProtocolResult<LocalNormalSigningSmokeFixtureV1> {
+    scope.validate()?;
+    LocalNormalSigningSmokeFixtureV1::new(
+        local_normal_signing_fixture_name_for_scope_v1(scope)?,
+        LOCAL_ED25519_HSS_DEFAULT_SPLIT_EPOCH_V1,
+        scope.account_id.clone(),
+        scope.session_id.clone(),
+        scope.signing_worker_id.clone(),
+    )
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LocalSigningWorkerEd25519PresignPoolRecordV1 {
+    active_signing_worker: ActiveSigningWorkerStateV1,
+    scope: NormalSigningScopeV1,
+    client_presign_id: String,
+    client_nonce_handle: String,
+    generation: u64,
+    pool_entry_binding_digest: PublicDigest32,
+    server_round1_handle: String,
+    client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    client_verifying_share_b64u: String,
+    round1_state: RoleSeparatedEd25519Round1StateV1,
+    server_verifying_share_b64u: String,
+    prepared_at_ms: u64,
+    expires_at_ms: u64,
+}
+
+impl LocalSigningWorkerEd25519PresignPoolRecordV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker.validate_for_scope(&self.scope)?;
+        require_non_empty(
+            "local presign-pool client_presign_id",
+            &self.client_presign_id,
+        )?;
+        require_non_empty(
+            "local presign-pool client_nonce_handle",
+            &self.client_nonce_handle,
+        )?;
+        require_positive_unix_ms_v1("local presign-pool generation", self.generation)?;
+        require_non_empty(
+            "local presign-pool server_round1_handle",
+            &self.server_round1_handle,
+        )?;
+        self.client_commitments.validate()?;
+        decode_base64url_fixed_32_v1(
+            "local presign-pool client_verifying_share_b64u",
+            &self.client_verifying_share_b64u,
+        )?;
+        self.round1_state
+            .validate()
+            .map_err(map_hss_normal_signing_error_v1)?;
+        decode_base64url_fixed_32_v1(
+            "local presign-pool server_verifying_share_b64u",
+            &self.server_verifying_share_b64u,
+        )?;
+        require_positive_unix_ms_v1("local presign-pool prepared_at_ms", self.prepared_at_ms)?;
+        require_positive_unix_ms_v1("local presign-pool expires_at_ms", self.expires_at_ms)?;
+        if self.expires_at_ms <= self.prepared_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "local presign-pool expiry must be after prepare time",
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn parse_local_json_body_v1<T>(label: &str, body: &[u8]) -> RouterAbProtocolResult<T>
 where
     T: DeserializeOwned,
@@ -2331,48 +3112,58 @@ where
     })
 }
 
-fn local_active_signing_worker_state_v1(
+fn local_active_ecdsa_hss_signing_worker_state_v1(
     config: &LocalSigningWorkerConfigV1,
-    scope: &NormalSigningScopeV1,
+    scope: &RouterAbEcdsaHssNormalSigningScopeV1,
 ) -> RouterAbProtocolResult<ActiveSigningWorkerStateV1> {
     scope.validate()?;
+    let signing_worker = ServerIdentityV1::new(
+        config.signing_worker_id.clone(),
+        config.signing_worker_key_epoch.clone(),
+        config.server_output_hpke_public_key.clone(),
+    )?;
+    if scope.signing_worker != signing_worker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local ECDSA-HSS scope SigningWorker does not match local worker config",
+        ));
+    }
+    let session_id =
+        router_ab_ecdsa_hss_active_state_session_id_v1(&scope.context, &scope.activation_epoch)?;
     let state = ActiveSigningWorkerStateV1::new(
-        scope.account_id.clone(),
-        scope.session_id.clone(),
-        ServerIdentityV1::new(
-            config.signing_worker_id.clone(),
-            config.signing_worker_key_epoch.clone(),
-            config.server_output_hpke_public_key.clone(),
-        )?,
-        local_normal_signing_digest_v1(b"activation-transcript"),
-        local_normal_signing_digest_v1(b"activation"),
+        scope.context.wallet_id.clone(),
+        session_id,
+        scope.public_identity.threshold_public_key33_b64u.clone(),
+        signing_worker,
+        local_ecdsa_hss_digest_v1(b"activation-transcript"),
+        local_ecdsa_hss_digest_v1(b"activation"),
         format!(
-            "local-hss/{}/{}",
-            LOCAL_NORMAL_SIGNING_FIXED_FIXTURE_V1, LOCAL_ED25519_HSS_DEFAULT_SPLIT_EPOCH_V1
+            "local-ecdsa-hss/{}/{}/{}",
+            scope.context.ecdsa_threshold_key_id,
+            scope.context.signing_root_version,
+            scope.activation_epoch
         ),
         LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1,
     )?;
-    state.validate_for_scope(scope)?;
+    if state.signing_worker != scope.signing_worker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local ECDSA-HSS active state SigningWorker mismatch",
+        ));
+    }
     Ok(state)
 }
 
-fn local_signing_worker_normal_signing_material_v1(
-    scope: &NormalSigningScopeV1,
-) -> RouterAbProtocolResult<LocalSigningWorkerNormalSigningMaterialV1> {
-    let derivation = local_normal_signing_hss_derivation_for_scope_v1(scope)?;
-    Ok(LocalSigningWorkerNormalSigningMaterialV1 {
-        x_server_base: derivation.signing_worker_output.base_share,
-    })
-}
-
 fn local_normal_signing_scope_v2(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
     request_id: impl Into<String>,
 ) -> RouterAbProtocolResult<NormalSigningScopeV1> {
+    fixture.validate()?;
     NormalSigningScopeV1::new(
         request_id,
-        LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1,
-        "session-1",
-        "local-signing-worker",
+        &fixture.account_id,
+        &fixture.session_id,
+        &fixture.signing_worker_id,
     )
 }
 
@@ -2385,28 +3176,61 @@ fn local_normal_signing_operation_fingerprint_v2(expected_signing_digest_b64u: &
     format!("sha256:{expected_signing_digest_b64u}")
 }
 
-fn local_normal_signing_hss_derivation_for_scope_v1(
-    scope: &NormalSigningScopeV1,
+fn local_normal_signing_smoke_hss_derivation_v1(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
 ) -> RouterAbProtocolResult<LocalEd25519HssRoleScopedDerivationOutputV1> {
-    scope.validate()?;
-    if scope.account_id != LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1 {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLifecycleState,
-            format!(
-                "local normal-signing fixture supports account {}",
-                LOCAL_NORMAL_SIGNING_FIXED_ACCOUNT_ID_V1
-            ),
-        ));
-    }
+    fixture.validate()?;
     let (deriver_a, deriver_b) = derive_committed_ed25519_hss_split_server_role_shares_v1(
-        LOCAL_NORMAL_SIGNING_FIXED_FIXTURE_V1,
-        LOCAL_ED25519_HSS_DEFAULT_SPLIT_EPOCH_V1,
+        &fixture.fixture_name,
+        &fixture.split_epoch,
     )?;
     evaluate_committed_ed25519_hss_role_scoped_derivation_v1(
-        LOCAL_NORMAL_SIGNING_FIXED_FIXTURE_V1,
+        &fixture.fixture_name,
         deriver_a,
         deriver_b,
     )
+}
+
+fn local_normal_signing_smoke_hss_derivation_for_scope_v1(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
+    scope: &NormalSigningScopeV1,
+) -> RouterAbProtocolResult<LocalEd25519HssRoleScopedDerivationOutputV1> {
+    fixture.validate()?;
+    scope.validate()?;
+    if scope.account_id != fixture.account_id {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            format!(
+                "local normal-signing smoke helper supports account {}",
+                fixture.account_id
+            ),
+        ));
+    }
+    local_normal_signing_smoke_hss_derivation_v1(fixture)
+}
+
+/// Builds the local SDK server key-store seed for a normal-signing smoke fixture.
+pub fn build_local_router_ed25519_key_store_seed_v1(
+    fixture: &LocalNormalSigningSmokeFixtureV1,
+    rp_id: impl Into<String>,
+    key_version: impl Into<String>,
+) -> RouterAbProtocolResult<LocalRouterEd25519KeyStoreSeedV1> {
+    fixture.validate()?;
+    let rp_id = rp_id.into();
+    require_non_empty("local Ed25519 seed rp_id", &rp_id)?;
+    let key_version = key_version.into();
+    require_non_empty("local Ed25519 seed key_version", &key_version)?;
+    let derivation = local_normal_signing_smoke_hss_derivation_v1(fixture)?;
+    let x_server_base = derivation.signing_worker_output.base_share;
+    Ok(LocalRouterEd25519KeyStoreSeedV1 {
+        relayer_key_id: derivation.near_public_key.clone(),
+        near_account_id: fixture.account_id.clone(),
+        rp_id,
+        public_key: derivation.near_public_key,
+        relayer_signing_share_b64u: encode_base64url_bytes_v1(&x_server_base),
+        key_version,
+        recovery_export_capable: true,
+    })
 }
 
 fn local_normal_signing_digest_v1(label: &[u8]) -> PublicDigest32 {
@@ -2414,6 +3238,30 @@ fn local_normal_signing_digest_v1(label: &[u8]) -> PublicDigest32 {
     push_hash_field_v1(&mut hasher, b"router-ab-dev/normal-signing/v1");
     push_hash_field_v1(&mut hasher, label);
     PublicDigest32::new(hasher.finalize().into())
+}
+
+fn local_ecdsa_hss_digest_v1(label: &[u8]) -> PublicDigest32 {
+    let mut hasher = Sha256::new();
+    push_hash_field_v1(&mut hasher, b"router-ab-dev/ecdsa-hss/v1");
+    push_hash_field_v1(&mut hasher, label);
+    PublicDigest32::new(hasher.finalize().into())
+}
+
+fn local_now_unix_ms_v1() -> RouterAbProtocolResult<u64> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local system clock is before Unix epoch: {error}"),
+            )
+        })?;
+    u64::try_from(elapsed.as_millis()).map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local Unix timestamp exceeds u64 milliseconds",
+        )
+    })
 }
 
 fn local_signing_worker_round1_store_v1(
@@ -2427,9 +3275,11 @@ fn local_signing_worker_round1_store_put_v1(
     record: LocalSigningWorkerRound1RecordV1,
 ) -> RouterAbProtocolResult<()> {
     record.validate()?;
+    let now_unix_ms = local_now_unix_ms_v1()?;
     let mut store = local_signing_worker_round1_store_v1()
         .lock()
         .map_err(|_| local_round1_store_lock_error_v1())?;
+    local_signing_worker_round1_store_cleanup_expired_locked_v1(&mut store, now_unix_ms);
     if store
         .insert(record.server_round1_handle.clone(), record)
         .is_some()
@@ -2440,6 +3290,154 @@ fn local_signing_worker_round1_store_put_v1(
         ));
     }
     Ok(())
+}
+
+fn local_signing_worker_round1_store_cleanup_expired_locked_v1(
+    store: &mut BTreeMap<String, LocalSigningWorkerRound1RecordV1>,
+    now_unix_ms: u64,
+) -> usize {
+    let before = store.len();
+    store.retain(|_, record| record.expires_at_ms > now_unix_ms);
+    before.saturating_sub(store.len())
+}
+
+fn local_signing_worker_ed25519_presign_pool_store_v1(
+) -> &'static Mutex<BTreeMap<String, LocalSigningWorkerEd25519PresignPoolRecordV1>> {
+    static STORE: OnceLock<Mutex<BTreeMap<String, LocalSigningWorkerEd25519PresignPoolRecordV1>>> =
+        OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn local_signing_worker_ed25519_presign_pool_store_put_v1(
+    record: LocalSigningWorkerEd25519PresignPoolRecordV1,
+) -> RouterAbProtocolResult<()> {
+    record.validate()?;
+    let mut store = local_signing_worker_ed25519_presign_pool_store_v1()
+        .lock()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local Ed25519 presign-pool store lock poisoned",
+            )
+        })?;
+    if store
+        .insert(record.server_round1_handle.clone(), record)
+        .is_some()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local Ed25519 presign-pool handle collision",
+        ));
+    }
+    Ok(())
+}
+
+fn local_signing_worker_ed25519_presign_pool_store_take_v1(
+    server_round1_handle: &str,
+    pool_entry_binding_digest: PublicDigest32,
+) -> RouterAbProtocolResult<LocalSigningWorkerEd25519PresignPoolRecordV1> {
+    require_non_empty(
+        "local Ed25519 presign-pool server_round1_handle",
+        server_round1_handle,
+    )?;
+    let mut store = local_signing_worker_ed25519_presign_pool_store_v1()
+        .lock()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local Ed25519 presign-pool store lock poisoned",
+            )
+        })?;
+    let Some(record) = store.get(server_round1_handle) else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local Ed25519 presign-pool entry is not prepared",
+        ));
+    };
+    if record.pool_entry_binding_digest != pool_entry_binding_digest {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local Ed25519 presign-pool binding digest mismatch",
+        ));
+    }
+    store.remove(server_round1_handle).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local Ed25519 presign-pool entry disappeared before finalization",
+        )
+    })
+}
+
+fn local_signing_worker_ecdsa_hss_presignature_store_v1(
+) -> &'static Mutex<BTreeMap<String, LocalSigningWorkerEcdsaHssPresignatureRecordV1>> {
+    static STORE: OnceLock<
+        Mutex<BTreeMap<String, LocalSigningWorkerEcdsaHssPresignatureRecordV1>>,
+    > = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn local_signing_worker_ecdsa_hss_presignature_store_key_v1(
+    server_presignature_id: &str,
+    request_digest: PublicDigest32,
+) -> RouterAbProtocolResult<String> {
+    require_non_empty(
+        "ECDSA-HSS prepared lookup server_presignature_id",
+        server_presignature_id,
+    )?;
+    Ok(format!(
+        "{}:{}",
+        server_presignature_id,
+        encode_base64url_bytes_v1(request_digest.as_bytes())
+    ))
+}
+
+fn local_signing_worker_ecdsa_hss_presignature_store_put_v1(
+    record: LocalSigningWorkerEcdsaHssPresignatureRecordV1,
+) -> RouterAbProtocolResult<()> {
+    record.validate()?;
+    let key = local_signing_worker_ecdsa_hss_presignature_store_key_v1(
+        &record.server_presignature_id,
+        record.request_digest,
+    )?;
+    let mut store = local_signing_worker_ecdsa_hss_presignature_store_v1()
+        .lock()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local ECDSA-HSS prepared presignature store lock poisoned",
+            )
+        })?;
+    if store.insert(key, record).is_some() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local ECDSA-HSS prepared presignature collision",
+        ));
+    }
+    Ok(())
+}
+
+fn local_signing_worker_ecdsa_hss_presignature_store_take_v1(
+    server_presignature_id: &str,
+    request_digest: PublicDigest32,
+) -> RouterAbProtocolResult<LocalSigningWorkerEcdsaHssPresignatureRecordV1> {
+    let key = local_signing_worker_ecdsa_hss_presignature_store_key_v1(
+        server_presignature_id,
+        request_digest,
+    )?;
+    let mut store = local_signing_worker_ecdsa_hss_presignature_store_v1()
+        .lock()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local ECDSA-HSS prepared presignature store lock poisoned",
+            )
+        })?;
+    store.remove(&key).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "local ECDSA-HSS prepared presignature is not available",
+        )
+    })
 }
 
 fn local_signing_worker_round1_store_take_v1(
@@ -2456,6 +3454,12 @@ fn local_signing_worker_round1_store_take_v1(
             "local normal-signing round-1 handle is not prepared",
         ));
     };
+    if local_now_unix_ms_v1()? >= record.expires_at_ms {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ExpiredLocalRequest,
+            "local normal-signing round-1 handle expired",
+        ));
+    }
     if record.round1_binding_digest != round1_binding_digest {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLifecycleState,
@@ -2537,6 +3541,16 @@ fn decode_base64url_fixed_32_v1(field: &str, encoded: &str) -> RouterAbProtocolR
     })
 }
 
+fn decode_base64url_fixed_33_v1(field: &str, encoded: &str) -> RouterAbProtocolResult<[u8; 33]> {
+    let bytes = decode_base64url_bytes_v1(field, encoded)?;
+    bytes.try_into().map_err(|bytes: Vec<u8>| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must decode to 33 bytes, received {}", bytes.len()),
+        )
+    })
+}
+
 fn decode_base64url_bytes_v1(field: &str, encoded: &str) -> RouterAbProtocolResult<Vec<u8>> {
     require_non_empty(field, encoded)?;
     require_no_ascii_whitespace_v1(field, encoded)?;
@@ -2566,55 +3580,6 @@ fn require_no_ascii_whitespace_v1(field: &str, value: &str) -> RouterAbProtocolR
     Ok(())
 }
 
-fn local_http_post_json_url_v1<T: Serialize>(
-    url: &str,
-    body: &T,
-    timeout: Duration,
-) -> RouterAbProtocolResult<LocalHttpPostResponseV1> {
-    if timeout.is_zero() {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "local HTTP POST timeout must be non-zero",
-        ));
-    }
-    let parts = parse_http_url_parts_v1(url)?;
-    let request_body = serde_json::to_vec(body).map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("local HTTP POST JSON request serialization failed: {error}"),
-        )
-    })?;
-    let mut stream = TcpStream::connect(&parts.authority).map_err(map_local_http_io_error_v1)?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(map_local_http_io_error_v1)?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(map_local_http_io_error_v1)?;
-    write!(
-        stream,
-        "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-        parts.path,
-        parts.authority,
-        LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
-        request_body.len()
-    )
-    .map_err(map_local_http_io_error_v1)?;
-    stream
-        .write_all(&request_body)
-        .map_err(map_local_http_io_error_v1)?;
-    stream.flush().map_err(map_local_http_io_error_v1)?;
-    stream
-        .shutdown(Shutdown::Write)
-        .map_err(map_local_http_io_error_v1)?;
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .map_err(map_local_http_io_error_v1)?;
-    let (status, body) = split_local_http_response_v1(&response)?;
-    Ok(LocalHttpPostResponseV1 { status, body })
-}
-
 /// Parses and validates a SigningWorker activation JSON body for local worker routes.
 pub fn handle_local_signing_worker_activation_json_v1(
     receiver_role: LocalServiceRoleV1,
@@ -2640,6 +3605,16 @@ pub fn handle_local_signing_worker_activation_json_v1(
             format!("local SigningWorker activation receipt JSON serialization failed: {error}"),
         )
     })
+}
+
+fn require_positive_unix_ms_v1(field: &str, value: u64) -> RouterAbProtocolResult<()> {
+    if value == 0 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidTimeRange,
+            format!("{field} must be positive"),
+        ));
+    }
+    Ok(())
 }
 
 /// Validates a SigningWorker activation and returns a redacted local receipt.
@@ -3469,23 +4444,23 @@ fn local_service_stack_v1() -> RouterAbProtocolResult<LocalServiceStackV1> {
 
 fn router_endpoint_v1() -> RouterAbProtocolResult<LocalRouterEndpointV1> {
     LocalRouterEndpointV1::new(
-        "http://127.0.0.1:8787",
-        "http://127.0.0.1:8788",
-        "http://127.0.0.1:8789",
-        "http://127.0.0.1:8790",
+        "http://127.0.0.1:9090",
+        "http://127.0.0.1:9091",
+        "http://127.0.0.1:9092",
+        "http://127.0.0.1:9093",
     )
 }
 
 fn deriver_a_endpoint_v1() -> RouterAbProtocolResult<LocalDeriverAEndpointV1> {
-    LocalDeriverAEndpointV1::new("http://127.0.0.1:8788", "http://127.0.0.1:8789")
+    LocalDeriverAEndpointV1::new("http://127.0.0.1:9091", "http://127.0.0.1:9092")
 }
 
 fn deriver_b_endpoint_v1() -> RouterAbProtocolResult<LocalDeriverBEndpointV1> {
-    LocalDeriverBEndpointV1::new("http://127.0.0.1:8789", "http://127.0.0.1:8788")
+    LocalDeriverBEndpointV1::new("http://127.0.0.1:9092", "http://127.0.0.1:9091")
 }
 
 fn signing_worker_endpoint_v1() -> RouterAbProtocolResult<LocalSigningWorkerEndpointV1> {
-    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:8790", "local-server-output")
+    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:9093", "local-server-output")
 }
 
 fn router_env_snapshot_v1() -> RouterAbProtocolResult<LocalEnvSnapshotV1> {
@@ -3907,6 +4882,111 @@ fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn round1_store_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn test_active_signing_worker_state() -> ActiveSigningWorkerStateV1 {
+        ActiveSigningWorkerStateV1::new(
+            "alice.testnet",
+            "session-1",
+            "ed25519:test-public-key",
+            ServerIdentityV1::new("signing-worker-1", "epoch-1", "x25519:test-recipient")
+                .expect("server identity"),
+            digest(0x01),
+            digest(0x02),
+            "material-handle-1",
+            1,
+        )
+        .expect("active signing worker state")
+    }
+
+    fn test_round1_state() -> RoleSeparatedEd25519Round1StateV1 {
+        let mut rng = OsRng;
+        prepare_role_separated_ed25519_round1_v1(&mut rng).expect("round1 state")
+    }
+
+    fn test_round1_record(
+        server_round1_handle: &str,
+        expires_at_ms: u64,
+    ) -> LocalSigningWorkerRound1RecordV1 {
+        LocalSigningWorkerRound1RecordV1::new(
+            test_active_signing_worker_state(),
+            server_round1_handle,
+            digest(0x10),
+            digest(0x11),
+            digest(0x12),
+            digest(0x13),
+            test_round1_state(),
+            1,
+            expires_at_ms,
+        )
+        .expect("round1 record")
+    }
+
+    #[test]
+    fn local_round1_store_put_cleans_expired_abandoned_records() {
+        let _guard = round1_store_test_lock().lock().expect("test lock");
+        {
+            let mut store = local_signing_worker_round1_store_v1()
+                .lock()
+                .expect("round1 store lock");
+            store.clear();
+        }
+
+        local_signing_worker_round1_store_put_v1(test_round1_record(
+            "local-server-round1/expired",
+            2,
+        ))
+        .expect("expired record put");
+        local_signing_worker_round1_store_put_v1(test_round1_record(
+            "local-server-round1/live",
+            u64::MAX,
+        ))
+        .expect("live record put");
+
+        let store = local_signing_worker_round1_store_v1()
+            .lock()
+            .expect("round1 store lock");
+        assert!(!store.contains_key("local-server-round1/expired"));
+        assert!(store.contains_key("local-server-round1/live"));
+    }
+
+    #[test]
+    fn local_round1_store_rejects_expired_take_without_consuming_record() {
+        let _guard = round1_store_test_lock().lock().expect("test lock");
+        {
+            let mut store = local_signing_worker_round1_store_v1()
+                .lock()
+                .expect("round1 store lock");
+            store.clear();
+        }
+
+        local_signing_worker_round1_store_put_v1(test_round1_record(
+            "local-server-round1/expired-take",
+            2,
+        ))
+        .expect("expired record put");
+
+        let err = local_signing_worker_round1_store_take_v1(
+            "local-server-round1/expired-take",
+            digest(0x10),
+        )
+        .expect_err("expired take must fail");
+        assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
+
+        let store = local_signing_worker_round1_store_v1()
+            .lock()
+            .expect("round1 store lock");
+        assert!(store.contains_key("local-server-round1/expired-take"));
+    }
+}
+
 fn push_hash_field_v1(hasher: &mut Sha256, bytes: &[u8]) {
     hasher.update((bytes.len() as u32).to_be_bytes());
     hasher.update(bytes);
@@ -3939,6 +5019,15 @@ fn map_hss_normal_signing_error_v1(
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
         format!("local ed25519-hss normal signing failed: {error}"),
+    )
+}
+
+fn map_signer_core_ecdsa_error_v1(
+    error: signer_core::error::SignerCoreError,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!("local ECDSA-HSS signature finalization failed: {error}"),
     )
 }
 

@@ -5,7 +5,7 @@ summary emitted by `client/src/SeamsWeb/operations/registration/registration.ts`
 
 The benchmark uses Playwright, WebAuthn mocks, IndexedDB, workers, and the local
 managed-registration relay harness. It is intended for registration latency
-work, while `benchmarks/threshold-load` remains the warm signing benchmark.
+work. Router A/B signing latency needs a Router A/B-specific timing harness.
 
 `/sdk/esm/*` is served from the SDK build output in the Playwright environment.
 The full and smoke scripts run `pnpm -C sdk run build:prepare` before launching

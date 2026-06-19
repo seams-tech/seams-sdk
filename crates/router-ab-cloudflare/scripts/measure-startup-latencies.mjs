@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -95,6 +95,7 @@ const report = {
   env: envName ?? null,
   measurements: [],
 };
+const workerBuildEnv = resolveWorkerBuildEnv(process.env);
 
 let failed = false;
 for (const role of selectedRoles) {
@@ -122,7 +123,7 @@ for (const role of selectedRoles) {
   const child = spawnSync('wrangler', args, {
     cwd: crateRoot,
     encoding: 'utf8',
-    env: process.env,
+    env: workerBuildEnv,
   });
   process.stdout.write(child.stdout ?? '');
   process.stderr.write(child.stderr ?? '');
@@ -202,4 +203,15 @@ function stripAnsi(value) {
 
 function resolveReportPath(path) {
   return isAbsolute(path) ? path : join(crateRoot, path);
+}
+
+function resolveWorkerBuildEnv(baseEnv) {
+  const env = { ...baseEnv };
+  if (!env.CC_wasm32_unknown_unknown) {
+    const homebrewLlvmClang = '/opt/homebrew/opt/llvm/bin/clang';
+    if (existsSync(homebrewLlvmClang)) {
+      env.CC_wasm32_unknown_unknown = homebrewLlvmClang;
+    }
+  }
+  return env;
 }

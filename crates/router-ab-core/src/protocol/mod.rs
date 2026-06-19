@@ -4,6 +4,7 @@
 //! This module stays transport-neutral. Runtime adapters should parse boundary
 //! inputs and call these typed APIs.
 
+mod ecdsa_hss;
 mod engine;
 mod envelope;
 mod error;
@@ -19,9 +20,34 @@ mod signer_input;
 mod vectors;
 mod wire;
 
+pub use self::ecdsa_hss::{
+    parse_router_ab_ecdsa_hss_activation_refresh_request_v1_json,
+    parse_router_ab_ecdsa_hss_deriver_envelope_plaintext_v1_json,
+    parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json,
+    parse_router_ab_ecdsa_hss_evm_digest_signing_prepare_response_v1_json,
+    parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json,
+    parse_router_ab_ecdsa_hss_explicit_export_request_v1_json,
+    parse_router_ab_ecdsa_hss_normal_signing_scope_v1_json,
+    parse_router_ab_ecdsa_hss_recovery_request_v1_json,
+    parse_router_ab_ecdsa_hss_registration_bootstrap_request_v1_json,
+    router_ab_ecdsa_hss_active_state_session_id_v1, RouterAbEcdsaHssActivationReceiptV1,
+    RouterAbEcdsaHssActivationRefreshRequestV1, RouterAbEcdsaHssDeriverEnvelopeCommonV1,
+    RouterAbEcdsaHssDeriverEnvelopePlaintextV1, RouterAbEcdsaHssDeriverExportEnvelopePlaintextV1,
+    RouterAbEcdsaHssDeriverRecoveryEnvelopePlaintextV1,
+    RouterAbEcdsaHssDeriverRefreshEnvelopePlaintextV1,
+    RouterAbEcdsaHssDeriverRegistrationEnvelopePlaintextV1,
+    RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1, RouterAbEcdsaHssEvmDigestSigningRequestV1,
+    RouterAbEcdsaHssEvmDigestSigningResponseV1, RouterAbEcdsaHssExplicitExportRequestV1,
+    RouterAbEcdsaHssNormalSigningScopeV1, RouterAbEcdsaHssOutputKindV1,
+    RouterAbEcdsaHssPublicIdentityV1, RouterAbEcdsaHssRecoveryRequestV1,
+    RouterAbEcdsaHssRegistrationBootstrapRequestV1, RouterAbEcdsaHssRequestKindV1,
+    RouterAbEcdsaHssSignatureSchemeV1, RouterAbEcdsaHssStableKeyContextV1,
+    ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1, ROUTER_AB_ECDSA_HSS_SECP256K1_PROTOCOL_VERSION_V1,
+};
 pub use self::engine::{
-    AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
-    SignerHost, SignerKeyStore, SigningRootShareStore,
+    AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine,
+    EcdsaHssExplicitExportAuditDecisionV1, PeerTransport, SignerKeyStore, SigningRootShareStore,
 };
 pub use self::envelope::{
     decode_and_validate_signer_envelope_hpke_payload_v1, decode_signer_envelope_hpke_payload_v1,
@@ -64,6 +90,9 @@ pub use self::normal_signing::{
     derive_router_ab_ed25519_normal_signing_admission_material_v2,
     parse_router_ab_ed25519_normal_signing_finalize_request_v2_json,
     parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,
+    parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json,
+    parse_router_ab_ed25519_presign_pool_prepare_request_v2_json,
+    parse_router_ab_ed25519_presign_pool_prepare_response_v2_json,
     router_ab_delegate_action_fingerprint_from_canonical_borsh_b64u_v2,
     router_ab_ed25519_nep413_canonical_message_b64u_v2,
     router_ab_near_transaction_action_fingerprint_from_unsigned_borsh_b64u_v2,
@@ -73,7 +102,10 @@ pub use self::normal_signing::{
     RouterAbEd25519NormalSigningAdmissionMaterialV2,
     RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
     RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
-    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
+    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519PresignPoolAcceptedEntryV2,
+    RouterAbEd25519PresignPoolClientOfferV2, RouterAbEd25519PresignPoolHitBindingV2,
+    RouterAbEd25519PresignPoolHitFinalizeRequestV2, RouterAbEd25519PresignPoolPrepareRequestV2,
+    RouterAbEd25519PresignPoolPrepareResponseV2, RouterAbEd25519SigningPayloadV2,
     RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearDelegateActionIntentV1,
     RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
 };

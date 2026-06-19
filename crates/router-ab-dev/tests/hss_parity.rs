@@ -5,16 +5,15 @@ use router_ab_core::{
 use router_ab_dev::{
     derive_committed_ed25519_hss_split_server_role_shares_v1,
     evaluate_committed_ed25519_hss_role_scoped_derivation_v1,
-    handle_local_deriver_peer_message_json_v1, handle_local_router_setup_smoke_request_json_v1,
-    handle_local_router_setup_smoke_request_v1, handle_local_signing_worker_activation_json_v1,
+    handle_local_deriver_peer_message_json_v1, handle_local_signing_worker_activation_json_v1,
     local_http_service_binding_endpoint_v1, run_example_local_router_ab_hss_dev_ceremony_v1,
     run_example_local_router_ab_hss_dev_http_ceremony_v1,
     verify_committed_ed25519_hss_split_server_fixture_at_epoch_v1,
     verify_committed_ed25519_hss_split_server_fixture_v1,
     verify_committed_ed25519_hss_split_server_fixtures_v1,
-    verify_committed_ed25519_hss_split_server_role_shares_v1, LocalRouterSetupSmokeRequestV1,
-    LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_A_PRIVATE_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1,
-    LOCAL_DERIVER_B_PRIVATE_PATH_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    verify_committed_ed25519_hss_split_server_role_shares_v1, LOCAL_DERIVER_A_PEER_PATH_V1,
+    LOCAL_DERIVER_A_PRIVATE_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_DERIVER_B_PRIVATE_PATH_V1,
+    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
 };
 use std::{fs, path::Path};
 
@@ -178,22 +177,22 @@ fn dev_adapter_http_ceremony_maps_checked_paths_to_production_style_routes() {
     );
 
     let router_to_a = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:8788",
+        "http://127.0.0.1:9091",
         result.deriver_a_request.path,
     )
     .expect("Router to Deriver A endpoint");
     let router_to_b = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:8789",
+        "http://127.0.0.1:9092",
         result.deriver_b_request.path,
     )
     .expect("Router to Deriver B endpoint");
     let a_to_b = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:8789",
+        "http://127.0.0.1:9092",
         result.core_http_ceremony.deriver_a_peer_request.path,
     )
     .expect("Deriver A to Deriver B endpoint");
     let b_to_a = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:8788",
+        "http://127.0.0.1:9091",
         result.core_http_ceremony.deriver_b_peer_request.path,
     )
     .expect("Deriver B to Deriver A endpoint");
@@ -220,27 +219,32 @@ fn dev_adapter_http_ceremony_maps_checked_paths_to_production_style_routes() {
 }
 
 #[test]
-fn dev_adapter_setup_smoke_response_returns_only_client_facing_router_output() {
-    let response = handle_local_router_setup_smoke_request_v1(
-        LocalRouterSetupSmokeRequestV1::new("derived-gamma", "split-epoch-1")
-            .expect("setup-smoke request"),
-    )
-    .expect("setup-smoke response");
+fn dev_adapter_setup_smoke_ceremony_returns_only_client_facing_router_output() {
+    let result =
+        run_example_local_router_ab_hss_dev_http_ceremony_v1("derived-gamma", "split-epoch-1")
+            .expect("setup-smoke ceremony runs");
 
-    assert_eq!(response.fixture_name, "derived-gamma");
-    assert_eq!(response.split_epoch, "split-epoch-1");
-    assert!(response.near_public_key.starts_with("ed25519:"));
-    assert_eq!(response.signing_worker_activation_digest_hex.len(), 64);
-    assert_eq!(response.signing_worker_activation_status, "activated");
-    response
+    assert!(result
+        .hss_derivation
+        .near_public_key
+        .starts_with("ed25519:"));
+    assert_eq!(
+        result
+            .core_http_ceremony
+            .signing_worker_activation_receipt
+            .activation_digest
+            .as_bytes()
+            .len(),
+        32
+    );
+    result
+        .core_http_ceremony
         .router_response
         .validate()
         .expect("client-facing Router response validates");
 
-    let json = handle_local_router_setup_smoke_request_json_v1(
-        br#"{"fixture_name":"derived-gamma","split_epoch":"split-epoch-1"}"#,
-    )
-    .expect("setup-smoke JSON response");
+    let json = serde_json::to_string(&result.core_http_ceremony.router_response)
+        .expect("router response JSON");
     assert!(json.contains("deriver_a_client_bundle"));
     assert!(json.contains("deriver_b_client_bundle"));
     assert!(!json.contains("signing_worker_bundle"));
@@ -349,10 +353,8 @@ fn dev_adapter_local_route_diagnostics_stay_redacted() {
     let ceremony =
         run_example_local_router_ab_hss_dev_http_ceremony_v1("derived-gamma", "split-epoch-1")
             .expect("typed HTTP ceremony runs");
-    let router_response = handle_local_router_setup_smoke_request_json_v1(
-        br#"{"fixture_name":"derived-gamma","split_epoch":"split-epoch-1"}"#,
-    )
-    .expect("setup-smoke response JSON");
+    let router_response = serde_json::to_string(&ceremony.core_http_ceremony.router_response)
+        .expect("router response JSON");
     let peer_response = handle_local_deriver_peer_message_json_v1(
         LocalServiceRoleV1::DeriverB,
         LOCAL_DERIVER_B_PEER_PATH_V1,

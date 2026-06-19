@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use ed25519_hss::role_signing::{
     RoleSeparatedEd25519CommitmentsV1, RoleSeparatedEd25519Round1StateV1,
 };
 use router_ab_core::{
-    ActiveSigningWorkerStateV1, ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningScopeV1,
-    PublicDigest32, PublicRouterRequestV1, Role, RootShareEpoch,
+    router_ab_ecdsa_hss_active_state_session_id_v1, ActiveSigningWorkerStateV1,
+    ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    NormalSigningScopeV1, PublicDigest32, PublicRouterRequestV1, Role, RootShareEpoch,
+    RouterAbEcdsaHssNormalSigningScopeV1,
 };
 use router_ab_core::{
     RouterAbLifecycleStateV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
@@ -24,6 +27,9 @@ use crate::{
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterQuotaCheckV1, CloudflareRouterTrustedRequestMetadataV1,
     CloudflareServerOutputMaterialRecordV1,
+    CloudflareSigningWorkerDirectRecipientProofBundleActivationDeliveryV1,
+    CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
+    CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1, CloudflareWorkerRoleV1,
 };
 #[cfg(feature = "workers-rs")]
@@ -280,6 +286,8 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     RootShareHas,
     /// Read role-local root-share startup metadata.
     RootShareStartupMetadata,
+    /// Repoint role-local root-share startup metadata after a server-side rewrap.
+    RootShareRewrapStartupMetadata,
     /// Reserve a Router replay nonce or request id.
     RouterReplayReserve,
     /// Remove expired Router replay reservations.
@@ -314,6 +322,26 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     SigningWorkerRound1Take,
     /// Remove expired SigningWorker round-1 nonce records.
     SigningWorkerRound1CleanupExpired,
+    /// Store one unbound SigningWorker Ed25519 presign-pool record.
+    SigningWorkerEd25519PresignPoolPut,
+    /// Take one unbound SigningWorker Ed25519 presign-pool record.
+    SigningWorkerEd25519PresignPoolTake,
+    /// Remove expired unbound SigningWorker Ed25519 presign-pool records.
+    SigningWorkerEd25519PresignPoolCleanupExpired,
+    /// Store one SigningWorker ECDSA presignature record for ECDSA-HSS signing.
+    SigningWorkerEcdsaPresignaturePut,
+    /// Take one SigningWorker ECDSA presignature record for ECDSA-HSS signing.
+    SigningWorkerEcdsaPresignatureTake,
+    /// Remove expired SigningWorker ECDSA presignature records.
+    SigningWorkerEcdsaPresignatureCleanupExpired,
+    /// Store one unbound SigningWorker ECDSA presignature pool record.
+    SigningWorkerEcdsaPresignaturePoolPut,
+    /// Reserve one unbound SigningWorker ECDSA presignature pool record.
+    SigningWorkerEcdsaPresignaturePoolTake,
+    /// Remove expired unbound SigningWorker ECDSA presignature pool records.
+    SigningWorkerEcdsaPresignaturePoolCleanupExpired,
+    /// Store one direct Deriver activation delivery and return pending or ready state.
+    SigningWorkerDirectActivationPut,
 }
 
 impl CloudflareDurableObjectOperationKindV1 {
@@ -322,6 +350,7 @@ impl CloudflareDurableObjectOperationKindV1 {
         match self {
             Self::RootShareHas => "root_share.has",
             Self::RootShareStartupMetadata => "root_share.startup_metadata",
+            Self::RootShareRewrapStartupMetadata => "root_share.rewrap_startup_metadata",
             Self::RouterReplayReserve => "router_replay.reserve",
             Self::RouterReplayCleanupExpired => "router_replay.cleanup_expired",
             Self::RouterLifecyclePutPublicState => "router_lifecycle.put_public_state",
@@ -341,6 +370,26 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::SigningWorkerRound1Put => "signing_worker_round1.put",
             Self::SigningWorkerRound1Take => "signing_worker_round1.take",
             Self::SigningWorkerRound1CleanupExpired => "signing_worker_round1.cleanup_expired",
+            Self::SigningWorkerEd25519PresignPoolPut => "signing_worker_ed25519_presign_pool.put",
+            Self::SigningWorkerEd25519PresignPoolTake => "signing_worker_ed25519_presign_pool.take",
+            Self::SigningWorkerEd25519PresignPoolCleanupExpired => {
+                "signing_worker_ed25519_presign_pool.cleanup_expired"
+            }
+            Self::SigningWorkerEcdsaPresignaturePut => "signing_worker_ecdsa_presignature.put",
+            Self::SigningWorkerEcdsaPresignatureTake => "signing_worker_ecdsa_presignature.take",
+            Self::SigningWorkerEcdsaPresignatureCleanupExpired => {
+                "signing_worker_ecdsa_presignature.cleanup_expired"
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolPut => {
+                "signing_worker_ecdsa_presignature_pool.put"
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolTake => {
+                "signing_worker_ecdsa_presignature_pool.take"
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired => {
+                "signing_worker_ecdsa_presignature_pool.cleanup_expired"
+            }
+            Self::SigningWorkerDirectActivationPut => "signing_worker_direct_activation.put",
         }
     }
 
@@ -349,6 +398,9 @@ impl CloudflareDurableObjectOperationKindV1 {
         match self {
             Self::RootShareHas => "/router-ab/do/v1/root-share/has",
             Self::RootShareStartupMetadata => "/router-ab/do/v1/root-share/startup-metadata",
+            Self::RootShareRewrapStartupMetadata => {
+                "/router-ab/do/v1/root-share/rewrap-startup-metadata"
+            }
             Self::RouterReplayReserve => "/router-ab/do/v1/router-replay/reserve",
             Self::RouterReplayCleanupExpired => "/router-ab/do/v1/router-replay/cleanup-expired",
             Self::RouterLifecyclePutPublicState => "/router-ab/do/v1/router-lifecycle/put",
@@ -377,6 +429,36 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::SigningWorkerRound1Take => "/router-ab/do/v1/signing-worker-round1/take",
             Self::SigningWorkerRound1CleanupExpired => {
                 "/router-ab/do/v1/signing-worker-round1/cleanup-expired"
+            }
+            Self::SigningWorkerEd25519PresignPoolPut => {
+                "/router-ab/do/v1/signing-worker-ed25519-presign-pool/put"
+            }
+            Self::SigningWorkerEd25519PresignPoolTake => {
+                "/router-ab/do/v1/signing-worker-ed25519-presign-pool/take"
+            }
+            Self::SigningWorkerEd25519PresignPoolCleanupExpired => {
+                "/router-ab/do/v1/signing-worker-ed25519-presign-pool/cleanup-expired"
+            }
+            Self::SigningWorkerEcdsaPresignaturePut => {
+                "/router-ab/do/v1/signing-worker-ecdsa-presignature/put"
+            }
+            Self::SigningWorkerEcdsaPresignatureTake => {
+                "/router-ab/do/v1/signing-worker-ecdsa-presignature/take"
+            }
+            Self::SigningWorkerEcdsaPresignatureCleanupExpired => {
+                "/router-ab/do/v1/signing-worker-ecdsa-presignature/cleanup-expired"
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolPut => {
+                "/router-ab/do/v1/signing-worker-ecdsa-presignature-pool/put"
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolTake => {
+                "/router-ab/do/v1/signing-worker-ecdsa-presignature-pool/take"
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired => {
+                "/router-ab/do/v1/signing-worker-ecdsa-presignature-pool/cleanup-expired"
+            }
+            Self::SigningWorkerDirectActivationPut => {
+                "/router-ab/do/v1/signing-worker-direct-activation/put"
             }
         }
     }
@@ -831,6 +913,154 @@ impl CloudflareRootShareStartupMetadataV1 {
             ));
         }
         Ok(())
+    }
+}
+
+/// Request to repoint role-local root-share metadata after rewrapping custody.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRootShareRewrapRequestV1 {
+    /// Existing root-share identity being rewrapped.
+    pub lookup: CloudflareRootShareLookupRequestV1,
+    /// Replacement metadata pointing at the rewrapped sealed share.
+    pub replacement_metadata: CloudflareRootShareStartupMetadataV1,
+    /// Rewrap timestamp in Unix milliseconds.
+    pub rewrapped_at_ms: u64,
+}
+
+impl CloudflareRootShareRewrapRequestV1 {
+    /// Creates a validated root-share rewrap request.
+    pub fn new(
+        lookup: CloudflareRootShareLookupRequestV1,
+        replacement_metadata: CloudflareRootShareStartupMetadataV1,
+        rewrapped_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            lookup,
+            replacement_metadata,
+            rewrapped_at_ms,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Validates the replacement metadata is scoped to the looked-up root share.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.lookup.validate()?;
+        self.replacement_metadata
+            .validate_matches_lookup(&self.lookup)?;
+        require_positive_ms("root-share rewrap rewrapped_at_ms", self.rewrapped_at_ms)
+    }
+
+    /// Validates the replacement is a pure custody rewrap of the existing metadata.
+    pub fn validate_replaces(
+        &self,
+        existing: &CloudflareRootShareStartupMetadataV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        existing.validate_matches_lookup(&self.lookup)?;
+        if existing.signer_id != self.replacement_metadata.signer_id
+            || existing.signer_key_epoch != self.replacement_metadata.signer_key_epoch
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "root-share rewrap cannot change signer identity or signer key epoch",
+            ));
+        }
+        if existing.sealed_share_storage_key == self.replacement_metadata.sealed_share_storage_key {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "root-share rewrap must change the sealed-share storage key",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Receipt returned after root-share metadata is repointed to rewrapped custody.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRootShareRewrapReceiptV1 {
+    /// Signer set id.
+    pub signer_set_id: String,
+    /// Signer role.
+    pub signer_role: Role,
+    /// Root-share epoch.
+    pub root_share_epoch: RootShareEpoch,
+    /// Previous sealed-share storage key.
+    pub previous_sealed_share_storage_key: String,
+    /// Replacement sealed-share storage key.
+    pub replacement_sealed_share_storage_key: String,
+    /// Rewrap timestamp in Unix milliseconds.
+    pub rewrapped_at_ms: u64,
+}
+
+impl CloudflareRootShareRewrapReceiptV1 {
+    /// Creates a validated root-share rewrap receipt.
+    pub fn new(
+        request: &CloudflareRootShareRewrapRequestV1,
+        existing: &CloudflareRootShareStartupMetadataV1,
+    ) -> RouterAbProtocolResult<Self> {
+        request.validate_replaces(existing)?;
+        let receipt = Self {
+            signer_set_id: request.lookup.signer_set_id.clone(),
+            signer_role: request.lookup.signer_role,
+            root_share_epoch: request.lookup.root_share_epoch.clone(),
+            previous_sealed_share_storage_key: existing.sealed_share_storage_key.clone(),
+            replacement_sealed_share_storage_key: request
+                .replacement_metadata
+                .sealed_share_storage_key
+                .clone(),
+            rewrapped_at_ms: request.rewrapped_at_ms,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validates receipt identity and storage-key transition.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("signer_set_id", &self.signer_set_id)?;
+        require_signer_role(self.signer_role)?;
+        require_non_empty("root_share_epoch", self.root_share_epoch.as_str())?;
+        require_non_empty(
+            "previous_sealed_share_storage_key",
+            &self.previous_sealed_share_storage_key,
+        )?;
+        require_non_empty(
+            "replacement_sealed_share_storage_key",
+            &self.replacement_sealed_share_storage_key,
+        )?;
+        if self.previous_sealed_share_storage_key == self.replacement_sealed_share_storage_key {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "root-share rewrap receipt must change sealed-share storage key",
+            ));
+        }
+        require_positive_ms(
+            "root-share rewrap receipt rewrapped_at_ms",
+            self.rewrapped_at_ms,
+        )
+    }
+
+    /// Validates this receipt corresponds to the supplied request and prior metadata.
+    pub fn validate_for_request(
+        &self,
+        request: &CloudflareRootShareRewrapRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate()?;
+        if self.signer_set_id == request.lookup.signer_set_id
+            && self.signer_role == request.lookup.signer_role
+            && self.root_share_epoch == request.lookup.root_share_epoch
+            && self.replacement_sealed_share_storage_key
+                == request.replacement_metadata.sealed_share_storage_key
+            && self.rewrapped_at_ms == request.rewrapped_at_ms
+        {
+            Ok(())
+        } else {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "root-share rewrap receipt does not match request",
+            ))
+        }
     }
 }
 
@@ -1719,6 +1949,21 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         )
     }
 
+    /// Creates a lookup from an ECDSA-HSS normal-signing scope.
+    pub fn from_ecdsa_hss_normal_signing_scope(
+        scope: &RouterAbEcdsaHssNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<Self> {
+        scope.validate()?;
+        Self::new(
+            scope.context.wallet_id.clone(),
+            router_ab_ecdsa_hss_active_state_session_id_v1(
+                &scope.context,
+                &scope.activation_epoch,
+            )?,
+            scope.signing_worker.server_id.clone(),
+        )
+    }
+
     /// Validates lookup identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("active signing worker lookup account_id", &self.account_id)?;
@@ -1991,6 +2236,820 @@ impl CloudflareSigningWorkerRound1PutReceiptV1 {
     }
 }
 
+/// Stored unbound SigningWorker Ed25519 round-1 material for a presign-pool entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEd25519PresignPoolRecordV1 {
+    /// Active SigningWorker descriptor that owns this nonce material.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// Normal-signing pool refill scope.
+    pub scope: NormalSigningScopeV1,
+    /// Client-selected presign id tracked by the SDK pool.
+    pub client_presign_id: String,
+    /// Client-local nonce handle needed later for the final signature share.
+    pub client_nonce_handle: String,
+    /// SDK pool generation used to reject stale refill results.
+    pub generation: u64,
+    /// Message-agnostic binding digest for this pool entry.
+    pub pool_entry_binding_digest: PublicDigest32,
+    /// SigningWorker-local nonce handle returned to the client.
+    pub server_round1_handle: String,
+    /// Client public round-1 commitments offered during refill.
+    pub client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    /// Client verifying share offered during refill.
+    pub client_verifying_share_b64u: String,
+    /// Persisted server round-1 nonce material and public commitments.
+    pub server_round1_state: RoleSeparatedEd25519Round1StateV1,
+    /// Server verifying share returned to the client.
+    pub server_verifying_share_b64u: String,
+    /// Creation timestamp in Unix milliseconds.
+    pub created_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerEd25519PresignPoolRecordV1 {
+    /// Creates a validated unbound Ed25519 presign-pool record.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        scope: NormalSigningScopeV1,
+        client_presign_id: impl Into<String>,
+        client_nonce_handle: impl Into<String>,
+        generation: u64,
+        pool_entry_binding_digest: PublicDigest32,
+        server_round1_handle: impl Into<String>,
+        client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+        client_verifying_share_b64u: impl Into<String>,
+        server_round1_state: RoleSeparatedEd25519Round1StateV1,
+        server_verifying_share_b64u: impl Into<String>,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self {
+            active_signing_worker_state,
+            scope,
+            client_presign_id: client_presign_id.into(),
+            client_nonce_handle: client_nonce_handle.into(),
+            generation,
+            pool_entry_binding_digest,
+            server_round1_handle: server_round1_handle.into(),
+            client_commitments,
+            client_verifying_share_b64u: client_verifying_share_b64u.into(),
+            server_round1_state,
+            server_verifying_share_b64u: server_verifying_share_b64u.into(),
+            created_at_ms,
+            expires_at_ms,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    /// Validates persisted unbound Ed25519 pool state and lifecycle timing.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state
+            .validate_for_scope(&self.scope)?;
+        require_non_empty("client_presign_id", &self.client_presign_id)?;
+        require_non_empty("client_nonce_handle", &self.client_nonce_handle)?;
+        require_positive_ms("Ed25519 presign pool generation", self.generation)?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)?;
+        self.client_commitments.validate()?;
+        require_non_empty(
+            "client_verifying_share_b64u",
+            &self.client_verifying_share_b64u,
+        )?;
+        validate_base64url_fixed_len_v1(
+            "client_verifying_share_b64u",
+            &self.client_verifying_share_b64u,
+            32,
+        )?;
+        self.server_round1_state.validate().map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("SigningWorker Ed25519 presign-pool round-1 state is invalid: {err}"),
+            )
+        })?;
+        validate_base64url_fixed_len_v1(
+            "server_verifying_share_b64u",
+            &self.server_verifying_share_b64u,
+            32,
+        )?;
+        require_positive_ms(
+            "SigningWorker Ed25519 presign pool created_at_ms",
+            self.created_at_ms,
+        )?;
+        require_positive_ms(
+            "SigningWorker Ed25519 presign pool expires_at_ms",
+            self.expires_at_ms,
+        )?;
+        if self.expires_at_ms > self.created_at_ms {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidTimeRange,
+            "SigningWorker Ed25519 presign pool expiry must be after creation",
+        ))
+    }
+
+    /// Validates this pool record is live and matches the lookup used to claim it.
+    pub fn validate_for_lookup(
+        &self,
+        lookup: &CloudflareSigningWorkerEd25519PresignPoolLookupV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        lookup.validate()?;
+        if lookup.now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "SigningWorker Ed25519 presign-pool record expired",
+            ));
+        }
+        if self.active_signing_worker_state == lookup.active_signing_worker_state
+            && self.client_presign_id == lookup.client_presign_id
+            && self.client_nonce_handle == lookup.client_nonce_handle
+            && self.generation == lookup.generation
+            && self.server_round1_handle == lookup.server_round1_handle
+            && self.pool_entry_binding_digest == lookup.pool_entry_binding_digest
+            && self.client_commitments == lookup.client_commitments
+            && self.client_verifying_share_b64u == lookup.client_verifying_share_b64u
+            && NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                URL_SAFE_NO_PAD.encode(self.server_round1_state.commitments.hiding),
+                URL_SAFE_NO_PAD.encode(self.server_round1_state.commitments.binding),
+            )? == lookup.server_commitments
+            && self.server_verifying_share_b64u == lookup.server_verifying_share_b64u
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker Ed25519 presign-pool record does not match lookup",
+        ))
+    }
+
+    /// Converts this unbound pool record into a request-bound one-use round-1 record.
+    pub fn to_request_bound_round1_record(
+        &self,
+        final_scope: &NormalSigningScopeV1,
+        round1_binding_digest: PublicDigest32,
+        admitted_signing_digest: PublicDigest32,
+        claimed_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerRound1RecordV1> {
+        self.validate()?;
+        final_scope.validate()?;
+        self.active_signing_worker_state
+            .validate_for_scope(final_scope)?;
+        if claimed_at_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "SigningWorker Ed25519 presign-pool record expired before binding",
+            ));
+        }
+        if expires_at_ms > self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "SigningWorker Ed25519 presign-pool record expires before finalize request",
+            ));
+        }
+        CloudflareSigningWorkerRound1RecordV1::new(
+            self.active_signing_worker_state.clone(),
+            self.server_round1_handle.clone(),
+            round1_binding_digest,
+            admitted_signing_digest,
+            self.server_round1_state.clone(),
+            claimed_at_ms,
+            expires_at_ms,
+        )
+    }
+}
+
+/// Lookup used to claim one unbound SigningWorker Ed25519 presign-pool record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEd25519PresignPoolLookupV1 {
+    /// Active SigningWorker descriptor that owns this nonce material.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// Client-selected presign id tracked by the SDK pool.
+    pub client_presign_id: String,
+    /// Client-local nonce handle for the selected pool entry.
+    pub client_nonce_handle: String,
+    /// SDK pool generation used when this entry was accepted.
+    pub generation: u64,
+    /// SigningWorker-local nonce handle returned to the client.
+    pub server_round1_handle: String,
+    /// Message-agnostic binding digest for this pool entry.
+    pub pool_entry_binding_digest: PublicDigest32,
+    /// Client commitments accepted during refill.
+    pub client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    /// Client verifying share accepted during refill.
+    pub client_verifying_share_b64u: String,
+    /// Server commitments returned during refill.
+    pub server_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    /// Server verifying share returned during refill.
+    pub server_verifying_share_b64u: String,
+    /// Current time for expiry enforcement.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareSigningWorkerEd25519PresignPoolLookupV1 {
+    /// Creates a validated Ed25519 presign-pool lookup.
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        client_presign_id: impl Into<String>,
+        client_nonce_handle: impl Into<String>,
+        generation: u64,
+        server_round1_handle: impl Into<String>,
+        pool_entry_binding_digest: PublicDigest32,
+        client_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+        client_verifying_share_b64u: impl Into<String>,
+        server_commitments: NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+        server_verifying_share_b64u: impl Into<String>,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let lookup = Self {
+            active_signing_worker_state,
+            client_presign_id: client_presign_id.into(),
+            client_nonce_handle: client_nonce_handle.into(),
+            generation,
+            server_round1_handle: server_round1_handle.into(),
+            pool_entry_binding_digest,
+            client_commitments,
+            client_verifying_share_b64u: client_verifying_share_b64u.into(),
+            server_commitments,
+            server_verifying_share_b64u: server_verifying_share_b64u.into(),
+            now_unix_ms,
+        };
+        lookup.validate()?;
+        Ok(lookup)
+    }
+
+    /// Validates lookup fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("client_presign_id", &self.client_presign_id)?;
+        require_non_empty("client_nonce_handle", &self.client_nonce_handle)?;
+        require_positive_ms("Ed25519 presign pool lookup generation", self.generation)?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)?;
+        self.client_commitments.validate()?;
+        self.server_commitments.validate()?;
+        validate_base64url_fixed_len_v1(
+            "client_verifying_share_b64u",
+            &self.client_verifying_share_b64u,
+            32,
+        )?;
+        validate_base64url_fixed_len_v1(
+            "server_verifying_share_b64u",
+            &self.server_verifying_share_b64u,
+            32,
+        )?;
+        require_positive_ms(
+            "SigningWorker Ed25519 presign pool lookup now_unix_ms",
+            self.now_unix_ms,
+        )
+    }
+}
+
+/// Receipt for a stored unbound SigningWorker Ed25519 presign-pool record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1 {
+    /// Active SigningWorker descriptor that owns this nonce material.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// Client-selected presign id tracked by the SDK pool.
+    pub client_presign_id: String,
+    /// SDK pool generation used to reject stale refill results.
+    pub generation: u64,
+    /// SigningWorker-local nonce handle returned to the client.
+    pub server_round1_handle: String,
+    /// Message-agnostic binding digest for this pool entry.
+    pub pool_entry_binding_digest: PublicDigest32,
+    /// Whether storage changed.
+    pub stored: bool,
+}
+
+impl CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1 {
+    /// Creates a validated Ed25519 presign-pool put receipt from the stored record.
+    pub fn from_record(
+        record: &CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+        stored: bool,
+    ) -> RouterAbProtocolResult<Self> {
+        record.validate()?;
+        let receipt = Self {
+            active_signing_worker_state: record.active_signing_worker_state.clone(),
+            client_presign_id: record.client_presign_id.clone(),
+            generation: record.generation,
+            server_round1_handle: record.server_round1_handle.clone(),
+            pool_entry_binding_digest: record.pool_entry_binding_digest,
+            stored,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validates receipt fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("client_presign_id", &self.client_presign_id)?;
+        require_positive_ms("Ed25519 presign pool receipt generation", self.generation)?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)
+    }
+
+    /// Validates receipt identity against the record that created it.
+    pub fn validate_for_record(
+        &self,
+        record: &CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        record.validate()?;
+        if self.active_signing_worker_state == record.active_signing_worker_state
+            && self.client_presign_id == record.client_presign_id
+            && self.generation == record.generation
+            && self.server_round1_handle == record.server_round1_handle
+            && self.pool_entry_binding_digest == record.pool_entry_binding_digest
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker Ed25519 presign-pool put receipt does not match record",
+        ))
+    }
+}
+
+/// Stored SigningWorker ECDSA presignature material for one ECDSA-HSS signing request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEcdsaPresignatureRecordV1 {
+    /// Active SigningWorker descriptor that owns this presignature.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local presignature id returned by the signer backend.
+    pub server_presignature_id: String,
+    /// Canonical Router-admitted ECDSA-HSS signing request digest.
+    pub request_digest: PublicDigest32,
+    /// Router-admitted 32-byte EVM digest this presignature may sign.
+    pub admitted_signing_digest: PublicDigest32,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// Public 32-byte rerandomization entropy used with this presignature.
+    pub rerandomization_entropy32_b64u: String,
+    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
+    pub server_k_share32_b64u: String,
+    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
+    pub server_sigma_share32_b64u: String,
+    /// Creation timestamp in Unix milliseconds.
+    pub created_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignatureRecordV1 {
+    /// Creates a validated ECDSA presignature record.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        request_digest: PublicDigest32,
+        admitted_signing_digest: PublicDigest32,
+        server_big_r33_b64u: impl Into<String>,
+        rerandomization_entropy32_b64u: impl Into<String>,
+        server_k_share32_b64u: impl Into<String>,
+        server_sigma_share32_b64u: impl Into<String>,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            request_digest,
+            admitted_signing_digest,
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            rerandomization_entropy32_b64u: rerandomization_entropy32_b64u.into(),
+            server_k_share32_b64u: server_k_share32_b64u.into(),
+            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
+            created_at_ms,
+            expires_at_ms,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    /// Validates persisted ECDSA presignature state and lifecycle timing.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        validate_compressed_secp256k1_point_b64u_v1(
+            "server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )?;
+        validate_base64url_fixed_len_v1(
+            "rerandomization_entropy32_b64u",
+            &self.rerandomization_entropy32_b64u,
+            32,
+        )?;
+        validate_base64url_fixed_len_v1("server_k_share32_b64u", &self.server_k_share32_b64u, 32)?;
+        validate_base64url_fixed_len_v1(
+            "server_sigma_share32_b64u",
+            &self.server_sigma_share32_b64u,
+            32,
+        )?;
+        require_positive_ms(
+            "SigningWorker ECDSA presignature created_at_ms",
+            self.created_at_ms,
+        )?;
+        require_positive_ms(
+            "SigningWorker ECDSA presignature expires_at_ms",
+            self.expires_at_ms,
+        )?;
+        if self.expires_at_ms > self.created_at_ms {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidTimeRange,
+            "SigningWorker ECDSA presignature expiry must be after creation",
+        ))
+    }
+
+    /// Validates this record is live and matches the lookup used to load it.
+    pub fn validate_for_lookup(
+        &self,
+        lookup: &CloudflareSigningWorkerEcdsaPresignatureLookupV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        lookup.validate()?;
+        if lookup.now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "SigningWorker ECDSA presignature expired",
+            ));
+        }
+        if self.active_signing_worker_state == lookup.active_signing_worker_state
+            && self.server_presignature_id == lookup.server_presignature_id
+            && self.request_digest == lookup.request_digest
+            && self.admitted_signing_digest == lookup.admitted_signing_digest
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker ECDSA presignature record does not match lookup",
+        ))
+    }
+}
+
+/// Lookup for one stored SigningWorker ECDSA presignature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEcdsaPresignatureLookupV1 {
+    /// Active SigningWorker descriptor that owns this presignature.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local presignature id returned by the signer backend.
+    pub server_presignature_id: String,
+    /// Expected canonical Router-admitted ECDSA-HSS signing request digest.
+    pub request_digest: PublicDigest32,
+    /// Expected Router-admitted 32-byte EVM digest.
+    pub admitted_signing_digest: PublicDigest32,
+    /// Current time for expiry enforcement.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignatureLookupV1 {
+    /// Creates a validated ECDSA presignature lookup.
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        request_digest: PublicDigest32,
+        admitted_signing_digest: PublicDigest32,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let lookup = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            request_digest,
+            admitted_signing_digest,
+            now_unix_ms,
+        };
+        lookup.validate()?;
+        Ok(lookup)
+    }
+
+    /// Validates lookup fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        require_positive_ms(
+            "SigningWorker ECDSA presignature lookup now_unix_ms",
+            self.now_unix_ms,
+        )
+    }
+}
+
+/// Receipt for a stored SigningWorker ECDSA presignature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1 {
+    /// Active SigningWorker descriptor that owns this presignature.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local presignature id returned by the signer backend.
+    pub server_presignature_id: String,
+    /// Canonical Router-admitted ECDSA-HSS signing request digest.
+    pub request_digest: PublicDigest32,
+    /// Router-admitted 32-byte EVM digest this presignature may sign.
+    pub admitted_signing_digest: PublicDigest32,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// Public 32-byte rerandomization entropy used with this presignature.
+    pub rerandomization_entropy32_b64u: String,
+    /// Whether storage changed.
+    pub stored: bool,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1 {
+    /// Creates a validated ECDSA presignature put receipt from the stored record.
+    pub fn from_record(
+        record: &CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+        stored: bool,
+    ) -> RouterAbProtocolResult<Self> {
+        record.validate()?;
+        let receipt = Self {
+            active_signing_worker_state: record.active_signing_worker_state.clone(),
+            server_presignature_id: record.server_presignature_id.clone(),
+            request_digest: record.request_digest,
+            admitted_signing_digest: record.admitted_signing_digest,
+            server_big_r33_b64u: record.server_big_r33_b64u.clone(),
+            rerandomization_entropy32_b64u: record.rerandomization_entropy32_b64u.clone(),
+            stored,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validates receipt fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        validate_compressed_secp256k1_point_b64u_v1(
+            "server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )?;
+        validate_base64url_fixed_len_v1(
+            "rerandomization_entropy32_b64u",
+            &self.rerandomization_entropy32_b64u,
+            32,
+        )?;
+        Ok(())
+    }
+
+    /// Validates receipt identity against the record that created it.
+    pub fn validate_for_record(
+        &self,
+        record: &CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        record.validate()?;
+        if self.active_signing_worker_state == record.active_signing_worker_state
+            && self.server_presignature_id == record.server_presignature_id
+            && self.request_digest == record.request_digest
+            && self.admitted_signing_digest == record.admitted_signing_digest
+            && self.server_big_r33_b64u == record.server_big_r33_b64u
+            && self.rerandomization_entropy32_b64u == record.rerandomization_entropy32_b64u
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker ECDSA presignature put receipt does not match record",
+        ))
+    }
+}
+
+/// Stored unbound SigningWorker ECDSA presignature material for a later prepare request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1 {
+    /// Active SigningWorker descriptor that owns this presignature.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// Client-selected presignature id shared by the client and SigningWorker.
+    pub server_presignature_id: String,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// SigningWorker-local ECDSA presignature k share encoded as unpadded base64url.
+    pub server_k_share32_b64u: String,
+    /// SigningWorker-local ECDSA presignature sigma share encoded as unpadded base64url.
+    pub server_sigma_share32_b64u: String,
+    /// Creation timestamp in Unix milliseconds.
+    pub created_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1 {
+    /// Creates a validated unbound ECDSA presignature pool record.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        server_big_r33_b64u: impl Into<String>,
+        server_k_share32_b64u: impl Into<String>,
+        server_sigma_share32_b64u: impl Into<String>,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            server_k_share32_b64u: server_k_share32_b64u.into(),
+            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
+            created_at_ms,
+            expires_at_ms,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    /// Validates persisted unbound ECDSA presignature state and lifecycle timing.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        validate_compressed_secp256k1_point_b64u_v1(
+            "server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )?;
+        validate_base64url_fixed_len_v1("server_k_share32_b64u", &self.server_k_share32_b64u, 32)?;
+        validate_base64url_fixed_len_v1(
+            "server_sigma_share32_b64u",
+            &self.server_sigma_share32_b64u,
+            32,
+        )?;
+        require_positive_ms(
+            "SigningWorker ECDSA presignature pool created_at_ms",
+            self.created_at_ms,
+        )?;
+        require_positive_ms(
+            "SigningWorker ECDSA presignature pool expires_at_ms",
+            self.expires_at_ms,
+        )?;
+        if self.expires_at_ms > self.created_at_ms {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidTimeRange,
+            "SigningWorker ECDSA presignature pool expiry must be after creation",
+        ))
+    }
+
+    /// Validates this pool record is live and matches the lookup used to reserve it.
+    pub fn validate_for_lookup(
+        &self,
+        lookup: &CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        lookup.validate()?;
+        if lookup.now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "SigningWorker ECDSA presignature pool record expired",
+            ));
+        }
+        if self.active_signing_worker_state == lookup.active_signing_worker_state
+            && self.server_presignature_id == lookup.server_presignature_id
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker ECDSA presignature pool record does not match lookup",
+        ))
+    }
+
+    /// Converts this unbound record into a request-bound one-use presignature record.
+    pub fn to_request_bound_record(
+        &self,
+        request_digest: PublicDigest32,
+        admitted_signing_digest: PublicDigest32,
+        rerandomization_entropy32_b64u: impl Into<String>,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerEcdsaPresignatureRecordV1> {
+        self.validate()?;
+        if created_at_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "SigningWorker ECDSA presignature pool record expired before binding",
+            ));
+        }
+        if expires_at_ms > self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "SigningWorker ECDSA presignature pool record expires before prepare request",
+            ));
+        }
+        CloudflareSigningWorkerEcdsaPresignatureRecordV1::new(
+            self.active_signing_worker_state.clone(),
+            self.server_presignature_id.clone(),
+            request_digest,
+            admitted_signing_digest,
+            self.server_big_r33_b64u.clone(),
+            rerandomization_entropy32_b64u,
+            self.server_k_share32_b64u.clone(),
+            self.server_sigma_share32_b64u.clone(),
+            created_at_ms,
+            expires_at_ms,
+        )
+    }
+}
+
+/// Lookup used to reserve one unbound SigningWorker ECDSA presignature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1 {
+    /// Active SigningWorker descriptor that owns this presignature.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// Client-selected presignature id shared by the client and SigningWorker.
+    pub server_presignature_id: String,
+    /// Current time for expiry enforcement.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1 {
+    /// Creates a validated ECDSA presignature pool lookup.
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_presignature_id: impl Into<String>,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let lookup = Self {
+            active_signing_worker_state,
+            server_presignature_id: server_presignature_id.into(),
+            now_unix_ms,
+        };
+        lookup.validate()?;
+        Ok(lookup)
+    }
+
+    /// Validates lookup fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        require_positive_ms(
+            "SigningWorker ECDSA presignature pool lookup now_unix_ms",
+            self.now_unix_ms,
+        )
+    }
+}
+
+/// Receipt for a stored unbound SigningWorker ECDSA presignature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1 {
+    /// Active SigningWorker descriptor that owns this presignature.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// Client-selected presignature id shared by the client and SigningWorker.
+    pub server_presignature_id: String,
+    /// Compressed secp256k1 presignature R point encoded as unpadded base64url.
+    pub server_big_r33_b64u: String,
+    /// Whether storage changed.
+    pub stored: bool,
+}
+
+impl CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1 {
+    /// Creates a validated ECDSA presignature pool put receipt from the stored record.
+    pub fn from_record(
+        record: &CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+        stored: bool,
+    ) -> RouterAbProtocolResult<Self> {
+        record.validate()?;
+        let receipt = Self {
+            active_signing_worker_state: record.active_signing_worker_state.clone(),
+            server_presignature_id: record.server_presignature_id.clone(),
+            server_big_r33_b64u: record.server_big_r33_b64u.clone(),
+            stored,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validates receipt fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_presignature_id", &self.server_presignature_id)?;
+        validate_compressed_secp256k1_point_b64u_v1(
+            "server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )
+    }
+
+    /// Validates receipt identity against the record that created it.
+    pub fn validate_for_record(
+        &self,
+        record: &CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        record.validate()?;
+        if self.active_signing_worker_state == record.active_signing_worker_state
+            && self.server_presignature_id == record.server_presignature_id
+            && self.server_big_r33_b64u == record.server_big_r33_b64u
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker ECDSA presignature pool put receipt does not match record",
+        ))
+    }
+}
+
 /// Typed request body sent to Router/A/B Durable Objects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
@@ -2004,6 +3063,11 @@ pub enum CloudflareDurableObjectRequestV1 {
     RootShareStartupMetadata {
         /// Lookup request.
         lookup: CloudflareRootShareLookupRequestV1,
+    },
+    /// Repoint root-share startup metadata after server-side rewrap.
+    RootShareRewrapStartupMetadata {
+        /// Rewrap request.
+        request: CloudflareRootShareRewrapRequestV1,
     },
     /// Reserve a replay key.
     RouterReplayReserve {
@@ -2069,6 +3133,11 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Activation timestamp in Unix milliseconds.
         activated_at_ms: u64,
     },
+    /// Store one direct Deriver activation delivery.
+    SigningWorkerDirectActivationPut {
+        /// Single-Deriver direct activation delivery.
+        delivery: CloudflareSigningWorkerDirectRecipientProofBundleActivationDeliveryV1,
+    },
     /// Read active SigningWorker state for normal signing.
     SigningWorkerOutputActiveStateGet {
         /// Account/session/server lookup.
@@ -2094,6 +3163,51 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Cleanup request.
         cleanup: CloudflareExpiredStateCleanupRequestV1,
     },
+    /// Store unbound SigningWorker Ed25519 presign-pool material.
+    SigningWorkerEd25519PresignPoolPut {
+        /// Unbound Ed25519 presign-pool record.
+        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    },
+    /// Take unbound SigningWorker Ed25519 presign-pool material.
+    SigningWorkerEd25519PresignPoolTake {
+        /// Unbound Ed25519 presign-pool lookup.
+        lookup: CloudflareSigningWorkerEd25519PresignPoolLookupV1,
+    },
+    /// Remove expired unbound SigningWorker Ed25519 presign-pool records.
+    SigningWorkerEd25519PresignPoolCleanupExpired {
+        /// Cleanup request.
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    },
+    /// Store SigningWorker ECDSA presignature material.
+    SigningWorkerEcdsaPresignaturePut {
+        /// ECDSA presignature record.
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    },
+    /// Take SigningWorker ECDSA presignature material.
+    SigningWorkerEcdsaPresignatureTake {
+        /// ECDSA presignature lookup.
+        lookup: CloudflareSigningWorkerEcdsaPresignatureLookupV1,
+    },
+    /// Remove expired SigningWorker ECDSA presignature records.
+    SigningWorkerEcdsaPresignatureCleanupExpired {
+        /// Cleanup request.
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    },
+    /// Store unbound SigningWorker ECDSA presignature material.
+    SigningWorkerEcdsaPresignaturePoolPut {
+        /// Unbound ECDSA presignature pool record.
+        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    },
+    /// Reserve unbound SigningWorker ECDSA presignature material.
+    SigningWorkerEcdsaPresignaturePoolTake {
+        /// Unbound ECDSA presignature pool lookup.
+        lookup: CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1,
+    },
+    /// Remove expired unbound SigningWorker ECDSA presignature records.
+    SigningWorkerEcdsaPresignaturePoolCleanupExpired {
+        /// Cleanup request.
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    },
 }
 
 impl CloudflareDurableObjectRequestV1 {
@@ -2111,6 +3225,15 @@ impl CloudflareDurableObjectRequestV1 {
         lookup: CloudflareRootShareLookupRequestV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self::RootShareStartupMetadata { lookup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a root-share startup metadata rewrap request.
+    pub fn root_share_rewrap_startup_metadata(
+        request: CloudflareRootShareRewrapRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RootShareRewrapStartupMetadata { request };
         request.validate()?;
         Ok(request)
     }
@@ -2229,6 +3352,15 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
+    /// Creates a direct SigningWorker activation delivery put request.
+    pub fn signing_worker_direct_activation_put(
+        delivery: CloudflareSigningWorkerDirectRecipientProofBundleActivationDeliveryV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerDirectActivationPut { delivery };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Creates an active SigningWorker-state lookup request.
     pub fn signing_worker_output_active_state_get(
         lookup: CloudflareActiveSigningWorkerStateLookupV1,
@@ -2274,12 +3406,96 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
+    /// Creates an unbound SigningWorker Ed25519 presign-pool put request.
+    pub fn signing_worker_ed25519_presign_pool_put(
+        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEd25519PresignPoolPut { record };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an unbound SigningWorker Ed25519 presign-pool take request.
+    pub fn signing_worker_ed25519_presign_pool_take(
+        lookup: CloudflareSigningWorkerEd25519PresignPoolLookupV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEd25519PresignPoolTake { lookup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an expired unbound SigningWorker Ed25519 presign-pool cleanup request.
+    pub fn signing_worker_ed25519_presign_pool_cleanup_expired(
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEd25519PresignPoolCleanupExpired { cleanup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a SigningWorker ECDSA presignature put request.
+    pub fn signing_worker_ecdsa_presignature_put(
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaPresignaturePut { record };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a SigningWorker ECDSA presignature take request.
+    pub fn signing_worker_ecdsa_presignature_take(
+        lookup: CloudflareSigningWorkerEcdsaPresignatureLookupV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaPresignatureTake { lookup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an expired SigningWorker ECDSA presignature cleanup request.
+    pub fn signing_worker_ecdsa_presignature_cleanup_expired(
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaPresignatureCleanupExpired { cleanup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an unbound SigningWorker ECDSA presignature pool put request.
+    pub fn signing_worker_ecdsa_presignature_pool_put(
+        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaPresignaturePoolPut { record };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an unbound SigningWorker ECDSA presignature pool take request.
+    pub fn signing_worker_ecdsa_presignature_pool_take(
+        lookup: CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaPresignaturePoolTake { lookup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an expired unbound SigningWorker ECDSA presignature pool cleanup request.
+    pub fn signing_worker_ecdsa_presignature_pool_cleanup_expired(
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { cleanup };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Returns the stable operation kind.
     pub fn operation_kind(&self) -> CloudflareDurableObjectOperationKindV1 {
         match self {
             Self::RootShareHas { .. } => CloudflareDurableObjectOperationKindV1::RootShareHas,
             Self::RootShareStartupMetadata { .. } => {
                 CloudflareDurableObjectOperationKindV1::RootShareStartupMetadata
+            }
+            Self::RootShareRewrapStartupMetadata { .. } => {
+                CloudflareDurableObjectOperationKindV1::RootShareRewrapStartupMetadata
             }
             Self::RouterReplayReserve { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterReplayReserve
@@ -2317,6 +3533,9 @@ impl CloudflareDurableObjectRequestV1 {
             Self::SigningWorkerOutputActivate { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActivate
             }
+            Self::SigningWorkerDirectActivationPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerDirectActivationPut
+            }
             Self::SigningWorkerOutputActiveStateGet { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActiveStateGet
             }
@@ -2332,6 +3551,33 @@ impl CloudflareDurableObjectRequestV1 {
             Self::SigningWorkerRound1CleanupExpired { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerRound1CleanupExpired
             }
+            Self::SigningWorkerEd25519PresignPoolPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEd25519PresignPoolPut
+            }
+            Self::SigningWorkerEd25519PresignPoolTake { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEd25519PresignPoolTake
+            }
+            Self::SigningWorkerEd25519PresignPoolCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEd25519PresignPoolCleanupExpired
+            }
+            Self::SigningWorkerEcdsaPresignaturePut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePut
+            }
+            Self::SigningWorkerEcdsaPresignatureTake { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignatureTake
+            }
+            Self::SigningWorkerEcdsaPresignatureCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignatureCleanupExpired
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePoolPut
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolTake { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePoolTake
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired
+            }
         }
     }
 
@@ -2341,6 +3587,7 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RootShareHas { lookup } | Self::RootShareStartupMetadata { lookup } => {
                 lookup.expected_scope()
             }
+            Self::RootShareRewrapStartupMetadata { request } => request.lookup.expected_scope(),
             Self::RouterReplayReserve { .. } => CloudflareDurableObjectScopeV1::RouterReplay,
             Self::RouterReplayCleanupExpired { .. } => CloudflareDurableObjectScopeV1::RouterReplay,
             Self::RouterLifecyclePutPublicState { .. } => {
@@ -2369,7 +3616,17 @@ impl CloudflareDurableObjectRequestV1 {
             | Self::SigningWorkerOutputMaterialGet { .. }
             | Self::SigningWorkerRound1Put { .. }
             | Self::SigningWorkerRound1Take { .. }
-            | Self::SigningWorkerRound1CleanupExpired { .. } => {
+            | Self::SigningWorkerRound1CleanupExpired { .. }
+            | Self::SigningWorkerEd25519PresignPoolPut { .. }
+            | Self::SigningWorkerEd25519PresignPoolTake { .. }
+            | Self::SigningWorkerEd25519PresignPoolCleanupExpired { .. }
+            | Self::SigningWorkerEcdsaPresignaturePut { .. }
+            | Self::SigningWorkerEcdsaPresignatureTake { .. }
+            | Self::SigningWorkerEcdsaPresignatureCleanupExpired { .. }
+            | Self::SigningWorkerEcdsaPresignaturePoolPut { .. }
+            | Self::SigningWorkerEcdsaPresignaturePoolTake { .. }
+            | Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { .. }
+            | Self::SigningWorkerDirectActivationPut { .. } => {
                 CloudflareDurableObjectScopeV1::signing_worker_server_output()
             }
         }
@@ -2381,6 +3638,7 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RootShareHas { lookup } | Self::RootShareStartupMetadata { lookup } => {
                 lookup.validate()
             }
+            Self::RootShareRewrapStartupMetadata { request } => request.validate(),
             Self::RouterReplayReserve { request } => request.validate(),
             Self::RouterReplayCleanupExpired { cleanup } => cleanup.validate(),
             Self::RouterLifecyclePutPublicState { state } => validate_lifecycle_state(state),
@@ -2406,6 +3664,18 @@ impl CloudflareDurableObjectRequestV1 {
             Self::SigningWorkerRound1Put { record } => record.validate(),
             Self::SigningWorkerRound1Take { lookup } => lookup.validate(),
             Self::SigningWorkerRound1CleanupExpired { cleanup } => cleanup.validate(),
+            Self::SigningWorkerEd25519PresignPoolPut { record } => record.validate(),
+            Self::SigningWorkerEd25519PresignPoolTake { lookup } => lookup.validate(),
+            Self::SigningWorkerEd25519PresignPoolCleanupExpired { cleanup } => cleanup.validate(),
+            Self::SigningWorkerEcdsaPresignaturePut { record } => record.validate(),
+            Self::SigningWorkerEcdsaPresignatureTake { lookup } => lookup.validate(),
+            Self::SigningWorkerEcdsaPresignatureCleanupExpired { cleanup } => cleanup.validate(),
+            Self::SigningWorkerEcdsaPresignaturePoolPut { record } => record.validate(),
+            Self::SigningWorkerEcdsaPresignaturePoolTake { lookup } => lookup.validate(),
+            Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { cleanup } => {
+                cleanup.validate()
+            }
+            Self::SigningWorkerDirectActivationPut { delivery } => delivery.validate(),
         }
     }
 }
@@ -2423,6 +3693,11 @@ pub enum CloudflareDurableObjectResponseV1 {
     RootShareStartupMetadata {
         /// Startup metadata.
         metadata: CloudflareRootShareStartupMetadataV1,
+    },
+    /// Root-share startup metadata rewrap response.
+    RootShareRewrapStartupMetadata {
+        /// Rewrap receipt.
+        receipt: CloudflareRootShareRewrapReceiptV1,
     },
     /// Replay reservation response.
     RouterReplayReserve {
@@ -2484,6 +3759,11 @@ pub enum CloudflareDurableObjectResponseV1 {
         /// Activation receipt.
         receipt: CloudflareSigningWorkerOutputActivationReceiptV1,
     },
+    /// Direct activation delivery storage response.
+    SigningWorkerDirectActivationPut {
+        /// Pending or ready direct activation outcome.
+        outcome: CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1,
+    },
     /// Active server-state lookup response.
     SigningWorkerOutputActiveStateGet {
         /// Active SigningWorker state.
@@ -2509,6 +3789,51 @@ pub enum CloudflareDurableObjectResponseV1 {
         /// Cleanup report.
         report: CloudflareExpiredStateCleanupReportV1,
     },
+    /// SigningWorker unbound Ed25519 presign-pool put response.
+    SigningWorkerEd25519PresignPoolPut {
+        /// Put receipt.
+        receipt: CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1,
+    },
+    /// SigningWorker unbound Ed25519 presign-pool take response.
+    SigningWorkerEd25519PresignPoolTake {
+        /// Stored unbound Ed25519 presign-pool record.
+        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    },
+    /// Expired SigningWorker unbound Ed25519 presign-pool cleanup response.
+    SigningWorkerEd25519PresignPoolCleanupExpired {
+        /// Cleanup report.
+        report: CloudflareExpiredStateCleanupReportV1,
+    },
+    /// SigningWorker ECDSA presignature put response.
+    SigningWorkerEcdsaPresignaturePut {
+        /// Put receipt.
+        receipt: CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1,
+    },
+    /// SigningWorker ECDSA presignature take response.
+    SigningWorkerEcdsaPresignatureTake {
+        /// Stored ECDSA presignature record.
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    },
+    /// Expired SigningWorker ECDSA presignature cleanup response.
+    SigningWorkerEcdsaPresignatureCleanupExpired {
+        /// Cleanup report.
+        report: CloudflareExpiredStateCleanupReportV1,
+    },
+    /// SigningWorker unbound ECDSA presignature pool put response.
+    SigningWorkerEcdsaPresignaturePoolPut {
+        /// Put receipt.
+        receipt: CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1,
+    },
+    /// SigningWorker unbound ECDSA presignature pool take response.
+    SigningWorkerEcdsaPresignaturePoolTake {
+        /// Stored unbound ECDSA presignature pool record.
+        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    },
+    /// Expired SigningWorker unbound ECDSA presignature pool cleanup response.
+    SigningWorkerEcdsaPresignaturePoolCleanupExpired {
+        /// Cleanup report.
+        report: CloudflareExpiredStateCleanupReportV1,
+    },
 }
 
 impl CloudflareDurableObjectResponseV1 {
@@ -2522,6 +3847,15 @@ impl CloudflareDurableObjectResponseV1 {
         metadata: CloudflareRootShareStartupMetadataV1,
     ) -> RouterAbProtocolResult<Self> {
         let response = Self::RootShareStartupMetadata { metadata };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a root-share rewrap receipt response.
+    pub fn root_share_rewrap_startup_metadata(
+        receipt: CloudflareRootShareRewrapReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RootShareRewrapStartupMetadata { receipt };
         response.validate()?;
         Ok(response)
     }
@@ -2634,6 +3968,15 @@ impl CloudflareDurableObjectResponseV1 {
         Ok(response)
     }
 
+    /// Creates a direct activation delivery storage response.
+    pub fn signing_worker_direct_activation_put(
+        outcome: CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerDirectActivationPut { outcome };
+        response.validate()?;
+        Ok(response)
+    }
+
     /// Creates an active SigningWorker-state lookup response.
     pub fn signing_worker_output_active_state_get(
         active_signing_worker_state: ActiveSigningWorkerStateV1,
@@ -2681,12 +4024,96 @@ impl CloudflareDurableObjectResponseV1 {
         Ok(response)
     }
 
+    /// Creates a SigningWorker unbound Ed25519 presign-pool put response.
+    pub fn signing_worker_ed25519_presign_pool_put(
+        receipt: CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEd25519PresignPoolPut { receipt };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker unbound Ed25519 presign-pool take response.
+    pub fn signing_worker_ed25519_presign_pool_take(
+        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEd25519PresignPoolTake { record };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an expired SigningWorker unbound Ed25519 presign-pool cleanup response.
+    pub fn signing_worker_ed25519_presign_pool_cleanup_expired(
+        report: CloudflareExpiredStateCleanupReportV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEd25519PresignPoolCleanupExpired { report };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker ECDSA presignature put response.
+    pub fn signing_worker_ecdsa_presignature_put(
+        receipt: CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaPresignaturePut { receipt };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker ECDSA presignature take response.
+    pub fn signing_worker_ecdsa_presignature_take(
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaPresignatureTake { record };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an expired SigningWorker ECDSA presignature cleanup response.
+    pub fn signing_worker_ecdsa_presignature_cleanup_expired(
+        report: CloudflareExpiredStateCleanupReportV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaPresignatureCleanupExpired { report };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker unbound ECDSA presignature pool put response.
+    pub fn signing_worker_ecdsa_presignature_pool_put(
+        receipt: CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaPresignaturePoolPut { receipt };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker unbound ECDSA presignature pool take response.
+    pub fn signing_worker_ecdsa_presignature_pool_take(
+        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaPresignaturePoolTake { record };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an expired SigningWorker unbound ECDSA presignature pool cleanup response.
+    pub fn signing_worker_ecdsa_presignature_pool_cleanup_expired(
+        report: CloudflareExpiredStateCleanupReportV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { report };
+        response.validate()?;
+        Ok(response)
+    }
+
     /// Returns the response operation kind.
     pub fn operation_kind(&self) -> CloudflareDurableObjectOperationKindV1 {
         match self {
             Self::RootShareHas { .. } => CloudflareDurableObjectOperationKindV1::RootShareHas,
             Self::RootShareStartupMetadata { .. } => {
                 CloudflareDurableObjectOperationKindV1::RootShareStartupMetadata
+            }
+            Self::RootShareRewrapStartupMetadata { .. } => {
+                CloudflareDurableObjectOperationKindV1::RootShareRewrapStartupMetadata
             }
             Self::RouterReplayReserve { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterReplayReserve
@@ -2724,6 +4151,9 @@ impl CloudflareDurableObjectResponseV1 {
             Self::SigningWorkerOutputActivate { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActivate
             }
+            Self::SigningWorkerDirectActivationPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerDirectActivationPut
+            }
             Self::SigningWorkerOutputActiveStateGet { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActiveStateGet
             }
@@ -2739,6 +4169,33 @@ impl CloudflareDurableObjectResponseV1 {
             Self::SigningWorkerRound1CleanupExpired { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerRound1CleanupExpired
             }
+            Self::SigningWorkerEd25519PresignPoolPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEd25519PresignPoolPut
+            }
+            Self::SigningWorkerEd25519PresignPoolTake { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEd25519PresignPoolTake
+            }
+            Self::SigningWorkerEd25519PresignPoolCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEd25519PresignPoolCleanupExpired
+            }
+            Self::SigningWorkerEcdsaPresignaturePut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePut
+            }
+            Self::SigningWorkerEcdsaPresignatureTake { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignatureTake
+            }
+            Self::SigningWorkerEcdsaPresignatureCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignatureCleanupExpired
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePoolPut
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolTake { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePoolTake
+            }
+            Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired
+            }
         }
     }
 
@@ -2747,6 +4204,7 @@ impl CloudflareDurableObjectResponseV1 {
         match self {
             Self::RootShareHas { .. } => Ok(()),
             Self::RootShareStartupMetadata { metadata } => metadata.validate(),
+            Self::RootShareRewrapStartupMetadata { receipt } => receipt.validate(),
             Self::RouterReplayReserve { response } => response.validate(),
             Self::RouterReplayCleanupExpired { report } => report.validate(),
             Self::RouterLifecyclePutPublicState { receipt } => receipt.validate(),
@@ -2759,6 +4217,7 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RouterNormalSigningQuotaEvaluate { quota } => quota.validate(),
             Self::RouterNormalSigningAbuseEvaluate { abuse } => abuse.validate(),
             Self::SigningWorkerOutputActivate { receipt } => receipt.validate(),
+            Self::SigningWorkerDirectActivationPut { outcome } => outcome.validate(),
             Self::SigningWorkerOutputActiveStateGet {
                 active_signing_worker_state,
             } => active_signing_worker_state.validate(),
@@ -2766,6 +4225,15 @@ impl CloudflareDurableObjectResponseV1 {
             Self::SigningWorkerRound1Put { receipt } => receipt.validate(),
             Self::SigningWorkerRound1Take { record } => record.validate(),
             Self::SigningWorkerRound1CleanupExpired { report } => report.validate(),
+            Self::SigningWorkerEd25519PresignPoolPut { receipt } => receipt.validate(),
+            Self::SigningWorkerEd25519PresignPoolTake { record } => record.validate(),
+            Self::SigningWorkerEd25519PresignPoolCleanupExpired { report } => report.validate(),
+            Self::SigningWorkerEcdsaPresignaturePut { receipt } => receipt.validate(),
+            Self::SigningWorkerEcdsaPresignatureTake { record } => record.validate(),
+            Self::SigningWorkerEcdsaPresignatureCleanupExpired { report } => report.validate(),
+            Self::SigningWorkerEcdsaPresignaturePoolPut { receipt } => receipt.validate(),
+            Self::SigningWorkerEcdsaPresignaturePoolTake { record } => record.validate(),
+            Self::SigningWorkerEcdsaPresignaturePoolCleanupExpired { report } => report.validate(),
         }
     }
 
@@ -2786,6 +4254,10 @@ impl CloudflareDurableObjectResponseV1 {
                 Self::RootShareStartupMetadata { metadata },
                 CloudflareDurableObjectRequestV1::RootShareStartupMetadata { lookup },
             ) => metadata.validate_matches_lookup(lookup),
+            (
+                Self::RootShareRewrapStartupMetadata { receipt },
+                CloudflareDurableObjectRequestV1::RootShareRewrapStartupMetadata { request },
+            ) => receipt.validate_for_request(request),
             (
                 Self::RouterReplayReserve { response },
                 CloudflareDurableObjectRequestV1::RouterReplayReserve { request },
@@ -2885,6 +4357,10 @@ impl CloudflareDurableObjectResponseV1 {
                 CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup },
             ) => lookup.validate_active_state(active_signing_worker_state),
             (
+                Self::SigningWorkerDirectActivationPut { outcome },
+                CloudflareDurableObjectRequestV1::SigningWorkerDirectActivationPut { delivery },
+            ) => outcome.validate_for_delivery(delivery),
+            (
                 Self::SigningWorkerOutputMaterialGet { material },
                 CloudflareDurableObjectRequestV1::SigningWorkerOutputMaterialGet { lookup },
             ) => lookup.validate_material(material),
@@ -2895,6 +4371,30 @@ impl CloudflareDurableObjectResponseV1 {
             (
                 Self::SigningWorkerRound1Take { record },
                 CloudflareDurableObjectRequestV1::SigningWorkerRound1Take { lookup },
+            ) => record.validate_for_lookup(lookup),
+            (
+                Self::SigningWorkerEd25519PresignPoolPut { receipt },
+                CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolPut { record },
+            ) => receipt.validate_for_record(record),
+            (
+                Self::SigningWorkerEd25519PresignPoolTake { record },
+                CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolTake { lookup },
+            ) => record.validate_for_lookup(lookup),
+            (
+                Self::SigningWorkerEcdsaPresignaturePut { receipt },
+                CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record },
+            ) => receipt.validate_for_record(record),
+            (
+                Self::SigningWorkerEcdsaPresignatureTake { record },
+                CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureTake { lookup },
+            ) => record.validate_for_lookup(lookup),
+            (
+                Self::SigningWorkerEcdsaPresignaturePoolPut { receipt },
+                CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolPut { record },
+            ) => receipt.validate_for_record(record),
+            (
+                Self::SigningWorkerEcdsaPresignaturePoolTake { record },
+                CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolTake { lookup },
             ) => record.validate_for_lookup(lookup),
             _ => Ok(()),
         }
@@ -2970,6 +4470,15 @@ impl CloudflareDurableObjectCallV1 {
                 lookup.signer_role.as_str(),
                 lookup.root_share_epoch.as_str()
             ),
+            CloudflareDurableObjectRequestV1::RootShareRewrapStartupMetadata { request } => {
+                format!(
+                    "{}root-share/{}/{}/{}",
+                    self.binding.key_prefix,
+                    request.lookup.signer_set_id,
+                    request.lookup.signer_role.as_str(),
+                    request.lookup.root_share_epoch.as_str()
+                )
+            }
             CloudflareDurableObjectRequestV1::RouterReplayReserve { request } => format!(
                 "{}replay/{}/{}",
                 self.binding.key_prefix,
@@ -3053,6 +4562,14 @@ impl CloudflareDurableObjectCallV1 {
                 activation.activation_context.lifecycle().lifecycle_id,
                 digest_hex(activation.activation_context.transcript_digest())
             ),
+            CloudflareDurableObjectRequestV1::SigningWorkerDirectActivationPut {
+                delivery,
+            } => format!(
+                "{}signing-worker-direct-activation/{}/{}",
+                self.binding.key_prefix,
+                delivery.activation_context.lifecycle().lifecycle_id,
+                digest_hex(delivery.activation_context.transcript_digest())
+            ),
             CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
                 format!(
                     "{}active-signing-worker/{}/{}/{}",
@@ -3085,6 +4602,85 @@ impl CloudflareDurableObjectCallV1 {
             CloudflareDurableObjectRequestV1::SigningWorkerRound1CleanupExpired { .. } => {
                 self.signing_worker_round1_storage_prefix()
             }
+            CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolPut {
+                record,
+            } => {
+                format!(
+                    "{}signing-worker-ed25519-presign-pool/{}/{}/{}/{}/{}",
+                    self.binding.key_prefix,
+                    record.active_signing_worker_state.account_id,
+                    record.active_signing_worker_state.session_id,
+                    record.active_signing_worker_state.signing_worker.server_id,
+                    record.generation,
+                    record.client_presign_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolTake {
+                lookup,
+            } => {
+                format!(
+                    "{}signing-worker-ed25519-presign-pool/{}/{}/{}/{}/{}",
+                    self.binding.key_prefix,
+                    lookup.active_signing_worker_state.account_id,
+                    lookup.active_signing_worker_state.session_id,
+                    lookup.active_signing_worker_state.signing_worker.server_id,
+                    lookup.generation,
+                    lookup.client_presign_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolCleanupExpired {
+                ..
+            } => self.signing_worker_ed25519_presign_pool_storage_prefix(),
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
+                format!(
+                    "{}signing-worker-ecdsa-presignature/{}/{}/{}/{}",
+                    self.binding.key_prefix,
+                    record.active_signing_worker_state.account_id,
+                    record.active_signing_worker_state.session_id,
+                    record.active_signing_worker_state.signing_worker.server_id,
+                    record.server_presignature_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureTake { lookup } => {
+                format!(
+                    "{}signing-worker-ecdsa-presignature/{}/{}/{}/{}",
+                    self.binding.key_prefix,
+                    lookup.active_signing_worker_state.account_id,
+                    lookup.active_signing_worker_state.session_id,
+                    lookup.active_signing_worker_state.signing_worker.server_id,
+                    lookup.server_presignature_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureCleanupExpired {
+                ..
+            } => self.signing_worker_ecdsa_presignature_storage_prefix(),
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolPut {
+                record,
+            } => {
+                format!(
+                    "{}signing-worker-ecdsa-presignature-pool/{}/{}/{}/{}",
+                    self.binding.key_prefix,
+                    record.active_signing_worker_state.account_id,
+                    record.active_signing_worker_state.session_id,
+                    record.active_signing_worker_state.signing_worker.server_id,
+                    record.server_presignature_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolTake {
+                lookup,
+            } => {
+                format!(
+                    "{}signing-worker-ecdsa-presignature-pool/{}/{}/{}/{}",
+                    self.binding.key_prefix,
+                    lookup.active_signing_worker_state.account_id,
+                    lookup.active_signing_worker_state.session_id,
+                    lookup.active_signing_worker_state.signing_worker.server_id,
+                    lookup.server_presignature_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired {
+                ..
+            } => self.signing_worker_ecdsa_presignature_pool_storage_prefix(),
         }
     }
 
@@ -3106,6 +4702,30 @@ impl CloudflareDurableObjectCallV1 {
     /// Returns the prefix used by SigningWorker round-1 storage records.
     pub fn signing_worker_round1_storage_prefix(&self) -> String {
         format!("{}signing-worker-round1/", self.binding.key_prefix)
+    }
+
+    /// Returns the prefix used by unbound SigningWorker Ed25519 presign-pool records.
+    pub fn signing_worker_ed25519_presign_pool_storage_prefix(&self) -> String {
+        format!(
+            "{}signing-worker-ed25519-presign-pool/",
+            self.binding.key_prefix
+        )
+    }
+
+    /// Returns the prefix used by SigningWorker ECDSA presignature storage records.
+    pub fn signing_worker_ecdsa_presignature_storage_prefix(&self) -> String {
+        format!(
+            "{}signing-worker-ecdsa-presignature/",
+            self.binding.key_prefix
+        )
+    }
+
+    /// Returns the prefix used by unbound SigningWorker ECDSA presignature pool records.
+    pub fn signing_worker_ecdsa_presignature_pool_storage_prefix(&self) -> String {
+        format!(
+            "{}signing-worker-ecdsa-presignature-pool/",
+            self.binding.key_prefix
+        )
     }
 
     /// Returns the request-id replay index key used by replay reservations.
@@ -3169,6 +4789,13 @@ pub trait CloudflareDurableObjectStorageV1 {
         &self,
         storage_key: &str,
     ) -> RouterAbProtocolResult<Option<CloudflareRootShareStartupMetadataV1>>;
+
+    /// Stores root-share startup metadata by storage key.
+    fn put_root_share_startup_metadata(
+        &mut self,
+        storage_key: &str,
+        metadata: CloudflareRootShareStartupMetadataV1,
+    ) -> RouterAbProtocolResult<()>;
 
     /// Reads a replay reservation by request-id index key.
     fn replay_reservation_by_request_id(
@@ -3261,6 +4888,21 @@ pub trait CloudflareDurableObjectStorageV1 {
         record: CloudflareSigningWorkerOutputActivationRecordV1,
     ) -> RouterAbProtocolResult<()>;
 
+    /// Reads a pending direct SigningWorker activation delivery by storage key.
+    fn signing_worker_direct_activation(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<
+        Option<CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1>,
+    >;
+
+    /// Stores a pending direct SigningWorker activation delivery.
+    fn put_signing_worker_direct_activation(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
     /// Reads active SigningWorker state by account/session/SigningWorker index key.
     fn active_signing_worker_state(
         &self,
@@ -3291,6 +4933,81 @@ pub trait CloudflareDurableObjectStorageV1 {
         &mut self,
         now_unix_ms: u64,
     ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
+
+    /// Reads unbound SigningWorker Ed25519 presign-pool material by storage key.
+    fn signing_worker_ed25519_presign_pool(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEd25519PresignPoolRecordV1>>;
+
+    /// Stores unbound SigningWorker Ed25519 presign-pool material.
+    fn put_signing_worker_ed25519_presign_pool(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
+    /// Removes and returns unbound SigningWorker Ed25519 presign-pool material.
+    fn take_signing_worker_ed25519_presign_pool(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEd25519PresignPoolRecordV1>>;
+
+    /// Removes expired unbound SigningWorker Ed25519 presign-pool records.
+    fn cleanup_expired_signing_worker_ed25519_presign_pool_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
+
+    /// Reads SigningWorker ECDSA presignature material by storage key.
+    fn signing_worker_ecdsa_presignature(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignatureRecordV1>>;
+
+    /// Stores SigningWorker ECDSA presignature material.
+    fn put_signing_worker_ecdsa_presignature(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
+    /// Removes and returns SigningWorker ECDSA presignature material.
+    fn take_signing_worker_ecdsa_presignature(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignatureRecordV1>>;
+
+    /// Removes expired SigningWorker ECDSA presignature records.
+    fn cleanup_expired_signing_worker_ecdsa_presignature_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
+
+    /// Reads unbound SigningWorker ECDSA presignature pool material by storage key.
+    fn signing_worker_ecdsa_presignature_pool(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>>;
+
+    /// Stores unbound SigningWorker ECDSA presignature pool material.
+    fn put_signing_worker_ecdsa_presignature_pool(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
+    /// Removes and returns unbound SigningWorker ECDSA presignature pool material.
+    fn take_signing_worker_ecdsa_presignature_pool(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>>;
+
+    /// Removes expired unbound SigningWorker ECDSA presignature pool records.
+    fn cleanup_expired_signing_worker_ecdsa_presignature_pool_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
 }
 
 /// Deterministic in-memory Durable Object storage used by tests and local checks.
@@ -3305,8 +5022,18 @@ pub struct CloudflareDurableObjectMemoryStorageV1 {
     abuse_records: BTreeMap<String, CloudflareRouterAbuseRecordV1>,
     quota_reservations: BTreeMap<String, CloudflareRouterQuotaReservationV1>,
     signing_worker_activations: BTreeMap<String, CloudflareSigningWorkerOutputActivationRecordV1>,
+    signing_worker_direct_activations: BTreeMap<
+        String,
+        CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
+    >,
     active_signing_worker_states: BTreeMap<String, ActiveSigningWorkerStateV1>,
     signing_worker_round1_records: BTreeMap<String, CloudflareSigningWorkerRound1RecordV1>,
+    signing_worker_ed25519_presign_pool_records:
+        BTreeMap<String, CloudflareSigningWorkerEd25519PresignPoolRecordV1>,
+    signing_worker_ecdsa_presignature_records:
+        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignatureRecordV1>,
+    signing_worker_ecdsa_presignature_pool_records:
+        BTreeMap<String, CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>,
 }
 
 impl CloudflareDurableObjectMemoryStorageV1 {
@@ -3375,6 +5102,14 @@ impl CloudflareDurableObjectMemoryStorageV1 {
         self.signing_worker_activations.get(storage_key)
     }
 
+    /// Reads a pending direct activation delivery for tests and local smoke checks.
+    pub fn signing_worker_direct_activation(
+        &self,
+        storage_key: &str,
+    ) -> Option<&CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1> {
+        self.signing_worker_direct_activations.get(storage_key)
+    }
+
     /// Reads indexed active SigningWorker state for tests and local smoke checks.
     pub fn active_signing_worker_state(
         &self,
@@ -3398,6 +5133,33 @@ impl CloudflareDurableObjectMemoryStorageV1 {
     ) -> Option<&CloudflareRouterQuotaReservationV1> {
         self.quota_reservations.get(storage_key)
     }
+
+    /// Reads a stored ECDSA presignature for tests and local smoke checks.
+    pub fn signing_worker_ecdsa_presignature(
+        &self,
+        storage_key: &str,
+    ) -> Option<&CloudflareSigningWorkerEcdsaPresignatureRecordV1> {
+        self.signing_worker_ecdsa_presignature_records
+            .get(storage_key)
+    }
+
+    /// Reads a stored unbound Ed25519 presign-pool record for tests and local checks.
+    pub fn signing_worker_ed25519_presign_pool(
+        &self,
+        storage_key: &str,
+    ) -> Option<&CloudflareSigningWorkerEd25519PresignPoolRecordV1> {
+        self.signing_worker_ed25519_presign_pool_records
+            .get(storage_key)
+    }
+
+    /// Reads a stored unbound ECDSA presignature pool record for tests and local smoke checks.
+    pub fn signing_worker_ecdsa_presignature_pool(
+        &self,
+        storage_key: &str,
+    ) -> Option<&CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1> {
+        self.signing_worker_ecdsa_presignature_pool_records
+            .get(storage_key)
+    }
 }
 
 impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1 {
@@ -3407,6 +5169,18 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
     ) -> RouterAbProtocolResult<Option<CloudflareRootShareStartupMetadataV1>> {
         require_non_empty("storage_key", storage_key)?;
         Ok(self.root_share_metadata.get(storage_key).cloned())
+    }
+
+    fn put_root_share_startup_metadata(
+        &mut self,
+        storage_key: &str,
+        metadata: CloudflareRootShareStartupMetadataV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        metadata.validate()?;
+        self.root_share_metadata
+            .insert(storage_key.to_owned(), metadata);
+        Ok(())
     }
 
     fn replay_reservation_by_request_id(
@@ -3567,6 +5341,31 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         Ok(())
     }
 
+    fn signing_worker_direct_activation(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<
+        Option<CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1>,
+    > {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_direct_activations
+            .get(storage_key)
+            .cloned())
+    }
+
+    fn put_signing_worker_direct_activation(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        record.validate()?;
+        self.signing_worker_direct_activations
+            .insert(storage_key.to_owned(), record);
+        Ok(())
+    }
+
     fn active_signing_worker_state(
         &self,
         active_state_index_key: &str,
@@ -3617,6 +5416,150 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         CloudflareExpiredStateCleanupReportV1::new(
             now_unix_ms,
             (before - self.signing_worker_round1_records.len()) as u64,
+            0,
+        )
+    }
+
+    fn signing_worker_ed25519_presign_pool(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEd25519PresignPoolRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_ed25519_presign_pool_records
+            .get(storage_key)
+            .cloned())
+    }
+
+    fn put_signing_worker_ed25519_presign_pool(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        record.validate()?;
+        self.signing_worker_ed25519_presign_pool_records
+            .insert(storage_key.to_owned(), record);
+        Ok(())
+    }
+
+    fn take_signing_worker_ed25519_presign_pool(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEd25519PresignPoolRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_ed25519_presign_pool_records
+            .remove(storage_key))
+    }
+
+    fn cleanup_expired_signing_worker_ed25519_presign_pool_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
+        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+        let before = self.signing_worker_ed25519_presign_pool_records.len();
+        self.signing_worker_ed25519_presign_pool_records
+            .retain(|_, record| record.expires_at_ms > now_unix_ms);
+        CloudflareExpiredStateCleanupReportV1::new(
+            now_unix_ms,
+            (before - self.signing_worker_ed25519_presign_pool_records.len()) as u64,
+            0,
+        )
+    }
+
+    fn signing_worker_ecdsa_presignature(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignatureRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_ecdsa_presignature_records
+            .get(storage_key)
+            .cloned())
+    }
+
+    fn put_signing_worker_ecdsa_presignature(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        record.validate()?;
+        self.signing_worker_ecdsa_presignature_records
+            .insert(storage_key.to_owned(), record);
+        Ok(())
+    }
+
+    fn take_signing_worker_ecdsa_presignature(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignatureRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_ecdsa_presignature_records
+            .remove(storage_key))
+    }
+
+    fn cleanup_expired_signing_worker_ecdsa_presignature_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
+        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+        let before = self.signing_worker_ecdsa_presignature_records.len();
+        self.signing_worker_ecdsa_presignature_records
+            .retain(|_, record| record.expires_at_ms > now_unix_ms);
+        CloudflareExpiredStateCleanupReportV1::new(
+            now_unix_ms,
+            (before - self.signing_worker_ecdsa_presignature_records.len()) as u64,
+            0,
+        )
+    }
+
+    fn signing_worker_ecdsa_presignature_pool(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_ecdsa_presignature_pool_records
+            .get(storage_key)
+            .cloned())
+    }
+
+    fn put_signing_worker_ecdsa_presignature_pool(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        record.validate()?;
+        self.signing_worker_ecdsa_presignature_pool_records
+            .insert(storage_key.to_owned(), record);
+        Ok(())
+    }
+
+    fn take_signing_worker_ecdsa_presignature_pool(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self
+            .signing_worker_ecdsa_presignature_pool_records
+            .remove(storage_key))
+    }
+
+    fn cleanup_expired_signing_worker_ecdsa_presignature_pool_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
+        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+        let before = self.signing_worker_ecdsa_presignature_pool_records.len();
+        self.signing_worker_ecdsa_presignature_pool_records
+            .retain(|_, record| record.expires_at_ms > now_unix_ms);
+        CloudflareExpiredStateCleanupReportV1::new(
+            now_unix_ms,
+            (before - self.signing_worker_ecdsa_presignature_pool_records.len()) as u64,
             0,
         )
     }
@@ -3678,6 +5621,24 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 })?;
             metadata.validate_matches_lookup(lookup)?;
             CloudflareDurableObjectResponseV1::root_share_startup_metadata(metadata)?
+        }
+        CloudflareDurableObjectRequestV1::RootShareRewrapStartupMetadata { request } => {
+            let existing = storage
+                .root_share_startup_metadata(&storage_key)?
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MissingLocalBinding,
+                        "root-share startup metadata is missing",
+                    )
+                })?;
+            request.validate_replaces(&existing)?;
+            storage.put_root_share_startup_metadata(
+                &storage_key,
+                request.replacement_metadata.clone(),
+            )?;
+            CloudflareDurableObjectResponseV1::root_share_rewrap_startup_metadata(
+                CloudflareRootShareRewrapReceiptV1::new(request, &existing)?,
+            )?
         }
         CloudflareDurableObjectRequestV1::RouterReplayReserve { request } => {
             let request_index_key = call.replay_request_index_storage_key()?;
@@ -3898,6 +5859,22 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 )?,
             )?
         }
+        CloudflareDurableObjectRequestV1::SigningWorkerDirectActivationPut { delivery } => {
+            let outcome = match storage.signing_worker_direct_activation(&storage_key)? {
+                Some(existing) => existing.apply_delivery(delivery.clone())?,
+                None => {
+                    let record =
+                        CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1::new(
+                            delivery.clone(),
+                        )?;
+                    storage.put_signing_worker_direct_activation(&storage_key, record.clone())?;
+                    CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1::pending(
+                        record,
+                    )?
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_direct_activation_put(outcome)?
+        }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
             let active_signing_worker_state = storage
@@ -3974,6 +5951,151 @@ pub fn handle_cloudflare_durable_object_call_v1(
             cleanup.validate()?;
             CloudflareDurableObjectResponseV1::signing_worker_round1_cleanup_expired(
                 storage.cleanup_expired_signing_worker_round1_records(cleanup.now_unix_ms)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolPut { record } => {
+            record.validate()?;
+            let stored = match storage.signing_worker_ed25519_presign_pool(&storage_key)? {
+                Some(existing) => {
+                    existing.validate()?;
+                    if existing == *record {
+                        false
+                    } else {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker Ed25519 presign-pool id is already stored for different material",
+                        ));
+                    }
+                }
+                None => {
+                    storage
+                        .put_signing_worker_ed25519_presign_pool(&storage_key, record.clone())?;
+                    true
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_put(
+                CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1::from_record(record, stored)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolTake { lookup } => {
+            lookup.validate()?;
+            let record = storage
+                .signing_worker_ed25519_presign_pool(&storage_key)?
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MissingLocalBinding,
+                        "SigningWorker Ed25519 presign-pool material is missing",
+                    )
+                })?;
+            record.validate_for_lookup(lookup)?;
+            storage.take_signing_worker_ed25519_presign_pool(&storage_key)?;
+            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolCleanupExpired {
+            cleanup,
+        } => {
+            cleanup.validate()?;
+            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_cleanup_expired(
+                storage.cleanup_expired_signing_worker_ed25519_presign_pool_records(
+                    cleanup.now_unix_ms,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
+            record.validate()?;
+            let stored = match storage.signing_worker_ecdsa_presignature(&storage_key)? {
+                Some(existing) => {
+                    existing.validate()?;
+                    if existing == *record {
+                        false
+                    } else {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker ECDSA presignature id is already stored for different material",
+                        ));
+                    }
+                }
+                None => {
+                    storage.put_signing_worker_ecdsa_presignature(&storage_key, record.clone())?;
+                    true
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_put(
+                CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1::from_record(record, stored)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureTake { lookup } => {
+            lookup.validate()?;
+            let record = storage
+                .signing_worker_ecdsa_presignature(&storage_key)?
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MissingLocalBinding,
+                        "SigningWorker ECDSA presignature material is missing",
+                    )
+                })?;
+            record.validate_for_lookup(lookup)?;
+            storage.take_signing_worker_ecdsa_presignature(&storage_key)?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureCleanupExpired {
+            cleanup,
+        } => {
+            cleanup.validate()?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_cleanup_expired(
+                storage.cleanup_expired_signing_worker_ecdsa_presignature_records(
+                    cleanup.now_unix_ms,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolPut { record } => {
+            record.validate()?;
+            let stored = match storage.signing_worker_ecdsa_presignature_pool(&storage_key)? {
+                Some(existing) => {
+                    existing.validate()?;
+                    if existing == *record {
+                        false
+                    } else {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker ECDSA presignature pool id is already stored for different material",
+                        ));
+                    }
+                }
+                None => {
+                    storage
+                        .put_signing_worker_ecdsa_presignature_pool(&storage_key, record.clone())?;
+                    true
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_put(
+                CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1::from_record(
+                    record, stored,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolTake { lookup } => {
+            lookup.validate()?;
+            let record = storage
+                .signing_worker_ecdsa_presignature_pool(&storage_key)?
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MissingLocalBinding,
+                        "SigningWorker ECDSA presignature pool material is missing",
+                    )
+                })?;
+            record.validate_for_lookup(lookup)?;
+            storage.take_signing_worker_ecdsa_presignature_pool(&storage_key)?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired {
+            cleanup,
+        } => {
+            cleanup.validate()?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_cleanup_expired(
+                storage.cleanup_expired_signing_worker_ecdsa_presignature_pool_records(
+                    cleanup.now_unix_ms,
+                )?,
             )?
         }
     };
@@ -4122,6 +6244,31 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             })?;
             metadata.validate_matches_lookup(lookup)?;
             CloudflareDurableObjectResponseV1::root_share_startup_metadata(metadata)?
+        }
+        CloudflareDurableObjectRequestV1::RootShareRewrapStartupMetadata { request } => {
+            let existing = worker_storage_get::<CloudflareRootShareStartupMetadataV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "root-share startup metadata is missing",
+                )
+            })?;
+            request.validate_replaces(&existing)?;
+            worker_storage_put(
+                storage,
+                &storage_key,
+                request.replacement_metadata.clone(),
+                call.operation_kind(),
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::root_share_rewrap_startup_metadata(
+                CloudflareRootShareRewrapReceiptV1::new(request, &existing)?,
+            )?
         }
         CloudflareDurableObjectRequestV1::RouterReplayReserve { request } => {
             let request_index_key = call.replay_request_index_storage_key()?;
@@ -4453,6 +6600,33 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 )?,
             )?
         }
+        CloudflareDurableObjectRequestV1::SigningWorkerDirectActivationPut { delivery } => {
+            delivery.validate()?;
+            let outcome = match worker_storage_get::<
+                CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1,
+            >(storage, &storage_key, call.operation_kind())
+            .await?
+            {
+                Some(existing) => existing.apply_delivery(delivery.clone())?,
+                None => {
+                    let record =
+                        CloudflareSigningWorkerDirectRecipientProofBundleActivationPendingRecordV1::new(
+                            delivery.clone(),
+                        )?;
+                    worker_storage_put(
+                        storage,
+                        &storage_key,
+                        record.clone(),
+                        call.operation_kind(),
+                    )
+                    .await?;
+                    CloudflareSigningWorkerDirectRecipientProofBundleActivationPutOutcomeV1::pending(
+                        record,
+                    )?
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_direct_activation_put(outcome)?
+        }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
             lookup.validate()?;
             let active_signing_worker_state = worker_storage_get::<ActiveSigningWorkerStateV1>(
@@ -4560,6 +6734,228 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             )
             .await?;
             CloudflareDurableObjectResponseV1::signing_worker_round1_cleanup_expired(
+                CloudflareExpiredStateCleanupReportV1::new(
+                    cleanup.now_unix_ms,
+                    records_removed,
+                    0,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolPut { record } => {
+            record.validate()?;
+            let stored =
+                match worker_storage_get::<CloudflareSigningWorkerEd25519PresignPoolRecordV1>(
+                    storage,
+                    &storage_key,
+                    call.operation_kind(),
+                )
+                .await?
+                {
+                    Some(existing) => {
+                        existing.validate()?;
+                        if existing == *record {
+                            false
+                        } else {
+                            return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker Ed25519 presign-pool id is already stored for different material",
+                        ));
+                        }
+                    }
+                    None => {
+                        worker_storage_put(
+                            storage,
+                            &storage_key,
+                            record.clone(),
+                            call.operation_kind(),
+                        )
+                        .await?;
+                        true
+                    }
+                };
+            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_put(
+                CloudflareSigningWorkerEd25519PresignPoolPutReceiptV1::from_record(record, stored)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolTake { lookup } => {
+            lookup.validate()?;
+            let record = worker_storage_get::<CloudflareSigningWorkerEd25519PresignPoolRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "SigningWorker Ed25519 presign-pool material is missing",
+                )
+            })?;
+            record.validate_for_lookup(lookup)?;
+            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEd25519PresignPoolCleanupExpired {
+            cleanup,
+        } => {
+            cleanup.validate()?;
+            let records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.signing_worker_ed25519_presign_pool_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_signing_worker_ed25519_presign_pool_expires_at_ms_v1,
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ed25519_presign_pool_cleanup_expired(
+                CloudflareExpiredStateCleanupReportV1::new(
+                    cleanup.now_unix_ms,
+                    records_removed,
+                    0,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePut { record } => {
+            record.validate()?;
+            let stored =
+                match worker_storage_get::<CloudflareSigningWorkerEcdsaPresignatureRecordV1>(
+                    storage,
+                    &storage_key,
+                    call.operation_kind(),
+                )
+                .await?
+                {
+                    Some(existing) => {
+                        existing.validate()?;
+                        if existing == *record {
+                            false
+                        } else {
+                            return Err(RouterAbProtocolError::new(
+                                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                                "SigningWorker ECDSA presignature id is already stored for different material",
+                            ));
+                        }
+                    }
+                    None => {
+                        worker_storage_put(
+                            storage,
+                            &storage_key,
+                            record.clone(),
+                            call.operation_kind(),
+                        )
+                        .await?;
+                        true
+                    }
+                };
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_put(
+                CloudflareSigningWorkerEcdsaPresignaturePutReceiptV1::from_record(record, stored)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureTake { lookup } => {
+            lookup.validate()?;
+            let record = worker_storage_get::<CloudflareSigningWorkerEcdsaPresignatureRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "SigningWorker ECDSA presignature material is missing",
+                )
+            })?;
+            record.validate_for_lookup(lookup)?;
+            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignatureCleanupExpired {
+            cleanup,
+        } => {
+            cleanup.validate()?;
+            let records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.signing_worker_ecdsa_presignature_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_signing_worker_ecdsa_presignature_expires_at_ms_v1,
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_cleanup_expired(
+                CloudflareExpiredStateCleanupReportV1::new(
+                    cleanup.now_unix_ms,
+                    records_removed,
+                    0,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolPut { record } => {
+            record.validate()?;
+            let stored = match worker_storage_get::<
+                CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+            >(storage, &storage_key, call.operation_kind())
+            .await?
+            {
+                Some(existing) => {
+                    existing.validate()?;
+                    if existing == *record {
+                        false
+                    } else {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker ECDSA presignature pool id is already stored for different material",
+                        ));
+                    }
+                }
+                None => {
+                    worker_storage_put(
+                        storage,
+                        &storage_key,
+                        record.clone(),
+                        call.operation_kind(),
+                    )
+                    .await?;
+                    true
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_put(
+                CloudflareSigningWorkerEcdsaPresignaturePoolPutReceiptV1::from_record(
+                    record, stored,
+                )?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolTake { lookup } => {
+            lookup.validate()?;
+            let record =
+                worker_storage_get::<CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1>(
+                    storage,
+                    &storage_key,
+                    call.operation_kind(),
+                )
+                .await?
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MissingLocalBinding,
+                        "SigningWorker ECDSA presignature pool material is missing",
+                    )
+                })?;
+            record.validate_for_lookup(lookup)?;
+            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerEcdsaPresignaturePoolCleanupExpired {
+            cleanup,
+        } => {
+            cleanup.validate()?;
+            let records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.signing_worker_ecdsa_presignature_pool_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_signing_worker_ecdsa_presignature_pool_expires_at_ms_v1,
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::signing_worker_ecdsa_presignature_pool_cleanup_expired(
                 CloudflareExpiredStateCleanupReportV1::new(
                     cleanup.now_unix_ms,
                     records_removed,
@@ -4799,6 +7195,27 @@ fn cloudflare_signing_worker_round1_expires_at_ms_v1(
 }
 
 #[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_ed25519_presign_pool_expires_at_ms_v1(
+    record: &CloudflareSigningWorkerEd25519PresignPoolRecordV1,
+) -> u64 {
+    record.expires_at_ms
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_ecdsa_presignature_expires_at_ms_v1(
+    record: &CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+) -> u64 {
+    record.expires_at_ms
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_ecdsa_presignature_pool_expires_at_ms_v1(
+    record: &CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
+) -> u64 {
+    record.expires_at_ms
+}
+
+#[cfg(feature = "workers-rs")]
 async fn worker_storage_delete(
     storage: &worker::Storage,
     storage_key: &str,
@@ -4843,6 +7260,41 @@ fn durable_object_error_status(code: RouterAbProtocolErrorCode) -> u16 {
         RouterAbProtocolErrorCode::MalformedWirePayload => 400,
         _ => 422,
     }
+}
+
+fn validate_compressed_secp256k1_point_b64u_v1(
+    field_name: &str,
+    value: &str,
+) -> RouterAbProtocolResult<()> {
+    let bytes = validate_base64url_fixed_len_v1(field_name, value, 33)?;
+    if matches!(bytes[0], 0x02 | 0x03) {
+        return Ok(());
+    }
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MalformedWirePayload,
+        format!("{field_name} must use a compressed secp256k1 point prefix"),
+    ))
+}
+
+fn validate_base64url_fixed_len_v1(
+    field_name: &str,
+    value: &str,
+    expected_len: usize,
+) -> RouterAbProtocolResult<Vec<u8>> {
+    require_non_empty(field_name, value)?;
+    let bytes = URL_SAFE_NO_PAD.decode(value).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field_name} must be unpadded base64url: {err}"),
+        )
+    })?;
+    if bytes.len() == expected_len {
+        return Ok(bytes);
+    }
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MalformedWirePayload,
+        format!("{field_name} must decode to {expected_len} bytes"),
+    ))
 }
 
 #[cfg(feature = "workers-rs")]

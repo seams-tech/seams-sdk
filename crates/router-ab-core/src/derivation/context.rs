@@ -15,8 +15,6 @@ const CONTEXT_DIGEST_VERSION: &[u8] = b"router-ab-derivation/context-digest/v1";
 pub enum CandidateId {
     /// Two signers evaluate a threshold PRF and combine output shares.
     MpcThresholdPrfV1,
-    /// Two signers derive from independent split roots.
-    SplitRootDerivationV1,
 }
 
 impl CandidateId {
@@ -24,7 +22,6 @@ impl CandidateId {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::MpcThresholdPrfV1 => "mpc_threshold_prf_v1",
-            Self::SplitRootDerivationV1 => "split_root_derivation_v1",
         }
     }
 }

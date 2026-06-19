@@ -310,9 +310,8 @@ fn mpc_share_wires() -> [MpcPrfSigningRootShareWireV1; 2] {
 }
 
 fn deriver_a_mpc_batch() -> MpcPrfThresholdSignerBatchOutputV1 {
-    let deriver_a = DeriverAEngine::new(DummyHost);
     let [share_a, _] = mpc_share_wires();
-    deriver_a
+    DeriverAEngine::new()
         .evaluate_mpc_prf_output_batch(
             MpcPrfThresholdSignerBatchInputV1 {
                 signer_input: mpc_signer_input(Role::SignerA),
@@ -381,10 +380,10 @@ fn router_scoped_ab_proof_batches() -> (
         .expect("signer a threshold batch input");
     let input_b = build_mpc_prf_threshold_signer_batch_input_v1(&payload_b, &plaintext_b, share_b)
         .expect("signer b threshold batch input");
-    let output_a = DeriverAEngine::new(DummyHost)
+    let output_a = DeriverAEngine::new()
         .evaluate_mpc_prf_output_batch(input_a, &mut seeded_rng(31))
         .expect("signer a threshold output");
-    let output_b = DeriverBEngine::new(DummyHost)
+    let output_b = DeriverBEngine::new()
         .evaluate_mpc_prf_output_batch(input_b, &mut seeded_rng(32))
         .expect("signer b threshold output");
     let proof_batch_a = AbDerivationProofBatchPayloadV1::new(
@@ -1920,18 +1919,9 @@ impl AuditSink for DummyHost {
 }
 
 #[test]
-fn signer_engines_are_host_injected() {
-    let deriver_a = DeriverAEngine::new(DummyHost);
-    let deriver_b = DeriverBEngine::new(DummyHost);
-
-    assert_eq!(deriver_a.host().now_unix_ms(), 1_000);
-    assert_eq!(deriver_b.host().now_unix_ms(), 1_000);
-}
-
-#[test]
 fn signer_engines_evaluate_role_specific_mpc_prf_batches() {
-    let deriver_a = DeriverAEngine::new(DummyHost);
-    let deriver_b = DeriverBEngine::new(DummyHost);
+    let deriver_a = DeriverAEngine::new();
+    let deriver_b = DeriverBEngine::new();
     let [share_a, share_b] = mpc_share_wires();
 
     let batch_a = deriver_a

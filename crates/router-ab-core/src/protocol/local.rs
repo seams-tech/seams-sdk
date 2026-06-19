@@ -1252,6 +1252,10 @@ impl LocalSigningWorkerServiceV1 {
         let active_signing_worker_state = ActiveSigningWorkerStateV1::new(
             lifecycle.account_id.clone(),
             lifecycle.session_id.clone(),
+            activation_context
+                .transcript_metadata
+                .account_public_key
+                .clone(),
             self.server.clone(),
             activation.deriver_a_signing_worker_bundle.transcript_digest,
             activation_digest,
@@ -2648,12 +2652,8 @@ fn local_mpc_prf_batch_output(
         build_mpc_prf_threshold_signer_batch_input_v1(payload, plaintext, signing_root_share_wire)?;
     let mut proof_rng = LocalDevProofRngV1::new(signer, payload, plaintext);
     match signer.role {
-        Role::SignerA => {
-            DeriverAEngine::new(()).evaluate_mpc_prf_output_batch(input, &mut proof_rng)
-        }
-        Role::SignerB => {
-            DeriverBEngine::new(()).evaluate_mpc_prf_output_batch(input, &mut proof_rng)
-        }
+        Role::SignerA => DeriverAEngine::new().evaluate_mpc_prf_output_batch(input, &mut proof_rng),
+        Role::SignerB => DeriverBEngine::new().evaluate_mpc_prf_output_batch(input, &mut proof_rng),
         _ => Err(RouterAbDerivationError::new(
             crate::derivation::RouterAbDerivationErrorCode::SignerIdentityMismatch,
             "local MPC PRF batch output requires signer role",

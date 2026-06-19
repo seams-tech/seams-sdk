@@ -5,11 +5,6 @@ import { spawnSync } from "node:child_process";
 
 const roles = [
   {
-    label: "combined",
-    feature: "strict-worker-entrypoint",
-    outDir: "build/combined",
-  },
-  {
     label: "router",
     feature: "strict-worker-router-entrypoint",
     outDir: "build/router",

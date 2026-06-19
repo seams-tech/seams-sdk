@@ -12,7 +12,7 @@ fn sample_header_with_ciphertext(ciphertext_seed: u8) -> EnvelopeHeaderV1 {
     EnvelopeHeaderV1::new(
         EnvelopeVersion::V1,
         EnvelopeKind::SignerAToClient,
-        CandidateId::SplitRootDerivationV1,
+        CandidateId::MpcThresholdPrfV1,
         RequestKind::Registration,
         CorrectnessLevel::MinimumLevelC,
         "ceremony-1",
@@ -48,7 +48,7 @@ fn envelope_rejects_kind_role_mismatch() {
     let err = EnvelopeHeaderV1::new(
         EnvelopeVersion::V1,
         EnvelopeKind::SignerAToClient,
-        CandidateId::SplitRootDerivationV1,
+        CandidateId::MpcThresholdPrfV1,
         RequestKind::Registration,
         CorrectnessLevel::MinimumLevelC,
         "ceremony-1",

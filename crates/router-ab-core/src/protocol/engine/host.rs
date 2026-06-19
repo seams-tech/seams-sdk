@@ -20,6 +20,51 @@ pub enum AuditEventV1 {
         /// Gate decision.
         decision: ExpensiveWorkGateDecisionV1,
     },
+    /// Router ECDSA-HSS explicit export decision.
+    EcdsaHssExplicitExportDecision {
+        /// Router A/B operation kind.
+        operation: String,
+        /// Stable export request id.
+        request_id: String,
+        /// Export request digest encoded as unpadded base64url.
+        request_digest_b64u: String,
+        /// Wallet id that owns the exported key.
+        wallet_id: String,
+        /// Account id authorized by the Router lifecycle scope.
+        account_id: String,
+        /// Session id authorized by the Router lifecycle scope.
+        session_id: String,
+        /// Selected SigningWorker/server id.
+        selected_server_id: String,
+        /// Stable threshold ECDSA key id.
+        ecdsa_threshold_key_id: String,
+        /// Signing root id.
+        signing_root_id: String,
+        /// Signing root version.
+        signing_root_version: String,
+        /// Key purpose.
+        key_purpose: String,
+        /// Key version.
+        key_version: String,
+        /// Export authorization digest encoded as unpadded base64url.
+        export_authorization_digest_b64u: String,
+        /// Router decision.
+        decision: EcdsaHssExplicitExportAuditDecisionV1,
+        /// Stable reason code for the decision.
+        reason_code: String,
+    },
+}
+
+/// Sanitized ECDSA-HSS explicit export audit decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EcdsaHssExplicitExportAuditDecisionV1 {
+    /// Export material was forwarded to the authorized client recipient.
+    Forwarded,
+    /// Router admission stopped the export before Deriver dispatch.
+    Stopped,
+    /// Router rejected the export before completion.
+    Rejected,
 }
 
 /// Host-provided clock.
@@ -62,15 +107,4 @@ pub trait PeerTransport {
 pub trait AuditSink {
     /// Records an audit event.
     fn record_audit_event(&self, event: AuditEventV1) -> RouterAbProtocolResult<()>;
-}
-
-/// Complete host boundary required by signer engines.
-pub trait SignerHost:
-    Clock + Csprng + SignerKeyStore + SigningRootShareStore + PeerTransport + AuditSink
-{
-}
-
-impl<T> SignerHost for T where
-    T: Clock + Csprng + SignerKeyStore + SigningRootShareStore + PeerTransport + AuditSink
-{
 }

@@ -1,18 +1,8 @@
-use router_ab_core::{
-    LocalHttpPathV1, LocalServiceRoleV1, NormalSigningResponseV1,
-    NormalSigningRound1PrepareResponseV1, NormalSigningSignatureSchemeV1,
-    RouterAbEd25519NormalSigningPrepareRequestV2,
-};
+use router_ab_core::{LocalHttpPathV1, LocalServiceRoleV1};
 use router_ab_dev::{
-    build_local_normal_signing_delegate_action_prepare_request_v2,
-    build_local_normal_signing_finalize_request_v2,
-    build_local_normal_signing_near_transaction_prepare_request_v2,
-    build_local_normal_signing_nep413_prepare_request_v2, local_env_materialization_plan_v1,
-    run_example_local_router_ab_hss_dev_http_ceremony_v1, LocalDeriverPeerMessageReceiptV1,
-    LocalHttpServiceBindingClientV1, LocalSigningWorkerActivationRouteReceiptV1,
-    LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2, LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
-    LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
-    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    local_env_materialization_plan_v1, run_example_local_router_ab_hss_dev_http_ceremony_v1,
+    LocalDeriverPeerMessageReceiptV1, LocalHttpServiceBindingClientV1,
+    LocalSigningWorkerActivationRouteReceiptV1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
 };
 use serde::Serialize;
 use std::{
@@ -24,6 +14,169 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+fn router_ab_dev_source() -> String {
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+        .expect("router-ab-dev source should be readable")
+}
+
+fn router_ab_dev_local_service_http_source() -> String {
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/local_service_http.rs"))
+        .expect("router-ab-dev local service HTTP source should be readable")
+}
+
+fn router_ab_dev_local_dev_http_source() -> String {
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/local_dev_http.rs"))
+        .expect("router-ab-dev local dev HTTP source should be readable")
+}
+
+fn router_ab_dev_local_ecdsa_hss_pool_store_source() -> String {
+    fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/local_ecdsa_hss_pool_store.rs"),
+    )
+    .expect("router-ab-dev local ECDSA-HSS pool store source should be readable")
+}
+
+fn router_ab_dev_local_worker_topology_source() -> String {
+    fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/local_worker_topology.rs"))
+        .expect("router-ab-dev local worker topology source should be readable")
+}
+
+fn router_ab_dev_bin_source(name: &str) -> String {
+    fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/bin")
+            .join(name),
+    )
+    .unwrap_or_else(|error| panic!("{name} should be readable: {error}"))
+}
+
+#[test]
+fn local_dev_http_request_boundary_lives_outside_monolith() {
+    let lib_source = router_ab_dev_source();
+    let helper_source = router_ab_dev_local_dev_http_source();
+    for expected in [
+        "pub struct LocalDevHttpRequestPartsV1",
+        "pub fn read_local_dev_http_request_v1",
+        "pub fn write_local_dev_http_response_v1",
+        "pub fn local_dev_http_error_body_v1",
+    ] {
+        assert!(
+            helper_source.contains(expected),
+            "local dev HTTP module should own {expected}"
+        );
+        assert!(
+            !lib_source.contains(expected),
+            "router-ab-dev lib.rs should not own {expected}"
+        );
+    }
+}
+
+#[test]
+fn local_dev_http_dispatch_lives_outside_monolith() {
+    let lib_source = router_ab_dev_source();
+    let helper_source = router_ab_dev_local_dev_http_source();
+    for expected in [
+        "pub enum LocalDevHttpTopologyV1",
+        "pub fn local_dev_http_handle_request_v1",
+        "fn local_dev_signing_worker_private_route_v1",
+        "fn local_dev_protocol_response_v1",
+    ] {
+        assert!(
+            helper_source.contains(expected),
+            "local dev HTTP module should own {expected}"
+        );
+        assert!(
+            !lib_source.contains(expected),
+            "router-ab-dev lib.rs should not own {expected}"
+        );
+    }
+}
+
+#[test]
+fn local_worker_bins_delegate_to_shared_route_dispatcher() {
+    for name in ["router_ab_local_worker.rs"] {
+        let source = router_ab_dev_bin_source(name);
+        assert!(
+            source.contains("local_dev_http_handle_request_v1"),
+            "{name} should delegate requests to the shared local dev dispatcher"
+        );
+        for forbidden in [
+            "LOCAL_ROUTER_NORMAL_SIGNING",
+            "LOCAL_ROUTER_ECDSA_HSS",
+            "LOCAL_SIGNING_WORKER_NORMAL_SIGNING",
+            "LOCAL_SIGNING_WORKER_ECDSA_HSS",
+            "match request.path",
+            "if request.path",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{name} should not carry route-dispatch logic: found {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn local_signing_worker_private_http_helper_lives_outside_monolith() {
+    let lib_source = router_ab_dev_source();
+    let helper_source = router_ab_dev_local_service_http_source();
+    for expected in [
+        "pub struct LocalHttpServiceBindingClientV1",
+        "pub struct LocalHttpServiceBindingEndpointV1",
+        "pub fn local_http_service_binding_endpoint_v1",
+    ] {
+        assert!(
+            helper_source.contains(expected),
+            "local service HTTP module should own {expected}"
+        );
+        assert!(
+            !lib_source.contains(expected),
+            "router-ab-dev lib.rs should not own {expected}"
+        );
+    }
+}
+
+#[test]
+fn local_worker_topology_helpers_live_outside_monolith() {
+    let lib_source = router_ab_dev_source();
+    let helper_source = router_ab_dev_local_worker_topology_source();
+    for expected in [
+        "pub struct LocalWorkerHealthResponseV1",
+        "pub fn local_worker_bind_addr_v1",
+        "pub fn local_worker_owned_paths_v1",
+        "pub fn local_worker_health_response_v1",
+    ] {
+        assert!(
+            helper_source.contains(expected),
+            "local worker topology module should own {expected}"
+        );
+        assert!(
+            !lib_source.contains(expected),
+            "router-ab-dev lib.rs should not own {expected}"
+        );
+    }
+}
+
+#[test]
+fn local_ecdsa_hss_pool_lifecycle_store_lives_outside_monolith() {
+    let lib_source = router_ab_dev_source();
+    let helper_source = router_ab_dev_local_ecdsa_hss_pool_store_source();
+    for expected in [
+        "enum LocalSigningWorkerEcdsaHssPresignaturePoolLifecycleV1",
+        "pub(crate) fn local_signing_worker_ecdsa_hss_presignature_pool_store_put_v1",
+        "pub(crate) fn local_signing_worker_ecdsa_hss_presignature_pool_store_take_v1",
+    ] {
+        assert!(
+            helper_source.contains(expected),
+            "local ECDSA-HSS pool-store module should own {expected}"
+        );
+        assert!(
+            !lib_source.contains(expected),
+            "router-ab-dev lib.rs should not own {expected}"
+        );
+    }
+}
 
 #[test]
 fn local_workers_accept_direct_deriver_peer_messages_over_http(
@@ -129,164 +282,41 @@ fn local_worker_accepts_only_signing_worker_activation_over_http(
 }
 
 #[test]
-fn local_router_normal_signing_forwards_only_to_signing_worker_and_signs_smoke_payload(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn local_worker_rejects_public_router_role() -> Result<(), Box<dyn std::error::Error>> {
     let binary = env!("CARGO_BIN_EXE_router_ab_local_worker");
-    let temp = temp_dir("normal-signing-http")?;
-    let router_url = format!("http://127.0.0.1:{}", free_port()?);
-    let signing_worker_url = format!("http://127.0.0.1:{}", free_port()?);
-    write_router_and_signing_worker_env(&temp, &router_url, &signing_worker_url)?;
-
-    let mut router = ChildGuard::spawn(binary, "router", temp.join(".env.router-ab.router.local"))?;
-    let mut signing_worker = ChildGuard::spawn(
-        binary,
-        "signing-worker",
-        temp.join(".env.router-ab.signing-worker.local"),
-    )?;
-    wait_for_health(&router_url, router.child_mut())?;
-    wait_for_health(&signing_worker_url, signing_worker.child_mut())?;
-
-    let mut prepare_requests = local_normal_signing_prepare_requests_v2("sign-http")?;
-    let unauthenticated_prepare = prepare_requests
-        .first()
-        .ok_or("normal-signing prepare fixture missing")?;
-    let (status, body) = post_json_to_path(
-        &router_url,
-        LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
-        unauthenticated_prepare,
-    )?;
-    assert_eq!(status, 401);
-    assert!(body.contains("Wallet Session authorization is missing"));
-
-    for prepare_request in prepare_requests.drain(..) {
-        assert_local_normal_signing_round_trip_v2(&router_url, prepare_request)?;
-    }
-
-    drop(router);
-    drop(signing_worker);
-    let _ = fs::remove_dir_all(temp);
+    let output = Command::new(binary).arg("--role").arg("router").output()?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no longer exposes a public router role"));
     Ok(())
 }
 
 #[test]
-fn local_bundled_server_exposes_router_and_signing_worker_paths_from_one_listener(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let binary = env!("CARGO_BIN_EXE_router_ab_local_bundled");
-    let temp = temp_dir("bundled-http")?;
-    let bundled_url = format!("http://127.0.0.1:{}", free_port()?);
-    write_router_and_signing_worker_env(&temp, &bundled_url, &bundled_url)?;
+fn local_worker_survives_malformed_http_probe() -> Result<(), Box<dyn std::error::Error>> {
+    let binary = env!("CARGO_BIN_EXE_router_ab_local_worker");
+    let temp = temp_dir("malformed-probe")?;
+    let deriver_a_url = format!("http://127.0.0.1:{}", free_port()?);
+    let deriver_b_url = format!("http://127.0.0.1:{}", free_port()?);
+    write_deriver_envs(&temp, &deriver_a_url, &deriver_b_url)?;
 
-    let mut bundled = Command::new(binary)
-        .arg("--root")
-        .arg(&temp)
-        .arg("--url")
-        .arg(&bundled_url)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    wait_for_health(&bundled_url, &mut bundled)?;
+    let mut deriver_a = ChildGuard::spawn(
+        binary,
+        "deriver-a",
+        temp.join(".env.router-ab.deriver-a.local"),
+    )?;
+    wait_for_health(&deriver_a_url, deriver_a.child_mut())?;
 
-    for prepare_request in local_normal_signing_prepare_requests_v2("bundled-sign-http")? {
-        assert_local_normal_signing_round_trip_v2(&bundled_url, prepare_request)?;
-    }
+    send_incomplete_http_probe(&deriver_a_url)?;
+    thread::sleep(Duration::from_millis(100));
+    assert!(
+        deriver_a.child_mut().try_wait()?.is_none(),
+        "malformed HTTP probe should not stop the local worker"
+    );
+    get_health(&deriver_a_url)?;
 
-    let _ = bundled.kill();
-    let _ = bundled.wait();
+    drop(deriver_a);
     let _ = fs::remove_dir_all(temp);
     Ok(())
-}
-
-fn assert_local_normal_signing_round_trip_v2(
-    router_url: &str,
-    prepare_request: RouterAbEd25519NormalSigningPrepareRequestV2,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (status, body) = post_json_to_path_with_authorization(
-        router_url,
-        LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
-        LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
-        &prepare_request,
-    )?;
-    assert_eq!(status, 200);
-    let prepare_response: NormalSigningRound1PrepareResponseV1 = serde_json::from_str(&body)?;
-    let request =
-        build_local_normal_signing_finalize_request_v2(prepare_request, prepare_response)?;
-    let (status, body) = post_json_to_path_with_authorization(
-        router_url,
-        LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
-        LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
-        &request,
-    )?;
-    assert_eq!(status, 200);
-    let response: NormalSigningResponseV1 = serde_json::from_str(&body)?;
-    assert_eq!(
-        response.signature_scheme,
-        NormalSigningSignatureSchemeV1::Ed25519V1
-    );
-    assert_eq!(response.signature.as_bytes().len(), 64);
-    Ok(())
-}
-
-fn local_normal_signing_prepare_requests_v2(
-    request_id_prefix: &str,
-) -> Result<Vec<RouterAbEd25519NormalSigningPrepareRequestV2>, Box<dyn std::error::Error>> {
-    Ok(vec![
-        build_local_normal_signing_near_transaction_prepare_request_v2(
-            format!("{request_id_prefix}-near-transaction"),
-            &local_unsigned_transaction_borsh_v2(),
-        )?,
-        build_local_normal_signing_nep413_prepare_request_v2(
-            format!("{request_id_prefix}-nep413"),
-            "Sign in to the local Router A/B HTTP test",
-            "wallet.local.test.near",
-            Some("https://local.example/callback".to_owned()),
-        )?,
-        build_local_normal_signing_delegate_action_prepare_request_v2(
-            format!("{request_id_prefix}-delegate-action"),
-            &local_delegate_action_borsh_v2(),
-        )?,
-    ])
-}
-
-fn local_unsigned_transaction_borsh_v2() -> Vec<u8> {
-    let mut out = Vec::new();
-    push_borsh_string(&mut out, "gamma.test.near");
-    out.push(0);
-    out.extend_from_slice(&[0; 32]);
-    out.extend_from_slice(&7_u64.to_le_bytes());
-    push_borsh_string(&mut out, "local-router.test.near");
-    out.extend_from_slice(&[0x44; 32]);
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.push(2);
-    push_borsh_string(&mut out, "transfer");
-    push_borsh_bytes(&mut out, br#"{"amount":"1"}"#);
-    out.extend_from_slice(&30_000_000_000_000_u64.to_le_bytes());
-    out.extend_from_slice(&0_u128.to_le_bytes());
-    out
-}
-
-fn local_delegate_action_borsh_v2() -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(&1_073_742_190_u32.to_le_bytes());
-    push_borsh_string(&mut out, "gamma.test.near");
-    push_borsh_string(&mut out, "local-router.test.near");
-    out.extend_from_slice(&1_u32.to_le_bytes());
-    out.push(3);
-    out.extend_from_slice(&1_u128.to_le_bytes());
-    out.extend_from_slice(&7_u64.to_le_bytes());
-    out.extend_from_slice(&2_000_000_u64.to_le_bytes());
-    out.push(0);
-    out.extend_from_slice(&[0; 32]);
-    out
-}
-
-fn push_borsh_string(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-    out.extend_from_slice(value.as_bytes());
-}
-
-fn push_borsh_bytes(out: &mut Vec<u8>, value: &[u8]) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-    out.extend_from_slice(value);
 }
 
 struct ChildGuard {
@@ -338,8 +368,8 @@ fn write_deriver_envs(
         }
         let contents = file
             .contents
-            .replace("http://127.0.0.1:8788", deriver_a_url)
-            .replace("http://127.0.0.1:8789", deriver_b_url);
+            .replace("http://127.0.0.1:9091", deriver_a_url)
+            .replace("http://127.0.0.1:9092", deriver_b_url);
         fs::write(root.join(file.path), contents)?;
     }
     Ok(())
@@ -357,30 +387,7 @@ fn write_signing_worker_env(
         }
         let contents = file
             .contents
-            .replace("http://127.0.0.1:8790", signing_worker_url);
-        fs::write(root.join(file.path), contents)?;
-    }
-    Ok(())
-}
-
-fn write_router_and_signing_worker_env(
-    root: &Path,
-    router_url: &str,
-    signing_worker_url: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let plan = local_env_materialization_plan_v1(b"local-worker-http-normal-signing-test-seed")?;
-    fs::create_dir_all(root)?;
-    for file in plan.files {
-        if !matches!(
-            file.role,
-            LocalServiceRoleV1::Router | LocalServiceRoleV1::SigningWorker
-        ) {
-            continue;
-        }
-        let contents = file
-            .contents
-            .replace("http://127.0.0.1:8787", router_url)
-            .replace("http://127.0.0.1:8790", signing_worker_url);
+            .replace("http://127.0.0.1:9093", signing_worker_url);
         fs::write(root.join(file.path), contents)?;
     }
     Ok(())
@@ -392,15 +399,6 @@ fn post_json_to_path<T: Serialize>(
     body: &T,
 ) -> Result<(u16, String), Box<dyn std::error::Error>> {
     post_json_to_path_with_headers(base_url, path, body, &[])
-}
-
-fn post_json_to_path_with_authorization<T: Serialize>(
-    base_url: &str,
-    path: &str,
-    authorization: &str,
-    body: &T,
-) -> Result<(u16, String), Box<dyn std::error::Error>> {
-    post_json_to_path_with_headers(base_url, path, body, &[("authorization", authorization)])
 }
 
 fn post_json_to_path_with_headers<T: Serialize>(
@@ -475,6 +473,16 @@ fn get_health(base_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Err("health response was not 200".into())
     }
+}
+
+fn send_incomplete_http_probe(base_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let authority = base_url
+        .strip_prefix("http://")
+        .ok_or("probe URL must use http://")?;
+    let mut stream = TcpStream::connect(authority)?;
+    stream.write_all(b"GET /healthz HTTP/1.1\r\n")?;
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    Ok(())
 }
 
 fn free_port() -> Result<u16, Box<dyn std::error::Error>> {

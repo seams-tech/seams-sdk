@@ -277,25 +277,3 @@ fn public_router_request_rejects_empty_client_ephemeral_key() {
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);
 }
-
-#[test]
-fn public_router_request_rejects_derivation_downgrade() {
-    let err = PublicRouterRequestV1::new(
-        "nonce-1",
-        2_000,
-        lifecycle(),
-        CandidateId::SplitRootDerivationV1,
-        signer_set(),
-        "near-mainnet",
-        "ed25519:account-public-key",
-        "router-1",
-        "client-1",
-        "x25519:client-ephemeral-public-key",
-        digest(0x33),
-        envelope(Role::SignerA, 0x10),
-        envelope(Role::SignerB, 0x20),
-    )
-    .expect_err("unsupported derivation candidate must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::DowngradeRejected);
-}

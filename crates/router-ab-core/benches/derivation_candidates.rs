@@ -2,20 +2,15 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use router_ab_core::{
-    combine_split_root_verified_output_shares_v1, derive_split_root_output_share_v1,
-    plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_split_root_combine_v1,
-    plan_split_root_refresh_v1, AccountScope, CandidateId, CorrectnessLevel, DerivationContext,
+    plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, AccountScope, CandidateId,
+    CorrectnessLevel, DerivationContext,
     MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1, MpcPrfOutputEncodingV1, MpcPrfOutputPurposeV1,
     MpcPrfOutputRequestV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1,
     MpcPrfPartialVerificationInputV1, MpcPrfPartialWireV1, MpcPrfPurposeBindingPlanV1,
     MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1, MpcPrfSuiteId,
-    MpcPrfVerifiedPartialV1, OpenedShareKind, PublicDigest32, RefreshScope, RequestKind, Role,
-    RootShareEpoch, SignerSetBinding, SplitRootCombinerInputV1, SplitRootOutputRequestV1,
-    SplitRootOutputShareBindingV1, SplitRootOutputShareWireV1, SplitRootRefreshModeV1,
-    SplitRootRefreshPlanInputV1, SplitRootSecretShareV1, SplitRootSignerInputV1,
-    SplitRootSignerOutputShareV1, SplitRootSuiteId, SplitRootVerifiedOutputShareV1,
-    TranscriptBinding, MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
-    MPC_PRF_PARTIAL_WIRE_V1_LEN, SPLIT_ROOT_OUTPUT_SHARE_WIRE_V1_LEN,
+    MpcPrfVerifiedPartialV1, OpenedShareKind, RequestKind, Role, RootShareEpoch,
+    SignerSetBinding, TranscriptBinding, MPC_PRF_COMMITMENT_WIRE_V1_LEN,
+    MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN, MPC_PRF_PARTIAL_WIRE_V1_LEN,
 };
 use threshold_prf::{
     combine_verified_partials, evaluate_partial_with_dleq_proof, generate_signing_root,
@@ -29,7 +24,7 @@ fn seeded_rng(seed: u8) -> ChaCha20Rng {
 }
 
 fn sample_context() -> DerivationContext {
-    sample_context_for(CandidateId::SplitRootDerivationV1)
+    sample_context_for(CandidateId::MpcThresholdPrfV1)
 }
 
 fn sample_context_for(candidate_id: CandidateId) -> DerivationContext {
@@ -49,10 +44,6 @@ fn sample_context_for(candidate_id: CandidateId) -> DerivationContext {
     .expect("context")
 }
 
-fn digest(seed: u8) -> PublicDigest32 {
-    PublicDigest32::new([seed; 32])
-}
-
 fn sample_transcript(context: DerivationContext) -> TranscriptBinding {
     TranscriptBinding::new(
         context,
@@ -66,7 +57,9 @@ fn sample_transcript(context: DerivationContext) -> TranscriptBinding {
         )
         .expect("signer set"),
         "role:server:local:sha256-r",
+        "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "role:client:local:sha256-c",
+        "x25519:client-ephemeral-public-key",
     )
     .expect("transcript")
 }
@@ -114,7 +107,7 @@ fn threshold_context(plan: &MpcPrfPurposeBindingPlanV1) -> ThresholdPrfContext {
         MpcPrfOutputEncodingV1::CanonicalEd25519Scalar32
     );
     ThresholdPrfContext::new(
-        SuiteId::Ristretto255Sha512V1,
+        SuiteId::Ristretto255Sha512,
         threshold_purpose(plan.output_purpose),
         plan.threshold_prf_context_bytes.clone(),
     )
@@ -161,83 +154,6 @@ fn verified_partial(role: Role, identity: &str, byte: u8) -> MpcPrfVerifiedParti
             .expect("commitment"),
     )
     .expect("verified partial")
-}
-
-fn split_root_output_request() -> SplitRootOutputRequestV1 {
-    SplitRootOutputRequestV1::new(
-        OpenedShareKind::XClientBase,
-        Role::Client,
-        "role:client:local:sha256-c",
-    )
-    .expect("split-root output request")
-}
-
-fn split_root_signer_input(role: Role, identity: &str) -> SplitRootSignerInputV1 {
-    let context = sample_context_for(CandidateId::SplitRootDerivationV1);
-    let transcript = sample_transcript(context.clone());
-    SplitRootSignerInputV1::new(
-        context,
-        transcript,
-        SplitRootSuiteId::HashToScalarSha512V1,
-        role,
-        identity,
-        RootShareEpoch::new("epoch-1").expect("epoch"),
-        vec![split_root_output_request()],
-    )
-    .expect("split-root signer input")
-}
-
-fn split_root_secret_share(role: Role, byte: u8) -> SplitRootSecretShareV1 {
-    SplitRootSecretShareV1::new(
-        role,
-        RootShareEpoch::new("epoch-1").expect("epoch"),
-        vec![byte; router_ab_core::SPLIT_ROOT_SECRET_SHARE_V1_LEN],
-    )
-    .expect("split-root secret share")
-}
-
-fn split_root_signer_share(role: Role, identity: &str, byte: u8) -> SplitRootSignerOutputShareV1 {
-    let input = split_root_signer_input(role, identity);
-    let binding =
-        SplitRootOutputShareBindingV1::from_signer_input(&input, &input.output_requests[0])
-            .expect("split-root share binding");
-    SplitRootSignerOutputShareV1::new(
-        binding,
-        SplitRootOutputShareWireV1::new(vec![byte; SPLIT_ROOT_OUTPUT_SHARE_WIRE_V1_LEN])
-            .expect("split-root share wire"),
-    )
-    .expect("split-root signer share")
-}
-
-fn split_root_verified_share(
-    role: Role,
-    identity: &str,
-    byte: u8,
-) -> SplitRootVerifiedOutputShareV1 {
-    SplitRootVerifiedOutputShareV1::from_verified_share(split_root_signer_share(
-        role, identity, byte,
-    ))
-    .expect("split-root verified share")
-}
-
-fn refresh_scope() -> RefreshScope {
-    RefreshScope {
-        old_root_share_epoch: RootShareEpoch::new("epoch-1").expect("old epoch"),
-        new_root_share_epoch: RootShareEpoch::new("epoch-2").expect("new epoch"),
-        refresh_id: "refresh-1".to_owned(),
-        account_scope: AccountScope::new(
-            "near-testnet",
-            "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
-        )
-        .expect("account scope"),
-        old_signer_set_id: "signer-set-old".to_owned(),
-        new_signer_set_id: "signer-set-new".to_owned(),
-        expected_router_id: "role:router:local:sha256-router".to_owned(),
-        expected_client_id: "role:client:local:sha256-c".to_owned(),
-        expected_server_id: "role:server:local:sha256-r".to_owned(),
-        address_verification_requirement: "required".to_owned(),
-    }
 }
 
 fn bench_context_encoding(c: &mut Criterion) {
@@ -402,107 +318,6 @@ fn bench_mpc_prf_combiner_plan(c: &mut Criterion) {
     });
 }
 
-fn bench_split_root_signer_input_validation(c: &mut Criterion) {
-    let input = split_root_signer_input(Role::SignerA, "role:signer-a:local:sha256-a");
-
-    c.bench_function("router_ab_split_root_signer_input_validate_v1", |b| {
-        b.iter(|| {
-            black_box(
-                input
-                    .validate()
-                    .expect("split-root signer input validation"),
-            )
-        })
-    });
-}
-
-fn bench_split_root_combiner_plan(c: &mut Criterion) {
-    let context = sample_context_for(CandidateId::SplitRootDerivationV1);
-    let transcript = sample_transcript(context);
-    let input = SplitRootCombinerInputV1 {
-        transcript,
-        opened_share_kind: OpenedShareKind::XClientBase,
-        recipient_role: Role::Client,
-        recipient_identity: "role:client:local:sha256-c".to_owned(),
-        left: split_root_verified_share(Role::SignerA, "role:signer-a:local:sha256-a", 0x0a),
-        right: split_root_verified_share(Role::SignerB, "role:signer-b:local:sha256-b", 0x0b),
-    };
-
-    c.bench_function("router_ab_split_root_combiner_plan_v1", |b| {
-        b.iter(|| black_box(plan_split_root_combine_v1(input.clone()).expect("combiner plan")))
-    });
-}
-
-fn bench_split_root_crypto_derive_output_share(c: &mut Criterion) {
-    let input = split_root_signer_input(Role::SignerA, "role:signer-a:local:sha256-a");
-    let request = split_root_output_request();
-    let root_share = split_root_secret_share(Role::SignerA, 0x11);
-
-    c.bench_function("router_ab_split_root_crypto_derive_output_share_v1", |b| {
-        b.iter(|| {
-            black_box(
-                derive_split_root_output_share_v1(
-                    black_box(&input),
-                    black_box(&request),
-                    black_box(&root_share),
-                )
-                .expect("split-root output share"),
-            )
-        })
-    });
-}
-
-fn bench_split_root_crypto_combine_output_shares(c: &mut Criterion) {
-    let request = split_root_output_request();
-    let left_input = split_root_signer_input(Role::SignerA, "role:signer-a:local:sha256-a");
-    let right_input = split_root_signer_input(Role::SignerB, "role:signer-b:local:sha256-b");
-    let left = derive_split_root_output_share_v1(
-        &left_input,
-        &request,
-        &split_root_secret_share(Role::SignerA, 0x11),
-    )
-    .expect("left share");
-    let right = derive_split_root_output_share_v1(
-        &right_input,
-        &request,
-        &split_root_secret_share(Role::SignerB, 0x22),
-    )
-    .expect("right share");
-    let context = sample_context_for(CandidateId::SplitRootDerivationV1);
-    let transcript = sample_transcript(context);
-    let input = SplitRootCombinerInputV1 {
-        transcript,
-        opened_share_kind: OpenedShareKind::XClientBase,
-        recipient_role: Role::Client,
-        recipient_identity: "role:client:local:sha256-c".to_owned(),
-        left: SplitRootVerifiedOutputShareV1::from_verified_share(left).expect("left verified"),
-        right: SplitRootVerifiedOutputShareV1::from_verified_share(right).expect("right verified"),
-    };
-
-    c.bench_function(
-        "router_ab_split_root_crypto_combine_output_shares_v1",
-        |b| {
-            b.iter(|| {
-                black_box(
-                    combine_split_root_verified_output_shares_v1(black_box(input.clone()))
-                        .expect("combined split-root output"),
-                )
-            })
-        },
-    );
-}
-
-fn bench_split_root_refresh_plan(c: &mut Criterion) {
-    let input = SplitRootRefreshPlanInputV1 {
-        refresh_scope: refresh_scope(),
-        refresh_mode: SplitRootRefreshModeV1::FutureEpochNewOutputRelation,
-    };
-
-    c.bench_function("router_ab_split_root_refresh_plan_v1", |b| {
-        b.iter(|| black_box(plan_split_root_refresh_v1(input.clone()).expect("refresh plan")))
-    });
-}
-
 criterion_group!(
     benches,
     bench_context_encoding,
@@ -513,11 +328,6 @@ criterion_group!(
     bench_mpc_prf_crypto_verify_partial_dleq,
     bench_mpc_prf_crypto_combine_verified_partials,
     bench_mpc_prf_crypto_two_proofs_and_combine,
-    bench_mpc_prf_combiner_plan,
-    bench_split_root_signer_input_validation,
-    bench_split_root_combiner_plan,
-    bench_split_root_crypto_derive_output_share,
-    bench_split_root_crypto_combine_output_shares,
-    bench_split_root_refresh_plan
+    bench_mpc_prf_combiner_plan
 );
 criterion_main!(benches);

@@ -10,4 +10,8 @@ The active production path derives:
 - explicit export key in the client export runtime
 
 The committed fixture is
-[role_local_v2.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/role_local_v2.json).
+[role_local_v2.json](./role_local_v2.json).
+
+`tests/role_local_mvp.rs` validates the fixture against the production
+derivation code, including scalar-to-public-key validity, public-key sum,
+Ethereum address parity, retry counters, and client-side export reconstruction.

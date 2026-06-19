@@ -3,12 +3,20 @@ use router_ab_core::{
     derive_router_ab_ed25519_normal_signing_admission_material_v2,
     parse_router_ab_ed25519_normal_signing_finalize_request_v2_json,
     parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,
-    router_ab_ed25519_nep413_canonical_message_b64u_v2, NormalSigningScopeV1, PublicDigest32,
-    RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
-    RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
-    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
-    RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearDelegateActionIntentV1,
-    RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1, RouterAbProtocolErrorCode,
+    parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json,
+    parse_router_ab_ed25519_presign_pool_prepare_request_v2_json,
+    parse_router_ab_ed25519_presign_pool_prepare_response_v2_json,
+    router_ab_ed25519_nep413_canonical_message_b64u_v2,
+    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1,
+    NormalSigningSignatureSchemeV1, PublicDigest32, RouterAbEd25519NormalSigningFinalizeProtocolV2,
+    RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningIntentV2,
+    RouterAbEd25519NormalSigningPrepareBindingV2, RouterAbEd25519NormalSigningPrepareRequestV2,
+    RouterAbEd25519PresignPoolAcceptedEntryV2, RouterAbEd25519PresignPoolClientOfferV2,
+    RouterAbEd25519PresignPoolHitBindingV2, RouterAbEd25519PresignPoolHitFinalizeRequestV2,
+    RouterAbEd25519PresignPoolPrepareRequestV2, RouterAbEd25519PresignPoolPrepareResponseV2,
+    RouterAbEd25519SigningPayloadV2, RouterAbEd25519TwoPartyFrostFinalizeProtocolV2,
+    RouterAbNearDelegateActionIntentV1, RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
+    RouterAbProtocolErrorCode, ServerIdentityV1,
 };
 use sha2::{Digest, Sha256};
 
@@ -137,23 +145,73 @@ fn nep413_payload(canonical_message_b64u: String) -> RouterAbEd25519SigningPaylo
 fn finalize_protocol() -> RouterAbEd25519NormalSigningFinalizeProtocolV2 {
     RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
         RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
-            fixture_public_key_string(),
-            router_ab_core::NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
-                b64u(&[0x11; 32]),
-                b64u(&[0x12; 32]),
-            )
-            .expect("client commitments"),
-            router_ab_core::NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
-                b64u(&[0x21; 32]),
-                b64u(&[0x22; 32]),
-            )
-            .expect("server commitments"),
+            commitments(0x11, 0x12),
+            commitments(0x21, 0x22),
             b64u(&[0x31; 32]),
             b64u(&[0x32; 32]),
             b64u(&[0x41; 32]),
         )
         .expect("finalize protocol"),
     )
+}
+
+fn commitments(hiding: u8, binding: u8) -> NormalSigningEd25519TwoPartyFrostCommitmentsV1 {
+    NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(b64u(&[hiding; 32]), b64u(&[binding; 32]))
+        .expect("commitments")
+}
+
+fn signing_worker_identity() -> ServerIdentityV1 {
+    ServerIdentityV1::new(
+        "signing-worker-1",
+        "epoch-1",
+        "x25519:signing-worker-recipient-key",
+    )
+    .expect("server identity")
+}
+
+fn pool_offer(client_presign_id: &str, nonce_seed: u8) -> RouterAbEd25519PresignPoolClientOfferV2 {
+    RouterAbEd25519PresignPoolClientOfferV2::new(
+        client_presign_id,
+        format!("client-nonce-handle-{nonce_seed}"),
+        commitments(nonce_seed, nonce_seed.wrapping_add(1)),
+        b64u(&[nonce_seed.wrapping_add(2); 32]),
+    )
+    .expect("client offer")
+}
+
+fn pool_prepare_request() -> RouterAbEd25519PresignPoolPrepareRequestV2 {
+    RouterAbEd25519PresignPoolPrepareRequestV2::new(
+        normal_scope(),
+        1_900_000_000_000,
+        7,
+        vec![
+            pool_offer("client-presign-1", 0x51),
+            pool_offer("client-presign-2", 0x61),
+        ],
+    )
+    .expect("pool prepare request")
+}
+
+fn accepted_pool_entry(
+    request: &RouterAbEd25519PresignPoolPrepareRequestV2,
+    offer: &RouterAbEd25519PresignPoolClientOfferV2,
+    nonce_seed: u8,
+) -> RouterAbEd25519PresignPoolAcceptedEntryV2 {
+    RouterAbEd25519PresignPoolAcceptedEntryV2::new(
+        offer.client_presign_id.clone(),
+        request.generation,
+        request
+            .pool_entry_binding_digest(offer)
+            .expect("pool entry binding digest"),
+        signing_worker_identity(),
+        format!("server-round1/pool-{nonce_seed}"),
+        commitments(nonce_seed, nonce_seed.wrapping_add(1)),
+        b64u(&[nonce_seed.wrapping_add(2); 32]),
+        NormalSigningSignatureSchemeV1::Ed25519V1,
+        1_800_000_000_000,
+        request.expires_at_ms,
+    )
+    .expect("accepted pool entry")
 }
 
 fn prepare_request_fixture() -> RouterAbEd25519NormalSigningPrepareRequestV2 {
@@ -290,6 +348,298 @@ fn v2_finalize_boundary_parser_rejects_unknown_prepare_and_protocol_fields() {
         &serde_json::to_vec(&with_legacy_protocol).expect("legacy protocol json"),
     )
     .expect_err("legacy protocol field must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+
+    let mut with_client_group_public_key =
+        serde_json::to_value(&request).expect("finalize request value");
+    with_client_group_public_key["protocol"]
+        .as_object_mut()
+        .expect("protocol object")
+        .insert(
+            "group_public_key".to_owned(),
+            serde_json::json!(fixture_public_key_string()),
+        );
+    let err = parse_router_ab_ed25519_normal_signing_finalize_request_v2_json(
+        &serde_json::to_vec(&with_client_group_public_key).expect("group public key json"),
+    )
+    .expect_err("client-supplied group public key must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn presign_pool_prepare_request_is_message_agnostic_and_parses_at_boundary() {
+    let request = pool_prepare_request();
+    let parsed = parse_router_ab_ed25519_presign_pool_prepare_request_v2_json(
+        &serde_json::to_vec(&request).expect("pool prepare request json"),
+    )
+    .expect("pool prepare request parses");
+    assert_eq!(parsed, request);
+
+    let value = serde_json::to_value(&request).expect("pool prepare value");
+    assert!(value.get("intent").is_none());
+    assert!(value.get("signing_payload").is_none());
+    assert!(value.get("admitted_signing_digest").is_none());
+
+    let mut with_intent = value.clone();
+    with_intent
+        .as_object_mut()
+        .expect("pool prepare object")
+        .insert("intent".to_owned(), serde_json::json!({"kind": "legacy"}));
+    let err = parse_router_ab_ed25519_presign_pool_prepare_request_v2_json(
+        &serde_json::to_vec(&with_intent).expect("pool prepare intent json"),
+    )
+    .expect_err("intent field must fail on pool refill");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+
+    let mut with_legacy_offer_field = value;
+    with_legacy_offer_field["client_offers"][0]
+        .as_object_mut()
+        .expect("client offer object")
+        .insert(
+            "threshold_session_id".to_owned(),
+            serde_json::json!("legacy-session"),
+        );
+    let err = parse_router_ab_ed25519_presign_pool_prepare_request_v2_json(
+        &serde_json::to_vec(&with_legacy_offer_field).expect("legacy offer json"),
+    )
+    .expect_err("legacy offer field must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn presign_pool_prepare_rejects_duplicate_offer_ids_and_nonce_handles() {
+    let err = RouterAbEd25519PresignPoolPrepareRequestV2::new(
+        normal_scope(),
+        1_900_000_000_000,
+        7,
+        vec![
+            pool_offer("client-presign-dup", 0x51),
+            pool_offer("client-presign-dup", 0x52),
+        ],
+    )
+    .expect_err("duplicated client presign id must fail");
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalHttpRequest
+    );
+
+    let duplicate_nonce = RouterAbEd25519PresignPoolClientOfferV2::new(
+        "client-presign-other",
+        "client-nonce-handle-81",
+        commitments(0x71, 0x72),
+        b64u(&[0x73; 32]),
+    )
+    .expect("duplicate nonce offer");
+    let err = RouterAbEd25519PresignPoolPrepareRequestV2::new(
+        normal_scope(),
+        1_900_000_000_000,
+        7,
+        vec![pool_offer("client-presign-1", 0x51), duplicate_nonce],
+    )
+    .expect_err("duplicated client nonce handle must fail");
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalHttpRequest
+    );
+}
+
+#[test]
+fn presign_pool_prepare_response_binds_accepted_entries_to_offers() {
+    let request = pool_prepare_request();
+    let offer = request
+        .client_offers
+        .first()
+        .expect("first client offer")
+        .clone();
+    let rejected_offer = request
+        .client_offers
+        .get(1)
+        .expect("second client offer")
+        .clone();
+    let accepted = accepted_pool_entry(&request, &offer, 0x81);
+    let response = RouterAbEd25519PresignPoolPrepareResponseV2::new(
+        request.scope.clone(),
+        request.generation,
+        vec![accepted.clone()],
+        vec![rejected_offer.client_presign_id],
+    )
+    .expect("pool prepare response");
+
+    response
+        .validate_for_request(&request)
+        .expect("response validates against originating request");
+    let parsed = parse_router_ab_ed25519_presign_pool_prepare_response_v2_json(
+        &serde_json::to_vec(&response).expect("pool prepare response json"),
+    )
+    .expect("pool prepare response parses");
+    assert_eq!(parsed, response);
+
+    let wrong_digest = RouterAbEd25519PresignPoolAcceptedEntryV2::new(
+        offer.client_presign_id,
+        request.generation,
+        digest(b"wrong pool entry binding"),
+        signing_worker_identity(),
+        "server-round1/pool-wrong",
+        commitments(0x91, 0x92),
+        b64u(&[0x93; 32]),
+        NormalSigningSignatureSchemeV1::Ed25519V1,
+        1_800_000_000_000,
+        request.expires_at_ms,
+    )
+    .expect("wrong digest entry validates structurally");
+    let response = RouterAbEd25519PresignPoolPrepareResponseV2::new(
+        request.scope.clone(),
+        request.generation,
+        vec![wrong_digest],
+        vec![],
+    )
+    .expect("wrong digest response validates structurally");
+    let err = response
+        .validate_for_request(&request)
+        .expect_err("wrong offer binding digest must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+
+    let wrong_scope = NormalSigningScopeV1::new(
+        "router-ab-normal-signing/request-1",
+        "alice.testnet",
+        "session-2",
+        "signing-worker-1",
+    )
+    .expect("wrong response scope");
+    let response = RouterAbEd25519PresignPoolPrepareResponseV2::new(
+        wrong_scope,
+        request.generation,
+        vec![accepted],
+        vec![],
+    )
+    .expect("wrong scope response validates structurally");
+    let err = response
+        .validate_for_request(&request)
+        .expect_err("cross-session response must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+}
+
+#[test]
+fn presign_pool_hit_finalize_carries_admission_material_and_lowers_to_v2_finalize() {
+    let request = pool_prepare_request();
+    let offer = request
+        .client_offers
+        .first()
+        .expect("first client offer")
+        .clone();
+    let accepted = accepted_pool_entry(&request, &offer, 0x81);
+    let preimage = fixture_near_unsigned_transaction_borsh();
+    let preimage_b64u = b64u(&preimage);
+    let intent = near_transaction_intent(preimage_b64u.clone());
+    let payload = near_transaction_payload(preimage_b64u);
+    let pool_binding = RouterAbEd25519PresignPoolHitBindingV2::new(
+        offer.client_presign_id,
+        offer.client_nonce_handle,
+        request.generation,
+        accepted.server_round1_handle,
+        accepted.pool_entry_binding_digest,
+    )
+    .expect("pool hit binding");
+    let pool_hit = RouterAbEd25519PresignPoolHitFinalizeRequestV2::new(
+        request.scope.clone(),
+        request.expires_at_ms,
+        pool_binding,
+        intent,
+        payload,
+        finalize_protocol(),
+    )
+    .expect("pool hit finalize request");
+    let material = pool_hit
+        .admission_material()
+        .expect("pool hit admission material");
+    let lowered = pool_hit
+        .to_normal_finalize_request_v2()
+        .expect("lowered finalize request");
+
+    assert_eq!(lowered.scope, pool_hit.scope);
+    assert_eq!(lowered.expires_at_ms, pool_hit.expires_at_ms);
+    assert_eq!(lowered.intent_digest(), material.intent_digest);
+    assert_eq!(
+        lowered.signing_payload_digest(),
+        material.signing_payload_digest
+    );
+    assert_eq!(
+        lowered.round1_binding_digest(),
+        pool_hit
+            .round1_binding_digest()
+            .expect("pool hit round1 binding")
+    );
+    assert_eq!(
+        lowered.server_round1_handle(),
+        pool_hit.server_round1_handle()
+    );
+
+    let parsed = parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json(
+        &serde_json::to_vec(&pool_hit).expect("pool hit finalize json"),
+    )
+    .expect("pool hit finalize parses");
+    assert_eq!(parsed, pool_hit);
+
+    let mut with_legacy_binding_field =
+        serde_json::to_value(&pool_hit).expect("pool hit finalize value");
+    with_legacy_binding_field["pool_binding"]
+        .as_object_mut()
+        .expect("pool binding object")
+        .insert(
+            "threshold_session_id".to_owned(),
+            serde_json::json!("legacy-session"),
+        );
+    let err = parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json(
+        &serde_json::to_vec(&with_legacy_binding_field).expect("pool hit legacy json"),
+    )
+    .expect_err("legacy pool binding field must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+
+    let mut with_client_group_public_key =
+        serde_json::to_value(&pool_hit).expect("pool hit finalize value");
+    with_client_group_public_key["protocol"]
+        .as_object_mut()
+        .expect("protocol object")
+        .insert(
+            "group_public_key".to_owned(),
+            serde_json::json!(fixture_public_key_string()),
+        );
+    let err = parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json(
+        &serde_json::to_vec(&with_client_group_public_key).expect("pool hit group key json"),
+    )
+    .expect_err("pool-hit client-supplied group public key must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn presign_pool_hit_finalize_rejects_intent_payload_drift() {
+    let request = pool_prepare_request();
+    let offer = request
+        .client_offers
+        .first()
+        .expect("first client offer")
+        .clone();
+    let accepted = accepted_pool_entry(&request, &offer, 0x81);
+    let intent_preimage_b64u = b64u(b"unsigned-near-transaction-borsh-v1");
+    let payload_preimage_b64u = b64u(b"other-unsigned-near-transaction-borsh-v1");
+    let pool_binding = RouterAbEd25519PresignPoolHitBindingV2::new(
+        offer.client_presign_id,
+        offer.client_nonce_handle,
+        request.generation,
+        accepted.server_round1_handle,
+        accepted.pool_entry_binding_digest,
+    )
+    .expect("pool hit binding");
+
+    let err = RouterAbEd25519PresignPoolHitFinalizeRequestV2::new(
+        request.scope,
+        request.expires_at_ms,
+        pool_binding,
+        near_transaction_intent(intent_preimage_b64u),
+        near_transaction_payload(payload_preimage_b64u),
+        finalize_protocol(),
+    )
+    .expect_err("pool hit intent payload drift must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 

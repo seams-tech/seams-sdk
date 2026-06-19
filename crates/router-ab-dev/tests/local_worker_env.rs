@@ -15,10 +15,13 @@ use router_ab_dev::{
     LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PRIVATE_PATH_V1, LOCAL_DERIVER_B_STATE_DIR_V1,
     LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1, LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
+    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
     LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
     LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2, LOCAL_ROUTER_PUBLIC_URL_ENV_V1,
-    LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1, LOCAL_ROUTER_STATE_DIR_V1,
-    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
+    LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
     LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
     LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
@@ -186,11 +189,11 @@ fn local_worker_helpers_bind_to_role_urls_and_redact_health() {
 
     assert_eq!(
         local_worker_bind_addr_v1(&router).expect("router bind addr"),
-        "127.0.0.1:8787"
+        "127.0.0.1:9090"
     );
     assert_eq!(
         local_worker_bind_addr_v1(&deriver_a).expect("deriver A bind addr"),
-        "127.0.0.1:8788"
+        "127.0.0.1:9091"
     );
 
     let health = local_worker_health_response_json_v1(&deriver_a).expect("health JSON");
@@ -210,9 +213,10 @@ fn local_worker_route_ownership_uses_production_style_paths() {
         &[
             LOCAL_WORKER_HEALTH_PATH_V1,
             LOCAL_WORKER_READY_PATH_V1,
-            LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1,
             LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
             LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
+            LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
+            LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1,
         ]
     );
     assert!(local_worker_owns_path_v1(
@@ -222,6 +226,18 @@ fn local_worker_route_ownership_uses_production_style_paths() {
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
         LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+    ));
+    assert!(local_worker_owns_path_v1(
+        LocalServiceRoleV1::SigningWorker,
+        LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1
+    ));
+    assert!(local_worker_owns_path_v1(
+        LocalServiceRoleV1::SigningWorker,
+        LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1
+    ));
+    assert!(local_worker_owns_path_v1(
+        LocalServiceRoleV1::SigningWorker,
+        LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::DeriverA,
@@ -261,17 +277,17 @@ fn local_http_service_binding_maps_checked_paths_to_production_routes() {
     );
 
     let endpoint = local_http_service_binding_endpoint_v1(
-        "http://127.0.0.1:8788",
+        "http://127.0.0.1:9091",
         LocalHttpPathV1::RouterToSignerA,
     )
     .expect("endpoint parses");
     assert_eq!(endpoint.owner, LocalServiceRoleV1::DeriverA);
-    assert_eq!(endpoint.bind_addr, "127.0.0.1:8788");
+    assert_eq!(endpoint.bind_addr, "127.0.0.1:9091");
     assert_eq!(endpoint.path, LOCAL_DERIVER_A_PRIVATE_PATH_V1);
     assert_eq!(
         endpoint.url,
         local_http_service_binding_url_v1(
-            "http://127.0.0.1:8788/",
+            "http://127.0.0.1:9091/",
             LocalHttpPathV1::RouterToSignerA
         )
         .expect("url parses")

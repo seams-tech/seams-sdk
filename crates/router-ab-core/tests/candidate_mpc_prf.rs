@@ -132,27 +132,6 @@ fn signer_partial_input_accepts_transcript_bound_signer() {
 }
 
 #[test]
-fn signer_partial_input_rejects_wrong_candidate() {
-    let context = context(CandidateId::SplitRootDerivationV1);
-    let transcript = transcript(context.clone());
-    let err = MpcPrfSignerPartialInputV1::new(
-        context,
-        transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
-        Role::SignerA,
-        "role:signer-a:local:sha256-a",
-        RootShareEpoch::new("epoch-1").expect("epoch"),
-        vec![output_request()],
-    )
-    .expect_err("wrong candidate should fail");
-
-    assert_eq!(
-        err.code(),
-        RouterAbDerivationErrorCode::UnsupportedCandidate
-    );
-}
-
-#[test]
 fn signer_partial_input_rejects_identity_mismatch() {
     let context = context(CandidateId::MpcThresholdPrfV1);
     let transcript = transcript(context.clone());

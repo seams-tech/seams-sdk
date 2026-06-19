@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "worker-build:install": "cargo install -q worker-build --version 0.8.4",
-    "build:combined": "worker-build --release --out-dir build/combined --features strict-worker-entrypoint",
     "build:router": "worker-build --release --out-dir build/router --features strict-worker-router-entrypoint",
     "build:signer-a": "worker-build --release --out-dir build/signer-a --features strict-worker-signer-a-entrypoint",
     "build:signer-b": "worker-build --release --out-dir build/signer-b --features strict-worker-signer-b-entrypoint",
@@ -16,7 +15,7 @@
     "assert:release-ready": "node ./scripts/assert-release-ready.mjs",
     "measure:strict-workers": "node ./scripts/measure-strict-workers.mjs",
     "measure:startup-latencies": "node ./scripts/measure-startup-latencies.mjs",
-    "test:wasm-vectors": "wasm-pack test --node . --features strict-worker-router-entrypoint --test wasm_vector_adapters"
+    "test:wasm-vectors": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; wasm-pack test --node . --features strict-worker-router-entrypoint --test wasm_vector_adapters'"
   },
   "devDependencies": {
     "wrangler": "^4.40.2"

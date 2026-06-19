@@ -15,15 +15,11 @@ const reportPath = resolveReportPath(
       `local-smoke-timings-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
     ),
 );
-const keepEphemeralRoot = argv.includes("--keep-ephemeral-root");
-
 mkdirSync(dirname(reportPath), { recursive: true });
 run("cargo", [
   "build",
   "--manifest-path",
   "crates/router-ab-dev/Cargo.toml",
-  "--bin",
-  "router_ab_local_worker",
   "--bin",
   "router_ab_local_smoke",
 ]);
@@ -35,13 +31,9 @@ const smokeArgs = [
   "--bin",
   "router_ab_local_smoke",
   "--",
-  "--ephemeral",
   "--out",
   reportPath,
 ];
-if (keepEphemeralRoot) {
-  smokeArgs.push("--keep-ephemeral-root");
-}
 run("cargo", smokeArgs);
 console.log(`\nWrote ${reportPath}`);
 

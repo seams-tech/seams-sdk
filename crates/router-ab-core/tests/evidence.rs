@@ -13,7 +13,7 @@ fn digest(seed: u8) -> PublicDigest32 {
 
 fn context() -> DerivationContext {
     DerivationContext::new(
-        CandidateId::SplitRootDerivationV1,
+        CandidateId::MpcThresholdPrfV1,
         RequestKind::Registration,
         CorrectnessLevel::MinimumLevelC,
         AccountScope::new(

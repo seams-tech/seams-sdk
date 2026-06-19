@@ -5,8 +5,11 @@ use ed25519_hss::role_signing::{
 };
 use router_ab_cloudflare::{
     derive_cloudflare_router_trusted_admission_from_provider_v1,
+    handle_cloudflare_durable_object_call_v1,
     handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2,
-    CloudflareDurableObjectBindingV1, CloudflareDurableObjectScopeV1, CloudflarePeerBindingV1,
+    CloudflareActiveSigningWorkerStateLookupV1, CloudflareDurableObjectBindingV1,
+    CloudflareDurableObjectCallV1, CloudflareDurableObjectMemoryStorageV1,
+    CloudflareDurableObjectRequestV1, CloudflareDurableObjectScopeV1, CloudflarePeerBindingV1,
     CloudflareRouterAbuseCheckV1, CloudflareRouterAdmissionBindingsV1,
     CloudflareRouterAdmissionChecksV1, CloudflareRouterAdmissionProviderOutputV1,
     CloudflareRouterAdmissionProviderV1, CloudflareRouterAdmissionStoreBindingsV1,
@@ -21,33 +24,40 @@ use router_ab_cloudflare::{
     CloudflareServerOutputMaterialRecordV1,
     CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
     CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2,
-    CloudflareSigningWorkerNormalSigningFinalizeHandlerV2, CloudflareSigningWorkerRound1RecordV1,
+    CloudflareSigningWorkerNormalSigningFinalizeHandlerV2,
+    CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+    CloudflareSigningWorkerRecipientProofBundleActivationV1, CloudflareSigningWorkerRound1RecordV1,
     CloudflareWorkerRoleV1,
 };
 use router_ab_core::{
-    router_transcript_digest_v1, ActiveSigningWorkerStateV1, CandidateId, CanonicalWireBytesV1,
-    ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
-    NormalSigningResponseV1, NormalSigningScopeV1, PublicDigest32, PublicRouterRequestV1, Role,
-    RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbEd25519NormalSigningFinalizeProtocolV2,
-    RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningIntentV2,
-    RouterAbEd25519NormalSigningPrepareBindingV2, RouterAbEd25519NormalSigningPrepareRequestV2,
-    RouterAbEd25519SigningPayloadV2, RouterAbEd25519TwoPartyFrostFinalizeProtocolV2,
-    RouterAbLifecycleStateV1, RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1, SignerSetV1, WireMessageV1,
+    decode_router_to_signer_payload_v1, router_transcript_digest_v1, ActiveSigningWorkerStateV1,
+    CandidateId, CanonicalWireBytesV1, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+    NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1, NormalSigningScopeV1,
+    OpenedShareKind, PublicDigest32, PublicRouterRequestV1, RecipientOutputEncryptionAlgorithmV1,
+    RecipientProofBundleCiphertextV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
+    RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
+    RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
+    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
+    RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbLifecycleStateV1,
+    RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterToSignerPayloadV1,
+    RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1, SignerSetV1, WireMessageKindV1,
+    WireMessageV1,
 };
 use sha2::{Digest as Sha2Digest, Sha256};
 
 fn bench_router_admission_and_simulated_roundtrips(c: &mut Criterion) {
     let mut group = c.benchmark_group("router_ab_setup_export_simulated_roundtrips_v1");
-    for round_trips in [1usize, 2, 3, 4] {
-        group.bench_function(format!("{round_trips}_roundtrips"), |b| {
-            b.iter_batched(
-                || BenchmarkFixture::new(round_trips),
-                |mut fixture| black_box(fixture.run()),
-                BatchSize::SmallInput,
-            )
-        });
+    for (operation, work_kind) in setup_export_refresh_work_kinds() {
+        for round_trips in [1usize, 2, 3, 4] {
+            group.bench_function(format!("{operation}_{round_trips}_roundtrips"), |b| {
+                b.iter_batched(
+                    || BenchmarkFixture::new(work_kind, round_trips),
+                    |mut fixture| black_box(fixture.run()),
+                    BatchSize::SmallInput,
+                )
+            });
+        }
     }
     group.finish();
 }
@@ -58,6 +68,18 @@ fn bench_router_normal_signing_hot_path(c: &mut Criterion) {
         b.iter_batched(
             NormalSigningBenchmarkFixture::new,
             |mut fixture| black_box(fixture.run()),
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
+fn bench_ecdsa_hss_signing_worker_activation_storage(c: &mut Criterion) {
+    let mut group = c.benchmark_group("router_ab_ecdsa_hss_activation_storage_v1");
+    group.bench_function("activate_and_lookup_active_state", |b| {
+        b.iter_batched(
+            ActivationBenchmarkFixture::new,
+            |fixture| black_box(fixture.run()),
             BatchSize::SmallInput,
         )
     });
@@ -81,6 +103,55 @@ struct NormalSigningBenchmarkFixture {
     material: CloudflareServerOutputMaterialRecordV1,
     round1: CloudflareSigningWorkerRound1RecordV1,
     handler: BenchmarkNormalSigningHandler,
+}
+
+struct ActivationBenchmarkFixture {
+    activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+    material: CloudflareServerOutputMaterialRecordV1,
+}
+
+impl ActivationBenchmarkFixture {
+    fn new() -> Self {
+        let activation = signing_worker_activation();
+        let material = activation_server_output_material_record(&activation);
+        Self {
+            activation,
+            material,
+        }
+    }
+
+    fn run(self) -> RouterAbProtocolResult<()> {
+        let binding = signing_worker_output_binding();
+        let activation_call = CloudflareDurableObjectCallV1::new(
+            CloudflareWorkerRoleV1::SigningWorker,
+            binding.clone(),
+            CloudflareDurableObjectRequestV1::signing_worker_output_activate(
+                self.activation,
+                self.material,
+                1_000,
+            )?,
+        )?;
+        let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+        let activation_response =
+            handle_cloudflare_durable_object_call_v1(&activation_call, &mut storage)?;
+        black_box(activation_response);
+
+        let active_lookup_call = CloudflareDurableObjectCallV1::new(
+            CloudflareWorkerRoleV1::SigningWorker,
+            binding,
+            CloudflareDurableObjectRequestV1::signing_worker_output_active_state_get(
+                CloudflareActiveSigningWorkerStateLookupV1::new(
+                    "account.near",
+                    "session-1",
+                    "server-a",
+                )?,
+            )?,
+        )?;
+        let active_response =
+            handle_cloudflare_durable_object_call_v1(&active_lookup_call, &mut storage)?;
+        black_box(active_response);
+        Ok(())
+    }
 }
 
 impl NormalSigningBenchmarkFixture {
@@ -185,13 +256,13 @@ impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2 for BenchmarkNormalSi
 }
 
 impl BenchmarkFixture {
-    fn new(round_trips: usize) -> Self {
+    fn new(work_kind: ExpensiveWorkKindV1, round_trips: usize) -> Self {
         Self {
             runtime: router_runtime(),
-            request: public_router_request(2_000),
+            request: public_router_request(work_kind, 2_000),
             provider: StaticAdmissionProvider::new(
                 CloudflareRouterAdmissionProviderOutputV1::new(
-                    trusted_metadata(),
+                    trusted_metadata(work_kind),
                     allow_checks("gate-request-1"),
                 )
                 .expect("provider output"),
@@ -311,6 +382,15 @@ fn do_binding(
     .expect("durable object binding")
 }
 
+fn signing_worker_output_binding() -> CloudflareDurableObjectBindingV1 {
+    do_binding(
+        CloudflareDurableObjectScopeV1::ServerOutput {
+            owner_role: CloudflareWorkerRoleV1::SigningWorker,
+        },
+        "SIGNING_WORKER_SERVER_OUTPUT_DO",
+    )
+}
+
 fn router_admission_bindings() -> CloudflareRouterAdmissionBindingsV1 {
     CloudflareRouterAdmissionBindingsV1::new(
         CloudflareRouterJwtVerifierBindingV1::new(
@@ -342,9 +422,17 @@ fn peer(peer_role: CloudflareWorkerRoleV1, binding_name: &str) -> CloudflarePeer
     CloudflarePeerBindingV1::new(peer_role, binding_name).expect("peer binding")
 }
 
-fn trusted_metadata() -> CloudflareRouterTrustedRequestMetadataV1 {
+fn setup_export_refresh_work_kinds() -> [(&'static str, ExpensiveWorkKindV1); 3] {
+    [
+        ("registration", ExpensiveWorkKindV1::RegistrationPrepare),
+        ("export", ExpensiveWorkKindV1::KeyExport),
+        ("refresh", ExpensiveWorkKindV1::ServerShareRefresh),
+    ]
+}
+
+fn trusted_metadata(work_kind: ExpensiveWorkKindV1) -> CloudflareRouterTrustedRequestMetadataV1 {
     CloudflareRouterTrustedRequestMetadataV1::new(
-        ExpensiveWorkKindV1::RegistrationPrepare,
+        work_kind,
         "org-1",
         "project-1",
         "dev",
@@ -367,8 +455,11 @@ fn allow_checks(request_id: &str) -> CloudflareRouterAdmissionChecksV1 {
     .expect("admission checks")
 }
 
-fn public_router_request(expires_at_ms: u64) -> PublicRouterRequestV1 {
-    let lifecycle = lifecycle_scope();
+fn public_router_request(
+    work_kind: ExpensiveWorkKindV1,
+    expires_at_ms: u64,
+) -> PublicRouterRequestV1 {
+    let lifecycle = lifecycle_scope(work_kind);
     let signer_set = signer_set();
     let transcript_digest = public_request_transcript_digest(&lifecycle, &signer_set);
     PublicRouterRequestV1::new(
@@ -387,6 +478,75 @@ fn public_router_request(expires_at_ms: u64) -> PublicRouterRequestV1 {
         role_envelope(Role::SignerB, 0x20),
     )
     .expect("public router request")
+}
+
+fn signing_worker_activation() -> CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
+    let router_payload = router_payload_for_signing_worker_activation();
+    let activation = CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
+        server_proof_bundle_wire(&router_payload, Role::SignerA, 0x46),
+        server_proof_bundle_wire(&router_payload, Role::SignerB, 0x47),
+    )
+    .expect("strict SigningWorker proof-bundle activation");
+    CloudflareSigningWorkerRecipientProofBundleActivationRequestV1::new(router_payload, activation)
+        .expect("strict SigningWorker activation request")
+}
+
+fn activation_server_output_material_record(
+    activation: &CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
+) -> CloudflareServerOutputMaterialRecordV1 {
+    let selected_server = &activation.activation_context.signer_set().selected_server;
+    CloudflareServerOutputMaterialRecordV1::new(
+        activation.activation_context.transcript_digest(),
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        selected_server.server_id.clone(),
+        CloudflareSecretMaterial32V1::new([0x5a; 32]),
+    )
+    .expect("server output material record")
+}
+
+fn router_payload_for_signing_worker_activation() -> RouterToSignerPayloadV1 {
+    let (deriver_a, _) = public_router_request(ExpensiveWorkKindV1::RegistrationPrepare, 2_000)
+        .to_signer_wire_messages()
+        .expect("router-to-signer messages");
+    decode_router_to_signer_payload_v1(deriver_a.payload.as_bytes()).expect("router payload")
+}
+
+fn server_proof_bundle_wire(
+    router_payload: &RouterToSignerPayloadV1,
+    signer_role: Role,
+    nonce_seed: u8,
+) -> WireMessageV1 {
+    let server = &router_payload.signer_set().selected_server;
+    let envelope = RecipientProofBundleCiphertextV1::new(
+        RecipientOutputEncryptionAlgorithmV1::LocalDeterministicSha256V1,
+        signer_identity(signer_role),
+        Role::Server,
+        OpenedShareKind::XServerBase,
+        server.server_id.clone(),
+        server.recipient_encryption_key.clone(),
+        router_payload.transcript_digest(),
+        digest(nonce_seed.wrapping_add(0x10)),
+        [nonce_seed; 12],
+        EncryptedPayloadV1::new(vec![nonce_seed, nonce_seed.wrapping_add(1)])
+            .expect("proof-bundle ciphertext"),
+    )
+    .expect("recipient proof-bundle envelope");
+    WireMessageV1::new(
+        WireMessageKindV1::RecipientProofBundle,
+        router_payload.transcript_digest(),
+        CanonicalWireBytesV1::new(envelope.canonical_bytes().expect("proof-bundle bytes"))
+            .expect("wire payload"),
+    )
+    .expect("recipient proof-bundle wire")
+}
+
+fn signer_identity(role: Role) -> SignerIdentityV1 {
+    match role {
+        Role::SignerA => signer_set().signer_a,
+        Role::SignerB => signer_set().signer_b,
+        _ => panic!("activation benchmark signer role must be Signer A or Signer B"),
+    }
 }
 
 fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerifiedWalletSessionV1 {
@@ -450,7 +610,6 @@ fn normal_signing_v2_finalize_request(
     .expect("prepare binding");
     let protocol = RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
         RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
-            "ed25519:11111111111111111111111111111111",
             NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
                 b64u(&[0x11; 32]),
                 b64u(&[0x12; 32]),
@@ -481,6 +640,7 @@ fn active_signing_worker_state_for_normal_signing() -> ActiveSigningWorkerStateV
     ActiveSigningWorkerStateV1::new(
         "account.near",
         "session-1",
+        "ed25519:account-public-key",
         signer_set().selected_server,
         digest(0x81),
         digest(0x82),
@@ -526,11 +686,12 @@ fn scalar_bytes(value: u64) -> [u8; 32] {
     bytes
 }
 
-fn lifecycle_scope() -> LifecycleScopeV1 {
+fn lifecycle_scope(work_kind: ExpensiveWorkKindV1) -> LifecycleScopeV1 {
+    let operation = work_kind.primitive_request_kind().as_str();
     RouterAbLifecycleStateV1::requested(
         LifecycleScopeV1::new(
-            "lifecycle-1",
-            ExpensiveWorkKindV1::RegistrationPrepare,
+            format!("lifecycle-{operation}-1"),
+            work_kind,
             root_epoch(),
             "account.near",
             "session-1",
@@ -644,6 +805,7 @@ fn root_epoch() -> RootShareEpoch {
 criterion_group!(
     benches,
     bench_router_admission_and_simulated_roundtrips,
-    bench_router_normal_signing_hot_path
+    bench_router_normal_signing_hot_path,
+    bench_ecdsa_hss_signing_worker_activation_storage
 );
 criterion_main!(benches);
