@@ -1489,6 +1489,10 @@ Task list:
             be constructed across ETH transaction vs ECDSA presign, NEAR
             material vs digest, HSS Ed25519 vs ECDSA role-local, and Email OTP
             export vs warm-session domains.
+      - HSS wrapper calls in `threshold/crypto/hssClientSignerWasm.ts` now
+            dispatch through narrow Ed25519 protocol, ECDSA role-local material,
+            and ECDSA role-local presign request helpers instead of accepting
+            the broad HSS worker request type at each call site.
       - No worker cryptographic protocol semantics, replay protection, or
             material lifetime rules changed.
 - [x] ECDSA identity and signing-root boundary consolidation.

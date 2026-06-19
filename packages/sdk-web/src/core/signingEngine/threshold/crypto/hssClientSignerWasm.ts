@@ -21,6 +21,15 @@ import {
 import {
   HssClientCustomRequestType,
   HssClientCustomResponseType,
+  type HssEcdsaRoleLocalMaterialOperationRequest,
+  type HssEcdsaRoleLocalMaterialOperationType,
+  type HssEcdsaRoleLocalPresignOperationRequest,
+  type HssEcdsaRoleLocalPresignOperationType,
+  type HssEd25519ProtocolOperationRequest,
+  type HssEd25519ProtocolOperationType,
+  type HssWorkerOperationRequest,
+  type HssWorkerOperationResult,
+  type HssWorkerOperationType,
   type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResult,
   type StoreRouterAbEd25519HssMaterialFromClientOutputResult,
   type StoreThresholdEcdsaRoleLocalSigningMaterialResult,
@@ -138,6 +147,46 @@ function readHssClientWorkerDiagnostics(response: unknown): WorkerResponseDiagno
     responsePayloadBreakdown,
     ...(wasmOperationTimings !== undefined ? { wasmOperationTimings } : {}),
   };
+}
+
+async function requestHssEd25519ProtocolOperation<T extends HssEd25519ProtocolOperationType>(args: {
+  workerCtx: WorkerOperationContext;
+  request: HssEd25519ProtocolOperationRequest<T>;
+}): Promise<HssWorkerOperationResult<T>> {
+  type TransportType = Extract<T, HssWorkerOperationType>;
+  return (await executeWorkerOperation<'hssClient', TransportType>({
+    ctx: args.workerCtx,
+    kind: 'hssClient',
+    request: args.request as HssWorkerOperationRequest<TransportType>,
+  })) as HssWorkerOperationResult<T>;
+}
+
+async function requestHssEcdsaRoleLocalMaterialOperation<
+  T extends HssEcdsaRoleLocalMaterialOperationType,
+>(args: {
+  workerCtx: WorkerOperationContext;
+  request: HssEcdsaRoleLocalMaterialOperationRequest<T>;
+}): Promise<HssWorkerOperationResult<T>> {
+  type TransportType = Extract<T, HssWorkerOperationType>;
+  return (await executeWorkerOperation<'hssClient', TransportType>({
+    ctx: args.workerCtx,
+    kind: 'hssClient',
+    request: args.request as HssWorkerOperationRequest<TransportType>,
+  })) as HssWorkerOperationResult<T>;
+}
+
+async function requestHssEcdsaRoleLocalPresignOperation<
+  T extends HssEcdsaRoleLocalPresignOperationType,
+>(args: {
+  workerCtx: WorkerOperationContext;
+  request: HssEcdsaRoleLocalPresignOperationRequest<T>;
+}): Promise<HssWorkerOperationResult<T>> {
+  type TransportType = Extract<T, HssWorkerOperationType>;
+  return (await executeWorkerOperation<'hssClient', TransportType>({
+    ctx: args.workerCtx,
+    kind: 'hssClient',
+    request: args.request as HssWorkerOperationRequest<TransportType>,
+  })) as HssWorkerOperationResult<T>;
 }
 
 export type ThresholdEd25519HssCanonicalContext = {
@@ -476,9 +525,8 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
     throw new Error('Invalid derivationVersion');
   }
 
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: args.workerCtx,
     request: {
       sessionId,
       type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs,
@@ -526,9 +574,8 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
   context: ThresholdEd25519HssCanonicalContext;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssPreparedSessionEnvelope> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.PrepareThresholdEd25519HssSession,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -561,9 +608,8 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
   clientInputs: ThresholdEd25519HssClientInputs;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssClientRequestEnvelope> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -614,9 +660,8 @@ export async function deriveThresholdEd25519HssClientOutputMaskWasm(input: {
   };
   workerCtx: WorkerOperationContext;
 }): Promise<{ clientOutputMaskB64u: string }> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -655,9 +700,8 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
   const clientOutputMaskB64u = requireClientOutputMask32B64u(input.clientOutputMaskB64u);
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -700,9 +744,8 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedClientOutput> {
   const clientOutputMaskB64u = requireClientOutputMask32B64u(input.clientOutputMaskB64u);
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.OpenThresholdEd25519HssClientOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -745,9 +788,8 @@ export async function storeRouterAbEd25519HssMaterialFromClientOutputWasm(input:
   workerCtx: WorkerOperationContext;
 }): Promise<StoreRouterAbEd25519HssMaterialFromClientOutputResult> {
   const clientOutputMaskB64u = requireClientOutputMask32B64u(input.clientOutputMaskB64u);
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.StoreRouterAbEd25519HssMaterialFromClientOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -784,9 +826,8 @@ export async function openThresholdEd25519HssSeedOutputWasm(input: {
   finalizedReport: { seedOutputMessageB64u: string };
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedSeedOutput> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -813,9 +854,8 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
   expectedPublicKey: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519SeedExportArtifact> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -879,9 +919,8 @@ export async function createThresholdEd25519RoleSeparatedNormalSigningClientShar
     value: input.signingPayloadB64u,
   });
 
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -939,9 +978,8 @@ export async function deriveThresholdEd25519RoleSeparatedClientVerifyingShareWas
     value: input.xClientBaseB64u,
     byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
   });
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -983,9 +1021,8 @@ export async function storeThresholdEd25519HssMaterialHandleWasm(input: {
     value: input.expectedClientVerifyingShareB64u,
     byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
   });
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.StoreThresholdEd25519HssMaterial,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1018,9 +1055,8 @@ export async function validateThresholdEd25519HssMaterialHandleWasm(input: {
   });
   const expectedBindingDigest = String(input.expectedBindingDigest || '').trim();
   if (!expectedBindingDigest) throw new Error('expectedBindingDigest is required');
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ValidateThresholdEd25519HssMaterial,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1079,9 +1115,8 @@ export async function createThresholdEd25519RoleSeparatedNormalSigningClientShar
     fieldName: 'signingPayloadB64u',
     value: input.signingPayloadB64u,
   });
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEd25519ProtocolOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1135,9 +1170,8 @@ export async function prepareEcdsaClientBootstrapCommandWasm(input: {
   command: GeneratedPrepareEcdsaClientBootstrapCommand;
   workerCtx: WorkerOperationContext;
 }): Promise<GeneratedPrepareEcdsaClientBootstrapOutput> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1156,9 +1190,8 @@ export async function finalizeEcdsaClientBootstrapCommandWasm(input: {
   command: GeneratedFinalizeEcdsaClientBootstrapCommand;
   workerCtx: WorkerOperationContext;
 }): Promise<GeneratedFinalizeEcdsaClientBootstrapOutput> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1179,9 +1212,8 @@ export async function buildEcdsaRoleLocalExportArtifactCommandWasm(input: {
   command: GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
   workerCtx: WorkerOperationContext;
 }): Promise<GeneratedBuildEcdsaRoleLocalExportArtifactOutput> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1200,9 +1232,8 @@ export async function openEcdsaRoleLocalSigningShareWasm(input: {
   stateBlob: GeneratedEcdsaRoleLocalReadyStateBlob;
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1231,9 +1262,8 @@ export async function storeEcdsaRoleLocalSigningMaterialWasm(input: {
   stateBlob: GeneratedEcdsaRoleLocalReadyStateBlob;
   workerCtx: WorkerOperationContext;
 }): Promise<StoreThresholdEcdsaRoleLocalSigningMaterialResult> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1257,9 +1287,8 @@ export async function openEcdsaRoleLocalSigningShareFromMaterialHandleWasm(input
   expectedBindingDigest: string;
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1317,9 +1346,8 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
   workerCtx: WorkerOperationContext;
 }): Promise<HssClientThresholdEcdsaPresignProgress> {
   const groupPublicKey33 = input.groupPublicKey33.slice();
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalPresignOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1353,9 +1381,8 @@ export async function thresholdEcdsaRoleLocalPresignSessionStepWasm(input: {
 }): Promise<HssClientThresholdEcdsaPresignProgress> {
   const incomingMessages = input.incomingMessages.map((entry) => entry.slice());
   const transfer = incomingMessages.map((entry) => entry.buffer);
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalPresignOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1380,9 +1407,8 @@ export async function thresholdEcdsaRoleLocalPresignSessionAbortWasm(input: {
   sessionId: string;
   workerCtx: WorkerOperationContext;
 }): Promise<void> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalPresignOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionAbort,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -1417,9 +1443,8 @@ export async function thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatu
   const expectedPresignBigR33 = input.expectedPresignBigR33.slice();
   const digest32 = input.digest32.slice();
   const entropy32 = input.entropy32.slice();
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
+  const response = await requestHssEcdsaRoleLocalPresignOperation({
+    workerCtx: input.workerCtx,
     request: {
       type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,

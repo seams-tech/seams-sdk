@@ -13,6 +13,7 @@ import type {
   EthSignerThresholdEcdsaPresignOperationRequest,
   EthSignerTransactionOperationRequest,
   HssEcdsaRoleLocalMaterialOperationRequest,
+  HssEcdsaRoleLocalPresignOperationRequest,
   HssEd25519ProtocolOperationRequest,
   NearEd25519DigestOperationRequest,
   NearEd25519MaterialOperationRequest,
@@ -208,6 +209,31 @@ void invalidHssEd25519AsEcdsaRoleLocal;
 type InvalidHssEcdsaRoleLocalAsEd25519 = HssEd25519ProtocolOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial>;
 declare const invalidHssEcdsaRoleLocalAsEd25519: InvalidHssEcdsaRoleLocalAsEd25519;
 void invalidHssEcdsaRoleLocalAsEd25519;
+
+const hssEcdsaPresignInitRequest: HssEcdsaRoleLocalPresignOperationRequest<typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle> =
+  {
+    type: HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle,
+    payload: {
+      materialHandle: 'ecdsa-material-handle',
+      expectedBindingDigest: 'ecdsa-binding-digest',
+      sessionId: 'presign-session',
+      participantIds: [1, 2],
+      clientParticipantId: 1,
+      threshold: 2,
+      groupPublicKey33: incomingMessage,
+    },
+  };
+void hssEcdsaPresignInitRequest;
+
+// @ts-expect-error ECDSA role-local material operations cannot use the presign domain.
+type InvalidHssEcdsaMaterialAsPresign = HssEcdsaRoleLocalPresignOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial>;
+declare const invalidHssEcdsaMaterialAsPresign: InvalidHssEcdsaMaterialAsPresign;
+void invalidHssEcdsaMaterialAsPresign;
+
+// @ts-expect-error ECDSA role-local presign operations cannot use the material domain.
+type InvalidHssEcdsaPresignAsMaterial = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep>;
+declare const invalidHssEcdsaPresignAsMaterial: InvalidHssEcdsaPresignAsMaterial;
+void invalidHssEcdsaPresignAsMaterial;
 
 // @ts-expect-error presign session step requires incomingMessages; pass [] when empty.
 const presignStepWithoutIncomingMessages: PresignStepPayload = {
