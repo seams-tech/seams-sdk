@@ -435,7 +435,7 @@ Acceptance:
 - [x] Preserve signer-bound validation from the step-up budget plan.
 - [x] Keep response shape compatible only at the request boundary; normalize to
       strict internal status immediately.
-- [ ] Add server route tests for active, exhausted, in-flight reserved, expired,
+- [x] Add server route tests for active, exhausted, in-flight reserved, expired,
       and unauthorized status.
 
 Implemented scope:
@@ -444,9 +444,9 @@ Implemented scope:
   `reservedUses`, `availableUses`, compatibility `remainingUses`, and a
   projection version derived from the server budget projection.
 - Express and Cloudflare adapters share the strict parser projection shape.
-- Focused route coverage proves the active in-flight projection and
-  unauthorized/not-found response for both adapters. Exhausted and expired route
-  assertions remain open.
+- Focused route coverage proves active in-flight projection, exhausted
+  projection, expired Wallet Session claims, and unauthorized/not-found
+  responses for both adapters.
 
 Acceptance:
 

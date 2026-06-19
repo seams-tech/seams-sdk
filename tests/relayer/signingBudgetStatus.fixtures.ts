@@ -9,8 +9,21 @@ function b64u(bytes: number[]): string {
   return base64UrlEncode(Uint8Array.from(bytes));
 }
 
-export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
+export function buildEcdsaCurveCollisionBudgetStatusFixture(
+  label: string,
+  input: {
+    claimExpiresAtMs?: number;
+    walletRemainingUses?: number;
+    walletCommittedRemainingUses?: number;
+    walletReservedUses?: number;
+    walletAvailableUses?: number;
+  } = {},
+) {
   const nowMs = Date.now();
+  const walletRemainingUses = input.walletRemainingUses ?? 2;
+  const walletCommittedRemainingUses = input.walletCommittedRemainingUses ?? walletRemainingUses + 3;
+  const walletReservedUses = input.walletReservedUses ?? 3;
+  const walletAvailableUses = input.walletAvailableUses ?? walletRemainingUses;
   const claims = {
     sub: `budget-curve-collision-${label}.testnet`,
     walletId: `budget-curve-collision-${label}.testnet`,
@@ -29,7 +42,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
     keyHandle: `key-handle-curve-collision-${label}`,
     relayerKeyId: `ecdsa-relayer-key-curve-collision-${label}`,
     rpId: 'example.localhost',
-    thresholdExpiresAtMs: nowMs + 60_000,
+    thresholdExpiresAtMs: input.claimExpiresAtMs ?? nowMs + 60_000,
     participantIds: [1, 2],
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
@@ -101,9 +114,9 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
       relayerKeyId: input.relayerKeyId,
       remainingUses: input.remainingUses,
     }),
-    committedRemainingUses: input.remainingUses + 3,
-    reservedUses: 3,
-    availableUses: input.remainingUses,
+    committedRemainingUses: walletCommittedRemainingUses,
+    reservedUses: walletReservedUses,
+    availableUses: walletAvailableUses,
   });
 
   return {
@@ -124,7 +137,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
       thresholdSessionId: claims.sessionId,
       walletSigningSessionId: claims.walletSigningSessionId,
       relayerKeyId: claims.relayerKeyId,
-      remainingUses: 2,
+      remainingUses: walletRemainingUses,
     }),
   };
 }

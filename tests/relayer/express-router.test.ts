@@ -3872,6 +3872,108 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
+  test('POST /session/signing-budget/status: exhausted wallet budget returns exhausted projection', async () => {
+    const { claims, ecdsaStatus, walletBudgetStatus } =
+      buildEcdsaCurveCollisionBudgetStatusFixture('express-exhausted', {
+        walletRemainingUses: 0,
+        walletCommittedRemainingUses: 0,
+        walletReservedUses: 0,
+        walletAvailableUses: 0,
+      });
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getThresholdSession: async () => null,
+          getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
+          getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
+            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
+        body: JSON.stringify({
+          walletSigningSessionId: claims.walletSigningSessionId,
+          thresholdSessionId: claims.sessionId,
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({
+        ok: true,
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: claims.sessionId,
+        status: 'exhausted',
+        committedRemainingUses: 0,
+        reservedUses: 0,
+        availableUses: 0,
+        remainingUses: 0,
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/signing-budget/status: expired wallet session returns typed not_found', async () => {
+    const { claims, ecdsaStatus, walletBudgetStatus } =
+      buildEcdsaCurveCollisionBudgetStatusFixture('express-expired', {
+        claimExpiresAtMs: Date.now() - 1_000,
+      });
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getThresholdSession: async () => null,
+          getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
+          getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
+            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
+        body: JSON.stringify({
+          walletSigningSessionId: claims.walletSigningSessionId,
+          thresholdSessionId: claims.sessionId,
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json).toEqual({
+        ok: true,
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: claims.sessionId,
+        status: 'not_found',
+        statusCode: 'unauthorized',
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /session/signing-budget/status: mismatched threshold session is rejected', async () => {
     const { claims, ecdsaStatus, walletBudgetStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('express-threshold-mismatch');

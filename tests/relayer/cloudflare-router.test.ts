@@ -3424,6 +3424,108 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
   });
 
+  test('POST /session/signing-budget/status: exhausted wallet budget returns exhausted projection', async () => {
+    const { claims, ecdsaStatus, walletBudgetStatus } =
+      buildEcdsaCurveCollisionBudgetStatusFixture('cf-exhausted', {
+        walletRemainingUses: 0,
+        walletCommittedRemainingUses: 0,
+        walletReservedUses: 0,
+        walletAvailableUses: 0,
+      });
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getThresholdSession: async () => null,
+          getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
+          getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
+            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+        },
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/signing-budget/status',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer ecdsa-token' },
+      body: {
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: claims.sessionId,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      ok: true,
+      walletSigningSessionId: claims.walletSigningSessionId,
+      thresholdSessionId: claims.sessionId,
+      status: 'exhausted',
+      committedRemainingUses: 0,
+      reservedUses: 0,
+      availableUses: 0,
+      remainingUses: 0,
+    });
+  });
+
+  test('POST /session/signing-budget/status: expired wallet session returns typed not_found', async () => {
+    const { claims, ecdsaStatus, walletBudgetStatus } =
+      buildEcdsaCurveCollisionBudgetStatusFixture('cf-expired', {
+        claimExpiresAtMs: Date.now() - 1_000,
+      });
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getThresholdSession: async () => null,
+          getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
+          getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
+            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+        },
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/signing-budget/status',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer ecdsa-token' },
+      body: {
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: claims.sessionId,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({
+      ok: true,
+      walletSigningSessionId: claims.walletSigningSessionId,
+      thresholdSessionId: claims.sessionId,
+      status: 'not_found',
+      statusCode: 'unauthorized',
+    });
+  });
+
   test('POST /session/signing-budget/status: mismatched threshold session is rejected', async () => {
     const { claims, ecdsaStatus, walletBudgetStatus } =
       buildEcdsaCurveCollisionBudgetStatusFixture('cf-threshold-mismatch');
