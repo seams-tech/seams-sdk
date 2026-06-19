@@ -9,6 +9,7 @@ boundary, and stores enrollment/verification state without persisting raw audio.
 Commands:
 
 ```sh
+pnpm run voiceId:demo
 pnpm -C voiceId type-check
 pnpm -C voiceId test
 pnpm -C voiceId dev:all
@@ -33,9 +34,10 @@ pnpm -C voiceId verifier:test
 pnpm -C voiceId container:build:cloudflare
 ```
 
-`dev:all` starts the API on `http://127.0.0.1:8787` and the browser demo on
-`http://127.0.0.1:5173`.
-`dev:all:verifier` starts the Python verifier sidecar, the API configured with
+`pnpm run voiceId:demo` is the repo-root alias for `dev:all`. It starts the API
+on `http://127.0.0.1:5052` and the browser demo on `http://127.0.0.1:5050`.
+`dev:all:verifier` starts the Python verifier sidecar with the ECAPA backend,
+on `http://127.0.0.1:5051`, the API configured with
 `VOICEID_VERIFIER_TRANSPORT=python-http`, and the browser demo.
 
 Fixture capture exports should be placed in `voiceId/fixtures` with the manifest
@@ -56,17 +58,19 @@ python3 -m pip install "speechbrain>=1.0.0" "torchaudio==2.6.*"
 The first pretrained-model report is
 `voiceId/verifier-spike/reports/speechbrain-ecapa-2026-06-11.md`.
 
-The production-shaped Python verifier can also run with the ECAPA backend when
-the service or sidecar process is started with:
+The production-shaped Python verifier runs with the ECAPA backend by default
+through:
 
 ```sh
-VOICEID_VERIFIER_BACKEND=ecapa
+pnpm -C voiceId dev:all:verifier
 ```
 
 The current local ECAPA threshold from the browser fixture set is `0.6352`
 (`ecapa-local-dev-v1`). Set `VOICEID_SPEAKER_SCORE_THRESHOLD` on the TypeScript
 API process to override the speaker threshold. `dev:all:verifier` sets this
-threshold automatically when `VOICEID_VERIFIER_BACKEND=ecapa`.
+threshold automatically for the default ECAPA backend. Use
+`VOICEID_VERIFIER_BACKEND=placeholder pnpm -C voiceId dev:all:verifier` only for
+fast placeholder checks.
 
 TypeScript server code can call the Python app through
 `PythonSubprocessVoiceIdVerifierTransport` for local dev. It can call a
@@ -83,7 +87,7 @@ VOICEID_VERIFIER_TRANSPORT=python-http
 
 `python-http` expects the verifier sidecar at
 `VOICEID_PYTHON_VERIFIER_URL`, defaulting to
-`http://127.0.0.1:8797/voice-id/verifier/`. Run the sidecar locally with:
+`http://127.0.0.1:5051/voice-id/verifier/`. Run the sidecar locally with:
 
 ```sh
 pnpm -C voiceId dev:verifier
@@ -240,6 +244,21 @@ VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai
 VOICEID_CLOUDFLARE_ASR_MODEL=@cf/openai/whisper
 AI=<Cloudflare Workers AI binding>
 ```
+
+The local Node dev server can use the same provider through the Cloudflare
+Workers AI REST API:
+
+```sh
+CLOUDFLARE_ACCOUNT_ID=<account id> \
+CLOUDFLARE_API_TOKEN=<workers ai token> \
+VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai \
+pnpm run voiceId:demo
+```
+
+The browser demo also has a local phrase-check mode that uses the browser
+`SpeechRecognition` API when available. If the demo is switched to simulated
+phrase mode, the UI requires an explicit typed phrase and labels the phrase
+result as simulated.
 
 Keep `VOICEID_TRANSCRIPT_PROVIDER=fake` for deterministic local tests.
 

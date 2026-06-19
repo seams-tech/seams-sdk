@@ -119,6 +119,41 @@ export type VoiceIdWalletPolicyDecision =
       stepUp: Extract<VoiceIdWalletPolicyStepUp, { kind: 'required' }>;
     };
 
+export type VoiceIdWalletPolicyConsumptionRejection = {
+  kind: 'owner_presence_authorization_rejected';
+  reason: VoiceIdAuthPolicyRejectReason;
+  detail:
+    | VoiceIdOwnerPresenceRejectedReason
+    | VoiceIdOwnerPresenceUncertainReason
+    | 'intent_mismatch'
+    | 'expired';
+  retryable: boolean;
+  ownerPresence: VoiceIdOwnerPresenceResult;
+};
+
+export type VoiceIdWalletPolicyConsumptionResult =
+  | {
+      kind: 'accepted';
+      authDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'accepted' }>;
+      input: VoiceIdWalletPolicyInput;
+      decision: Extract<VoiceIdWalletPolicyDecision, { kind: 'accepted' }>;
+      rejection?: never;
+    }
+  | {
+      kind: 'step_up_required';
+      authDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'accepted' }>;
+      input: VoiceIdWalletPolicyInput;
+      decision: Extract<VoiceIdWalletPolicyDecision, { kind: 'step_up_required' }>;
+      rejection?: never;
+    }
+  | {
+      kind: 'rejected';
+      authDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'rejected' }>;
+      rejection: VoiceIdWalletPolicyConsumptionRejection;
+      input?: never;
+      decision?: never;
+    };
+
 export function authorizeVoiceIdOwnerPresence(input: {
   ownerPresence: VoiceIdOwnerPresenceResult;
   intentDigest: VoiceIdIntentDigest;
@@ -218,6 +253,57 @@ export function evaluateVoiceIdWalletPolicy(
       };
     default:
       return assertNever(input.actionTier);
+  }
+}
+
+export function consumeVoiceIdOwnerPresenceForWalletPolicy(input: {
+  authDecision: VoiceIdAuthPolicyDecision;
+  policyVersion: VoiceIdPolicyVersion;
+  actionTier: VoiceIdWalletPolicyActionTier;
+  deviceContext: VoiceIdLocalDeviceContext;
+}): VoiceIdWalletPolicyConsumptionResult {
+  switch (input.authDecision.kind) {
+    case 'accepted': {
+      const policyInput = buildVoiceIdWalletPolicyInput({
+        authDecision: input.authDecision,
+        policyVersion: input.policyVersion,
+        actionTier: input.actionTier,
+        deviceContext: input.deviceContext,
+      });
+      const decision = evaluateVoiceIdWalletPolicy(policyInput);
+      switch (decision.kind) {
+        case 'accepted':
+          return {
+            kind: 'accepted',
+            authDecision: input.authDecision,
+            input: policyInput,
+            decision,
+          };
+        case 'step_up_required':
+          return {
+            kind: 'step_up_required',
+            authDecision: input.authDecision,
+            input: policyInput,
+            decision,
+          };
+        default:
+          return assertNever(decision);
+      }
+    }
+    case 'rejected':
+      return {
+        kind: 'rejected',
+        authDecision: input.authDecision,
+        rejection: {
+          kind: 'owner_presence_authorization_rejected',
+          reason: input.authDecision.reason,
+          detail: input.authDecision.detail,
+          retryable: input.authDecision.retryable,
+          ownerPresence: input.authDecision.ownerPresence,
+        },
+      };
+    default:
+      return assertNever(input.authDecision);
   }
 }
 

@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 
 const cwd = new URL('..', import.meta.url);
-const apiPort = process.env.PORT ?? '8787';
-const verifierPort = process.env.VOICEID_VERIFIER_PORT ?? '8797';
-const verifierBackend = process.env.VOICEID_VERIFIER_BACKEND ?? 'placeholder';
+const apiPort = process.env.PORT ?? '5052';
+const verifierPort = process.env.VOICEID_VERIFIER_PORT ?? '5051';
+const verifierBackend = process.env.VOICEID_VERIFIER_BACKEND ?? 'ecapa';
 const speakerScoreThreshold =
   process.env.VOICEID_SPEAKER_SCORE_THRESHOLD ?? (verifierBackend === 'ecapa' ? '0.6352' : undefined);
 const verifierUrl =

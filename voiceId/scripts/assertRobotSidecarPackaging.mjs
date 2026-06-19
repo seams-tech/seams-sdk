@@ -10,7 +10,7 @@ const checks = [
       { name: 'wallet sidecar boundary', pattern: /wallet_sidecar/ },
       { name: 'same Python HTTP verifier API', pattern: /same Python HTTP verifier API/ },
       { name: 'python-http transport', pattern: /VOICEID_VERIFIER_TRANSPORT=python-http/ },
-      { name: 'localhost verifier URL', pattern: /VOICEID_PYTHON_VERIFIER_URL=http:\/\/127\.0\.0\.1:8797\/voice-id\/verifier\// },
+      { name: 'localhost verifier URL', pattern: /VOICEID_PYTHON_VERIFIER_URL=http:\/\/127\.0\.0\.1:5051\/voice-id\/verifier\// },
       { name: 'verifier sidecar backend', pattern: /VOICEID_VERIFIER_BACKEND=ecapa/ },
       { name: 'microphone capture', pattern: /microphone/ },
       { name: 'source attestation', pattern: /source attestation/ },

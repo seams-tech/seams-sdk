@@ -383,7 +383,7 @@ def make_verifier_http_handler(
 
 def run_http_server_from_env() -> None:
     host = os.environ.get("VOICEID_VERIFIER_HOST", "127.0.0.1")
-    port = int(os.environ.get("VOICEID_VERIFIER_PORT", "8797"))
+    port = int(os.environ.get("VOICEID_VERIFIER_PORT", "5051"))
     run_http_server(host=host, port=port)
 
 

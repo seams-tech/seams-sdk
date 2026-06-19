@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { recordVoiceIdClip } from '../../client/src/capture/mediaRecorder.ts';
+import {
+  recordVoiceIdClip,
+  startVoiceIdClipRecording,
+} from '../../client/src/capture/mediaRecorder.ts';
 
 test('recordVoiceIdClip requests periodic chunks and returns useful recordings', async () => {
   const restore = installFakeBrowserRecording({ chunks: [new Blob([new Uint8Array(2048)])] });
@@ -33,6 +36,48 @@ test('recordVoiceIdClip rejects header-only recordings', async () => {
     });
 
     assert.deepEqual(result, { kind: 'error', reason: 'empty_recording' });
+  } finally {
+    restore();
+  }
+});
+
+test('startVoiceIdClipRecording stops when requested', async () => {
+  const restore = installFakeBrowserRecording({ chunks: [new Blob([new Uint8Array(2048)])] });
+  try {
+    const session = startVoiceIdClipRecording({
+      stream: fakeMediaStream(),
+      maxDurationMs: 1000,
+      timeoutMs: 1500,
+    });
+
+    assert.equal(session.kind, 'recording');
+    if (session.kind !== 'recording') return;
+
+    const result = await session.stop();
+    assert.equal(result.kind, 'recorded');
+    if (result.kind === 'recorded') {
+      assert.equal(result.blob.size, 2048);
+    }
+    assert.equal(FakeMediaRecorder.instances[0].requestDataCount, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('startVoiceIdClipRecording can be cancelled', async () => {
+  const restore = installFakeBrowserRecording({ chunks: [new Blob([new Uint8Array(2048)])] });
+  try {
+    const session = startVoiceIdClipRecording({
+      stream: fakeMediaStream(),
+      maxDurationMs: 1000,
+      timeoutMs: 1500,
+    });
+
+    assert.equal(session.kind, 'recording');
+    if (session.kind !== 'recording') return;
+
+    const result = await session.cancel();
+    assert.deepEqual(result, { kind: 'error', reason: 'recording_cancelled' });
   } finally {
     restore();
   }

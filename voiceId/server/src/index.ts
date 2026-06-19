@@ -11,7 +11,13 @@ import {
   InMemoryVoiceIdEnrollmentStore,
   InMemoryVoiceIdVerificationStore,
 } from './store/VoiceIdStores.ts';
+import {
+  CloudflareWorkersAiRestBinding,
+  CloudflareWorkersAiTranscriptProvider,
+  parseCloudflareWorkersAiAsrModel,
+} from './transcript/CloudflareWorkersAiTranscriptProvider.ts';
 import { FakeTranscriptProvider } from './transcript/FakeTranscriptProvider.ts';
+import type { VoiceIdTranscriptProvider } from './transcript/VoiceIdTranscriptProvider.ts';
 import { FakeVoiceIdVerifier } from './verifier/FakeVoiceIdVerifier.ts';
 import {
   PythonHttpVoiceIdVerifierTransport,
@@ -50,6 +56,10 @@ export type VoiceIdVerifierTransportMode =
   | 'python-subprocess'
   | 'python-http';
 
+export type VoiceIdTranscriptProviderMode =
+  | 'fake'
+  | 'cloudflare-workers-ai';
+
 export function createDefaultVoiceIdService(input: {
   auditEvents?: VoiceIdAuditEvent[];
   verifierMode?: VoiceIdVerifierTransportMode;
@@ -60,7 +70,7 @@ export function createDefaultVoiceIdService(input: {
     enrollmentStore: new InMemoryVoiceIdEnrollmentStore(),
     verificationStore: new InMemoryVoiceIdVerificationStore(),
     verifier: createVoiceIdVerifierFromEnv(verifierMode),
-    transcriptProvider: new FakeTranscriptProvider(),
+    transcriptProvider: createVoiceIdTranscriptProviderFromEnv(),
     config: voiceIdServiceConfigFromEnv({
       env: process.env,
       verifierMode,
@@ -118,6 +128,33 @@ export function verifierTransportModeFromEnv(): VoiceIdVerifierTransportMode {
   throw new Error("VOICEID_VERIFIER_TRANSPORT must be 'fake', 'python-subprocess', or 'python-http'");
 }
 
+export function createVoiceIdTranscriptProviderFromEnv(): VoiceIdTranscriptProvider {
+  switch (transcriptProviderModeFromEnv()) {
+    case 'fake':
+      return new FakeTranscriptProvider();
+    case 'cloudflare-workers-ai':
+      return new CloudflareWorkersAiTranscriptProvider({
+        ai: new CloudflareWorkersAiRestBinding({
+          accountId: requiredEnv('CLOUDFLARE_ACCOUNT_ID'),
+          apiToken: requiredEnv('CLOUDFLARE_API_TOKEN'),
+          fetch,
+          ...(process.env.VOICEID_CLOUDFLARE_AI_API_BASE_URL !== undefined
+            ? { apiBaseUrl: process.env.VOICEID_CLOUDFLARE_AI_API_BASE_URL }
+            : {}),
+        }),
+        model: parseCloudflareWorkersAiAsrModel(process.env.VOICEID_CLOUDFLARE_ASR_MODEL),
+      });
+  }
+}
+
+export function transcriptProviderModeFromEnv(): VoiceIdTranscriptProviderMode {
+  const value = process.env.VOICEID_TRANSCRIPT_PROVIDER ?? 'fake';
+  if (value === 'fake' || value === 'cloudflare-workers-ai') {
+    return value;
+  }
+  throw new Error("VOICEID_TRANSCRIPT_PROVIDER must be 'fake' or 'cloudflare-workers-ai'");
+}
+
 function pythonSubprocessConfigFromEnv(): PythonSubprocessVoiceIdVerifierTransportConfig {
   const timeoutMs = optionalPositiveIntegerEnv('VOICEID_VERIFIER_TIMEOUT_MS');
   return {
@@ -138,7 +175,7 @@ function pythonSubprocessConfigFromEnv(): PythonSubprocessVoiceIdVerifierTranspo
 function pythonHttpConfigFromEnv(): PythonHttpVoiceIdVerifierTransportConfig {
   const timeoutMs = optionalPositiveIntegerEnv('VOICEID_VERIFIER_TIMEOUT_MS');
   return {
-    baseUrl: process.env.VOICEID_PYTHON_VERIFIER_URL ?? 'http://127.0.0.1:8797/voice-id/verifier/',
+    baseUrl: process.env.VOICEID_PYTHON_VERIFIER_URL ?? 'http://127.0.0.1:5051/voice-id/verifier/',
     ...(timeoutMs !== null ? { timeoutMs } : {}),
   };
 }
@@ -167,4 +204,12 @@ function optionalPositiveIntegerEnv(name: string): number | null {
     throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
+}
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`${name} must be set`);
+  }
+  return value;
 }

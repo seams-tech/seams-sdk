@@ -12,7 +12,7 @@ captured artifacts by default.
    pnpm -C voiceId dev:all
    ```
 
-2. Open `http://127.0.0.1:5173`.
+2. Open `http://127.0.0.1:5050`.
 3. Use the Fixture Capture panel to record a small first set:
    - 3 owner enrollment clips
    - 3 owner verification clips

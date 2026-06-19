@@ -1,8 +1,13 @@
 import type {
+  VoiceIdAuthPolicyDecision,
   VoiceIdEnrollmentSample,
   VoiceIdEnrollmentRecord,
   VoiceIdEnrollmentState,
   VoiceIdIntent,
+  VoiceIdWalletPolicyConsumptionRejection,
+  VoiceIdWalletPolicyConsumptionResult,
+  VoiceIdWalletPolicyDecision,
+  VoiceIdWalletPolicyInput,
   VoiceIdVerificationRecord,
   VoiceIdVerificationResult,
 } from '../../shared/src/index.ts';
@@ -38,6 +43,11 @@ const isoDateTime = parseIsoDateTime('2026-06-08T00:00:00.000Z');
 const encryptedTemplate = parseEncryptedBytes('ciphertext');
 const intentDigest = parseVoiceIdIntentDigest('A'.repeat(43));
 const intentNonce = parseVoiceIdIntentNonce('nonce_123456');
+declare const acceptedAuthDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'accepted' }>;
+declare const rejectedAuthDecision: Extract<VoiceIdAuthPolicyDecision, { kind: 'rejected' }>;
+declare const walletPolicyInput: VoiceIdWalletPolicyInput;
+declare const acceptedWalletPolicyDecision: Extract<VoiceIdWalletPolicyDecision, { kind: 'accepted' }>;
+declare const walletPolicyRejection: VoiceIdWalletPolicyConsumptionRejection;
 
 const validNotEnrolled: VoiceIdEnrollmentState = {
   kind: 'not_enrolled',
@@ -258,6 +268,60 @@ const invalidRobotCommandIntent: VoiceIdIntent = {
   expiresAt: isoDateTime,
   nonce: intentNonce,
 };
+
+const validSwapApprovalIntent: VoiceIdIntent = {
+  kind: 'swap_approval',
+  schemaVersion: 'voice_id_intent_v1',
+  sellAmount: parseVoiceIdTokenAmount('100'),
+  sellTokenSymbol: parseVoiceIdTokenSymbol('USDC'),
+  buyTokenSymbol: parseVoiceIdTokenSymbol('ETH'),
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+validSwapApprovalIntent;
+
+// @ts-expect-error swap approvals require a buy token.
+const invalidSwapApprovalIntentMissingBuyToken: VoiceIdIntent = {
+  kind: 'swap_approval',
+  schemaVersion: 'voice_id_intent_v1',
+  sellAmount: parseVoiceIdTokenAmount('100'),
+  sellTokenSymbol: parseVoiceIdTokenSymbol('USDC'),
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+invalidSwapApprovalIntentMissingBuyToken;
+
+// @ts-expect-error accepted wallet-policy consumption cannot carry rejection data.
+const invalidAcceptedConsumptionWithRejection: VoiceIdWalletPolicyConsumptionResult = {
+  kind: 'accepted',
+  authDecision: acceptedAuthDecision,
+  input: walletPolicyInput,
+  decision: acceptedWalletPolicyDecision,
+  rejection: walletPolicyRejection,
+};
+
+invalidAcceptedConsumptionWithRejection;
+
+// @ts-expect-error rejected wallet-policy consumption requires a rejected auth decision.
+const invalidRejectedConsumptionWithAcceptedAuth: VoiceIdWalletPolicyConsumptionResult = {
+  kind: 'rejected',
+  authDecision: acceptedAuthDecision,
+  rejection: walletPolicyRejection,
+};
+
+invalidRejectedConsumptionWithAcceptedAuth;
+
+// @ts-expect-error rejected wallet-policy consumption cannot carry policy input.
+const invalidRejectedConsumptionWithPolicyInput: VoiceIdWalletPolicyConsumptionResult = {
+  kind: 'rejected',
+  authDecision: rejectedAuthDecision,
+  rejection: walletPolicyRejection,
+  input: walletPolicyInput,
+};
+
+invalidRejectedConsumptionWithPolicyInput;
 
 invalidRobotCommandIntent;
 

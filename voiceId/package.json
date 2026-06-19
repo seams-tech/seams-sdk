@@ -5,7 +5,7 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "test": "tsx --test \"tests/**/*.test.ts\"",
-    "dev": "vite demo --host 127.0.0.1 --port 5173",
+    "dev": "vite demo --host 127.0.0.1 --port 5050",
     "dev:all": "node scripts/devAll.mjs",
     "dev:all:verifier": "node scripts/devAllWithVerifier.mjs",
     "dev:server": "tsx server/src/devServer.ts",

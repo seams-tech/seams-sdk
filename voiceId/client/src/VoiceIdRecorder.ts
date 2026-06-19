@@ -1,5 +1,9 @@
 import { buildBrowserAudioMetadata } from './capture/audioBlob.ts';
-import { recordVoiceIdClip } from './capture/mediaRecorder.ts';
+import {
+  recordVoiceIdClip,
+  startVoiceIdClipRecording,
+  type VoiceIdRecordingResult,
+} from './capture/mediaRecorder.ts';
 import {
   requestVoiceIdMicrophone,
   stopVoiceIdMicrophone,
@@ -9,6 +13,14 @@ export type VoiceIdRecorderState =
   | { kind: 'idle' }
   | { kind: 'recording' }
   | { kind: 'recorded'; blob: Blob; durationMs: number; recorder: string }
+  | { kind: 'error'; reason: string };
+
+export type VoiceIdRecorderSession =
+  | {
+      kind: 'recording';
+      stop(): Promise<VoiceIdRecorderState>;
+      cancel(): Promise<VoiceIdRecorderState>;
+    }
   | { kind: 'error'; reason: string };
 
 export class VoiceIdRecorder {
@@ -49,6 +61,54 @@ export class VoiceIdRecorder {
     }
   }
 
+  async startRecording(input: {
+    maxDurationMs: number;
+    timeoutMs: number;
+  }): Promise<VoiceIdRecorderSession> {
+    const microphone = await requestVoiceIdMicrophone();
+    if (microphone.kind === 'denied') {
+      this.state = { kind: 'error', reason: microphone.reason };
+      return this.state;
+    }
+
+    const session = startVoiceIdClipRecording({
+      stream: microphone.stream,
+      maxDurationMs: input.maxDurationMs,
+      timeoutMs: input.timeoutMs,
+    });
+    if (session.kind === 'error') {
+      stopVoiceIdMicrophone(microphone.stream);
+      this.state = { kind: 'error', reason: session.reason };
+      return this.state;
+    }
+
+    this.state = { kind: 'recording' };
+    let settled = false;
+    const settle = async (
+      action: () => Promise<VoiceIdRecordingResult>,
+    ): Promise<VoiceIdRecorderState> => {
+      if (settled) return this.state;
+      settled = true;
+      try {
+        return this.applyRecordingResult(await action());
+      } finally {
+        stopVoiceIdMicrophone(microphone.stream);
+      }
+    };
+
+    return {
+      kind: 'recording',
+      stop: async () => await settle(session.stop),
+      cancel: async () => await settle(session.cancel),
+    };
+  }
+
+  clearRecording(): void {
+    if (this.state.kind === 'recorded') {
+      this.state = { kind: 'idle' };
+    }
+  }
+
   buildMetadata(input: {
     fixtureSpeakerLabel: string;
   }) {
@@ -62,5 +122,20 @@ export class VoiceIdRecorder {
       recorder: this.state.recorder,
       fixtureSpeakerLabel: input.fixtureSpeakerLabel,
     });
+  }
+
+  private applyRecordingResult(result: VoiceIdRecordingResult): VoiceIdRecorderState {
+    if (result.kind === 'error') {
+      this.state = { kind: 'error', reason: result.reason };
+      return this.state;
+    }
+
+    this.state = {
+      kind: 'recorded',
+      blob: result.blob,
+      durationMs: result.durationMs,
+      recorder: result.recorder,
+    };
+    return this.state;
   }
 }

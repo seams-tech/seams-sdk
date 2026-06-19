@@ -4,6 +4,7 @@ import {
   authorizeVoiceIdOwnerPresence,
   buildVoiceIdOwnerPresenceResult,
   buildVoiceIdWalletPolicyInput,
+  consumeVoiceIdOwnerPresenceForWalletPolicy,
   evaluateVoiceIdWalletPolicy,
   parseEnrollmentId,
   parseIsoDateTime,
@@ -127,6 +128,153 @@ test('VoiceID wallet policy requires step-up for risky payment tiers', () => {
     input: highRiskInput,
     stepUp: { kind: 'required', reason: 'high_value_or_anomalous' },
   });
+});
+
+test('VoiceID wallet policy consumes accepted owner-presence authorization', () => {
+  const authDecision = acceptedAuthDecision('wallet_mpc_signing');
+
+  const consumed = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision,
+    policyVersion,
+    actionTier: { kind: 'low_value_known_recipient_payment' },
+    deviceContext,
+  });
+
+  assert.equal(consumed.kind, 'accepted');
+  assert.equal(consumed.authDecision, authDecision);
+  assert.equal(consumed.input.intentDigest, intentDigest);
+  assert.equal(consumed.input.policyVersion, policyVersion);
+  assert.equal(consumed.input.modelVersion, 'model-v1');
+  assert.equal(consumed.input.thresholdVersion, 'threshold-v1');
+  assert.equal(consumed.input.liveness.kind, 'audio_liveness');
+  assert.equal(consumed.input.device.deviceId, 'reachy-mini-devkit');
+  assert.equal(consumed.input.device.sidecarId, 'voiceid-sidecar-1');
+  assert.equal(consumed.decision.kind, 'accepted');
+  assert.equal('rejection' in consumed, false);
+});
+
+test('VoiceID wallet policy consumption returns step-up decisions before signing', () => {
+  const authDecision = acceptedAuthDecision('wallet_mpc_signing');
+
+  const newRecipient = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision,
+    policyVersion,
+    actionTier: { kind: 'new_recipient_payment' },
+    deviceContext,
+  });
+  const highRisk = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision,
+    policyVersion,
+    actionTier: { kind: 'high_value_or_anomalous_payment' },
+    deviceContext,
+  });
+
+  assert.equal(newRecipient.kind, 'step_up_required');
+  assert.equal(newRecipient.input.intentDigest, intentDigest);
+  assert.deepEqual(newRecipient.decision.stepUp, { kind: 'required', reason: 'new_recipient' });
+  assert.equal('rejection' in newRecipient, false);
+  assert.equal(highRisk.kind, 'step_up_required');
+  assert.equal(highRisk.input.intentDigest, intentDigest);
+  assert.deepEqual(highRisk.decision.stepUp, { kind: 'required', reason: 'high_value_or_anomalous' });
+  assert.equal('rejection' in highRisk, false);
+});
+
+test('VoiceID wallet policy consumption preserves rejected owner-presence authorization', () => {
+  const ownerPresence = buildVoiceIdOwnerPresenceResult({
+    record: rejectedRecord(),
+    liveness: acceptedLiveness,
+  });
+  const authDecision = authorizeVoiceIdOwnerPresence({
+    ownerPresence,
+    intentDigest,
+    useCase: 'wallet_mpc_signing',
+    now: policyNow,
+  });
+
+  const consumed = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision,
+    policyVersion,
+    actionTier: { kind: 'low_value_known_recipient_payment' },
+    deviceContext,
+  });
+
+  assert.equal(consumed.kind, 'rejected');
+  assert.equal(consumed.authDecision, authDecision);
+  assert.deepEqual(consumed.rejection, {
+    kind: 'owner_presence_authorization_rejected',
+    reason: 'owner_presence_rejected',
+    detail: 'speaker_mismatch',
+    retryable: true,
+    ownerPresence,
+  });
+  assert.equal('input' in consumed, false);
+  assert.equal('decision' in consumed, false);
+});
+
+test('VoiceID wallet policy consumption preserves uncertain owner-presence authorization', () => {
+  const ownerPresence = buildVoiceIdOwnerPresenceResult({
+    record: uncertainRecord(),
+    liveness: acceptedLiveness,
+  });
+  const authDecision = authorizeVoiceIdOwnerPresence({
+    ownerPresence,
+    intentDigest,
+    useCase: 'wallet_mpc_signing',
+    now: policyNow,
+  });
+
+  const consumed = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision,
+    policyVersion,
+    actionTier: { kind: 'low_value_known_recipient_payment' },
+    deviceContext,
+  });
+
+  assert.equal(consumed.kind, 'rejected');
+  assert.equal(consumed.rejection.reason, 'owner_presence_uncertain');
+  assert.equal(consumed.rejection.detail, 'model_low_confidence');
+  assert.equal(consumed.rejection.retryable, true);
+  assert.equal(consumed.rejection.ownerPresence, ownerPresence);
+});
+
+test('VoiceID wallet policy consumption preserves expired and mismatched authorizations', () => {
+  const ownerPresence = buildVoiceIdOwnerPresenceResult({
+    record: acceptedRecord(),
+    liveness: acceptedLiveness,
+  });
+  const expired = authorizeVoiceIdOwnerPresence({
+    ownerPresence,
+    intentDigest,
+    useCase: 'wallet_mpc_signing',
+    now: new Date('2026-06-13T00:06:00.000Z'),
+  });
+  const mismatched = authorizeVoiceIdOwnerPresence({
+    ownerPresence,
+    intentDigest: otherIntentDigest,
+    useCase: 'wallet_mpc_signing',
+    now: policyNow,
+  });
+
+  const expiredConsumed = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision: expired,
+    policyVersion,
+    actionTier: { kind: 'low_value_known_recipient_payment' },
+    deviceContext,
+  });
+  const mismatchedConsumed = consumeVoiceIdOwnerPresenceForWalletPolicy({
+    authDecision: mismatched,
+    policyVersion,
+    actionTier: { kind: 'low_value_known_recipient_payment' },
+    deviceContext,
+  });
+
+  assert.equal(expiredConsumed.kind, 'rejected');
+  assert.equal(expiredConsumed.rejection.reason, 'owner_presence_expired');
+  assert.equal(expiredConsumed.rejection.detail, 'expired');
+  assert.equal(mismatchedConsumed.kind, 'rejected');
+  assert.equal(mismatchedConsumed.rejection.reason, 'intent_mismatch');
+  assert.equal(mismatchedConsumed.rejection.detail, 'intent_mismatch');
+  assert.equal(mismatchedConsumed.rejection.retryable, false);
 });
 
 test('VoiceID auth policy preserves explicit browser-MVP liveness exemption', () => {

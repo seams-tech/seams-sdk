@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  CloudflareWorkersAiRestBinding,
   CloudflareWorkersAiTranscriptProvider,
+  parseCloudflareWorkersAiRestRunResponse,
   parseCloudflareWorkersAiWhisperResponse,
   type VoiceIdCloudflareWorkersAiBinding,
 } from '../../server/src/transcript/CloudflareWorkersAiTranscriptProvider.ts';
@@ -97,6 +99,60 @@ test('Cloudflare Workers AI transcript parser accepts current response shapes', 
     () => parseCloudflareWorkersAiWhisperResponse({ word_count: 0 }),
     /response text is missing/,
   );
+});
+
+test('Cloudflare Workers AI REST parser returns the run result object', () => {
+  assert.deepEqual(
+    parseCloudflareWorkersAiRestRunResponse({
+      success: true,
+      result: { text: 'send 50 USDC to bob' },
+      errors: [],
+      messages: [],
+    }),
+    { text: 'send 50 USDC to bob' },
+  );
+  assert.throws(
+    () => parseCloudflareWorkersAiRestRunResponse({ success: false, result: { text: 'ignored' } }),
+    /was not successful/,
+  );
+});
+
+test('Cloudflare Workers AI REST binding posts binary audio to the model endpoint', async () => {
+  const calls: Array<{ url: string; authorization: string | null; contentType: string | null; bytes: number[] }> = [];
+  const binding = new CloudflareWorkersAiRestBinding({
+    accountId: 'account_123',
+    apiToken: 'token_123',
+    apiBaseUrl: 'https://api.cloudflare.test/client/v4/',
+    fetch: (async (input, init) => {
+      assert.ok(init);
+      const body = init.body;
+      assert.ok(body instanceof Uint8Array);
+      calls.push({
+        url: String(input),
+        authorization: new Headers(init.headers).get('Authorization'),
+        contentType: new Headers(init.headers).get('Content-Type'),
+        bytes: [...body],
+      });
+      return Response.json({
+        success: true,
+        result: { text: 'send 50 USDC to bob' },
+        errors: [],
+        messages: [],
+      });
+    }) as typeof fetch,
+  });
+
+  const result = await binding.run('@cf/openai/whisper', { audio: [1, 2, 3] });
+
+  assert.deepEqual(result, { text: 'send 50 USDC to bob' });
+  assert.deepEqual(calls, [
+    {
+      url: 'https://api.cloudflare.test/client/v4/accounts/account_123/ai/run/@cf/openai/whisper',
+      authorization: 'Bearer token_123',
+      contentType: 'application/octet-stream',
+      bytes: [1, 2, 3],
+    },
+  ]);
 });
 
 function makeTranscriptAudio(fixtureBehavior: 'normal' | 'noisy') {

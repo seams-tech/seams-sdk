@@ -4,6 +4,7 @@ import {
   buildVoiceIdIntentDigest,
   buildVoiceIdRobotCommandIntent,
   buildVoiceIdSpokenIntentBinding,
+  buildVoiceIdSwapApprovalIntent,
   buildVoiceIdTokenTransferIntent,
   buildVoiceIdWalletSessionIntent,
   canonicalizeVoiceIdIntent,
@@ -87,6 +88,25 @@ test('parses spoken wallet-session and robot-command intents', () => {
   );
 });
 
+test('parses spoken swap approval intents', () => {
+  assert.deepEqual(
+    parseVoiceIdSpokenIntentCommand({
+      spokenCommand: 'Approve swapping 100 USDC for ETH',
+      expiresAt,
+      nonce,
+    }),
+    {
+      kind: 'swap_approval',
+      schemaVersion: 'voice_id_intent_v1',
+      sellAmount: '100',
+      sellTokenSymbol: 'USDC',
+      buyTokenSymbol: 'ETH',
+      expiresAt,
+      nonce,
+    },
+  );
+});
+
 test('canonicalizes intents with stable field order', () => {
   const transfer = buildVoiceIdTokenTransferIntent({
     amount: parseVoiceIdTokenAmount('001.5000'),
@@ -97,6 +117,13 @@ test('canonicalizes intents with stable field order', () => {
   });
   const walletSession = buildVoiceIdWalletSessionIntent({
     deviceId: parseVoiceIdIntentDeviceId('Device-X'),
+    expiresAt,
+    nonce,
+  });
+  const swapApproval = buildVoiceIdSwapApprovalIntent({
+    sellAmount: parseVoiceIdTokenAmount('100.00'),
+    sellTokenSymbol: parseVoiceIdTokenSymbol('usdc'),
+    buyTokenSymbol: parseVoiceIdTokenSymbol('eth'),
     expiresAt,
     nonce,
   });
@@ -113,6 +140,10 @@ test('canonicalizes intents with stable field order', () => {
   assert.equal(
     canonicalizeVoiceIdIntent(walletSession),
     '{"schemaVersion":"voice_id_intent_v1","kind":"wallet_session","deviceId":"device-x","expiresAt":"2026-06-13T00:05:00.000Z","nonce":"nonce_123456"}',
+  );
+  assert.equal(
+    canonicalizeVoiceIdIntent(swapApproval),
+    '{"schemaVersion":"voice_id_intent_v1","kind":"swap_approval","sellAmount":"100","sellTokenSymbol":"USDC","buyTokenSymbol":"ETH","expiresAt":"2026-06-13T00:05:00.000Z","nonce":"nonce_123456"}',
   );
   assert.equal(
     canonicalizeVoiceIdIntent(robotCommand),
@@ -160,6 +191,38 @@ test('builds spoken intent bindings with normalized command and digest', async (
   assert.equal(binding.normalizedCommand, 'send 50 usdc to bob.near');
   assert.equal(binding.intent.kind, 'token_transfer');
   assert.match(binding.intentDigest, /^[A-Za-z0-9_-]{43}$/);
+});
+
+test('builds the transaction voice-loop command binding', async () => {
+  const binding = await buildVoiceIdSpokenIntentBinding({
+    spokenCommand: 'send 50 USDC to bob',
+    expiresAt,
+    nonce,
+  });
+
+  assert.equal(binding.spokenCommand, 'send 50 USDC to bob');
+  assert.equal(binding.normalizedCommand, 'send 50 usdc to bob');
+  assert.equal(binding.intent.kind, 'token_transfer');
+  assert.equal(binding.intent.amount, '50');
+  assert.equal(binding.intent.tokenSymbol, 'USDC');
+  assert.equal(binding.intent.recipient, 'bob');
+  assert.equal(binding.intentDigest, await buildVoiceIdIntentDigest(binding.intent));
+});
+
+test('builds the swap approval voice-loop command binding', async () => {
+  const binding = await buildVoiceIdSpokenIntentBinding({
+    spokenCommand: 'approve swapping 100 USDC for ETH',
+    expiresAt,
+    nonce,
+  });
+
+  assert.equal(binding.spokenCommand, 'approve swapping 100 USDC for ETH');
+  assert.equal(binding.normalizedCommand, 'approve swapping 100 usdc for eth');
+  assert.equal(binding.intent.kind, 'swap_approval');
+  assert.equal(binding.intent.sellAmount, '100');
+  assert.equal(binding.intent.sellTokenSymbol, 'USDC');
+  assert.equal(binding.intent.buyTokenSymbol, 'ETH');
+  assert.equal(binding.intentDigest, await buildVoiceIdIntentDigest(binding.intent));
 });
 
 test('rejects unsupported or malformed spoken commands', () => {

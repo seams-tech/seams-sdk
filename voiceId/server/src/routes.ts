@@ -33,7 +33,7 @@ export function createVoiceIdFetchHandler(service: VoiceIdService): VoiceIdFetch
         return jsonResponse({
           kind: 'ok',
           service: 'voice-id-api',
-          demoUrl: 'http://127.0.0.1:5173/',
+          demoUrl: 'http://127.0.0.1:5050/',
           routes: [
             'POST /voice-id/enrollment/start',
             'POST /voice-id/enrollment/sample',

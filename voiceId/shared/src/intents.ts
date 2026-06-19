@@ -52,6 +52,16 @@ export type VoiceIdWalletSessionIntent = {
   nonce: VoiceIdIntentNonce;
 };
 
+export type VoiceIdSwapApprovalIntent = {
+  kind: 'swap_approval';
+  schemaVersion: VoiceIdIntentSchemaVersion;
+  sellAmount: VoiceIdTokenAmount;
+  sellTokenSymbol: VoiceIdTokenSymbol;
+  buyTokenSymbol: VoiceIdTokenSymbol;
+  expiresAt: IsoDateTime;
+  nonce: VoiceIdIntentNonce;
+};
+
 export type VoiceIdRobotCommandIntent = {
   kind: 'robot_command';
   schemaVersion: VoiceIdIntentSchemaVersion;
@@ -63,6 +73,7 @@ export type VoiceIdRobotCommandIntent = {
 export type VoiceIdIntent =
   | VoiceIdTokenTransferIntent
   | VoiceIdWalletSessionIntent
+  | VoiceIdSwapApprovalIntent
   | VoiceIdRobotCommandIntent;
 
 export type VoiceIdSpokenIntentBinding = {
@@ -100,6 +111,24 @@ export function buildVoiceIdWalletSessionIntent(input: {
     kind: 'wallet_session',
     schemaVersion: 'voice_id_intent_v1',
     deviceId: input.deviceId,
+    expiresAt: input.expiresAt,
+    nonce: input.nonce,
+  };
+}
+
+export function buildVoiceIdSwapApprovalIntent(input: {
+  sellAmount: VoiceIdTokenAmount;
+  sellTokenSymbol: VoiceIdTokenSymbol;
+  buyTokenSymbol: VoiceIdTokenSymbol;
+  expiresAt: IsoDateTime;
+  nonce: VoiceIdIntentNonce;
+}): VoiceIdSwapApprovalIntent {
+  return {
+    kind: 'swap_approval',
+    schemaVersion: 'voice_id_intent_v1',
+    sellAmount: input.sellAmount,
+    sellTokenSymbol: input.sellTokenSymbol,
+    buyTokenSymbol: input.buyTokenSymbol,
     expiresAt: input.expiresAt,
     nonce: input.nonce,
   };
@@ -215,6 +244,17 @@ export function parseVoiceIdSpokenIntentCommand(input: {
     });
   }
 
+  const swapApproval = /^approve swapping ([0-9]+(?:\.[0-9]+)?) ([a-z][a-z0-9]{0,15}) for ([a-z][a-z0-9]{0,15})$/.exec(normalized);
+  if (swapApproval !== null) {
+    return buildVoiceIdSwapApprovalIntent({
+      sellAmount: parseVoiceIdTokenAmount(swapApproval[1]),
+      sellTokenSymbol: parseVoiceIdTokenSymbol(swapApproval[2]),
+      buyTokenSymbol: parseVoiceIdTokenSymbol(swapApproval[3]),
+      expiresAt,
+      nonce,
+    });
+  }
+
   const robotCommand = /^(?:robot command|command robot to|ask robot to) (.+)$/.exec(normalized);
   if (robotCommand !== null) {
     return buildVoiceIdRobotCommandIntent({
@@ -264,6 +304,16 @@ export function canonicalizeVoiceIdIntent(intent: VoiceIdIntent): string {
         schemaVersion: intent.schemaVersion,
         kind: intent.kind,
         deviceId: intent.deviceId,
+        expiresAt: intent.expiresAt,
+        nonce: intent.nonce,
+      });
+    case 'swap_approval':
+      return JSON.stringify({
+        schemaVersion: intent.schemaVersion,
+        kind: intent.kind,
+        sellAmount: intent.sellAmount,
+        sellTokenSymbol: intent.sellTokenSymbol,
+        buyTokenSymbol: intent.buyTokenSymbol,
         expiresAt: intent.expiresAt,
         nonce: intent.nonce,
       });

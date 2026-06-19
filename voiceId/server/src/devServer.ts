@@ -5,7 +5,7 @@ import { createVoiceIdFetchHandler } from './routes.ts';
 
 const service = createDefaultVoiceIdService();
 const handler = createVoiceIdFetchHandler(service);
-const port = Number.parseInt(process.env.PORT ?? '8787', 10);
+const port = Number.parseInt(process.env.PORT ?? '5052', 10);
 
 createServer(async (incoming, outgoing) => {
   const requestInit: RequestInit & { duplex?: 'half' } = {
