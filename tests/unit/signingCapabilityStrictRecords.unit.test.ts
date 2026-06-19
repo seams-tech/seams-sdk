@@ -457,6 +457,48 @@ test.describe('selected signing capability strict persisted records', () => {
     });
   });
 
+  test('rejects selected ECDSA records when Router A/B threshold key drifts from the record', () => {
+    const record = makeEcdsaRecord({
+      routerAbEcdsaHssNormalSigning: {
+        ...makeEcdsaRouterAbNormalSigning(),
+        scope: {
+          ...makeEcdsaRouterAbNormalSigning().scope,
+          context: {
+            ...makeEcdsaRouterAbNormalSigning().scope.context,
+            ecdsa_threshold_key_id: 'other-ecdsa-threshold-key',
+          },
+        },
+      },
+    });
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'invalid',
+      reason: 'material_identity_mismatch',
+      record,
+    });
+  });
+
+  test('rejects selected ECDSA records when Router A/B signing root drifts from runtime policy', () => {
+    const record = makeEcdsaRecord({
+      routerAbEcdsaHssNormalSigning: {
+        ...makeEcdsaRouterAbNormalSigning(),
+        scope: {
+          ...makeEcdsaRouterAbNormalSigning().scope,
+          context: {
+            ...makeEcdsaRouterAbNormalSigning().scope.context,
+            signing_root_version: '2',
+          },
+        },
+      },
+    });
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'invalid',
+      reason: 'signing_root_mismatch',
+      record,
+    });
+  });
+
   test('accepts selected ECDSA records only when Router A/B signing state is complete', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();

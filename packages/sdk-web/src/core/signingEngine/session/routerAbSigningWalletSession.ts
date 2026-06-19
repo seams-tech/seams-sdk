@@ -180,6 +180,55 @@ export function resolveRouterAbEd25519SigningRootFromRecord(
   };
 }
 
+function resolveRouterAbEcdsaHssSigningIdentityFromRecord(
+  record: Pick<
+    ThresholdEcdsaSessionRecord,
+    'ecdsaThresholdKeyId' | 'runtimePolicyScope' | 'signingRootId' | 'signingRootVersion'
+  >,
+): RouterAbSigningWalletSessionResult<{
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+}> {
+  if (!record.runtimePolicyScope) {
+    return { ok: false, reason: 'missing_runtime_policy_scope' };
+  }
+  let derived: { signingRootId: string; signingRootVersion?: string };
+  try {
+    derived = signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope);
+  } catch {
+    return { ok: false, reason: 'missing_signing_root' };
+  }
+  const derivedSigningRootId = nonEmptyString(derived.signingRootId);
+  const derivedSigningRootVersion = nonEmptyString(derived.signingRootVersion);
+  if (!derivedSigningRootId || !derivedSigningRootVersion) {
+    return { ok: false, reason: 'missing_signing_root' };
+  }
+
+  const ecdsaThresholdKeyId = nonEmptyString(record.ecdsaThresholdKeyId);
+  if (!ecdsaThresholdKeyId) {
+    return { ok: false, reason: 'material_identity_mismatch' };
+  }
+
+  const persistedSigningRootId = nonEmptyString(record.signingRootId);
+  const persistedSigningRootVersion = nonEmptyString(record.signingRootVersion);
+  if (
+    (persistedSigningRootId && persistedSigningRootId !== derivedSigningRootId) ||
+    (persistedSigningRootVersion && persistedSigningRootVersion !== derivedSigningRootVersion)
+  ) {
+    return { ok: false, reason: 'signing_root_mismatch' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      ecdsaThresholdKeyId,
+      signingRootId: derivedSigningRootId,
+      signingRootVersion: derivedSigningRootVersion,
+    },
+  };
+}
+
 export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
@@ -262,6 +311,8 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   if (!record.routerAbEcdsaHssNormalSigning) {
     return { ok: false, reason: 'missing_router_ab_state' };
   }
+  const identity = resolveRouterAbEcdsaHssSigningIdentityFromRecord(record);
+  if (!identity.ok) return identity;
   let signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
   try {
     signingMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
@@ -276,6 +327,15 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   }
   if (clientVerifyingShareB64u !== signingMaterial.clientVerifier33B64u) {
     return { ok: false, reason: 'material_identity_mismatch' };
+  }
+  if (identity.value.ecdsaThresholdKeyId !== signingMaterial.ecdsaThresholdKeyId) {
+    return { ok: false, reason: 'material_identity_mismatch' };
+  }
+  if (
+    identity.value.signingRootId !== signingMaterial.signingRootId ||
+    identity.value.signingRootVersion !== signingMaterial.signingRootVersion
+  ) {
+    return { ok: false, reason: 'signing_root_mismatch' };
   }
   const remainingUses = positiveInteger(record.remainingUses);
   const expiresAtMs = positiveInteger(record.expiresAtMs);
