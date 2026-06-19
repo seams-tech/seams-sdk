@@ -424,7 +424,8 @@ commitRouterAbWalletSigningBudget(input: {
 }): Promise<WalletSessionConsumeUsesResult>;
 ```
 
-- [ ] Require `budgetReservationId` on Router A/B finalize/sign request bodies.
+- [x] Require `budgetReservationId` on reservation-backed Router A/B
+      finalize/sign request bodies.
 - [x] Validate reservation identity before forwarding to the private
       SigningWorker.
 - [x] Commit exactly once per successful signing request.
@@ -445,6 +446,9 @@ Implemented scope:
 - Finalize private-worker failure after a successful commit is still governed by
   the existing commit-before-forward policy; release-after-private-failure needs
   a separate store state if it remains a required behavior.
+- The current reservation store releases active reservations. It does not undo
+  committed reservations, so the private-worker failure compensation item
+  remains open.
 
 Acceptance:
 
