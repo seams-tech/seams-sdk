@@ -110,6 +110,27 @@ The following rejection behavior must stay intact:
 - cross-curve budget spending remains explicitly bound
 - JWT `sub` and `walletId` must still match for threshold-session tokens
 
+## Trust Axes
+
+Router A/B Wallet Session authority is valid only when these axes match at the
+request boundary:
+
+- `walletId` / account id: the wallet resource named by the route, JWT, and
+  stored status record.
+- `thresholdSessionId`: the concrete threshold/MPC session that owns the active
+  Ed25519 or ECDSA signing state.
+- `signingGrantId`: the user-approved signing allowance whose TTL, replay, and
+  remaining-use budget are being spent.
+- RP and relayer key identity: the WebAuthn relying-party boundary and Router
+  relayer/server signing key bound into the grant.
+- Signer set and curve scope: participant ids, curve, key handle or public
+  signing identity, SigningWorker id, and runtime policy scope.
+
+Core logic should receive these axes through a verified Wallet Session object or
+an exact lane/session identity. Public route bodies, JWT payloads, worker
+responses, and persisted records must be parsed into those internal shapes at
+their boundary.
+
 ## Compatibility Rule
 
 This is a breaking internal and SDK naming cleanup. Prefer direct renames.
@@ -348,13 +369,13 @@ Phase 5 evidence:
 
 - [x] Delete fixtures that encode old names as intended current behavior.
 - [x] Update tests that still verify valid behavior under the new names.
-- [ ] Add targeted negative tests for:
+- [x] Add targeted negative tests for:
       threshold session mismatch, signing grant mismatch, RP mismatch, relayer key
       mismatch, signer-set mismatch, and cross-curve grant reuse.
-- [ ] Add TypeScript `@ts-expect-error` fixtures for invalid claim combinations.
-- [ ] Update docs to describe the five trust axes with the new pair:
+- [x] Add TypeScript `@ts-expect-error` fixtures for invalid claim combinations.
+- [x] Update docs to describe the five trust axes with the new pair:
       `thresholdSessionId` and `signingGrantId`.
-- [ ] Update examples and README snippets so no newly documented surface emits
+- [x] Update examples and README snippets so no newly documented surface emits
       `walletSigningSessionId`.
 
 Phase 6 evidence:
@@ -366,18 +387,41 @@ Phase 6 evidence:
 - Active Router A/B Wallet Session fixtures now mint `thresholdSessionId` and
   `signingGrantId`; request/protocol-local `sessionId` fields remain only where
   they still identify threshold/MPC request bodies or unrelated local sessions.
+- `signingBudgetStatus.parser.unit.test.ts`, `thresholdSessionClaims`, and
+  ECDSA-HSS policy tests cover threshold-session mismatch, signing-grant
+  mismatch, RP/relayer identity drift, signer-set/participant drift, and
+  cross-curve budget lookup rejection.
+- `verifiedWalletSessionAuth.typecheck.ts` and
+  `signingBudgetStatus.typecheck.ts` reject invalid Wallet Session auth/request
+  branch combinations with `@ts-expect-error` fixtures.
+- `intended-behaviours.md` and this plan now describe `signingGrantId` and the
+  trust axes. Active README/examples scans do not expose the old signing-grant
+  field name.
 
 ## Phase 7: Cleanup
 
-- [ ] Remove temporary parser support for old request fields after route/version
+- [x] Remove temporary parser support for old request fields after route/version
       cutover.
-- [ ] Remove old helper names, type aliases, and test helpers.
-- [ ] Remove docs references that present `sessionId` as the threshold session id.
-- [ ] Run source guards for old names:
+- [x] Remove old helper names, type aliases, and test helpers.
+- [x] Remove docs references that present `sessionId` as the threshold session id.
+- [x] Run source guards for old names:
       `walletSigningSessionId`, `thresholdSessionAuthToken`, and ambiguous
       wallet-session `sessionId` public surfaces.
-- [ ] Keep unrelated app-session, request-session, and browser-session names
+- [x] Keep unrelated app-session, request-session, and browser-session names
       unchanged where `sessionId` is the correct local term.
+
+Phase 7 evidence:
+
+- Active package/test source guards reject the old signing-grant names and
+  Router A/B Wallet Session JWT payloads that place `sessionId` next to current
+  Wallet Session JWT kinds. Storage compatibility parsers keep old persisted
+  field names at the storage boundary only.
+- Refactor 70, intended behavior docs, and the Refactor 71 trust-axis section
+  use `signingGrantId` / `thresholdSessionId` for current behavior. Older
+  historical refactor plans remain historical evidence.
+- App/browser auth sessions, Email OTP worker sessions, recovery sessions,
+  request ids, and third-party protocol fields still use `sessionId` where that
+  is the accurate local term.
 
 ## Validation Plan
 

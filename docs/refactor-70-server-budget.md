@@ -31,7 +31,7 @@ Target invariant:
   SigningWorker signature can be returned.
 - The server consumes budget for successful signing, and the SDK only mirrors
   server state.
-- Budget is shared by `walletSigningSessionId` while still bound to the exact
+- Budget is shared by `signingGrantId` while still bound to the exact
   curve and `thresholdSessionId` that owns the Wallet Session JWT.
 
 ## Relationship To Refactor 41 And Refactor 49
@@ -52,7 +52,7 @@ established these rules:
 Refactor 49 then made budget ownership signer-bound with:
 
 ```text
-walletSigningSessionId + curve + thresholdSessionId
+signingGrantId + curve + thresholdSessionId
 ```
 
 Refactor 70 preserves those decisions. The missing work is Router A/B
@@ -95,7 +95,7 @@ server-side budget consume at the Router A/B signing boundary.
 - Abandoned prepare requests must not permanently burn budget.
 - Concurrent signing attempts must not overspend budget.
 - NEAR, Tempo, and EVM share the same wallet-session budget when they share the
-  same `walletSigningSessionId`.
+  same `signingGrantId`.
 - A Wallet Session budget remains signer-bound by `curve + thresholdSessionId`.
 - Compatibility code stays at persistence/request boundaries only.
 
@@ -106,7 +106,7 @@ Introduce a server-side budget reservation lifecycle:
 ```ts
 type WalletSigningBudgetReservation = {
   kind: 'wallet_signing_budget_reservation_v1';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: 'ed25519' | 'ecdsa';
   thresholdSessionId: string;
   operationId: string;
@@ -123,7 +123,7 @@ Router A/B signing flow:
 prepare
   -> validate Wallet Session JWT
   -> validate scope and signer binding
-  -> reserve required server signature uses for walletSigningSessionId
+  -> reserve required server signature uses for signingGrantId
   -> forward admitted prepare to private SigningWorker
   -> return prepare response with budgetReservationId
 
@@ -144,7 +144,7 @@ Use one canonical reservation identity everywhere:
 
 ```ts
 type RouterAbBudgetOperationIdentity = {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: 'ed25519' | 'ecdsa';
   thresholdSessionId: string;
   signingWorkerId: string;
@@ -300,7 +300,7 @@ Acceptance:
 
 ```ts
 reserveUseCountOnce(input: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   curve: 'ed25519' | 'ecdsa';
   thresholdSessionId: string;
   operationId: string;
@@ -310,14 +310,14 @@ reserveUseCountOnce(input: {
 }): Promise<WalletSessionBudgetReservationResult>;
 
 commitReservedUseCountOnce(input: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   reservationId: string;
   operationId: string;
   requestDigest: string;
 }): Promise<WalletSessionConsumeUsesResult>;
 
 releaseReservedUseCount(input: {
-  walletSigningSessionId: string;
+  signingGrantId: string;
   reservationId: string;
 }): Promise<WalletSessionBudgetReleaseResult>;
 ```
@@ -331,7 +331,7 @@ releaseReservedUseCount(input: {
 - [x] Reservation must decrement available budget for subsequent status reads
       without committing a permanent consume.
 - [x] Commit must be idempotent for the same
-      `walletSigningSessionId + operationId + requestDigest`.
+      `signingGrantId + operationId + requestDigest`.
 - [x] Commit must reject mismatched reservation identity.
 - [x] Expired reservations must be ignored and cleaned up.
 - [x] Add in-memory store-level tests for reserve, commit, release, duplicate
@@ -371,7 +371,7 @@ reserveRouterAbWalletSigningBudget(input: {
   walletSessionClaims: RouterAbWalletSessionClaims;
   curve: 'ed25519' | 'ecdsa';
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   requestDigest: string;
   operationId: string;
   signatureUses: number;
@@ -385,7 +385,7 @@ reserveRouterAbWalletSigningBudget(input: {
 - [x] Bind the reservation to:
   - Wallet Session JWT kind
   - wallet id/account id
-  - `walletSigningSessionId`
+  - `signingGrantId`
   - `thresholdSessionId`
   - curve
   - SigningWorker id
@@ -428,7 +428,7 @@ Acceptance:
 commitRouterAbWalletSigningBudget(input: {
   walletSessionClaims: RouterAbWalletSessionClaims;
   reservationId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   requestDigest: string;
   operationId: string;
@@ -635,7 +635,7 @@ Acceptance:
 - Unit: Router A/B ECDSA-HSS prepare rejects exhausted budget.
 - Unit: Router A/B ECDSA-HSS finalize rejects missing or mismatched reservation.
 - Unit: duplicate finalize is idempotent.
-- Integration: NEAR + Tempo + EVM share a single `walletSigningSessionId`
+- Integration: NEAR + Tempo + EVM share a single `signingGrantId`
   budget.
 - Integration: refactor-41 unlock policy gives three approvals and
   post-exhaustion step-up gives one approval with captured
