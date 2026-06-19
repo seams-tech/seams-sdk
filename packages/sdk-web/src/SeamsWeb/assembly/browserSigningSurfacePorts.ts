@@ -1,4 +1,4 @@
-import type { SigningRuntime } from '@/core/runtime/types';
+import type { SigningRuntime } from '@/core/runtime/runtime.types';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';
 import type { ManagerAssemblyStores } from '@/core/signingEngine/assembly/createManagers';
 import type { EmailOtpSealedSessionStorePorts } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';

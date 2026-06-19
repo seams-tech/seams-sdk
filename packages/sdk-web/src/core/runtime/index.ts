@@ -8,5 +8,5 @@ export type {
   SigningRuntimeStatePorts,
   SigningRuntimeUiDeps,
   SigningRuntimeWarmSessionUiPorts,
-} from './types';
+} from './runtime.types';
 export { createSigningRuntime, createSigningRuntimeStatePorts } from './createSigningRuntime';

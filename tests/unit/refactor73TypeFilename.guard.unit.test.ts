@@ -52,7 +52,6 @@ const allowedTypesTsFiles: Record<string, TypesTsClassification> = {
     'rename-later:walletIframeHandler.types.ts',
   'packages/sdk-web/src/core/accountData/near/types.ts': 'rename-later:nearAccountData.types.ts',
   'packages/sdk-web/src/core/platform/types.ts': 'rename-later:platform.types.ts',
-  'packages/sdk-web/src/core/runtime/types.ts': 'rename-later:runtime.types.ts',
   'packages/sdk-web/src/core/signingEngine/chains/evm/types.ts':
     'rename-later:evmSigning.types.ts',
   'packages/sdk-web/src/core/signingEngine/chains/tempo/types.ts':

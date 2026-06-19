@@ -3,7 +3,7 @@ import type {
   SigningRuntimeDeps,
   SigningRuntimeServices,
   SigningRuntimeStatePorts,
-} from './types';
+} from './runtime.types';
 
 type AsyncServiceFactory<TService> = () => Promise<TService>;
 

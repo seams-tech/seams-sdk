@@ -2,7 +2,7 @@ import {
   createSigningRuntime,
   createSigningRuntimeStatePorts,
 } from '@/core/runtime/createSigningRuntime';
-import type { SigningRuntime, SigningRuntimeConfig } from '@/core/runtime/types';
+import type { SigningRuntime, SigningRuntimeConfig } from '@/core/runtime/runtime.types';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { SignerWorkerManagerContext } from '@/core/signingEngine/workerManager/SignerWorkerManager';

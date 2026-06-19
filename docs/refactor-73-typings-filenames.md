@@ -199,7 +199,7 @@ Inventory captured on June 19, 2026:
 | `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/types.ts` | `rename-later:walletIframeHandler.types.ts` |
 | `packages/sdk-web/src/core/accountData/near/types.ts` | `rename-later:nearAccountData.types.ts` |
 | `packages/sdk-web/src/core/platform/types.ts` | `rename-later:platform.types.ts` |
-| `packages/sdk-web/src/core/runtime/types.ts` | `rename-later:runtime.types.ts` |
+| `packages/sdk-web/src/core/runtime/runtime.types.ts` | renamed from `packages/sdk-web/src/core/runtime/types.ts` |
 | `packages/sdk-web/src/core/signingEngine/chains/evm/types.ts` | `rename-later:evmSigning.types.ts` |
 | `packages/sdk-web/src/core/signingEngine/chains/tempo/types.ts` | `rename-later:tempoSigning.types.ts` |
 | `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts` | `mixed-runtime` |
@@ -233,6 +233,12 @@ remaining `types.ts` files are explicit public barrels, external contracts,
 mixed runtime/type modules, or `rename-later:<target>` rows in the Phase 2
 inventory. Each `rename-later` row should be handled by its owning area with
 imports and focused validation in the same commit.
+
+Agent D progress, June 19, 2026:
+
+- [x] Renamed `packages/sdk-web/src/core/runtime/types.ts` to
+  `packages/sdk-web/src/core/runtime/runtime.types.ts`, updated runtime imports,
+  and kept the change outside active Refactor 70/74 signing and budget files.
 
 ### Phase 4: Add Source Guards
 

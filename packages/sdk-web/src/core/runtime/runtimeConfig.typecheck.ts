@@ -1,4 +1,4 @@
-import type { SigningRuntimeConfig } from './types';
+import type { SigningRuntimeConfig } from './runtime.types';
 
 declare const runtimeConfig: SigningRuntimeConfig;
 

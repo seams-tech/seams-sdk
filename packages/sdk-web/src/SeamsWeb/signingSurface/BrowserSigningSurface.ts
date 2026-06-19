@@ -19,7 +19,7 @@ import type { UserPreferencesManager } from '@/core/signingEngine/session/userPr
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import type { SigningRuntime } from '@/core/runtime/types';
+import type { SigningRuntime } from '@/core/runtime/runtime.types';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
