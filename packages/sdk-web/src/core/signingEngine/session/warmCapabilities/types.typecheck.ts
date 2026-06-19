@@ -7,9 +7,15 @@ import type {
   ApplyWarmEcdsaPostSignPolicyArgs,
   AssertWarmEcdsaOperationAllowedArgs,
   EnsureWarmEcdsaProvisionPlanReadyArgs,
+  WarmSessionEcdsaCapabilityState,
+  WarmSessionEd25519CapabilityState,
   WarmSessionEcdsaCapabilityRef,
+  WarmSessionPrfClaim,
 } from './types';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from '../persistence/records';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 
 type FreshEcdsaSessionProvisionPlan = Extract<
@@ -28,6 +34,12 @@ type ReconnectEcdsaSessionProvisionPlan = Extract<
   EcdsaSessionProvisionPlan,
   { kind: 'wallet_session_ecdsa_reconnect' }
 >;
+type PresentWarmSessionEcdsaCapabilityState = Exclude<
+  WarmSessionEcdsaCapabilityState,
+  { state: 'missing' }
+>;
+type WarmPrfClaim = Extract<WarmSessionPrfClaim, { state: 'warm' }>;
+type UnavailablePrfClaim = Extract<WarmSessionPrfClaim, { state: 'unavailable' }>;
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -36,7 +48,12 @@ declare const passkeyFreshPlan: PasskeyEcdsaSessionProvisionPlan;
 declare const emailOtpFreshPlan: EmailOtpEcdsaSessionProvisionPlan;
 declare const reconnectPlan: ReconnectEcdsaSessionProvisionPlan;
 declare const selectedRecord: ThresholdEcdsaSessionRecord;
+declare const selectedEd25519Record: ThresholdEd25519SessionRecord;
 declare const keyRef: ThresholdEcdsaSecp256k1KeyRef;
+declare const ecdsaCapabilityKey: PresentWarmSessionEcdsaCapabilityState['key'];
+declare const ecdsaCapabilityLane: PresentWarmSessionEcdsaCapabilityState['lane'];
+declare const warmPrfClaim: WarmPrfClaim;
+declare const unavailablePrfClaim: UnavailablePrfClaim;
 
 const validEnsureWarmEcdsaProvisionPlanReadyArgs = {
   walletId,
@@ -177,3 +194,53 @@ const invalidAssertWarmEcdsaOperationAllowedArgsWithRawWalletId = {
   source: 'login',
 } satisfies AssertWarmEcdsaOperationAllowedArgs;
 void invalidAssertWarmEcdsaOperationAllowedArgsWithRawWalletId;
+
+const invalidReadyEd25519CapabilityWithoutJwt = {
+  capability: 'ed25519',
+  record: selectedEd25519Record,
+  auth: {
+    capability: 'ed25519',
+    record: selectedEd25519Record,
+    walletSessionJwtSource: 'none',
+  },
+  prfClaim: warmPrfClaim,
+  state: 'ready',
+  // @ts-expect-error ready Ed25519 warm-session capability requires bearer Wallet Session auth.
+} satisfies WarmSessionEd25519CapabilityState;
+void invalidReadyEd25519CapabilityWithoutJwt;
+
+const invalidEcdsaCapabilityInvalidState = {
+  capability: 'ecdsa',
+  record: selectedRecord,
+  key: ecdsaCapabilityKey,
+  lane: ecdsaCapabilityLane,
+  auth: {
+    capability: 'ecdsa',
+    state: 'ready',
+    record: selectedRecord,
+    walletSessionJwt: 'wallet-session-jwt',
+    walletSessionJwtSource: 'ecdsa_record',
+  },
+  prfClaim: warmPrfClaim,
+  // @ts-expect-error ECDSA warm-session capability states do not have an invalid branch.
+  state: 'invalid',
+} satisfies WarmSessionEcdsaCapabilityState;
+void invalidEcdsaCapabilityInvalidState;
+
+const invalidReadyEcdsaCapabilityWithoutWarmPrf = {
+  capability: 'ecdsa',
+  record: selectedRecord,
+  key: ecdsaCapabilityKey,
+  lane: ecdsaCapabilityLane,
+  auth: {
+    capability: 'ecdsa',
+    state: 'ready',
+    record: selectedRecord,
+    walletSessionJwt: 'wallet-session-jwt',
+    walletSessionJwtSource: 'ecdsa_record',
+  },
+  prfClaim: unavailablePrfClaim,
+  state: 'ready',
+  // @ts-expect-error ready ECDSA warm-session capability requires a warm PRF claim.
+} satisfies WarmSessionEcdsaCapabilityState;
+void invalidReadyEcdsaCapabilityWithoutWarmPrf;

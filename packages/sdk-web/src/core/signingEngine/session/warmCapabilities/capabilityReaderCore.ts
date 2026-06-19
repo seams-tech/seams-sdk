@@ -119,6 +119,21 @@ export function createWarmSessionCapabilityReaderCore(
           '[WarmSessionStore] Email OTP Ed25519 capability requires emailOtpAuthContext',
         );
       }
+      if (state === 'auth_missing') {
+        return {
+          capability: 'ed25519',
+          record: args.record,
+          auth: args.auth?.walletSessionJwtSource === 'none' ? args.auth : null,
+          prfClaim: args.prfClaim,
+          emailOtpAuthContext: args.record.emailOtpAuthContext,
+          state,
+        };
+      }
+      if (!args.auth || args.auth.walletSessionJwtSource !== 'ed25519_record') {
+        throw new Error(
+          `[WarmSessionStore] Ed25519 capability state=${state} requires Wallet Session JWT auth`,
+        );
+      }
       return {
         capability: 'ed25519',
         record: args.record,
@@ -127,6 +142,20 @@ export function createWarmSessionCapabilityReaderCore(
         emailOtpAuthContext: args.record.emailOtpAuthContext,
         state,
       };
+    }
+    if (state === 'auth_missing') {
+      return {
+        capability: 'ed25519',
+        record: args.record,
+        auth: args.auth?.walletSessionJwtSource === 'none' ? args.auth : null,
+        prfClaim: args.prfClaim,
+        state,
+      };
+    }
+    if (!args.auth || args.auth.walletSessionJwtSource !== 'ed25519_record') {
+      throw new Error(
+        `[WarmSessionStore] Ed25519 capability state=${state} requires Wallet Session JWT auth`,
+      );
     }
     return {
       capability: 'ed25519',
@@ -174,6 +203,40 @@ export function createWarmSessionCapabilityReaderCore(
           '[WarmSessionStore] Email OTP ECDSA capability requires emailOtpAuthContext',
         );
       }
+      if (state === 'auth_missing') {
+        return {
+          capability: 'ecdsa',
+          record: args.record,
+          key,
+          lane,
+          auth: args.auth?.state === 'unavailable' ? args.auth : null,
+          prfClaim: args.prfClaim,
+          emailOtpAuthContext: args.record.emailOtpAuthContext,
+          state,
+        };
+      }
+      if (!args.auth || args.auth.state !== 'ready') {
+        throw new Error(
+          `[WarmSessionStore] ECDSA capability state=${state} requires Wallet Session JWT auth`,
+        );
+      }
+      if (state === 'ready' || state === 'material_pending') {
+        if (!args.prfClaim || args.prfClaim.state !== 'warm') {
+          throw new Error(
+            `[WarmSessionStore] ECDSA capability state=${state} requires a warm PRF claim`,
+          );
+        }
+        return {
+          capability: 'ecdsa',
+          record: args.record,
+          key,
+          lane,
+          auth: args.auth,
+          prfClaim: args.prfClaim,
+          emailOtpAuthContext: args.record.emailOtpAuthContext,
+          state,
+        };
+      }
       return {
         capability: 'ecdsa',
         record: args.record,
@@ -182,6 +245,38 @@ export function createWarmSessionCapabilityReaderCore(
         auth: args.auth,
         prfClaim: args.prfClaim,
         emailOtpAuthContext: args.record.emailOtpAuthContext,
+        state,
+      };
+    }
+    if (state === 'auth_missing') {
+      return {
+        capability: 'ecdsa',
+        record: args.record,
+        key,
+        lane,
+        auth: args.auth?.state === 'unavailable' ? args.auth : null,
+        prfClaim: args.prfClaim,
+        state,
+      };
+    }
+    if (!args.auth || args.auth.state !== 'ready') {
+      throw new Error(
+        `[WarmSessionStore] ECDSA capability state=${state} requires Wallet Session JWT auth`,
+      );
+    }
+    if (state === 'ready' || state === 'material_pending') {
+      if (!args.prfClaim || args.prfClaim.state !== 'warm') {
+        throw new Error(
+          `[WarmSessionStore] ECDSA capability state=${state} requires a warm PRF claim`,
+        );
+      }
+      return {
+        capability: 'ecdsa',
+        record: args.record,
+        key,
+        lane,
+        auth: args.auth,
+        prfClaim: args.prfClaim,
         state,
       };
     }

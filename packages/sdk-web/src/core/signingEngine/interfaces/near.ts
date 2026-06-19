@@ -33,15 +33,10 @@ import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSigningWalletSession';
 import type { RouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/hssMaterialBinding';
-export type NearResolvedEd25519WalletSessionAuth =
-  | {
-      kind: 'wallet_session_jwt';
-      walletSessionJwt: string;
-    }
-  | {
-      kind: 'browser_cookie';
-      walletSessionJwt?: never;
-    };
+export type NearResolvedEd25519WalletSessionAuth = {
+  kind: 'wallet_session_jwt';
+  walletSessionJwt: string;
+};
 
 export type NearPasskeyReconnectPlan = {
   sessionId: string;
@@ -76,10 +71,10 @@ export type NearResolvedEd25519SigningSessionState = {
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
   signingMaterial: RouterAbEd25519SigningMaterialRef;
-  signingRootId?: string;
-  signingRootVersion?: string;
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  signingRootId: string;
+  signingRootVersion: string;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   relayerUrl: string;
   persistSigningMaterial: (material: {
     materialHandle: string;

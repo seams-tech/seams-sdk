@@ -74,10 +74,8 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
     signingMaterial: signingWalletSession.value.signingMaterial,
     signingRootId: signingWalletSession.value.signingRootId,
     signingRootVersion: signingWalletSession.value.signingRootVersion,
-    ...(record.routerAbNormalSigning
-      ? { routerAbNormalSigning: record.routerAbNormalSigning }
-      : {}),
-    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    routerAbNormalSigning: signingWalletSession.value.routerAbNormalSigning,
+    runtimePolicyScope: signingWalletSession.value.runtimePolicyScope,
     relayerUrl: String(record.relayerUrl || '').trim(),
     persistSigningMaterial: (material: {
       materialHandle: string;

@@ -201,35 +201,6 @@ test.describe('WarmSessionStore invariants', () => {
     );
   });
 
-  test('rejects a JWT capability marked ready without a JWT', () => {
-    const envelope = createEmptyEnvelope();
-    const record = {
-      nearAccountId: 'invariants.testnet',
-      thresholdSessionId: 'jwt-missing-session',
-      thresholdSessionKind: 'jwt',
-    } as any;
-    envelope.capabilities.ed25519 = {
-      capability: 'ed25519',
-      record,
-      auth: {
-        capability: 'ed25519',
-        record,
-        walletSessionJwtSource: 'none',
-      },
-      prfClaim: {
-        state: 'warm',
-        sessionId: 'jwt-missing-session',
-        remainingUses: 1,
-        expiresAtMs: Date.now() + 10_000,
-      },
-      state: 'ready',
-    };
-
-    expect(() => assertWarmSessionEnvelopeInvariant(envelope)).toThrow(
-      'invalid ed25519 capability: state=ready does not match derived state=auth_missing',
-    );
-  });
-
   test('rejects a warm status with non-positive remaining uses', () => {
     const envelope = createEmptyEnvelope();
     const { record, key, lane } = createEcdsaIdentityArgs({
@@ -250,10 +221,10 @@ test.describe('WarmSessionStore invariants', () => {
       },
       auth: {
         capability: 'ecdsa',
-        state: 'unavailable',
+        state: 'ready',
         record,
-        walletSessionJwtSource: 'none',
-        unavailableReason: 'missing_wallet_session_jwt',
+        walletSessionJwt: 'jwt:tempo-bad-claim',
+        walletSessionJwtSource: 'ecdsa_record',
       },
       prfClaim: {
         state: 'warm',

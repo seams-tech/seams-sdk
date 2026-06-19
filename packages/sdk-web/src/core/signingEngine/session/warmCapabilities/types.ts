@@ -134,7 +134,14 @@ type WarmSessionCapabilityStateValue =
   | 'prf_missing'
   | 'prf_unavailable';
 
-type WarmSessionPresentCapabilityStateValue = Exclude<WarmSessionCapabilityStateValue, 'missing'>;
+type WarmSessionEd25519PresentCapabilityStateValue = Exclude<
+  WarmSessionCapabilityStateValue,
+  'missing'
+>;
+type WarmSessionEcdsaPresentCapabilityStateValue = Exclude<
+  WarmSessionCapabilityStateValue,
+  'missing' | 'invalid'
+>;
 
 type WarmSessionMissingEd25519CapabilityState = {
   capability: 'ed25519';
@@ -145,28 +152,38 @@ type WarmSessionMissingEd25519CapabilityState = {
   state: 'missing';
 };
 
-type WarmSessionEmailOtpEd25519CapabilityState = {
+type WarmSessionEmailOtpEd25519CapabilityFields = {
   capability: 'ed25519';
   record: ThresholdEd25519SessionRecord;
-  auth: WarmSessionEd25519AuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  state: WarmSessionPresentCapabilityStateValue;
 };
 
-type WarmSessionNonEmailOtpEd25519CapabilityState = {
+type WarmSessionNonEmailOtpEd25519CapabilityFields = {
   capability: 'ed25519';
   record: ThresholdEd25519SessionRecord;
-  auth: WarmSessionEd25519AuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext?: never;
-  state: WarmSessionPresentCapabilityStateValue;
+};
+
+type WarmSessionEd25519CapabilityFields =
+  | WarmSessionEmailOtpEd25519CapabilityFields
+  | WarmSessionNonEmailOtpEd25519CapabilityFields;
+
+type WarmSessionEd25519AuthMissingState = WarmSessionEd25519CapabilityFields & {
+  auth: WarmSessionEd25519AuthMaterialWithoutToken | null;
+  state: 'auth_missing';
+};
+
+type WarmSessionEd25519AuthenticatedState = WarmSessionEd25519CapabilityFields & {
+  auth: WarmSessionEd25519AuthMaterialWithToken;
+  state: Exclude<WarmSessionEd25519PresentCapabilityStateValue, 'auth_missing'>;
 };
 
 export type WarmSessionEd25519CapabilityState =
   | WarmSessionMissingEd25519CapabilityState
-  | WarmSessionEmailOtpEd25519CapabilityState
-  | WarmSessionNonEmailOtpEd25519CapabilityState;
+  | WarmSessionEd25519AuthMissingState
+  | WarmSessionEd25519AuthenticatedState;
 
 type WarmSessionMissingEcdsaCapabilityState = {
   capability: 'ecdsa';
@@ -179,32 +196,52 @@ type WarmSessionMissingEcdsaCapabilityState = {
   state: 'missing';
 };
 
-type WarmSessionEmailOtpEcdsaCapabilityState = {
+type WarmSessionEmailOtpEcdsaCapabilityFields = {
   capability: 'ecdsa';
   record: ThresholdEcdsaSessionRecord;
   key: EvmFamilyEcdsaKeyIdentity;
   lane: SelectedEcdsaLane;
-  auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  state: WarmSessionPresentCapabilityStateValue;
 };
 
-type WarmSessionNonEmailOtpEcdsaCapabilityState = {
+type WarmSessionNonEmailOtpEcdsaCapabilityFields = {
   capability: 'ecdsa';
   record: ThresholdEcdsaSessionRecord;
   key: EvmFamilyEcdsaKeyIdentity;
   lane: SelectedEcdsaLane;
-  auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext?: never;
-  state: WarmSessionPresentCapabilityStateValue;
+};
+
+type WarmSessionEcdsaCapabilityFields =
+  | WarmSessionEmailOtpEcdsaCapabilityFields
+  | WarmSessionNonEmailOtpEcdsaCapabilityFields;
+
+type WarmSessionEcdsaAuthMissingState = WarmSessionEcdsaCapabilityFields & {
+  auth: WarmSessionEcdsaAuthMaterialWithoutToken | null;
+  state: 'auth_missing';
+};
+
+type WarmSessionEcdsaPrfReadyState = WarmSessionEcdsaCapabilityFields & {
+  auth: WarmSessionEcdsaAuthMaterialWithToken;
+  prfClaim: WarmSessionWarmPrfClaim;
+  state: 'ready' | 'material_pending';
+};
+
+type WarmSessionEcdsaPrfBlockedState = WarmSessionEcdsaCapabilityFields & {
+  auth: WarmSessionEcdsaAuthMaterialWithToken;
+  state: Exclude<
+    WarmSessionEcdsaPresentCapabilityStateValue,
+    'auth_missing' | 'ready' | 'material_pending'
+  >;
 };
 
 export type WarmSessionEcdsaCapabilityState =
   | WarmSessionMissingEcdsaCapabilityState
-  | WarmSessionEmailOtpEcdsaCapabilityState
-  | WarmSessionNonEmailOtpEcdsaCapabilityState;
+  | WarmSessionEcdsaAuthMissingState
+  | WarmSessionEcdsaPrfReadyState
+  | WarmSessionEcdsaPrfBlockedState;
 
 export type WarmSessionEnvelope = {
   walletId: AccountId;

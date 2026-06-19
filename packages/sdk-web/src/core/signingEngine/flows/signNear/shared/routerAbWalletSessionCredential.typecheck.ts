@@ -76,19 +76,13 @@ const validWalletSessionState = {
 } satisfies ResolvedRouterAbEd25519WalletSessionState;
 void validWalletSessionState;
 
-const cookieWalletSessionState = {
+const cookieWalletSessionState: ResolvedRouterAbEd25519WalletSessionState = {
   ...validWalletSessionState,
   walletSessionAuth: {
+    // @ts-expect-error Resolved Router A/B Ed25519 signing state is bearer-only.
     kind: 'browser_cookie',
   },
-  signingWalletSession: {
-    ...validWalletSessionState.signingWalletSession,
-    auth: {
-      // @ts-expect-error strict Router A/B Ed25519 signing state requires bearer Wallet Session JWT auth.
-      kind: 'browser_cookie',
-    },
-  },
-} satisfies ResolvedRouterAbEd25519WalletSessionState;
+};
 void cookieWalletSessionState;
 
 const missingSigningMaterial = {
@@ -100,6 +94,34 @@ const missingSigningMaterial = {
   },
 } satisfies ResolvedRouterAbEd25519WalletSessionState;
 void missingSigningMaterial;
+
+const missingResolvedRuntimePolicyScope = {
+  ...validWalletSessionState,
+  // @ts-expect-error Resolved Router A/B Ed25519 signing state requires runtime policy scope.
+  runtimePolicyScope: undefined,
+} satisfies ResolvedRouterAbEd25519WalletSessionState;
+void missingResolvedRuntimePolicyScope;
+
+const missingResolvedRouterAbState = {
+  ...validWalletSessionState,
+  // @ts-expect-error Resolved Router A/B Ed25519 signing state requires Router A/B normal-signing state.
+  routerAbNormalSigning: undefined,
+} satisfies ResolvedRouterAbEd25519WalletSessionState;
+void missingResolvedRouterAbState;
+
+const missingResolvedSigningRootId = {
+  ...validWalletSessionState,
+  // @ts-expect-error Resolved Router A/B Ed25519 signing state requires signing root id.
+  signingRootId: undefined,
+} satisfies ResolvedRouterAbEd25519WalletSessionState;
+void missingResolvedSigningRootId;
+
+const missingResolvedSigningRootVersion = {
+  ...validWalletSessionState,
+  // @ts-expect-error Resolved Router A/B Ed25519 signing state requires signing root version.
+  signingRootVersion: undefined,
+} satisfies ResolvedRouterAbEd25519WalletSessionState;
+void missingResolvedSigningRootVersion;
 
 const obsoleteTopLevelRawMaterial = {
   ...validWalletSessionState,

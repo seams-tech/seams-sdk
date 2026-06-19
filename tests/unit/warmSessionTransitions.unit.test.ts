@@ -81,7 +81,7 @@ function createEnvelope(): WarmSessionEnvelope {
                 ethereumAddress: `0x${'11'.repeat(20)}`,
                 thresholdSessionId: 'tempo-session',
                 walletSigningSessionId: 'wallet-tempo-session',
-                thresholdSessionKind: 'cookie',
+                thresholdSessionKind: 'jwt',
                 relayerUrl: 'https://relay.example',
                 relayerKeyId: 'relayer-key',
                 clientVerifyingShareB64u: 'AQ',
@@ -99,10 +99,10 @@ function createEnvelope(): WarmSessionEnvelope {
           })(),
           auth: {
             capability: 'ecdsa',
-            state: 'unavailable',
+            state: 'ready',
             record: {} as any,
-            walletSessionJwtSource: 'none',
-            unavailableReason: 'missing_wallet_session_jwt',
+            walletSessionJwt: 'jwt:tempo-session',
+            walletSessionJwtSource: 'ecdsa_record',
           },
           prfClaim: {
             state: 'unavailable',
