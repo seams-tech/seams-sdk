@@ -1,0 +1,184 @@
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
+import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
+import { buildRouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/hssMaterialBinding';
+import type {
+  RouterAbEcdsaHssSigningWalletSession,
+  RouterAbEd25519SigningWalletSession,
+  RouterAbSigningWalletSessionAuth,
+} from './routerAbSigningWalletSession';
+
+const walletSessionAuth = {
+  kind: 'wallet_session_jwt',
+  walletSessionJwt: 'wallet-session-jwt',
+  credential: {
+    kind: 'jwt',
+    walletSessionJwt: 'wallet-session-jwt',
+  },
+} satisfies RouterAbSigningWalletSessionAuth;
+void walletSessionAuth;
+
+const runtimePolicyScope = {
+  orgId: 'org-test',
+  projectId: 'project-test',
+  envId: 'dev',
+  signingRootVersion: 'default',
+} satisfies ThresholdRuntimePolicyScope;
+void runtimePolicyScope;
+
+const ed25519RouterAbNormalSigning = {
+  kind: 'router_ab_ed25519_normal_signing_v1',
+  signingWorkerId: 'signing-worker-a',
+} satisfies RouterAbEd25519NormalSigningState;
+void ed25519RouterAbNormalSigning;
+
+const ed25519SigningMaterial = buildRouterAbEd25519SigningMaterialRef({
+  materialHandle: 'ed25519-hss-material:threshold-session-1:binding',
+  bindingDigest: 'binding-digest',
+  clientVerifyingShareB64u: 'client-verifying-share',
+});
+void ed25519SigningMaterial;
+
+const ecdsaRouterAbNormalSigning = {
+  kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+  scope: {
+    context: {
+      wallet_id: 'alice.testnet',
+      rp_id: 'localhost',
+      key_scope: 'evm-family',
+      ecdsa_threshold_key_id: 'ehss-shared-key',
+      signing_root_id: 'project-test:dev',
+      signing_root_version: 'default',
+      key_purpose: 'evm-family-signing',
+      key_version: 'ecdsa-hss-v2',
+    },
+    public_identity: {
+      context_binding_b64u: 'context-binding',
+      client_public_key33_b64u: 'client-public-key',
+      server_public_key33_b64u: 'server-public-key',
+      threshold_public_key33_b64u: 'threshold-public-key',
+      ethereum_address20_b64u: 'ethereum-address',
+      client_share_retry_counter: 0,
+      server_share_retry_counter: 0,
+    },
+    signing_worker: {
+      server_id: 'signing-worker-a',
+      key_epoch: 'epoch-1',
+      recipient_encryption_key: 'x25519:recipient',
+    },
+    activation_epoch: 'activation-epoch-1',
+  },
+} satisfies RouterAbEcdsaHssNormalSigningStateV1;
+void ecdsaRouterAbNormalSigning;
+
+const validEd25519SigningWalletSession = {
+  curve: 'ed25519',
+  auth: walletSessionAuth,
+  thresholdSessionId: 'threshold-session-1',
+  walletSigningSessionId: 'wallet-signing-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+  signingMaterial: ed25519SigningMaterial,
+  runtimePolicyScope,
+  signingRootId: 'project-test:dev',
+  signingRootVersion: 'default',
+  routerAbNormalSigning: ed25519RouterAbNormalSigning,
+} satisfies RouterAbEd25519SigningWalletSession;
+void validEd25519SigningWalletSession;
+
+const validEcdsaSigningWalletSession = {
+  curve: 'ecdsa',
+  auth: walletSessionAuth,
+  thresholdSessionId: 'threshold-session-1',
+  walletSigningSessionId: 'wallet-signing-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+  runtimePolicyScope,
+  routerAbEcdsaHssNormalSigning: ecdsaRouterAbNormalSigning,
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void validEcdsaSigningWalletSession;
+
+const ed25519MissingSigningMaterial = {
+  ...validEd25519SigningWalletSession,
+  // @ts-expect-error Signable Ed25519 Wallet Session state requires a parsed material ref.
+  signingMaterial: undefined,
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519MissingSigningMaterial;
+
+const ed25519MissingBindingDigest = {
+  ...validEd25519SigningWalletSession,
+  signingMaterial: {
+    ...ed25519SigningMaterial,
+    // @ts-expect-error Signable Ed25519 Wallet Session material ref requires a material binding digest.
+    bindingDigest: undefined,
+  },
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519MissingBindingDigest;
+
+const ed25519MissingMaterialHandle = {
+  ...validEd25519SigningWalletSession,
+  signingMaterial: {
+    ...ed25519SigningMaterial,
+    // @ts-expect-error Signable Ed25519 Wallet Session material ref requires a worker material handle.
+    materialHandle: undefined,
+  },
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519MissingMaterialHandle;
+
+const ed25519MissingWalletSigningSession = {
+  ...validEd25519SigningWalletSession,
+  // @ts-expect-error Signable Ed25519 Wallet Session state requires the wallet signing session id.
+  walletSigningSessionId: undefined,
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519MissingWalletSigningSession;
+
+const ed25519MissingSigningRootId = {
+  ...validEd25519SigningWalletSession,
+  // @ts-expect-error Signable Ed25519 Wallet Session state requires signing root id.
+  signingRootId: undefined,
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519MissingSigningRootId;
+
+const ed25519MissingSigningRootVersion = {
+  ...validEd25519SigningWalletSession,
+  // @ts-expect-error Signable Ed25519 Wallet Session state requires signing root version.
+  signingRootVersion: undefined,
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519MissingSigningRootVersion;
+
+const ed25519RawClientBase = {
+  ...validEd25519SigningWalletSession,
+  // @ts-expect-error Signable Ed25519 Wallet Session state must not carry raw client base material.
+  xClientBaseB64u: 'raw-client-base',
+} satisfies RouterAbEd25519SigningWalletSession;
+void ed25519RawClientBase;
+
+const ecdsaMissingRouterAbState = {
+  ...validEcdsaSigningWalletSession,
+  // @ts-expect-error Signable ECDSA-HSS Wallet Session state requires Router A/B normal-signing state.
+  routerAbEcdsaHssNormalSigning: undefined,
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaMissingRouterAbState;
+
+const ecdsaMissingRuntimePolicyScope = {
+  ...validEcdsaSigningWalletSession,
+  // @ts-expect-error Signable ECDSA-HSS Wallet Session state requires runtime policy scope.
+  runtimePolicyScope: undefined,
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaMissingRuntimePolicyScope;
+
+const ecdsaCookieAuth = {
+  ...validEcdsaSigningWalletSession,
+  auth: {
+    // @ts-expect-error Signable ECDSA-HSS Wallet Session state is bearer Wallet Session JWT only.
+    kind: 'browser_cookie',
+  },
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaCookieAuth;
+
+const ecdsaRawClientShare = {
+  ...validEcdsaSigningWalletSession,
+  // @ts-expect-error Signable ECDSA-HSS Wallet Session state must not carry raw client signing shares.
+  clientSigningShare32: new Uint8Array(32),
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaRawClientShare;
