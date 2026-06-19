@@ -1,61 +1,28 @@
 import { expect, test } from '@playwright/test';
-import { signerBoundWalletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 
 const WALLET_SIGNING_SESSION_ID = 'ws-server-budget-atomic';
 const CURVE_SESSION_ID = 'curve-session-bound';
-const WALLET_BUDGET_SESSION_ID = signerBoundWalletSigningBudgetSessionId({
-  walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-  curve: 'ed25519',
-  thresholdSessionId: CURVE_SESSION_ID,
-});
+const WALLET_BUDGET_SESSION_ID = walletSigningBudgetSessionId(WALLET_SIGNING_SESSION_ID);
 
 test.describe('ThresholdSigningService wallet budget consume', () => {
-  test('Ed25519 authorization budget key is scoped to confirmed payload, not each digest', async () => {
-    const { svc } = createThresholdSigningServiceForUnitTests({
-      accessKeysOnChain: [],
-    });
-    const deriveKey = (signingDigest32: Uint8Array, signingPayload: unknown) =>
-      (
-        svc as unknown as {
-          thresholdEd25519AuthorizationBudgetIdempotencyKey(input: {
-            relayerKeyId: string;
-            purpose: string;
-            signingDigest32?: Uint8Array;
-            signingPayload: unknown;
-          }): Promise<string>;
-        }
-      ).thresholdEd25519AuthorizationBudgetIdempotencyKey({
-        relayerKeyId: 'relayer-ed25519',
-        purpose: 'near_tx',
-        signingDigest32,
-        signingPayload,
-      });
-    const signingPayload = {
-      kind: 'near_tx',
-      txSigningRequests: [
-        { nearAccountId: 'alice.testnet', receiverId: 'app.testnet', actions: [{ type: 'Call' }] },
-        { nearAccountId: 'alice.testnet', receiverId: 'app.testnet', actions: [{ type: 'Call' }] },
-      ],
-      transactionContext: { nextNonce: '7', txBlockHeight: '42' },
-    };
-
-    await expect(deriveKey(new Uint8Array(32).fill(1), signingPayload)).resolves.toBe(
-      await deriveKey(new Uint8Array(32).fill(2), signingPayload),
-    );
-    await expect(
-      deriveKey(new Uint8Array(32).fill(1), {
-        ...signingPayload,
-        transactionContext: { nextNonce: '8', txBlockHeight: '42' },
-      }),
-    ).resolves.not.toBe(await deriveKey(new Uint8Array(32).fill(1), signingPayload));
-  });
-
   test('wallet-level budget consume is fail-closed without an idempotency key', async () => {
-    const { svc, authSessionStore } = createThresholdSigningServiceForUnitTests({
+    const { svc, walletSessionStore } = createThresholdSigningServiceForUnitTests({
       accessKeysOnChain: [],
     });
-    await authSessionStore.putSession(
+    await walletSessionStore.putSession(
+      CURVE_SESSION_ID,
+      {
+        expiresAtMs: Date.now() + 60_000,
+        relayerKeyId: 'curve-session-relayer',
+        userId: 'budget-fail-closed.testnet',
+        rpId: 'localhost',
+        participantIds: [1, 2],
+      },
+      { ttlMs: 60_000, remainingUses: 1 },
+    );
+    await walletSessionStore.putSession(
       WALLET_BUDGET_SESSION_ID,
       {
         expiresAtMs: Date.now() + 60_000,
@@ -63,10 +30,6 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         userId: 'budget-fail-closed.testnet',
         rpId: 'localhost',
         participantIds: [1, 2],
-        walletBudgetBinding: {
-          curve: 'ed25519',
-          thresholdSessionId: CURVE_SESSION_ID,
-        },
       },
       { ttlMs: 60_000, remainingUses: 1 },
     );
@@ -77,7 +40,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
           walletSigningSessionId?: string;
           curve: 'ed25519' | 'ecdsa';
           curveSessionId: string;
-          curveStore: typeof authSessionStore;
+          curveStore: typeof walletSessionStore;
           idempotencyKey?: string;
         }): Promise<{ ok: boolean; code?: string; message?: string; remainingUses?: number }>;
       }
@@ -85,7 +48,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
       walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
       curve: 'ed25519',
       curveSessionId: CURVE_SESSION_ID,
-      curveStore: authSessionStore,
+      curveStore: walletSessionStore,
     });
 
     expect(consumed).toEqual({
@@ -93,7 +56,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
       code: 'internal',
       message: 'wallet signing-session budget consume requires an idempotency key',
     });
-    await expect(authSessionStore.getSessionStatus(WALLET_BUDGET_SESSION_ID)).resolves.toMatchObject(
+    await expect(walletSessionStore.getSessionStatus(WALLET_BUDGET_SESSION_ID)).resolves.toMatchObject(
       {
         remainingUses: 1,
       },
@@ -101,10 +64,21 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
   });
 
   test('wallet-level budget consume is idempotent for replay and exhausted for a distinct operation', async () => {
-    const { svc, authSessionStore } = createThresholdSigningServiceForUnitTests({
+    const { svc, walletSessionStore } = createThresholdSigningServiceForUnitTests({
       accessKeysOnChain: [],
     });
-    await authSessionStore.putSession(
+    await walletSessionStore.putSession(
+      CURVE_SESSION_ID,
+      {
+        expiresAtMs: Date.now() + 60_000,
+        relayerKeyId: 'curve-session-relayer',
+        userId: 'budget-idempotent.testnet',
+        rpId: 'localhost',
+        participantIds: [1, 2],
+      },
+      { ttlMs: 60_000, remainingUses: 1 },
+    );
+    await walletSessionStore.putSession(
       WALLET_BUDGET_SESSION_ID,
       {
         expiresAtMs: Date.now() + 60_000,
@@ -112,10 +86,6 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         userId: 'budget-idempotent.testnet',
         rpId: 'localhost',
         participantIds: [1, 2],
-        walletBudgetBinding: {
-          curve: 'ed25519',
-          thresholdSessionId: CURVE_SESSION_ID,
-        },
       },
       { ttlMs: 60_000, remainingUses: 1 },
     );
@@ -126,7 +96,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
             walletSigningSessionId?: string;
             curve: 'ed25519' | 'ecdsa';
             curveSessionId: string;
-            curveStore: typeof authSessionStore;
+            curveStore: typeof walletSessionStore;
             idempotencyKey?: string;
           }): Promise<{ ok: boolean; code?: string; message?: string; remainingUses?: number }>;
         }
@@ -134,7 +104,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
         curve: 'ed25519',
         curveSessionId: CURVE_SESSION_ID,
-        curveStore: authSessionStore,
+        curveStore: walletSessionStore,
         idempotencyKey,
       });
 
@@ -145,7 +115,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
       code: 'unauthorized',
       message: 'threshold session exhausted',
     });
-    await expect(authSessionStore.getSessionStatus(WALLET_BUDGET_SESSION_ID)).resolves.toMatchObject(
+    await expect(walletSessionStore.getSessionStatus(WALLET_BUDGET_SESSION_ID)).resolves.toMatchObject(
       {
         remainingUses: 0,
       },

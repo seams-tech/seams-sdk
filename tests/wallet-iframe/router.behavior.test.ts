@@ -111,6 +111,37 @@ const FAILED_UNLOCK_WITH_ACTIVE_EMAIL_OTP_SESSION_SCRIPT = String.raw`
         };
       };
 `;
+const CAPTURE_UNLOCK_PAYLOAD_SCRIPT = String.raw`
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object' || data.type !== 'PM_UNLOCK') return;
+          const requestId = data.requestId;
+          if (typeof requestId !== 'string') return;
+          pendingRequests.delete(requestId);
+          window.parent?.postMessage(
+            {
+              type: 'CAPTURED_PM_UNLOCK_PAYLOAD',
+              payload: data.payload,
+            },
+            '*',
+          );
+          adoptedPort.postMessage({
+            type: 'PM_RESULT',
+            requestId,
+            payload: {
+              ok: true,
+              result: { success: false, error: 'captured unlock payload' },
+            },
+          });
+        };
+      };
+`;
 
 test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
   test.beforeEach(async ({ page }) => {
@@ -133,7 +164,8 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
         try {
           // Dynamically import the router from built ESM
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -237,7 +269,8 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       async ({ walletOrigin, routerPath }) => {
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -305,7 +338,8 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       async ({ walletOrigin, routerPath }) => {
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -373,7 +407,8 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       async ({ walletOrigin, routerPath }) => {
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const accountId = 'crisp-plain-29ph888gzw.w3a-relayer.testnet';
           const router = new WalletIframeRouter({
@@ -390,8 +425,8 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
           router.onLoginStatusChanged((status) => statuses.push(status));
 
           const unlockResult = await router.unlock({
+            kind: 'default_options',
             nearAccountId: accountId,
-            options: {},
           });
 
           return {
@@ -418,5 +453,136 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.unlockResult.success).toBe(false);
     expect(result.unlockResult.error).toContain('No authenticators found');
     expect(result.statuses).toEqual([]);
+  });
+
+  test('unlock posts strict protocol options for selection and ECDSA inventory', async ({
+    page,
+  }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({
+        extraScript: CAPTURE_UNLOCK_PAYLOAD_SCRIPT,
+      }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, routerPath }) => {
+        const capturedPayload = new Promise((resolve) => {
+          const onMessage = (event: MessageEvent) => {
+            const data = event.data || {};
+            if (!data || typeof data !== 'object') return;
+            if ((data as { type?: unknown }).type !== 'CAPTURED_PM_UNLOCK_PAYLOAD') return;
+            window.removeEventListener('message', onMessage);
+            resolve((data as { payload: unknown }).payload);
+          };
+          window.addEventListener('message', onMessage);
+        });
+
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 1000,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
+
+          const unlockResult = await router.unlock({
+            kind: 'custom_options',
+            nearAccountId: 'alice.testnet',
+            options: {
+              signerSlot: 2,
+              session: {
+                kind: 'jwt',
+                relayUrl: 'https://relay.example.localhost',
+                route: '/session/exchange',
+              },
+              signingSession: {
+                ttlMs: 60_000,
+                remainingUses: 2,
+              },
+              unlockSelection: {
+                mode: 'ecdsa_only',
+                ecdsa: true,
+              },
+              ecdsaKeyFactsInventory: {
+                mode: 'app_session',
+                appSessionJwt: 'app-session-jwt',
+                policyTtlMs: 30_000,
+              },
+            },
+          });
+
+          return {
+            success: true as const,
+            unlockResult,
+            capturedPayload: await capturedPayload,
+          };
+        } catch (error: unknown) {
+          return {
+            success: false as const,
+            error: String((error as { message?: unknown })?.message || error || ''),
+          };
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, routerPath },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.unlockResult).toEqual({
+      success: false,
+      error: 'captured unlock payload',
+    });
+    expect(result.capturedPayload).toEqual({
+      kind: 'custom_options',
+      nearAccountId: 'alice.testnet',
+      options: {
+        kind: 'pm_unlock_options_v1',
+        signerSlot: { kind: 'value', value: 2 },
+        session: {
+          kind: 'value',
+          value: {
+            kind: 'jwt',
+            relayUrl: 'https://relay.example.localhost',
+            route: '/session/exchange',
+          },
+        },
+        signingSession: {
+          kind: 'value',
+          value: {
+            ttlMs: 60_000,
+            remainingUses: 2,
+          },
+        },
+        unlockSelection: {
+          kind: 'value',
+          value: {
+            mode: 'ecdsa_only',
+            ecdsa: true,
+          },
+        },
+        ecdsaKeyFactsInventory: {
+          kind: 'value',
+          value: {
+            mode: 'app_session',
+            appSessionJwt: 'app-session-jwt',
+            policyTtlMs: 30_000,
+          },
+        },
+      },
+    });
   });
 });

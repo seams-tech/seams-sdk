@@ -44,8 +44,12 @@ test.describe('WarmSessionStore concurrency', () => {
       walletSigningSessionId: 'wsess-manual-ecdsa-session',
       ecdsaThresholdKeyId: registrationBootstrap.keygen.ecdsaThresholdKeyId,
       keyHandle: registrationBootstrap.thresholdEcdsaKeyRef.keyHandle,
-      signingRootId: registrationBootstrap.thresholdEcdsaKeyRef.signingRootId,
-      signingRootVersion: registrationBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
+      signingRootId:
+        registrationBootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord
+          ?.publicFacts.signingRootId,
+      signingRootVersion:
+        registrationBootstrap.thresholdEcdsaKeyRef.backendBinding?.ecdsaRoleLocalReadyRecord
+          ?.publicFacts.signingRootVersion,
       ethereumAddress: registrationBootstrap.keygen.ethereumAddress,
     });
     seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -75,7 +79,7 @@ test.describe('WarmSessionStore concurrency', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-concurrent-ready',
       sessionId: 'stale-concurrent-session',
-      sessionAuthToken: 'jwt:stale-concurrent-session',
+      walletSessionJwt: 'jwt:stale-concurrent-session',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'concurrent-ready.testnet',
@@ -88,7 +92,7 @@ test.describe('WarmSessionStore concurrency', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-concurrent-ready',
       sessionId: 'fresh-concurrent-session',
-      sessionAuthToken: 'jwt:fresh-concurrent-session',
+      walletSessionJwt: 'jwt:fresh-concurrent-session',
     });
 
     const readCalls: string[] = [];
@@ -197,7 +201,7 @@ test.describe('WarmSessionStore concurrency', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-concurrent-seal',
         sessionId: 'concurrent-seal-session',
-        sessionAuthToken: 'jwt:concurrent-seal-session',
+        walletSessionJwt: 'jwt:concurrent-seal-session',
         relayerUrl: 'https://relay.concurrent-seal.example',
       }),
     });

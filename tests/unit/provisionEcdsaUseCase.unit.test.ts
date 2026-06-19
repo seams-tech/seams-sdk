@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -53,8 +54,15 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chainId: 42431,
 });
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-threshold-key');
-const signingRootId = toEcdsaHssSigningRootId('root');
-const signingRootVersion = toEcdsaHssSigningRootVersion('v1');
+const runtimePolicyScope = {
+  orgId: 'org',
+  projectId: 'root',
+  envId: 'dev',
+  signingRootVersion: 'v1',
+};
+const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
+const signingRootId = toEcdsaHssSigningRootId(signingRootScope.signingRootId);
+const signingRootVersion = toEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion);
 const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
   credentialIdB64u: 'credential-passkey',
   rpId,
@@ -107,8 +115,6 @@ function baseInput(): ProvisionEcdsaInput {
     chainTarget,
     keyHandle: 'ecdsa-key-handle',
     ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
     participantIds: [1, 2],
     authMethod: {
       kind: 'passkey',
@@ -124,6 +130,7 @@ function baseInput(): ProvisionEcdsaInput {
       remainingUses: 8,
       sessionKind: 'jwt',
       auth: { kind: 'publishable_key', token: 'pk_test' },
+      runtimePolicyScope,
     },
   };
 }
@@ -158,8 +165,6 @@ function relayerOutput(input: ProvisionEcdsaInput): BootstrapEcdsaSessionRouteOu
     walletId: input.walletId,
     rpId: input.rpId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
     keyHandle: input.keyHandle,
     relayerPublicIdentity: {
       relayerKeyId: input.route.relayerKeyId,
@@ -167,12 +172,14 @@ function relayerOutput(input: ProvisionEcdsaInput): BootstrapEcdsaSessionRouteOu
       groupPublicKey33B64u: facts.groupPublicKey33B64u,
       ethereumAddress: '0x1111111111111111111111111111111111111111',
     },
+    clientShareRetryCounter: 0,
+    relayerShareRetryCounter: 0,
     participantIds: [1, 2],
     sessionId: input.route.sessionId,
     walletSigningSessionId: input.route.walletSigningSessionId,
     expiresAtMs: 1_900_000_000_000,
     remainingUses: input.route.remainingUses,
-    thresholdSessionAuthToken: 'jwt',
+    walletSessionJwt: 'jwt',
   };
 }
 
@@ -183,8 +190,8 @@ function publicFacts(input: ProvisionEcdsaInput) {
     chainTarget: input.chainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
+    signingRootId,
+    signingRootVersion,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: input.participantIds,
@@ -338,8 +345,11 @@ test('provisions passkey ECDSA material through signer, relayer, finalize, and p
     walletId,
     rpId,
     keyScope: 'evm-family',
+    runtimePolicyScope,
     clientBootstrap: preparedOutput().clientBootstrap,
   });
+  expect(captures.relayerInputs[0]).not.toHaveProperty('signingRootId');
+  expect(captures.relayerInputs[0]).not.toHaveProperty('signingRootVersion');
   expect(captures.persistInputs[0]).toMatchObject({
     storageKeyFacts: {
       walletId,

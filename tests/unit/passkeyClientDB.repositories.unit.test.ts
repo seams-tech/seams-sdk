@@ -185,6 +185,98 @@ test.describe('Seams wallet repositories', () => {
     });
   });
 
+  test('replaces stale ECDSA signer projection with corrected owner for the same key handle', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`repo_ecdsa_owner_repair_${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+
+        const profileId = 'profile-repo-ecdsa-owner-repair';
+        const chainTarget = { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-testnet' };
+        const keyHandle = 'ehss-owner-repair-key';
+        const ecdsaThresholdKeyId = 'ehss-owner-repair-threshold-key';
+        const firstOwner = `0x${'11'.repeat(20)}`;
+        const repairedOwner = `0x${'22'.repeat(20)}`;
+        const activationForOwner = (ownerAddress: string) => ({
+          account: {
+            profileId,
+            chainIdKey: 'tempo:42431',
+            accountAddress: ownerAddress,
+            accountModel: 'threshold-ecdsa',
+          },
+          signer: {
+            signerId: ownerAddress,
+            signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata: {
+              accountModel: 'threshold-ecdsa',
+              thresholdOwnerAddress: ownerAddress,
+              keyHandle,
+              ecdsaThresholdKeyId,
+              chainTarget,
+            },
+          },
+          activationPolicy: { mode: 'allocate_next_free' as const },
+          preferredSlot: 1,
+          selectAsActive: false,
+          mutation: { routeThroughOutbox: false },
+        });
+
+        await db.upsertProfile({
+          profileId,
+          defaultSignerSlot: 1,
+          passkeyCredential: { id: 'cred-ecdsa-owner-repair', rawId: 'raw-ecdsa-owner-repair' },
+        });
+        await db.activateAccountSigner(activationForOwner(firstOwner));
+        const repaired = await db.activateAccountSigner(activationForOwner(repairedOwner));
+        const signers = await db.listAccountSignersByProfile({ profileId });
+
+        return {
+          repairedSignerId: repaired.signer.signerId,
+          repairedSlot: repaired.signerSlot,
+          signers: signers.map(
+            (signer: {
+              signerId: string;
+              accountAddress: string;
+              metadata?: Record<string, unknown>;
+              status: string;
+            }) => ({
+              signerId: signer.signerId,
+              accountAddress: signer.accountAddress,
+              keyHandle: String(signer.metadata?.keyHandle || ''),
+              ecdsaThresholdKeyId: String(signer.metadata?.ecdsaThresholdKeyId || ''),
+              status: signer.status,
+            }),
+          ),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      repairedSignerId: `0x${'22'.repeat(20)}`,
+      repairedSlot: 1,
+      signers: [
+        {
+          signerId: `0x${'22'.repeat(20)}`,
+          accountAddress: `0x${'22'.repeat(20)}`,
+          keyHandle: 'ehss-owner-repair-key',
+          ecdsaThresholdKeyId: 'ehss-owner-repair-threshold-key',
+          status: 'active',
+        },
+      ],
+    });
+  });
+
   test('stores scoped last-profile state through the unified repository', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {

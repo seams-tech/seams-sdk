@@ -29,7 +29,7 @@ function extractFunctionBlock(source: string, functionName: string): string {
 
 test.describe('refactor 56 headless auth guards', () => {
   test('demo Google Email OTP path uses the headless flow', () => {
-    const source = readRepoSource('examples/seams-site/src/flows/demo/PasskeyLoginMenu.tsx');
+    const source = readRepoSource('apps/web-client/src/flows/demo/PasskeyLoginMenu.tsx');
     const googleFlow = extractFunctionBlock(source, 'onGoogleSsoEmailOtp');
 
     expect(googleFlow).toContain('beginGoogleEmailOtpWalletAuth');

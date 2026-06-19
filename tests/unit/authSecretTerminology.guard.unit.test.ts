@@ -12,7 +12,6 @@ const AUTH_NEUTRAL_DOCS = [
   'docs/signing-session-architecture/sealed-refresh.md',
   'docs/hss-threshold-ed25519.md',
   'docs/hss-export-key.md',
-  'docs/cloudflare-signing-worker-self-host.md',
   'docs/refactor-62-hss-prepare-preauth.md',
 ] as const;
 

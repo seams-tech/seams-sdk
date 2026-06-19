@@ -23,9 +23,26 @@ function b64u(byte: number, length: number): string {
   return Buffer.from(new Uint8Array(length).fill(byte)).toString('base64url');
 }
 
+function hexB64u(hex: string): string {
+  return Buffer.from(hex, 'hex').toString('base64url');
+}
+
 function digest(byte: number): { bytes: number[] } {
   return { bytes: Array.from(new Uint8Array(32).fill(byte)) };
 }
+
+const ecdsaClientPublicKey33B64u = hexB64u(
+  '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
+);
+const ecdsaServerPublicKey33B64u = hexB64u(
+  '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+);
+const ecdsaThresholdPublicKey33B64u = hexB64u(
+  '02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
+);
+const ecdsaServerBigR33B64u = hexB64u(
+  '03f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8',
+);
 
 const stableContext = {
   wallet_id: 'wallet-1',
@@ -45,9 +62,9 @@ async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
     context: stableContext,
     public_identity: {
       context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(stableContext),
-      client_public_key33_b64u: b64u(2, 33),
-      server_public_key33_b64u: b64u(3, 33),
-      threshold_public_key33_b64u: b64u(4, 33),
+      client_public_key33_b64u: ecdsaClientPublicKey33B64u,
+      server_public_key33_b64u: ecdsaServerPublicKey33B64u,
+      threshold_public_key33_b64u: ecdsaThresholdPublicKey33B64u,
       ethereum_address20_b64u: b64u(5, 20),
       client_share_retry_counter: 0,
       server_share_retry_counter: 1,
@@ -81,7 +98,7 @@ async function prepareResponse(
     request_digest: await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request),
     signing_digest: digest(11),
     server_presignature_id: request.client_presignature_id,
-    server_big_r33_b64u: b64u(13, 33),
+    server_big_r33_b64u: ecdsaServerBigR33B64u,
     rerandomization_entropy32_b64u: b64u(14, 32),
     signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
     prepared_at_ms: 1_800_000_000_000,

@@ -6,7 +6,7 @@ const IMPORT_PATHS = {
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
-test.describe('threshold Ed25519 auth-session rehydrate', () => {
+test.describe('threshold Ed25519 Wallet Session rehydrate', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
@@ -29,7 +29,7 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
             participantIds: [1, 2],
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'tsess-host-mode',
-            thresholdSessionAuthToken: 'jwt-host-mode',
+            walletSessionJwt: 'jwt-host-mode',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
             source: 'login',

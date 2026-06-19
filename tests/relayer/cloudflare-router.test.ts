@@ -315,18 +315,7 @@ function makeEd25519ThresholdAdapter(input: {
           claims: Record<string, unknown>;
           request: Record<string, unknown>;
         }) => await input.authorize(args),
-        protocol: {
-          signInit: async () => ({
-            ok: false,
-            code: 'not_implemented',
-            message: 'not implemented',
-          }),
-          signFinalize: async () => ({
-            ok: false,
-            code: 'not_implemented',
-            message: 'not implemented',
-          }),
-        },
+        protocol: {},
       };
     },
   };
@@ -4031,89 +4020,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(dispatched[1]?.payload?.userId).toBe('bob.testnet');
     expect(dispatched[2]?.payload?.userId).toBe('bob.testnet');
     expect(dispatched[2]?.payload?.orgId).toBe('org-relay-cf-2');
-  });
-
-  test('POST /threshold-ed25519/authorize validates runtime snapshot checksum against latest scoped snapshot', async () => {
-    let authorizeCalls = 0;
-    const service = makeFakeAuthService();
-    const session = makeSessionAdapter({
-      parse: async () => ({
-        ok: true,
-        claims: {
-          sub: 'bob.testnet',
-          walletId: 'bob.testnet',
-          kind: 'threshold_ed25519_session_v1',
-          sessionId: 'session-ed25519-runtime-cf',
-          walletSigningSessionId: 'wallet-signing-session-runtime-cf',
-          relayerKeyId: 'relayer-key-cf-1',
-          rpId: 'example.localhost',
-          thresholdExpiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-          runtimePolicyScope: {
-            orgId: 'org-runtime-cf-1',
-            projectId: 'project-runtime-cf-1',
-            envId: 'env-runtime-cf-1',
-            signingRootVersion: 'default',
-          },
-        },
-      }),
-    });
-    const threshold = makeEd25519ThresholdAdapter({
-      authorize: async () => {
-        authorizeCalls += 1;
-        return { ok: true, mpcSessionId: 'mpc-runtime-cf-1' };
-      },
-    });
-    const handler = createCloudflareRouter(service, {
-      session,
-      threshold: threshold as any,
-      runtimeSnapshots: {
-        getLatestSnapshot: async () => ({
-          snapshotId: 'snapshot-runtime-cf-latest',
-          version: 5,
-          checksum: 'fnv1a32:runtime-cf-checksum',
-          effectiveAt: '2026-03-01T00:00:00.000Z',
-        }),
-      },
-    });
-
-    const okRes = await callCf(handler, {
-      method: 'POST',
-      path: '/threshold-ed25519/authorize',
-      headers: { Authorization: 'Bearer token' },
-      body: {
-        relayerKeyId: 'relayer-key-cf-1',
-        clientVerifyingShareB64u: 'client-share',
-        purpose: 'near_tx',
-        signing_digest_32: new Array(32).fill(1),
-        runtimeSnapshot: {
-          checksum: 'fnv1a32:runtime-cf-checksum',
-          version: 5,
-        },
-      },
-    });
-    expect(okRes.status).toBe(200);
-    expect(okRes.json?.ok).toBe(true);
-    expect(authorizeCalls).toBe(1);
-
-    const mismatchRes = await callCf(handler, {
-      method: 'POST',
-      path: '/threshold-ed25519/authorize',
-      headers: { Authorization: 'Bearer token' },
-      body: {
-        relayerKeyId: 'relayer-key-cf-1',
-        clientVerifyingShareB64u: 'client-share',
-        purpose: 'near_tx',
-        signing_digest_32: new Array(32).fill(1),
-        runtimeSnapshot: {
-          checksum: 'fnv1a32:runtime-cf-checksum-stale',
-          version: 5,
-        },
-      },
-    });
-    expect(mismatchRes.status).toBe(409);
-    expect(mismatchRes.json?.code).toBe('runtime_snapshot_checksum_mismatch');
-    expect(authorizeCalls).toBe(1);
   });
 
   test('POST /recover-email: async mode uses ctx.waitUntil and returns 202 queued', async () => {

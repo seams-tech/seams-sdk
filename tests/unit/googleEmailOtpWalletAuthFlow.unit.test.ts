@@ -232,6 +232,9 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
         ReturnType<GoogleEmailOtpWalletAuthDeps['loginWithEmailOtpEcdsaCapability']>
       >;
     },
+    loginWithEmailOtpEd25519Capability: async (args) => {
+      calls.push({ type: 'loginWithEmailOtpEd25519Capability', args });
+    },
     getWalletSession: async (walletId) => {
       calls.push({ type: 'getWalletSession', args: { walletId } });
       return loggedInSession(walletId);
@@ -617,6 +620,51 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });
+  });
+
+  test('login path supports NEAR-only Email OTP wallets without ECDSA targets', async () => {
+    const { deps, calls } = makeDeps();
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+    const submitted = await started.value.submit({ otpCode: '123456' });
+
+    expect(submitted.ok).toBe(true);
+    const ed25519Call = calls.find((call) => call.type === 'loginWithEmailOtpEd25519Capability');
+    expect(ed25519Call?.args).toMatchObject({
+      challengeId: 'login-challenge-1',
+      otpCode: '123456',
+      relayUrl: 'https://relay.example',
+      appSessionJwt: 'app-session-jwt',
+      walletSession: {
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'google-subject-1',
+      },
+    });
+    expect(calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability')).toBeFalsy();
+  });
+
+  test('login path treats empty configured ECDSA targets as NEAR-only unlock', async () => {
+    const { deps, calls } = makeDeps();
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+    const submitted = await started.value.submit({ otpCode: '123456' });
+
+    expect(submitted.ok).toBe(true);
+    expect(calls.find((call) => call.type === 'loginWithEmailOtpEd25519Capability')).toBeTruthy();
+    expect(calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability')).toBeFalsy();
   });
 
   test('login path accepts exchange-reused login challenge without requesting another OTP', async () => {

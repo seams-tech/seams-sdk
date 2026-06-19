@@ -95,6 +95,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
               name: 'login',
               run: () =>
                 router.unlock({
+                  kind: 'custom_options',
                   nearAccountId,
                   options: {
                     onEvent: (evt: any) => {

@@ -16,8 +16,8 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'ed-auth.testnet',
-      thresholdSessionId: 'ed-auth-session',
-      thresholdSessionAuthToken: 'jwt:ed-auth-session',
+      thresholdSessionId: 'ed-wallet-session',
+      walletSessionJwt: 'jwt:ed-wallet-session',
     });
 
     const store = createWarmSessionTestServices();
@@ -25,18 +25,18 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     expect(auth).toMatchObject({
       capability: 'ed25519',
-      thresholdSessionAuthToken: 'jwt:ed-auth-session',
-      thresholdSessionAuthTokenSource: 'ed25519',
+      walletSessionJwt: 'jwt:ed-wallet-session',
+      walletSessionJwtSource: 'ed25519_record',
     });
   });
 
-  test('resolves a cookie-backed Ed25519 capability without borrowing JWT state', async () => {
+  test('reports cookie-backed Ed25519 capability as auth_missing without borrowing JWT state', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'ed-missing-auth.testnet',
-      thresholdSessionId: 'ed-missing-auth-session',
+      thresholdSessionId: 'ed-missing-wallet-session',
       thresholdSessionKind: 'cookie',
     });
 
@@ -53,9 +53,9 @@ test.describe('WarmSessionStore capability resolution', () => {
       ed25519Record.thresholdSessionId,
     );
 
-    expect(capability?.state).toBe('ready');
-    expect(capability?.auth?.thresholdSessionAuthToken).toBeUndefined();
-    expect(capability?.auth?.thresholdSessionAuthTokenSource).toBe('none');
+    expect(capability?.state).toBe('auth_missing');
+    expect(capability?.auth?.walletSessionJwt).toBeUndefined();
+    expect(capability?.auth?.walletSessionJwtSource).toBe('none');
     expect(capability?.prfClaim?.state).toBe('warm');
   });
 
@@ -66,7 +66,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'ecdsa-auth.testnet',
       thresholdSessionId: 'ed-fallback-session',
-      thresholdSessionAuthToken: 'jwt:ed-fallback-session',
+      walletSessionJwt: 'jwt:ed-fallback-session',
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'ecdsa-auth.testnet',
@@ -76,8 +76,8 @@ test.describe('WarmSessionStore capability resolution', () => {
         nearAccountId: 'ecdsa-auth.testnet',
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-ecdsa-auth',
-        sessionId: 'ecdsa-auth-session',
-        sessionKind: 'cookie',
+        sessionId: 'ecdsa-wallet-session',
+        walletSessionJwt: 'jwt:ecdsa-wallet-session',
       }),
     });
 
@@ -86,9 +86,10 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     expect(auth).toMatchObject({
       capability: 'ecdsa',
-      thresholdSessionAuthTokenSource: 'none',
+      walletSessionJwtSource: 'ecdsa_record',
     });
-    expect(auth?.thresholdSessionAuthToken).toBeUndefined();
+    expect(auth?.walletSessionJwt).toBeTruthy();
+    expect(auth?.walletSessionJwt).not.toBe('jwt:ed-fallback-session');
   });
 
   test('surfaces explicit Email OTP auth context on warm ECDSA capability state', async () => {
@@ -110,7 +111,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-email-otp',
         sessionId: 'ecdsa-email-otp-session',
-        sessionAuthToken: 'jwt:ecdsa-email-otp-session',
+        walletSessionJwt: 'jwt:ecdsa-email-otp-session',
         roleLocalAuthMethod: 'email_otp',
         emailOtpAuthSubjectId: 'email-otp-auth-state.testnet',
       }),
@@ -153,7 +154,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-email-otp-exhausted',
         sessionId: 'ecdsa-email-otp-exhausted-session',
-        sessionAuthToken: 'jwt:ecdsa-email-otp-exhausted-session',
+        walletSessionJwt: 'jwt:ecdsa-email-otp-exhausted-session',
       }),
     });
     let clearCount = 0;
@@ -183,7 +184,19 @@ test.describe('WarmSessionStore capability resolution', () => {
       store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
     ).toMatchObject({
       capability: 'ecdsa',
-      thresholdSessionAuthToken: expect.any(String),
+      walletSessionJwt: expect.any(String),
+    });
+    expect(
+      store.resolveEmailOtpSigningSessionAuthLane({
+        thresholdSessionId: evmRecord.thresholdSessionId,
+        curve: 'ecdsa',
+      }),
+    ).toMatchObject({
+      kind: 'signing_session',
+      jwt: evmRecord.walletSessionJwt,
+      thresholdSessionId: evmRecord.thresholdSessionId,
+      curve: 'ecdsa',
+      chainTarget: evmRecord.chainTarget,
     });
   });
 
@@ -200,7 +213,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-shared-bootstrap',
         sessionId: 'ecdsa-stale-session',
-        sessionAuthToken: 'jwt:ecdsa-stale-session',
+        walletSessionJwt: 'jwt:ecdsa-stale-session',
       }),
     });
     const warmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -212,7 +225,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'tempo',
         ecdsaThresholdKeyId: 'ek-shared-bootstrap',
         sessionId: 'ecdsa-warm-session',
-        sessionAuthToken: 'jwt:ecdsa-warm-session',
+        walletSessionJwt: 'jwt:ecdsa-warm-session',
       }),
     });
 
@@ -239,9 +252,9 @@ test.describe('WarmSessionStore capability resolution', () => {
     });
 
     expect('sessionId' in evmBootstrap).toBe(false);
-    expect('thresholdSessionAuth' in evmBootstrap).toBe(false);
+    expect('walletSessionRouteAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
-      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      kind: 'wallet_session_reconnect_ecdsa_bootstrap',
       keyHandle: warmRecord.keyHandle,
       key: {
         ecdsaThresholdKeyId: warmRecord.ecdsaThresholdKeyId,
@@ -254,7 +267,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         walletSigningSessionId: 'wsess-ecdsa-warm-session',
       },
       routeAuth: {
-        kind: 'threshold_session',
+        kind: 'wallet_session',
         jwt: expect.any(String),
       },
     });

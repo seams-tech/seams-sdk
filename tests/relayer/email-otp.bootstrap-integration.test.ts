@@ -675,7 +675,7 @@ test.describe('Email OTP bootstrap integration', () => {
             participantIds: [1, 2],
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'ecdsa-session-cf-1',
-            thresholdSessionAuthToken: 'jwt-ecdsa-cf',
+            walletSessionJwt: 'jwt-ecdsa-cf',
           },
           keygen: {
             ok: true,
@@ -1073,7 +1073,7 @@ test.describe('Email OTP bootstrap integration', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'ecdsa-session-otp-1',
-              thresholdSessionAuthToken: 'jwt-ecdsa',
+              walletSessionJwt: 'jwt-ecdsa',
             },
             keygen: {
               ok: true,

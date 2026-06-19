@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -9,6 +10,7 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '../../packages/sdk-web/src/core/platform';
 import {
+  buildVerifiedEcdsaPublicFacts,
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   toEvmFamilyEcdsaKeyHandle,
   toThresholdOwnerAddress,
@@ -31,6 +33,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const RP_ID = 'localhost';
@@ -48,11 +51,88 @@ const EVM_TARGET: ThresholdEcdsaChainTarget = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 };
+
+function ethereumAddress20B64u(address: string): string {
+  return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
+}
+
+function unsignedJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${header}.${body}.sig`;
+}
+
+function thresholdEcdsaSessionJwtFixture(args: {
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  keyHandle: string;
+}): string {
+  return unsignedJwt({
+    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    sub: WALLET_ID,
+    walletId: WALLET_ID,
+    keyHandle: args.keyHandle,
+    keyScope: 'evm-family',
+    chainTarget: EVM_TARGET,
+    sessionId: args.thresholdSessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+}
+
+function makeRouterAbEcdsaHssNormalSigningState(record: {
+  walletId: ThresholdEcdsaSessionRecord['walletId'];
+  ecdsaThresholdKeyId: ThresholdEcdsaSessionRecord['ecdsaThresholdKeyId'];
+  signingRootId: ThresholdEcdsaSessionRecord['signingRootId'];
+  signingRootVersion?: ThresholdEcdsaSessionRecord['signingRootVersion'];
+}): RouterAbEcdsaHssNormalSigningStateV1 {
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      context: {
+        wallet_id: String(record.walletId),
+        rp_id: RP_ID,
+        key_scope: 'evm-family',
+        ecdsa_threshold_key_id: String(record.ecdsaThresholdKeyId),
+        signing_root_id: String(record.signingRootId),
+        signing_root_version: String(record.signingRootVersion || 'default'),
+        key_purpose: 'evm-signing',
+        key_version: 'v1',
+      },
+      public_identity: {
+        context_binding_b64u: CONTEXT_BINDING_32_B64U,
+        client_public_key33_b64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+        server_public_key33_b64u: RELAYER_PUBLIC_KEY_B64U,
+        threshold_public_key33_b64u: PUBLIC_KEY_B64U,
+        ethereum_address20_b64u: ethereumAddress20B64u(OWNER_ADDRESS),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-1',
+        key_epoch: 'worker-epoch-1',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: 'activation-1',
+    },
+  };
+}
+
+function makeVerifiedPublicFacts(keyHandle: string) {
+  return buildVerifiedEcdsaPublicFacts({
+    keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+    publicKeyB64u: PUBLIC_KEY_B64U,
+    participantIds: [1, 2],
+    thresholdOwnerAddress: OWNER_ADDRESS,
+  });
+}
+
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type EmailOtpExportRecordFixtureInput = {
   ecdsaThresholdKeyId?: EmailOtpEcdsaSessionRecord['ecdsaThresholdKeyId'];
-  thresholdSessionAuthToken?: EmailOtpEcdsaSessionRecord['thresholdSessionAuthToken'];
+  walletSessionJwt?: EmailOtpEcdsaSessionRecord['walletSessionJwt'];
   thresholdSessionKind?: EmailOtpEcdsaSessionRecord['thresholdSessionKind'];
   thresholdSessionId?: EmailOtpEcdsaSessionRecord['thresholdSessionId'];
   walletSigningSessionId?: EmailOtpEcdsaSessionRecord['walletSigningSessionId'];
@@ -119,10 +199,17 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     'thresholdEcdsaPublicKeyB64u' in input
       ? input.thresholdEcdsaPublicKeyB64u
       : PUBLIC_KEY_B64U;
-  const thresholdSessionAuthToken =
-    'thresholdSessionAuthToken' in input
-      ? input.thresholdSessionAuthToken
-      : 'threshold-auth-token';
+  const thresholdSessionId = input.thresholdSessionId ?? 'threshold-session-1';
+  const walletSigningSessionId = input.walletSigningSessionId ?? 'wallet-signing-session-1';
+  const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-export');
+  const walletSessionJwt =
+    'walletSessionJwt' in input
+      ? input.walletSessionJwt
+      : thresholdEcdsaSessionJwtFixture({
+          thresholdSessionId,
+          walletSigningSessionId,
+          keyHandle,
+        });
   const record = {
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
@@ -131,19 +218,21 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     signingRootId: 'project-export:env-export',
     signingRootVersion: 'default',
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: 'client-verifying-share',
+    clientVerifyingShareB64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+    relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_B64U,
     clientAdditiveShareHandle: {
       kind: 'email_otp_worker_session' as const,
       sessionId: 'email-otp-worker-session-1',
     },
     participantIds: [1, 2],
     thresholdSessionKind: input.thresholdSessionKind ?? 'jwt',
-    thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-1',
-    walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-1',
-    thresholdSessionAuthToken,
+    thresholdSessionId,
+    walletSigningSessionId,
+    walletSessionJwt,
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 1,
     thresholdEcdsaPublicKeyB64u,
+    verifiedPublicFacts: makeVerifiedPublicFacts(keyHandle),
     ethereumAddress: OWNER_ADDRESS,
     emailOtpAuthContext,
     runtimePolicyScope: {
@@ -154,16 +243,20 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     },
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp' as const,
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-export'),
+    keyHandle,
     authMetadata: { rpId: RP_ID },
   };
   return {
     ...record,
+    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(record),
     ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
   };
 }
 
 function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
+  const thresholdSessionId = 'threshold-session-1';
+  const walletSigningSessionId = 'wallet-signing-session-1';
+  const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-export');
   const record = {
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
@@ -172,15 +265,21 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     signingRootId: 'project-export:env-export',
     signingRootVersion: 'default',
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: 'client-verifying-share',
+    clientVerifyingShareB64u: HSS_CLIENT_PUBLIC_KEY_B64U,
+    relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_B64U,
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt' as const,
-    thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
-    thresholdSessionAuthToken: 'threshold-auth-token',
+    thresholdSessionId,
+    walletSigningSessionId,
+    walletSessionJwt: thresholdEcdsaSessionJwtFixture({
+      thresholdSessionId,
+      walletSigningSessionId,
+      keyHandle,
+    }),
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 1,
     thresholdEcdsaPublicKeyB64u: PUBLIC_KEY_B64U,
+    verifiedPublicFacts: makeVerifiedPublicFacts(keyHandle),
     ethereumAddress: OWNER_ADDRESS,
     runtimePolicyScope: {
       orgId: 'org-export',
@@ -190,11 +289,12 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     },
     updatedAtMs: 1_800_000_000_000,
     source: 'registration' as const,
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-export'),
+    keyHandle,
     authMetadata: { rpId: RP_ID },
   };
   return {
     ...record,
+    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(record),
     ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
   };
 }
@@ -406,7 +506,7 @@ test.describe('ECDSA export material', () => {
 
   test('fresh Email OTP export material needs challenge when route auth is absent', async () => {
     const record = makeRecord({
-      thresholdSessionAuthToken: undefined,
+      walletSessionJwt: undefined,
       thresholdSessionKind: 'cookie',
     });
     const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(

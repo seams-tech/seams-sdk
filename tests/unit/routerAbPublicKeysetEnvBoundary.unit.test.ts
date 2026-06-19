@@ -65,6 +65,10 @@ test.describe('Router A/B public keyset env boundary', () => {
       "requireEnv(env, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY')",
       "requireEnv(env, 'DERIVER_A_PEER_VERIFYING_KEY')",
       "requireEnv(env, 'DERIVER_B_PEER_VERIFYING_KEY')",
+      "ROUTER_AB_KEYSET_ROUTE_PROFILE",
+      "route_profile",
+      "parseRouterAbPublicKeysetV1",
+      "ROUTER_AB_PUBLIC_KEYSET_VERSION_V1",
     ]) {
       expect(body).not.toContain(legacyAliasUsage);
     }

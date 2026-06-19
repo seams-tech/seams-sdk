@@ -59,7 +59,7 @@ const TEST_WEBAUTHN_CREDENTIAL = {
 const THRESHOLD_OWNER_ADDRESS = `0x${'11'.repeat(20)}` as const;
 const TEST_PASSKEY_CREDENTIAL_ID_B64U = TEST_WEBAUTHN_CREDENTIAL.rawId;
 
-function makeThresholdSessionAuthToken(args: {
+function makeWalletSessionJwt(args: {
   thresholdSessionId: string;
   walletSigningSessionId: string;
 }): string {
@@ -121,7 +121,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-session-1',
-    thresholdSessionAuthToken: makeThresholdSessionAuthToken({
+    walletSessionJwt: makeWalletSessionJwt({
       thresholdSessionId: 'threshold-session-1',
       walletSigningSessionId: 'wallet-session-1',
     }),
@@ -231,11 +231,11 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       sessionBudgetUses: 1,
     });
 
-    expect(plan.kind).toBe('threshold_session_auth_ecdsa_reconnect');
-    if (plan.kind !== 'threshold_session_auth_ecdsa_reconnect') {
-      throw new Error('expected threshold_session_auth_ecdsa_reconnect');
+    expect(plan.kind).toBe('wallet_session_ecdsa_reconnect');
+    if (plan.kind !== 'wallet_session_ecdsa_reconnect') {
+      throw new Error('expected wallet_session_ecdsa_reconnect');
     }
-    expect(plan.thresholdSessionAuth.identity).toEqual({
+    expect(plan.walletSessionAuth.identity).toEqual({
       thresholdSessionId: 'threshold-session-1',
       walletSigningSessionId: 'wallet-session-1',
     });

@@ -5,7 +5,7 @@ import {
   parseActiveEcdsaSignerRecordForUnlock,
   planUnlockEcdsaWarmup,
   type ActiveEcdsaSignerRecord,
-  type RepairRequiredEcdsaSignerRecord,
+  type KeyFactsInventoryRequiredEcdsaSignerRecord,
   type WalletUnlockSelection,
 } from '@/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner';
 import { evmFamilyEcdsaWalletKeyToIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -112,14 +112,16 @@ function parseActive(
   return parsed;
 }
 
-function parseRepair(signer: AccountSignerRecord): RepairRequiredEcdsaSignerRecord {
+function parseKeyFactsInventoryRequired(
+  signer: AccountSignerRecord,
+): KeyFactsInventoryRequiredEcdsaSignerRecord {
   const parsed = parseActiveEcdsaSignerRecordForUnlock({
     walletId: WALLET_ID,
     configuredTargets: [EVM_TARGET, TEMPO_TARGET],
     signer,
   });
-  if (parsed.kind !== 'repair_required') {
-    throw new Error(`expected repair signer, got ${parsed.kind}`);
+  if (parsed.kind !== 'key_facts_inventory_required') {
+    throw new Error(`expected key-facts inventory signer, got ${parsed.kind}`);
   }
   return parsed;
 }
@@ -170,7 +172,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
-    thresholdSessionAuthToken: 'jwt',
+    walletSessionJwt: 'jwt',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 2,
     ethereumAddress: OWNER_ADDRESS,
@@ -202,7 +204,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
     expect(result).toEqual({ kind: 'no_configured_ecdsa_targets' });
   });
 
-  test('returns ready from complete local wallet keys without inventory repair', () => {
+  test('returns ready from complete local wallet keys without inventory lookup', () => {
     const evm = parseActive(profileSigner({ chainTarget: EVM_TARGET }));
     const tempo = parseActive(profileSigner({ chainTarget: TEMPO_TARGET }));
     const result = planUnlockEcdsaWarmup({
@@ -211,7 +213,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
       activeSignerRecords: [evm, tempo],
       localSessionRecords: [localSessionRecordFor(evm)],
       allowAuthenticatedKeyFactsInventory: false,
-      explicitRepairMode: false,
+      explicitKeyFactsInventoryMode: false,
     });
 
     expect(result.kind).toBe('ready');
@@ -248,30 +250,34 @@ test.describe('unlock ECDSA warm-up planner', () => {
     );
   });
 
-  test('keeps key-handle-only active signers in repair_required until explicit repair auth exists', () => {
-    const repair = parseRepair(profileSigner({ chainTarget: EVM_TARGET, sharedKey: false }));
+  test('keeps key-handle-only active signers in key-facts inventory until explicit inventory auth exists', () => {
+    const keyFactsInventoryRequired = parseKeyFactsInventoryRequired(
+      profileSigner({ chainTarget: EVM_TARGET, sharedKey: false }),
+    );
     const defaultPlan = planUnlockEcdsaWarmup({
       selection: ECDSA_SELECTION,
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [],
-      repairRecords: [repair],
+      keyFactsInventoryRequiredRecords: [keyFactsInventoryRequired],
       localSessionRecords: [],
     });
-    const explicitRepairPlan = planUnlockEcdsaWarmup({
+    const explicitInventoryPlan = planUnlockEcdsaWarmup({
       selection: ECDSA_SELECTION,
       configuredTargets: [EVM_TARGET],
       activeSignerRecords: [],
-      repairRecords: [repair],
+      keyFactsInventoryRequiredRecords: [keyFactsInventoryRequired],
       localSessionRecords: [],
-      explicitRepairMode: true,
+      explicitKeyFactsInventoryMode: true,
       allowAuthenticatedKeyFactsInventory: true,
     });
 
     expect(defaultPlan).toMatchObject({
-      kind: 'repair_required',
-      repairRecords: [{ targetKey: 'evm:eip155:5042002', reason: 'missing_key_facts' }],
+      kind: 'key_facts_inventory_required',
+      keyFactsInventoryRequiredRecords: [
+        { targetKey: 'evm:eip155:5042002', reason: 'missing_key_facts' },
+      ],
     });
-    expect(explicitRepairPlan).toMatchObject({
+    expect(explicitInventoryPlan).toMatchObject({
       kind: 'awaiting_authenticated_key_facts_inventory',
       keyTargets: [{ keyHandle: 'ehss-key-shared', chainTarget: EVM_TARGET }],
     });

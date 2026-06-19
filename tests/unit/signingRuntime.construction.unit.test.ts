@@ -58,6 +58,14 @@ function createInMemoryRuntimePorts(): RuntimePorts {
           message: 'in-memory runtime has no signer crypto',
         };
       },
+      async storeEcdsaRoleLocalSigningMaterial() {
+        return {
+          ok: false,
+          failure: 'invocation',
+          code: 'unavailable',
+          message: 'in-memory runtime has no signer crypto',
+        };
+      },
       async buildEcdsaRoleLocalExportArtifact() {
         return {
           ok: false,
@@ -174,7 +182,7 @@ test.describe('SigningRuntime construction', () => {
       },
       config: toSigningRuntimeConfig(buildConfigsFromEnv({
         relayer: {
-          url: 'http://127.0.0.1:8787',
+          url: 'http://127.0.0.1:9090',
         },
       })),
       state,

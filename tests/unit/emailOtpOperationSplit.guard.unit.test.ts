@@ -41,7 +41,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('Email OTP coordinator keeps export challenge issuance separate from signing challenge issuance', () => {
     const source = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts',
     );
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -57,14 +57,14 @@ test.describe('Email OTP operation split guard', () => {
     ];
     const violations = forbidden
       .filter((token) => source.includes(token))
-      .map((token) => `EmailOtpThresholdSessionCoordinator.ts contains ${token}`);
+      .map((token) => `EmailOtpWalletSessionCoordinator.ts contains ${token}`);
 
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
   test('Email OTP coordinator stays a thin runtime facade', () => {
     const source = readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts',
     );
     const lineCount = source.split(/\r?\n/).length;
     const forbidden = [
@@ -78,7 +78,7 @@ test.describe('Email OTP operation split guard', () => {
     ];
     const violations = forbidden
       .filter((token) => source.includes(token))
-      .map((token) => `EmailOtpThresholdSessionCoordinator.ts contains ${token}`);
+      .map((token) => `EmailOtpWalletSessionCoordinator.ts contains ${token}`);
 
     expect(lineCount).toBeLessThanOrEqual(250);
     expect(violations, violations.join('\n')).toEqual([]);

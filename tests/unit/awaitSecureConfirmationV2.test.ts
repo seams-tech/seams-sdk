@@ -14,28 +14,28 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
       async ({ workerPath }) => {
         // Load the UserConfirm worker bundle; it exposes awaitUserConfirmationV2 on globalThis
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
         const errors: string[] = [];
         try {
-          await awaitV2('not-json');
+          await awaitUserConfirmation('not-json');
         } catch (e: any) {
           errors.push(String(e?.message || e));
         }
         try {
-          await awaitV2({});
+          await awaitUserConfirmation({});
         } catch (e: any) {
           errors.push(String(e?.message || e));
         }
         try {
-          await awaitV2({ type: 'signTransaction', summary: {}, payload: {} });
+          await awaitUserConfirmation({ type: 'signTransaction', summary: {}, payload: {} });
         } catch (e: any) {
           errors.push(String(e?.message || e));
         }
         try {
-          await awaitV2({ requestId: 'id-1', summary: {}, payload: {} });
+          await awaitUserConfirmation({ requestId: 'id-1', summary: {}, payload: {} });
         } catch (e: any) {
           errors.push(String(e?.message || e));
         }
@@ -53,14 +53,14 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     const result = await page.evaluate(
       async ({ workerPath }) => {
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
         const controller = new AbortController();
         controller.abort();
         try {
-          await awaitV2(
+          await awaitUserConfirmation(
             {
               requestId: 'id-2',
               type: 'signTransaction',
@@ -86,7 +86,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     const result = await page.evaluate(
       async ({ workerPath }) => {
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
@@ -94,7 +94,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
         // Stub to avoid Window.postMessage signature issues when used by worker-style code
         (self as any).postMessage = (_msg: unknown) => {};
         try {
-          await awaitV2(
+          await awaitUserConfirmation(
             {
               requestId: 'id-3',
               type: 'signTransaction',
@@ -122,7 +122,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     const result = await page.evaluate(
       async ({ workerPath }) => {
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
@@ -148,7 +148,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
           );
         }, 10);
         try {
-          await awaitV2(payload, { timeoutMs: 60 });
+          await awaitUserConfirmation(payload, { timeoutMs: 60 });
           return { ok: true };
         } catch (e: any) {
           return { ok: false, message: String(e?.message || e) };
@@ -166,7 +166,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     const result = await page.evaluate(
       async ({ workerPath }) => {
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
@@ -214,7 +214,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
           return originalAdd(type, listener, options);
         }) as any;
 
-        const resp = await awaitV2(request, { timeoutMs: 250 });
+        const resp = await awaitUserConfirmation(request, { timeoutMs: 250 });
         return {
           requestId: resp?.request_id,
           confirmed: resp?.confirmed,
@@ -233,7 +233,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     const result = await page.evaluate(
       async ({ workerPath }) => {
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
@@ -292,7 +292,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
           return originalAdd(type, listener, options);
         }) as any;
 
-        const resp = await awaitV2(request, { timeoutMs: 250 });
+        const resp = await awaitUserConfirmation(request, { timeoutMs: 250 });
         return {
           requestId: resp?.request_id,
           confirmed: resp?.confirmed,
@@ -315,7 +315,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     const result = await page.evaluate(
       async ({ workerPath }) => {
         await import(workerPath);
-        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+        const awaitUserConfirmation = (globalThis as any).awaitUserConfirmationV2 as (
           req: any,
           opts?: any,
         ) => Promise<any>;
@@ -363,7 +363,7 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
         }) as any;
 
         try {
-          await awaitV2(request, { timeoutMs: 80 });
+          await awaitUserConfirmation(request, { timeoutMs: 80 });
           return { ok: true };
         } catch (e: any) {
           return { ok: false, message: String(e?.message || e) };

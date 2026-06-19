@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type {
-  Ed25519AuthSessionStatus,
-  Ed25519AuthSessionStore,
-  ThresholdEd25519AuthConsumeUsesResult,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/AuthSessionStore';
-import { signerBoundWalletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
-import { createSigningSessionSealPolicyFromThresholdAuthSessionStores } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
+  Ed25519WalletSessionStatus,
+  Ed25519WalletSessionStore,
+  WalletSessionConsumeUsesResult,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
+import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
+import { createSigningSessionSealPolicyFromWalletSessionStores } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
 
 function makeStatus(input: {
   userId: string;
@@ -18,7 +18,7 @@ function makeStatus(input: {
     curve: 'ed25519' | 'ecdsa';
     thresholdSessionId: string;
   };
-}): Ed25519AuthSessionStatus {
+}): Ed25519WalletSessionStatus {
   return {
     record: {
       userId: input.userId,
@@ -34,9 +34,9 @@ function makeStatus(input: {
 }
 
 function makeStore(entries: {
-  sessions?: Record<string, Ed25519AuthSessionStatus | null>;
-  consume?: Record<string, ThresholdEd25519AuthConsumeUsesResult>;
-}): Ed25519AuthSessionStore {
+  sessions?: Record<string, Ed25519WalletSessionStatus | null>;
+  consume?: Record<string, WalletSessionConsumeUsesResult>;
+}): Ed25519WalletSessionStore {
   const sessions = entries.sessions || {};
   const consume = entries.consume || {};
   return {
@@ -68,7 +68,7 @@ test.describe('signing session seal session policy', () => {
   test('looks up threshold sessions only within the requested curve family', async () => {
     const thresholdSessionId = 'shared-threshold-session';
     const walletBudgetStore = makeStore({});
-    const policy = createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+    const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
           sessions: {
@@ -134,7 +134,7 @@ test.describe('signing session seal session policy', () => {
   test('looks up threshold session status only within the requested curve family', async () => {
     const thresholdSessionId = 'shared-threshold-session';
     const walletBudgetStore = makeStore({});
-    const policy = createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+    const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
           sessions: {
@@ -173,7 +173,7 @@ test.describe('signing session seal session policy', () => {
       }),
     ).resolves.toEqual([
       {
-        kind: 'threshold_session',
+        kind: 'wallet_session',
         curve: 'ed25519',
         thresholdSessionId,
         userId: 'alice',
@@ -192,7 +192,7 @@ test.describe('signing session seal session policy', () => {
       }),
     ).resolves.toEqual([
       {
-        kind: 'threshold_session',
+        kind: 'wallet_session',
         curve: 'ecdsa',
         thresholdSessionId,
         userId: 'alice',
@@ -208,11 +208,7 @@ test.describe('signing session seal session policy', () => {
   test('looks up wallet budget status from the shared wallet budget store', async () => {
     const budgetSessionId = 'budget-session';
     const walletBudgetThresholdSessionId = 'threshold-ed25519-budget-session';
-    const walletBudgetStoreSessionId = signerBoundWalletSigningBudgetSessionId({
-      walletSigningSessionId: budgetSessionId,
-      curve: 'ed25519',
-      thresholdSessionId: walletBudgetThresholdSessionId,
-    });
+    const walletBudgetStoreSessionId = walletSigningBudgetSessionId(budgetSessionId);
     const walletBudgetStore = makeStore({
       sessions: {
         [walletBudgetStoreSessionId]: makeStatus({
@@ -229,7 +225,7 @@ test.describe('signing session seal session policy', () => {
         }),
       },
     });
-    const policy = createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+    const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
           sessions: {
@@ -286,52 +282,38 @@ test.describe('signing session seal session policy', () => {
         walletSigningSessionId: budgetSessionId,
         thresholdSessionId: walletBudgetThresholdSessionId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      kind: 'wallet_budget',
+      curve: 'ecdsa',
+      thresholdSessionId: walletBudgetThresholdSessionId,
+      walletSigningSessionId: budgetSessionId,
+      userId: 'alice',
+      expiresAtMs: 333_000,
+      remainingUses: 2,
+      relayerKeyId: 'relayer-wallet-budget',
+      rpId: 'rp-wallet-budget.example',
+      participantIds: [5, 6],
+    });
   });
 
-  test('keeps signer-bound wallet budgets independent under one wallet signing session id', async () => {
+  test('shares one wallet budget across signers under one wallet signing session id', async () => {
     const walletSigningSessionId = 'shared-wallet-session';
     const ed25519ThresholdSessionId = 'threshold-ed25519-shared-wallet';
     const ecdsaThresholdSessionId = 'threshold-ecdsa-shared-wallet';
-    const ed25519BudgetSessionId = signerBoundWalletSigningBudgetSessionId({
-      walletSigningSessionId,
-      curve: 'ed25519',
-      thresholdSessionId: ed25519ThresholdSessionId,
-    });
-    const ecdsaBudgetSessionId = signerBoundWalletSigningBudgetSessionId({
-      walletSigningSessionId,
-      curve: 'ecdsa',
-      thresholdSessionId: ecdsaThresholdSessionId,
-    });
+    const walletBudgetSessionId = walletSigningBudgetSessionId(walletSigningSessionId);
     const walletBudgetStore = makeStore({
       sessions: {
-        [ed25519BudgetSessionId]: makeStatus({
+        [walletBudgetSessionId]: makeStatus({
           userId: 'alice',
           rpId: 'rp-wallet-budget.example',
           relayerKeyId: 'relayer-wallet-budget',
           participantIds: [1, 2],
           expiresAtMs: 333_000,
           remainingUses: 2,
-          walletBudgetBinding: {
-            curve: 'ed25519',
-            thresholdSessionId: ed25519ThresholdSessionId,
-          },
-        }),
-        [ecdsaBudgetSessionId]: makeStatus({
-          userId: 'alice',
-          rpId: 'rp-wallet-budget.example',
-          relayerKeyId: 'relayer-wallet-budget',
-          participantIds: [1, 2],
-          expiresAtMs: 444_000,
-          remainingUses: 3,
-          walletBudgetBinding: {
-            curve: 'ecdsa',
-            thresholdSessionId: ecdsaThresholdSessionId,
-          },
         }),
       },
     });
-    const policy = createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+    const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [],
       ecdsaStores: [],
       walletBudgetStores: [walletBudgetStore],
@@ -357,7 +339,7 @@ test.describe('signing session seal session policy', () => {
     ).resolves.toMatchObject({
       curve: 'ecdsa',
       thresholdSessionId: ecdsaThresholdSessionId,
-      remainingUses: 3,
+      remainingUses: 2,
     });
     await expect(
       policy.getWalletBudgetStatus?.({
@@ -365,13 +347,17 @@ test.describe('signing session seal session policy', () => {
         walletSigningSessionId,
         thresholdSessionId: ed25519ThresholdSessionId,
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      curve: 'ecdsa',
+      thresholdSessionId: ed25519ThresholdSessionId,
+      remainingUses: 2,
+    });
   });
 
   test('consumes use counts only within the requested curve family', async () => {
     const thresholdSessionId = 'shared-threshold-session';
     const walletBudgetStore = makeStore({});
-    const policy = createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+    const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
           sessions: {

@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
   createPassthroughSigningSessionSealCipherAdapter,
-  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealRoutesOptions,
 } from '@server/threshold/session/signingSessionSeal';
 import {
@@ -30,7 +30,7 @@ export type ThresholdEcdsaTempoFlowOptions = {
   relayerUrl: string;
   signingKind?: 'tempoTransaction' | 'eip1559';
   accountId?: string;
-  thresholdEcdsaPresignPool?: {
+  routerAbEcdsaHssPresignaturePool?: {
     enabled?: boolean;
     targetDepth?: number;
     lowWatermark?: number;
@@ -117,12 +117,15 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
   const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, {
     THRESHOLD_NODE_ROLE: 'coordinator',
   });
-  const thresholdAuthStores = threshold as unknown as {
-    authSessionStore?: unknown;
-    ecdsaAuthSessionStore?: unknown;
+  const thresholdWalletSessionStores = threshold as unknown as {
+    walletSessionStore?: unknown;
+    ecdsaWalletSessionStore?: unknown;
   };
-  if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
-    throw new Error('Missing threshold auth session stores for Tempo signing-session policy');
+  if (
+    !thresholdWalletSessionStores.walletSessionStore ||
+    !thresholdWalletSessionStores.ecdsaWalletSessionStore
+  ) {
+    throw new Error('Missing Wallet Session stores for Tempo signing-session policy');
   }
   await service.getRelayerAccount();
 
@@ -185,10 +188,10 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     }),
     bootstrapTokenStore,
     signingSessionSeal: createSigningSessionSealRoutesOptions({
-      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        ed25519Stores: [thresholdAuthStores.authSessionStore as any],
-        ecdsaStores: [thresholdAuthStores.ecdsaAuthSessionStore as any],
-        walletBudgetStores: [thresholdAuthStores.authSessionStore as any],
+      sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
+        ed25519Stores: [thresholdWalletSessionStores.walletSessionStore as any],
+        ecdsaStores: [thresholdWalletSessionStores.ecdsaWalletSessionStore as any],
+        walletBudgetStores: [thresholdWalletSessionStores.walletSessionStore as any],
       }),
       cipher: createPassthroughSigningSessionSealCipherAdapter(),
     }),
@@ -632,8 +635,8 @@ export async function runThresholdEcdsaTempoFlow(
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
-      ...(input.thresholdEcdsaPresignPool
-        ? { thresholdEcdsaPresignPool: input.thresholdEcdsaPresignPool }
+      ...(input.routerAbEcdsaHssPresignaturePool
+        ? { routerAbEcdsaHssPresignaturePool: input.routerAbEcdsaHssPresignaturePool }
         : {}),
       relayer: {
         url: input.relayerUrl,

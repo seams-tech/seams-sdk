@@ -3,10 +3,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/core/runtime": ["../packages/sdk-runtime-ts/src/runtime/index.ts"],
-      "@/core/runtime/*": ["../packages/sdk-runtime-ts/src/runtime/*"],
-      "@seams-internal/runtime": ["../packages/sdk-runtime-ts/src/index.ts"],
-      "@seams-internal/runtime/*": ["../packages/sdk-runtime-ts/src/*"],
+      "@/core/runtime": ["../packages/sdk-web/src/core/runtime/index.ts"],
+      "@/core/runtime/*": ["../packages/sdk-web/src/core/runtime/*"],
       "@/*": ["../packages/sdk-web/src/*"],
       "@/plugins/*": ["../packages/sdk-web/src/plugins/*"],
       "@shared/utils": ["../packages/shared-ts/src/utils/index.ts"],

@@ -9,6 +9,11 @@ import {
   type ThresholdEcdsaBootstrapSignerAuth,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 type UpsertProfileCall = Parameters<ThresholdEcdsaBootstrapStorePort['upsertProfile']>[0];
 
@@ -34,6 +39,9 @@ const TEMPO_TARGET = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 } as const;
+const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_SHARE_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function bootstrap(args: {
   chainId: number | string;
@@ -43,6 +51,36 @@ function bootstrap(args: {
 }): ThresholdEcdsaSessionBootstrapResult {
   const keyHandle = args.keyHandle || 'key-handle-1';
   const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'threshold-key-1';
+  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: VALID_SHARE_32_B64U,
+    },
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: toWalletId('alice.testnet'),
+      rpId: 'localhost',
+      chainTarget: EVM_TARGET,
+      keyHandle,
+      ecdsaThresholdKeyId,
+      signingRootId: 'signing-root-1',
+      signingRootVersion: 'signing-root-v1',
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      contextBinding32B64u: VALID_SHARE_32_B64U,
+      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      ethereumAddress: args.ownerAddress,
+    }),
+    authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+      credentialIdB64u: 'credential-1',
+      rpId: 'localhost',
+    }),
+  });
   return {
     thresholdEcdsaKeyRef: {
       type: 'threshold-ecdsa-secp256k1',
@@ -51,10 +89,15 @@ function bootstrap(args: {
       relayerUrl: 'https://relay.example',
       keyHandle,
       ecdsaThresholdKeyId,
-      signingRootId: 'signing-root-1',
-      signingRootVersion: 'signing-root-v1',
-      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-      participantIds: [1, 2, 3],
+      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+      participantIds: [1, 2],
+      backendBinding: {
+        materialKind: 'role_local_ready_state_blob',
+        relayerKeyId: 'relayer-key-1',
+        clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+        stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
+        ecdsaRoleLocalReadyRecord,
+      },
       thresholdSessionId: 'tehss_1',
       walletSigningSessionId: 'wss_1',
     },
@@ -66,9 +109,9 @@ function bootstrap(args: {
       ecdsaThresholdKeyId,
       rpId: 'localhost',
       relayerKeyId: 'relayer-key-1',
-      relayerVerifyingShareB64u: 'relayer-share',
-      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-      participantIds: [1, 2, 3],
+      relayerVerifyingShareB64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+      participantIds: [1, 2],
     } as ThresholdEcdsaSessionBootstrapResult['keygen'],
     session: {
       ok: true,

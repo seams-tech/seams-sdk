@@ -110,6 +110,53 @@ test.describe('determineConfirmationConfig', () => {
     expect(res.cfg.uiMode === 'modal' || res.cfg.uiMode === 'drawer').toBe(true);
   });
 
+  test('warm-session transaction signing keeps the transaction confirmer enabled', async ({
+    page,
+  }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.determine);
+        const types = await import(paths.types);
+        const determine = mod.determineConfirmationConfig as Function;
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 12,
+            }),
+          },
+        };
+
+        const req = {
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          payload: {
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'alice.testnet',
+              intent: 'transactionSign',
+              sessionId: 'threshold-session',
+              retention: 'multi_use',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 2,
+            },
+          },
+        } as any;
+        const cfg = determine(ctx, req);
+        return { cfg };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(res.cfg).toEqual({
+      uiMode: 'modal',
+      behavior: 'requireClick',
+      autoProceedDelay: 12,
+    });
+  });
+
   test('SIGN_INTENT_DIGEST respects configured click behavior when explicit activation is not required', async ({
     page,
   }) => {
@@ -156,6 +203,59 @@ test.describe('determineConfirmationConfig', () => {
       uiMode: 'none',
       behavior: 'skipClick',
       autoProceedDelay: 0,
+    });
+  });
+
+  test('warm-session signing respects explicit transaction confirmation config', async ({
+    page,
+  }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.determine);
+        const types = await import(paths.types);
+        const determine = mod.determineConfirmationConfig as Function;
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'modal',
+              behavior: 'requireClick',
+              autoProceedDelay: 25,
+            }),
+          },
+        };
+
+        const request = {
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          confirmationConfig: {
+            uiMode: 'modal',
+            behavior: 'requireClick',
+            autoProceedDelay: 10,
+          },
+          payload: {
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'alice.testnet',
+              intent: 'transaction_sign',
+              curve: 'ed25519',
+              sessionId: 'tsess-ready',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 3,
+            },
+          },
+        } as any;
+
+        const cfg = determine(ctx, request);
+        return { cfg };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(res.cfg).toEqual({
+      uiMode: 'modal',
+      behavior: 'requireClick',
+      autoProceedDelay: 10,
     });
   });
 

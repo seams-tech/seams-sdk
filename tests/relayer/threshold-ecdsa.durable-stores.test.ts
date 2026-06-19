@@ -1,31 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { ensurePostgresSchema, getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
-import { createEcdsaAuthSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/AuthSessionStore';
+import { createEcdsaWalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import { createThresholdEcdsaSigningStores } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
+
+const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
 
 function randPrefix(tag: string): string {
   return `test:${tag}:${Date.now()}:${Math.random().toString(16).slice(2)}:`;
-}
-
-function makeSigningSessionRecord(args: { relayerKeyId: string; presignatureId: string }) {
-  return {
-    expiresAtMs: Date.now() + 60_000,
-    mpcSessionId: 'mpc-session-1',
-    relayerKeyId: args.relayerKeyId,
-    presignPoolKey: `keyHandle:${args.relayerKeyId}`,
-    ecdsaThresholdKeyId: 'threshold-key-1',
-    thresholdEcdsaPublicKeyB64u: 'public-key',
-    signingDigestB64u: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    userId: 'user-1',
-    rpId: 'example.localhost',
-    clientVerifyingShareB64u: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    participantIds: [1, 2],
-    presignatureId: args.presignatureId,
-    entropyB64u: 'ccccccccccccccccccccccccccccccccccccccccccc',
-    signingRootId: 'signing-root',
-    walletKeyVersion: 'v1',
-    derivationVersion: 1,
-  };
 }
 
 function makePresignRecord(args: {
@@ -54,6 +35,7 @@ function makePresignSessionRecord(args?: {
     rpId: 'example.localhost',
     relayerKeyId: 'rk-presign',
     presignPoolKey: 'keyHandle:rk-presign',
+    poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
     participantIds: [1, 2],
     clientParticipantId: 1,
     relayerParticipantId: 2,
@@ -68,14 +50,14 @@ function makePresignSessionRecord(args?: {
   };
 }
 
-test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
-  test.describe('auth export replay guard', () => {
+test.describe('threshold-ecdsa durable presign stores', () => {
+  test.describe('Wallet Session export replay guard', () => {
     test('in-memory store rejects duplicate export nonce inside the same scope', async () => {
-      const authPrefix = randPrefix('threshold-ecdsa:auth:memory');
-      const store = createEcdsaAuthSessionStore({
+      const walletSessionPrefix = randPrefix('threshold-ecdsa:wallet-session:memory');
+      const store = createEcdsaWalletSessionStore({
         config: {
           kind: 'in-memory',
-          THRESHOLD_ECDSA_AUTH_PREFIX: authPrefix,
+          THRESHOLD_ECDSA_WALLET_SESSION_PREFIX: walletSessionPrefix,
         } as any,
         logger: console as any,
         isNode: true,
@@ -93,8 +75,13 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       await expect(store.reserveReplayGuard('scope-b', 'nonce-a', expiresAtMs)).resolves.toEqual({
         ok: true,
       });
-      await expect(store.reserveReplayGuard('scope-a', 'nonce-expired', Date.now() - 1)).resolves
-        .toMatchObject({
+      await expect(
+        store.reserveReplayGuard(
+          'scope-a',
+          'nonce-expired',
+          Date.now() - EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS - 1,
+        ),
+      ).resolves.toMatchObject({
           ok: false,
           code: 'export_authorization_expired',
         });
@@ -105,12 +92,12 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       test.skip(!postgresUrl, 'POSTGRES_URL not set');
       await ensurePostgresSchema({ postgresUrl, logger: console as any });
 
-      const authPrefix = randPrefix('threshold-ecdsa:auth:pg');
-      const store = createEcdsaAuthSessionStore({
+      const walletSessionPrefix = randPrefix('threshold-ecdsa:wallet-session:pg');
+      const store = createEcdsaWalletSessionStore({
         config: {
           kind: 'postgres',
           POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_AUTH_PREFIX: authPrefix,
+          THRESHOLD_ECDSA_WALLET_SESSION_PREFIX: walletSessionPrefix,
         } as any,
         logger: console as any,
         isNode: true,
@@ -131,8 +118,8 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
         });
       } finally {
         const pool = await getPostgresPool(postgresUrl);
-        await pool.query('DELETE FROM threshold_ed25519_auth_consumptions WHERE namespace = $1', [
-          authPrefix,
+        await pool.query('DELETE FROM threshold_wallet_session_consumptions WHERE namespace = $1', [
+          walletSessionPrefix,
         ]);
       }
     });
@@ -141,7 +128,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
   test.describe('Postgres', () => {
     const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
     const enabled = Boolean(postgresUrl);
-    const signingPrefix = randPrefix('threshold-ecdsa:signing:pg');
     const presignPrefix = randPrefix('threshold-ecdsa:presign:pg');
 
     test.beforeAll(async () => {
@@ -152,9 +138,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
     test.afterAll(async () => {
       if (!enabled) return;
       const pool = await getPostgresPool(postgresUrl);
-      await pool.query('DELETE FROM threshold_ecdsa_signing_sessions WHERE namespace = $1', [
-        signingPrefix,
-      ]);
       await pool.query('DELETE FROM threshold_ecdsa_presignatures WHERE namespace = $1', [
         presignPrefix,
       ]);
@@ -163,36 +146,12 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       ]);
     });
 
-    test('signingSessionStore take is atomic', async () => {
-      test.skip(!enabled, 'POSTGRES_URL not set');
-      const { signingSessionStore } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'postgres',
-          POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const rec = makeSigningSessionRecord({ relayerKeyId: 'rk-1', presignatureId: 'ps-1' });
-      await signingSessionStore.putSigningSession('ss-1', rec as any, 10_000);
-
-      const first = await signingSessionStore.takeSigningSession('ss-1');
-      const second = await signingSessionStore.takeSigningSession('ss-1');
-
-      expect(first?.mpcSessionId).toBe(rec.mpcSessionId);
-      expect(second).toBeNull();
-    });
-
     test('presignaturePool reserve/consume are single-use under concurrency', async () => {
       test.skip(!enabled, 'POSTGRES_URL not set');
       const { presignaturePool } = createThresholdEcdsaSigningStores({
         config: {
           kind: 'postgres',
           POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -239,7 +198,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
         config: {
           kind: 'postgres',
           POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -279,7 +237,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
         config: {
           kind: 'postgres',
           POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -298,27 +255,26 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       expect(consumed).toBeNull();
     });
 
-    test('presignSessionStore CAS transitions are atomic', async () => {
+    test('poolFillSessionStore CAS transitions are atomic', async () => {
       test.skip(!enabled, 'POSTGRES_URL not set');
-      const { presignSessionStore } = createThresholdEcdsaSigningStores({
+      const { poolFillSessionStore } = createThresholdEcdsaSigningStores({
         config: {
           kind: 'postgres',
           POSTGRES_URL: postgresUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
         isNode: true,
       });
 
-      const created = await presignSessionStore.createSession(
+      const created = await poolFillSessionStore.createSession(
         'psess-1',
         makePresignSessionRecord({ version: 1, stage: 'triples' }) as any,
         10_000,
       );
       expect(created.ok).toBe(true);
 
-      const stale = await presignSessionStore.advanceSessionCas({
+      const stale = await poolFillSessionStore.advanceSessionCas({
         id: 'psess-1',
         expectedVersion: 99,
         nextRecord: makePresignSessionRecord({ version: 100, stage: 'triples' }) as any,
@@ -328,13 +284,13 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       if (!stale.ok) expect(stale.code).toBe('version_mismatch');
 
       const [a, b] = await Promise.all([
-        presignSessionStore.advanceSessionCas({
+        poolFillSessionStore.advanceSessionCas({
           id: 'psess-1',
           expectedVersion: 1,
           nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
           ttlMs: 10_000,
         }),
-        presignSessionStore.advanceSessionCas({
+        poolFillSessionStore.advanceSessionCas({
           id: 'psess-1',
           expectedVersion: 1,
           nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
@@ -348,12 +304,12 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       expect(errs.length).toBe(1);
       if (!errs[0].ok) expect(errs[0].code).toBe('version_mismatch');
 
-      const got = await presignSessionStore.getSession('psess-1');
+      const got = await poolFillSessionStore.getSession('psess-1');
       expect(got?.version).toBe(2);
       expect(got?.stage).toBe('triples_done');
 
-      await presignSessionStore.deleteSession('psess-1');
-      const afterDelete = await presignSessionStore.getSession('psess-1');
+      await poolFillSessionStore.deleteSession('psess-1');
+      const afterDelete = await poolFillSessionStore.getSession('psess-1');
       expect(afterDelete).toBeNull();
     });
   });
@@ -361,31 +317,7 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
   test.describe('Redis (tcp)', () => {
     const redisUrl = String(process.env.REDIS_URL || '').trim();
     const enabled = Boolean(redisUrl);
-    const signingPrefix = randPrefix('threshold-ecdsa:signing:redis');
     const presignPrefix = randPrefix('threshold-ecdsa:presign:redis');
-
-    test('signingSessionStore take is atomic', async () => {
-      test.skip(!enabled, 'REDIS_URL not set');
-      const { signingSessionStore } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'redis-tcp',
-          REDIS_URL: redisUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const rec = makeSigningSessionRecord({ relayerKeyId: 'rk-10', presignatureId: 'ps-10' });
-      await signingSessionStore.putSigningSession('ss-10', rec as any, 10_000);
-
-      const first = await signingSessionStore.takeSigningSession('ss-10');
-      const second = await signingSessionStore.takeSigningSession('ss-10');
-
-      expect(first?.mpcSessionId).toBe(rec.mpcSessionId);
-      expect(second).toBeNull();
-    });
 
     test('presignaturePool reserve/consume are single-use under concurrency', async () => {
       test.skip(!enabled, 'REDIS_URL not set');
@@ -393,7 +325,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
         config: {
           kind: 'redis-tcp',
           REDIS_URL: redisUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -440,7 +371,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
         config: {
           kind: 'redis-tcp',
           REDIS_URL: redisUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -474,27 +404,26 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       expect(consumedRemaining?.presignatureId).toBe('ps-rby-a');
     });
 
-    test('presignSessionStore CAS transitions are atomic', async () => {
+    test('poolFillSessionStore CAS transitions are atomic', async () => {
       test.skip(!enabled, 'REDIS_URL not set');
-      const { presignSessionStore } = createThresholdEcdsaSigningStores({
+      const { poolFillSessionStore } = createThresholdEcdsaSigningStores({
         config: {
           kind: 'redis-tcp',
           REDIS_URL: redisUrl,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
         isNode: true,
       });
 
-      const created = await presignSessionStore.createSession(
+      const created = await poolFillSessionStore.createSession(
         'psess-r1',
         makePresignSessionRecord({ version: 1, stage: 'triples' }) as any,
         10_000,
       );
       expect(created.ok).toBe(true);
 
-      const stale = await presignSessionStore.advanceSessionCas({
+      const stale = await poolFillSessionStore.advanceSessionCas({
         id: 'psess-r1',
         expectedVersion: 99,
         nextRecord: makePresignSessionRecord({ version: 100, stage: 'triples' }) as any,
@@ -504,13 +433,13 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       if (!stale.ok) expect(stale.code).toBe('version_mismatch');
 
       const [a, b] = await Promise.all([
-        presignSessionStore.advanceSessionCas({
+        poolFillSessionStore.advanceSessionCas({
           id: 'psess-r1',
           expectedVersion: 1,
           nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
           ttlMs: 10_000,
         }),
-        presignSessionStore.advanceSessionCas({
+        poolFillSessionStore.advanceSessionCas({
           id: 'psess-r1',
           expectedVersion: 1,
           nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
@@ -524,12 +453,12 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       expect(errs.length).toBe(1);
       if (!errs[0].ok) expect(errs[0].code).toBe('version_mismatch');
 
-      const got = await presignSessionStore.getSession('psess-r1');
+      const got = await poolFillSessionStore.getSession('psess-r1');
       expect(got?.version).toBe(2);
       expect(got?.stage).toBe('triples_done');
 
-      await presignSessionStore.deleteSession('psess-r1');
-      const afterDelete = await presignSessionStore.getSession('psess-r1');
+      await poolFillSessionStore.deleteSession('psess-r1');
+      const afterDelete = await poolFillSessionStore.getSession('psess-r1');
       expect(afterDelete).toBeNull();
     });
   });
@@ -538,32 +467,7 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
     const upstashUrl = String(process.env.UPSTASH_REDIS_REST_URL || '').trim();
     const upstashToken = String(process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
     const enabled = Boolean(upstashUrl && upstashToken);
-    const signingPrefix = randPrefix('threshold-ecdsa:signing:upstash');
     const presignPrefix = randPrefix('threshold-ecdsa:presign:upstash');
-
-    test('signingSessionStore take is atomic', async () => {
-      test.skip(!enabled, 'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set');
-      const { signingSessionStore } = createThresholdEcdsaSigningStores({
-        config: {
-          kind: 'upstash-redis-rest',
-          UPSTASH_REDIS_REST_URL: upstashUrl,
-          UPSTASH_REDIS_REST_TOKEN: upstashToken,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
-          THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
-        } as any,
-        logger: console as any,
-        isNode: true,
-      });
-
-      const rec = makeSigningSessionRecord({ relayerKeyId: 'rk-u1', presignatureId: 'ps-u1' });
-      await signingSessionStore.putSigningSession('ss-u1', rec as any, 10_000);
-
-      const first = await signingSessionStore.takeSigningSession('ss-u1');
-      const second = await signingSessionStore.takeSigningSession('ss-u1');
-
-      expect(first?.mpcSessionId).toBe(rec.mpcSessionId);
-      expect(second).toBeNull();
-    });
 
     test('presignaturePool reserve/consume are single-use under concurrency', async () => {
       test.skip(!enabled, 'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set');
@@ -572,7 +476,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
           kind: 'upstash-redis-rest',
           UPSTASH_REDIS_REST_URL: upstashUrl,
           UPSTASH_REDIS_REST_TOKEN: upstashToken,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -620,7 +523,6 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
           kind: 'upstash-redis-rest',
           UPSTASH_REDIS_REST_URL: upstashUrl,
           UPSTASH_REDIS_REST_TOKEN: upstashToken,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
@@ -654,28 +556,27 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       expect(consumedRemaining?.presignatureId).toBe('ps-uby-a');
     });
 
-    test('presignSessionStore CAS transitions are atomic', async () => {
+    test('poolFillSessionStore CAS transitions are atomic', async () => {
       test.skip(!enabled, 'UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set');
-      const { presignSessionStore } = createThresholdEcdsaSigningStores({
+      const { poolFillSessionStore } = createThresholdEcdsaSigningStores({
         config: {
           kind: 'upstash-redis-rest',
           UPSTASH_REDIS_REST_URL: upstashUrl,
           UPSTASH_REDIS_REST_TOKEN: upstashToken,
-          THRESHOLD_ECDSA_SIGNING_PREFIX: signingPrefix,
           THRESHOLD_ECDSA_PRESIGN_PREFIX: presignPrefix,
         } as any,
         logger: console as any,
         isNode: true,
       });
 
-      const created = await presignSessionStore.createSession(
+      const created = await poolFillSessionStore.createSession(
         'psess-u1',
         makePresignSessionRecord({ version: 1, stage: 'triples' }) as any,
         10_000,
       );
       expect(created.ok).toBe(true);
 
-      const stale = await presignSessionStore.advanceSessionCas({
+      const stale = await poolFillSessionStore.advanceSessionCas({
         id: 'psess-u1',
         expectedVersion: 99,
         nextRecord: makePresignSessionRecord({ version: 100, stage: 'triples' }) as any,
@@ -685,13 +586,13 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       if (!stale.ok) expect(stale.code).toBe('version_mismatch');
 
       const [a, b] = await Promise.all([
-        presignSessionStore.advanceSessionCas({
+        poolFillSessionStore.advanceSessionCas({
           id: 'psess-u1',
           expectedVersion: 1,
           nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
           ttlMs: 10_000,
         }),
-        presignSessionStore.advanceSessionCas({
+        poolFillSessionStore.advanceSessionCas({
           id: 'psess-u1',
           expectedVersion: 1,
           nextRecord: makePresignSessionRecord({ version: 2, stage: 'triples_done' }) as any,
@@ -705,12 +606,12 @@ test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
       expect(errs.length).toBe(1);
       if (!errs[0].ok) expect(errs[0].code).toBe('version_mismatch');
 
-      const got = await presignSessionStore.getSession('psess-u1');
+      const got = await poolFillSessionStore.getSession('psess-u1');
       expect(got?.version).toBe(2);
       expect(got?.stage).toBe('triples_done');
 
-      await presignSessionStore.deleteSession('psess-u1');
-      const afterDelete = await presignSessionStore.getSession('psess-u1');
+      await poolFillSessionStore.deleteSession('psess-u1');
+      const afterDelete = await poolFillSessionStore.getSession('psess-u1');
       expect(afterDelete).toBeNull();
     });
   });

@@ -25,6 +25,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         const nearAccountId = 'registration-alice.testnet';
         const now = Date.now();
+        const routerAbNormalSigning = {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: 'signing-worker-local',
+        };
         let warmSessionActive = false;
         let hydrateCalls = 0;
 
@@ -124,6 +128,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 envId: 'env-registration',
                 signingRootVersion: 'default',
               },
+              routerAbNormalSigning,
             },
             completedRegistration: {
               registered: {
@@ -147,6 +152,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                     envId: 'env-registration',
                     signingRootVersion: 'default',
                   },
+                  routerAbNormalSigning,
                   jwt: 'jwt-registration',
                 },
               },
@@ -197,6 +203,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         const nearAccountId = 'registration-parity.testnet';
         const now = Date.now();
+        const routerAbNormalSigning = {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: 'signing-worker-local',
+        };
         let warmSessionActive = false;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -295,6 +305,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 envId: 'env-registration',
                 signingRootVersion: 'default',
               },
+              routerAbNormalSigning,
             },
             completedRegistration: {
               registered: {
@@ -318,6 +329,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                     envId: 'env-registration',
                     signingRootVersion: 'default',
                   },
+                  routerAbNormalSigning,
                   jwt: 'jwt-registration',
                 },
               },
@@ -365,6 +377,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           projectId: 'proj-registration',
           envId: 'env-registration',
           signingRootVersion: 'default',
+        };
+        const routerAbNormalSigning = {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: 'signing-worker-local',
         };
         const signingRootId = 'proj-registration:env-registration';
         let reconstructCalls = 0;
@@ -458,6 +474,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               ttlMs: 60_000,
               remainingUses: 3,
               runtimePolicyScope,
+              routerAbNormalSigning,
             },
             completedRegistration: {
               registered: {
@@ -476,6 +493,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   participantIds: [1, 2],
                   remainingUses: 3,
                   runtimePolicyScope,
+                  routerAbNormalSigning,
                   jwt: 'jwt-registration-email-otp',
                 },
               },

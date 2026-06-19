@@ -120,6 +120,8 @@ function makeLinkDeviceEcdsaRespondService() {
             groupPublicKey33B64u: ECDSA_GROUP_PUBLIC_KEY_B64U,
             ethereumAddress: `0x${'11'.repeat(20)}`,
           },
+          clientShareRetryCounter: 0,
+          relayerShareRetryCounter: 0,
           publicTranscriptDigest32B64u: 'transcript-digest',
           keyHandle: 'key-handle-link-device',
           signingRootId: 'project:env',

@@ -246,6 +246,39 @@ function loginReadySigningLanes(args: {
   };
 }
 
+function persistReadyEd25519WarmRecord(args: {
+  sessionId: string;
+  walletSigningSessionId?: string;
+  walletSessionJwt?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
+}): void {
+  upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: ACCOUNT_ID,
+    rpId: 'example.localhost',
+    relayerUrl: 'https://relay.example',
+    relayerKeyId: 'rk-1',
+    participantIds: [1, 2],
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: args.sessionId,
+    walletSigningSessionId: args.walletSigningSessionId || WALLET_SIGNING_SESSION_ID,
+    walletSessionJwt: args.walletSessionJwt || 'jwt-ed25519',
+    expiresAtMs: args.expiresAtMs || Date.now() + 60_000,
+    remainingUses: args.remainingUses ?? 3,
+    runtimePolicyScope: LOGIN_RUNTIME_POLICY_SCOPE,
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'signing-worker-local',
+    },
+    signingRootId: 'proj_local:dev',
+    signingRootVersion: 'default',
+    clientVerifyingShareB64u: 'ed25519-client-verifying-share',
+    ed25519HssMaterialHandle: `ed25519-hss-material:${args.sessionId}:fixture-binding`,
+    ed25519HssMaterialBindingDigest: `fixture-binding:${args.sessionId}`,
+    source: 'login',
+  });
+}
+
 function createBaseContext(args?: {
   signingEngine?: Record<string, unknown>;
   configs?: Record<string, unknown>;
@@ -291,15 +324,24 @@ function createBaseContext(args?: {
           walletId: input.walletId,
           authMethod: input.authMethod === 'email_otp' ? 'email_otp' : 'passkey',
         }),
-      connectEd25519Session: async () => ({
-        ok: true,
-        sessionId: 'session-1',
-        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-        jwt: 'jwt-ed25519',
-        remainingUses: 3,
-        expiresAtMs: now + 60_000,
-        ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
-      }),
+      connectEd25519Session: async () => {
+        persistReadyEd25519WarmRecord({
+          sessionId: 'session-1',
+          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          walletSessionJwt: 'jwt-ed25519',
+          expiresAtMs: now + 60_000,
+          remainingUses: 3,
+        });
+        return {
+          ok: true,
+          sessionId: 'session-1',
+          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+          jwt: 'jwt-ed25519',
+          remainingUses: 3,
+          expiresAtMs: now + 60_000,
+          ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+        };
+      },
       listThresholdEcdsaSessionRecordsForWalletTarget: (args: Record<string, unknown>) => [
         canonicalEcdsaRecord({
           chainTarget: args.chainTarget,
@@ -316,6 +358,7 @@ function createBaseContext(args?: {
           keyHandle: bootstrapKeyHandle(args),
           ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
           signingRootId: 'proj_local:dev',
+          signingRootVersion: 'default',
           backendBinding: {
             relayerKeyId: 'rk-1',
             clientVerifyingShareB64u: 'AQ',
@@ -555,7 +598,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       signingEngine: {
         getAuthenticationCredentialsSerialized: async (args: Record<string, unknown>) => {
           credentialPrompts += 1;
-          expect(args.nearAccountId).toBe(ACCOUNT_ID);
+          expect(args.subjectId).toBe(ACCOUNT_ID);
           expect(String(args.challengeB64u || '')).toMatch(/^[A-Za-z0-9_-]{43}$/);
           expect(args.allowCredentials).toEqual([
             {
@@ -587,6 +630,13 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
         connectEd25519Session: async (args: Record<string, unknown>) => {
           connectCalls.push(args);
+          persistReadyEd25519WarmRecord({
+            sessionId: 'session-1',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            walletSessionJwt: 'jwt-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+          });
           return {
             ok: true,
             sessionId: 'session-1',
@@ -606,9 +656,11 @@ test.describe('unlock threshold warm-session requirements', () => {
     );
 
     expect(result.success, String(result.error || '')).toBe(true);
-    expect(credentialPrompts).toBe(0);
+    expect(credentialPrompts).toBe(1);
     expect(connectCalls).toHaveLength(1);
-    expect(connectCalls[0]?.auth).toBeUndefined();
+    expect((connectCalls[0]?.auth as Record<string, unknown> | undefined)?.kind).toBe(
+      'threshold_session_policy_webauthn',
+    );
   });
 
   test('returns active signingSession in threshold-signer warm mode', async () => {
@@ -629,6 +681,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -678,7 +732,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     );
     expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
     expect(bootstrapArgs?.['routeAuth']).toEqual({
-      kind: 'threshold_session',
+      kind: 'wallet_session',
       jwt: 'jwt-ed25519',
     });
     const sharedKey = bootstrapArgs?.['key'] as Record<string, unknown> | undefined;
@@ -693,8 +747,8 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(prefillCalls).toBe(0);
   });
 
-  test('wallet unlock repairs stale ECDSA owner identity with managed first bootstrap', async () => {
-    const repairedOwnerAddress = `0x${'bb'.repeat(20)}`;
+  test('wallet unlock surfaces stale ECDSA owner identity without retrying bootstrap', async () => {
+    const returnedOwnerAddress = `0x${'bb'.repeat(20)}`;
     const bootstrapKinds: string[] = [];
     const exactOwnerAddresses: string[] = [];
     const staleOwnerError = new Error(
@@ -723,7 +777,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             expect(args.chainTarget).toEqual(TEMPO_CHAIN_TARGET);
             expect('key' in args).toBe(false);
             expect(args.routeAuth).toEqual({
-              kind: 'threshold_session',
+              kind: 'wallet_session',
               jwt: 'jwt-ed25519',
             });
             expect(args.runtimeScopeBootstrap).toEqual({
@@ -736,7 +790,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           const thresholdSessionId = String(
             lanePolicy.thresholdSessionId ||
               sessionIdentity.thresholdSessionId ||
-              `session-stale-repair-${bootstrapKinds.length}`,
+              `session-stale-inventory-${bootstrapKinds.length}`,
           );
           const walletSigningSessionId = String(
             lanePolicy.walletSigningSessionId ||
@@ -750,6 +804,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: ECDSA_KEY_HANDLE,
               ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -759,7 +815,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               thresholdSessionId,
               walletSigningSessionId,
               walletSessionJwt: 'jwt-ecdsa',
-              ethereumAddress: repairedOwnerAddress,
+              ethereumAddress: returnedOwnerAddress,
             },
             keygen: {
               ok: true,
@@ -767,7 +823,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerKeyId: 'rk-1',
               clientVerifyingShareB64u: 'AQ',
               participantIds: [1, 2],
-              ethereumAddress: repairedOwnerAddress,
+              ethereumAddress: returnedOwnerAddress,
             },
             session: {
               ok: true,
@@ -789,13 +845,12 @@ test.describe('unlock threshold warm-session requirements', () => {
       { includeThresholdEcdsaProfiles: true },
     );
 
-    expect(result.success, String(result.error || '')).toBe(true);
-    expect(bootstrapKinds).toEqual([
-      'wallet_session_reconnect_ecdsa_bootstrap',
-      'passkey_fresh_ecdsa_bootstrap',
-      'wallet_session_reconnect_ecdsa_bootstrap',
-    ]);
-    expect(exactOwnerAddresses).toEqual([THRESHOLD_OWNER_ADDRESS, repairedOwnerAddress]);
+    expect(result.success).toBe(false);
+    expect(String(result.error || '')).toContain(
+      'threshold-ecdsa exact activation owner address mismatches server bootstrap result',
+    );
+    expect(bootstrapKinds).toEqual(['wallet_session_reconnect_ecdsa_bootstrap']);
+    expect(exactOwnerAddresses).toEqual([THRESHOLD_OWNER_ADDRESS]);
   });
 
   test('wallet unlock provisions fresh passkey sessions even when restored sessions exist', async () => {
@@ -819,6 +874,13 @@ test.describe('unlock threshold warm-session requirements', () => {
           connectCalls += 1;
           expect(args.source).toBe('login');
           expect(args.remainingUses).toBe(3);
+          persistReadyEd25519WarmRecord({
+            sessionId: 'fresh-passkey-session-1',
+            walletSigningSessionId: 'fresh-wallet-session-1',
+            walletSessionJwt: 'jwt-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+          });
           return {
             ok: true,
             sessionId: 'fresh-passkey-session-1',
@@ -846,7 +908,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(clearCalls).toBe(1);
   });
 
-  test('wallet unlock requires explicit ECDSA key-facts repair before incomplete local warm-up', async () => {
+  test('wallet unlock requires explicit authenticated ECDSA key-facts inventory before incomplete local warm-up', async () => {
     const originalFetch = globalThis.fetch;
     let connectCalls = 0;
     let fetchCalls = 0;
@@ -879,7 +941,7 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
         bootstrapEcdsaSession: async () => {
           bootstrapCalls += 1;
-          throw new Error('bootstrap should not run before repair');
+          throw new Error('bootstrap should not run before authenticated inventory');
         },
       },
     });
@@ -897,7 +959,9 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       expect(result.success).toBe(false);
       expect(String(result.error || '')).toContain('requires complete local key facts');
-      expect(String(result.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(String(result.error || '')).toContain(
+        'explicit authenticated ECDSA key-facts inventory',
+      );
       expect(connectCalls).toBe(0);
       expect(fetchCalls).toBe(0);
       expect(clearCalls).toBe(0);
@@ -907,7 +971,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock resolves explicit app-session ECDSA key-facts repair before warm-up', async () => {
+  test('wallet unlock resolves explicit app-session ECDSA key-facts inventory before warm-up', async () => {
     const originalFetch = globalThis.fetch;
     const inventoryBodies: unknown[] = [];
     const bootstrapTargets: string[] = [];
@@ -916,7 +980,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       const url = String(input);
       if (url.endsWith('/wallets/alice.testnet/signers/ecdsa/key-facts/inventory')) {
         expect(init?.headers).toMatchObject({
-          Authorization: 'Bearer app-session-repair-jwt',
+          Authorization: 'Bearer app-session-inventory-jwt',
         });
         const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
         inventoryBodies.push(body);
@@ -968,13 +1032,14 @@ test.describe('unlock threshold warm-session requirements', () => {
               keyHandle: ECDSA_KEY_HANDLE,
               ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
               signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
               },
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
-              thresholdSessionId: `session-repair-${bootstrapTargets.length}`,
+              thresholdSessionId: `session-inventory-${bootstrapTargets.length}`,
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
@@ -988,7 +1053,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             },
             session: {
               ok: true,
-              sessionId: `session-repair-${bootstrapTargets.length}`,
+              sessionId: `session-inventory-${bootstrapTargets.length}`,
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
@@ -1005,9 +1070,9 @@ test.describe('unlock threshold warm-session requirements', () => {
         async () =>
           await unlock(context, ACCOUNT_ID, {
             unlockSelection: { mode: 'ecdsa_only', ecdsa: true },
-            ecdsaKeyFactsRepair: {
+            ecdsaKeyFactsInventory: {
               mode: 'app_session',
-              appSessionJwt: 'app-session-repair-jwt',
+              appSessionJwt: 'app-session-inventory-jwt',
               policyTtlMs: 60_000,
             },
           }),
@@ -1028,7 +1093,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock acquires WebAuthn ECDSA key-facts repair only when planner needs inventory', async () => {
+  test('wallet unlock uses WebAuthn ECDSA key-facts inventory assertion as the only prompt', async () => {
     const originalFetch = globalThis.fetch;
     const inventoryBodies: unknown[] = [];
     const credentialChallenges: string[] = [];
@@ -1040,7 +1105,9 @@ test.describe('unlock threshold warm-session requirements', () => {
         inventoryBodies.push(body);
         const auth = body.auth as Record<string, unknown>;
         expect(auth.kind).toBe('webauthn_assertion');
-        expect(String(auth.expectedChallengeDigestB64u || '')).toBe(credentialChallenges[0]);
+        expect(String(auth.expectedChallengeDigestB64u || '')).toBe(
+          credentialChallenges[credentialChallenges.length - 1],
+        );
         expect(String(auth.serverNonceB64u || '')).toBeTruthy();
         return new Response(
           JSON.stringify({
@@ -1099,13 +1166,14 @@ test.describe('unlock threshold warm-session requirements', () => {
               keyHandle: ECDSA_KEY_HANDLE,
               ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
               signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
               },
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
-              thresholdSessionId: `session-webauthn-repair-${bootstrapTargets.length}`,
+              thresholdSessionId: `session-webauthn-inventory-${bootstrapTargets.length}`,
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               walletSessionJwt: 'jwt-ecdsa',
             },
@@ -1119,7 +1187,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             },
             session: {
               ok: true,
-              sessionId: `session-webauthn-repair-${bootstrapTargets.length}`,
+              sessionId: `session-webauthn-inventory-${bootstrapTargets.length}`,
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
@@ -1136,7 +1204,7 @@ test.describe('unlock threshold warm-session requirements', () => {
         async () =>
           await unlock(context, ACCOUNT_ID, {
             unlockSelection: { mode: 'ecdsa_only', ecdsa: true },
-            ecdsaKeyFactsRepair: { mode: 'webauthn' },
+            ecdsaKeyFactsInventory: { mode: 'webauthn' },
           }),
         {
           profileContinuitySnapshot: {
@@ -1155,7 +1223,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock skips role-local inventory fallback during normal unlock', async () => {
+  test('wallet unlock does not fetch role-local inventory during normal unlock', async () => {
     const originalFetch = globalThis.fetch;
     let fetchCalls = 0;
     let bootstrapCalls = 0;
@@ -1171,7 +1239,7 @@ test.describe('unlock threshold warm-session requirements', () => {
         listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
         bootstrapEcdsaSession: async () => {
           bootstrapCalls += 1;
-          throw new Error('bootstrap should not run before repair');
+          throw new Error('bootstrap should not run before authenticated inventory');
         },
       },
     });
@@ -1188,7 +1256,9 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(String(result.error || '')).toContain(
+        'explicit authenticated ECDSA key-facts inventory',
+      );
       expect(fetchCalls).toBe(0);
       expect(bootstrapCalls).toBe(0);
     } finally {
@@ -1279,7 +1349,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                     jwt: 'app-jwt-first-bootstrap',
                   }
                 : {
-                    kind: 'threshold_session',
+                    kind: 'wallet_session',
                     jwt: 'jwt-ecdsa',
                   },
             );
@@ -1299,6 +1369,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: ECDSA_KEY_HANDLE,
               ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -1350,14 +1422,14 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(inventoryRequests).toHaveLength(0);
       expect(bootstrapKinds).toEqual([
         'passkey_fresh_ecdsa_bootstrap',
-        'passkey_fresh_ecdsa_bootstrap',
+        'wallet_session_reconnect_ecdsa_bootstrap',
       ]);
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
-  test('passkey unlock without server session fails ECDSA first bootstrap without passkey authorization', async () => {
+  test('passkey unlock without server session first-bootstraps from the prompt-first assertion', async () => {
     const bootstrapKinds: string[] = [];
     const bootstrapWalletSigningSessionIds: string[] = [];
     let connectArgs: Record<string, unknown> | null = null;
@@ -1392,7 +1464,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       signingEngine: {
         getAuthenticationCredentialsSerialized: async (args: Record<string, unknown>) => {
           credentialPrompts += 1;
-          expect(args.nearAccountId).toBe(ACCOUNT_ID);
+          expect(args.subjectId).toBe(ACCOUNT_ID);
           expect(String(args.challengeB64u || '')).toMatch(/^[A-Za-z0-9_-]{43}$/);
           return loginCredential;
         },
@@ -1418,7 +1490,44 @@ test.describe('unlock threshold warm-session requirements', () => {
             lanePolicy?.walletSigningSessionId || sessionIdentity?.walletSigningSessionId || '',
           );
           bootstrapWalletSigningSessionIds.push(walletSigningSessionId);
-          throw new Error(`unexpected threshold ECDSA bootstrap call: ${kind}`);
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: ECDSA_KEY_HANDLE,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: `session-local-first-bootstrap-${bootstrapKinds.length}`,
+              walletSigningSessionId: walletSigningSessionId || WALLET_SIGNING_SESSION_ID,
+              walletSessionJwt: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: `session-local-first-bootstrap-${bootstrapKinds.length}`,
+              walletSigningSessionId: walletSigningSessionId || WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+              runtimePolicyScope: LOGIN_RUNTIME_POLICY_SCOPE,
+            },
+          };
         },
       },
     });
@@ -1428,20 +1537,22 @@ test.describe('unlock threshold warm-session requirements', () => {
       { profileContinuitySnapshot: { chainAccounts: [], accountSigners: [] } },
     );
 
-    expect(result.success).toBe(false);
-    expect(String(result.error || '')).toContain(
-      'threshold ECDSA first bootstrap requires passkey authorization or an existing bootstrap session',
-    );
-    expect(credentialPrompts).toBe(0);
-    expect(connectArgs).toBeNull();
-    expect(bootstrapKinds).toEqual([]);
-    expect(bootstrapWalletSigningSessionIds).toEqual([]);
+    expect(result.success, String(result.error || '')).toBe(true);
+    expect(credentialPrompts).toBe(1);
+    expect(connectArgs).not.toBeNull();
+    expect(bootstrapKinds).toEqual([
+      'passkey_fresh_ecdsa_bootstrap',
+      'wallet_session_reconnect_ecdsa_bootstrap',
+    ]);
+    expect(bootstrapWalletSigningSessionIds.every(Boolean)).toBe(true);
   });
 
   test('passkey unlock uses complete active wallet-scoped ECDSA key facts without inventory fetch', async () => {
     const originalFetch = globalThis.fetch;
     const inventoryRequests: unknown[] = [];
     const bootstrapKinds: string[] = [];
+    let credentialPrompts = 0;
+    const connectAuthKinds: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === 'https://relay.example/v1/hss/ecdsa/key-identities') {
@@ -1454,7 +1565,51 @@ test.describe('unlock threshold warm-session requirements', () => {
     }) as typeof fetch;
     const context = createBaseContext({
       signingEngine: {
+        getAuthenticationCredentialsSerialized: async () => {
+          credentialPrompts += 1;
+          return {
+            id: 'cred-1',
+            rawId: 'cred-1',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: undefined,
+              clientExtensionResults: {},
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: ECDSA_PRF_FIRST_B64U,
+                },
+              },
+            },
+          };
+        },
         listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        connectEd25519Session: async (args: Record<string, unknown>) => {
+          const auth = args.auth as Record<string, unknown> | undefined;
+          connectAuthKinds.push(String(auth?.kind || ''));
+          expect(auth?.kind).toBe('threshold_session_policy_webauthn');
+          persistReadyEd25519WarmRecord({
+            sessionId: 'session-profile-complete-ed25519',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            walletSessionJwt: 'jwt-ed25519-profile-complete',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+          });
+          return {
+            ok: true,
+            sessionId: 'session-profile-complete-ed25519',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            jwt: 'jwt-ed25519-profile-complete',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+          };
+        },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
           bootstrapKinds.push(String(args.kind || ''));
           expect(args.keyHandle).toBe(ECDSA_KEY_HANDLE);
@@ -1468,6 +1623,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               keyHandle: ECDSA_KEY_HANDLE,
               ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
               signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -1510,11 +1666,13 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(true);
+      expect(credentialPrompts).toBe(1);
       expect(inventoryRequests).toHaveLength(0);
       expect(bootstrapKinds).toEqual([
         'wallet_session_reconnect_ecdsa_bootstrap',
         'wallet_session_reconnect_ecdsa_bootstrap',
       ]);
+      expect(connectAuthKinds).toEqual(['threshold_session_policy_webauthn']);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1540,6 +1698,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId,
               signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -1642,6 +1801,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId,
               signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -1983,7 +2143,9 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(inventoryResult.success).toBe(false);
-      expect(String(inventoryResult.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(String(inventoryResult.error || '')).toContain(
+        'explicit authenticated ECDSA key-facts inventory',
+      );
       expect(inventoryLedger).toEqual([]);
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
@@ -1991,7 +2153,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock blocks stale configured ECDSA profile signers before inventory repair', async () => {
+  test('wallet unlock blocks stale configured ECDSA profile signers before inventory lookup', async () => {
     const originalFetch = globalThis.fetch;
     const bootstrapChains: string[] = [];
     const inventoryRequests: unknown[] = [];
@@ -2123,7 +2285,9 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(String(result.error || '')).toContain(
+        'explicit authenticated ECDSA key-facts inventory',
+      );
       expect(inventoryRequests).toHaveLength(0);
       expect(bootstrapChains).toEqual([]);
     } finally {
@@ -2145,6 +2309,13 @@ test.describe('unlock threshold warm-session requirements', () => {
       signingEngine: {
         connectEd25519Session: async (args: Record<string, unknown>) => {
           ed25519RemainingUses = args.remainingUses;
+          persistReadyEd25519WarmRecord({
+            sessionId: 'session-1',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            walletSessionJwt: 'jwt-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: Number(args.remainingUses),
+          });
           return {
             ok: true,
             sessionId: 'session-1',
@@ -2167,6 +2338,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -2222,6 +2395,13 @@ test.describe('unlock threshold warm-session requirements', () => {
       signingEngine: {
         connectEd25519Session: async (args: Record<string, unknown>) => {
           ed25519RemainingUses = args.remainingUses;
+          persistReadyEd25519WarmRecord({
+            sessionId: 'session-1',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            walletSessionJwt: 'jwt-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: Number(args.remainingUses),
+          });
           return {
             ok: true,
             sessionId: 'session-1',
@@ -2243,6 +2423,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -2414,6 +2596,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId: 'ehss-login-fresh',
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -2553,7 +2737,8 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(result.signingSession?.status).toBe('active');
     expect(capturedConnectArgs).not.toBeNull();
     const requestedSessionId = String(capturedConnectArgs?.['sessionId'] || '').trim();
-    expect(requestedSessionId).toBe('');
+    expect(requestedSessionId).toMatch(/^threshold-login-/);
+    expect(requestedSessionId).not.toBe('canonical-ecdsa-session-1');
   });
 
   test('NEAR-only threshold warm-up does not bootstrap ECDSA sessions', async () => {
@@ -2686,6 +2871,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               relayerUrl: 'https://relay.example',
               keyHandle: bootstrapKeyHandle(args),
               ecdsaThresholdKeyId,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
@@ -2730,7 +2917,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(result.success).toBe(true);
     expect(result.operationalPublicKey).toBe(null);
     expect(result.signingSession?.status).toBe('active');
-    expect(credentialPrompts).toBe(0);
+    expect(credentialPrompts).toBe(1);
     expect(connectCalls).toBe(0);
     expect(bootstrapArgs).toHaveLength(2);
     expect(
@@ -2749,14 +2936,12 @@ test.describe('unlock threshold warm-session requirements', () => {
         walletSigningSessionId.startsWith('wallet-ecdsa-login-'),
       ),
     ).toBe(true);
-    expect(
-      bootstrapArgs.every((args) =>
-        args.kind === 'wallet_session_reconnect_ecdsa_bootstrap'
-          ? args.passkeyPrfFirstB64u === ECDSA_PRF_FIRST_B64U
-          : args.passkeyPrfFirstB64u === undefined,
-      ),
-    ).toBe(true);
-    expect(bootstrapArgs.every((args) => args.webauthnAuthentication === undefined)).toBe(true);
+    expect(bootstrapArgs.every((args) => args.passkeyPrfFirstB64u === ECDSA_PRF_FIRST_B64U)).toBe(
+      true,
+    );
+    expect(bootstrapArgs.some((args) => args.webauthnAuthentication === loginCredential)).toBe(
+      true,
+    );
   });
 
   test('Ed25519 unlock selection requires a NEAR operational key', async () => {
@@ -2795,6 +2980,13 @@ test.describe('unlock threshold warm-session requirements', () => {
       signingEngine: {
         connectEd25519Session: async (args: Record<string, unknown>) => {
           capturedConnectArgs = args;
+          persistReadyEd25519WarmRecord({
+            sessionId: 'fresh-near-only-session-1',
+            walletSigningSessionId: 'wallet-session-near-only-1',
+            walletSessionJwt: 'jwt-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+          });
           return {
             ok: true,
             sessionId: 'fresh-near-only-session-1',
@@ -2837,7 +3029,9 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
-      expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('');
+      const requestedSessionId = String(capturedConnectArgs?.['sessionId'] || '').trim();
+      expect(requestedSessionId).toMatch(/^threshold-login-/);
+      expect(requestedSessionId).not.toBe('stored-ed25519-session-1');
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
     }
@@ -3046,6 +3240,13 @@ test.describe('unlock threshold warm-session requirements', () => {
           },
           connectEd25519Session: async (args: Record<string, unknown>) => {
             capturedConnectArgs = args;
+            persistReadyEd25519WarmRecord({
+              sessionId: 'session-passkey-warm',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              walletSessionJwt: 'jwt-ed25519',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 3,
+            });
             return {
               ok: true,
               sessionId: 'session-passkey-warm',
@@ -3142,6 +3343,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 keyHandle: bootstrapKeyHandle(args),
                 ecdsaThresholdKeyId,
                 signingRootId: 'proj_local:dev',
+                signingRootVersion: 'default',
                 backendBinding: {
                   relayerKeyId: 'rk-1',
                   clientVerifyingShareB64u: 'AQ',
@@ -3387,7 +3589,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('cookie-mode passkey_assertion warm-up uses app session cookie authorization', async () => {
+  test('cookie-mode passkey_assertion warm-up uses cookie authorization for JWT Wallet Sessions', async () => {
     const originalFetch = globalThis.fetch;
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const capturedBootstrapArgs: Record<string, unknown>[] = [];
@@ -3446,10 +3648,18 @@ test.describe('unlock threshold warm-session requirements', () => {
           getAuthenticationCredentialsSerialized: async () => loginCredential,
           connectEd25519Session: async (args: Record<string, unknown>) => {
             capturedConnectArgs = args;
+            persistReadyEd25519WarmRecord({
+              sessionId: 'session-cookie-warm',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              walletSessionJwt: 'jwt-ed25519-cookie-authorized',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 3,
+            });
             return {
               ok: true,
               sessionId: 'session-cookie-warm',
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-ed25519-cookie-authorized',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
               ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
@@ -3467,6 +3677,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 keyHandle: bootstrapKeyHandle(args),
                 ecdsaThresholdKeyId,
                 signingRootId: 'proj_local:dev',
+                signingRootVersion: 'default',
                 backendBinding: {
                   relayerKeyId: 'rk-1',
                   clientVerifyingShareB64u: 'AQ',
@@ -3487,6 +3698,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 ok: true,
                 sessionId: 'session-cookie-ecdsa',
                 walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+                jwt: 'jwt-ecdsa-cookie-authorized',
                 remainingUses: 3,
                 expiresAtMs: Date.now() + 60_000,
                 clientVerifyingShareB64u: 'AQ',
@@ -3526,17 +3738,21 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(capturedBootstrapArgs).toHaveLength(2);
       expect(
         capturedBootstrapArgs.every(
-          (args) => bootstrapLanePolicy(args).thresholdSessionKind === 'cookie',
+          (args) => bootstrapLanePolicy(args).thresholdSessionKind === 'jwt',
         ),
       ).toBe(true);
       expect(
         capturedBootstrapArgs.every((args) => {
-          return args.routeAuth === undefined;
+          return (
+            args.routeAuth &&
+            typeof args.routeAuth === 'object' &&
+            (args.routeAuth as { kind?: unknown }).kind === 'wallet_session'
+          );
         }),
       ).toBe(true);
-      expect(
-        capturedBootstrapArgs.every((args) => args.webauthnAuthentication === loginCredential),
-      ).toBe(true);
+      expect(capturedBootstrapArgs.every((args) => args.webauthnAuthentication === undefined)).toBe(
+        true,
+      );
       expect(
         capturedBootstrapArgs.every(
           (args) => args.passkeyPrfFirstB64u === 'prf-first-cookie-warm',

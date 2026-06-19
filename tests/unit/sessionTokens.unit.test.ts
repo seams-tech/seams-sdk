@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
-  appOrThresholdSessionAuthTokenAuth,
+  appOrWalletSessionJwtAuth,
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
   requireAppSessionJwt,
-  requireThresholdSessionAuthToken,
+  requireWalletSessionJwt,
 } from '@shared/utils/sessionTokens';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
@@ -12,9 +13,9 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 }
 
 test.describe('session JWT kind helpers', () => {
-  test('rejects threshold-session auth tokens at app-session boundaries', () => {
+  test('rejects Wallet Session JWTs at app-session boundaries', () => {
     const jwt = jwtWithPayload({
-      kind: 'threshold_ecdsa_session_v2',
+      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
       walletSigningSessionId: 'wallet-session-1',
@@ -37,33 +38,27 @@ test.describe('session JWT kind helpers', () => {
     expect(() => requireAppSessionJwt(jwt)).toThrow('must be an app-session JWT');
   });
 
-  test('rejects app-session JWTs at threshold-session boundaries', () => {
+  test('rejects app-session JWTs at Wallet Session boundaries', () => {
     const jwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
-    expect(() => requireThresholdSessionAuthToken(jwt)).toThrow(
-      'must be a threshold-session auth token',
-    );
+    expect(() => requireWalletSessionJwt(jwt)).toThrow('must be a Wallet Session JWT');
   });
 
-  test('rejects missing kind at threshold-session boundaries', () => {
+  test('rejects missing kind at Wallet Session boundaries', () => {
     const jwt = jwtWithPayload({ sub: 'alice.testnet' });
 
-    expect(() => requireThresholdSessionAuthToken(jwt)).toThrow(
-      'must be a threshold-session auth token',
-    );
+    expect(() => requireWalletSessionJwt(jwt)).toThrow('must be a Wallet Session JWT');
   });
 
-  test('rejects unknown kind at threshold-session boundaries', () => {
+  test('rejects unknown kind at Wallet Session boundaries', () => {
     const jwt = jwtWithPayload({ kind: 'unknown_session_v1', sub: 'alice.testnet' });
 
-    expect(() => requireThresholdSessionAuthToken(jwt)).toThrow(
-      'must be a threshold-session auth token',
-    );
+    expect(() => requireWalletSessionJwt(jwt)).toThrow('must be a Wallet Session JWT');
   });
 
   test('builds discriminated route auth from JWT kind', () => {
-    const thresholdAuthToken = jwtWithPayload({
-      kind: 'threshold_ecdsa_session_v2',
+    const walletSessionJwt = jwtWithPayload({
+      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
       walletSigningSessionId: 'wallet-session-1',
@@ -72,14 +67,27 @@ test.describe('session JWT kind helpers', () => {
     });
     const appJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
-    expect(appOrThresholdSessionAuthTokenAuth(thresholdAuthToken)).toEqual({
-      kind: 'threshold_session',
-      jwt: thresholdAuthToken,
+    expect(appOrWalletSessionJwtAuth(walletSessionJwt)).toEqual({
+      kind: 'wallet_session',
+      jwt: walletSessionJwt,
     });
-    expect(appOrThresholdSessionAuthTokenAuth(appJwt)).toEqual({
+    expect(appOrWalletSessionJwtAuth(appJwt)).toEqual({
       kind: 'app_session',
       jwt: appJwt,
     });
+  });
+
+  test('rejects legacy threshold-session JWT kinds at Wallet Session boundaries', () => {
+    const jwt = jwtWithPayload({
+      kind: 'threshold_ecdsa_session_v2',
+      sub: 'alice.testnet',
+      walletId: 'alice.testnet',
+    });
+
+    expect(() => requireWalletSessionJwt(jwt)).toThrow('must be a Wallet Session JWT');
+    expect(() => appOrWalletSessionJwtAuth(jwt)).toThrow(
+      'session JWT must include a valid session kind',
+    );
   });
 
   test('rejects missing or unknown kind for generic route auth', () => {
@@ -89,11 +97,11 @@ test.describe('session JWT kind helpers', () => {
       sub: 'alice.testnet',
     });
 
-    expect(() => appOrThresholdSessionAuthTokenAuth(missingKindJwt)).toThrow(
-      'session auth token must include a valid session kind',
+    expect(() => appOrWalletSessionJwtAuth(missingKindJwt)).toThrow(
+      'session JWT must include a valid session kind',
     );
-    expect(() => appOrThresholdSessionAuthTokenAuth(unknownKindJwt)).toThrow(
-      'session auth token must include a valid session kind',
+    expect(() => appOrWalletSessionJwtAuth(unknownKindJwt)).toThrow(
+      'session JWT must include a valid session kind',
     );
   });
 });

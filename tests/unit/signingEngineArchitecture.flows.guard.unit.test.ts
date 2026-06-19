@@ -106,7 +106,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
       'packages/sdk-web/src/core/signingEngine/flows/shared/signingConfirmation.ts',
     );
     const emailOtpCoordinator = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts',
     );
 
     expect(confirmationChannelTypes).not.toContain('export const SigningAuthPlanKind');

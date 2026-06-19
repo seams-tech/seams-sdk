@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -11,6 +11,11 @@ function readJson(relativePath: string): Record<string, any> {
 
 function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function resolveSdkWebPath(packagePath: string): string {
+  const normalized = packagePath.replace(/^\.\//, '');
+  return path.join(repoRoot, 'packages/sdk-web', normalized);
 }
 
 const browserSurfacePatterns = [
@@ -38,11 +43,25 @@ test.describe('refactor 51b package exports', () => {
     expect(exportsMap['./runtime']).toEqual({
       import: './dist/esm/runtime.js',
       default: './dist/esm/runtime.js',
-      types: './dist/types/packages/sdk-web/src/runtime.d.ts',
+      types: './dist/types/sdk-web/src/runtime.d.ts',
     });
+    expect(fs.existsSync(resolveSdkWebPath(exportsMap['./runtime'].types))).toBe(true);
 
     expect(exportsMap['./ios']).toBeUndefined();
     expect(exportsMap['./embedded']).toBeUndefined();
+  });
+
+  test('public runtime package export exposes runtime value constructors', async () => {
+    const packageJson = readJson('packages/sdk-web/package.json');
+    const runtimeExport = packageJson.exports['./runtime'];
+    const runtimeModule = await import(pathToFileURL(resolveSdkWebPath(runtimeExport.import)).href);
+
+    expect(typeof runtimeModule.createSigningRuntime).toBe('function');
+    expect(typeof runtimeModule.createSigningRuntimeStatePorts).toBe('function');
+
+    const runtimeTypes = readRepoFile('packages/sdk-web/src/runtime.ts');
+    expect(runtimeTypes).toContain('createSigningRuntime');
+    expect(runtimeTypes).toContain('createSigningRuntimeStatePorts');
   });
 
   test('keeps runtime source entry free of browser surfaces', () => {
@@ -68,8 +87,11 @@ test.describe('refactor 51b package exports', () => {
     expect(exportsMap['./web/wallet-iframe-client-html']).toEqual({
       import: './dist/esm/SeamsWeb/walletIframe/client/html.js',
       default: './dist/esm/SeamsWeb/walletIframe/client/html.js',
-      types: './dist/types/packages/sdk-web/src/SeamsWeb/walletIframe/client/html.d.ts',
+      types: './dist/types/sdk-web/src/SeamsWeb/walletIframe/client/html.d.ts',
     });
+    expect(
+      fs.existsSync(resolveSdkWebPath(exportsMap['./web/wallet-iframe-client-html'].types)),
+    ).toBe(true);
   });
 
   test('describes package surfaces without stale embedded-only positioning', () => {
@@ -84,5 +106,22 @@ test.describe('refactor 51b package exports', () => {
     );
     expect(packageJson.keywords).not.toContain('native');
     expect(packageJson.keywords).not.toContain('embedded');
+  });
+
+  test('keeps server-only packages out of hard browser installs', () => {
+    const packageJson = readJson('packages/sdk-web/package.json');
+    const serverOnlyPackages = ['pg', '@simplewebauthn/server'];
+
+    for (const packageName of serverOnlyPackages) {
+      expect(packageJson.dependencies?.[packageName]).toBeUndefined();
+      expect(packageJson.peerDependencies?.[packageName]).toBeTruthy();
+      expect(packageJson.peerDependenciesMeta?.[packageName]?.optional).toBe(true);
+      expect(packageJson.devDependencies?.[packageName]).toBeTruthy();
+    }
+
+    const rolldownConfig = readRepoFile('packages/sdk-web/rolldown.config.ts');
+    for (const packageName of serverOnlyPackages) {
+      expect(rolldownConfig).toContain(`'${packageName}'`);
+    }
   });
 });

@@ -26,43 +26,44 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       {
         name: 'SignTempoArgs',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
         allowNeverTripwire: true,
       },
       {
         name: 'ReportTempoNonceLifecycleBaseArgs',
         required: ['walletSession', 'signedResult'],
+        forbidden: ['runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
         allowNeverTripwire: true,
       },
       {
         name: 'ExecuteEvmFamilyTransactionArgs',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
         allowNeverTripwire: true,
       },
       {
         name: 'BootstrapThresholdEcdsaSessionArgs',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
         allowNeverTripwire: true,
       },
       {
         name: 'EmailOtpEcdsaCapabilityArgs',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
         allowNeverTripwire: true,
       },
       {
         name: 'ExportKeypairWithUIInput',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
         allowNeverTripwire: true,
       },
     ];
     const inlineArgBlocks = [
       {
-        context: 'AuthCapability.prefillThresholdEcdsaPresignPool',
-        block: findObjectBlockAfter(source, 'prefillThresholdEcdsaPresignPool(args: {'),
+        context: 'AuthCapability.prefillRouterAbEcdsaHssPresignaturePool',
+        block: findObjectBlockAfter(source, 'prefillRouterAbEcdsaHssPresignaturePool(args: {'),
         required: ['walletSession', 'chainTarget'],
       },
       {
@@ -107,34 +108,37 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       {
         name: 'PMSignTempoPayload',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
       {
         name: 'PMTempoNonceLifecyclePayloadBase',
         required: ['walletSession', 'signedResult'],
+        forbidden: ['runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
       {
         name: 'PMExportKeypairUiPayload',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
       {
         name: 'PMEmailOtpSigningSessionChallengePayload',
         required: ['walletSession', 'chainTarget'],
+        forbidden: ['runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
       {
         name: 'PMEmailOtpEcdsaCapabilityPayload',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
       {
         name: 'PMRefreshEmailOtpSigningSessionPayload',
         required: ['walletSession', 'chainTarget'],
+        forbidden: ['runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
       {
-        name: 'PMPrefillThresholdEcdsaPresignPoolPayload',
+        name: 'PMPrefillRouterAbEcdsaHssPresignaturePoolPayload',
         required: ['walletSession', 'chainTarget'],
-        forbidden: ['subjectId'],
+        forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       },
     ];
     const offenders: string[] = [];
@@ -148,6 +152,28 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
         ),
         ...expectNoNearAccountId(block, declaration.name),
       );
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('active SDK ECDSA key refs reject signing-root identity fields', () => {
+    const source = readRepoFile('packages/sdk-web/src/core/signingEngine/interfaces/signing.ts');
+    const keyRefBlock = findTypeDeclaration(source, 'KeyRef');
+    const offenders: string[] = [];
+
+    for (const field of ['signingRootId', 'signingRootVersion']) {
+      const neverFieldPattern = new RegExp(`\\b${field}\\?:\\s*never\\b`);
+      if (!neverFieldPattern.test(keyRefBlock)) {
+        offenders.push(`KeyRef does not reject ${field} with a never field`);
+      }
+    }
+
+    const searchable = keyRefBlock
+      .replace(/\bsigningRootId\?:\s*never\b/g, '')
+      .replace(/\bsigningRootVersion\?:\s*never\b/g, '');
+    if (/\bsigningRoot(?:Id|Version)\??\s*:/.test(searchable)) {
+      offenders.push('KeyRef exposes signing-root identity outside never tripwires');
     }
 
     expect(offenders, offenders.join('\n')).toEqual([]);

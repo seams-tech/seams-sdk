@@ -1,17 +1,29 @@
 import { expect, test } from '@playwright/test';
 import {
-  THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
+  SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
-  THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR,
 } from '@/core/signingEngine/session/warmCapabilities/statusReader';
+import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  buildNearThresholdSigningAuthPlan,
-  resolveNearThresholdSigningAuthContext,
-} from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
-import { buildEvmFamilyEcdsaSessionLanePolicy } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
+  getThresholdEcdsaSessionRecordByThresholdSessionId,
+  thresholdEcdsaSessionRecordReadModel,
+} from '@/core/signingEngine/session/persistence/records';
+import {
+  buildNearSigningSessionAuthPlan,
+  resolveNearSigningSessionAuthContext,
+} from '@/core/signingEngine/flows/signNear/shared/signingSessionAuthMode';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import {
+  buildEcdsaLaneBudgetStatusCheck,
+  ecdsaWalletBudgetOwner,
+} from '@/core/signingEngine/session/budget/budget';
+import {
+  buildDiscoveredLaneForRecord,
+  consumeWalletSigningSessionUse,
+  readWalletScopedLaneClaimsForWallet,
+} from '@/core/signingEngine/session/availability/readiness';
 import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
@@ -24,71 +36,232 @@ import {
 } from './helpers/warmSessionStore.fixtures';
 
 async function resolveNearThresholdSigningAuthForTest(args: Parameters<
-  typeof resolveNearThresholdSigningAuthContext
+  typeof resolveNearSigningSessionAuthContext
 >[0] & {
   signingSessionCoordinator?: SigningSessionCoordinator;
 }) {
-  const context = await resolveNearThresholdSigningAuthContext(args);
+  const context = await resolveNearSigningSessionAuthContext(args);
   const resolvedSigningSession = await (
     args.signingSessionCoordinator || new SigningSessionCoordinator()
   ).resolveAuthPlanFromReadiness(context.coordinatorInput);
-  return buildNearThresholdSigningAuthPlan({ context, resolvedSigningSession });
+  return buildNearSigningSessionAuthPlan({ context, resolvedSigningSession });
 }
 
 test.describe('WarmSessionStore caller-facing error normalization', () => {
-  test('normalizes missing warm PRF material for explicit threshold-ecdsa authorization bootstrap', async () => {
+  test('classifies required touch-confirm consume not_found as auth-unavailable for step-up retry', () => {
+    const error = new Error(
+      '[SigningSessionCoordinator] touch_confirm signing-session consume returned not_found',
+    );
+
+    expect(isSigningSessionAuthUnavailableError(error)).toBe(true);
+  });
+
+  test('treats strict Router A/B passkey ECDSA records as ready without volatile status', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
-
-    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'bootstrap-error.testnet',
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'record-backed-ecdsa.testnet',
       chain: 'evm',
-      source: 'login',
+      source: 'registration',
       bootstrap: createThresholdEcdsaBootstrapFixture({
-        nearAccountId: 'bootstrap-error.testnet',
+        nearAccountId: 'record-backed-ecdsa.testnet',
         chain: 'evm',
-        ecdsaThresholdKeyId: 'ek-bootstrap-error',
-        sessionId: 'bootstrap-error-session',
-        sessionAuthToken: 'jwt:bootstrap-error-session',
+        ecdsaThresholdKeyId: 'ek-record-backed-shared',
+        sessionId: 'record-backed-ecdsa-session',
+        walletSessionJwt: 'jwt:record-backed-ecdsa-session',
+      }),
+    });
+    const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'record-backed-ecdsa.testnet',
+      chain: 'tempo',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'record-backed-ecdsa.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-record-backed-shared',
+        sessionId: 'record-backed-tempo-session',
+        walletSessionJwt: 'jwt:record-backed-tempo-session',
       }),
     });
 
-    let provisionCalls = 0;
-    const { touchConfirm } = createWarmSessionUiConfirmFixture({
-      claimsBySessionId: {
-        [record.thresholdSessionId]: {
-          state: 'missing',
-        },
-      },
-    });
     const store = createWarmSessionTestServices({
-      touchConfirm,
-      provisionThresholdEcdsaSession: async () => {
-        provisionCalls += 1;
-        throw new Error('provisionThresholdEcdsaSession should not be called when warm PRF is absent');
+      touchConfirm: {
+        getWarmSessionStatus: async () => ({
+          ok: false,
+          code: 'not_found',
+          message: 'volatile status missing',
+        }),
       },
+      getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
+        getThresholdEcdsaSessionRecordByThresholdSessionId(ecdsaStore, thresholdSessionId),
+    });
+
+    const warmSession = await store.getWarmSession(evmRecord.walletId);
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: evmRecord.thresholdSessionId,
+    });
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.tempo.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: tempoRecord.thresholdSessionId,
     });
 
     await expect(
-      store.provisionEcdsaCapability({
-        kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-        keyHandle: record.keyHandle,
-        key: thresholdEcdsaSessionRecordReadModel(record).key,
-        lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
-          chainTarget: testEcdsaChainTarget('evm'),
-          thresholdSessionId: record.thresholdSessionId,
-          walletSigningSessionId: record.walletSigningSessionId,
-          thresholdSessionKind: 'cookie',
-          ttlMs: Math.max(1, Number(record.expiresAtMs || Date.now() + 60_000) - Date.now()),
-          remainingUses: Number(record.remainingUses || 1),
-        }),
-        source: 'manual-bootstrap',
-        passkeyCredentialIdB64u: 'passkey-credential-test',
+      store.assertEcdsaSigningSessionReady({
+        walletId: evmRecord.walletId,
+        chainTarget: evmRecord.chainTarget,
+        thresholdSessionId: evmRecord.thresholdSessionId,
+        usesNeeded: 1,
       }),
-    ).rejects.toThrow(
-      'Missing warm PRF material for threshold-ecdsa restored-session bootstrap (missing)',
-    );
-    expect(provisionCalls).toBe(0);
+    ).resolves.toMatchObject({
+      ok: true,
+      remainingUses: 5,
+    });
+  });
+
+  test('spends strict Router A/B passkey ECDSA records without touch-confirm material consume', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'record-policy-spend.testnet',
+      chain: 'tempo',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'record-policy-spend.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-record-policy-spend',
+        sessionId: 'record-policy-spend-session',
+        walletSessionJwt: 'jwt:record-policy-spend-session',
+      }),
+    });
+    const discoveredLane = buildDiscoveredLaneForRecord(record);
+    expect(discoveredLane).toMatchObject({
+      thresholdSessionId: record.thresholdSessionId,
+      walletSigningSessionId: record.walletSigningSessionId,
+      backing: 'record_policy',
+    });
+
+    let touchConfirmConsumeCalls = 0;
+    const readModel = thresholdEcdsaSessionRecordReadModel(record);
+    const statusOverrides = new Map();
+    const status = await consumeWalletSigningSessionUse({
+      deps: {
+        touchConfirm: {
+          consumeWarmSessionUses: async () => {
+            touchConfirmConsumeCalls += 1;
+            return {
+              ok: false,
+              code: 'not_found',
+              message: 'volatile material is intentionally absent',
+            };
+          },
+        },
+      },
+      statusOverrides,
+      readStatus: async () => ({
+        sessionId: record.walletSigningSessionId,
+        status: 'active',
+        remainingUses: 4,
+        expiresAtMs: record.expiresAtMs,
+        projectionVersion: 'projection-record-policy-spend',
+      }),
+      input: {
+        owner: ecdsaWalletBudgetOwner(toWalletId(record.walletId)),
+        walletSigningSessionId: record.walletSigningSessionId,
+        uses: 1,
+        budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
+          key: readModel.key,
+          keyHandle: record.keyHandle,
+          chainTarget: record.chainTarget,
+          walletSigningSessionId: record.walletSigningSessionId,
+          thresholdSessionId: record.thresholdSessionId,
+        }),
+      },
+    });
+
+    expect(touchConfirmConsumeCalls).toBe(0);
+    expect(status).toMatchObject({
+      sessionId: record.walletSigningSessionId,
+      status: 'active',
+      remainingUses: 3,
+    });
+  });
+
+  test('projects record-backed wallet session spend across Ed25519 and ECDSA lanes', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const walletId = 'shared-budget-record-policy.testnet';
+    const walletSigningSessionId = 'wsess-shared-budget-record-policy';
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: walletId,
+      thresholdSessionId: 'shared-budget-ed25519-session',
+      walletSigningSessionId,
+      walletSessionJwt: 'jwt:shared-budget-ed25519-session',
+      remainingUses: 3,
+    });
+    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: walletId,
+      chain: 'tempo',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-shared-budget-record-policy',
+        sessionId: 'shared-budget-tempo-session',
+        walletSigningSessionId,
+        walletSessionJwt: 'jwt:shared-budget-tempo-session',
+      }),
+    });
+    const readModel = thresholdEcdsaSessionRecordReadModel(ecdsaRecord);
+    const statusOverrides = new Map();
+
+    const status = await consumeWalletSigningSessionUse({
+      deps: {},
+      statusOverrides,
+      readStatus: async () => ({
+        sessionId: walletSigningSessionId,
+        status: 'active',
+        remainingUses: 3,
+        expiresAtMs: ecdsaRecord.expiresAtMs,
+        projectionVersion: 'projection-shared-budget-record-policy',
+      }),
+      input: {
+        owner: ecdsaWalletBudgetOwner(toWalletId(ecdsaRecord.walletId)),
+        walletSigningSessionId,
+        uses: 1,
+        budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
+          key: readModel.key,
+          keyHandle: ecdsaRecord.keyHandle,
+          chainTarget: ecdsaRecord.chainTarget,
+          walletSigningSessionId,
+          thresholdSessionId: ecdsaRecord.thresholdSessionId,
+        }),
+      },
+    });
+
+    expect(status).toMatchObject({
+      sessionId: walletSigningSessionId,
+      status: 'active',
+      remainingUses: 2,
+    });
+
+    const claims = await readWalletScopedLaneClaimsForWallet({
+      deps: {},
+      walletId: toWalletId(walletId),
+      statusOverrides,
+    });
+    expect(claims.get(ed25519Record.thresholdSessionId)).toMatchObject({
+      state: 'warm',
+      sessionId: ed25519Record.thresholdSessionId,
+      remainingUses: 2,
+    });
+    expect(claims.get(ecdsaRecord.thresholdSessionId)).toMatchObject({
+      state: 'warm',
+      sessionId: ecdsaRecord.thresholdSessionId,
+      remainingUses: 2,
+    });
   });
 
   test('normalizes reconnect failure when the refreshed warm capability is still not ready', async () => {
@@ -100,7 +273,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reconnect-error',
       sessionId: 'reconnect-error-stale-session',
-      sessionAuthToken: 'jwt:reconnect-error-stale-session',
+      walletSessionJwt: 'jwt:reconnect-error-stale-session',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reconnect-error.testnet',
@@ -130,7 +303,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
           chain: request.lanePolicy.chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect-error',
           sessionId: 'reconnect-error-fresh-session',
-          sessionAuthToken: 'jwt:reconnect-error-fresh-session',
+          walletSessionJwt: 'jwt:reconnect-error-fresh-session',
         });
       },
     });
@@ -159,7 +332,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-seal-error',
         sessionId: 'seal-error-session',
-        sessionAuthToken: 'jwt:seal-error-session',
+        walletSessionJwt: 'jwt:seal-error-session',
         relayerUrl: 'https://relay.seal-error.example',
       }),
     });
@@ -207,7 +380,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         nearAccountId: 'signing-exhausted.testnet',
         chain: 'evm',
         sessionId: 'signing-exhausted-session',
-        sessionAuthToken: 'jwt:signing-exhausted-session',
+        walletSessionJwt: 'jwt:signing-exhausted-session',
       }),
     });
 
@@ -226,7 +399,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         walletId: 'signing-exhausted.testnet',
         chainTarget: testEcdsaChainTarget('evm'),
         thresholdSessionId: 'signing-exhausted-session',
-        usesNeeded: 2,
+        usesNeeded: 6,
       }),
     ).rejects.toThrow(THRESHOLD_SESSION_EXHAUSTED_ERROR);
   });
@@ -252,17 +425,17 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
-    ).rejects.toThrow(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
+    ).rejects.toThrow(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
   });
 
-  test('fails closed when Ed25519 signing-session status is unavailable', async () => {
+  test('fails closed when Ed25519 wallet signing budget is unavailable', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     seedEd25519WarmSessionRecord({
       nearAccountId: 'status-unavailable.testnet',
       thresholdSessionId: 'status-unavailable-session',
       walletSigningSessionId: 'status-unavailable-wallet-session',
-      thresholdSessionAuthToken: 'jwt:status-unavailable-session',
+      walletSessionJwt: 'jwt:status-unavailable-session',
     });
 
     const store = createWarmSessionTestServices({
@@ -282,7 +455,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
-    ).rejects.toThrow(`${THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR} (worker_error)`);
+    ).rejects.toThrow('[SigningEngine][near] signing session is not ready: budget_unknown');
   });
 
   test('plans passkey reauth when wallet signing budget is exhausted but Ed25519 material is warm', async () => {
@@ -292,7 +465,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       nearAccountId: 'wallet-budget-exhausted-ed25519.testnet',
       thresholdSessionId: 'wallet-budget-exhausted-ed25519-session',
       walletSigningSessionId: 'wallet-budget-exhausted-ed25519-wallet-session',
-      thresholdSessionAuthToken: 'jwt:wallet-budget-exhausted-ed25519-session',
+      walletSessionJwt: 'jwt:wallet-budget-exhausted-ed25519-session',
       remainingUses: 1,
       expiresAtMs: Date.now() + 60_000,
       source: 'login',

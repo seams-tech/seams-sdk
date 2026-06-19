@@ -402,7 +402,8 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
 
   test('still maps true NEAR threshold session failures to threshold_ed25519_session_not_ready', async () => {
     const messages = [
-      '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+      '[chains] signingSession auth is unavailable; reconnect signing session before signing',
+      '[evm-family-ecdsa] Wallet Session auth is unavailable; reconnect signing session before signing',
       '[SigningEngine][near] signing session is not ready: missing_session',
       '[SigningEngine][near] signing session is not ready: exhausted',
       'Missing threshold wrapKeySalt for account: alice.testnet',

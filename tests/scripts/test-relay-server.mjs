@@ -166,7 +166,7 @@ async function main() {
       if (req.method === 'GET' && url.pathname === '/healthz') {
         return sendJson(res, 200, { ok: true, relayerAccount: cache.accountId });
       }
-      if (req.method === 'GET' && url.pathname === '/threshold-ed25519/healthz') {
+      if (req.method === 'GET' && url.pathname === '/v2/router-ab/ed25519/healthz') {
         return sendJson(res, 200, { ok: true, configured: true });
       }
       if (req.method === 'POST' && url.pathname === '/auth/passkey/options') {

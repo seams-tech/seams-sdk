@@ -7,7 +7,6 @@ import {
   type EcdsaHssClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
-import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
 import {
   initSync as initHssClientSignerWasmSync,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
@@ -403,50 +402,5 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       ok: false,
       code: 'identity_mismatch',
     });
-  });
-
-  test('authorize resolves keyHandle selector against role-local threshold-session scope', async () => {
-    const { svc } = createThresholdSigningServiceForUnitTests({});
-    const walletId = 'alice-authorize-key-handle.near';
-    const rpId = 'wallet.example.test';
-    const participantIds = [1, 2];
-    const bootstrapped = await createRoleLocalBootstrap({
-      svc,
-      walletId,
-      rpId,
-      clientRootShare32B64u: rootShare32B64u(36),
-      sessionId: 'ecdsa-session-authorize-key-handle',
-      participantIds,
-    });
-    const scheme = svc.getSchemeModule(THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID);
-    if (!scheme || scheme.schemeId !== THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID) {
-      throw new Error('missing threshold ECDSA scheme');
-    }
-
-    const authorized = await scheme.authorize({
-      claims: {
-        kind: 'threshold_ecdsa_session_v2',
-        sub: walletId,
-        walletId: walletId,
-        keyScope: 'evm-family',
-        keyHandle: bootstrapped.keyHandle,
-        sessionId: bootstrapped.sessionId,
-        walletSigningSessionId: bootstrapped.walletSigningSessionId,
-        relayerKeyId: bootstrapped.relayerKeyId,
-        rpId,
-        thresholdExpiresAtMs: Date.now() + 60_000,
-        participantIds,
-        runtimePolicyScope: TEST_RUNTIME_SCOPE,
-      },
-      request: {
-        keyHandle: bootstrapped.keyHandle,
-        purpose: 'test:key_handle_authorize',
-        signing_digest_32: new Array(32).fill(7),
-      },
-    });
-
-    expect(authorized, JSON.stringify(authorized)).toMatchObject({ ok: true });
-    expect(String(authorized.mpcSessionId || '')).toBeTruthy();
-    expect(authorized.walletSigningSessionId).toBe(bootstrapped.walletSigningSessionId);
   });
 });

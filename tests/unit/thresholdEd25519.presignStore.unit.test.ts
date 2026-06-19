@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { createThresholdEd25519SessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
 import type {
   ThresholdEd25519MpcSessionRecord,
-  ThresholdEd25519PresignExpectedScope,
-  ThresholdEd25519PresignRecord,
+  RouterAbEd25519PresignExpectedScope,
+  RouterAbEd25519PresignRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
 import type { NormalizedLogger } from '../../packages/sdk-server-ts/src/core/logger';
 
@@ -29,9 +29,9 @@ function createStore() {
   });
 }
 
-function createPresignRecord(): ThresholdEd25519PresignRecord {
+function createPresignRecord(): RouterAbEd25519PresignRecord {
   return {
-    kind: 'threshold_ed25519_presign_record_v1',
+    kind: 'router_ab_ed25519_presign_record_v2',
     expiresAtMs: Date.now() + 60_000,
     thresholdSessionId: 'threshold-session',
     walletSigningSessionId: 'wallet-signing-session',
@@ -75,13 +75,13 @@ function createMpcSessionRecord(): ThresholdEd25519MpcSessionRecord {
 
 function createPresignRecordForWalletSession(
   walletSigningSessionId: string,
-): ThresholdEd25519PresignRecord {
+): RouterAbEd25519PresignRecord {
   return { ...createPresignRecord(), walletSigningSessionId };
 }
 
 function expectedScopeForRecord(
-  record: ThresholdEd25519PresignRecord,
-): ThresholdEd25519PresignExpectedScope {
+  record: RouterAbEd25519PresignRecord,
+): RouterAbEd25519PresignExpectedScope {
   return {
     thresholdSessionId: record.thresholdSessionId,
     walletSigningSessionId: record.walletSigningSessionId,

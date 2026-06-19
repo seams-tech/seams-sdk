@@ -2,6 +2,11 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
+  clearAllThresholdEcdsaSessionRecords,
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  upsertRestoredThresholdEcdsaSessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
+import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
@@ -157,7 +162,7 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'tehss-session',
     walletSigningSessionId: 'wss-session',
-    thresholdSessionAuthToken: 'jwt',
+    walletSessionJwt: 'jwt',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
     thresholdEcdsaPublicKeyB64u: groupPublicKey33B64u,
@@ -177,6 +182,14 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
 }
 
 test.describe('ECDSA role-local record boundary parser', () => {
+  test.beforeEach(() => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+  });
+
+  test.afterEach(() => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+  });
+
   test('parses canonical threshold ECDSA session records into normalized ready records', () => {
     const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
     expect(ready.kind).toBe('ecdsa_role_local_ready_passkey_v1');
@@ -190,6 +203,18 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
     expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(hssClientSharePublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
+  });
+
+  test('restored passkey ECDSA records are written to the active session index', () => {
+    const restored = upsertRestoredThresholdEcdsaSessionRecord(
+      rawSessionRecord({ source: 'login', thresholdSessionId: 'tehss-restored' }),
+    );
+
+    expect(restored.thresholdSessionId).toBe('tehss-restored');
+    expect(
+      getStoredThresholdEcdsaSessionRecordByThresholdSessionId('tehss-restored')
+        ?.walletSigningSessionId,
+    ).toBe(restored.walletSigningSessionId);
   });
 
   test('reads persisted ready records without legacy role-local raw state', () => {

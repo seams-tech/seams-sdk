@@ -25,6 +25,15 @@ function runNodeScript(scriptPath: string, env: NodeJS.ProcessEnv): Promise<{
   });
 }
 
+const validSplitDomainEnv = {
+  SIGNER_DB_NAME: 'seams_signer',
+  SIGNER_RUNTIME_USER: 'seams_signer_runtime',
+  SIGNER_MIGRATOR_USER: 'seams_signer_migrator',
+  CONSOLE_DB_NAME: 'seams_console',
+  CONSOLE_RUNTIME_USER: 'seams_console_runtime',
+  CONSOLE_MIGRATOR_USER: 'seams_console_migrator',
+};
+
 test.describe('postgres-verify-split-domains script', () => {
   test('fails fast on invalid SQL identifier overrides', async () => {
     const scriptPath = fileURLToPath(
@@ -32,6 +41,7 @@ test.describe('postgres-verify-split-domains script', () => {
     );
     const result = await runNodeScript(scriptPath, {
       ...process.env,
+      ...validSplitDomainEnv,
       SIGNER_RUNTIME_USER: 'invalid-user-name',
     });
 
@@ -47,6 +57,7 @@ test.describe('postgres-verify-split-domains script', () => {
     );
     const result = await runNodeScript(scriptPath, {
       ...process.env,
+      ...validSplitDomainEnv,
       CONSOLE_MIGRATOR_USER: 'invalid-console-migrator',
     });
 

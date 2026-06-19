@@ -1,9 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
-  parseCurrentThresholdEcdsaPresignSessionRow,
-  parseCurrentThresholdEcdsaPresignatureRecord,
-  parseCurrentThresholdEcdsaSigningSessionRow,
+  parseCurrentRouterAbEcdsaHssPoolFillSessionRow,
+  parseCurrentRouterAbEcdsaHssServerPresignatureRecord,
   parseCurrentThresholdEd25519KeyRecord,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/postgresRecords';
 import { createThresholdEcdsaKeyStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
@@ -159,108 +158,16 @@ test.describe('threshold ecdsa postgres records', () => {
     ).toBeNull();
   });
 
-  test('rejects malformed signing session rows', () => {
-    expect(
-      parseCurrentThresholdEcdsaSigningSessionRow({
-        recordJson: {
-          expiresAtMs: 123_456,
-          mpcSessionId: 'mpc-session',
-          relayerKeyId: 'relayer-key',
-          presignPoolKey: 'keyHandle:threshold-key',
-          ecdsaThresholdKeyId: 'threshold-key',
-          thresholdEcdsaPublicKeyB64u: 'public-key',
-          signingDigestB64u: 'digest',
-          userId: 'alice.testnet',
-          rpId: 'example.localhost',
-          clientVerifyingShareB64u: 'client-share',
-          participantIds: [2, 1],
-          presignatureId: 'presignature',
-          entropyB64u: 'entropy',
-          signingRootId: 'signing-root',
-          walletKeyVersion: 'wallet-key-v1',
-          derivationVersion: 1,
-        },
-        expiresAtMs: 123_456,
-      }),
-    ).toEqual({
-      record: {
-        expiresAtMs: 123_456,
-        mpcSessionId: 'mpc-session',
-        relayerKeyId: 'relayer-key',
-        presignPoolKey: 'keyHandle:threshold-key',
-        ecdsaThresholdKeyId: 'threshold-key',
-        thresholdEcdsaPublicKeyB64u: 'public-key',
-        signingDigestB64u: 'digest',
-        walletSessionUserId: 'alice.testnet',
-        rpId: 'example.localhost',
-        clientVerifyingShareB64u: 'client-share',
-        participantIds: [1, 2],
-        presignatureId: 'presignature',
-        entropyB64u: 'entropy',
-        signingRootId: 'signing-root',
-        walletKeyVersion: 'wallet-key-v1',
-        derivationVersion: 1,
-      },
-      expiresAtMs: 123_456,
-    });
-
-    expect(
-      parseCurrentThresholdEcdsaSigningSessionRow({
-        recordJson: {
-          expiresAtMs: 123_456,
-          mpcSessionId: 'mpc-session',
-          relayerKeyId: 'relayer-key',
-          presignPoolKey: 'keyHandle:threshold-key',
-          ecdsaThresholdKeyId: 'threshold-key',
-          thresholdEcdsaPublicKeyB64u: 'public-key',
-          signingDigestB64u: 'digest',
-          userId: 'alice.testnet',
-          rpId: 'example.localhost',
-          clientVerifyingShareB64u: 'client-share',
-          presignatureId: 'presignature',
-          entropyB64u: 'entropy',
-          signingRootId: 'signing-root',
-          walletKeyVersion: 'wallet-key-v1',
-          derivationVersion: 1,
-        },
-        expiresAtMs: 123_456,
-      }),
-    ).toBeNull();
-
-    expect(
-      parseCurrentThresholdEcdsaSigningSessionRow({
-        recordJson: {
-          expiresAtMs: 123_456,
-          mpcSessionId: 'mpc-session',
-          relayerKeyId: 'relayer-key',
-          presignPoolKey: 'keyHandle:threshold-key',
-          ecdsaThresholdKeyId: 'threshold-key',
-          thresholdEcdsaPublicKeyB64u: 'public-key',
-          signingDigestB64u: 'digest',
-          userId: 'alice.testnet',
-          rpId: 'example.localhost',
-          clientVerifyingShareB64u: 'client-share',
-          participantIds: [1, 2],
-          presignatureId: 'presignature',
-          entropyB64u: 'entropy',
-          signingRootId: 'signing-root',
-          walletKeyVersion: 'wallet-key-v1',
-          derivationVersion: 1,
-        },
-        expiresAtMs: 123_457,
-      }),
-    ).toBeNull();
-  });
-
   test('rejects malformed presign session rows and presignatures', () => {
     expect(
-      parseCurrentThresholdEcdsaPresignSessionRow({
+      parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
         recordJson: {
           expiresAtMs: 999_999,
           userId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerKeyId: 'relayer-key',
           presignPoolKey: 'keyHandle:threshold-key',
+          poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
           participantIds: [2, 1],
           clientParticipantId: 1,
           relayerParticipantId: 2,
@@ -281,6 +188,7 @@ test.describe('threshold ecdsa postgres records', () => {
         rpId: 'example.localhost',
         relayerKeyId: 'relayer-key',
         presignPoolKey: 'keyHandle:threshold-key',
+        poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
         participantIds: [1, 2],
         clientParticipantId: 1,
         relayerParticipantId: 2,
@@ -296,7 +204,7 @@ test.describe('threshold ecdsa postgres records', () => {
     });
 
     expect(
-      parseCurrentThresholdEcdsaPresignSessionRow({
+      parseCurrentRouterAbEcdsaHssPoolFillSessionRow({
         recordJson: {
           expiresAtMs: 999_999,
           userId: 'alice.testnet',
@@ -319,7 +227,7 @@ test.describe('threshold ecdsa postgres records', () => {
     ).toBeNull();
 
     expect(
-      parseCurrentThresholdEcdsaPresignatureRecord({
+      parseCurrentRouterAbEcdsaHssServerPresignatureRecord({
         relayerKeyId: 'relayer-key',
         presignatureId: 'presignature',
         bigRB64u: 'big-r',
@@ -337,7 +245,7 @@ test.describe('threshold ecdsa postgres records', () => {
     });
 
     expect(
-      parseCurrentThresholdEcdsaPresignatureRecord({
+      parseCurrentRouterAbEcdsaHssServerPresignatureRecord({
         relayerKeyId: 'relayer-key',
         presignatureId: 'presignature',
         bigRB64u: 'big-r',

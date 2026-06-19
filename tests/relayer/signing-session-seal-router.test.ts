@@ -24,12 +24,17 @@ import {
 const FRONTEND_ORIGIN = 'https://example.localhost';
 const THRESHOLD_SESSION_ID = 'sess-12345678';
 const USER_ID = 'alice.testnet';
+const ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND = 'router_ab_ecdsa_hss_wallet_session_v1';
+
+function b64u(bytes: number[]): string {
+  return base64UrlEncode(Uint8Array.from(bytes));
+}
 
 function makeThresholdSessionClaims(input?: { userId?: string; walletSigningSessionId?: string }) {
   const userId = input?.userId || USER_ID;
   const walletSigningSessionId = input?.walletSigningSessionId || 'wallet-signing-session-1';
   return {
-    kind: 'threshold_ecdsa_session_v2' as const,
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: userId,
     walletId: userId,
     sessionId: THRESHOLD_SESSION_ID,
@@ -48,6 +53,46 @@ function makeThresholdSessionClaims(input?: { userId?: string; walletSigningSess
     rpId: FRONTEND_ORIGIN.replace('https://', ''),
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
+    routerAbEcdsaHssNormalSigning: {
+      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      scope: {
+        context: {
+          wallet_id: userId,
+          rp_id: FRONTEND_ORIGIN.replace('https://', ''),
+          key_scope: 'evm-family' as const,
+          ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
+          signing_root_id: 'signing-root-1',
+          signing_root_version: 'v1',
+          key_purpose: 'evm-signing',
+          key_version: 'v1',
+        },
+        public_identity: {
+          context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
+          client_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
+          server_public_key33_b64u: b64u([0x03, ...Array.from({ length: 32 }, () => 2)]),
+          threshold_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
+          ethereum_address20_b64u: b64u(Array.from({ length: 20 }, () => 0x11)),
+          client_share_retry_counter: 0,
+          server_share_retry_counter: 0,
+        },
+        signing_worker: {
+          server_id: 'signing-worker-1',
+          key_epoch: 'signing-worker-output-epoch',
+          recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+        },
+        activation_epoch: THRESHOLD_SESSION_ID,
+      },
+    },
+  };
+}
+
+function makeLegacyThresholdSessionClaims(input?: {
+  userId?: string;
+  walletSigningSessionId?: string;
+}) {
+  return {
+    ...makeThresholdSessionClaims(input),
+    kind: 'threshold_ecdsa_session_v2' as const,
   };
 }
 
@@ -113,7 +158,7 @@ function makePolicy(
       thresholdSessionId: string;
     }) =>
       curve === 'ecdsa' && thresholdSessionId === THRESHOLD_SESSION_ID
-        ? [{ kind: 'threshold_session' as const, ...thresholdSession }]
+        ? [{ kind: 'wallet_session' as const, ...thresholdSession }]
         : [],
     getWalletBudgetStatus: async ({
       curve,
@@ -176,6 +221,39 @@ test.describe('signing-session seal routes', () => {
       expect(res.json?.ciphertext).toBe('ciphertext-b64u');
       expect(res.json?.keyVersion).toBe('kek-s-2026-02');
       expect(Number(res.json?.expiresAtMs)).toBeGreaterThan(Date.now());
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express apply-server-seal rejects legacy threshold-session JWT claims', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true as const,
+          claims: makeLegacyThresholdSessionClaims(),
+        }),
+      }),
+      signingSessionSeal: createSigningSessionSealRoutesOptions({
+        sessionPolicy: makePolicy(),
+        cipher: createPassthroughSigningSessionSealCipherAdapter(),
+      }),
+    });
+
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeBody()),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json).toMatchObject({
+        ok: false,
+        code: 'forbidden',
+        message: 'Wallet Session does not match requested thresholdSessionId',
+      });
     } finally {
       await srv.close();
     }

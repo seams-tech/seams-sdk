@@ -1,4 +1,10 @@
 import type { Page, Route } from '@playwright/test';
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import bs58 from 'bs58';
 import { setupBasicPasskeyTest, SDK_ESM_PATHS } from '../setup';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
@@ -10,6 +16,15 @@ import type {
   ThresholdStoreConfigInput,
 } from '@server/core/types';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
+import { signSecp256k1Recoverable } from '@server/core/ThresholdService/ethSignerWasm';
+import {
+  ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS,
+  ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS,
+} from '@server/router/routerAbPrivateSigningWorker';
+import {
+  CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
+  ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
+} from '@server/core/ThresholdService/routerAb/ecdsaHssPresignBridge';
 import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -22,6 +37,17 @@ import {
 } from '@server/router/express-adaptor';
 import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 import type { SigningSessionSealRoutesOptions } from '@server/threshold/session/signingSessionSeal';
+import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
+import {
+  parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1,
+  parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  parseRouterAbEcdsaHssEvmDigestSigningRequestV1,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+  routerAbEcdsaHssActiveStateSessionId,
+  routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
+  type CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire,
+} from '@shared/utils/routerAbEcdsaHss';
 
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
@@ -48,6 +74,25 @@ export const TEST_RELAYER_ACCOUNT_ID = 'relayer.testnet';
 export const TEST_RELAYER_PUBLIC_KEY = 'ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB';
 export const TEST_RELAYER_PRIVATE_KEY =
   'ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM';
+const TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'test-router-ab-internal-service-auth';
+const TEST_ROUTER_AB_ECDSA_HSS_SIGNING_WORKER_PRIVATE_KEY_32 = new Uint8Array(32).fill(0x41);
+const TEST_ROUTER_AB_ECDSA_HSS_RERANDOMIZATION_ENTROPY_32 = new Uint8Array(32).fill(0x29);
+const TEST_ROUTER_AB_SIGNING_WORKER_ID = 'local-signing-worker';
+const TEST_ROUTER_AB_SIGNING_WORKER_KEY_EPOCH = 'epoch-1';
+const TEST_ROUTER_AB_SIGNING_WORKER_HPKE_PUBLIC_KEY =
+  'x25519:3333333333333333333333333333333333333333333333333333333333333333';
+const TEST_ROUTER_AB_SIGNING_WORKER_HPKE_PRIVATE_KEY =
+  'dev-only-signing-worker-server-output-hpke-private-key';
+const ROUTER_AB_DEV_MANIFEST = 'crates/router-ab-dev/Cargo.toml';
+const ROUTER_AB_LOCAL_WORKER_BIN = path.join(
+  'crates',
+  'router-ab-dev',
+  'target',
+  'debug',
+  process.platform === 'win32' ? 'router_ab_local_worker.exe' : 'router_ab_local_worker',
+);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+let routerAbLocalWorkerBuildPromise: Promise<void> | null = null;
 
 type ThresholdEcdsaRegistrationBootstrapResult =
   | {
@@ -64,6 +109,406 @@ type ThresholdEcdsaRegistrationBootstrapResult =
       code?: string;
       message?: string;
     };
+
+type JsonResponseLike = {
+  status: (statusCode: number) => JsonResponseLike;
+  json: (body: unknown) => unknown;
+};
+
+type LocalRouterAbSigningWorker = {
+  baseUrl: string;
+  close: () => Promise<void>;
+};
+
+function execFileAsync(
+  command: string,
+  args: string[],
+  options: { cwd: string },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, options, (error, _stdout, stderr) => {
+      if (!error) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `${command} ${args.join(' ')} failed: ${String(stderr || error.message || error)}`,
+        ),
+      );
+    });
+  });
+}
+
+function buildRouterAbLocalWorker(): Promise<void> {
+  if (!routerAbLocalWorkerBuildPromise) {
+    routerAbLocalWorkerBuildPromise = execFileAsync(
+      'cargo',
+      ['build', '--manifest-path', ROUTER_AB_DEV_MANIFEST, '--bin', 'router_ab_local_worker'],
+      { cwd: repoRoot },
+    );
+  }
+  return routerAbLocalWorkerBuildPromise;
+}
+
+function reserveLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (!Number.isSafeInteger(port) || port <= 0) {
+          reject(new Error('failed to reserve a Router A/B SigningWorker port'));
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
+function waitForLocalWorkerReady(input: {
+  child: ReturnType<typeof import('node:child_process').spawn>;
+  expectedBindAddr: string;
+  stderrLines: string[];
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      input.child.off('error', onError);
+      input.child.off('exit', onExit);
+      input.child.stderr?.off('data', onStderr);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onError = (error: Error) => {
+      finish(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(
+        new Error(
+          `Router A/B local SigningWorker exited before ready (${signal || (code ?? 'unknown')}): ${input.stderrLines.join(
+            '\n',
+          )}`,
+        ),
+      );
+    };
+    const onStderr = (chunk: Buffer | string) => {
+      const text = String(chunk || '');
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        input.stderrLines.push(line);
+        try {
+          const parsed = JSON.parse(line) as { bind_addr?: unknown; role_label?: unknown };
+          if (
+            String(parsed.bind_addr || '') === input.expectedBindAddr &&
+            String(parsed.role_label || '') === 'signing_worker'
+          ) {
+            finish();
+            return;
+          }
+        } catch {
+          // Cargo and Rust startup diagnostics are plain text until the worker summary.
+        }
+      }
+    };
+    const timer = setTimeout(() => {
+      finish(
+        new Error(
+          `Router A/B local SigningWorker did not become ready at ${input.expectedBindAddr}: ${input.stderrLines.join(
+            '\n',
+          )}`,
+        ),
+      );
+    }, 20_000);
+    input.child.once('error', onError);
+    input.child.once('exit', onExit);
+    input.child.stderr?.on('data', onStderr);
+  });
+}
+
+async function startLocalRouterAbEd25519SigningWorker(): Promise<LocalRouterAbSigningWorker> {
+  await buildRouterAbLocalWorker();
+  const [{ spawn }, port, tmpRoot] = await Promise.all([
+    import('node:child_process'),
+    reserveLoopbackPort(),
+    mkdtemp(path.join(tmpdir(), 'seams-router-ab-signing-worker-')),
+  ]);
+  const bindAddr = `127.0.0.1:${port}`;
+  const baseUrl = `http://${bindAddr}`;
+  const envPath = path.join(tmpRoot, 'signing-worker.local');
+  await writeFile(
+    envPath,
+    [
+      'ROUTER_AB_LOCAL_WORKER_ROLE=signing-worker',
+      `SIGNING_WORKER_URL=${baseUrl}`,
+      `SIGNING_WORKER_ID=${TEST_ROUTER_AB_SIGNING_WORKER_ID}`,
+      `SIGNING_WORKER_KEY_EPOCH=${TEST_ROUTER_AB_SIGNING_WORKER_KEY_EPOCH}`,
+      `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY=${TEST_ROUTER_AB_SIGNING_WORKER_HPKE_PUBLIC_KEY}`,
+      `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=${TEST_ROUTER_AB_SIGNING_WORKER_HPKE_PRIVATE_KEY}`,
+      `SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH=${path.join(tmpRoot, 'server-output.sqlite')}`,
+      `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET=${TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET}`,
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const child = spawn(
+    path.join(repoRoot, ROUTER_AB_LOCAL_WORKER_BIN),
+    ['--role', 'signing-worker', '--env', envPath],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
+      },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    },
+  );
+  const stderrLines: string[] = [];
+  try {
+    await waitForLocalWorkerReady({ child, expectedBindAddr: bindAddr, stderrLines });
+  } catch (error) {
+    if (child.exitCode === null && !child.killed) child.kill('SIGTERM');
+    await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+
+  return {
+    baseUrl,
+    close: async () => {
+      if (child.exitCode === null && !child.killed) {
+        child.kill('SIGTERM');
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            if (child.exitCode === null && !child.killed) child.kill('SIGKILL');
+            resolve();
+          }, 1_000);
+          child.once('exit', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+      await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    },
+  };
+}
+
+async function proxyEd25519PrivateSigningWorkerJson(input: {
+  workerBaseUrl: string;
+  path: string;
+  body: unknown;
+  res: JsonResponseLike;
+}): Promise<void> {
+  const response = await fetch(`${input.workerBaseUrl}${input.path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      [ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]: TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
+    },
+    body: JSON.stringify(input.body),
+  });
+  const text = await response.text();
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = {
+      ok: false,
+      code: 'invalid_signing_worker_response',
+      message: text || 'Router A/B local SigningWorker returned a non-JSON response',
+    };
+  }
+  input.res.status(response.status).json(body);
+}
+
+function readHeaderValue(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  name: string,
+): string {
+  const value = headers?.[name] ?? headers?.[name.toLowerCase()] ?? headers?.[name.toUpperCase()];
+  return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim();
+}
+
+function publicDigest(bytes: Uint8Array): { bytes: number[] } {
+  return { bytes: Array.from(bytes) };
+}
+
+function makeRouterAbEcdsaHssPoolFillReceipt(
+  request: CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire,
+  stored: boolean,
+) {
+  return {
+    active_signing_worker_state: {
+      account_id: request.scope.context.wallet_id,
+      session_id: routerAbEcdsaHssActiveStateSessionId({
+        kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+        scope: request.scope,
+      }),
+      account_public_key: request.scope.public_identity.threshold_public_key33_b64u,
+      signing_worker: request.scope.signing_worker,
+      activation_transcript_digest: publicDigest(new Uint8Array(32).fill(0x51)),
+      activation_digest: publicDigest(new Uint8Array(32).fill(0x52)),
+      signing_worker_material_handle: `fixture-${request.scope.signing_worker.server_id}`,
+      activated_at_ms: Math.max(1, Date.now()),
+    },
+    server_presignature_id: request.server_presignature_id,
+    server_big_r33_b64u: request.server_big_r33_b64u,
+    stored,
+  };
+}
+
+export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
+  baseUrl: string;
+  close: () => Promise<void>;
+}> {
+  const ed25519SigningWorker = await startLocalRouterAbEd25519SigningWorker();
+  const presignatures = new Map<
+    string,
+    CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire
+  >();
+  const router = async (
+    req: {
+      method?: string;
+      path?: string;
+      url?: string;
+      headers?: Record<string, string | string[] | undefined>;
+      body?: unknown;
+    },
+    res: JsonResponseLike,
+    next: (err?: unknown) => void,
+  ) => {
+    try {
+      const method = String(req.method || '').toUpperCase();
+      const path = String(req.path || req.url || '').split('?')[0] || '';
+      if (!path.startsWith('/router-ab/v1/signing-worker/')) {
+        next();
+        return;
+      }
+      if (method !== 'POST') {
+        res.status(405).json({ ok: false, code: 'method_not_allowed', message: 'POST required' });
+        return;
+      }
+      const authHeader = readHeaderValue(req.headers, ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1);
+      if (authHeader !== TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET) {
+        res.status(401).json({
+          ok: false,
+          code: 'unauthorized',
+          message: 'invalid Router A/B internal service auth',
+        });
+        return;
+      }
+
+      if (
+        path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare ||
+        path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize
+      ) {
+        await proxyEd25519PrivateSigningWorkerJson({
+          workerBaseUrl: ed25519SigningWorker.baseUrl,
+          path,
+          body: req.body,
+          res,
+        });
+        return;
+      }
+
+      if (path === CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1) {
+        const request = parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1(req.body);
+        const stored = !presignatures.has(request.server_presignature_id);
+        if (stored) presignatures.set(request.server_presignature_id, request);
+        res.status(200).json(makeRouterAbEcdsaHssPoolFillReceipt(request, stored));
+        return;
+      }
+
+      if (path === ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.prepare) {
+        const body = req.body && typeof req.body === 'object' ? (req.body as any).request : req.body;
+        const request = parseRouterAbEcdsaHssEvmDigestSigningRequestV1(body);
+        const presignature = presignatures.get(request.client_presignature_id);
+        if (!presignature) {
+          res.status(404).json({
+            ok: false,
+            code: 'presignature_not_found',
+            message: 'Router A/B ECDSA-HSS presignature is not available',
+          });
+          return;
+        }
+        res.status(200).json({
+          scope: request.scope,
+          request_id: request.request_id,
+          request_digest: await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request),
+          signing_digest: publicDigest(base64UrlDecode(request.signing_digest_b64u)),
+          server_presignature_id: request.client_presignature_id,
+          server_big_r33_b64u: presignature.server_big_r33_b64u,
+          rerandomization_entropy32_b64u: base64UrlEncode(
+            TEST_ROUTER_AB_ECDSA_HSS_RERANDOMIZATION_ENTROPY_32,
+          ),
+          signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
+          prepared_at_ms: Math.max(1, Date.now()),
+          expires_at_ms: request.expires_at_ms,
+        });
+        return;
+      }
+
+      if (path === ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize) {
+        const body = req.body && typeof req.body === 'object' ? (req.body as any).request : req.body;
+        const request = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(body);
+        const signature65 = await signSecp256k1Recoverable(
+          base64UrlDecode(request.signing_digest_b64u),
+          TEST_ROUTER_AB_ECDSA_HSS_SIGNING_WORKER_PRIVATE_KEY_32,
+        );
+        res.status(200).json({
+          scope: request.scope,
+          request_id: request.request_id,
+          request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(request),
+          signing_digest: publicDigest(base64UrlDecode(request.signing_digest_b64u)),
+          signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
+          signature65_b64u: base64UrlEncode(signature65),
+        });
+        return;
+      }
+
+      res.status(404).json({
+        ok: false,
+        code: 'not_found',
+        message: `unexpected private SigningWorker route: ${path}`,
+      });
+    } catch (error: unknown) {
+      res.status(500).json({
+        ok: false,
+        code: 'internal',
+        message:
+          error && typeof error === 'object' && 'message' in error
+            ? String((error as { message?: unknown }).message || '')
+            : String(error || 'private SigningWorker fixture failed'),
+      });
+    }
+  };
+  const expressWorker = await startExpressRouter(router);
+  return {
+    baseUrl: expressWorker.baseUrl,
+    close: async () => {
+      const results = await Promise.allSettled([
+        expressWorker.close(),
+        ed25519SigningWorker.close(),
+      ]);
+      const failed = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      if (failed) throw failed.reason;
+    },
+  };
+}
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
@@ -82,6 +527,7 @@ export function makeAuthServiceForThreshold(
   );
   const thresholdConfig: ThresholdStoreConfigInput = {
     THRESHOLD_NODE_ROLE: 'coordinator',
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: TEST_ROUTER_AB_SIGNING_WORKER_ID,
     ...providedConfig,
     ...(needsFixtureSigningRootResolver
       ? { signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests() }
@@ -310,6 +756,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
   projectName?: string;
   allowedOrigins?: string[];
   signingSessionSeal?: SigningSessionSealRoutesOptions | null;
+  routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
 }): Promise<{
   baseUrl: string;
   session: ReturnType<typeof makeSessionAdapter>;
@@ -393,6 +840,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
     bootstrapTokenStore,
     orgProjectEnv,
     signingSessionSeal: args.signingSessionSeal || undefined,
+    routerAbPublicKeyset: args.routerAbPublicKeyset || undefined,
   });
   const server = await startExpressRouter(router);
 
@@ -481,7 +929,7 @@ export async function installCreateAccountAndRegisterUserMock(
       const n = Number(value);
       return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
     };
-    const signThresholdSessionAuthToken = async (args: {
+    const signWalletSessionJwt = async (args: {
       kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
       sessionId: string;
       relayerKeyId: string;
@@ -530,7 +978,7 @@ export async function installCreateAccountAndRegisterUserMock(
               expiresAtMs,
               participantIds,
               remainingUses,
-              jwt: await signThresholdSessionAuthToken({
+              jwt: await signWalletSessionJwt({
                 kind: 'threshold_ed25519_session_v1',
                 sessionId,
                 relayerKeyId,
@@ -646,7 +1094,7 @@ export async function installCreateAccountAndRegisterUserMock(
               expiresAtMs,
               participantIds,
               remainingUses,
-              jwt: await signThresholdSessionAuthToken({
+              jwt: await signWalletSessionJwt({
                 kind: 'threshold_ecdsa_session_v1',
                 sessionId,
                 relayerKeyId: thresholdEcdsaRelayerKeyId,
@@ -963,9 +1411,9 @@ export async function installThresholdEd25519RegistrationMocks(
     const effectiveExpiresAtMs = expiresAtMs;
     const effectiveRemainingUses = remainingUses;
     const effectiveParticipantIds = [1, 2];
-    const thresholdAuthSessionStore = (
+    const thresholdWalletSessionStore = (
       input.threshold as unknown as {
-        authSessionStore?: {
+        walletSessionStore?: {
           putSession: (
             sessionId: string,
             record: unknown,
@@ -973,9 +1421,9 @@ export async function installThresholdEd25519RegistrationMocks(
           ) => Promise<void>;
         };
       }
-    )?.authSessionStore;
-    if (sessionId && thresholdAuthSessionStore?.putSession) {
-      await thresholdAuthSessionStore.putSession(
+    )?.walletSessionStore;
+    if (sessionId && thresholdWalletSessionStore?.putSession) {
+      await thresholdWalletSessionStore.putSession(
         sessionId,
         {
           expiresAtMs: effectiveExpiresAtMs,
@@ -991,7 +1439,7 @@ export async function installThresholdEd25519RegistrationMocks(
       );
     }
     const nowSec = Math.floor(Date.now() / 1000);
-    const thresholdSessionAuthToken =
+    const walletSessionJwt =
       sessionId && input.session?.signJwt
         ? await input.session.signJwt(accountId, {
             kind: 'threshold_ed25519_session_v1',
@@ -1039,7 +1487,7 @@ export async function installThresholdEd25519RegistrationMocks(
               expiresAtMs: effectiveExpiresAtMs,
               participantIds: effectiveParticipantIds,
               remainingUses: effectiveRemainingUses,
-              jwt: thresholdSessionAuthToken,
+              jwt: walletSessionJwt,
               ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             },
           }

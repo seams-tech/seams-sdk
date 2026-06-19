@@ -267,7 +267,7 @@ function makeSigningSessionStatusPolicy(args?: {
     : [1, 2];
   const expiresAtMs = Math.floor(Number(claims.thresholdExpiresAtMs) || Date.now() + 60_000);
   const makeThresholdStatus = (id: string, recordRelayerKeyId: string) => ({
-    kind: 'threshold_session' as const,
+    kind: 'wallet_session' as const,
     curve: 'ecdsa' as const,
     thresholdSessionId: id,
     userId,

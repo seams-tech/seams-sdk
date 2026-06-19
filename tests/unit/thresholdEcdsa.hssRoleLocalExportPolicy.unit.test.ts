@@ -7,7 +7,7 @@ import type {
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
 } from '../../packages/sdk-server-ts/src/core/types';
-import type { ThresholdEcdsaSessionClaims } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import type { RouterAbEcdsaHssWalletSessionClaims } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import {
   parseEcdsaHssClientBootstrapRequest,
   parseEcdsaHssExportShareRequest,
@@ -45,6 +45,11 @@ function publicKey33B64u(lastByte: number, prefix: 0x02 | 0x03 = 0x02): string {
   bytes[0] = prefix;
   bytes[32] = lastByte;
   return bytesB64u(bytes);
+}
+
+function ethereumAddress20B64u(address: string): string {
+  const normalized = address.trim().toLowerCase().replace(/^0x/, '');
+  return bytesB64u(Buffer.from(normalized, 'hex'));
 }
 
 function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
@@ -109,10 +114,10 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   if (!bootstrap.ok) throw new Error(bootstrap.message);
   const bootstrapValue = bootstrap.value;
 
-  const claims: ThresholdEcdsaSessionClaims = {
+  const claims: RouterAbEcdsaHssWalletSessionClaims = {
     sub: walletId,
     walletId: walletId,
-    kind: 'threshold_ecdsa_session_v2',
+    kind: 'router_ab_ecdsa_hss_wallet_session_v1',
     sessionId: bootstrapValue.sessionId,
     walletSigningSessionId: bootstrapValue.walletSigningSessionId,
     keyScope: 'evm-family',
@@ -121,6 +126,38 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     rpId,
     thresholdExpiresAtMs: bootstrapValue.expiresAtMs,
     participantIds: bootstrapValue.participantIds,
+    routerAbEcdsaHssNormalSigning: {
+      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      scope: {
+        context: {
+          wallet_id: walletId,
+          rp_id: rpId,
+          key_scope: 'evm-family',
+          ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+          signing_root_id: signingRootId,
+          signing_root_version: signingRootVersion,
+          key_purpose: 'evm-signing',
+          key_version: 'v1',
+        },
+        public_identity: {
+          context_binding_b64u: clientBootstrap.contextBinding32B64u,
+          client_public_key33_b64u: clientBootstrap.hssClientSharePublicKey33B64u,
+          server_public_key33_b64u: bootstrapValue.publicIdentity.relayerPublicKey33B64u,
+          threshold_public_key33_b64u: bootstrapValue.publicIdentity.groupPublicKey33B64u,
+          ethereum_address20_b64u: ethereumAddress20B64u(
+            bootstrapValue.publicIdentity.ethereumAddress,
+          ),
+          client_share_retry_counter: clientBootstrap.clientShareRetryCounter,
+          server_share_retry_counter: bootstrapValue.relayerShareRetryCounter,
+        },
+        signing_worker: {
+          server_id: 'signing-worker-export-test',
+          key_epoch: 'signing-worker-output-epoch',
+          recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+        },
+        activation_epoch: bootstrapValue.sessionId,
+      },
+    },
   };
 
   async function makeExportRequest(input?: {

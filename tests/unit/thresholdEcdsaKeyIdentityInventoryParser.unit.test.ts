@@ -187,7 +187,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     });
   });
 
-  test('marks key-handle-only profile continuity ECDSA signer for repair', () => {
+  test('marks key-handle-only profile continuity ECDSA signer as inventory-required', () => {
     const parsed = parseProfileContinuityEcdsaWarmKey({
       nearAccountId: WALLET_ID,
       configuredTargets: [EVM_TARGET],
@@ -195,7 +195,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     });
 
     expect(parsed).toEqual({
-      kind: 'repair_required',
+      kind: 'key_facts_inventory_required',
       chainTarget: EVM_TARGET,
       targetKey: 'evm:eip155:5042002',
       keyHandle: 'ehss-key-inventory',

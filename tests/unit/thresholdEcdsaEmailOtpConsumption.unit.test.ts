@@ -106,7 +106,7 @@ function ecdsaEmailOtpRecord(args: {
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
-    thresholdSessionAuthToken: `jwt-${args.thresholdSessionId}`,
+    walletSessionJwt: `jwt-${args.thresholdSessionId}`,
     expiresAtMs: 2_000_000_000_000,
     remainingUses: args.remainingUses,
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,

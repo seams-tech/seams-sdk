@@ -119,8 +119,8 @@ test.describe('warmSessionReadModel', () => {
 
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'auth.testnet',
-      thresholdSessionId: 'ed-auth-session',
-      thresholdSessionAuthToken: 'jwt:ed-auth-session',
+      thresholdSessionId: 'ed-wallet-session',
+      walletSessionJwt: 'jwt:ed-wallet-session',
     });
     const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'auth.testnet',
@@ -129,13 +129,13 @@ test.describe('warmSessionReadModel', () => {
 
     expect(resolveEd25519AuthMaterial(ed25519Record)).toMatchObject({
       capability: 'ed25519',
-      thresholdSessionAuthToken: 'jwt:ed-auth-session',
-      thresholdSessionAuthTokenSource: 'ed25519',
+      walletSessionJwt: 'jwt:ed-wallet-session',
+      walletSessionJwtSource: 'ed25519_record',
     });
     expect(resolveEcdsaAuthMaterial(ecdsaRecord)).toMatchObject({
       capability: 'ecdsa',
-      thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken,
-      thresholdSessionAuthTokenSource: 'ecdsa',
+      walletSessionJwt: ecdsaRecord.walletSessionJwt,
+      walletSessionJwtSource: 'ecdsa_record',
     });
   });
 
@@ -143,7 +143,14 @@ test.describe('warmSessionReadModel', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'derive.testnet',
       thresholdSessionId: 'derive-ed25519-session',
-      thresholdSessionAuthToken: 'jwt:derive-ed25519-session',
+      walletSessionJwt: 'jwt:derive-ed25519-session',
+    });
+    const unvalidatedRecord = seedEd25519WarmSessionRecord({
+      nearAccountId: 'derive-unavailable.testnet',
+      thresholdSessionId: 'derive-unavailable-ed25519-session',
+      walletSessionJwt: 'jwt:derive-unavailable-ed25519-session',
+      ed25519HssMaterialHandle: '',
+      ed25519HssMaterialBindingDigest: '',
     });
 
     expect(
@@ -161,18 +168,65 @@ test.describe('warmSessionReadModel', () => {
 
     expect(
       deriveEd25519CapabilityState({
-        record: ed25519Record,
-        auth: resolveEd25519AuthMaterial(ed25519Record),
+        record: unvalidatedRecord,
+        auth: resolveEd25519AuthMaterial(unvalidatedRecord),
         prfClaim: {
           state: 'unavailable',
-          sessionId: ed25519Record.thresholdSessionId,
+          sessionId: unvalidatedRecord.thresholdSessionId,
           code: 'worker_error',
         },
       }),
     ).toBe('prf_unavailable');
   });
 
-  test('derives ready cookie passkey Ed25519 state from record-backed client base', () => {
+  test('derives invalid for restored Ed25519 raw material without worker handle', () => {
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'pending-material.testnet',
+      thresholdSessionId: 'pending-material-session',
+      walletSessionJwt: 'jwt:pending-material-session',
+      xClientBaseB64u: 'restored-raw-client-base',
+      clientVerifyingShareB64u: 'restored-client-verifier',
+      ed25519HssMaterialHandle: '',
+      ed25519HssMaterialBindingDigest: '',
+    });
+
+    expect(
+      deriveEd25519CapabilityState({
+        record: ed25519Record,
+        auth: resolveEd25519AuthMaterial(ed25519Record),
+        prfClaim: {
+          state: 'warm',
+          sessionId: ed25519Record.thresholdSessionId,
+          remainingUses: 4,
+          expiresAtMs: ed25519Record.expiresAtMs,
+        },
+      }),
+    ).toBe('invalid');
+  });
+
+  test('derives invalid for Ed25519 records missing Router A/B state', () => {
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'missing-router-ab-ed25519.testnet',
+      thresholdSessionId: 'missing-router-ab-ed25519-session',
+      walletSessionJwt: 'jwt:missing-router-ab-ed25519-session',
+    });
+    delete ed25519Record.routerAbNormalSigning;
+
+    expect(
+      deriveEd25519CapabilityState({
+        record: ed25519Record,
+        auth: resolveEd25519AuthMaterial(ed25519Record),
+        prfClaim: {
+          state: 'warm',
+          sessionId: ed25519Record.thresholdSessionId,
+          remainingUses: 4,
+          expiresAtMs: ed25519Record.expiresAtMs,
+        },
+      }),
+    ).toBe('invalid');
+  });
+
+  test('derives auth_missing for cookie passkey Ed25519 state without Wallet Session auth', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -192,7 +246,95 @@ test.describe('warmSessionReadModel', () => {
           sessionId: ed25519Record.thresholdSessionId,
         },
       }),
-    ).toBe('ready');
+    ).toBe('auth_missing');
+  });
+
+  test('derives auth_missing for ECDSA cookie or missing Wallet Session JWT records', () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const currentRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'cookie-ecdsa.testnet',
+      chain: 'evm',
+    });
+    const cookieRecord = {
+      ...currentRecord,
+      thresholdSessionKind: 'cookie' as const,
+      walletSessionJwt: '',
+    };
+    const cookieAuth = resolveEcdsaAuthMaterial(cookieRecord);
+
+    expect(cookieAuth).toMatchObject({
+      capability: 'ecdsa',
+      state: 'unavailable',
+      walletSessionJwtSource: 'none',
+      unavailableReason: 'cookie_session',
+    });
+    expect(
+      deriveEcdsaCapabilityState({
+        record: cookieRecord,
+        auth: cookieAuth,
+        prfClaim: {
+          state: 'warm',
+          sessionId: cookieRecord.thresholdSessionId,
+          remainingUses: 4,
+          expiresAtMs: cookieRecord.expiresAtMs,
+        },
+      }),
+    ).toBe('auth_missing');
+
+    const jwtRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'missing-jwt-ecdsa.testnet',
+      chain: 'tempo',
+    });
+    const missingJwtRecord = {
+      ...jwtRecord,
+      walletSessionJwt: '',
+    };
+    const missingJwtAuth = resolveEcdsaAuthMaterial(missingJwtRecord);
+
+    expect(missingJwtAuth).toMatchObject({
+      capability: 'ecdsa',
+      state: 'unavailable',
+      walletSessionJwtSource: 'none',
+      unavailableReason: 'missing_wallet_session_jwt',
+    });
+    expect(
+      deriveEcdsaCapabilityState({
+        record: missingJwtRecord,
+        auth: missingJwtAuth,
+        prfClaim: {
+          state: 'warm',
+          sessionId: missingJwtRecord.thresholdSessionId,
+          remainingUses: 4,
+          expiresAtMs: missingJwtRecord.expiresAtMs,
+        },
+      }),
+    ).toBe('auth_missing');
+  });
+
+  test('does not derive ready for ECDSA records missing Router A/B state', () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'missing-router-ab-ecdsa.testnet',
+      chain: 'evm',
+    });
+    delete ecdsaRecord.routerAbEcdsaHssNormalSigning;
+
+    expect(
+      deriveEcdsaCapabilityState({
+        record: ecdsaRecord,
+        auth: resolveEcdsaAuthMaterial(ecdsaRecord),
+        prfClaim: {
+          state: 'warm',
+          sessionId: ecdsaRecord.thresholdSessionId,
+          remainingUses: 4,
+          expiresAtMs: ecdsaRecord.expiresAtMs,
+        },
+      }),
+    ).toBe('material_pending');
   });
 
   test('resolves ECDSA seal transport from the stored capability record', () => {
@@ -218,8 +360,8 @@ test.describe('warmSessionReadModel', () => {
     ).toMatchObject({
       curve: 'ecdsa',
       relayerUrl: ecdsaRecord.relayerUrl,
-      thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken,
-      thresholdSessionAuthTokenSource: 'ecdsa',
+      walletSessionJwt: ecdsaRecord.walletSessionJwt,
+      walletSessionJwtSource: 'ecdsa',
       keyVersion: 'kek-s-2026-02',
       shamirPrimeB64u: 'AQAB',
     });

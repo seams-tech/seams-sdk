@@ -91,11 +91,16 @@ const runtimeForbiddenPatterns = [
   /\bwindow\b/,
   /\bdocument\b/,
   /\bnavigator\b/,
+  /\bDOMException\b/,
   /\bIndexedDBManager\b/,
   /\bUnifiedIndexedDBManager\b/,
   /\bcreateBrowserPlatformRuntime\b/,
   /\bgetBrowserPlatformIndexedDB\b/,
   /platform\/browser/,
+  /from\s+['"]@simplewebauthn\/server['"]/,
+  /import\s*\(\s*['"]@simplewebauthn\/server['"]\s*\)/,
+  /from\s+['"]pg['"]/,
+  /import\s*\(\s*['"]pg['"]\s*\)/,
 ];
 
 const getBrowserPlatformIndexedDBAllowList = guardBoundaryEntries([
@@ -211,7 +216,7 @@ const useCaseIndexedDBForbiddenPatterns = [
 test.describe('refactor 51b platform boundary guards', () => {
   test('keeps core runtime free of browser, DOM, React, iframe, and IndexedDB imports', () => {
     const violations: string[] = [];
-    for (const file of listTypeScriptFiles('packages/sdk-runtime-ts/src/runtime')) {
+    for (const file of listTypeScriptFiles('packages/sdk-web/src/core/runtime')) {
       const source = readRepoFile(file);
       for (const pattern of runtimeForbiddenPatterns) {
         if (pattern.test(source)) {

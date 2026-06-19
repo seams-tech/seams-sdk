@@ -22,6 +22,12 @@ function createDisplayContext() {
         },
       },
     },
+    signingEngine: {
+      generateEphemeralNearKeypair: async () => ({
+        publicKey: 'ed25519:device2-public-key',
+        privateKey: 'device2-private-key',
+      }),
+    },
   } as any;
 }
 

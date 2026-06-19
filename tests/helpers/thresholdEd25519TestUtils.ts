@@ -2,10 +2,10 @@ import { ThresholdSigningService } from '@server/core/ThresholdService/Threshold
 import { createThresholdEd25519SessionStore } from '@server/core/ThresholdService/stores/SessionStore';
 import { createThresholdEcdsaSessionStore } from '@server/core/ThresholdService/stores/SessionStore';
 import {
-  createEcdsaAuthSessionStore,
-  createEd25519AuthSessionStore,
-  type Ed25519AuthSessionStore,
-} from '@server/core/ThresholdService/stores/AuthSessionStore';
+  createEcdsaWalletSessionStore,
+  createEd25519WalletSessionStore,
+  type Ed25519WalletSessionStore,
+} from '@server/core/ThresholdService/stores/WalletSessionStore';
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
@@ -74,7 +74,7 @@ function loadFixtureSigningRootShareWiresForUnitTests(): Map<number, Uint8Array>
       shares?: Array<{ id?: number; wire_hex?: string }>;
     }>;
   };
-  const vector = corpus.vectors?.find((entry) => entry.purpose === 'ecdsa-hss/y_relayer');
+  const vector = corpus.vectors?.find((entry) => entry.purpose === 'ecdsa-hss/y_server');
   if (
     vector?.policy?.threshold !== FIXTURE_THRESHOLD_PRF_POLICY.threshold ||
     vector.policy.share_count !== FIXTURE_THRESHOLD_PRF_POLICY.shareCount
@@ -145,14 +145,14 @@ export function createThresholdSigningServiceForUnitTests(input: {
         webauthn_authentication: WebAuthnAuthenticationCredential;
       }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>)
     | null;
-  authSessionStore?: Ed25519AuthSessionStore | null;
+  walletSessionStore?: Ed25519WalletSessionStore | null;
   dispatchNearTransaction?:
     | ((request: { signedTransactionBorshB64u: string }) => Promise<{ rpcResult: unknown }>)
     | null;
 }): {
   svc: ThresholdSigningService;
   sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
-  authSessionStore: Ed25519AuthSessionStore;
+  walletSessionStore: Ed25519WalletSessionStore;
 } {
   const logger = normalizeLogger(input.logger || silentLogger());
   const sessionStore = createThresholdEd25519SessionStore({
@@ -170,21 +170,20 @@ export function createThresholdSigningServiceForUnitTests(input: {
     logger,
     isNode: true,
   });
-  const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
+  const ecdsaWalletSessionStore = createEcdsaWalletSessionStore({
     config: { kind: 'in-memory' },
     logger,
     isNode: true,
   });
-  const authSessionStore =
-    input.authSessionStore ||
-    createEd25519AuthSessionStore({
+  const walletSessionStore =
+    input.walletSessionStore ||
+    createEd25519WalletSessionStore({
       config: { kind: 'in-memory' },
       logger,
       isNode: true,
     });
   const {
-    signingSessionStore: ecdsaSigningSessionStore,
-    presignSessionStore: ecdsaPresignSessionStore,
+    poolFillSessionStore: ecdsaPoolFillSessionStore,
     presignaturePool: ecdsaPresignaturePool,
   } = createThresholdEcdsaSigningStores({
     config: { kind: 'in-memory' },
@@ -216,6 +215,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
   const verifyWebAuthnAuthenticationLite =
     input.verifyWebAuthnAuthenticationLite || (async () => ({ success: true, verified: true }));
   const config = {
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
     ...(input.config || {}),
     ...(input.config?.signingRootShareResolver ||
     input.config?.signingRootShareResolverAdapters ||
@@ -237,12 +237,11 @@ export function createThresholdSigningServiceForUnitTests(input: {
       del: async () => {},
     },
     sessionStore,
-    authSessionStore,
+    walletSessionStore,
     ecdsaKeyStore,
     ecdsaSessionStore,
-    ecdsaAuthSessionStore,
-    ecdsaSigningSessionStore,
-    ecdsaPresignSessionStore,
+    ecdsaWalletSessionStore,
+    ecdsaPoolFillSessionStore,
     ecdsaPresignaturePool,
     signingRootShareResolver,
     config,
@@ -268,7 +267,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
       }),
   });
 
-  return { svc, sessionStore, authSessionStore };
+  return { svc, sessionStore, walletSessionStore };
 }
 
 export async function verifyThresholdEd25519CoordinatorGrantHmac(

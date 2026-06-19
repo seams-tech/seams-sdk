@@ -40,14 +40,14 @@ test.describe('signing-engine threshold architecture guardrails', () => {
     expect(activation).not.toContain('session/records');
   });
 
-  test('Ed25519 auth session mint helper has no session lifecycle cache', () => {
-    const source = readRepoSource('packages/sdk-web/src/core/signingEngine/threshold/ed25519/authSession.ts');
+  test('Ed25519 wallet session mint helper has no session lifecycle cache', () => {
+    const source = readRepoSource('packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession.ts');
 
     expect(source).not.toContain('session/records');
     expect(source).not.toContain('persistWarmSessionEd25519Capability');
-    expect(source).not.toContain('buildAndCacheEd25519AuthSession');
-    expect(source).not.toContain('resolveEd25519AuthSessionBySessionId');
-    expect(source).not.toContain('authSessionCache');
+    expect(source).not.toContain('buildAndCacheEd25519WalletSession');
+    expect(source).not.toContain('resolveEd25519WalletSessionBySessionId');
+    expect(source).not.toContain('walletSessionCache');
   });
 
   test('Ed25519 connect-session protocol leaves warm-session persistence to callers', () => {

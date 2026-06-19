@@ -13,8 +13,8 @@ import type { RelayRouteExtension } from '../../packages/sdk-server-ts/src/route
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRelayRouteSurface } from '../../packages/sdk-server-ts/src/router/relayRouteSurface';
 import {
-  parseRouterAbPublicKeysetV1,
-  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 import {
   createDefaultVoiceIdService,
@@ -31,19 +31,20 @@ type ExpressRouteEntry = {
 
 type CloudflareRelayHandler = ReturnType<typeof createCloudflareRouter>;
 
-const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV1({
-  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
-  route_profile: 'strict_proof_bundle',
+const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   signer_envelope_hpke: {
-    deriver_a: {
-      role: 'signer_a',
-      key_epoch: 'epoch-a',
-      public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
-    },
-    deriver_b: {
-      role: 'signer_b',
-      key_epoch: 'epoch-b',
-      public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
     },
   },
   signer_peer_verifying_keys: {

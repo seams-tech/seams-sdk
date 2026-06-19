@@ -28,7 +28,10 @@ import {
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
-import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+} from '@shared/utils/sessionTokens';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ECDSA_RP_ID = 'wallet.example.localhost';
@@ -109,9 +112,12 @@ export function thresholdEcdsaSessionJwtFixture(args: {
   walletSigningSessionId: string;
   keyHandle: string;
   chainTarget?: ThresholdEcdsaChainTarget;
+  kind?:
+    | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND
+    | typeof THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND;
 }): string {
   return unsignedJwt({
-    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    kind: args.kind || ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: AVAILABLE_LANES_WALLET_ID,
     walletId: AVAILABLE_LANES_WALLET_ID,
     keyHandle: args.keyHandle,

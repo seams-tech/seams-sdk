@@ -2,24 +2,25 @@ import { expect, test } from '@playwright/test';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import {
-  parseRouterAbPublicKeysetV1,
-  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
 
-const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV1({
-  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
-  route_profile: 'strict_proof_bundle',
+const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   signer_envelope_hpke: {
-    deriver_a: {
-      role: 'signer_a',
-      key_epoch: 'epoch-a',
-      public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
-    },
-    deriver_b: {
-      role: 'signer_b',
-      key_epoch: 'epoch-b',
-      public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
     },
   },
   signer_peer_verifying_keys: {
@@ -48,7 +49,7 @@ test.describe('Router A/B public keyset routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v1/router-ab/keyset`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/router-ab/keyset`, {
         method: 'GET',
         headers: { Origin: ALLOWED_ORIGIN },
       });
@@ -59,7 +60,7 @@ test.describe('Router A/B public keyset routes', () => {
       expect(res.headers.get('access-control-allow-origin')).toBe(ALLOWED_ORIGIN);
       expect(res.headers.get('vary')).toContain('Origin');
 
-      const preflight = await fetchJson(`${srv.baseUrl}/v1/router-ab/keyset`, {
+      const preflight = await fetchJson(`${srv.baseUrl}/v2/router-ab/keyset`, {
         method: 'OPTIONS',
         headers: {
           Origin: ALLOWED_ORIGIN,
@@ -80,7 +81,7 @@ test.describe('Router A/B public keyset routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/v1/router-ab/keyset`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/router-ab/keyset`, {
         method: 'GET',
         headers: { Origin: ALLOWED_ORIGIN },
       });
@@ -129,7 +130,7 @@ test.describe('Router A/B public keyset routes', () => {
 
     const res = await callCf(handler, {
       method: 'GET',
-      path: '/v1/router-ab/keyset',
+      path: '/v2/router-ab/keyset',
       origin: ALLOWED_ORIGIN,
     });
     expect(res.status).toBe(404);

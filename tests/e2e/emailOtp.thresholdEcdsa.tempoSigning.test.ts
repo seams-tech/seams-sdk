@@ -223,7 +223,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         clientSecretB64u: harness.defaultClientSecretB64u,
         emailOtpAuthPolicy: 'session',
         signTwice: true,
-        signNearAfterLogin: true,
       });
 
       const failureContext = result.ok
@@ -253,10 +252,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.secondSign?.chain).toBe('tempo');
       expect(result.secondSign?.kind).toBe('tempoTransaction');
       expect(result.secondSign?.rawTxHex?.startsWith('0x')).toBe(true);
-      expect(result.nearSign?.ok, result.nearSign?.error || '').toBe(true);
-      expect(result.nearSign?.signedCount).toBe(1);
-      expect(result.nearSign?.signerId).toBe(accountId);
-      expect(result.nearSign?.receiverId).toBe('w3a-v1.testnet');
     } finally {
       await harness.close();
     }

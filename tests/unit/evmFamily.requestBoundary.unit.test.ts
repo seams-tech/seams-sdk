@@ -34,7 +34,7 @@ function authenticatedEcdsaBudgetCheck(args: {
   walletId: string;
   walletSigningSessionId: string;
   thresholdSessionId: string;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
 }): AuthenticatedEcdsaLaneBudgetStatusCheck {
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.walletId,
@@ -55,7 +55,7 @@ function authenticatedEcdsaBudgetCheck(args: {
     trustedStatusAuth: {
       relayerUrl: 'https://relay.example',
       thresholdSessionId: args.thresholdSessionId,
-      thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+      walletSessionJwt: args.walletSessionJwt,
     },
   };
 }
@@ -186,7 +186,7 @@ test.describe('Trusted wallet signing budget status', () => {
         walletSigningSessionId,
         ecdsaThresholdKeyId,
         keyHandle,
-        sessionAuthToken: 'tempo-target-token',
+        walletSessionJwt: 'tempo-target-token',
       }),
     });
     const evmTarget = testEcdsaChainTarget('evm');
@@ -201,11 +201,11 @@ test.describe('Trusted wallet signing budget status', () => {
         walletSigningSessionId,
         ecdsaThresholdKeyId,
         keyHandle,
-        sessionAuthToken: 'evm-target-token',
+        walletSessionJwt: 'evm-target-token',
       }),
     });
     if (!tempoRecord || !evmRecord) throw new Error('failed to seed shared-target ECDSA records');
-    expect(evmRecord.thresholdSessionAuthToken).not.toBe(tempoRecord.thresholdSessionAuthToken);
+    expect(evmRecord.walletSessionJwt).not.toBe(tempoRecord.walletSessionJwt);
 
     const originalFetch = globalThis.fetch;
     const authorizations: string[] = [];
@@ -249,7 +249,56 @@ test.describe('Trusted wallet signing budget status', () => {
         status: 'active',
         remainingUses: 2,
       });
-      expect(authorizations).toEqual([`Bearer ${evmRecord.thresholdSessionAuthToken}`]);
+      expect(authorizations).toEqual([`Bearer ${evmRecord.walletSessionJwt}`]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('does not fetch trusted budget status with cookie-only ECDSA records', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const walletId = 'budget-cookie-only.testnet';
+    const thresholdSessionId = 'threshold-session-cookie-only';
+    const walletSigningSessionId = 'wallet-session-cookie-only';
+    const record = seedEcdsaWarmSessionRecord(ecdsaSessions, {
+      nearAccountId: walletId,
+      chain: 'evm',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'evm',
+        sessionId: thresholdSessionId,
+        walletSigningSessionId,
+        sessionKind: 'cookie',
+      }),
+    });
+    if (!record) throw new Error('failed to seed cookie-only ECDSA record');
+
+    const originalFetch = globalThis.fetch;
+    let fetchCount = 0;
+    globalThis.fetch = (async (): Promise<Response> => {
+      fetchCount += 1;
+      return new Response(JSON.stringify({ ok: false, code: 'unexpected_cookie_fallback' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const status = await readTrustedWalletSigningBudgetStatus(
+        { ecdsaSessions },
+        buildEcdsaLaneBudgetStatusCheck({
+          key: thresholdEcdsaSessionRecordReadModel(record).key,
+          keyHandle: record.keyHandle,
+          chainTarget: testEcdsaChainTarget('evm'),
+          walletSigningSessionId,
+          thresholdSessionId,
+        }),
+      );
+
+      expect(status).toBeNull();
+      expect(fetchCount).toBe(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -281,7 +330,7 @@ test.describe('Trusted wallet signing budget status', () => {
           walletId: 'budget-not-found.testnet',
           walletSigningSessionId: 'wallet-session-missing',
           thresholdSessionId: 'threshold-session-missing',
-          thresholdSessionAuthToken: 'stale-jwt',
+          walletSessionJwt: 'stale-jwt',
         }),
       );
 
@@ -343,7 +392,7 @@ test.describe('Trusted wallet signing budget status', () => {
           walletId: 'budget-current.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
-          thresholdSessionAuthToken: 'fresh-jwt',
+          walletSessionJwt: 'fresh-jwt',
         }),
       );
 
@@ -397,7 +446,7 @@ test.describe('Trusted wallet signing budget status', () => {
       walletId: 'budget-coalesced.testnet',
       walletSigningSessionId: 'wallet-session-coalesced',
       thresholdSessionId: 'threshold-session-coalesced',
-      thresholdSessionAuthToken: 'fresh-jwt',
+      walletSessionJwt: 'fresh-jwt',
     });
 
     try {
@@ -448,7 +497,7 @@ test.describe('Trusted wallet signing budget status', () => {
       walletId: 'budget-fresh-read.testnet',
       walletSigningSessionId: 'wallet-session-fresh-read',
       thresholdSessionId: 'threshold-session-fresh-read',
-      thresholdSessionAuthToken: 'fresh-jwt',
+      walletSessionJwt: 'fresh-jwt',
     });
 
     try {
@@ -491,7 +540,7 @@ test.describe('Trusted wallet signing budget status', () => {
           walletId: 'budget-mismatch.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
-          thresholdSessionAuthToken: 'fresh-jwt',
+          walletSessionJwt: 'fresh-jwt',
         }),
       );
 
@@ -529,7 +578,7 @@ test.describe('Trusted wallet signing budget status', () => {
           walletId: 'budget-threshold-mismatch.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
-          thresholdSessionAuthToken: 'fresh-jwt',
+          walletSessionJwt: 'fresh-jwt',
         }),
       );
 
@@ -566,7 +615,7 @@ test.describe('Trusted wallet signing budget status', () => {
           walletId: 'budget-projection-missing.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
-          thresholdSessionAuthToken: 'fresh-jwt',
+          walletSessionJwt: 'fresh-jwt',
         }),
       );
 

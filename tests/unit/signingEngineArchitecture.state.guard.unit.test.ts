@@ -220,8 +220,8 @@ test.describe('signing-engine state architecture guardrails', () => {
     const protocolFiles = [
       'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/authorize.ts',
       'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/presignPool.ts',
-      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/sign.ts',
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts',
       'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
     ] as const;
     const broadShapeMarkers = [

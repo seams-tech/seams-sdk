@@ -22,6 +22,11 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
 import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '../../packages/shared-ts/src/utils/sessionTokens';
+import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
+import {
   computeAddAuthMethodIntentDigestB64u,
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
@@ -75,6 +80,38 @@ const ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS = [
   'sessionKind',
 ] as const;
 
+const ROUTER_AB_PUBLIC_KEYSET = {
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  signer_envelope_hpke: {
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
+    },
+  },
+  signer_peer_verifying_keys: {
+    deriver_a: {
+      role: 'signer_a',
+      verifying_key_hex: '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+    },
+    deriver_b: {
+      role: 'signer_b',
+      verifying_key_hex: '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+    },
+  },
+  signing_worker_server_output_hpke: {
+    key_epoch: 'epoch-server',
+    public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
+  },
+} as const;
+
 function route(id: string): RouteDefinition {
   const found = findRouteDefinitionById(routeDefinitions, id);
   if (!found) throw new Error(`missing route ${id}`);
@@ -101,7 +138,11 @@ function inputFor(
       error: () => {},
     },
     route: route(routeId),
-    services: { authService, ...(session ? { session } : {}) },
+    services: {
+      authService,
+      routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
+      ...(session ? { session } : {}),
+    },
     sourceIp: '203.0.113.10',
   } as unknown as Parameters<typeof handleRelayWalletRegistrationStart>[0];
 }
@@ -166,6 +207,7 @@ function addSignerInputFor(args: {
       apiKeyAuth: args.apiKeyAuth,
       orgProjectEnv: args.orgProjectEnv,
       bootstrapTokenStore: args.bootstrapTokenStore,
+      routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
     },
   } as unknown as Parameters<typeof handleRelayWalletAddSignerStart>[0];
 }
@@ -270,6 +312,8 @@ function validEcdsaServerBootstrap() {
       groupPublicKey33B64u: b64u([2, ...Array(32).fill(5)]),
       ethereumAddress: '0x1111111111111111111111111111111111111111',
     },
+    clientShareRetryCounter: 0,
+    relayerShareRetryCounter: 1,
     publicTranscriptDigest32B64u: b64u(Array(32).fill(4)),
     keyHandle: 'ehss-key-alice',
     signingRootId: 'project:dev',
@@ -290,6 +334,16 @@ function signingSession() {
   return {
     signJwt: async (sub: string, claims: Record<string, unknown>) =>
       `signed:${sub}:${String(claims.kind || '')}:${String(claims.sessionId || '')}`,
+  };
+}
+
+function signingSessionWithCapturedClaims(out: { claims: Record<string, unknown> | null }) {
+  return {
+    signJwt: async (sub: string, claims: Record<string, unknown>) => {
+      void sub;
+      out.claims = claims;
+      return `signed:${String(claims.kind || '')}:${String(claims.sessionId || '')}`;
+    },
   };
 }
 
@@ -505,7 +559,7 @@ test.describe('wallet registration route boundaries', () => {
       ),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(request).toMatchObject({
       registrationIntentGrant: 'rig_1',
       registrationIntentDigestB64u: digest,
@@ -756,6 +810,7 @@ test.describe('wallet registration route boundaries', () => {
 
   test('respond forwards normalized ECDSA registration client bootstrap', async () => {
     let captured: unknown = null;
+    const signedClaims: { claims: Record<string, unknown> | null } = { claims: null };
     const clientBootstrap = validEcdsaClientBootstrap();
     const response = await handleRelayWalletRegistrationHssRespond(
       inputFor(
@@ -777,8 +832,11 @@ test.describe('wallet registration route boundaries', () => {
               },
             };
           },
+          getThresholdSigningService: () => ({
+            getRouterAbNormalSigningWorkerId: () => 'router-ab-signing-worker-local',
+          }),
         },
-        signingSession(),
+        signingSessionWithCapturedClaims(signedClaims),
       ),
     );
 
@@ -790,8 +848,30 @@ test.describe('wallet registration route boundaries', () => {
       },
     });
     expect((response.body as any).ecdsa.bootstrap.jwt).toBe(
-      'signed:wallet_alice:threshold_ecdsa_session_v2:session-1',
+      `signed:${ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND}:session-1`,
     );
+    expect(signedClaims.claims).toMatchObject({
+      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+      routerAbEcdsaHssNormalSigning: {
+        kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+        scope: {
+          context: {
+            wallet_id: 'wallet_alice',
+            rp_id: 'wallet.example.test',
+            key_scope: 'evm-family',
+            ecdsa_threshold_key_id: 'ehss-alice',
+            signing_root_id: 'project:dev',
+            signing_root_version: 'default',
+          },
+          signing_worker: {
+            server_id: 'router-ab-signing-worker-local',
+            key_epoch: 'epoch-server',
+          },
+          activation_epoch: 'session-1',
+        },
+      },
+    });
+    expect(signedClaims.claims?.routerAbEcdsaHssIssuerBinding).toBeUndefined();
   });
 
   test('finalize signs returned Ed25519 threshold session JWT', async () => {
@@ -831,6 +911,16 @@ test.describe('wallet registration route boundaries', () => {
                 expiresAtMs: Date.now() + 300_000,
                 participantIds: [1, 2],
                 remainingUses: 1,
+                runtimePolicyScope: {
+                  orgId: 'org',
+                  projectId: 'project',
+                  envId: 'dev',
+                  signingRootVersion: 'default',
+                },
+                routerAbNormalSigning: {
+                  kind: 'router_ab_ed25519_normal_signing_v1',
+                  signingWorkerId: 'router-ab-signing-worker-local',
+                },
               },
             },
           }),
@@ -841,7 +931,7 @@ test.describe('wallet registration route boundaries', () => {
 
     expect(response.status).toBe(200);
     expect((response.body as any).ed25519.session.jwt).toBe(
-      'signed:alice.testnet:threshold_ed25519_session_v1:ed-session-1',
+      `signed:alice.testnet:${ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND}:ed-session-1`,
     );
   });
 
@@ -1073,7 +1163,7 @@ test.describe('wallet registration route boundaries', () => {
           addSignerIntentGrant: 'wasig_test',
           addSignerIntentDigestB64u: digest,
           auth: {
-            kind: 'threshold_session',
+            kind: 'wallet_session',
             jwt: 'ed25519-threshold-session',
           },
         },
@@ -1508,7 +1598,7 @@ test.describe('wallet registration route boundaries', () => {
           addAuthMethodIntentGrant: 'waig_1',
           addAuthMethodIntentDigestB64u: digest,
           auth: {
-            kind: 'threshold_session',
+            kind: 'wallet_session',
             jwt: 'threshold-session-jwt',
           },
           webauthnRegistration: { id: 'credential' },

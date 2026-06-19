@@ -53,7 +53,7 @@ test.describe('source-backed recovery domain typing', () => {
   test('shared multichain recovery domain types align across shared, server, and client surfaces', async () => {
     const scriptPath = path.join(repoRoot, 'tests/unit/recoveryDomain.source.script.ts');
     const result = await runCommand(['exec', 'node', '--import', 'tsx', scriptPath], repoRoot, {
-      TSX_TSCONFIG_PATH: path.join(repoRoot, 'sdk/tsconfig.json'),
+      TSX_TSCONFIG_PATH: path.join(repoRoot, 'tests/tsconfig.playwright.json'),
     });
 
     expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);

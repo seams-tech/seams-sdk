@@ -8,6 +8,8 @@ import {
   type EcdsaHssClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { fetchJson, makeSessionAdapter, startExpressRouter } from './helpers';
 
 const RUNTIME_POLICY_SCOPE = {
@@ -156,6 +158,9 @@ async function startPasskeyBootstrapRoute(input: {
       rootProofCalls.push(request);
       return { ok: true, value: { keyHandle: 'ecdsa-hss-role-local-key-handle' } };
     },
+    getThresholdSigningService: () => ({
+      getRouterAbNormalSigningWorkerId: () => 'signing-worker-passkey-role-local',
+    }),
     readActiveEmailOtpEnrollment: async () => {
       throw new Error('Email OTP enrollment lookup should not run for this test');
     },
@@ -204,6 +209,32 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
           participantIds: PARTICIPANT_IDS,
         }),
       });
+    } finally {
+      await harness.server.close();
+    }
+  });
+
+  test('rejects cookie sessionKind before bootstrapping relayer state', async () => {
+    const body = await makeBootstrapBody({ sessionKind: 'cookie' });
+    const harness = await startPasskeyBootstrapRoute({
+      verifyResult: { success: true, verified: true },
+    });
+    try {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
+        method: 'POST',
+        headers: PASSKEY_BOOTSTRAP_HEADERS,
+        body: JSON.stringify(body),
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.headers.get('set-cookie')).toBeNull();
+      expect(response.json).toMatchObject({
+        ok: false,
+        code: 'invalid_body',
+        message: 'Router A/B ECDSA-HSS bootstrap requires sessionKind=jwt',
+      });
+      expect(harness.verifyCalls).toHaveLength(0);
+      expect(harness.bootstrapCalls).toHaveLength(0);
     } finally {
       await harness.server.close();
     }
@@ -314,7 +345,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       parseSession: async () => ({
         ok: true,
         claims: {
-          kind: 'threshold_ed25519_session_v1',
+          kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
           sub: WALLET_SESSION_USER_ID,
           walletId: WALLET_SESSION_USER_ID,
           sessionId: 'threshold-ed25519-login-session',
@@ -324,6 +355,10 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
           thresholdExpiresAtMs: Date.now() + 60_000,
           participantIds: PARTICIPANT_IDS,
           runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+          routerAbNormalSigning: {
+            kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+            signingWorkerId: 'signing-worker-passkey-role-local',
+          },
         },
       }),
     });

@@ -16,6 +16,7 @@ import type {
   ZeroWalletBudgetSpend,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 import {
+  buildSigningSessionBudgetStatusCheckForSpend,
   buildSigningBudgetReservationIdentity,
   walletBudgetOwnerId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
@@ -129,7 +130,6 @@ function makeTempoSpend(args?: {
     walletId,
     walletSigningSessionId: lane.walletSigningSessionId,
     lane,
-    ecdsaKey: lane.key,
     thresholdSessionIds: [lane.thresholdSessionId],
     backingMaterialSessionIds: [],
     uses: 1,
@@ -197,6 +197,7 @@ function makeReservedSuccess(): ReservedSuccessInput {
     trustedStatusAuth: {
       relayerUrl: 'https://relayer.example.test',
       thresholdSessionId: 'threshold-session-1',
+      walletSessionJwt: 'wallet-session-jwt',
     },
   });
 }
@@ -803,6 +804,111 @@ test.describe('budget coordinator reserved success handling', () => {
       remainingUses: 0,
       reservation: { reservedUses: 2 },
     });
+  });
+
+  test('projects completed unreserved spends into later wallet-session admission', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus(args) {
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 3,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse(args) {
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 2,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+    });
+    const firstSpend = makeSpend({
+      operationId: 'completed-unreserved-1',
+      operationFingerprint: 'completed-unreserved-fingerprint-1',
+      walletSigningSessionId: 'completed-unreserved-wallet-session',
+      thresholdSessionId: 'completed-unreserved-threshold-session-1',
+    });
+    await coordinator.recordSuccess(
+      withSuccessCommand({
+        kind: 'unreserved_success',
+        spend: firstSpend,
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    );
+
+    const status = await coordinator.getAvailableStatus(
+      buildSigningSessionBudgetStatusCheckForSpend({
+        spend: makeSpend({
+          operationId: 'completed-unreserved-2',
+          operationFingerprint: 'completed-unreserved-fingerprint-2',
+          walletSigningSessionId: 'completed-unreserved-wallet-session',
+          thresholdSessionId: 'completed-unreserved-threshold-session-2',
+        }),
+      }),
+    );
+
+    expect(status).toMatchObject({
+      sessionId: 'completed-unreserved-wallet-session',
+      status: 'active',
+      remainingUses: 2,
+      availableUses: 2,
+      projectionVersion: 'projection-1',
+    });
+  });
+
+  test('rejects admission after completed unreserved spends exhaust the projection', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus(args) {
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 3,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse(args) {
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 3,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+    });
+    for (let index = 1; index <= 3; index += 1) {
+      const spend = makeSpend({
+        operationId: `completed-exhaustion-${index}`,
+        operationFingerprint: `completed-exhaustion-fingerprint-${index}`,
+        walletSigningSessionId: 'completed-exhaustion-wallet-session',
+        thresholdSessionId: `completed-exhaustion-threshold-session-${index}`,
+      });
+      await coordinator.recordSuccess(
+        withSuccessCommand({
+          kind: 'unreserved_success',
+          spend,
+          expectedBudgetProjectionVersion: 'projection-1',
+        }),
+      );
+    }
+
+    await expect(
+      coordinator.reserve({
+        spend: makeSpend({
+          operationId: 'completed-exhaustion-4',
+          operationFingerprint: 'completed-exhaustion-fingerprint-4',
+          walletSigningSessionId: 'completed-exhaustion-wallet-session',
+          thresholdSessionId: 'completed-exhaustion-threshold-session-4',
+        }),
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is exhausted');
   });
 
   test('accepts reserved_success when another spend advances the projection before finalization', async () => {

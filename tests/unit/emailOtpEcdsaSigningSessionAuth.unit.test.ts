@@ -58,6 +58,12 @@ function thresholdEcdsaSessionJwt(args: {
     chainTarget: sourceChainTarget,
     sessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
+    runtimePolicyScope: {
+      orgId: 'org-local',
+      projectId: 'proj_local',
+      envId: 'dev',
+      signingRootVersion: 'default',
+    },
   });
 }
 
@@ -310,13 +316,11 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     walletSigningSessionId,
     curve: 'ecdsa',
     walletId,
-    signingRootId: 'proj_local:dev',
-    signingRootVersion: 'default',
     relayerUrl: 'https://relay.example.test',
     ecdsaRestore: {
       chainTarget: sourceChainTarget,
       rpId: 'example.localhost',
-      thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
+      walletSessionJwt: thresholdEcdsaSessionJwt({
         thresholdSessionId,
         walletSigningSessionId,
         walletId,
@@ -324,6 +328,7 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
       }),
       sessionKind: 'jwt',
       keyHandle,
+      ecdsaThresholdKeyId: 'ehss-email-otp',
       ethereumAddress: `0x${'aa'.repeat(20)}`,
       relayerKeyId: 'relayer-ecdsa',
       participantIds: [1, 2],

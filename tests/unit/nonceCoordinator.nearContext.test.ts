@@ -41,6 +41,31 @@ function createNearOperation() {
   };
 }
 
+type MutableNearNonce = {
+  value: number;
+};
+
+function createMutableNearClient(args: {
+  nonce: MutableNearNonce;
+  calls: string[];
+}): NearClient {
+  return {
+    viewAccessKey: async () => {
+      args.calls.push(`viewAccessKey:${args.nonce.value}`);
+      return {
+        nonce: args.nonce.value,
+        permission: 'FullAccess',
+        block_height: 1,
+        block_hash: 'test-access-key-block',
+      };
+    },
+    viewBlock: async () => {
+      args.calls.push('viewBlock');
+      return { header: { height: 100, hash: 'test-block' } };
+    },
+  } as unknown as NearClient;
+}
+
 function createContext(nextNonce: string) {
   return {
     nearPublicKeyStr: 'ed25519:test-key',
@@ -184,6 +209,80 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     });
     expect(String(next.leases[0]!.nonce)).toBe('42');
     expect(calls).toContain('viewAccessKey:41');
+  });
+
+  test('refreshes NEAR access-key nonce before coordinator-owned signing reservations', async () => {
+    const chainNonce = { value: 40 };
+    const calls: string[] = [];
+    const nearClient = createMutableNearClient({ nonce: chainNonce, calls });
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(),
+      nearClient,
+    });
+    const lane = createNearLane();
+
+    const first = await coordinator.reserveNearContext({
+      lane,
+      operation: createNearOperation(),
+      count: 1,
+      nearClient,
+    });
+    expect(String(first.leases[0]!.nonce)).toBe('41');
+
+    chainNonce.value = 41;
+    const second = await coordinator.reserveNearContext({
+      lane,
+      operation: createNearOperation(),
+      count: 1,
+      nearClient,
+    });
+    expect(String(second.leases[0]!.nonce)).toBe('42');
+    expect(calls.filter((entry) => entry.startsWith('viewAccessKey:'))).toEqual([
+      'viewAccessKey:40',
+      'viewAccessKey:41',
+    ]);
+  });
+
+  test('refreshes NEAR access-key nonce after broadcast rejection', async () => {
+    const chainNonce = { value: 40 };
+    const calls: string[] = [];
+    const nearClient = createMutableNearClient({ nonce: chainNonce, calls });
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(),
+      nearClient,
+    });
+    const lane = createNearLane();
+    const operation = createNearOperation();
+
+    const reservation = await coordinator.reserveNearContext({
+      lane,
+      operation,
+      count: 1,
+      nearClient,
+    });
+    const lease = reservation.leases[0]!;
+    expect(String(lease.nonce)).toBe('41');
+
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+    });
+    chainNonce.value = 50;
+    await coordinator.markBroadcastRejected({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+      error: new Error('InvalidTxError: InvalidNonce'),
+    });
+
+    const context = await coordinator.fetchNearContext({
+      lane,
+      nearClient,
+      force: false,
+    });
+    expect(context.nextNonce).toBe('51');
+    expect(calls).toContain('viewAccessKey:50');
   });
 
   test('reconciles advanced NEAR nonce with missing tx hash as dropped', async () => {

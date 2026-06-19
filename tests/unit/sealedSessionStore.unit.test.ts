@@ -21,7 +21,7 @@ const ECDSA_RESTORE = {
 const EMAIL_OTP_ECDSA_RESTORE = {
   ...ECDSA_RESTORE,
   sessionKind: 'cookie',
-  thresholdSessionAuthToken: 'threshold-session-jwt',
+  walletSessionJwt: 'threshold-session-jwt',
 } as const;
 
 const PASSKEY_ED25519_RESTORE = {
@@ -29,14 +29,21 @@ const PASSKEY_ED25519_RESTORE = {
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
   sessionKind: 'cookie',
-  xClientBaseB64u: 'x-client-base-b64u',
 } as const;
 
 const EMAIL_OTP_ED25519_RESTORE = {
   ...PASSKEY_ED25519_RESTORE,
   sessionKind: 'jwt',
-  thresholdSessionAuthToken: 'threshold-session-jwt',
+  walletSessionJwt: 'threshold-session-jwt',
+  xClientBaseB64u: 'x-client-base-b64u',
+  clientVerifyingShareB64u: 'client-verifying-share-b64u',
 } as const;
+
+function jwtWithPayload(payload: Record<string, unknown>): string {
+  const encode = (value: unknown): string =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
+}
 
 test.describe('signing session sealed store', () => {
   test.beforeEach(async ({ page }) => {
@@ -97,7 +104,7 @@ test.describe('signing session sealed store', () => {
             signingRootId: 'signing-root',
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-secret-b64u',
-            thresholdSessionAuthToken: 'jwt-must-not-persist',
+            walletSessionJwt: 'jwt-must-not-persist',
             signingSessionSecretB64u: 'plaintext-k-must-not-persist',
             emailOtpSecretS: 'plaintext-s-must-not-persist',
             enrollmentEscrowB64u: 'enrollment-escrow-must-not-persist',
@@ -157,7 +164,7 @@ test.describe('signing session sealed store', () => {
               Object.prototype.hasOwnProperty.call(record, 'signingSessionSecretB64u') ||
               Object.prototype.hasOwnProperty.call(record, 'secretSourceB64u')),
           rawHasThresholdSessionAuthToken:
-            !!record && Object.prototype.hasOwnProperty.call(record, 'thresholdSessionAuthToken'),
+            !!record && Object.prototype.hasOwnProperty.call(record, 'walletSessionJwt'),
           rawHasPlaintextK: rawRecordJson.includes('plaintext-k-must-not-persist'),
           rawHasPlaintextS: rawRecordJson.includes('plaintext-s-must-not-persist'),
           rawHasEnrollmentEscrow: rawRecordJson.includes('enrollment-escrow-must-not-persist'),
@@ -183,6 +190,68 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasPlaintextS).toBe(false);
     expect(result.rawHasEnrollmentEscrow).toBe(false);
     expect(result.rawHasJwt).toBe(false);
+  });
+
+  test('accepts Router A/B ECDSA-HSS Wallet Session JWTs in passkey sealed restore records', async ({
+    page,
+  }) => {
+    const walletId = 'sealed-store-router-ab.testnet';
+    const walletSessionJwt = jwtWithPayload({
+      kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+      sub: walletId,
+      walletId,
+      sessionId: 'router-ab-ecdsa-session',
+      walletSigningSessionId: 'router-ab-wallet-session',
+      keyScope: 'evm-family',
+      keyHandle: ECDSA_RESTORE.keyHandle,
+      relayerKeyId: ECDSA_RESTORE.relayerKeyId,
+      rpId: ECDSA_RESTORE.rpId,
+      thresholdExpiresAtMs: Date.now() + 60_000,
+      participantIds: ECDSA_RESTORE.participantIds,
+    });
+
+    const result = await page.evaluate(
+      async ({ paths, walletId, walletSessionJwt }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const record = mod.buildCurrentSealedSessionRecord({
+          thresholdSessionId: 'router-ab-ecdsa-session',
+          walletSigningSessionId: 'router-ab-wallet-session',
+          curve: 'ecdsa',
+          authMethod: 'passkey',
+          ecdsaRestore: {
+            ...ECDSA_RESTORE,
+            sessionKind: 'jwt',
+            walletSessionJwt,
+          },
+          walletId,
+          userId: walletId,
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-secret-b64u',
+          keyVersion: 'kek-s-2026-02',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          updatedAtMs: Date.now(),
+        });
+        if (record) {
+          await mod.writeExactSealedSession(record);
+        }
+        return {
+          built: Boolean(record),
+          persisted: Boolean(
+            await mod.readExactSealedSession('router-ab-ecdsa-session', {
+              authMethod: 'passkey',
+              curve: 'ecdsa',
+              chain: 'tempo',
+              chainTarget: ECDSA_RESTORE.chainTarget,
+            }),
+          ),
+        };
+      },
+      { paths: IMPORT_PATHS, walletId, walletSessionJwt },
+    );
+
+    expect(result).toEqual({ built: true, persisted: true });
   });
 
   test('fails closed on malformed plaintext record payloads', async ({ page }) => {
@@ -597,7 +666,7 @@ test.describe('signing session sealed store', () => {
             relayerUrl: 'https://relay.example',
             ecdsaRestore: {
               ...ECDSA_RESTORE,
-              thresholdSessionAuthToken: 'threshold-session-jwt',
+              walletSessionJwt: 'threshold-session-jwt',
             },
             sealedSecretB64u: 'sealed-current',
             issuedAtMs: now,
@@ -624,7 +693,7 @@ test.describe('signing session sealed store', () => {
           sealedSecretB64u: 'sealed-delete',
           ecdsaRestore: {
             ...ECDSA_RESTORE,
-            thresholdSessionAuthToken: 'threshold-session-jwt',
+            walletSessionJwt: 'threshold-session-jwt',
             participantIds: [],
           },
           issuedAtMs: now,
@@ -1031,8 +1100,6 @@ test.describe('signing session sealed store', () => {
         const thresholdSessionId = 'passkey-ed25519-prf-only-session';
         const walletSigningSessionId = 'passkey-ed25519-prf-only-wallet-session';
         await mod.clearAllSealedSessions();
-        const { xClientBaseB64u: _xClientBaseB64u, ...ed25519Restore } = PASSKEY_ED25519_RESTORE;
-
         await mod.writeExactSealedSession(
           mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
@@ -1042,7 +1109,7 @@ test.describe('signing session sealed store', () => {
             authMethod: 'passkey',
             walletId: 'passkey-ed25519-prf-only.testnet',
             userId: 'passkey-ed25519-prf-only.testnet',
-            ed25519Restore,
+            ed25519Restore: PASSKEY_ED25519_RESTORE,
             relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-passkey-prf-first',
             expiresAtMs: Date.now() + 60_000,
@@ -1061,6 +1128,52 @@ test.describe('signing session sealed store', () => {
 
     expect(result?.sealedSecretB64u).toBe('sealed-passkey-prf-first');
     expect(result?.ed25519Restore?.xClientBaseB64u).toBeUndefined();
+  });
+
+  test('rejects passkey Ed25519 signing-session seals with raw client-base metadata', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        const rawRecord = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          authMethod: 'passkey',
+          secretKind: 'signing_session_secret32',
+          storeKey: 'passkey-ed25519-raw-wallet-session:passkey:ed25519',
+          walletSigningSessionId: 'passkey-ed25519-raw-wallet-session',
+          thresholdSessionIds: { ed25519: 'passkey-ed25519-raw-session' },
+          curve: 'ed25519',
+          walletId: 'passkey-ed25519-raw.testnet',
+          userId: 'passkey-ed25519-raw.testnet',
+          ed25519Restore: {
+            ...PASSKEY_ED25519_RESTORE,
+            xClientBaseB64u: 'stale-x-client-base',
+            clientVerifyingShareB64u: 'stale-client-verifying-share',
+          },
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-passkey-prf-first',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 5,
+          updatedAtMs: Date.now(),
+        };
+
+        return {
+          classification: mod.classifyRawSealedSessionRecord(rawRecord),
+          built: mod.buildCurrentSealedSessionRecord(rawRecord),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.classification).toMatchObject({
+      kind: 'delete_required',
+      reason: 'missing_restore_metadata',
+    });
+    expect(result.built).toBeNull();
   });
 
   test('lists durable sealed records for an account by auth method and curve', async ({ page }) => {

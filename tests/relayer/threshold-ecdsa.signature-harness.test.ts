@@ -8,6 +8,11 @@ import {
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { RouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  type RouterAbPublicKeysetV2,
+} from '@shared/utils/routerAbPublicKeyset';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
@@ -41,6 +46,31 @@ const TEST_ECDSA_CHAIN_TARGET = {
 } as const;
 const EXPORT_CONFIRMATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-confirmation:v2';
 const EXPORT_AUTHORIZATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-authorization:v2';
+const TEST_ROUTER_AB_PUBLIC_KEYSET = {
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  signer_envelope_hpke: {
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: `x25519:${'11'.repeat(32)}`,
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: `x25519:${'22'.repeat(32)}`,
+      },
+    },
+  },
+  signer_peer_verifying_keys: {
+    deriver_a: { role: 'signer_a', verifying_key_hex: 'aa'.repeat(32) },
+    deriver_b: { role: 'signer_b', verifying_key_hex: 'bb'.repeat(32) },
+  },
+  signing_worker_server_output_hpke: {
+    key_epoch: 'signing-worker-output-epoch',
+    public_key: `x25519:${'33'.repeat(32)}`,
+  },
+} satisfies RouterAbPublicKeysetV2;
 let hssClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
@@ -301,7 +331,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     clientAdditiveShare32B64u: openedClientSigningShare.signingShare32B64u,
   };
   const jwt = await args.session.signJwt(args.userId, {
-    kind: 'threshold_ecdsa_session_v2',
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     walletId: args.userId,
     sessionId: String(value.sessionId || args.sessionId),
     walletSigningSessionId: String(value.walletSigningSessionId || walletSigningSessionId),
@@ -314,6 +344,38 @@ async function stagedBootstrapThresholdEcdsa(args: {
       ? value.participantIds
       : args.participantIds,
     runtimePolicyScope: TEST_RUNTIME_SCOPE,
+    routerAbEcdsaHssNormalSigning: {
+      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      scope: {
+        context: {
+          wallet_id: args.userId,
+          rp_id: args.rpId,
+          key_scope: 'evm-family',
+          ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+          signing_root_id: signingRootId,
+          signing_root_version: signingRootVersion,
+          key_purpose: 'evm-signing',
+          key_version: 'v1',
+        },
+        public_identity: {
+          context_binding_b64u: preparedClientBootstrap.contextBinding32B64u,
+          client_public_key33_b64u: preparedClientBootstrap.hssClientSharePublicKey33B64u,
+          server_public_key33_b64u: String(publicIdentity.relayerPublicKey33B64u || ''),
+          threshold_public_key33_b64u: String(publicIdentity.groupPublicKey33B64u || ''),
+          ethereum_address20_b64u: hexAddress20ToB64u(
+            String(publicIdentity.ethereumAddress || ''),
+          ),
+          client_share_retry_counter: Number(preparedClientBootstrap.clientShareRetryCounter || 0),
+          server_share_retry_counter: Number(value.relayerShareRetryCounter || 0),
+        },
+        signing_worker: {
+          server_id: 'signing-worker-test',
+          key_epoch: 'signing-worker-output-epoch',
+          recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+        },
+        activation_epoch: String(value.sessionId || args.sessionId),
+      },
+    },
   });
 
   return {
@@ -539,6 +601,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerA = createRelayRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvA = await startExpressRouter(routerA);
 
@@ -552,6 +615,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerB = createRelayRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvB = await startExpressRouter(routerB);
 
@@ -639,7 +703,11 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('exports the canonical ECDSA key for the same staged threshold identity', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
+    const router = createRelayRouter(service, {
+      threshold,
+      session,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -695,7 +763,11 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('export/share rejects app-session JWTs at the Wallet Session boundary', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
+    const router = createRelayRouter(service, {
+      threshold,
+      session,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -745,7 +817,11 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('export/share rejects request userId outside Wallet Session wallet scope', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
+    const router = createRelayRouter(service, {
+      threshold,
+      session,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -794,7 +870,11 @@ test.describe('threshold-ecdsa harness signature verification', () => {
   test('role-local bootstrap provisions ECDSA once, then later bootstrap/export reuse persisted key material', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
+    const router = createRelayRouter(service, {
+      threshold,
+      session,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
+    });
     const srv = await startExpressRouter(router);
 
     try {
@@ -898,6 +978,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerA = createRelayRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvA = await startExpressRouter(routerA);
 
@@ -911,6 +992,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerB = createRelayRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvB = await startExpressRouter(routerB);
 
@@ -1034,6 +1116,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerA = createRelayRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvA = await startExpressRouter(routerA);
 
@@ -1045,6 +1128,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerB = createRelayRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvB = await startExpressRouter(routerB);
 
@@ -1134,6 +1218,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerA = createRelayRouter(a.service, {
       threshold: a.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvA = await startExpressRouter(routerA);
 
@@ -1147,6 +1232,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const routerB = createRelayRouter(b.service, {
       threshold: b.threshold,
       session: sharedSession,
+      routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
     });
     const srvB = await startExpressRouter(routerB);
 

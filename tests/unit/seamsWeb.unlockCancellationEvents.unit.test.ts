@@ -14,7 +14,15 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     const result = await unlock(
       {
         signingEngine: {
-          assertSealedRefreshStartupParity: async () => {
+          assertSealedRefreshStartupParity: async () => undefined,
+          getLastUser: async () => ({
+            nearAccountId: 'alice.testnet',
+            signerSlot: 1,
+            operationalPublicKey: 'ed25519:alice',
+            authMethod: 'passkey',
+          }),
+          nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
+          getAuthenticationCredentialsSerialized: async () => {
             throw cancellation;
           },
         },
@@ -33,10 +41,21 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     });
     expect(events.map((event) => event.phase)).toEqual([
       UnlockEventPhase.STEP_01_STARTED,
+      UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED,
+      UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED,
+      UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED,
+      UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
       UnlockEventPhase.CANCELLED,
     ]);
-    expect(events.map((event) => event.status)).toEqual(['started', 'cancelled']);
-    expect(events[1]).toMatchObject({
+    expect(events.map((event) => event.status)).toEqual([
+      'started',
+      'running',
+      'succeeded',
+      'skipped',
+      'waiting_for_user',
+      'cancelled',
+    ]);
+    expect(events[5]).toMatchObject({
       flow: 'unlock',
       phase: 'unlock.cancelled',
       step: 0,
@@ -48,6 +67,57 @@ test.describe('SeamsWeb unlock cancellation events', () => {
     });
     expect(afterCalls).toEqual([false]);
     expect(onErrors).toEqual(['The operation either timed out or was not allowed']);
+  });
+
+  test('passkey prompt is not blocked by slow sealed-refresh parity check', async () => {
+    const events: any[] = [];
+    let promptStarted = false;
+    const result = await unlock(
+      {
+        signingEngine: {
+          assertSealedRefreshStartupParity: async () => {
+            await new Promise(() => undefined);
+          },
+          getLastUser: async () => ({
+            nearAccountId: 'alice.testnet',
+            signerSlot: 1,
+            operationalPublicKey: 'ed25519:alice',
+            authMethod: 'passkey',
+          }),
+          nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
+          getAuthenticationCredentialsSerialized: async () => {
+            promptStarted = true;
+            return {
+              id: 'cred-1',
+              rawId: 'cred-1',
+              type: 'public-key',
+              response: {
+                clientDataJSON: 'client-data-json',
+                authenticatorData: 'authenticator-data',
+                signature: 'signature',
+              },
+              clientExtensionResults: {},
+            };
+          },
+          setLastUser: async () => undefined,
+          updateLastLogin: async () => undefined,
+          getNonceCoordinator: () => ({
+            recoverDurableLeases: async () => undefined,
+          }),
+        },
+      } as any,
+      'alice.testnet' as any,
+      {
+        onEvent: (event: any) => events.push(event),
+      } as any,
+    );
+
+    expect(promptStarted).toBe(true);
+    expect(result.success).toBe(true);
+    expect(events.map((event) => event.phase)).toContain(
+      UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
+    );
+    expect(events.map((event) => event.phase)).toContain(UnlockEventPhase.STEP_07_COMPLETED);
   });
 
   test('Email OTP unlock failure helper emits unlock.cancelled for cancellation errors', () => {

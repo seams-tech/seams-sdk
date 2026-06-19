@@ -170,7 +170,6 @@ test.describe('EVM-family budget finalization spending', () => {
         walletSigningSessionId: freshWalletSigningSessionId,
         thresholdSessionId: freshThresholdSessionId,
       }),
-      key: ECDSA_KEY,
     });
 
     expect(reservation).not.toBeNull();
@@ -232,7 +231,6 @@ test.describe('EVM-family budget finalization spending', () => {
         walletSigningSessionId: refreshedWalletSigningSessionId,
         thresholdSessionId: refreshedThresholdSessionId,
       }),
-      key: ECDSA_KEY,
     } as const;
 
     await recordSuccessfulEvmFamilyWalletSigningSessionSpend(commonArgs);
@@ -291,7 +289,6 @@ test.describe('EVM-family budget finalization spending', () => {
         walletSigningSessionId: refreshedWalletSigningSessionId,
         thresholdSessionId: refreshedThresholdSessionId,
       }),
-      key: ECDSA_KEY,
     });
 
     expect(reservation).not.toBeNull();
@@ -340,7 +337,6 @@ test.describe('EVM-family budget finalization spending', () => {
           walletSigningSessionId: refreshedWalletSigningSessionId,
           thresholdSessionId: refreshedThresholdSessionId,
         }),
-        key: ECDSA_KEY,
       }),
     ).rejects.toThrow(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
   });
@@ -418,7 +414,6 @@ test.describe('EVM-family budget finalization spending', () => {
         walletSigningSessionId: refreshedWalletSigningSessionId,
         thresholdSessionId: refreshedThresholdSessionId,
       }),
-      key: ECDSA_KEY,
     });
 
     expect(statusChecks).toEqual([refreshedWalletSigningSessionId]);
@@ -471,7 +466,6 @@ test.describe('EVM-family budget finalization spending', () => {
           walletSigningSessionId: exhaustedWalletSigningSessionId,
           thresholdSessionId: exhaustedThresholdSessionId,
         }),
-        key: ECDSA_KEY,
       }),
     ).rejects.toThrow('[SigningSessionBudget] prepared budget identity does not match spend lane');
   });

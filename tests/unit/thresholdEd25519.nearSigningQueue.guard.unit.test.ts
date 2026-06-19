@@ -55,8 +55,12 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
   test('Email OTP NEAR warm-session planning does not treat sealed records as spendable auth', () => {
     const nearSigning = readNearSigningSource();
+    const walletSessionCredential = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts',
+    );
 
-    expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(args.record)');
+    expect(nearSigning).toContain('hasRouterAbEd25519SigningAuth(args.record)');
+    expect(walletSessionCredential).toContain('record.routerAbNormalSigning');
     expect(nearSigning).not.toContain('new SigningSessionCoordinator()');
     expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
     expect(nearSigning).not.toContain('readExactSealedSession');
@@ -71,7 +75,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
     const emailOtpCoordinator = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts',
     );
     const emailOtpWarmSessionRuntime = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/session/emailOtp/warmSessionRuntime.ts',
@@ -142,5 +146,53 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(recovery).not.toContain('SigningSessionCoordinator');
     expect(recovery).not.toContain('consumeWalletSigningSessionUse');
     expect(recovery).not.toContain('consumeUse(');
+  });
+
+  test('user-facing Ed25519 signing flows stay on Router A/B normal signing', () => {
+    const transactionFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    );
+    const nep413Flow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+    );
+    const delegateFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+    );
+    const normalSigningExecutor = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts',
+    );
+    const flows = [
+      ['transaction', transactionFlow],
+      ['nep413', nep413Flow],
+      ['delegate', delegateFlow],
+    ] as const;
+
+    expect(transactionFlow).toContain('tryFinalizeRouterAbEd25519NearTransactionNormalSigning');
+    expect(nep413Flow).toContain('tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning');
+    expect(delegateFlow).toContain('tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning');
+    for (const [label, source] of flows) {
+      expect(source, `${label} flow must build Router A/B-ready state`).toContain(
+        'requireRouterAbEd25519NormalSigningReadyState',
+      );
+      expect(source, `${label} flow must pass Wallet Session bearer auth`).toContain(
+        'walletSessionJwt: routerAbReadyState.credential.walletSessionJwt',
+      );
+      expect(source, `${label} flow must not call old public Ed25519 routes`).not.toContain(
+        '/threshold-ed25519/',
+      );
+      expect(source, `${label} flow must not route normal signing through Derivers`).not.toMatch(
+        /deriver|Deriver/,
+      );
+    }
+
+    expect(normalSigningExecutor).toContain('prepareRouterAbNormalSigningV2');
+    expect(normalSigningExecutor).toContain('finalizeRouterAbNormalSigningV2');
+    expect(normalSigningExecutor).toContain('prepareRouterAbNormalSigningPresignPoolV2');
+    expect(normalSigningExecutor).toContain('finalizeRouterAbNormalSigningPresignPoolHitV2');
+    expect(normalSigningExecutor).toContain('requireRouterAbNormalSigningPrepareMatchesRequest');
+    expect(normalSigningExecutor).toContain('requireRouterAbNormalSigningResponseMatchesRequest');
+    expect(normalSigningExecutor).toContain('credential: routerAbReadyState.credential');
+    expect(normalSigningExecutor).not.toContain('/threshold-ed25519/');
+    expect(normalSigningExecutor).not.toMatch(/deriver|Deriver/);
   });
 });

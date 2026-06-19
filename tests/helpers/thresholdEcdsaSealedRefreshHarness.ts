@@ -14,13 +14,17 @@ import {
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
-import { signerBoundWalletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import type { SessionAdapter } from '@server/router/relay';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { preparePasskeyPrfEcdsaClientBootstrapForTest } from './thresholdEcdsaClientBootstrap';
 import { startExpressRouter } from '../relayer/helpers';
@@ -47,6 +51,11 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   import.meta.url,
 );
 let hssClientSignerWasmInitialized = false;
+
+function hexAddress20ToB64u(address: string): string {
+  const normalized = address.trim().toLowerCase().replace(/^0x/, '');
+  return Buffer.from(normalized, 'hex').toString('base64url');
+}
 
 function ensureHssClientSignerWasm(): void {
   if (hssClientSignerWasmInitialized) return;
@@ -199,7 +208,9 @@ async function installThresholdRegistrationBootstrapMock(
       };
 
       const signWalletSessionJwt = async (args: {
-        kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2';
+        kind:
+          | typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
+          | typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
         sessionId: string;
         walletSigningSessionId: string;
         relayerKeyId: string;
@@ -207,6 +218,7 @@ async function installThresholdRegistrationBootstrapMock(
         expiresAtMs: number;
         runtimePolicyScope: typeof input.runtimePolicyScope;
         keyHandle?: string;
+        extraClaims?: Record<string, unknown>;
       }): Promise<string> => {
         const nowSec = Math.floor(nowMs / 1000);
         const expSec = Math.floor(args.expiresAtMs / 1000);
@@ -220,6 +232,7 @@ async function installThresholdRegistrationBootstrapMock(
           participantIds: args.participantIds,
           thresholdExpiresAtMs: args.expiresAtMs,
           runtimePolicyScope: args.runtimePolicyScope,
+          ...(args.extraClaims || {}),
           ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
           iat: nowSec,
           exp: expSec,
@@ -248,13 +261,19 @@ async function installThresholdRegistrationBootstrapMock(
         const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
         const runtimePolicyScope = resolveRuntimePolicyScope(policy);
         const jwt = await signWalletSessionJwt({
-          kind: 'threshold_ed25519_session_v1',
+          kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
           sessionId,
           walletSigningSessionId,
           relayerKeyId: thresholdEdRelayerKeyId,
           participantIds,
           expiresAtMs,
           runtimePolicyScope,
+          extraClaims: {
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker-sealed-refresh',
+            },
+          },
         });
         if (threshold.walletSessionStore) {
           const sessionRecord = {
@@ -269,11 +288,7 @@ async function installThresholdRegistrationBootstrapMock(
             remainingUses,
           });
           await threshold.walletSessionStore.putSession(
-            signerBoundWalletSigningBudgetSessionId({
-              walletSigningSessionId,
-              curve: 'ed25519',
-              thresholdSessionId: sessionId,
-            }),
+            walletSigningBudgetSessionId(walletSigningSessionId),
             {
               ...sessionRecord,
               walletBudgetBinding: {
@@ -386,7 +401,7 @@ async function installThresholdRegistrationBootstrapMock(
         const bootstrapSessionId = String(bootstrap.sessionId || sessionId);
         const bootstrapRelayerKeyId = String(bootstrap.relayerKeyId || relayerKeyId);
         const jwt = await signWalletSessionJwt({
-          kind: 'threshold_ecdsa_session_v2',
+          kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
           sessionId: bootstrapSessionId,
           walletSigningSessionId,
           relayerKeyId: bootstrapRelayerKeyId,
@@ -394,6 +409,51 @@ async function installThresholdRegistrationBootstrapMock(
           expiresAtMs,
           runtimePolicyScope,
           keyHandle: String(bootstrap.keyHandle || ''),
+          extraClaims: {
+            routerAbEcdsaHssNormalSigning: {
+              kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+              scope: {
+                context: {
+                  wallet_id: accountId,
+                  rp_id: rpId,
+                  key_scope: 'evm-family',
+                  ecdsa_threshold_key_id: String(bootstrap.ecdsaThresholdKeyId || ''),
+                  signing_root_id: String(bootstrap.signingRootId || ''),
+                  signing_root_version: String(bootstrap.signingRootVersion || ''),
+                  key_purpose: 'evm-signing',
+                  key_version: 'v1',
+                },
+                public_identity: {
+                  context_binding_b64u: String(bootstrap.contextBinding32B64u || ''),
+                  client_public_key33_b64u: clientBootstrap.hssClientSharePublicKey33B64u,
+                  server_public_key33_b64u: String(
+                    (bootstrap.publicIdentity as { relayerPublicKey33B64u?: unknown })
+                      ?.relayerPublicKey33B64u || '',
+                  ),
+                  threshold_public_key33_b64u: String(
+                    (bootstrap.publicIdentity as { groupPublicKey33B64u?: unknown })
+                      ?.groupPublicKey33B64u || '',
+                  ),
+                  ethereum_address20_b64u: hexAddress20ToB64u(
+                    String(bootstrap.ethereumAddress || ''),
+                  ),
+                  client_share_retry_counter: Number(
+                    clientBootstrap.clientShareRetryCounter || 0,
+                  ),
+                  server_share_retry_counter: Number(
+                    (bootstrap as { relayerShareRetryCounter?: unknown }).relayerShareRetryCounter ||
+                      0,
+                  ),
+                },
+                signing_worker: {
+                  server_id: 'signing-worker-sealed-refresh',
+                  key_epoch: 'signing-worker-output-epoch',
+                  recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+                },
+                activation_epoch: bootstrapSessionId,
+              },
+            },
+          },
         });
 
         thresholdEcdsaResponse = {

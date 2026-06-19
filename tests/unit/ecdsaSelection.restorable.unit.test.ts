@@ -268,7 +268,7 @@ function recordForChainTarget(
     thresholdSessionKind: 'jwt',
     thresholdSessionId: input.thresholdSessionId,
     walletSigningSessionId: input.walletSigningSessionId,
-    thresholdSessionAuthToken: 'threshold-session-token',
+    walletSessionJwt: 'threshold-session-token',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,
     thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,

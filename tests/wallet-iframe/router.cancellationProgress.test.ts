@@ -26,7 +26,8 @@ test.describe('WalletIframeRouter cancellation progress', () => {
     const result = await page.evaluate(
       async ({ routerPath, walletOrigin, captureOverlaySource, waitForSource }) => {
         const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+        const { WalletIframeRouter } =
+          mod as typeof import('@/SeamsWeb/walletIframe/client/router');
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
 
@@ -80,6 +81,7 @@ test.describe('WalletIframeRouter cancellation progress', () => {
         );
         const unlock = await runAndCancel('unlock', () =>
           router.unlock({
+            kind: 'custom_options',
             nearAccountId: 'alice.testnet',
             options: { onEvent: (event: any) => events.unlock.push(event) },
           }),

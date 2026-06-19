@@ -35,7 +35,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       walletSigningSessionId,
-      thresholdSessionAuthToken: 'jwt-ed25519-registration',
+      walletSessionJwt: 'jwt-ed25519-registration',
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 1,
       emailOtpAuthContext: {
@@ -101,7 +101,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       walletSigningSessionId,
-      thresholdSessionAuthToken: 'jwt-ed25519-registration',
+      walletSessionJwt: 'jwt-ed25519-registration',
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 3,
       emailOtpAuthContext: {

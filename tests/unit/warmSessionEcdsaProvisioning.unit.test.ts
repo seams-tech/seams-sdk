@@ -30,14 +30,14 @@ function createEnvelope(): WarmSessionEnvelope {
     chain: 'evm',
     ecdsaThresholdKeyId: 'ek-evm',
     sessionId: 'evm-session',
-    sessionAuthToken: 'jwt.evm.session',
+    walletSessionJwt: 'jwt.evm.session',
   });
   const tempoBootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: 'provisioning.testnet',
     chain: 'tempo',
     ecdsaThresholdKeyId: 'ek-evm',
     sessionId: 'tempo-session',
-    sessionAuthToken: 'jwt.tempo.session',
+    walletSessionJwt: 'jwt.tempo.session',
   });
   const evmRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
     nearAccountId: 'provisioning.testnet',
@@ -85,9 +85,10 @@ function createEnvelope(): WarmSessionEnvelope {
           }),
           auth: {
             capability: 'ecdsa',
+            state: 'ready',
             record: evmRecord,
-            thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken || 'jwt.evm.session',
-            thresholdSessionAuthTokenSource: 'ecdsa',
+            walletSessionJwt: evmRecord.walletSessionJwt || 'jwt.evm.session',
+            walletSessionJwtSource: 'ecdsa_record',
           },
           prfClaim: {
             state: 'warm',
@@ -112,9 +113,10 @@ function createEnvelope(): WarmSessionEnvelope {
           }),
           auth: {
             capability: 'ecdsa',
+            state: 'ready',
             record: tempoRecord,
-            thresholdSessionAuthToken: tempoRecord.thresholdSessionAuthToken || 'jwt.tempo.session',
-            thresholdSessionAuthTokenSource: 'ecdsa',
+            walletSessionJwt: tempoRecord.walletSessionJwt || 'jwt.tempo.session',
+            walletSessionJwtSource: 'ecdsa_record',
           },
           prfClaim: {
             state: 'warm',
@@ -169,16 +171,16 @@ test.describe('warmSessionEcdsaProvisioning', () => {
         source: 'login',
       }),
     ).toMatchObject({
-      thresholdEcdsaKeyRef: {
-        ecdsaThresholdKeyId: 'ek-evm',
-        thresholdSessionId: 'evm-session',
-        thresholdSessionAuthToken: record.thresholdSessionAuthToken,
-      },
+	      thresholdEcdsaKeyRef: {
+	        ecdsaThresholdKeyId: 'ek-evm',
+	        thresholdSessionId: 'evm-session',
+	        walletSessionJwt: record.walletSessionJwt,
+	      },
       session: {
         ok: true,
         sessionId: 'evm-session',
         walletSigningSessionId: 'wsess-evm-session',
-        jwt: record.thresholdSessionAuthToken,
+        jwt: record.walletSessionJwt,
       },
     });
   });

@@ -99,19 +99,19 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(iframeFacadeSource).not.toMatch(legacyRegistrationMethodPattern);
   });
 
-  test('SeamsWeb auth session methods live under the auth namespace', () => {
+  test('SeamsWeb wallet session methods live under the auth namespace', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
     const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
-    const topLevelAuthSessionMethods = [
+    const topLevelWalletSessionMethods = [
       'unlock',
       'lock',
       'getWalletSession',
       'getRecentUnlocks',
       'hasPasskeyCredential',
-      'prefillThresholdEcdsaPresignPool',
+      'prefillRouterAbEcdsaHssPresignaturePool',
     ];
 
-    for (const methodName of topLevelAuthSessionMethods) {
+    for (const methodName of topLevelWalletSessionMethods) {
       expect(seamsWebSource).not.toMatch(new RegExp(`^\\s*async\\s+${methodName}\\s*\\(`, 'm'));
       expect(iframeFacadeSource).not.toMatch(new RegExp(`^\\s*async\\s+${methodName}\\s*\\(`, 'm'));
     }

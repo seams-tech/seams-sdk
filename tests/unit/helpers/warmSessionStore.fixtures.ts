@@ -71,6 +71,12 @@ import type {
   ProvisionWarmEd25519CapabilityResult,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { SensitiveOperationPolicy } from '@shared/utils';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import {
+  ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
+  ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
@@ -83,6 +89,7 @@ import {
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 
 function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
   return chain === 'tempo' ? 42431 : 11155111;
@@ -91,6 +98,68 @@ function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+function hexAddressToBase64Url(address: string): string {
+  return Buffer.from(address.replace(/^0x/i, ''), 'hex').toString('base64url');
+}
+
+function fixtureRouterAbEcdsaHssNormalSigning(args: {
+  walletId: string;
+  rpId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  sessionId: string;
+  clientVerifyingShareB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  ethereumAddress: string;
+}): RouterAbEcdsaHssNormalSigningStateV1 {
+  return {
+    kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+    scope: {
+      context: {
+        wallet_id: args.walletId,
+        rp_id: args.rpId,
+        key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
+        ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
+        signing_root_id: args.signingRootId,
+        signing_root_version: args.signingRootVersion,
+        key_purpose: 'evm-family-signing',
+        key_version: 'warm-session-fixture',
+      },
+      public_identity: {
+        context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
+        client_public_key33_b64u: args.clientVerifyingShareB64u,
+        server_public_key33_b64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+        threshold_public_key33_b64u: args.thresholdEcdsaPublicKeyB64u,
+        ethereum_address20_b64u: hexAddressToBase64Url(args.ethereumAddress),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-warm-session-fixture',
+        key_epoch: 'epoch-warm-session-fixture',
+        recipient_encryption_key:
+          'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      activation_epoch: args.sessionId,
+    },
+  };
+}
+
+function fixtureRuntimePolicyScopeFromSigningRoot(
+  signingRootId: string,
+  signingRootVersion: string,
+): ThresholdRuntimePolicyScope | undefined {
+  const delimiter = signingRootId.lastIndexOf(':');
+  if (delimiter <= 0 || delimiter >= signingRootId.length - 1) return undefined;
+  return {
+    orgId: 'org-test',
+    projectId: signingRootId.slice(0, delimiter),
+    envId: signingRootId.slice(delimiter + 1),
+    signingRootVersion,
+  };
+}
 
 export function testEcdsaChainTarget(
   chain: ThresholdEcdsaActivationChain,
@@ -194,20 +263,43 @@ export function seedEd25519WarmSessionRecord(
           authMethod: 'email_otp',
         } satisfies ThresholdEcdsaEmailOtpAuthContext)
       : undefined);
+  const runtimePolicyScope =
+    args.runtimePolicyScope ||
+    fixtureRuntimePolicyScopeFromSigningRoot('sr-test:dev', 'default');
   const record = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: args.nearAccountId,
     rpId: args.rpId || 'wallet.example.test',
     relayerUrl: args.relayerUrl || 'https://relay.example',
     relayerKeyId: args.relayerKeyId || 'rk-ed25519',
     participantIds: args.participantIds || [1, 2],
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(args.xClientBaseB64u ? { xClientBaseB64u: args.xClientBaseB64u } : {}),
+    ...(args.clientVerifyingShareB64u !== ''
+      ? { clientVerifyingShareB64u: args.clientVerifyingShareB64u || 'fixture-client-verifier' }
+      : {}),
+    ...(args.ed25519HssMaterialHandle !== ''
+      ? {
+          ed25519HssMaterialHandle:
+            args.ed25519HssMaterialHandle ||
+            `ed25519-hss-material:${args.thresholdSessionId}:fixture-binding`,
+        }
+      : {}),
+    ...(args.ed25519HssMaterialBindingDigest !== ''
+      ? {
+          ed25519HssMaterialBindingDigest:
+            args.ed25519HssMaterialBindingDigest || 'fixture-binding',
+        }
+      : {}),
+    routerAbNormalSigning: args.routerAbNormalSigning || {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId: 'signing-worker-warm-session-fixture',
+    },
     thresholdSessionKind: args.thresholdSessionKind || 'jwt',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId:
       args.walletSigningSessionId || `wsess-${String(args.thresholdSessionId).trim()}`,
-    ...(args.thresholdSessionAuthToken
-      ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken }
+    ...(args.walletSessionJwt
+      ? { walletSessionJwt: args.walletSessionJwt }
       : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
@@ -228,7 +320,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   keyHandle?: string;
   ecdsaThresholdKeyId?: string;
   sessionId?: string;
-  sessionAuthToken?: string;
+  walletSessionJwt?: string;
   sessionKind?: 'jwt' | 'cookie';
   relayerUrl?: string;
   relayerKeyId?: string;
@@ -239,6 +331,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   walletSigningSessionId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   roleLocalAuthMethod?: 'passkey' | 'email_otp';
   emailOtpAuthSubjectId?: string;
 }): ThresholdEcdsaSessionBootstrapResult {
@@ -261,6 +354,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const walletSigningSessionId = String(args.walletSigningSessionId || `wsess-${sessionId}`).trim();
   const signingRootId = String(args.signingRootId || 'sr-test:dev').trim();
   const signingRootVersion = String(args.signingRootVersion || 'default').trim();
+  const runtimePolicyScope =
+    args.runtimePolicyScope ||
+    fixtureRuntimePolicyScopeFromSigningRoot(signingRootId, signingRootVersion);
   const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
     chain: args.chain,
     chainId: testEcdsaChainId(args.chain),
@@ -301,10 +397,10 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     }),
     authMethod: roleLocalAuthMethod,
   });
-  const sessionAuthToken =
+  const walletSessionJwt =
     sessionKind === 'jwt'
-      ? toFixtureThresholdSessionAuthToken(
-          String(args.sessionAuthToken || `jwt:${sessionId}`).trim(),
+      ? toFixtureWalletSessionJwt(
+          String(args.walletSessionJwt || `jwt:${sessionId}`).trim(),
           {
             nearAccountId: args.nearAccountId,
             sessionId,
@@ -313,6 +409,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
             ecdsaThresholdKeyId,
             participantIds,
             chainTarget,
+            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           },
         )
       : '';
@@ -325,8 +422,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       relayerUrl,
       keyHandle,
       ecdsaThresholdKeyId,
-      signingRootId,
-      signingRootVersion,
       participantIds: [...participantIds],
       backendBinding: {
         materialKind: 'role_local_ready_state_blob',
@@ -338,7 +433,18 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdSessionKind: sessionKind,
       thresholdSessionId: sessionId,
       walletSigningSessionId,
-      ...(sessionAuthToken ? { thresholdSessionAuthToken: sessionAuthToken } : {}),
+      ...(walletSessionJwt ? { walletSessionJwt } : {}),
+      routerAbEcdsaHssNormalSigning: fixtureRouterAbEcdsaHssNormalSigning({
+        walletId: args.nearAccountId,
+        rpId,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion,
+        sessionId,
+        clientVerifyingShareB64u,
+        thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        ethereumAddress,
+      }),
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
@@ -362,13 +468,14 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       walletSigningSessionId,
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 5,
-      ...(sessionAuthToken ? { jwt: sessionAuthToken } : {}),
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      ...(walletSessionJwt ? { jwt: walletSessionJwt } : {}),
       clientVerifyingShareB64u,
     },
   };
 }
 
-function toFixtureThresholdSessionAuthToken(
+function toFixtureWalletSessionJwt(
   token: string,
   args: {
     nearAccountId: string;
@@ -378,6 +485,7 @@ function toFixtureThresholdSessionAuthToken(
     ecdsaThresholdKeyId: string;
     participantIds: number[];
     chainTarget: ThresholdEcdsaChainTarget;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
   },
 ): string {
   if (token.split('.').length === 3) return token;
@@ -396,6 +504,7 @@ function toFixtureThresholdSessionAuthToken(
       rpId: 'localhost',
       thresholdExpiresAtMs: Date.now() + 120_000,
       participantIds: args.participantIds,
+      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     }),
   ).toString('base64url');
   return `${header}.${payload}.fixture`;
@@ -740,11 +849,11 @@ function resolveTestEcdsaBootstrapArgs(args: {
   const walletSigningSessionId = toOptionalNonEmptyString(
     reusableWarmCapability?.record?.walletSigningSessionId,
   );
-  const thresholdSessionAuthToken = toOptionalNonEmptyString(
-    reusableWarmCapability?.auth?.thresholdSessionAuthToken,
+  const walletSessionJwt = toOptionalNonEmptyString(
+    reusableWarmCapability?.auth?.walletSessionJwt,
   );
 
-  if (sessionId && walletSigningSessionId && thresholdSessionAuthToken) {
+  if (sessionId && walletSigningSessionId && walletSessionJwt) {
     if (!reusableWarmCapability?.record) {
       throw new Error('test threshold-session reconnect requires a reusable ECDSA record');
     }
@@ -753,7 +862,7 @@ function resolveTestEcdsaBootstrapArgs(args: {
       reusableWarmCapability.record,
     );
     return {
-      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      kind: 'wallet_session_reconnect_ecdsa_bootstrap',
       source: targetBaseArgs.source,
       relayerUrl: targetBaseArgs.relayerUrl,
       keyHandle: reusableWarmCapability.record.keyHandle,
@@ -767,35 +876,10 @@ function resolveTestEcdsaBootstrapArgs(args: {
         remainingUses: readModel.lane.remainingUses,
       }),
       routeAuth: {
-        kind: 'threshold_session',
-        jwt: thresholdSessionAuthToken,
+        kind: 'wallet_session',
+        jwt: walletSessionJwt,
       },
       passkeyPrfFirstB64u: 'reconnect-client-root-share',
-      passkeyCredentialIdB64u,
-    };
-  }
-  if (sessionId && walletSigningSessionId) {
-    if (!reusableWarmCapability?.record) {
-      throw new Error('test cookie reconnect requires a reusable ECDSA record');
-    }
-    const readModel = thresholdEcdsaSessionRecordReadModel(reusableWarmCapability.record);
-    const passkeyCredentialIdB64u = requirePasskeyCredentialIdForFixture(
-      reusableWarmCapability.record,
-    );
-    return {
-      kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-      source: targetBaseArgs.source,
-      relayerUrl: targetBaseArgs.relayerUrl,
-      keyHandle: reusableWarmCapability.record.keyHandle,
-      key: readModel.key,
-      lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
-        chainTarget,
-        thresholdSessionId: sessionId,
-        walletSigningSessionId,
-        thresholdSessionKind: 'cookie',
-        ttlMs: Math.max(1, readModel.lane.expiresAtMs - Date.now()),
-        remainingUses: readModel.lane.remainingUses,
-      }),
       passkeyCredentialIdB64u,
     };
   }
@@ -881,20 +965,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       (async () => {
         throw new Error('provisionThresholdEcdsaSession test dependency is required');
       });
-    const requiresClaim = args.kind === 'passkey_cookie_reconnect_ecdsa_bootstrap';
-    if (!requiresClaim) {
-      return await provisionThresholdEcdsaSession(args);
-    }
-    const passkeyPrfFirstB64u = await claimPrfFirstByThresholdSessionId({
-      thresholdSessionId: args.lanePolicy.thresholdSessionId,
-      errorContext: 'threshold-ecdsa restored-session bootstrap',
-      uses: 1,
-    });
-    return await provisionThresholdEcdsaSession({
-      ...args,
-      kind: 'passkey_fresh_ecdsa_bootstrap',
-      passkeyPrfFirstB64u,
-    });
+    return await provisionThresholdEcdsaSession(args);
   };
 
   return {
@@ -1017,7 +1088,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                 signingKeyContext,
                 sessionBudgetUses,
                 requestId: 'test-request-id',
-                sessionKind: record.thresholdSessionKind || 'jwt',
+                sessionKind: 'jwt',
                 provisionSecretSource: buildPasskeyEcdsaProvisionSecretSource({
                   passkeyPrfFirstB64u: String(args.passkeyPrfFirstB64u || ''),
                   webauthnAuthentication: {
@@ -1087,8 +1158,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           sessionBudgetUses: Number(args.sessionBudgetUses || 1),
         };
         switch (plan.kind) {
-          case 'threshold_session_auth_ecdsa_reconnect':
-          case 'cookie_ecdsa_reconnect':
+          case 'wallet_session_ecdsa_reconnect':
           case 'passkey_ecdsa_session_provision':
             return await ensureWarmEcdsaCapabilityReady(readinessDeps, {
               ...readinessArgsBase,

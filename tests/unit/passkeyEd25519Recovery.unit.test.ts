@@ -6,7 +6,7 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import { reconnectPasskeyEd25519CapabilityForSigning } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery';
-import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/authSession';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
 
 const ACCOUNT_ID = 'ed25519-reconnect-race.testnet';
 const RP_ID = 'localhost';
@@ -48,7 +48,7 @@ function writeEd25519Record(args: {
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
-    thresholdSessionAuthToken: `jwt:${args.thresholdSessionId}`,
+    walletSessionJwt: `jwt:${args.thresholdSessionId}`,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 1,
     source: 'login',

@@ -1,20 +1,22 @@
 import { expect, test } from '@playwright/test';
-import type { PrepareThresholdEd25519PresignPoolPayload } from '@/core/types/signer-worker';
+import type { ThresholdEd25519PresignCommitmentsWire } from '@/core/types/signer-worker';
 import {
-  applyThresholdEd25519PresignRefillResult,
+  applyRouterAbEd25519PresignPoolRefillResult,
   burnThresholdEd25519ReservedPresign,
-  clearAllThresholdEd25519ClientPresigns,
-  clearThresholdEd25519ClientPresignPool,
-  createThresholdEd25519PresignScopeKey,
-  getThresholdEd25519ClientPresignPoolStatus,
-  reserveThresholdEd25519ReadyPresign,
-  resolveThresholdEd25519PresignPoolPolicy,
-  scheduleThresholdEd25519ClientPresignPoolRefill,
-  selectThresholdEd25519PresignSigningPath,
+  clearAllRouterAbEd25519ClientPresigns,
+  clearRouterAbEd25519ClientPresignPool,
+  createRouterAbEd25519PresignScopeKey,
+  getRouterAbEd25519ClientPresignPoolStatus,
+  reserveRouterAbEd25519ReadyPresignForScope,
+  resolveRouterAbEd25519PresignPoolPolicy,
+  scheduleRouterAbEd25519ClientPresignPoolRefill,
 } from '@/core/signingEngine/threshold/ed25519/presignPool';
 import type {
-  Ed25519PresignScopeKey,
   Ed25519PresignOperationIdentity,
+  Ed25519PresignScopeKey,
+  RouterAbEd25519PresignPoolAcceptedEntry,
+  RouterAbEd25519PresignPoolRefillPayload,
+  RouterAbEd25519PresignPoolRefillResult,
 } from '@/core/signingEngine/threshold/ed25519/presignPool';
 import type {
   SigningOperationFingerprint,
@@ -34,14 +36,12 @@ function payload(input?: {
   lowWatermark?: number;
   offerCount?: number;
   clientVerifyingShareB64u?: string;
-}): PrepareThresholdEd25519PresignPoolPayload {
+}): RouterAbEd25519PresignPoolRefillPayload {
   const offerCount = input?.offerCount ?? 2;
   const clientVerifyingShareB64u =
     input?.clientVerifyingShareB64u || 'client-verifying-share';
   return {
-    kind: 'prepare_threshold_ed25519_presign_pool_v1',
-    sessionKind: 'jwt',
-    thresholdSessionAuthToken: 'threshold-session-token',
+    kind: 'router_ab_ed25519_presign_pool_refill_v1',
     relayUrl: 'https://relay.example',
     thresholdSessionId: 'threshold-session-id',
     walletSigningSessionId: 'wallet-signing-session-id',
@@ -71,8 +71,10 @@ function payload(input?: {
   };
 }
 
-function scopeKeyForPayload(input: PrepareThresholdEd25519PresignPoolPayload): Ed25519PresignScopeKey {
-  return createThresholdEd25519PresignScopeKey({
+function scopeKeyForPayload(
+  input: RouterAbEd25519PresignPoolRefillPayload,
+): Ed25519PresignScopeKey {
+  return createRouterAbEd25519PresignScopeKey({
     thresholdSessionId: input.thresholdSessionId,
     walletSigningSessionId: input.walletSigningSessionId,
     relayerKeyId: input.relayerKeyId,
@@ -85,27 +87,81 @@ function scopeKeyForPayload(input: PrepareThresholdEd25519PresignPoolPayload): E
   });
 }
 
+function acceptedEntry(input: {
+  clientPresignId: string;
+  generation?: number;
+  index?: number;
+  expiresAtMs?: number;
+}): RouterAbEd25519PresignPoolAcceptedEntry {
+  const index = input.index ?? 1;
+  return {
+    clientPresignId: input.clientPresignId,
+    generation: input.generation ?? 1,
+    poolEntryBindingDigest: { bytes: Array.from({ length: 32 }, () => index) },
+    signingWorkerId: 'server-a',
+    serverRound1Handle: `server-round1-handle-${index}`,
+    serverCommitments: {
+      hiding: `server-hiding-${index}`,
+      binding: `server-binding-${index}`,
+    },
+    serverVerifyingShareB64u: `server-verifying-share-${index}`,
+    expiresAtMs: input.expiresAtMs ?? 5_000,
+  };
+}
+
+function successResult(input: {
+  request: RouterAbEd25519PresignPoolRefillPayload;
+  accepted: readonly RouterAbEd25519PresignPoolAcceptedEntry[];
+  rejectedClientPresignIds?: readonly string[];
+}): RouterAbEd25519PresignPoolRefillResult {
+  return {
+    ok: true,
+    generation: input.request.generation,
+    scope: {
+      request_id: `router-ab-pool-refill-${input.request.generation}`,
+      account_id: input.request.nearAccountId,
+      session_id: input.request.thresholdSessionId,
+      signing_worker_id: 'server-a',
+    },
+    accepted: input.accepted,
+    rejectedClientPresignIds: input.rejectedClientPresignIds ?? [],
+  };
+}
+
+function failureResult(input: {
+  request: RouterAbEd25519PresignPoolRefillPayload;
+  code: string;
+  message: string;
+}): RouterAbEd25519PresignPoolRefillResult {
+  return {
+    ok: false,
+    generation: input.request.generation,
+    code: input.code,
+    message: input.message,
+  };
+}
+
 const operation: Ed25519PresignOperationIdentity = {
-  kind: 'threshold_ed25519_presign_operation_identity_v1',
+  kind: 'router_ab_ed25519_presign_operation_identity_v1',
   operationId: 'operation-1' as SigningOperationId,
   operationFingerprint: 'fingerprint-1' as SigningOperationFingerprint,
   purpose: 'near_transaction',
 };
 
-test.describe('threshold Ed25519 client presign pool lifecycle', () => {
+test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
   test.beforeEach(() => {
-    clearAllThresholdEd25519ClientPresigns();
+    clearAllRouterAbEd25519ClientPresigns();
   });
 
   test('policy defaults and clamps invalid values', () => {
-    expect(resolveThresholdEd25519PresignPoolPolicy(undefined)).toEqual({
+    expect(resolveRouterAbEd25519PresignPoolPolicy(undefined)).toEqual({
       targetDepth: 2,
       lowWatermark: 1,
       maxAcceptedRefillCount: 8,
       ttlMs: 120_000,
     });
     expect(
-      resolveThresholdEd25519PresignPoolPolicy({
+      resolveRouterAbEd25519PresignPoolPolicy({
         targetDepth: -10,
         lowWatermark: 99,
         maxAcceptedRefillCount: 99,
@@ -119,50 +175,60 @@ test.describe('threshold Ed25519 client presign pool lifecycle', () => {
     });
   });
 
-  test('schedules refill, applies accepted pairs, and follows server expiry', () => {
+  test('schedules refill, applies accepted entries, and follows server expiry', () => {
     const request = payload();
     const scopeKey = scopeKeyForPayload(request);
 
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
       scheduled: true,
       reason: 'scheduled',
       generation: 1,
     });
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_001)).toMatchObject({
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_001),
+    ).toMatchObject({
       offeredCount: 2,
       readyCount: 0,
       refillInFlight: true,
     });
 
-    applyThresholdEd25519PresignRefillResult({
+    applyRouterAbEd25519PresignPoolRefillResult({
       payload: request,
       nowMs: 1_100,
-      result: {
-        ok: true,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
+      result: successResult({
+        request,
         accepted: [
-          {
-            presignId: 'server-presign-1',
+          acceptedEntry({
             clientPresignId: 'client-presign-1',
-            relayerCommitments: { hiding: 'relayer-hiding-1', binding: 'relayer-binding-1' },
-            relayerVerifyingShareB64u: 'relayer-verifying-share',
+            index: 1,
             expiresAtMs: 5_000,
-          },
+          }),
         ],
         rejectedClientPresignIds: ['client-presign-2'],
-        expiresAtMs: 5_000,
-      },
+      }),
     });
 
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_200)).toMatchObject({
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_200),
+    ).toMatchObject({
       offeredCount: 0,
       readyCount: 1,
       burnedCount: 1,
       refillInFlight: false,
       nextExpiryAtMs: 5_000,
     });
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 5_001)).toMatchObject({
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 5_001),
+    ).toMatchObject({
       readyCount: 0,
       burnedCount: 2,
       nextExpiryAtMs: null,
@@ -172,38 +238,31 @@ test.describe('threshold Ed25519 client presign pool lifecycle', () => {
   test('stale generation clear prevents old refill result from repopulating the pool', () => {
     const request = payload();
     const scopeKey = scopeKeyForPayload(request);
-    scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000);
+    scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000);
 
-    const cleared = clearThresholdEd25519ClientPresignPool({
-      kind: 'clear_threshold_ed25519_presign_pool_v1',
+    const cleared = clearRouterAbEd25519ClientPresignPool({
+      kind: 'clear_router_ab_ed25519_presign_pool_v1',
       scopeKey,
       generation: 1,
-      reason: 'threshold_session_change',
+      reason: 'signing_session_change',
     });
     expect(cleared).toMatchObject({ previousGeneration: 1, nextGeneration: 2, clearedEntries: 2 });
 
-    applyThresholdEd25519PresignRefillResult({
+    applyRouterAbEd25519PresignPoolRefillResult({
       payload: request,
       nowMs: 1_100,
-      result: {
-        ok: true,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
-        accepted: [
-          {
-            presignId: 'server-presign-stale',
-            clientPresignId: 'client-presign-1',
-            relayerCommitments: { hiding: 'relayer-hiding', binding: 'relayer-binding' },
-            relayerVerifyingShareB64u: 'relayer-verifying-share',
-            expiresAtMs: 5_000,
-          },
-        ],
-        rejectedClientPresignIds: [],
-        expiresAtMs: 5_000,
-      },
+      result: successResult({
+        request,
+        accepted: [acceptedEntry({ clientPresignId: 'client-presign-1' })],
+      }),
     });
 
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_200)).toMatchObject({
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_200),
+    ).toMatchObject({
       generation: 2,
       offeredCount: 0,
       readyCount: 0,
@@ -230,11 +289,11 @@ test.describe('threshold Ed25519 client presign pool lifecycle', () => {
   test('suppresses concurrent refill for the same scope', () => {
     const request = payload();
 
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
       scheduled: true,
       reason: 'scheduled',
     });
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_001)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_001)).toMatchObject({
       scheduled: false,
       reason: 'in_flight_for_scope',
     });
@@ -243,27 +302,25 @@ test.describe('threshold Ed25519 client presign pool lifecycle', () => {
   test('backs off after capacity failures', () => {
     const request = payload();
 
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
       scheduled: true,
       reason: 'scheduled',
     });
-    applyThresholdEd25519PresignRefillResult({
+    applyRouterAbEd25519PresignPoolRefillResult({
       payload: request,
       nowMs: 1_100,
-      result: {
-        ok: false,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
+      result: failureResult({
+        request,
         code: 'capacity_exceeded',
         message: 'capacity exhausted',
-      },
+      }),
     });
 
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_101)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_101)).toMatchObject({
       scheduled: false,
       reason: 'backoff_active',
     });
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 11_101)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 11_101)).toMatchObject({
       scheduled: true,
       reason: 'scheduled',
     });
@@ -272,160 +329,185 @@ test.describe('threshold Ed25519 client presign pool lifecycle', () => {
   test('backs off after repeated wrong-scope refill failures', () => {
     const request = payload();
 
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000)).toMatchObject({
       scheduled: true,
       reason: 'scheduled',
     });
-    applyThresholdEd25519PresignRefillResult({
+    applyRouterAbEd25519PresignPoolRefillResult({
       payload: request,
       nowMs: 1_100,
-      result: {
-        ok: false,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
-        code: 'wrong_scope',
-        message: 'wrong scope',
-      },
+      result: failureResult({ request, code: 'wrong_scope', message: 'wrong scope' }),
     });
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_101)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_101)).toMatchObject({
       scheduled: true,
       reason: 'scheduled',
     });
-    applyThresholdEd25519PresignRefillResult({
+    applyRouterAbEd25519PresignPoolRefillResult({
       payload: request,
       nowMs: 1_200,
-      result: {
-        ok: false,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
-        code: 'wrong_scope',
-        message: 'wrong scope',
-      },
+      result: failureResult({ request, code: 'wrong_scope', message: 'wrong scope' }),
     });
 
-    expect(scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_201)).toMatchObject({
+    expect(scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_201)).toMatchObject({
       scheduled: false,
       reason: 'backoff_active',
     });
   });
 
-  test('reserves a ready presign for one operation and burns the nonce handle state', () => {
+  test('reserves a ready Router A/B presign for one operation and burns the nonce handle state', () => {
     const request = payload({ offerCount: 1, lowWatermark: 0 });
     const scopeKey = scopeKeyForPayload(request);
-    scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000);
-    applyThresholdEd25519PresignRefillResult({
+    scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000);
+    applyRouterAbEd25519PresignPoolRefillResult({
       payload: request,
       nowMs: 1_100,
-      result: {
-        ok: true,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
+      result: successResult({
+        request,
         accepted: [
-          {
-            presignId: 'server-presign-1',
+          acceptedEntry({
             clientPresignId: 'client-presign-1',
-            relayerCommitments: { hiding: 'relayer-hiding', binding: 'relayer-binding' },
-            relayerVerifyingShareB64u: 'relayer-verifying-share',
+            index: 1,
             expiresAtMs: 5_000,
-          },
+          }),
         ],
-        rejectedClientPresignIds: [],
-        expiresAtMs: 5_000,
-      },
+      }),
     });
 
-    const reservation = reserveThresholdEd25519ReadyPresign({ scopeKey, operation, nowMs: 1_200 });
+    const reservation = reserveRouterAbEd25519ReadyPresignForScope({
+      thresholdSessionId: request.thresholdSessionId,
+      walletSigningSessionId: request.walletSigningSessionId,
+      relayerKeyId: request.relayerKeyId,
+      nearAccountId: request.nearAccountId,
+      nearNetworkId: request.nearNetworkId,
+      signerPublicKey: request.signerPublicKey,
+      participantIds: request.participantIds,
+      runtimePolicyScope: request.runtimePolicyScope,
+      clientVerifyingShareB64u: request.clientPresigns[0].clientVerifyingShareB64u,
+      operation,
+      nowMs: 1_200,
+    });
     expect(reservation).toMatchObject({
       ok: true,
+      scopeKey,
       reservation: {
-        state: 'reserved_for_finalize',
         operation,
-        entry: { presignId: 'server-presign-1', nonceHandle: 'nonce-handle-1' },
+        entry: {
+          source: 'router_ab_ed25519_presign_pool_v2',
+          presignId: 'server-round1-handle-1',
+          nonceHandle: 'nonce-handle-1',
+        },
       },
     });
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_201)).toMatchObject({
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_201),
+    ).toMatchObject({
       readyCount: 0,
     });
     if (!reservation.ok) throw new Error('expected reservation');
     burnThresholdEd25519ReservedPresign({
-      scopeKey,
+      scopeKey: reservation.scopeKey,
       reservation: reservation.reservation,
       reason: 'used',
       nowMs: 1_300,
     });
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_301)).toMatchObject({
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_301),
+    ).toMatchObject({
       readyCount: 0,
       burnedCount: 1,
     });
   });
 
-  test('selector chooses one-RTT on pool hit and preserves operation identity', () => {
-    const request = payload({ offerCount: 1, lowWatermark: 0 });
-    const scopeKey = scopeKeyForPayload(request);
-    scheduleThresholdEd25519ClientPresignPoolRefill(request, 1_000);
-    applyThresholdEd25519PresignRefillResult({
-      payload: request,
-      nowMs: 1_100,
-      result: {
-        ok: true,
-        kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
-        generation: 1,
-        accepted: [
-          {
-            presignId: 'server-presign-hit',
-            clientPresignId: 'client-presign-1',
-            relayerCommitments: { hiding: 'relayer-hiding', binding: 'relayer-binding' },
-            relayerVerifyingShareB64u: 'relayer-verifying-share',
-            expiresAtMs: 5_000,
-          },
-        ],
-        rejectedClientPresignIds: [],
-        expiresAtMs: 5_000,
-      },
-    });
-
-    const selection = selectThresholdEd25519PresignSigningPath({
-      scopeKey,
-      operation,
-      refillPayload: request,
-      nowMs: 1_200,
-    });
-
-    expect(selection).toMatchObject({
-      kind: 'pool_hit_one_rtt',
-      operation,
-      reservation: {
-        operation,
-        entry: { presignId: 'server-presign-hit', nonceHandle: 'nonce-handle-1' },
-      },
-    });
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_201)).toMatchObject({
-      readyCount: 0,
-      refillInFlight: false,
-    });
-  });
-
-  test('selector chooses two-RTT fallback on miss and schedules refill', () => {
+  test('pool miss leaves no reservation and schedules Router A/B refill', () => {
     const request = payload({ offerCount: 2 });
     const scopeKey = scopeKeyForPayload(request);
 
-    const selection = selectThresholdEd25519PresignSigningPath({
-      scopeKey,
+    const miss = reserveRouterAbEd25519ReadyPresignForScope({
+      thresholdSessionId: request.thresholdSessionId,
+      walletSigningSessionId: request.walletSigningSessionId,
+      relayerKeyId: request.relayerKeyId,
+      nearAccountId: request.nearAccountId,
+      nearNetworkId: request.nearNetworkId,
+      signerPublicKey: request.signerPublicKey,
+      participantIds: request.participantIds,
+      runtimePolicyScope: request.runtimePolicyScope,
+      clientVerifyingShareB64u: request.clientPresigns[0].clientVerifyingShareB64u,
       operation,
-      refillPayload: request,
       nowMs: 1_000,
     });
+    const refill = scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000);
 
-    expect(selection).toMatchObject({
-      kind: 'pool_miss_two_rtt',
-      operation,
-      miss: { ok: false, code: 'pool_not_ready' },
-      refill: { scheduled: true, reason: 'scheduled', generation: 1 },
+    expect(miss).toMatchObject({
+      ok: false,
+      code: 'pool_empty',
     });
-    expect(getThresholdEd25519ClientPresignPoolStatus({ kind: 'get_threshold_ed25519_presign_pool_status_v1', scopeKey }, 1_001)).toMatchObject({
+    expect(refill).toMatchObject({
+      scheduled: true,
+      reason: 'scheduled',
+      generation: 1,
+    });
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_001),
+    ).toMatchObject({
       offeredCount: 2,
       readyCount: 0,
       refillInFlight: true,
+    });
+  });
+
+  test('does not reserve a ready entry for a different client verifying share', () => {
+    const request = payload({ offerCount: 1, lowWatermark: 0 });
+    const scopeKey = scopeKeyForPayload(request);
+    scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000);
+    applyRouterAbEd25519PresignPoolRefillResult({
+      payload: request,
+      nowMs: 1_100,
+      result: successResult({
+        request,
+        accepted: [
+          acceptedEntry({
+            clientPresignId: 'client-presign-1',
+            index: 1,
+            expiresAtMs: 5_000,
+          }),
+        ],
+      }),
+    });
+
+    const reservation = reserveRouterAbEd25519ReadyPresignForScope({
+      thresholdSessionId: request.thresholdSessionId,
+      walletSigningSessionId: request.walletSigningSessionId,
+      relayerKeyId: request.relayerKeyId,
+      nearAccountId: request.nearAccountId,
+      nearNetworkId: request.nearNetworkId,
+      signerPublicKey: request.signerPublicKey,
+      participantIds: request.participantIds,
+      runtimePolicyScope: request.runtimePolicyScope,
+      clientVerifyingShareB64u: 'different-client-verifying-share',
+      operation,
+      nowMs: 1_200,
+    });
+
+    expect(reservation).toMatchObject({
+      ok: false,
+      code: 'pool_empty',
+    });
+    expect(
+      getRouterAbEd25519ClientPresignPoolStatus({
+        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+        scopeKey,
+      }, 1_201),
+    ).toMatchObject({
+      readyCount: 1,
     });
   });
 });

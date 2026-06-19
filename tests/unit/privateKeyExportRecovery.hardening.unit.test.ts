@@ -81,7 +81,7 @@ test.describe('private key export recovery hardening', () => {
         try {
           await mod.exportNearEd25519SeedArtifactWithUI(
             {
-              indexedDB: {
+              keyMaterialStore: {
                 resolveProfileAccountContext: async () => ({
                   profileId: 'profile-1',
                   accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
@@ -143,11 +143,11 @@ test.describe('private key export recovery hardening', () => {
         const calls: Array<Record<string, unknown>> = [];
 
         const exportResult = await mod.exportNearEd25519SeedArtifactWithUI(
-          {
-            indexedDB: {
-              resolveProfileAccountContext: async () => ({
-                profileId: 'profile-1',
-                accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+            {
+              keyMaterialStore: {
+                resolveProfileAccountContext: async () => ({
+                  profileId: 'profile-1',
+                  accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
               }),
               getLastProfileState: async () => ({
                 profileId: 'profile-1',

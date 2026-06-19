@@ -309,18 +309,7 @@ function makeEd25519ThresholdAdapter(input: {
           claims: Record<string, unknown>;
           request: Record<string, unknown>;
         }) => await input.authorize(args),
-        protocol: {
-          signInit: async () => ({
-            ok: false,
-            code: 'not_implemented',
-            message: 'not implemented',
-          }),
-          signFinalize: async () => ({
-            ok: false,
-            code: 'not_implemented',
-            message: 'not implemented',
-          }),
-        },
+        protocol: {},
       };
     },
   };
@@ -4022,91 +4011,6 @@ test.describe('relayer router (express) – P0', () => {
       expect(dispatched[0]?.payload?.expired).toBe(true);
       expect(dispatched[0]?.payload?.source).toBe('session.refresh');
       expect(dispatched[0]?.payload?.userId).toBe('user-expired-1');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('POST /threshold-ed25519/authorize validates runtime snapshot checksum against latest scoped snapshot', async () => {
-    let authorizeCalls = 0;
-    const service = makeFakeAuthService();
-    const session = makeSessionAdapter({
-      parse: async () => ({
-        ok: true,
-        claims: {
-          sub: 'bob.testnet',
-          walletId: 'bob.testnet',
-          kind: 'threshold_ed25519_session_v1',
-          sessionId: 'session-ed25519-runtime',
-          walletSigningSessionId: 'wallet-signing-session-runtime',
-          relayerKeyId: 'relayer-key-1',
-          rpId: 'example.localhost',
-          thresholdExpiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-          runtimePolicyScope: {
-            orgId: 'org-runtime-express-1',
-            projectId: 'project-runtime-express-1',
-            envId: 'env-runtime-express-1',
-            signingRootVersion: 'default',
-          },
-        },
-      }),
-    });
-    const threshold = makeEd25519ThresholdAdapter({
-      authorize: async () => {
-        authorizeCalls += 1;
-        return { ok: true, mpcSessionId: 'mpc-runtime-express-1' };
-      },
-    });
-    const router = createRelayRouter(service, {
-      session,
-      threshold: threshold as any,
-      runtimeSnapshots: {
-        getLatestSnapshot: async () => ({
-          snapshotId: 'snapshot-runtime-express-latest',
-          version: 7,
-          checksum: 'fnv1a32:runtime-express-checksum',
-          effectiveAt: '2026-03-01T00:00:00.000Z',
-        }),
-      },
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const okRes = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer token' },
-        body: JSON.stringify({
-          relayerKeyId: 'relayer-key-1',
-          clientVerifyingShareB64u: 'client-share',
-          purpose: 'near_tx',
-          signing_digest_32: new Array(32).fill(1),
-          runtimeSnapshot: {
-            checksum: 'fnv1a32:runtime-express-checksum',
-            version: 7,
-          },
-        }),
-      });
-      expect(okRes.status).toBe(200);
-      expect(okRes.json?.ok).toBe(true);
-      expect(authorizeCalls).toBe(1);
-
-      const mismatchRes = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer token' },
-        body: JSON.stringify({
-          relayerKeyId: 'relayer-key-1',
-          clientVerifyingShareB64u: 'client-share',
-          purpose: 'near_tx',
-          signing_digest_32: new Array(32).fill(1),
-          runtimeSnapshot: {
-            checksum: 'fnv1a32:runtime-express-checksum-stale',
-            version: 7,
-          },
-        }),
-      });
-      expect(mismatchRes.status).toBe(409);
-      expect(mismatchRes.json?.code).toBe('runtime_snapshot_checksum_mismatch');
-      expect(authorizeCalls).toBe(1);
     } finally {
       await srv.close();
     }

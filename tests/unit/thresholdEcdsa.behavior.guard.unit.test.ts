@@ -24,7 +24,7 @@ test.describe('threshold ECDSA behavior guard', () => {
     );
     const secp256k1Content = fs.readFileSync(secp256k1Path, 'utf8');
     const schedulerCallCount =
-      secp256k1Content.match(/scheduleThresholdEcdsaClientPresignaturePoolRefill\(/g)?.length || 0;
+      secp256k1Content.match(/scheduleRouterAbEcdsaHssClientPresignaturePoolRefill\(/g)?.length || 0;
 
     expect(schedulerCallCount).toBeGreaterThanOrEqual(2);
     expect(secp256k1Content.includes("trigger: 'commit_start'")).toBe(true);
@@ -70,9 +70,51 @@ test.describe('threshold ECDSA behavior guard', () => {
       for (const filePath of listFiles(path.join(repoRoot, relativeRoot), ['.ts', '.tsx', '.rs'])) {
         const source = fs.readFileSync(filePath, 'utf8');
         for (const token of forbiddenTokens) {
+          if (token === 'EcdsaHssStableKeyContextV1') {
+            if (/(?<!RouterAb)EcdsaHssStableKeyContextV1/.test(source)) {
+              offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
+            }
+            continue;
+          }
           if (source.includes(token)) {
             offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
           }
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('Router A/B ECDSA HSS production bridge does not expose export or root material', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const relativePaths = [
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPresignBridge.ts',
+      'packages/shared-ts/src/utils/routerAbEcdsaHss.ts',
+    ];
+    const forbiddenTokens = [
+      'privateKeyHex',
+      'private_key_hex',
+      'clientRootShare32B64u',
+      'serverExportShare32B64u',
+      'reconstruct_export_key',
+      'reconstructExportKey',
+      'x_export',
+      'canonical_x',
+      'canonicalX',
+      'rawRoot',
+      'raw_root',
+      'rootMaterial',
+      'root_material',
+    ];
+    const offenders: string[] = [];
+
+    for (const relativePath of relativePaths) {
+      const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+      for (const token of forbiddenTokens) {
+        if (source.includes(token)) {
+          offenders.push(`${relativePath} contains ${token}`);
         }
       }
     }

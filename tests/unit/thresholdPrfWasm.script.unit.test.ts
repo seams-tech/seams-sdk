@@ -11,8 +11,12 @@ import {
   type ThresholdPrfPolicy,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
 import {
+  initSync as initThresholdPrfWasmSync,
+  init_threshold_prf,
+  threshold_prf_combine_verified_partials,
   threshold_prf_derive_ecdsa_hss_y_relayer,
   threshold_prf_derive_ed25519_hss_server_inputs,
+  threshold_prf_evaluate_partial_with_dleq_proof,
 } from '../../wasm/threshold_prf/pkg/threshold_prf.js';
 
 type ThresholdPrfFixtureShare = {
@@ -36,7 +40,16 @@ const FIXTURE_PATH = resolve(
   __dirname,
   '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
 );
+const THRESHOLD_PRF_WASM_PATH = resolve(
+  __dirname,
+  '../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
+);
 const ECDSA_HSS_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
+
+test.beforeAll(() => {
+  initThresholdPrfWasmSync({ module: readFileSync(THRESHOLD_PRF_WASM_PATH) });
+  init_threshold_prf();
+});
 
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
@@ -95,6 +108,47 @@ function flattenShareWires(
   }
   return out;
 }
+
+function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+test('threshold-prf WASM wrapper evaluates Router A/B proof bundles and combines verified partials', async () => {
+  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
+  const policy = policyForVector(vector);
+  const selectedIds = [1, 2] as const;
+  const routerAbPurpose = 'router-ab/x_client_base/v1';
+  const routerAbContext = new TextEncoder().encode('router-ab-threshold-prf-script-test/v1');
+  const proofBundleWires = concatBytes(
+    selectedIds.map((id) => {
+      const share = vector.shares.find((candidate) => candidate.id === id);
+      if (!share) throw new Error(`missing share ${id}`);
+      return threshold_prf_evaluate_partial_with_dleq_proof(
+        hexToBytes(share.wire_hex),
+        routerAbPurpose,
+        routerAbContext,
+      );
+    }),
+  );
+
+  const output = threshold_prf_combine_verified_partials(
+    policy.threshold,
+    policy.shareCount,
+    proofBundleWires,
+    routerAbPurpose,
+    routerAbContext,
+  );
+
+  expect(proofBundleWires.byteLength).toBe(328);
+  expect(output.byteLength).toBe(32);
+});
 
 test('threshold-prf WASM wrapper derives ECDSA HSS y_server through policy-shaped shares', async () => {
   const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);

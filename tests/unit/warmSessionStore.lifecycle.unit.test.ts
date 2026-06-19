@@ -36,7 +36,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'ed25519-only.testnet',
       thresholdSessionId: 'ed25519-session-1',
-      thresholdSessionAuthToken: 'jwt:ed25519-session-1',
+      walletSessionJwt: 'jwt:ed25519-session-1',
       remainingUses: 9,
     });
 
@@ -52,7 +52,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
-    expect(warmSession.capabilities.ed25519.auth?.thresholdSessionAuthToken).toBe(
+    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBe(
       'jwt:ed25519-session-1',
     );
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
@@ -64,7 +64,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     expect(warmSession.capabilities.ecdsa.tempo.state).toBe('missing');
   });
 
-  test('returns a ready cookie passkey Ed25519 capability from stored client base', async () => {
+  test('does not treat cookie passkey Ed25519 client-base records as ready signing auth', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -85,8 +85,8 @@ test.describe('WarmSessionStore lifecycle', () => {
     });
     const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
-    expect(warmSession.capabilities.ed25519.state).toBe('ready');
-    expect(warmSession.capabilities.ed25519.auth?.thresholdSessionAuthTokenSource).toBe('none');
+    expect(warmSession.capabilities.ed25519.state).toBe('auth_missing');
+    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwtSource).toBe('none');
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
       state: 'missing',
       sessionId: 'cookie-ed25519-session',
@@ -100,7 +100,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'email-otp-exhausted.testnet',
       thresholdSessionId: 'email-otp-exhausted-session',
-      thresholdSessionAuthToken: 'jwt:email-otp-exhausted-session',
+      walletSessionJwt: 'jwt:email-otp-exhausted-session',
       source: 'email_otp',
       xClientBaseB64u: 'email-otp-client-base',
       remainingUses: 3,
@@ -133,7 +133,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'email-otp-record-exhausted.testnet',
       thresholdSessionId: 'email-otp-record-exhausted-session',
-      thresholdSessionAuthToken: 'jwt:email-otp-record-exhausted-session',
+      walletSessionJwt: 'jwt:email-otp-record-exhausted-session',
       source: 'email_otp',
       xClientBaseB64u: 'email-otp-client-base',
       remainingUses: 0,
@@ -167,7 +167,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'batch-status.testnet',
       thresholdSessionId: 'batch-ed25519-session',
-      thresholdSessionAuthToken: 'jwt:batch-ed25519-session',
+      walletSessionJwt: 'jwt:batch-ed25519-session',
       remainingUses: 9,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -230,7 +230,11 @@ test.describe('WarmSessionStore lifecycle', () => {
     expect(singleReads).toBe(0);
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
-    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.tempo.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: tempoRecord.thresholdSessionId,
+    });
   });
 
   test('returns a ready ECDSA capability and keeps the other chain missing', async () => {
@@ -255,8 +259,8 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(evmRecord.walletId);
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
-    expect(warmSession.capabilities.ecdsa.evm.auth?.thresholdSessionAuthToken).toBe(
-      evmRecord.thresholdSessionAuthToken,
+    expect(warmSession.capabilities.ecdsa.evm.auth?.walletSessionJwt).toBe(
+      evmRecord.walletSessionJwt,
     );
     expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
       state: 'warm',
@@ -273,7 +277,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'dual.testnet',
       thresholdSessionId: 'ed25519-dual-session',
-      thresholdSessionAuthToken: 'jwt:ed25519-dual-session',
+      walletSessionJwt: 'jwt:ed25519-dual-session',
       remainingUses: 6,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -308,9 +312,12 @@ test.describe('WarmSessionStore lifecycle', () => {
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
-    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
-    expect(warmSession.capabilities.ecdsa.tempo.auth?.thresholdSessionAuthTokenSource).toBe('ecdsa');
-    expect(warmSession.capabilities.ecdsa.tempo.prfClaim?.state).toBe('missing');
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.tempo.auth?.walletSessionJwtSource).toBe('ecdsa_record');
+    expect(warmSession.capabilities.ecdsa.tempo.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: tempoRecord.thresholdSessionId,
+    });
   });
 
   test('resolves ECDSA seal transport from the warm-session record', async () => {
@@ -344,8 +351,8 @@ test.describe('WarmSessionStore lifecycle', () => {
     ).toMatchObject({
       curve: 'ecdsa',
       relayerUrl: evmRecord.relayerUrl,
-      thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
-      thresholdSessionAuthTokenSource: 'ecdsa',
+      walletSessionJwt: evmRecord.walletSessionJwt,
+      walletSessionJwtSource: 'ecdsa',
       keyVersion: 'kek-s-2026-02',
       shamirPrimeB64u: 'AQAB',
     });
@@ -398,7 +405,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       sessionId: evmRecord.thresholdSessionId,
       transport: {
         relayerUrl: evmRecord.relayerUrl,
-        thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
+        walletSessionJwt: evmRecord.walletSessionJwt,
         keyVersion: 'kek-s-2026-02',
         shamirPrimeB64u: 'AQAB',
       },

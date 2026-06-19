@@ -58,7 +58,7 @@ test.describe('Email OTP auth lane route planning', () => {
 
   test('plans signing-session routes from restored threshold-session auth', () => {
     const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'threshold_session', jwt: 'threshold-session-jwt' },
+      routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
       authorizingWalletSigningSessionId: 'wallet-signing-session',
       curve: 'ecdsa',
@@ -78,14 +78,14 @@ test.describe('Email OTP auth lane route planning', () => {
       '/wallet/email-otp/signing-session/challenge',
     );
     expect(authLaneToRouteAuth(authLane)).toEqual({
-      kind: 'threshold_session',
+      kind: 'wallet_session',
       jwt: 'threshold-session-jwt',
     });
   });
 
   test('fails closed for mismatched lane and route family', () => {
     const signingLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'threshold_session', jwt: 'threshold-session-jwt' },
+      routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
       authorizingWalletSigningSessionId: 'wallet-signing-session',
       curve: 'ed25519',

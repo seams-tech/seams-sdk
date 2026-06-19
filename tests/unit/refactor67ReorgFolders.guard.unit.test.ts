@@ -44,7 +44,6 @@ test.describe('refactor 67 folder reorg guards', () => {
     const workspace = readRepoFile('pnpm-workspace.yaml');
     for (const required of [
       'packages/sdk-web',
-      'packages/sdk-runtime-ts',
       'packages/sdk-server-ts',
       'packages/shared-ts',
       'apps/web-client',
@@ -55,6 +54,7 @@ test.describe('refactor 67 folder reorg guards', () => {
     }
 
     expect(workspace).not.toMatch(/^\s*-\s*sdk\s*$/m);
+    expect(workspace).not.toContain('packages/sdk-runtime-ts');
     expect(workspace).not.toContain('examples/seams-site');
     expect(workspace).not.toContain('examples/relay-server');
     expect(workspace).not.toContain('examples/seams-docs');
@@ -72,7 +72,7 @@ test.describe('refactor 67 folder reorg guards', () => {
     const violations: string[] = [];
     for (const file of [...listSourceFiles('apps/web-client'), ...listSourceFiles('apps/web-server')]) {
       const source = readRepoFile(file);
-      if (/\.\.\/(?:\.\.\/)*packages\/(?:sdk-web|sdk-runtime-ts|sdk-server-ts|shared-ts)\/src/.test(source)) {
+      if (/\.\.\/(?:\.\.\/)*packages\/(?:sdk-web|sdk-server-ts|shared-ts)\/src/.test(source)) {
         violations.push(file);
       }
       if (/\.\.\/(?:\.\.\/)*(?:client|server|shared)\/src/.test(source)) {
@@ -86,7 +86,7 @@ test.describe('refactor 67 folder reorg guards', () => {
     const violations: string[] = [];
     for (const file of [...listSourceFiles('clients/ios'), ...listSourceFiles('crates/seams-embedded')]) {
       const source = readRepoFile(file);
-      if (/packages\/(?:sdk-web|sdk-runtime-ts|sdk-server-ts|shared-ts)\/src/.test(source)) {
+      if (/packages\/(?:sdk-web|sdk-server-ts|shared-ts)\/src/.test(source)) {
         violations.push(file);
       }
       if (/(?:client|server|shared)\/src/.test(source)) {

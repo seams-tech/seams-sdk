@@ -93,6 +93,7 @@ test('NEAR authenticator lookup resolves the canonical wallet passkey auth metho
           : [],
     },
   };
+  (deps as any).accountStore = deps.indexedDB;
 
   const authenticators = await nearAuthenticatorsByAccount(
     deps as any,
@@ -167,6 +168,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
       },
     },
   };
+  (deps as any).accountStore = deps.indexedDB;
 
   const result = await storeWalletEd25519RegistrationData(deps as any, {
     walletId: walletIdFromString('wallet_alice'),
@@ -265,6 +267,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
       },
     },
   };
+  (deps as any).accountStore = deps.indexedDB;
 
   const result = await finalizeWalletEd25519SignerRegistration(deps as any, {
     walletId: walletIdFromString('wallet_alice'),
@@ -345,6 +348,7 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       },
     },
   };
+  (deps as any).accountStore = deps.indexedDB;
 
   const walletId = walletIdFromString('wallet_alice');
   const walletKeys = [
@@ -429,6 +433,7 @@ test('wallet ECDSA signer validation fails before finalize batch side effects', 
       },
     },
   };
+  (deps as any).accountStore = deps.indexedDB;
 
   await expect(
     storeWalletEcdsaSignerRecords(deps as any, {
@@ -584,6 +589,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
   ];
 
   const ed25519ThenEcdsa = makeDeps();
+  (ed25519ThenEcdsa.deps as any).accountStore = ed25519ThenEcdsa.deps.indexedDB;
   await storeWalletEd25519RegistrationData(ed25519ThenEcdsa.deps as any, {
     walletId,
     nearAccountId: toAccountId('matrix.testnet'),
@@ -604,6 +610,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
   expect(ed25519ThenEcdsa.authenticators).toHaveLength(2);
 
   const ecdsaThenEd25519 = makeDeps();
+  (ecdsaThenEd25519.deps as any).accountStore = ecdsaThenEd25519.deps.indexedDB;
   await storeWalletEcdsaSignerRecords(ecdsaThenEd25519.deps as any, {
     walletId,
     walletKeys,

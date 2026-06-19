@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import { toAccountId } from '@/core/types/accountIds';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
+import {
+  buildNearTransactionSigningLane,
+  readSigningCapabilityRecord,
+} from '@/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
@@ -34,7 +41,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         seedEd25519WarmSessionRecord({
           nearAccountId: String(nearAccountId),
           thresholdSessionId: sessionId,
-          thresholdSessionAuthToken: `jwt:${sessionId}`,
+          walletSessionJwt: `jwt:${sessionId}`,
           remainingUses: 7,
           expiresAtMs,
           source: 'login',
@@ -85,6 +92,96 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     });
   });
 
+  test('keeps Ed25519 provisioning without worker material pending and unselectable', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const accountId = toAccountId('transition-ed25519-pending.testnet');
+    const sessionId = 'ed25519-pending-material-session';
+    const walletSigningSessionId = 'wsess-ed25519-pending-material';
+    const expiresAtMs = Date.now() + 120_000;
+    const store = createWarmSessionTestServices({
+      touchConfirm: createWarmSessionStatusReader({
+        [sessionId]: {
+          state: 'warm',
+          remainingUses: 7,
+          expiresAtMs,
+        },
+      }),
+      provisionThresholdEd25519Session: async ({ nearAccountId }) => {
+        seedEd25519WarmSessionRecord({
+          nearAccountId: String(nearAccountId),
+          thresholdSessionId: sessionId,
+          walletSigningSessionId,
+          walletSessionJwt: `jwt:${sessionId}`,
+          runtimePolicyScope: {
+            orgId: 'org-transition',
+            projectId: 'transition-ed25519-pending',
+            envId: 'dev',
+            signingRootVersion: 'default',
+          },
+          routerAbNormalSigning: {
+            kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+            signingWorkerId: 'signing-worker-transition',
+          },
+          ed25519HssMaterialHandle: '',
+          ed25519HssMaterialBindingDigest: '',
+          remainingUses: 7,
+          expiresAtMs,
+          source: 'login',
+        });
+        return {
+          ok: true,
+          sessionId,
+          walletSigningSessionId,
+          jwt: `jwt:${sessionId}`,
+          remainingUses: 7,
+          expiresAtMs,
+        };
+      },
+    });
+
+    await store.provisionEd25519Capability({
+      kind: 'fresh_ed25519_provisioning',
+      nearAccountId: accountId,
+      relayerKeyId: 'rk-ed25519-pending-material',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      source: 'login',
+    });
+
+    const warmSession = await store.getWarmSession(accountId);
+    expect(warmSession.capabilities.ed25519).toMatchObject({
+      state: 'material_pending',
+      record: {
+        thresholdSessionId: sessionId,
+        walletSigningSessionId,
+      },
+    });
+
+    const lane = buildNearTransactionSigningLane({
+      accountId,
+      authMethod: 'passkey',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
+      storageSource: 'login',
+    });
+    const signingCapability = readSigningCapabilityRecord(
+      {
+        readEd25519SessionRecordByThresholdSessionId: () =>
+          warmSession.capabilities.ed25519.record,
+      },
+      lane,
+    );
+
+    expect(signingCapability).toMatchObject({
+      ok: false,
+      code: 'record_mismatch',
+      message:
+        'Selected Ed25519 session record is not Router A/B signable: missing_material_handle',
+    });
+  });
+
   test('fails closed when Ed25519 provisioning returns success without persisting the capability record', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -131,7 +228,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-transition-stale',
       sessionId: 'ecdsa-stale-session',
-      sessionAuthToken: 'jwt:ecdsa-stale-session',
+      walletSessionJwt: 'jwt:ecdsa-stale-session',
       walletSigningSessionId: 'wsess-ecdsa-transition',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -166,7 +263,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
           chain: request.lanePolicy.chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
-          sessionAuthToken: 'jwt:ecdsa-fresh-session',
+          walletSessionJwt: 'jwt:ecdsa-fresh-session',
           walletSigningSessionId: 'wsess-ecdsa-transition',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -201,7 +298,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         capabilities: {
           ecdsa: {
             evm: {
-              state: 'prf_missing',
+              state: 'ready',
               thresholdSessionId: 'ecdsa-stale-session',
             },
           },

@@ -48,7 +48,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
     relayerKeyId: string;
     remainingUses: number;
   }): SigningSessionSealThresholdSessionStatus => ({
-    kind: 'threshold_session',
+    kind: 'wallet_session',
     ...baseStatus(input),
   });
   const makeWalletBudgetStatus = (input: {

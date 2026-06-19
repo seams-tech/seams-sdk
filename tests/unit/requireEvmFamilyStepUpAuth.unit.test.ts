@@ -17,7 +17,6 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
           accountId: 'alice.testnet',
           intent: 'transaction_sign',
           curve: 'ecdsa',
-          signingRootId: 'root-1',
           sessionId: 'threshold-session-warm',
           expiresAtMs: 1_777_777_777_000,
           remainingUses: 2,

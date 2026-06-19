@@ -106,8 +106,8 @@ test.describe('ECDSA bootstrap warm persistence branches', () => {
       sessionKind: 'jwt',
       sessionIdentity,
       routeAuth: {
-        kind: 'bootstrap_grant',
-        token: 'bootstrap-grant-token',
+        kind: 'wallet_session',
+        jwt: 'threshold-session-jwt',
       },
       webauthnAuthentication: webauthnAuthentication(),
     } satisfies EcdsaBootstrapRequest;

@@ -113,7 +113,7 @@ test.describe('WarmSessionStore invariants', () => {
     const edRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'invariants.testnet',
       thresholdSessionId: 'ed-invariant-session',
-      thresholdSessionAuthToken: 'jwt:ed-invariant-session',
+      walletSessionJwt: 'jwt:ed-invariant-session',
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'invariants.testnet',
@@ -124,7 +124,7 @@ test.describe('WarmSessionStore invariants', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-invariants',
         sessionId: 'evm-invariant-session',
-        sessionAuthToken: 'jwt:evm-invariant-session',
+        walletSessionJwt: 'jwt:evm-invariant-session',
       }),
     });
 
@@ -152,7 +152,7 @@ test.describe('WarmSessionStore invariants', () => {
     envelope.capabilities.ed25519.auth = {
       capability: 'ed25519',
       record: {} as any,
-      thresholdSessionAuthTokenSource: 'none',
+      walletSessionJwtSource: 'none',
     };
 
     expect(() => assertWarmSessionEnvelopeInvariant(envelope)).toThrow(
@@ -180,11 +180,12 @@ test.describe('WarmSessionStore invariants', () => {
       },
       auth: {
         capability: 'ecdsa',
+        state: 'ready',
         record: {
           ...record,
         } as any,
-        thresholdSessionAuthToken: 'jwt:record-session',
-        thresholdSessionAuthTokenSource: 'ecdsa',
+        walletSessionJwt: 'jwt:record-session',
+        walletSessionJwtSource: 'ecdsa_record',
       },
       prfClaim: {
         state: 'warm',
@@ -213,7 +214,7 @@ test.describe('WarmSessionStore invariants', () => {
       auth: {
         capability: 'ed25519',
         record,
-        thresholdSessionAuthTokenSource: 'none',
+        walletSessionJwtSource: 'none',
       },
       prfClaim: {
         state: 'warm',
@@ -249,8 +250,10 @@ test.describe('WarmSessionStore invariants', () => {
       },
       auth: {
         capability: 'ecdsa',
+        state: 'unavailable',
         record,
-        thresholdSessionAuthTokenSource: 'none',
+        walletSessionJwtSource: 'none',
+        unavailableReason: 'missing_wallet_session_jwt',
       },
       prfClaim: {
         state: 'warm',

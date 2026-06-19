@@ -22,13 +22,13 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const unusedNoPromptReconnectDeps: Pick<
   NoPromptWarmSessionDeps,
-  'claimEcdsaPasskeyPrfFirst' | 'reconnectWithThresholdSessionAuth'
+  'claimEcdsaPasskeyPrfFirst' | 'reconnectWithWalletSessionAuth'
 > = {
   claimEcdsaPasskeyPrfFirst: async () => {
     throw new Error('claimEcdsaPasskeyPrfFirst should not be called');
   },
-  reconnectWithThresholdSessionAuth: async () => {
-    throw new Error('reconnectWithThresholdSessionAuth should not be called');
+  reconnectWithWalletSessionAuth: async () => {
+    throw new Error('reconnectWithWalletSessionAuth should not be called');
   },
 };
 
@@ -44,7 +44,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-no-prompt-restore',
       sessionId: 'no-prompt-restore-session',
-      sessionAuthToken: 'jwt:no-prompt-restore-session',
+      walletSessionJwt: 'jwt:no-prompt-restore-session',
     });
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {},
@@ -121,14 +121,14 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'tempo',
       ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
       sessionId: 'no-prompt-reconnect-restored-session',
-      sessionAuthToken: 'jwt:no-prompt-reconnect-restored-session',
+      walletSessionJwt: 'jwt:no-prompt-reconnect-restored-session',
     });
     const reconnectedBootstrap = createThresholdEcdsaBootstrapFixture({
       nearAccountId: String(walletId),
       chain: 'tempo',
       ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
       sessionId: 'no-prompt-reconnect-refreshed-session',
-      sessionAuthToken: 'jwt:no-prompt-reconnect-refreshed-session',
+      walletSessionJwt: 'jwt:no-prompt-reconnect-refreshed-session',
     });
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {},
@@ -187,10 +187,10 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           });
           return 'restored-prf-first';
         },
-        reconnectWithThresholdSessionAuth: async (request) => {
+        reconnectWithWalletSessionAuth: async (request) => {
           reconnectCalls += 1;
           expect(request).toMatchObject({
-            kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+            kind: 'wallet_session_reconnect_ecdsa_bootstrap',
             source: 'login',
             keyHandle: restoredBootstrap.thresholdEcdsaKeyRef.keyHandle,
             key: {
@@ -204,7 +204,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
                 restoredBootstrap.thresholdEcdsaKeyRef.walletSigningSessionId,
             },
             routeAuth: {
-              kind: 'threshold_session',
+              kind: 'wallet_session',
             },
             passkeyPrfFirstB64u: 'restored-prf-first',
           });
@@ -287,7 +287,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reuse-ready',
       sessionId: 'reuse-ready-session',
-      sessionAuthToken: 'jwt:reuse-ready-session',
+      walletSessionJwt: 'jwt:reuse-ready-session',
     });
     const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reuse-ready.testnet',
@@ -350,7 +350,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reconnect',
       sessionId: 'stale-evm-session',
-      sessionAuthToken: 'jwt:stale-evm-session',
+      walletSessionJwt: 'jwt:stale-evm-session',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reconnect.testnet',
@@ -384,7 +384,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect',
           sessionId: 'fresh-evm-session',
-          sessionAuthToken: 'jwt:fresh-evm-session',
+          walletSessionJwt: 'jwt:fresh-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(walletId),
@@ -435,7 +435,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-restored-source',
       sessionId: 'restored-evm-session',
-      sessionAuthToken: 'jwt:restored-evm-session',
+      walletSessionJwt: 'jwt:restored-evm-session',
     });
     const restoredRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'restored-source.testnet',
@@ -472,7 +472,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           ecdsaThresholdKeyId: 'ek-restored-source',
           sessionId: request.lanePolicy.thresholdSessionId,
           walletSigningSessionId: request.lanePolicy.walletSigningSessionId,
-          sessionAuthToken: 'jwt:restored-evm-session',
+          walletSessionJwt: 'jwt:restored-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(walletId),

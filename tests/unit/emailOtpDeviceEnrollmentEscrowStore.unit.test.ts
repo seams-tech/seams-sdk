@@ -33,7 +33,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
           S: 'plaintext-must-not-persist',
           clientSecretB64u: 'plaintext-must-not-persist',
           signingSessionSecretB64u: 'wrong-store-secret',
-          thresholdSessionAuthToken: 'jwt-must-not-persist',
+          walletSessionJwt: 'jwt-must-not-persist',
         });
 
         const record = await mod.readEmailOtpDeviceEnrollmentEscrowRecord({

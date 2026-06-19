@@ -1,12 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { claimPasskeyEcdsaPrfFirst } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery';
 import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
-import { restoreEmailOtpEd25519SealedRecordForAccount } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery';
 import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
-  type EmailOtpEd25519SealedRecoveryRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 
 const TEMPO_CHAIN_TARGET = {
@@ -44,7 +42,7 @@ function makeEmailOtpEcdsaSealedRecord(
       chainTarget: TEMPO_CHAIN_TARGET,
       rpId: 'example.com',
       sessionKind: 'jwt',
-      thresholdSessionAuthToken: 'jwt-ecdsa',
+      walletSessionJwt: 'jwt-ecdsa',
       keyHandle: 'key-handle-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
       ethereumAddress: `0x${'33'.repeat(20)}`,
@@ -58,8 +56,9 @@ function makeEmailOtpEcdsaSealedRecord(
       relayerKeyId: 'relayer-key-ed25519',
       participantIds: [1, 2],
       sessionKind: 'jwt',
-      thresholdSessionAuthToken: 'jwt-ed25519',
+      walletSessionJwt: 'jwt-ed25519',
       xClientBaseB64u: 'x-client-base',
+      clientVerifyingShareB64u: 'client-verifying-share-ed25519',
     },
     issuedAtMs: now - 1_000,
     expiresAtMs: now + 60_000,
@@ -73,69 +72,6 @@ function makeEmailOtpEcdsaSealedRecord(
     normalized.record.curve !== 'ecdsa'
   ) {
     throw new Error('Expected accepted Email OTP ECDSA recovery record fixture');
-  }
-  return normalized.record;
-}
-
-function makeEmailOtpEd25519SealedRecord(
-  overrides?: Partial<SigningSessionSealedStoreRecord>,
-): EmailOtpEd25519SealedRecoveryRecord {
-  const now = Date.now();
-  const normalized = normalizeSealedRecoveryRecord({
-    v: 1,
-    alg: 'shamir3pass-v1',
-    storageScope: 'iframe_origin_indexeddb',
-    authMethod: 'email_otp',
-    secretKind: 'signing_session_secret32',
-    storeKey: 'email_otp:ed25519:near:tsess-ed25519',
-    walletSigningSessionId: 'wsess-ecdsa',
-    thresholdSessionIds: {
-      ecdsa: 'tsess-ecdsa',
-      ed25519: 'tsess-ed25519',
-    },
-    sealedSecretB64u: 'sealed-secret',
-    curve: 'ed25519',
-    walletId: 'alice.testnet',
-    userId: 'alice.testnet',
-    relayerUrl: 'https://relay.example',
-    shamirPrimeB64u: 'prime-b64u',
-    keyVersion: 'seal-v1',
-    ecdsaRestore: {
-      chainTarget: TEMPO_CHAIN_TARGET,
-      rpId: 'example.com',
-      sessionKind: 'jwt',
-      thresholdSessionAuthToken: 'jwt-ecdsa',
-      keyHandle: 'key-handle-ecdsa',
-      ecdsaThresholdKeyId: 'ecdsa-key',
-      ethereumAddress: `0x${'33'.repeat(20)}`,
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-      participantIds: [1, 2],
-    },
-    subjectId: 'alice.testnet',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
-    ed25519Restore: {
-      rpId: 'example.com',
-      relayerKeyId: 'relayer-key-ed25519',
-      participantIds: [1, 2],
-      sessionKind: 'jwt',
-      thresholdSessionAuthToken: 'jwt-ed25519',
-      xClientBaseB64u: 'x-client-base',
-    },
-    issuedAtMs: now - 1_000,
-    expiresAtMs: now + 60_000,
-    remainingUses: 3,
-    updatedAtMs: now,
-    ...overrides,
-  });
-  if (
-    normalized.kind !== 'accepted' ||
-    normalized.record.authMethod !== 'email_otp' ||
-    normalized.record.curve !== 'ed25519'
-  ) {
-    throw new Error('Expected accepted Email OTP Ed25519 recovery record fixture');
   }
   return normalized.record;
 }
@@ -166,7 +102,7 @@ test.describe('sealed recovery method adapters', () => {
         chainTarget: TEMPO_CHAIN_TARGET,
         rpId: 'example.com',
         sessionKind: 'jwt',
-        thresholdSessionAuthToken: 'jwt-ecdsa',
+        walletSessionJwt: 'jwt-ecdsa',
         keyHandle: 'key-handle-ecdsa',
         ecdsaThresholdKeyId: 'ecdsa-key',
         ethereumAddress: `0x${'33'.repeat(20)}`,
@@ -186,6 +122,50 @@ test.describe('sealed recovery method adapters', () => {
       rejection: {
         kind: 'rejected_sealed_recovery_record',
         reason: 'invalid_identity',
+      },
+    });
+  });
+
+  test('rejects passkey Ed25519 sealed recovery records with raw client-base metadata', () => {
+    const now = Date.now();
+    const normalized = normalizeSealedRecoveryRecord({
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      authMethod: 'passkey',
+      secretKind: 'signing_session_secret32',
+      storeKey: 'passkey:ed25519:near:tsess-ed25519',
+      walletSigningSessionId: 'wsess-passkey-ed25519',
+      thresholdSessionIds: {
+        ed25519: 'tsess-passkey-ed25519',
+      },
+      sealedSecretB64u: 'sealed-secret',
+      curve: 'ed25519',
+      walletId: 'alice.testnet',
+      userId: 'alice.testnet',
+      relayerUrl: 'https://relay.example',
+      shamirPrimeB64u: 'prime-b64u',
+      keyVersion: 'seal-v1',
+      ed25519Restore: {
+        rpId: 'example.com',
+        relayerKeyId: 'relayer-key-ed25519',
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        walletSessionJwt: 'jwt-ed25519',
+        xClientBaseB64u: 'stale-x-client-base',
+        clientVerifyingShareB64u: 'stale-client-verifying-share',
+      },
+      issuedAtMs: now - 1_000,
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      updatedAtMs: now,
+    });
+
+    expect(normalized).toMatchObject({
+      kind: 'rejected',
+      rejection: {
+        kind: 'rejected_sealed_recovery_record',
+        reason: 'missing_restore_metadata',
       },
     });
   });
@@ -260,7 +240,7 @@ test.describe('sealed recovery method adapters', () => {
           thresholdSessionId: 'tsess-ecdsa',
           walletSigningSessionId: 'wsess-mismatch',
           relayerUrl: 'https://relay.example',
-          thresholdSessionAuthToken: 'jwt-ecdsa',
+          walletSessionJwt: 'jwt-ecdsa',
           signingSessionSealShamirPrimeB64u: 'prime-b64u',
           chainTarget: TEMPO_CHAIN_TARGET,
           emailOtpAuthContext: {
@@ -314,59 +294,48 @@ test.describe('sealed recovery method adapters', () => {
     });
   }
 
-  test('restores Email OTP Ed25519 companion session through shared readback contracts', async () => {
-    const restoredSessions = new Set<string>();
-    const recordedStatuses: Array<{
-      sessionId: string;
-      remainingUses: number;
-      expiresAtMs: number;
-    }> = [];
-    const record = makeEmailOtpEd25519SealedRecord();
-
-    const result = await restoreEmailOtpEd25519SealedRecordForAccount({
-      accountId: 'alice.testnet',
-      record,
-      purpose: {
-        walletId: 'alice.testnet',
-        authMethod: 'email_otp',
-        curve: 'ed25519',
-        chain: 'near',
-        walletSigningSessionId: 'wsess-ecdsa',
-        thresholdSessionId: 'tsess-ed25519',
-        reason: 'transaction',
+  test('rejects Email OTP Ed25519 sealed recovery records with raw client-base metadata', () => {
+    const now = Date.now();
+    const normalized = normalizeSealedRecoveryRecord({
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      authMethod: 'email_otp',
+      secretKind: 'signing_session_secret32',
+      storeKey: 'email_otp:ed25519:near:tsess-ed25519',
+      walletSigningSessionId: 'wsess-ecdsa',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa',
+        ed25519: 'tsess-ed25519',
       },
-      getThresholdEcdsaSessionRecordByThresholdSessionId: () => null,
-      readWarmSessionStatusFromWorker: async (sessionId) => {
-        if (!restoredSessions.has(sessionId)) {
-          return { ok: false as const, code: 'not_found', message: 'missing' };
-        }
-        return {
-          ok: true as const,
-          remainingUses: 2,
-          expiresAtMs: Date.now() + 60_000,
-        };
+      sealedSecretB64u: 'sealed-secret',
+      curve: 'ed25519',
+      walletId: 'alice.testnet',
+      userId: 'alice.testnet',
+      relayerUrl: 'https://relay.example',
+      shamirPrimeB64u: 'prime-b64u',
+      keyVersion: 'seal-v1',
+      ed25519Restore: {
+        rpId: 'example.com',
+        relayerKeyId: 'relayer-key-ed25519',
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        walletSessionJwt: 'jwt-ed25519',
+        xClientBaseB64u: 'x-client-base',
+        clientVerifyingShareB64u: 'client-verifying-share-ed25519',
       },
-      recordSessionMaterialRestored: async (sessionId, status) => {
-        restoredSessions.add(sessionId);
-        recordedStatuses.push({
-          sessionId,
-          remainingUses: status.remainingUses,
-          expiresAtMs: status.expiresAtMs,
-        });
-      },
-      restoreEcdsaSigningSessionMaterialFromSealedRecord: async () => ({
-        bootstrap: {} as never,
-        warmCapability: {} as never,
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-        ed25519RestoreSeedB64u: 'restored-ed25519-seed',
-      }),
+      issuedAtMs: now - 1_000,
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      updatedAtMs: now,
     });
 
-    expect(result).toBe('restored');
-    expect(recordedStatuses.map((entry) => entry.sessionId)).toEqual([
-      'tsess-ecdsa',
-      'tsess-ed25519',
-    ]);
+    expect(normalized).toMatchObject({
+      kind: 'rejected',
+      rejection: {
+        kind: 'rejected_sealed_recovery_record',
+        reason: 'missing_restore_metadata',
+      },
+    });
   });
 });

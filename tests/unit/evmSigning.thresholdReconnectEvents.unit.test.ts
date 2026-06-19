@@ -24,7 +24,7 @@ import {
 } from './helpers/warmSessionStore.fixtures';
 
 test.describe('EVM family threshold reconnect events', () => {
-  test('emits numbered v2 reconnect phases when refreshing a stale threshold session', async () => {
+  test('emits numbered v2 reconnect phases when ensuring stale threshold session readiness', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     const walletSigningSessionId = 'wallet-session-reconnect-events';
@@ -34,7 +34,7 @@ test.describe('EVM family threshold reconnect events', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reconnect-events',
       sessionId: 'stale-reconnect-events-session',
-      sessionAuthToken: 'jwt:stale-reconnect-events-session',
+      walletSessionJwt: 'jwt:stale-reconnect-events-session',
       walletSigningSessionId,
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -86,10 +86,7 @@ test.describe('EVM family threshold reconnect events', () => {
         record: staleRecord,
       }),
     });
-    if (
-      reconnectPlan.kind !== 'threshold_session_auth_ecdsa_reconnect' &&
-      reconnectPlan.kind !== 'cookie_ecdsa_reconnect'
-    ) {
+    if (reconnectPlan.kind !== 'wallet_session_ecdsa_reconnect') {
       throw new Error(`expected exact-record reconnect plan: ${reconnectPlan.kind}`);
     }
 
@@ -141,7 +138,7 @@ test.describe('EVM family threshold reconnect events', () => {
             chain,
             ecdsaThresholdKeyId: 'ek-reconnect-events',
             sessionId,
-            sessionAuthToken: `jwt:${sessionId}`,
+            walletSessionJwt: `jwt:${sessionId}`,
             walletSigningSessionId: requestedWalletSigningSessionId,
           });
           const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -176,6 +173,6 @@ test.describe('EVM family threshold reconnect events', () => {
     expect(events.map((event) => event.step)).toEqual([9, 9]);
     expect(events.map((event) => event.status)).toEqual(['running', 'succeeded']);
     expect(events.map((event) => event.data?.chain)).toEqual(['evm', 'evm']);
-    expect(provisionedChainIds).toEqual([11_155_111]);
+    expect(provisionedChainIds).toEqual([]);
   });
 });

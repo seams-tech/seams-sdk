@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { createRequire } from 'module';
-import { createEd25519AuthSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/AuthSessionStore';
+import { createEd25519WalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import { createThresholdEcdsaSigningStores } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
+import { ensureThresholdEd25519SessionsKindConstraint } from '../../packages/sdk-server-ts/src/storage/postgres';
 
 type FakeQueryResult = { rows: any[]; rowCount?: number };
 type FakePool = {
@@ -52,7 +53,35 @@ async function withFakePgPool<T>(input: {
 }
 
 test.describe('threshold postgres malformed-row cleanup', () => {
-  test('deletes malformed auth, presign-session, and presignature rows on read boundaries', async () => {
+  test('prunes obsolete Ed25519 session kinds before tightening the kind constraint', async () => {
+    const queries: string[] = [];
+    await ensureThresholdEd25519SessionsKindConstraint({
+      async query(text: string) {
+        queries.push(text);
+        return { rows: [] };
+      },
+    });
+
+    const dropKindCheckIndex = queries.findIndex((query) =>
+      query.includes('DROP CONSTRAINT IF EXISTS threshold_ed25519_sessions_kind_check'),
+    );
+    const pruneObsoleteKindsIndex = queries.findIndex(
+      (query) =>
+        query.includes('DELETE FROM threshold_ed25519_sessions') &&
+        query.includes("kind NOT IN ('mpc', 'signing', 'coordinator', 'wallet_session', 'presign', 'presign_rate')"),
+    );
+    const addKindCheckIndex = queries.findIndex(
+      (query) =>
+        query.includes('ADD CONSTRAINT threshold_ed25519_sessions_kind_check') &&
+        query.includes("CHECK (kind IN ('mpc', 'signing', 'coordinator', 'wallet_session', 'presign', 'presign_rate'))"),
+    );
+
+    expect(dropKindCheckIndex).toBeGreaterThanOrEqual(0);
+    expect(pruneObsoleteKindsIndex).toBeGreaterThan(dropKindCheckIndex);
+    expect(addKindCheckIndex).toBeGreaterThan(pruneObsoleteKindsIndex);
+  });
+
+  test('deletes malformed Wallet Session, presign-session, and presignature rows on read boundaries', async () => {
     const deletedSessionIds: string[] = [];
     const deletedPresignSessionIds: string[] = [];
     const deletedPresignatures: Array<{ relayerKeyId: string; presignatureId: string }> = [];
@@ -145,11 +174,11 @@ test.describe('threshold postgres malformed-row cleanup', () => {
         },
       },
       run: async () => {
-        const authStore = createEd25519AuthSessionStore({
+        const walletSessionStore = createEd25519WalletSessionStore({
           config: {
             kind: 'postgres',
             postgresUrl,
-            keyPrefix: 'threshold-auth-cleanup',
+            keyPrefix: 'threshold-wallet-session-cleanup',
           },
           logger,
           isNode: true,
@@ -164,13 +193,13 @@ test.describe('threshold postgres malformed-row cleanup', () => {
           isNode: true,
         });
 
-        await expect(authStore.getSession('auth-session-1')).resolves.toBeNull();
-        await expect(stores.presignSessionStore.getSession('presign-session-1')).resolves.toBeNull();
+        await expect(walletSessionStore.getSession('wallet-session-1')).resolves.toBeNull();
+        await expect(stores.poolFillSessionStore.getSession('presign-session-1')).resolves.toBeNull();
         await expect(stores.presignaturePool.reserve('relayer-key')).resolves.toBeNull();
       },
     });
 
-    expect(deletedSessionIds).toEqual(['auth-session-1']);
+    expect(deletedSessionIds).toEqual(['wallet-session-1']);
     expect(deletedPresignSessionIds).toEqual(['presign-session-1']);
     expect(deletedPresignatures).toEqual([
       {

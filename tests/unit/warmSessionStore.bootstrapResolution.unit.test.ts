@@ -17,7 +17,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'fallback.testnet',
       thresholdSessionId: 'sess-ed25519',
-      thresholdSessionAuthToken: 'jwt-ed25519-fallback',
+      walletSessionJwt: 'jwt-ed25519-fallback',
     });
 
     const fallbackEcdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -42,7 +42,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-primary',
         sessionId: 'sess-ecdsa-jwt',
-        sessionAuthToken: 'jwt-ecdsa-primary',
+        walletSessionJwt: 'jwt-ecdsa-primary',
         sessionKind: 'jwt',
       }),
     });
@@ -71,24 +71,14 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
     });
 
     expect(fallbackBootstrap).toMatchObject({
-      kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-      keyHandle: fallbackEcdsaRecord.keyHandle,
-      key: {
-        walletId: 'fallback.testnet',
-        ecdsaThresholdKeyId: fallbackEcdsaRecord.ecdsaThresholdKeyId,
-        participantIds: [1, 2],
-      },
-      lanePolicy: {
-        chainTarget: fallbackEcdsaRecord.chainTarget,
-        thresholdSessionId: 'sess-ecdsa-cookie',
-        walletSigningSessionId: 'wsess-sess-ecdsa-cookie',
-        thresholdSessionKind: 'cookie',
-      },
+      kind: 'reuse_warm_ecdsa_bootstrap',
+      walletId: 'fallback.testnet',
+      chainTarget: fallbackEcdsaRecord.chainTarget,
     });
-    expect('thresholdSessionAuth' in fallbackBootstrap).toBe(false);
+    expect('walletSessionRouteAuth' in fallbackBootstrap).toBe(false);
 
     expect(primaryBootstrap).toMatchObject({
-      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      kind: 'wallet_session_reconnect_ecdsa_bootstrap',
       keyHandle: primaryEcdsaRecord.keyHandle,
       key: {
         walletId: 'primary.testnet',
@@ -102,7 +92,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
         thresholdSessionKind: 'jwt',
       },
       routeAuth: {
-        kind: 'threshold_session',
+        kind: 'wallet_session',
         jwt: expect.any(String),
       },
     });
