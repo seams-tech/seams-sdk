@@ -1670,7 +1670,7 @@ async function submitCommandVerification(
     quality: formatQuality(result.checks.quality),
     phrase: formatPhrase(result.checks.phrase, transcriptEvidence),
     speaker: formatSpeaker(result.checks.speaker),
-    policy: 'none',
+    policy: formatVerificationPolicy(result),
   };
 
   switch (result.kind) {
@@ -2542,6 +2542,42 @@ function phraseSourceLabel(evidence: VerificationTranscriptEvidence | null): str
 
 function formatSpeaker(speaker: VerificationChecks['speaker']): string {
   return `${speaker.kind}; score ${formatNumber(speaker.score)} / threshold ${formatNumber(speaker.threshold)}`;
+}
+
+function formatVerificationPolicy(result: VerificationApiResult): string {
+  switch (result.kind) {
+    case 'accepted':
+      return 'verification accepted; checking owner-presence policy';
+    case 'rejected':
+      return `rejected; ${formatVerificationReason(result.reason)}`;
+    case 'uncertain':
+      return `uncertain; ${formatVerificationReason(result.reason)}`;
+  }
+}
+
+function formatVerificationReason(reason: string): string {
+  switch (reason) {
+    case 'phrase_mismatch':
+      return 'phrase mismatch';
+    case 'speaker_mismatch':
+      return 'speaker mismatch';
+    case 'low_audio_quality':
+      return 'low audio quality';
+    case 'too_many_attempts':
+      return 'too many attempts';
+    case 'expired':
+      return 'verification expired';
+    case 'noisy_audio':
+      return 'noisy audio';
+    case 'too_short':
+      return 'recording too short';
+    case 'model_low_confidence':
+      return 'model confidence below threshold';
+    case 'verifier_unavailable':
+      return 'verifier unavailable';
+    default:
+      return reason.replaceAll('_', ' ');
+  }
 }
 
 function formatRecorderError(reason: string): string {
