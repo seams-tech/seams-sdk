@@ -2,7 +2,7 @@
 
 Date created: June 20, 2026
 
-Status: planned
+Status: in progress
 
 Primary source of truth:
 
@@ -238,48 +238,49 @@ The restore boundary resolves either `storage_ref` or `inline_sealed_blob`.
 
 ## Phase 1: Inventory And Invariant Lock
 
-- [ ] Inventory all Ed25519 material/session state types and constructors:
+- [x] Inventory all Ed25519 material/session state types and constructors:
       `RouterAbEd25519SigningMaterialReady`,
       `RouterAbEd25519SigningMaterialRef`,
       `ThresholdEd25519SessionRecord`,
       `RouterAbEd25519SigningWalletSession`,
       `ResolvedRouterAbEd25519WalletSessionState`,
       sealed restore metadata, and presign-pool scope types.
-- [ ] Document which fields belong to material identity, session identity,
+- [x] Document which fields belong to material identity, session identity,
       server/Router identity, and public verifier identity.
-- [ ] Confirm `ThresholdEd25519WorkerMaterialBinding` contains stable material
+- [x] Confirm `ThresholdEd25519WorkerMaterialBinding` contains stable material
       identity: account id, signer slot, signing root id/version, relayer key id,
       key version, participant ids, client verifying share, material key id, and
       created-at timestamp.
-- [ ] Confirm `ThresholdEd25519WorkerMaterialSessionBinding` contains session
+- [x] Confirm `ThresholdEd25519WorkerMaterialSessionBinding` contains session
       identity: material binding digest, account id, signer slot, threshold
       session id, signing grant id, signing root id/version, runtime policy
       scope, relayer key id, key version, participant ids, SigningWorker id, and
       expiry.
-- [ ] Add source comments or doc notes for any required identity value missing
-      from those two binding structs before shrinking flat fields.
-- [ ] Confirm there are no persisted fields or durable records that claim
+- [x] Add source comments or doc notes for any required identity value missing
+      from those two binding structs before shrinking flat fields. No missing
+      required identity values were found in the current binding structs.
+- [x] Confirm there are no persisted fields or durable records that claim
       worker-material validation.
-- [ ] Add no behavior changes in this phase.
+- [x] Superseded: behavior changes started directly in the Phase 2/3
+      classifier/readiness implementation.
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] focused source guard inventory test, if added
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] Focused source guard inventory test was not added; covered by the existing
+      Router A/B source guards and focused classifier tests in Phase 3.
 
 ## Phase 2: Introduce Strict Internal State Types
 
-- [ ] Add strict Ed25519 persistence state types in a small module near
+- [x] Add strict Ed25519 persistence state types in a small module near
       `routerAbSigningWalletSession.ts`.
-- [ ] Replace the existing optional record interpretation with branch-specific
-      builders:
-      `buildEd25519AuthReadyMaterialPendingRecord`,
-      `buildEd25519RestoreAvailableRecord`,
-      `buildEd25519MaterialHintUnvalidatedRecord`, and invalid/non-signing
-      result builders.
-- [ ] Add `never` fields so branch combinations cannot carry impossible material
+- [x] Superseded: standalone branch-builder functions were skipped. The existing
+      classifier now emits exact branch-specific union values directly, which
+      avoids extra wrapper ceremony while keeping invalid branches
+      unrepresentable.
+- [x] Add `never` fields so branch combinations cannot carry impossible material
       data.
-- [ ] Keep `ThresholdEd25519SessionRecord` as the raw normalized persistence shape
+- [x] Keep `ThresholdEd25519SessionRecord` as the raw normalized persistence shape
       until all callers are migrated.
 - [ ] Add `.typecheck.ts` fixtures rejecting:
       direct runtime-validated construction without `materialHandle`,
@@ -291,23 +292,24 @@ Validation:
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/sdk-web type-check`
 - [ ] focused type fixtures for Ed25519 state branches
 
 ## Phase 3: Isolate Raw Persistence Optionals
 
-- [ ] Move optional material fields behind one boundary parser:
+- [x] Move optional material fields behind one boundary parser:
       `classifyEd25519PersistedSigningRecord`.
-- [ ] Update active readers to consume only the strict classified union.
-- [ ] Keep stale raw-material rejection in the boundary parser only.
-- [ ] Classify storage-ref-only sealed Ed25519 records as `restore_available`
+- [x] Update active readers to consume only the strict classified union.
+- [x] Keep stale raw-material rejection in the boundary parser only.
+- [x] Classify storage-ref-only sealed Ed25519 records as `restore_available`
       when all required worker material metadata is present. Inline sealed blobs
       remain optional restore transport data.
-- [ ] Replace direct reads of `record.ed25519WorkerMaterialHandle`,
+- [x] Replace direct reads of `record.ed25519WorkerMaterialHandle`,
       `record.ed25519WorkerMaterialBindingDigest`, and
       `record.clientVerifyingShareB64u` in core signing/readiness code with
-      branch-specific accessors.
-- [ ] Add a source guard that active final signing and readiness files cannot
+      branch-specific accessors. Restore and persistence boundaries still read
+      raw record fields by design.
+- [x] Add a source guard that active final signing and readiness files cannot
       read raw optional material fields directly.
 - [ ] Keep persistence writes branch-specific:
       auth-ready-material-pending writer, restore-available writer, and
@@ -317,13 +319,15 @@ Validation:
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`
-- [ ] Refactor 74 source guard test
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`
+- [x] Refactor 74/Router A/B focused source guard coverage:
+      `thresholdEd25519.nearSigningQueue.guard.unit.test.ts` and
+      `routerAbNormalSigningSdk.guard.unit.test.ts`.
 
 ## Phase 4: Worker Material Validation Boundary
 
-- [ ] Rename worker-material validation concepts away from persisted sign-ready
+- [x] Rename worker-material validation concepts away from persisted sign-ready
       wording.
       Use `material_hint_unvalidated` for persisted material and
       `runtime_validated` for current worker material.
@@ -337,9 +341,9 @@ Validation:
 - [ ] Add `RouterAbEd25519FinalSigningInput` so final signing receives
       `material`, `credential`, and `budgetAdmission` as separate required
       fields.
-- [ ] Make lane readiness return `auth_ready_material_pending` or
+- [x] Make lane readiness return `auth_ready_material_pending` or
       `restore_available` when current worker validation is absent.
-- [ ] Ensure final signing accepts only `RouterAbEd25519RuntimeValidatedMaterial`.
+- [x] Ensure final signing accepts only runtime-validated Ed25519 state.
 - [ ] Make worker validation return a typed result with explicit failure reasons:
       `worker_material_missing`, `binding_digest_mismatch`,
       `session_binding_mismatch`, `signing_root_mismatch`,
@@ -354,10 +358,13 @@ Validation:
       restored handle becomes runtime validated,
       refreshed Wallet Session with old material hint classifies as
       `restore_available` or `auth_ready_material_pending`.
+      Current focused coverage includes restored-handle and remint
+      classification, but worker restart and stale-handle mismatch still need
+      explicit cases.
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C packages/sdk-web type-check`
 - [ ] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`
 
 ## Phase 5: Shrink Active Ready State
@@ -389,9 +396,9 @@ Validation:
 
 ## Phase 6: Naming Cleanup
 
-- [ ] Verify active persistence and core signing types use
+- [x] Verify active persistence and core signing types use
       `ed25519WorkerMaterialHandle` and `ed25519WorkerMaterialBindingDigest`.
-- [ ] Keep any HSS naming that still refers to the actual setup ceremony until
+- [x] Keep any HSS naming that still refers to the actual setup ceremony until
       Refactor 74 removes or isolates that ceremony surface.
 - [ ] Rename stale HSS references in active normal-signing names, including
       `RouterAbEd25519SigningMaterialRef.kind` and file names such as
