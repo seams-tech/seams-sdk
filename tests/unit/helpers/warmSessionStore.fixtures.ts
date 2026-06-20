@@ -29,6 +29,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -72,6 +73,7 @@ import type {
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { SensitiveOperationPolicy } from '@shared/utils';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
@@ -251,6 +253,7 @@ export function seedEd25519WarmSessionRecord(
   args: Partial<ThresholdEd25519SessionRecord> & {
     nearAccountId: string;
     thresholdSessionId: string;
+    runtimeValidated?: boolean;
   },
 ): ThresholdEd25519SessionRecord {
   const emailOtpAuthContext =
@@ -264,8 +267,7 @@ export function seedEd25519WarmSessionRecord(
         } satisfies ThresholdEcdsaEmailOtpAuthContext)
       : undefined);
   const runtimePolicyScope =
-    args.runtimePolicyScope ||
-    fixtureRuntimePolicyScopeFromSigningRoot('sr-test:dev', 'default');
+    args.runtimePolicyScope || fixtureRuntimePolicyScopeFromSigningRoot('sr-test:dev', 'default');
   const record = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: args.nearAccountId,
     rpId: args.rpId || 'wallet.example.test',
@@ -273,7 +275,6 @@ export function seedEd25519WarmSessionRecord(
     relayerKeyId: args.relayerKeyId || 'rk-ed25519',
     participantIds: args.participantIds || [1, 2],
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(args.xClientBaseB64u ? { xClientBaseB64u: args.xClientBaseB64u } : {}),
     ...(args.clientVerifyingShareB64u !== ''
       ? { clientVerifyingShareB64u: args.clientVerifyingShareB64u || 'fixture-client-verifier' }
       : {}),
@@ -296,11 +297,8 @@ export function seedEd25519WarmSessionRecord(
     },
     thresholdSessionKind: args.thresholdSessionKind || 'jwt',
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId:
-      args.signingGrantId || `wsess-${String(args.thresholdSessionId).trim()}`,
-    ...(args.walletSessionJwt
-      ? { walletSessionJwt: args.walletSessionJwt }
-      : {}),
+    signingGrantId: args.signingGrantId || `wsess-${String(args.thresholdSessionId).trim()}`,
+    ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
@@ -309,6 +307,9 @@ export function seedEd25519WarmSessionRecord(
   });
   if (!record) {
     throw new Error(`Failed to seed Ed25519 warm-session record for ${args.nearAccountId}`);
+  }
+  if (args.runtimeValidated) {
+    markRouterAbEd25519WorkerMaterialRuntimeValidated(record);
   }
   return record;
 }
@@ -331,6 +332,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   signingGrantId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   roleLocalAuthMethod?: 'passkey' | 'email_otp';
   emailOtpAuthSubjectId?: string;
@@ -399,19 +402,16 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   });
   const walletSessionJwt =
     sessionKind === 'jwt'
-      ? toFixtureWalletSessionJwt(
-          String(args.walletSessionJwt || `jwt:${sessionId}`).trim(),
-          {
-            nearAccountId: args.nearAccountId,
-            sessionId,
-            signingGrantId,
-            relayerKeyId,
-            ecdsaThresholdKeyId,
-            participantIds,
-            chainTarget,
-            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          },
-        )
+      ? toFixtureWalletSessionJwt(String(args.walletSessionJwt || `jwt:${sessionId}`).trim(), {
+          nearAccountId: args.nearAccountId,
+          sessionId,
+          signingGrantId,
+          relayerKeyId,
+          ecdsaThresholdKeyId,
+          participantIds,
+          chainTarget,
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        })
       : '';
 
   return {
@@ -466,8 +466,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ok: true,
       thresholdSessionId: sessionId,
       signingGrantId,
-      expiresAtMs: Date.now() + 120_000,
-      remainingUses: 5,
+      expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
+      remainingUses: args.remainingUses ?? 5,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       ...(walletSessionJwt ? { jwt: walletSessionJwt } : {}),
       clientVerifyingShareB64u,
@@ -494,8 +494,9 @@ function toFixtureWalletSessionJwt(
     JSON.stringify({
       sub: args.nearAccountId,
       walletId: args.nearAccountId,
-      kind: 'threshold_ecdsa_session_v1',
+      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
       sessionId: args.sessionId,
+      thresholdSessionId: args.sessionId,
       signingGrantId: args.signingGrantId,
       subjectId: args.nearAccountId,
       chainTarget: args.chainTarget,
@@ -846,12 +847,8 @@ function resolveTestEcdsaBootstrapArgs(args: {
   };
 
   const sessionId = toOptionalNonEmptyString(reusableWarmCapability?.record?.thresholdSessionId);
-  const signingGrantId = toOptionalNonEmptyString(
-    reusableWarmCapability?.record?.signingGrantId,
-  );
-  const walletSessionJwt = toOptionalNonEmptyString(
-    reusableWarmCapability?.auth?.walletSessionJwt,
-  );
+  const signingGrantId = toOptionalNonEmptyString(reusableWarmCapability?.record?.signingGrantId);
+  const walletSessionJwt = toOptionalNonEmptyString(reusableWarmCapability?.auth?.walletSessionJwt);
 
   if (sessionId && signingGrantId && walletSessionJwt) {
     if (!reusableWarmCapability?.record) {
@@ -1071,8 +1068,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           (async () => {
             const identity = buildEcdsaSessionIdentity({
               thresholdSessionId: exactThresholdSessionId || record.thresholdSessionId,
-              signingGrantId:
-                String(args.signingGrantId || '') || record.signingGrantId,
+              signingGrantId: String(args.signingGrantId || '') || record.signingGrantId,
             });
             const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
             const sessionBudgetUses = Number(args.sessionBudgetUses || 1);

@@ -10,7 +10,7 @@ import type {
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
-} from '@server/threshold/session/signingSessionSeal/types';
+} from '@server/threshold/session/signingSessionSeal/signingSessionSeal.types';
 
 function makeSession(claims: Record<string, unknown>) {
   return {
@@ -309,10 +309,14 @@ test.describe('signing budget status parser', () => {
     }
   });
 
-  test('rejects claims when wallet budget belongs to another threshold session', async () => {
+  test('accepts shared Wallet Session budget minted by another curve after curve session validation', async () => {
     const result = await parseWalletSigningBudgetStatusRequest({
       headers: { Authorization: 'Bearer ecdsa-token' },
-      session: makeSession(makeEcdsaClaims()),
+      session: makeSession(
+        makeEcdsaClaims({
+          signingGrantId: 'shared-signing-grant',
+        }),
+      ),
       sessionPolicy: makePolicy({
         thresholdStatuses: [
           makeThresholdStatus({
@@ -327,12 +331,12 @@ test.describe('signing budget status parser', () => {
           }),
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
-          curve: 'ecdsa',
-          thresholdSessionId: 'threshold-session-near',
-          signingGrantId: 'signing-grant-ecdsa',
+          curve: 'ed25519',
+          thresholdSessionId: 'threshold-session-ed25519',
+          signingGrantId: 'shared-signing-grant',
           userId: 'wallet-ecdsa',
           rpId: 'example.localhost',
-          relayerKeyId: 'ecdsa-relayer-1',
+          relayerKeyId: 'ed25519-relayer-1',
           participantIds: [1, 2],
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -340,10 +344,53 @@ test.describe('signing budget status parser', () => {
       }),
     });
 
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.walletBudgetStatus.remainingUses).toBe(3);
+  });
+
+  test('rejects claims when backend wallet budget record is expired', async () => {
+    const nowMs = Date.now();
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer expired-wallet-budget' },
+      session: makeSession(
+        makeEd25519Claims({
+          thresholdExpiresAtMs: nowMs + 60_000,
+        }),
+      ),
+      sessionPolicy: makePolicy({
+        thresholdStatuses: [
+          makeThresholdStatus({
+            curve: 'ed25519',
+            thresholdSessionId: 'threshold-session-ed25519',
+            userId: 'wallet-ed25519',
+            rpId: 'example.localhost',
+            relayerKeyId: 'ed25519-relayer-1',
+            participantIds: [1, 2],
+            expiresAtMs: nowMs + 60_000,
+            remainingUses: 4,
+          }),
+        ],
+        walletBudgetStatus: makeWalletBudgetStatus({
+          curve: 'ed25519',
+          thresholdSessionId: 'threshold-session-ed25519',
+          signingGrantId: 'signing-grant-ed25519',
+          userId: 'wallet-ed25519',
+          rpId: 'example.localhost',
+          relayerKeyId: 'ed25519-relayer-1',
+          participantIds: [1, 2],
+          expiresAtMs: nowMs - 1,
+          remainingUses: 3,
+        }),
+      }),
+      nowMs: () => nowMs,
+    });
+
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.status).toBe(401);
     expect(result.body.code).toBe('unauthorized');
+    expect(result.body.message).toBe('Wallet Session is no longer active');
   });
 
   test('rejects ECDSA claims when curve-bound auth identity is incomplete', async () => {

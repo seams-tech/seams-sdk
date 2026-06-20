@@ -5,6 +5,7 @@ import {
   createThresholdEcdsaStoreFixture,
   createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
+  seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
@@ -32,6 +33,42 @@ const unusedNoPromptReconnectDeps: Pick<
   },
 };
 
+function seedSharedEd25519WalletSessionGrant(args: {
+  fixture: ReturnType<typeof createWarmSessionUiConfirmFixture>;
+  walletId: ReturnType<typeof toAccountId>;
+  signingGrantId: string;
+  thresholdSessionId?: string;
+  remainingUses?: number;
+  expiresAtMs?: number;
+}): { thresholdSessionId: string; signingGrantId: string; walletSessionJwt: string } {
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  const thresholdSessionId = String(
+    args.thresholdSessionId || `ed25519-shared-${signingGrantId}`,
+  ).trim();
+  const remainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 3));
+  const expiresAtMs = Math.floor(Number(args.expiresAtMs) || Date.now() + 120_000);
+  const walletSessionJwt = `jwt:${thresholdSessionId}:${signingGrantId}`;
+  const record = seedEd25519WarmSessionRecord({
+    nearAccountId: String(args.walletId),
+    thresholdSessionId,
+    signingGrantId,
+    walletSessionJwt,
+    remainingUses,
+    expiresAtMs,
+    runtimeValidated: true,
+  });
+  args.fixture.claimsBySessionId[record.thresholdSessionId] = {
+    state: 'warm',
+    remainingUses,
+    expiresAtMs,
+  };
+  return {
+    thresholdSessionId: record.thresholdSessionId,
+    signingGrantId,
+    walletSessionJwt,
+  };
+}
+
 test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
   test('no-prompt reuse restores exact ECDSA material without prompt ports', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
@@ -48,6 +85,11 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {},
+    });
+    seedSharedEd25519WalletSessionGrant({
+      fixture,
+      walletId,
+      signingGrantId: bootstrap.thresholdEcdsaKeyRef.signingGrantId,
     });
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
@@ -132,6 +174,11 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {},
+    });
+    seedSharedEd25519WalletSessionGrant({
+      fixture,
+      walletId,
+      signingGrantId: restoredBootstrap.thresholdEcdsaKeyRef.signingGrantId,
     });
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
@@ -235,13 +282,149 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
   });
 
+  test('remints expired ECDSA local counter onto the active shared Ed25519 grant', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const walletId = toAccountId('no-prompt-shared-remint.testnet');
+    const chainTarget = testEcdsaChainTarget('tempo');
+    const sharedGrantId = 'shared-ed25519-grant-remint';
+    const expiredBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: String(walletId),
+      chain: 'tempo',
+      ecdsaThresholdKeyId: 'ek-no-prompt-shared-remint',
+      sessionId: 'expired-ecdsa-session',
+      signingGrantId: 'expired-ecdsa-grant',
+      walletSessionJwt: 'jwt:expired-ecdsa-session',
+      expiresAtMs: Date.now() - 1_000,
+      remainingUses: 3,
+    });
+    const remintedBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: String(walletId),
+      chain: 'tempo',
+      ecdsaThresholdKeyId: 'ek-no-prompt-shared-remint',
+      sessionId: 'expired-ecdsa-session',
+      signingGrantId: sharedGrantId,
+      walletSessionJwt: 'jwt:expired-ecdsa-session-reminted',
+    });
+    const expiredRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: String(walletId),
+      chain: 'tempo',
+      source: 'login',
+      bootstrap: expiredBootstrap,
+    });
+    const fixture = createWarmSessionUiConfirmFixture({
+      claimsBySessionId: {
+        [expiredRecord.thresholdSessionId]: {
+          state: 'expired',
+          message: 'old ECDSA local counter expired',
+        },
+      },
+    });
+    const sharedGrant = seedSharedEd25519WalletSessionGrant({
+      fixture,
+      walletId,
+      signingGrantId: sharedGrantId,
+      remainingUses: 3,
+    });
+    const store = createWarmSessionTestServices({
+      touchConfirm: fixture.touchConfirm,
+    });
+
+    let restoreCalls = 0;
+    let claimCalls = 0;
+    let reconnectCalls = 0;
+    const result = await bootstrapReuseWarmEcdsaCapabilityNoPrompt(
+      {
+        getWarmSession: store.getWarmSession,
+        ecdsaSessions: ecdsaStore,
+        restorePersistedSessionsForWallet: async () => {
+          restoreCalls += 1;
+          return {
+            listed: 1,
+            attempted: 0,
+            restored: 0,
+            deferred: 0,
+            skipped: 1,
+            truncated: 0,
+          };
+        },
+        claimEcdsaPasskeyPrfFirst: async (args) => {
+          claimCalls += 1;
+          expect(args).toMatchObject({
+            kind: 'claim_no_prompt_ecdsa_prf_first',
+            walletId,
+            signingGrantId: 'expired-ecdsa-grant',
+            thresholdSessionId: 'expired-ecdsa-session',
+            chainTarget,
+            uses: 1,
+          });
+          return 'expired-ecdsa-prf-first';
+        },
+        reconnectWithWalletSessionAuth: async (request) => {
+          reconnectCalls += 1;
+          expect(request).toMatchObject({
+            kind: 'wallet_session_reconnect_ecdsa_bootstrap',
+            source: 'login',
+            keyHandle: expiredBootstrap.thresholdEcdsaKeyRef.keyHandle,
+            lanePolicy: {
+              chainTarget,
+              thresholdSessionId: 'expired-ecdsa-session',
+              signingGrantId: sharedGrant.signingGrantId,
+              thresholdSessionKind: 'jwt',
+              remainingUses: 3,
+            },
+            routeAuth: {
+              kind: 'wallet_session',
+              jwt: sharedGrant.walletSessionJwt,
+            },
+            passkeyPrfFirstB64u: 'expired-ecdsa-prf-first',
+          });
+          return remintedBootstrap;
+        },
+      },
+      walletId,
+      {
+        kind: 'reuse_warm_ecdsa_bootstrap',
+        walletId,
+        chainTarget,
+        source: 'login',
+      },
+    );
+
+    expect(restoreCalls).toBe(1);
+    expect(claimCalls).toBe(1);
+    expect(reconnectCalls).toBe(1);
+    expect(result).toMatchObject({
+      ok: true,
+      source: 'sealed_restore',
+      bootstrap: {
+        thresholdEcdsaKeyRef: {
+          ecdsaThresholdKeyId: 'ek-no-prompt-shared-remint',
+          thresholdSessionId: 'expired-ecdsa-session',
+          signingGrantId: sharedGrantId,
+        },
+      },
+    });
+  });
+
   test('no-prompt reuse fails closed when exact material is missing', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
     const walletId = toAccountId('no-prompt-missing.testnet');
     const chainTarget = testEcdsaChainTarget('tempo');
-    const store = createWarmSessionTestServices();
+    const fixture = createWarmSessionUiConfirmFixture({
+      claimsBySessionId: {},
+    });
+    seedSharedEd25519WalletSessionGrant({
+      fixture,
+      walletId,
+      signingGrantId: 'shared-ed25519-grant-missing-ecdsa',
+    });
+    const store = createWarmSessionTestServices({
+      touchConfirm: fixture.touchConfirm,
+    });
 
     let restoreCalls = 0;
     const result = await bootstrapReuseWarmEcdsaCapabilityNoPrompt(
@@ -337,7 +520,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
     expect(ready.capability.prfClaim).toMatchObject({
       state: 'warm',
-      remainingUses: 3,
+      remainingUses: 5,
     });
   });
 

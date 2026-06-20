@@ -18,7 +18,7 @@ import type {
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
-} from '../threshold/session/signingSessionSeal/types';
+} from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
 
 export type EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status';
@@ -120,8 +120,6 @@ function walletBudgetMatches(
   return Boolean(
     status &&
       status.kind === 'wallet_budget' &&
-      status.curve === auth.curve &&
-      status.thresholdSessionId === auth.thresholdSessionId &&
       status.signingGrantId === auth.signingGrantId &&
       status.userId === auth.userId &&
       status.rpId === auth.rpId &&
@@ -282,7 +280,12 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     signingGrantId: args.auth.signingGrantId,
     thresholdSessionId: args.auth.thresholdSessionId,
   });
-  if (!curveStatus || !walletBudgetStatus || !walletBudgetMatches(args.auth, walletBudgetStatus)) {
+  if (
+    !curveStatus ||
+    !walletBudgetStatus ||
+    !walletBudgetMatches(args.auth, walletBudgetStatus) ||
+    Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0) <= nowMs()
+  ) {
     return unauthorized('Wallet Session is no longer active');
   }
   return {
