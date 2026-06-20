@@ -388,9 +388,48 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
-    expect(result.body.message).toBe('Wallet Session is no longer active');
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
+    expect(result.body.message).toBe('Wallet Session budget is no longer active');
+  });
+
+  test('rejects claims when backend curve status is expired', async () => {
+    const nowMs = Date.now();
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer expired-curve-status' },
+      session: makeSession(makeEd25519Claims()),
+      sessionPolicy: makePolicy({
+        thresholdStatuses: [
+          makeThresholdStatus({
+            curve: 'ed25519',
+            thresholdSessionId: 'threshold-session-ed25519',
+            userId: 'wallet-ed25519',
+            rpId: 'example.localhost',
+            relayerKeyId: 'ed25519-relayer-1',
+            participantIds: [1, 2],
+            expiresAtMs: nowMs - 1,
+            remainingUses: 4,
+          }),
+        ],
+        walletBudgetStatus: makeWalletBudgetStatus({
+          curve: 'ed25519',
+          thresholdSessionId: 'threshold-session-ed25519',
+          signingGrantId: 'signing-grant-ed25519',
+          userId: 'wallet-ed25519',
+          rpId: 'example.localhost',
+          relayerKeyId: 'ed25519-relayer-1',
+          participantIds: [1, 2],
+          expiresAtMs: nowMs + 60_000,
+          remainingUses: 3,
+        }),
+      }),
+      nowMs: () => nowMs,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
   });
 
   test('rejects ECDSA claims when curve-bound auth identity is incomplete', async () => {
@@ -415,7 +454,7 @@ test.describe('signing budget status parser', () => {
       headers: { Authorization: 'Bearer ed25519-token' },
       session: makeSession(
         makeEd25519Claims({
-        relayerKeyId: '',
+          relayerKeyId: '',
         }),
       ),
       sessionPolicy: null,
@@ -481,8 +520,8 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
   });
 
   test('rejects claims when signingGrantId no longer resolves on the requested curve', async () => {
@@ -508,8 +547,8 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
   });
 
   test('rejects claims when participant ids do not match the curve-bound status record', async () => {
@@ -545,8 +584,8 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
   });
 
   test('rejects claims when relayer key ids do not match the curve-bound status record', async () => {
@@ -582,7 +621,7 @@ test.describe('signing budget status parser', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.status).toBe(401);
-    expect(result.body.code).toBe('unauthorized');
+    expect(result.status).toBe(403);
+    expect(result.body.code).toBe('wallet_budget_forbidden');
   });
 });

@@ -77,6 +77,14 @@ export type WalletSigningBudgetStatusExpectations = {
   thresholdSessionId: string | null;
 };
 
+const BUDGET_STATUS_FAILURE_STATUS = {
+  unauthorized: 401,
+  wallet_budget_forbidden: 403,
+  sessions_disabled: 501,
+} as const;
+
+type WalletSigningBudgetStatusFailureCode = keyof typeof BUDGET_STATUS_FAILURE_STATUS;
+
 export function parseWalletSigningBudgetStatusExpectations(
   body: unknown,
 ): WalletSigningBudgetStatusExpectations {
@@ -127,13 +135,16 @@ function walletBudgetMatches(
   );
 }
 
-function unauthorized(message: string): ParseWalletSigningBudgetStatusResult {
+function budgetStatusFailure(
+  code: WalletSigningBudgetStatusFailureCode,
+  message: string,
+): ParseWalletSigningBudgetStatusResult {
   return {
     ok: false,
-    status: 401,
+    status: BUDGET_STATUS_FAILURE_STATUS[code],
     body: {
       authenticated: false,
-      code: 'unauthorized',
+      code,
       message,
     },
   };
@@ -192,19 +203,11 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
   nowMs?: () => number;
 }): Promise<ParseWalletSigningBudgetStatusResult> {
   if (!args.session) {
-    return {
-      ok: false,
-      status: 501,
-      body: {
-        authenticated: false,
-        code: 'sessions_disabled',
-        message: 'Sessions are not configured',
-      },
-    };
+    return budgetStatusFailure('sessions_disabled', 'Sessions are not configured');
   }
   const parsed = await args.session.parse(args.headers);
   if (!parsed.ok) {
-    return unauthorized('Missing or invalid Wallet Session JWT');
+    return budgetStatusFailure('unauthorized', 'Missing or invalid Wallet Session JWT');
   }
   const rawClaims = ((parsed as { claims?: Record<string, unknown> }).claims || {}) as Record<
     string,
@@ -228,7 +231,7 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
       nowMs: args.nowMs,
     });
   }
-  return unauthorized('Invalid Wallet Session claims');
+  return budgetStatusFailure('unauthorized', 'Invalid Wallet Session claims');
 }
 
 function hasCompleteCurveSpecificAuth(auth: VerifiedWalletSessionAuth): boolean {
@@ -256,19 +259,14 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     !hasCompleteCurveSpecificAuth(args.auth) ||
     args.auth.expiresAtMs <= nowMs()
   ) {
-    return unauthorized('Expired or incomplete Wallet Session claims');
+    return budgetStatusFailure('unauthorized', 'Expired or incomplete Wallet Session claims');
   }
   const sessionPolicy = args.sessionPolicy;
   if (!sessionPolicy?.getWalletBudgetStatus) {
-    return {
-      ok: false,
-      status: 501,
-      body: {
-        authenticated: false,
-        code: 'sessions_disabled',
-        message: 'Wallet Session status reads are not configured',
-      },
-    };
+    return budgetStatusFailure(
+      'sessions_disabled',
+      'Wallet Session status reads are not configured',
+    );
   }
   const curveStatuses = await sessionPolicy.getThresholdSessionStatuses({
     curve: args.auth.curve,
@@ -282,11 +280,15 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
   });
   if (
     !curveStatus ||
+    Math.floor(Number(curveStatus.expiresAtMs) || 0) <= nowMs() ||
     !walletBudgetStatus ||
     !walletBudgetMatches(args.auth, walletBudgetStatus) ||
     Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0) <= nowMs()
   ) {
-    return unauthorized('Wallet Session is no longer active');
+    return budgetStatusFailure(
+      'wallet_budget_forbidden',
+      'Wallet Session budget is no longer active',
+    );
   }
   return {
     ok: true,

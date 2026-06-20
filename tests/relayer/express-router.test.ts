@@ -4011,7 +4011,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.json).toEqual({
         ok: false,
         code: 'threshold_session_mismatch',
-        message: 'Wallet signing-session status token does not match requested threshold session',
+        message: 'Signing grant status token does not match requested threshold session',
       });
     } finally {
       await srv.close();
@@ -4049,13 +4049,11 @@ test.describe('relayer router (express) – P0', () => {
           thresholdSessionId: claims.thresholdSessionId,
         }),
       });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
       expect(res.json).toEqual({
-        ok: true,
-        signingGrantId: claims.signingGrantId,
-        thresholdSessionId: claims.thresholdSessionId,
-        status: 'not_found',
-        statusCode: 'unauthorized',
+        authenticated: false,
+        code: 'wallet_budget_forbidden',
+        message: 'Wallet Session budget is no longer active',
       });
     } finally {
       await srv.close();
