@@ -10,16 +10,16 @@ new code is correct.
 
 ## Terms
 
-| Term | Meaning |
-| --- | --- |
-| `walletId` | Durable wallet identity. For current NEAR-backed wallets this is often the NEAR account id, but code must treat it as the wallet id. |
-| `providerSubject` | External identity-provider subject, such as a Google subject used by Email OTP registration. |
-| `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`. |
-| `signingGrantId` | User-approved signing allowance that carries TTL, remaining-use, and replay/idempotency budget. |
-| `thresholdSessionId` | Threshold/HSS session id for Ed25519 or ECDSA material. |
-| `chainTarget` | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet. |
-| `warm session` | Short-lived signing session created by registration, unlock, or step-up auth. |
-| `step-up auth` | Same-method fresh authorization used when an operation needs more authority than the current warm session has. |
+| Term                 | Meaning                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `walletId`           | Durable wallet identity. For current NEAR-backed wallets this is often the NEAR account id, but code must treat it as the wallet id. |
+| `providerSubject`    | External identity-provider subject, such as a Google subject used by Email OTP registration.                                         |
+| `challengeSubjectId` | Subject stored on an Email OTP challenge. For Google Email OTP it must match `providerSubject`.                                      |
+| `signingGrantId`     | User-approved signing allowance that carries TTL, remaining-use, and replay/idempotency budget.                                      |
+| `thresholdSessionId` | Threshold/HSS session id for Ed25519 or ECDSA material.                                                                              |
+| `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
+| `warm session`       | Short-lived signing session created by registration, unlock, or step-up auth.                                                        |
+| `step-up auth`       | Same-method fresh authorization used when an operation needs more authority than the current warm session has.                       |
 
 ## Global Invariants
 
@@ -197,7 +197,7 @@ Expected behaviour:
   signature use per transaction digest.
 - Tempo and EVM each consume one signature use per transaction request unless a
   future batch API explicitly declares more.
-- After successful signing, the wallet signing-session budget is finalized
+- After successful signing, the signing grant budget is finalized
   exactly once.
 
 Failure behaviour:
@@ -225,7 +225,7 @@ Expected behaviour:
 - ECDSA shared-key material may be sourced from another EVM-family target, but
   signing readiness and budget checks must remain exact to the requested
   `chainTarget`.
-- After successful signing, the wallet signing-session budget is finalized
+- After successful signing, the signing grant budget is finalized
   exactly once.
 
 Failure behaviour:
@@ -363,10 +363,10 @@ Expected behaviour:
 Every release touching registration, auth methods, signing sessions, budget,
 lane selection, worker material, or export should validate this matrix.
 
-| Account type | Registration | Unlock | NEAR tx | Tempo tx | EVM tx | Step-up NEAR | Step-up Tempo | Step-up EVM | Ed25519 export | ECDSA export | Page refresh |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Passkey | creates exact passkey lanes | warms exact passkey lanes | no prompt while budget valid | no prompt while budget valid | no prompt while budget valid | passkey prompt | passkey prompt | passkey prompt | fresh passkey export auth | fresh passkey export auth | restores valid exact lanes or requires unlock/step-up |
-| Email OTP | one OTP; reroll allowed; creates exact OTP lanes | one unlock OTP; warms exact OTP lanes | no OTP while budget valid | no OTP while budget valid | no OTP while budget valid | Email OTP prompt | Email OTP prompt | Email OTP prompt | fresh Email OTP export auth | fresh Email OTP export auth | restores valid exact lanes or requires unlock/step-up |
+| Account type | Registration                                     | Unlock                                | NEAR tx                      | Tempo tx                     | EVM tx                       | Step-up NEAR     | Step-up Tempo    | Step-up EVM      | Ed25519 export              | ECDSA export                | Page refresh                                          |
+| ------------ | ------------------------------------------------ | ------------------------------------- | ---------------------------- | ---------------------------- | ---------------------------- | ---------------- | ---------------- | ---------------- | --------------------------- | --------------------------- | ----------------------------------------------------- |
+| Passkey      | creates exact passkey lanes                      | warms exact passkey lanes             | no prompt while budget valid | no prompt while budget valid | no prompt while budget valid | passkey prompt   | passkey prompt   | passkey prompt   | fresh passkey export auth   | fresh passkey export auth   | restores valid exact lanes or requires unlock/step-up |
+| Email OTP    | one OTP; reroll allowed; creates exact OTP lanes | one unlock OTP; warms exact OTP lanes | no OTP while budget valid    | no OTP while budget valid    | no OTP while budget valid    | Email OTP prompt | Email OTP prompt | Email OTP prompt | fresh Email OTP export auth | fresh Email OTP export auth | restores valid exact lanes or requires unlock/step-up |
 
 ## Validation Mapping
 
@@ -374,23 +374,23 @@ Each row needs either an automated test or an explicit manual verification note
 when a change touches registration, unlock, signing, step-up, export, session
 restore, lane selection, or budget handling.
 
-| Behaviour | Evidence |
-| --- | --- |
-| Email OTP registration with zero rerolls uses one OTP code | Relayer route/auth-service test |
-| Email OTP registration with one reroll uses the original OTP code | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Email OTP registration with multiple rerolls uses the original OTP code | Relayer route test or manual registration reroll note |
-| Wrong Email OTP provider subject is rejected | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Wrong Email OTP challenged email is rejected | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
-| Registration and unlock produce equivalent runtime lanes | Client runtime-postcondition test |
-| Immediate passkey registration signs NEAR, Tempo, and Arc/EVM | Client signing test or manual browser note |
-| Immediate Email OTP registration signs NEAR, Tempo, and Arc/EVM | Client signing test or manual browser note |
-| Passkey step-up signs NEAR, Tempo, and Arc/EVM | Client signing test or manual browser note |
-| Email OTP step-up signs NEAR, Tempo, and Arc/EVM | Client signing test or manual browser note |
-| Passkey Ed25519 and ECDSA export require fresh export auth | Client export test or manual browser note |
-| Email OTP Ed25519 and ECDSA export require fresh export auth | Client export test or manual browser note |
-| Page refresh restores only exact valid lanes | Page-refresh session test or manual browser note |
-| Email OTP paths never call passkey credential lookup or PRF restore | `tests/unit/refactor46d.guard.unit.test.ts` |
-| ECDSA budget checks are exact to chain target | `tests/unit/refactor46d.guard.unit.test.ts` |
+| Behaviour                                                               | Evidence                                                   |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Email OTP registration with zero rerolls uses one OTP code              | Relayer route/auth-service test                            |
+| Email OTP registration with one reroll uses the original OTP code       | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
+| Email OTP registration with multiple rerolls uses the original OTP code | Relayer route test or manual registration reroll note      |
+| Wrong Email OTP provider subject is rejected                            | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
+| Wrong Email OTP challenged email is rejected                            | `tests/unit/authService.hostedAccountPrivacy.unit.test.ts` |
+| Registration and unlock produce equivalent runtime lanes                | Client runtime-postcondition test                          |
+| Immediate passkey registration signs NEAR, Tempo, and Arc/EVM           | Client signing test or manual browser note                 |
+| Immediate Email OTP registration signs NEAR, Tempo, and Arc/EVM         | Client signing test or manual browser note                 |
+| Passkey step-up signs NEAR, Tempo, and Arc/EVM                          | Client signing test or manual browser note                 |
+| Email OTP step-up signs NEAR, Tempo, and Arc/EVM                        | Client signing test or manual browser note                 |
+| Passkey Ed25519 and ECDSA export require fresh export auth              | Client export test or manual browser note                  |
+| Email OTP Ed25519 and ECDSA export require fresh export auth            | Client export test or manual browser note                  |
+| Page refresh restores only exact valid lanes                            | Page-refresh session test or manual browser note           |
+| Email OTP paths never call passkey credential lookup or PRF restore     | `tests/unit/refactor46d.guard.unit.test.ts`                |
+| ECDSA budget checks are exact to chain target                           | `tests/unit/refactor46d.guard.unit.test.ts`                |
 
 ## Non-Goals
 

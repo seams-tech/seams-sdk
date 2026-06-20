@@ -214,7 +214,7 @@ Proposed handler modules:
 
 | Module | Request types |
 | --- | --- |
-| `host/handlers/near.ts` | `PM_SIGN_TXS_WITH_ACTIONS`, `PM_SIGN_AND_SEND_TXS`, `PM_SEND_TRANSACTION`, `PM_EXECUTE_ACTION`, `PM_SIGN_DELEGATE_ACTION`, `PM_SIGN_NEP413` |
+| `host/handlers/near.ts` | `PM_SIGN_TX_WITH_ACTIONS`, `PM_SIGN_AND_SEND_TX`, `PM_SEND_TRANSACTION`, `PM_EXECUTE_ACTION`, `PM_SIGN_DELEGATE_ACTION`, `PM_SIGN_NEP413` |
 | `host/handlers/ecdsaTempo.ts` | `PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION`, `PM_SIGN_TEMPO`, Tempo nonce lifecycle reports, presign pool refill |
 | `host/handlers/auth.ts` | `PM_UNLOCK`, `PM_LOCK`, `PM_GET_WALLET_SESSION`, recent unlocks |
 | `host/handlers/emailOtp.ts` | Email OTP challenge, enrollment, login, refresh |

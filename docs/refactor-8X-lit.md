@@ -962,6 +962,86 @@ Acceptance criteria:
 3. [ ] Public style customization remains source-compatible where it is still an
    intended public boundary.
 
+## Phase 10: Rename `w3a` UI Prefixes To `seams`
+
+Rename every retained SDK UI prefix from `w3a`/`W3A` to `seams`/`SEAMS` after
+the rewritten component graph is in place. This is a breaking development-time
+cleanup. Do not leave duplicate custom elements, compatibility aliases, legacy
+CSS selectors, or old public asset names.
+
+Target files and surfaces:
+
+- Lit custom-element tag constants and registry entries
+- Lit entrypoint filenames and build outputs
+- `ui/registry.ts`
+- `lit-components/**`
+- `lit-components/css/**`
+- React wrappers around Lit custom elements
+- wallet iframe host selectors and portal ids
+- tests, snapshots, fixtures, and source guards
+- README and docs references
+- package exports and build config entries for Lit UI assets
+
+Rename mapping:
+
+- `<w3a-tx-confirmer>` -> `<seams-tx-confirmer>`
+- `<w3a-modal-tx-confirmer>` -> `<seams-modal-tx-confirmer>`
+- `<w3a-drawer-tx-confirmer>` -> `<seams-drawer-tx-confirmer>`
+- `<w3a-tx-tree>` -> `<seams-tx-tree>`
+- `<w3a-drawer>` -> `<seams-drawer>`
+- `<w3a-halo-border>` -> `<seams-halo-border>`
+- `<w3a-confirm-shell>` -> `<seams-confirm-shell>`
+- `<w3a-confirm-header>` -> `<seams-confirm-header>`
+- `<w3a-security-details>` -> `<seams-security-details>`
+- `<w3a-email-otp-panel>` -> `<seams-email-otp-panel>`
+- `<w3a-passkey-prompt>` -> `<seams-passkey-prompt>`
+- `<w3a-confirm-actions>` -> `<seams-confirm-actions>`
+- `w3a-confirm-portal` -> `seams-confirm-portal`
+- `w3a-*` CSS class names -> `seams-*`
+- `--w3a-*` CSS variables -> `--seams-*`
+- `W3A_*` constants -> `SEAMS_*`
+- `w3a-*.js` Lit asset filenames -> `seams-*.js`
+
+Implementation tasks:
+
+1. [ ] Add a tag/asset/name inventory before editing:
+   - custom elements
+   - CSS classes
+   - CSS variables
+   - DOM ids
+   - event names
+   - package export keys
+   - generated asset names
+   - test selectors
+2. [ ] Rename custom-element tags and tag constants to `seams-*`.
+3. [ ] Rename Lit entrypoint files and build output names to `seams-*`.
+4. [ ] Rename portal ids and selectors, including `w3a-confirm-portal`.
+5. [ ] Rename CSS classes and CSS variables to `seams-*` / `--seams-*`.
+6. [ ] Rename DOM data attributes only when they are SDK-private UI identifiers.
+   Keep protocol or product terms that are not UI-prefix branding.
+7. [ ] Rename event names emitted by custom elements where they carry the `w3a`
+   prefix.
+8. [ ] Update React wrappers and wrapper tests to use the new custom-element
+   tags and event names.
+9. [ ] Update wallet iframe host mounting and registry loading to use the new
+   names.
+10. [ ] Update package exports, build scripts, size reports, and bundle budgets
+   for renamed Lit assets.
+11. [ ] Update docs, READMEs, and examples to use `seams-*`.
+12. [ ] Delete obsolete tests, fixtures, snapshots, and source guards that encode
+   the old `w3a` names.
+13. [ ] Add source guards proving retained Lit UI code does not define,
+   register, export, import, or query `w3a-*` names after the rename.
+
+Acceptance criteria:
+
+1. [ ] No retained Lit UI custom element uses a `w3a-*` tag.
+2. [ ] No retained Lit UI CSS class or CSS variable uses a `w3a` prefix.
+3. [ ] No retained Lit UI public asset is named `w3a-*.js`.
+4. [ ] React wrappers, wallet iframe registry, and tests use `seams-*` names.
+5. [ ] Source guards fail on reintroduced `w3a` UI prefixes.
+6. [ ] No compatibility aliases remain for old `w3a` UI names.
+
 ## Validation Plan
 
 Use the cheapest check that covers the phase being changed.
@@ -1028,6 +1108,15 @@ rtk pnpm -C sdk type-check
 rtk pnpm -C tests test:lit-components
 ```
 
+10. Phase 10:
+
+```sh
+rtk pnpm -C sdk type-check
+rtk pnpm -C tests test:lit-components
+rtk pnpm -C tests test:wallet-iframe
+rtk pnpm -C sdk build:prod
+```
+
 Run broader wallet iframe tests when changing registry loading, asset-base
 resolution, iframe message protocols, or SDK build output paths:
 
@@ -1062,10 +1151,12 @@ This refactor is complete when:
 11. [ ] React wrappers match the custom-element event contract.
 12. [ ] Old implementations are deleted after each replacement phase cuts over.
 13. [ ] Obsolete tests and fixtures for the old optional-bag behavior are deleted.
+14. [ ] Retained Lit UI tags, CSS, public assets, wrappers, and tests use
+   `seams` prefixes. No `w3a` prefixes or compatibility aliases remain.
 
 ## Open Decisions
 
-1. Should `w3a-tx-confirmer.js` remain the only public transaction confirmer
+1. Should `seams-tx-confirmer.js` remain the only public transaction confirmer
    entrypoint, or should modal and drawer have public direct entrypoints?
 2. Should ABI enrichment be split into a separate URL-loaded asset, or should the
    first implementation keep it inside the confirmer until size budgets require

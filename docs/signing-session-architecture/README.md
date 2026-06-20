@@ -28,7 +28,7 @@ Core rules:
 3. Missing worker memory is normal runtime loss.
 4. Durable sealed IndexedDB state is the restore source of truth.
 5. Worker memory is only hot unsealed material.
-6. Server status is authoritative for wallet signing-session validity and
+6. Server status is authoritative for signing grant validity and
    remaining budget.
 7. Status and snapshot reads are side-effect-free.
 8. Transaction signing and key export use exact selected lanes.
@@ -66,7 +66,7 @@ A lane is the exact signing capability selected for one operation. It answers:
 Who is signing?
 Which auth method owns this signing capability?
 Which curve and chain target are being used?
-Which wallet signing-session budget is being spent?
+Which signing grant budget is being spent?
 Which threshold session and threshold key material must be used?
 ```
 
@@ -82,7 +82,7 @@ type NearEd25519TransactionLane = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 ```
@@ -98,7 +98,7 @@ type EcdsaTransactionLane = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 ```
@@ -121,12 +121,12 @@ Which lanes appear expired, exhausted, missing, or restorable?
 
 A snapshot may combine several sources:
 
-| Source | Snapshot Contribution |
-| --- | --- |
-| runtime record store | concrete lanes with hot session material |
-| worker memory/status | hot material readiness hints |
-| IndexedDB sealed store | durable restorable lane candidates |
-| server budget/status | trusted remaining-use and TTL hints |
+| Source                 | Snapshot Contribution                    |
+| ---------------------- | ---------------------------------------- |
+| runtime record store   | concrete lanes with hot session material |
+| worker memory/status   | hot material readiness hints             |
+| IndexedDB sealed store | durable restorable lane candidates       |
+| server budget/status   | trusted remaining-use and TTL hints      |
 
 Snapshot reads do not mutate state. They do not unseal, restore, prompt, consume
 budget, delete records, publish companion lanes, or choose a fallback auth
@@ -150,14 +150,14 @@ failure such as `no_candidate`, `ambiguous_candidates`, or `runtime_mismatch`.
 
 Signing-session identity is protocol-specific after the system boundary.
 
-| Scope | Type | Meaning |
-| --- | --- | --- |
-| Wallet session | `walletId` or `walletSessionUserId` | Authenticated wallet/session and audit scope |
-| NEAR Ed25519 | `NearAccountRef` | NEAR account identity |
-| ECDSA principal | `walletId` | Threshold ECDSA wallet principal |
-| ECDSA target | `ThresholdEcdsaChainTarget` | Concrete EVM-family or Tempo target |
-| Wallet signing session | `walletSigningSessionId` | Wallet-level budget and TTL id |
-| Threshold session | `thresholdSessionId` | Curve-specific signing session id |
+| Scope             | Type                                | Meaning                                             |
+| ----------------- | ----------------------------------- | --------------------------------------------------- |
+| Wallet session    | `walletId` or `walletSessionUserId` | Authenticated wallet/session and audit scope        |
+| NEAR Ed25519      | `NearAccountRef`                    | NEAR account identity                               |
+| ECDSA principal   | `walletId`                          | Threshold ECDSA wallet principal                    |
+| ECDSA target      | `ThresholdEcdsaChainTarget`         | Concrete EVM-family or Tempo target                 |
+| Signing grant     | `signingGrantId`                    | User-approved signing allowance, budget, and TTL id |
+| Threshold session | `thresholdSessionId`                | Curve-specific signing session id                   |
 
 Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
 same wallet, RP, signing root, and key version. `ThresholdEcdsaChainTarget`
@@ -179,7 +179,7 @@ type EcdsaLaneIdentity = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 ```
@@ -214,12 +214,11 @@ Use threshold-session auth for:
 The threshold session token should be named `thresholdSessionAuthToken` in
 client/server boundaries so it is never confused with app-session JWTs.
 
-### Wallet Signing Session
+### Signing Grant
 
-`walletSigningSessionId` is the wallet-level signing-session budget id. It ties
-curve-specific threshold sessions to one server-authoritative TTL and
-`remainingUses` counter. `thresholdSessionId` identifies the concrete
-curve-specific threshold session.
+`signingGrantId` is the user-approved signing allowance. It ties curve-specific
+threshold sessions to one server-authoritative TTL and `remainingUses` counter.
+`thresholdSessionId` identifies the concrete curve-specific threshold session.
 
 Both ids are required for transaction signing. The wallet id alone is
 insufficient, and the threshold session id alone is insufficient.
@@ -253,19 +252,19 @@ flowchart TD
 
 Transition rules:
 
-| From | To | Owner | Rule |
-| --- | --- | --- | --- |
-| `IntentReceived` | `SnapshotRead` | snapshot reader | Read only. No restore, prompt, consume, publish, or cleanup. |
-| `SnapshotRead` | `LaneSelected` | lane selector | Select one concrete lane or fail typed. No probing. |
-| `LaneSelected` | `ExactRestoreAttempted` | restore executor | Restore only the selected lane identity. |
-| `ExactRestoreAttempted` | `ReadinessClassified` | readiness reader | Classify selected lane only. |
-| `ReadinessClassified` | `AuthPlanned` | planner | Map readiness to warm, same-method step-up, or terminal. |
-| `AuthPlanned` | `ConfirmationOwned` | confirmer | User-visible confirmation owns prompts. |
-| `ConfirmationOwned` | `AuthMaterialReady` | auth executor | Warm lane, OTP result, or passkey reconnect returns a concrete lane. |
-| `AuthMaterialReady` | `BudgetAdmitted` | budget coordinator | Capture budget identity before signing. |
-| `BudgetAdmitted` | `SigningStarted` | curve executor | Sign with the admitted lane only. |
-| `SigningStarted` | `Signed` | curve executor | Return signed payload/result. |
-| `Signed` | `Finalized` | finalizer | Finalize the same lane. No re-selection. |
+| From                    | To                      | Owner              | Rule                                                                 |
+| ----------------------- | ----------------------- | ------------------ | -------------------------------------------------------------------- |
+| `IntentReceived`        | `SnapshotRead`          | snapshot reader    | Read only. No restore, prompt, consume, publish, or cleanup.         |
+| `SnapshotRead`          | `LaneSelected`          | lane selector      | Select one concrete lane or fail typed. No probing.                  |
+| `LaneSelected`          | `ExactRestoreAttempted` | restore executor   | Restore only the selected lane identity.                             |
+| `ExactRestoreAttempted` | `ReadinessClassified`   | readiness reader   | Classify selected lane only.                                         |
+| `ReadinessClassified`   | `AuthPlanned`           | planner            | Map readiness to warm, same-method step-up, or terminal.             |
+| `AuthPlanned`           | `ConfirmationOwned`     | confirmer          | User-visible confirmation owns prompts.                              |
+| `ConfirmationOwned`     | `AuthMaterialReady`     | auth executor      | Warm lane, OTP result, or passkey reconnect returns a concrete lane. |
+| `AuthMaterialReady`     | `BudgetAdmitted`        | budget coordinator | Capture budget identity before signing.                              |
+| `BudgetAdmitted`        | `SigningStarted`        | curve executor     | Sign with the admitted lane only.                                    |
+| `SigningStarted`        | `Signed`                | curve executor     | Return signed payload/result.                                        |
+| `Signed`                | `Finalized`             | finalizer          | Finalize the same lane. No re-selection.                             |
 
 ## Operation Types
 
@@ -378,7 +377,7 @@ Rules:
 
 1. Transaction restore cannot compile without concrete lane IDs.
 2. Transaction restore cannot change auth method, curve, subject, chain target,
-   threshold key, signing root, wallet signing-session id, or threshold session
+   threshold key, signing root, signing grant id, or threshold session
    id.
 3. Restore success publishes hot material for the selected lane only.
 4. Restore failure returns readiness for that lane or a typed restore failure.
@@ -420,7 +419,8 @@ Budget accounting is server-authoritative.
 Terms:
 
 1. `remainingUses`: trusted server remaining budget.
-2. `operationUsesNeeded`: cost of the current signing operation, normally `1`.
+2. `operationUsesNeeded`: cost of the current signing operation. Current NEAR,
+   Tempo, and EVM signing operations cost `1`.
 3. `sessionBudgetUses`: capacity minted by step-up or reusable-session creation.
 4. `projectionVersion`: opaque causal token for trusted server budget status.
 5. `availableUses`: local admission hint after same-projection in-flight holds.
@@ -459,14 +459,14 @@ flowchart LR
   Snapshot --> Prepared
 ```
 
-| Storage | Owns | Does Not Own |
-| --- | --- | --- |
+| Storage                | Owns                                              | Does Not Own                             |
+| ---------------------- | ------------------------------------------------- | ---------------------------------------- |
 | IndexedDB sealed store | encrypted restore state and durable lane metadata | hot material, auth prompts, budget truth |
-| runtime record store | current concrete runtime records | lane selection policy, budget truth |
-| worker memory | hot unsealed material | durable identity, budget truth |
-| server | authoritative budget and session validity | local lane selection |
-| JS prepared operation | operation-local selected lane and budget identity | durable storage |
-| sessionStorage | optional UI/session marker only | signing correctness |
+| runtime record store   | current concrete runtime records                  | lane selection policy, budget truth      |
+| worker memory          | hot unsealed material                             | durable identity, budget truth           |
+| server                 | authoritative budget and session validity         | local lane selection                     |
+| JS prepared operation  | operation-local selected lane and budget identity | durable storage                          |
+| sessionStorage         | optional UI/session marker only                   | signing correctness                      |
 
 Status reads and snapshots combine storage into a read model. They never repair,
 restore, consume, publish, delete, or prompt.
@@ -480,7 +480,7 @@ Normal flow:
 
 1. User unlocks with Email OTP or passkey.
 2. App creates or restores Ed25519 and/or ECDSA signing sessions.
-3. User signs while the wallet signing session is active and has budget.
+3. User signs while the signing grant is active and has budget.
 4. User refreshes the page.
 5. The next signing command restores the exact needed lane from sealed durable
    state.

@@ -2,7 +2,7 @@
 
 Date archived: June 17, 2026
 
-Source: [router-A-B-signer.md](../router-A-B-signer.md).
+Source: [router-a-b-SPEC.md](../router-a-b-SPEC.md).
 
 This archive preserves the completed implementation checklist and status history
 that was removed from the active release plan during Phase 12 cleanup.
@@ -1405,7 +1405,7 @@ Current release status as of 2026-06-14:
         request construction, handler execution, and response binding
         validation. This excludes real Cloudflare network and storage latency.
   - [ ] Restore and benchmark Router A/B Ed25519 presign-pool UX from
-        [router-a-b-single-session.md](router-a-b-single-session.md): pool hits
+        [router-a-b-SPEC.md](router-a-b-SPEC.md): pool hits
         must finalize through one public Router request after user
         confirmation, while pool misses use the prepare/finalize fallback.
 - [x] Add Router A/B formal-verification parity targets to `just fv`.
@@ -1519,7 +1519,7 @@ deployment requirements explicitly need key overlap before first launch.
 ### Release-Blocking Phase: ECDSA-HSS Router-A-B Version
 
 The detailed ECDSA-HSS Router-A-B release plan is owned by
-[router-a-b-ecdsa.md](router-a-b-ecdsa.md). Treat that document as the source
+[router-a-b-SPEC.md](router-a-b-SPEC.md). Treat that document as the source
 of truth for implementation status, acceptance criteria, and remaining
 validation.
 
@@ -1527,7 +1527,7 @@ Ed25519-HSS/threshold-PRF provisioning gates are necessary for Router A/B, and
 they are insufficient for staging or production Cloudflare deploy readiness when
 ECDSA support remains in release scope. Cloudflare Router A/B deployment remains
 blocked until the ECDSA-HSS release acceptance criteria in
-[router-a-b-ecdsa.md](router-a-b-ecdsa.md) pass or ECDSA-HSS is explicitly
+[router-a-b-SPEC.md](router-a-b-SPEC.md) pass or ECDSA-HSS is explicitly
 removed from the release.
 
 Security rationale:
@@ -1555,7 +1555,7 @@ Current release-blocking ECDSA-HSS work includes registration/bootstrap,
 SigningWorker activation, normal-signing integration, explicit export,
 recovery/refresh, source guards, vectors, local/deployed evidence, and
 benchmarks. Keep the active checklist in
-[router-a-b-ecdsa.md](router-a-b-ecdsa.md) to avoid duplicating stale status in
+[router-a-b-SPEC.md](router-a-b-SPEC.md) to avoid duplicating stale status in
 this broader Ed25519-focused signer plan.
 
 ### Phase 11: Follow-Up Cleanup

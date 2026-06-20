@@ -1,4 +1,35 @@
-# Router A/B Deployment Choices
+# Router A/B Deployment
+
+Date consolidated: June 20, 2026
+
+Status: canonical merged Router A/B deployment reference. This file contains the
+merged deployment choices content and deployment reference material.
+
+Merged source section:
+
+- Router A/B Deployment Choices
+
+Related active docs:
+
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-a-b-local-dev.md](./router-a-b-local-dev.md)
+- [docs/deployment/README.md](./deployment/README.md)
+- [docs/deployment/infra.md](./deployment/infra.md)
+
+---
+
+## Active Deployment Reference
+
+Router A/B deployment work covers Cloudflare credentials, Wrangler config,
+role-specific secrets, upload/deploy workflows, deployment manifests, deployed
+browser evidence, runtime metrics, CORS/origin evidence, and operational
+hardening.
+
+Local cleanup and local smoke evidence do not prove deployed readiness.
+
+## Merged Source: Router A/B Deployment Choices
+
+### Router A/B Deployment Choices
 
 Date created: June 12, 2026
 
@@ -6,8 +37,8 @@ Status: completed decision memo; superseded for active implementation.
 
 Related docs:
 
-- [Router A/B signer plan](router-A-B-signer.md)
-- [Router A/B signer spec](router-A-B-signer-SPEC.md)
+- [Router A/B signer plan](router-a-b-SPEC.md)
+- [Router A/B signer spec](router-a-b-SPEC.md)
 - [Router A/B local development](router-a-b-local-dev.md)
 - [Deployment runbook](deployment/README.md)
 - [Deployment infrastructure](deployment/infra.md)
@@ -681,49 +712,48 @@ Separate-account and provider-diverse profiles add:
 - stale signer key epoch rejection
 - endpoint allowlist checks
 
-## Historical Implementation Plan
+## Future Deployment Work
 
-The checklist below is preserved as the original June 12 planning artifact. It
-has been superseded by the active deployment runbook and Router A/B local-dev
-checklists linked above.
+These items are future deployment scope, not active local cleanup tasks.
 
-### Phase 1: Profile Types
+Profile metadata and capability documents:
 
-- [ ] Add deployment profile ids to Router A/B protocol metadata.
-- [ ] Add deployment epoch to transcript-bound metadata.
-- [ ] Add signer engine mode to deployment manifests and capability documents.
-- [ ] Add public deployment manifest types.
-- [ ] Add capability document branches for each Router A/B deployment profile.
-- [ ] Add client-side security-level downgrade rejection.
+- Add deployment profile ids to Router A/B protocol metadata.
+- Add deployment epoch to transcript-bound metadata.
+- Add signer engine mode to deployment manifests and capability documents.
+- Add public deployment manifest types.
+- Add capability document branches for each Router A/B deployment profile.
+- Add client-side security-level downgrade rejection.
 
-### Phase 2: Same-Account IaC
+Same-account Cloudflare deployment:
 
-- [ ] Generate same-account Cloudflare Wrangler templates.
-- [ ] Generate one GitHub Actions workflow with three role deploy jobs.
-- [ ] Add GitHub Environment separation for Router, Signer A, and Signer B.
-- [ ] Add Service Binding transport adapter.
-- [ ] Add role-boundary smoke tests.
-- [ ] Add signed deployment manifest generation.
+- Generate same-account Cloudflare Wrangler templates.
+- Generate one GitHub Actions workflow with separate role deploy jobs.
+- Add GitHub Environment separation for Router, Deriver A, Deriver B, and
+  SigningWorker.
+- Add Service Binding transport adapter.
+- Add role-boundary smoke tests.
+- Add signed deployment manifest generation.
 
-### Phase 3: Separate-Account IaC
+Separate-account Cloudflare deployment:
 
-- [ ] Generate separate-account Cloudflare templates.
-- [ ] Add authenticated HTTPS transport adapter.
-- [ ] Add request-signing and peer verification.
-- [ ] Add cross-account import workflow.
-- [ ] Add separate-account drift and boundary checks.
-- [ ] Add runbooks for rotating one account or signer role independently.
+- Generate separate-account Cloudflare templates.
+- Add authenticated HTTPS transport adapter.
+- Add request-signing and peer verification.
+- Add cross-account import workflow.
+- Add separate-account drift and boundary checks.
+- Add runbooks for rotating one account or signer role independently.
 
-### Phase 4: Provider-Diverse Adapters
+Provider-diverse and TEE-backed deployment:
 
-- [ ] Define provider-neutral authenticated transport requirements.
-- [ ] Add attestation-policy shape.
-- [ ] Add `tee_accelerated_threshold_v1` signer engine mode.
-- [ ] Add non-HSS threshold signer vectors and latency gates for TEE mode.
-- [ ] Add provider adapter interface for signer deployment.
-- [ ] Add one reference provider-diverse deployment.
-- [ ] Add attestation digest binding to the deployment manifest.
-- [ ] Add latency and availability measurement gates.
+- Define provider-neutral authenticated transport requirements.
+- Add attestation-policy shape.
+- Add `tee_accelerated_threshold_v1` signer engine mode.
+- Add non-HSS threshold signer vectors and latency gates for TEE mode.
+- Add provider adapter interface for signer deployment.
+- Add one reference provider-diverse deployment.
+- Add attestation digest binding to the deployment manifest.
+- Add latency and availability measurement gates.
 
 ### Phase 5: Documentation And Product Packaging
 

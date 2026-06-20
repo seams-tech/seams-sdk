@@ -181,9 +181,10 @@ type SigningBudgetPolicy =
 
 Manual NEAR testing exposed a budget-unit ambiguity: the SDK described
 post-exhaustion step-up as a single operation with one remaining use, while the
-NEAR `transactionsWithActions` API can request signatures for multiple NEAR
-transactions in one user-approved operation. Product surfaces should model the
-user-facing budget as approvals. Server enforcement should track signature uses.
+old NEAR multi-transaction API could request signatures for multiple independent
+NEAR transactions in one user-approved operation. Product surfaces should model
+the user-facing budget as approvals. Server enforcement should track signature
+uses.
 
 Canonical policy:
 
@@ -225,22 +226,22 @@ Tasks:
       `remainingSignatureUses` where the counter is signature-use based.
 - [ ] Add an SDK/UI projection that exposes `remainingApprovals` for approval
       budget display.
-- [x] Add branch-specific helpers:
-      `requiredNearTransactionSignatureUses(transactions)` and
-      `requiredEvmFamilySignatureUses(intent)`.
-- [x] Make NEAR `transactionsWithActions` readiness, step-up provisioning,
+- [x] Add branch-specific helpers for NEAR single-transaction signing and
+      EVM-family signature-use counting.
+- [x] Make NEAR single-transaction readiness, step-up provisioning,
       budget reservation, and finalization use
       `requiredNearTransactionSignatureUses(...)`.
 - [x] Keep NEAR action batching at one use per transaction, independent of the
       number of actions inside that transaction.
 - [x] Add tests for a NEAR request with one transaction and multiple actions
       proving it requires one signature use.
-- [x] Add tests for a NEAR request with two transactions proving step-up
-      provisions two signature uses and finalization spends two.
-- [ ] Add tests proving a session with one remaining use signs a one-transaction
+- [x] Remove NEAR multi-transaction signing. A NEAR transaction can carry
+      multiple actions, and each NEAR signing operation now carries exactly one
+      transaction.
+- [x] Add tests proving a session with one remaining use signs a one-transaction
       multi-action NEAR request without step-up.
-- [ ] Add tests proving a session with one remaining use triggers step-up before
-      a two-transaction NEAR request starts signing.
+- [x] Add tests proving multi-transaction NEAR requests are rejected before
+      budget admission.
 - [x] Add EVM-family guard tests proving current EVM and Tempo adapters produce
       one threshold ECDSA signature use per transaction request.
 - [x] Add a type or runtime guard for future ECDSA batch requests requiring the

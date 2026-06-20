@@ -17,7 +17,7 @@ The active release requirement is:
   signs through the same Router A/B normal-signing boundary.
 - Registration, activation, recovery, refresh, export, and keyset publication
   keep using the current ECDSA-HSS lifecycle surfaces described in
-  [router-a-b-ecdsa.md](../router-a-b-ecdsa.md).
+  [router-a-b-SPEC.md](../router-a-b-SPEC.md).
 
 ## Public Signing Boundary
 
@@ -79,8 +79,8 @@ after use, abort, expiry, or drift rejection.
 
 Current implementation and cleanup evidence is tracked in:
 
-- [router-a-b-ecdsa.md](../router-a-b-ecdsa.md)
-- [router-a-b-single-session.md](../router-a-b-single-session.md)
+- [router-a-b-SPEC.md](../router-a-b-SPEC.md)
+- [router-a-b-deployment.md](../router-a-b-deployment.md)
 - [router-a-b-cleanup.md](../router-a-b-cleanup.md)
 - [refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md)
 

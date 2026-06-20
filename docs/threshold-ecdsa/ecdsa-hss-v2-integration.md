@@ -174,19 +174,19 @@ Core functions must receive normalized domain types, not raw route bodies.
 Use one active server record version:
 
 ```ts
-version: 'threshold_ecdsa_hss_role_local_v2'
+version: 'threshold_ecdsa_hss_role_local_v2';
 ```
 
 Use one active client record artifact kind for local role state:
 
 ```ts
-artifactKind: 'ecdsa-hss-role-local-client-state'
+artifactKind: 'ecdsa-hss-role-local-client-state';
 ```
 
 Use one active explicit export artifact kind:
 
 ```ts
-artifactKind: 'ecdsa-hss-secp256k1-export'
+artifactKind: 'ecdsa-hss-secp256k1-export';
 ```
 
 The old values become invalid for new code paths:
@@ -412,8 +412,8 @@ type EcdsaHssClientBootstrapRequest = {
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
-  sessionId: ThresholdEcdsaSessionId;
-  walletSigningSessionId: WalletSigningSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  signingGrantId: SigningGrantId;
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
@@ -453,8 +453,8 @@ type EcdsaHssServerBootstrapResponse = {
   ethereumAddress: string;
   relayerVerifyingShareB64u: string;
   participantIds: number[];
-  sessionId: ThresholdEcdsaSessionId;
-  walletSigningSessionId: WalletSigningSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  signingGrantId: SigningGrantId;
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
@@ -750,7 +750,7 @@ Rules:
 ### Checklist
 
 - [x] Add role-local HSS bootstrap service method.
-- [x] Mint role-local bootstrap threshold session and wallet signing-session
+- [x] Mint role-local bootstrap threshold session and signing grant
       budget fields.
 - [x] Add role-local HSS export-share service method.
 - [x] Add `POST /v1/hss/ecdsa/bootstrap` to Express and Cloudflare
@@ -991,7 +991,7 @@ Authorization rules:
 - Passkey first-bootstrap is allowed only for deterministic key creation:
   `ecdsaThresholdKeyId` must equal
   `computeEcdsaHssRoleLocalThresholdKeyId(walletSessionUserId, rpId, walletId,
-  signingRootId, signingRootVersion)`, and `relayerKeyId` must equal
+signingRootId, signingRootVersion)`, and `relayerKeyId` must equal
   `computeEcdsaHssRoleLocalRelayerKeyId(walletSessionUserId, rpId)`.
 - The request must carry either a valid registration-continuation bearer whose
   runtime scope and wallet policy match the requested role-local identity, or a
@@ -1007,7 +1007,7 @@ Authorization rules:
   digest over the pre-client-root request identity:
   `walletSessionUserId`, `rpId`, `walletId`, `ecdsaThresholdKeyId`,
   `signingRootId`, `signingRootVersion`, `keyScope`, `relayerKeyId`,
-  `requestId`, `sessionId`, `walletSigningSessionId`, `ttlMs`,
+  `requestId`, `thresholdSessionId`, `signingGrantId`, `ttlMs`,
   `remainingUses`, and `participantIds`.
 - After WebAuthn returns the PRF root, the client builds
   `clientPublicKey33B64u` and `contextBinding32B64u` locally. The server
@@ -1138,7 +1138,7 @@ base64url(SHA-256(alphabetizeStringify({
 The authorization digest must bind the confirmation digest, the explicit export
 operation, the same public identity, relayer key id, nonce, issued time, expiry,
 authenticated wallet/session identity, key handle, signing root identity, threshold
-session id, wallet-signing session id, threshold session expiry, and participant
+session id, signing grant id, threshold session expiry, and participant
 ids, using the same `alphabetizeStringify` + SHA-256 + base64url encoding.
 
 ### Client behavior
@@ -1228,7 +1228,8 @@ Current server route/service surfaces are:
 
 Documentation cleanup for deleted public signing routes is tracked in
 `docs/router-a-b-cleanup.md`. Current ECDSA-HSS product signing evidence lives in
-`docs/router-a-b-ecdsa.md` and `docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
+`docs/router-a-b-SPEC.md`, `docs/router-a-b-deployment.md`, and
+`docs/threshold-ecdsa/ecdsa-threshold-signing.md`.
 
 ### Route Inventory
 
@@ -1446,15 +1447,15 @@ signing behavior.
 
 Native crate-local baseline is already measured:
 
-| Path | Current |
-| --- | ---: |
-| Context binding | `~644 ns` |
-| Client share | `~32.39 us` |
-| Relayer share + identity | `~60.30 us` |
-| Bootstrap adapter | `~221.66 us` |
-| First presign roundtrip | `~38.38 ms` |
-| Full sign bridge | `~38.59 ms` |
-| Explicit export | `~291.92 us` |
+| Path                     |      Current |
+| ------------------------ | -----------: |
+| Context binding          |    `~644 ns` |
+| Client share             |  `~32.39 us` |
+| Relayer share + identity |  `~60.30 us` |
+| Bootstrap adapter        | `~221.66 us` |
+| First presign roundtrip  |  `~38.38 ms` |
+| Full sign bridge         |  `~38.59 ms` |
+| Explicit export          | `~291.92 us` |
 
 Product integration measurements:
 
@@ -1487,39 +1488,39 @@ pnpm benchmark:ecdsa-hss:wasm
 
 Latest product smoke values:
 
-| Scenario | Iterations | Mean |
-| --- | ---: | ---: |
-| `cold_first_sign_no_pool` | 2 | `165 ms` |
-| `warm_sign_pool_hit` | 2 | `8.5 ms` |
-| `pool_empty_retry` | 2 | `2.5 ms` |
-| `explicit_export_product` | 2 | `4.5 ms` |
+| Scenario                  | Iterations |     Mean |
+| ------------------------- | ---------: | -------: |
+| `cold_first_sign_no_pool` |          2 | `165 ms` |
+| `warm_sign_pool_hit`      |          2 | `8.5 ms` |
+| `pool_empty_retry`        |          2 | `2.5 ms` |
+| `explicit_export_product` |          2 | `4.5 ms` |
 
 Latest role-local WASM values:
 
-| Path | Median | Mean |
-| --- | ---: | ---: |
-| `role_local_client_bootstrap_wasm` | `0.143 ms` | `0.152 ms` |
-| `role_local_server_bootstrap_wasm` | `0.196 ms` | `0.203 ms` |
-| `role_local_full_bootstrap_wasm` | `0.321 ms` | `0.355 ms` |
-| `role_local_export_artifact_wasm` | `0.216 ms` | `0.221 ms` |
-| `browser_role_local_client_bootstrap_wasm` | `0.1 ms` | `0.158 ms` |
+| Path                                       |     Median |       Mean |
+| ------------------------------------------ | ---------: | ---------: |
+| `role_local_client_bootstrap_wasm`         | `0.143 ms` | `0.152 ms` |
+| `role_local_server_bootstrap_wasm`         | `0.196 ms` | `0.203 ms` |
+| `role_local_full_bootstrap_wasm`           | `0.321 ms` | `0.355 ms` |
+| `role_local_export_artifact_wasm`          | `0.216 ms` | `0.221 ms` |
+| `browser_role_local_client_bootstrap_wasm` |   `0.1 ms` | `0.158 ms` |
 
 Latest serialized size values:
 
-| Payload | Bytes |
-| --- | ---: |
-| `client_bootstrap_request_json` | `510` |
-| `client_bootstrap_response_json` | `619` |
-| `server_bootstrap_request_json` | `561` |
-| `server_bootstrap_response_json` | `969` |
+| Payload                               | Bytes |
+| ------------------------------------- | ----: |
+| `client_bootstrap_request_json`       | `510` |
+| `client_bootstrap_response_json`      | `619` |
+| `server_bootstrap_request_json`       | `561` |
+| `server_bootstrap_response_json`      | `969` |
 | `client_export_artifact_request_json` | `955` |
-| `role_local_client_state_json` | `440` |
-| `role_local_server_record_json` | `490` |
+| `role_local_client_state_json`        | `440` |
+| `role_local_server_record_json`       | `490` |
 
 Latest benchmark artifacts:
 
-- Product Router A/B timing: tracked in `docs/router-a-b-ecdsa.md` until a
-  replacement Router A/B timing harness writes machine-readable summaries.
+- Product Router A/B timing: tracked in `docs/router-a-b-deployment.md` until
+  a replacement Router A/B timing harness writes machine-readable summaries.
 - WASM: `benchmarks/ecdsa-hss-wasm/out/2026-05-20T13-37-05-119Z/summary.md`
 
 ## Implementation Order

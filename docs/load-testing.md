@@ -20,12 +20,10 @@ The release evidence must answer:
 
 ## Current Evidence Sources
 
-- [router-a-b-single-session.md](./router-a-b-single-session.md) tracks
-  Ed25519 Wallet Session V2, Ed25519 presign-pool behavior, release evidence,
-  and deployed-browser gates.
-- [router-a-b-ecdsa.md](./router-a-b-ecdsa.md) tracks ECDSA-HSS Router A/B
-  registration, activation, signing, pool-fill, export, recovery, refresh, and
-  local benchmark expectations.
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md) is the canonical Ed25519 and
+  ECDSA-HSS Router A/B architecture reference.
+- [router-a-b-deployment.md](./router-a-b-deployment.md) tracks deployment
+  profiles, release evidence, and deployed-browser gates.
 - [router-a-b-cleanup.md](./router-a-b-cleanup.md) tracks deletion of the old
   public threshold signing routes, SDK helpers, tests, fixtures, and docs.
 - [docs/deployment/README.md](./deployment/README.md) tracks Router A/B

@@ -16,7 +16,7 @@ Email OTP has four independent boundaries:
 2. Secret boundary: Email OTP secret material is reconstructed inside the
    dedicated Email OTP worker.
 3. Lane boundary: transaction signing and export use one exact selected lane.
-4. Session boundary: server state is authoritative for wallet signing-session
+4. Session boundary: server state is authoritative for signing grant
    validity and remaining budget.
 
 Core rules:
@@ -54,12 +54,12 @@ Current production direction:
 
 Email OTP participates in two different identity planes.
 
-| Plane | Field | Meaning |
-| --- | --- | --- |
-| Wallet/session scope | `walletId` or `walletSessionUserId` | Authenticated wallet session, audit scope, server policy scope |
-| NEAR account scope | `NearAccountRef` or `nearAccountId` | NEAR Ed25519 account identity |
-| ECDSA lane scope | `walletId` plus exact lane identity | Threshold ECDSA wallet principal |
-| ECDSA chain scope | `chainTarget: ThresholdEcdsaChainTarget` | Concrete EVM-family or Tempo target |
+| Plane                | Field                                    | Meaning                                                        |
+| -------------------- | ---------------------------------------- | -------------------------------------------------------------- |
+| Wallet/session scope | `walletId` or `walletSessionUserId`      | Authenticated wallet session, audit scope, server policy scope |
+| NEAR account scope   | `NearAccountRef` or `nearAccountId`      | NEAR Ed25519 account identity                                  |
+| ECDSA lane scope     | `walletId` plus exact lane identity      | Threshold ECDSA wallet principal                               |
+| ECDSA chain scope    | `chainTarget: ThresholdEcdsaChainTarget` | Concrete EVM-family or Tempo target                            |
 
 Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
 same wallet, RP, signing root, and key version. Email OTP and passkey
@@ -78,7 +78,7 @@ type EcdsaLaneIdentity = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 };
 ```
@@ -171,7 +171,7 @@ Stable flow:
 2. Login or step-up verifies a fresh Email OTP challenge.
 3. The Email OTP worker reconstructs required signing material.
 4. Transaction signing uses a threshold session tied to a
-   `walletSigningSessionId`.
+   `signingGrantId`.
 5. Durable sealed refresh records allow exact restore after page refresh while
    server budget remains valid.
 
@@ -192,14 +192,14 @@ wallet-iframe mode.
 
 ## Storage Ownership
 
-| Store | Owns |
-| --- | --- |
-| Email OTP worker memory | unsealed Email OTP secret material and hot signing material |
-| iframe-origin IndexedDB | encrypted restore material plus non-secret lane identity |
-| server | enrollment identity, challenge verification, session validity, wallet budget, recovery-wrapped escrow records |
-| runtime session store | concrete current threshold-session records |
-| JS memory | operation-local prepared identity |
-| sessionStorage | optional UI/session marker only |
+| Store                   | Owns                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Email OTP worker memory | unsealed Email OTP secret material and hot signing material                                                   |
+| iframe-origin IndexedDB | encrypted restore material plus non-secret lane identity                                                      |
+| server                  | enrollment identity, challenge verification, session validity, wallet budget, recovery-wrapped escrow records |
+| runtime session store   | concrete current threshold-session records                                                                    |
+| JS memory               | operation-local prepared identity                                                                             |
+| sessionStorage          | optional UI/session marker only                                                                               |
 
 Durable sealed records are restore sources. They become current signing
 authority only after the signing/export state machine selects and validates that
@@ -316,8 +316,8 @@ Rules:
    lane.
 4. ECDSA step-up cannot make the next Ed25519 transaction skip Email OTP unless
    the Ed25519 state machine selected and validated that exact Ed25519 lane.
-5. Transaction step-up mints `remainingUses = operationUsesNeeded`, normally
-   `1`.
+5. Transaction step-up mints `remainingUses = operationUsesNeeded`; current
+   NEAR, Tempo, and EVM signing operations use `1`.
 
 ## Sealed Refresh
 

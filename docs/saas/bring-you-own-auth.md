@@ -141,8 +141,8 @@ This is the minimum production shape:
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
-import { AuthService, SessionService } from '@seams/sdk/server';
-import { createRelayRouter } from '@seams/sdk/server/router/express';
+import { AuthService, SessionService } from '@seams/sdk-server';
+import { createRelayRouter } from '@seams/sdk-server/router/express';
 
 const sessionCookieName = process.env.SESSION_COOKIE_NAME?.trim() || 'seams-jwt';
 

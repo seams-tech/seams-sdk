@@ -5,9 +5,8 @@ Date created: June 18, 2026
 Status: complete for the current branch package/runtime scope. Runtime value
 exports, hard server-dependency removal from browser installs, and
 branch-specific runtime dependency narrowing for this branch are implemented.
-The current branch keeps optional-peer server subpaths; a separate public server
-package remains a deferred packaging follow-up after the Router A/B
-signing/session cleanup stabilizes.
+The current branch publishes server APIs from `@seams/sdk-server`; the old
+optional-peer `@seams/sdk/server` subpaths are deleted.
 
 Primary source of truth:
 
@@ -29,8 +28,8 @@ runtime boundary honest.
 
 - Keep `packages/sdk-runtime-ts` deleted.
 - Keep `packages/shared-ts` as the cross-package shared source boundary.
-- Keep `packages/sdk-server-ts` as a source boundary until the server public
-  package split is implemented.
+- Keep `packages/sdk-server-ts` as the public `@seams/sdk-server` source and
+  package boundary.
 - Do not introduce compatibility aliases for `@seams-internal/runtime`.
 - Keep compatibility handling at package import/request boundaries only.
 - Do not move signing, replay, quota, budget, Wallet Session, or Router A/B
@@ -98,15 +97,10 @@ Validation:
 
 ## Phase 2: Split Browser And Server Package Dependency Surfaces
 
-`packages/sdk-web` still publishes server subpaths, but server-only packages
-such as `pg` and `@simplewebauthn/server` have moved out of hard browser
-dependencies and into optional peer/dev dependency slots. Removing
-`sdk-runtime-ts` cuts one private package. The current optional-peer server
-subpaths are acceptable short-term and are covered by focused install/import
-smokes. The separate `@seams/sdk-server` package split is real packaging cleanup,
-but it is not a Router A/B correctness blocker. Defer it until Router topology,
-signer-material handles, raw-material deletion gates, and server auth/session
-boundary cleanup are stable.
+`packages/sdk-web` now owns browser/runtime/react exports only. The server
+source package publishes as `@seams/sdk-server`, owns server dependencies, and
+exports the root server API, router adapters, Postgres storage helpers, and
+server WASM signer subpath. The old `@seams/sdk/server` subpaths are deleted.
 
 Tasks:
 
@@ -116,32 +110,32 @@ Tasks:
 - [x] Record the target public server package split and its sequencing:
       implement it after the Router A/B signing/session cleanup stabilizes.
 
-Deferred server-package split tasks:
+Server-package split tasks:
 
-- [ ] Make `packages/sdk-server-ts` publish as `@seams/sdk-server`. Candidate
+- [x] Make `packages/sdk-server-ts` publish as `@seams/sdk-server`. Candidate
       shape:
       `@seams/sdk` for browser/runtime/react exports and `@seams/sdk-server` for
-      `./server`, router adapters, Postgres stores, and server WebAuthn helpers.
+      root server APIs, router adapters, Postgres stores, and server WebAuthn
+      helpers.
 - [x] If the server package split is deferred, move `pg` and
       `@simplewebauthn/server` out of hard browser dependencies and enforce
       dynamic import failure messages at server-only boundaries.
-- [ ] Move server export maps from `packages/sdk-web/package.json` to the server
+- [x] Move server export maps from `packages/sdk-web/package.json` to the server
       package when the split lands.
-- [ ] Delete the old `@seams/sdk/server` subpaths when `@seams/sdk-server`
+- [x] Delete the old `@seams/sdk/server` subpaths when `@seams/sdk-server`
       lands. Breaking changes are acceptable during development.
-- [ ] Move server dependencies from optional peers in `@seams/sdk` to normal
+- [x] Move server dependencies from optional peers in `@seams/sdk` to normal
       dependencies or peers in `@seams/sdk-server`.
-- [ ] Update app and test imports from `@seams/sdk/server` to
+- [x] Update app and test imports from `@seams/sdk/server` to
       `@seams/sdk-server`.
 - [x] Add package export guard coverage proving `pg` and
       `@simplewebauthn/server` stay out of hard browser dependencies.
 - [x] Add browser-only package install/import smoke tests proving an install
       without `pg`, `@simplewebauthn/server`, Express, or Node-only builtins can
       import browser/runtime subpaths.
-- [x] Add current-branch server subpath smoke tests proving server imports still
-      resolve `@seams/sdk/server`, Express router adapters, Cloudflare router
-      adapters, and Postgres storage with server peer dependencies installed.
-- [ ] Add `@seams/sdk-server` package smoke tests when the separate public
+- [x] Replace current-branch server subpath smoke tests with package split
+      smokes proving `@seams/sdk/server` no longer resolves.
+- [x] Add `@seams/sdk-server` package smoke tests when the separate public
       server package split lands. Required clean-room smokes: browser install of
       `@seams/sdk` has no server dependencies, and server install of
       `@seams/sdk-server` imports routers, storage, and WebAuthn server paths.
@@ -149,13 +143,18 @@ Deferred server-package split tasks:
 Validation:
 
 - [x] `rtk pnpm -C packages/sdk-web build:rolldown`
-      Passed again on June 18, 2026 after the runtime UI deps narrowing.
+      Passed again on June 20, 2026 after removing web-package server build
+      entries.
 - [x] `rtk pnpm -C packages/sdk-web type-check`
+- [x] `rtk pnpm -C packages/sdk-server-ts build`
+- [x] `rtk pnpm -C packages/sdk-server-ts type-check`
 - [x] Package export guard coverage without hard `pg` and
       `@simplewebauthn/server`.
 - [x] Browser-only package install/import smoke test without `pg`,
       `@simplewebauthn/server`, Express, or Node-only builtins.
-- [x] Server subpath import smoke test with server dependencies installed.
+- [x] Package split smoke test proves `@seams/sdk/server` no longer resolves and
+      `@seams/sdk-server` imports root server APIs, router adapters, and
+      Postgres storage helpers.
 
 ## Phase 3: Make `core/runtime` An Honest Boundary
 
@@ -166,32 +165,32 @@ described as a reusable platform-neutral runtime until the boundary is narrower.
 
 Runtime import inventory, June 18, 2026:
 
-| Import source | Category | Current decision |
-| --- | --- | --- |
-| `@/core/platform` | `platform_port` | Owns `RuntimePorts` and the narrowed ECDSA relayer client port used by runtime assembly. |
-| `@/core/types/seams` | `web_internal` | SDK-web config shape; keep in `sdk-web` until package config boundaries are split. |
-| `@/core/signingEngine/interfaces/signing` | `state_port` | Export artifact state is runtime-owned SDK-web state. |
-| `@/core/signingEngine/session/persistence/records` | `state_port` | Runtime state ports reference persisted ECDSA session records at the sdk-web boundary. |
-| `@/core/signingEngine/useCases/provisionEcdsa` | `runtime_service` | Provisioning remains a runtime service exposed through `SigningRuntimeServices`. |
-| `@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap` | `runtime_service` | Registration bootstrap is a runtime service dependency. |
-| `@/core/signingEngine/workerManager/executeWorkerOperation` | `platform_port` | Worker execution remains a sdk-web worker port. |
-| `@/core/signingEngine/interfaces/operationDeps` | `signing_flow_port` | Registration and NEAR signing deps are flow-level ports, not a reusable package API. |
-| `@/core/signingEngine/flows/registration/services/ecdsaWalletRecords` | `runtime_service` | Wallet-record access stays a runtime registration service. |
-| `@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence` | `state_port` | Bootstrap persistence stays a runtime state port. |
-| `@/core/signingEngine/session/passkey/warmSessionMaterialWriter` | `web_internal` | Passkey warm-session material writing is sdk-web/browser-owned. |
-| `@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions` | `runtime_service` | Registration session coordination stays a runtime service. |
-| `@/core/signingEngine/session/passkey/warmSessionHydration` | `runtime_service` | Warm-session hydration is a runtime service. |
-| `@/core/signingEngine/useCases/nearKeyOperations` | `runtime_service` | NEAR key operations expose both a service and a required port. |
-| `@/core/signingEngine/flows/registration/services/registrationAccounts` | `runtime_service` | Registration account lifecycle stays a runtime service. |
-| `@/core/signingEngine/flows/signNear/signNear` | `signing_flow_port` | Public NEAR signing request/result types are flow-level runtime ports. |
-| `@/core/signingEngine/flows/signEvmFamily/signEvmFamily` | `signing_flow_port` | EVM-family signing and Tempo nonce reporting are flow-level runtime ports. |
-| `@/core/signingEngine/chains/evm/types` | `signing_flow_port` | EVM signing request is a flow input shape owned by sdk-web. |
-| `@/core/signingEngine/chains/evm/evmAdapter` | `signing_flow_port` | EVM signed result is a flow output shape owned by sdk-web. |
-| `@/core/signingEngine/chains/tempo/types` | `signing_flow_port` | Tempo signing request is a flow input shape owned by sdk-web. |
-| `@/core/signingEngine/chains/tempo/tempoAdapter` | `signing_flow_port` | Tempo signed result is a flow output shape owned by sdk-web. |
-| `@/core/types/signer-worker` | `web_internal` | Confirmation config still comes from sdk-web worker/public event types. |
-| `@/core/types/sdkSentEvents` | `signing_flow_port` | Signing flow events are sdk-web flow telemetry. |
-| `@/core/signingEngine/interfaces/ecdsaChainTarget` | `signing_flow_port` | Chain target and wallet-session refs remain signing-flow ports. |
+| Import source                                                                 | Category            | Current decision                                                                         |
+| ----------------------------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------- |
+| `@/core/platform`                                                             | `platform_port`     | Owns `RuntimePorts` and the narrowed ECDSA relayer client port used by runtime assembly. |
+| `@/core/types/seams`                                                          | `web_internal`      | SDK-web config shape; keep in `sdk-web` until package config boundaries are split.       |
+| `@/core/signingEngine/interfaces/signing`                                     | `state_port`        | Export artifact state is runtime-owned SDK-web state.                                    |
+| `@/core/signingEngine/session/persistence/records`                            | `state_port`        | Runtime state ports reference persisted ECDSA session records at the sdk-web boundary.   |
+| `@/core/signingEngine/useCases/provisionEcdsa`                                | `runtime_service`   | Provisioning remains a runtime service exposed through `SigningRuntimeServices`.         |
+| `@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap` | `runtime_service`   | Registration bootstrap is a runtime service dependency.                                  |
+| `@/core/signingEngine/workerManager/executeWorkerOperation`                   | `platform_port`     | Worker execution remains a sdk-web worker port.                                          |
+| `@/core/signingEngine/interfaces/operationDeps`                               | `signing_flow_port` | Registration and NEAR signing deps are flow-level ports, not a reusable package API.     |
+| `@/core/signingEngine/flows/registration/services/ecdsaWalletRecords`         | `runtime_service`   | Wallet-record access stays a runtime registration service.                               |
+| `@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence`     | `state_port`        | Bootstrap persistence stays a runtime state port.                                        |
+| `@/core/signingEngine/session/passkey/warmSessionMaterialWriter`              | `web_internal`      | Passkey warm-session material writing is sdk-web/browser-owned.                          |
+| `@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions`  | `runtime_service`   | Registration session coordination stays a runtime service.                               |
+| `@/core/signingEngine/session/passkey/warmSessionHydration`                   | `runtime_service`   | Warm-session hydration is a runtime service.                                             |
+| `@/core/signingEngine/useCases/nearKeyOperations`                             | `runtime_service`   | NEAR key operations expose both a service and a required port.                           |
+| `@/core/signingEngine/flows/registration/services/registrationAccounts`       | `runtime_service`   | Registration account lifecycle stays a runtime service.                                  |
+| `@/core/signingEngine/flows/signNear/signNear`                                | `signing_flow_port` | Public NEAR signing request/result types are flow-level runtime ports.                   |
+| `@/core/signingEngine/flows/signEvmFamily/signEvmFamily`                      | `signing_flow_port` | EVM-family signing and Tempo nonce reporting are flow-level runtime ports.               |
+| `@/core/signingEngine/chains/evm/types`                                       | `signing_flow_port` | EVM signing request is a flow input shape owned by sdk-web.                              |
+| `@/core/signingEngine/chains/evm/evmAdapter`                                  | `signing_flow_port` | EVM signed result is a flow output shape owned by sdk-web.                               |
+| `@/core/signingEngine/chains/tempo/types`                                     | `signing_flow_port` | Tempo signing request is a flow input shape owned by sdk-web.                            |
+| `@/core/signingEngine/chains/tempo/tempoAdapter`                              | `signing_flow_port` | Tempo signed result is a flow output shape owned by sdk-web.                             |
+| `@/core/types/signer-worker`                                                  | `web_internal`      | Confirmation config still comes from sdk-web worker/public event types.                  |
+| `@/core/types/sdkSentEvents`                                                  | `signing_flow_port` | Signing flow events are sdk-web flow telemetry.                                          |
+| `@/core/signingEngine/interfaces/ecdsaChainTarget`                            | `signing_flow_port` | Chain target and wallet-session refs remain signing-flow ports.                          |
 
 Inventory result:
 

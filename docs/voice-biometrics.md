@@ -253,7 +253,7 @@ MPC signing starts only after human-presence verification, intent digest
 verification, and policy admission have all succeeded.
 
 The Cloudflare signing architecture is the existing Router A/B signer plan in
-`docs/router-A-B-signer.md`. Voice verification feeds Router admission.
+`docs/router-a-b-SPEC.md`. Voice verification feeds Router admission.
 Normal signing remains `Client -> Router -> SigningWorker -> Router -> Client`;
 Deriver A and Deriver B remain setup/export/recovery/SigningWorker-refresh
 roles and do not enter the normal voice-authorized signing path.

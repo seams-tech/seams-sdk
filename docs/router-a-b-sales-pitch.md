@@ -6,8 +6,8 @@ Status: internal positioning notes for future user-facing sales copy.
 
 Related docs:
 
-- [docs/router-a-b-deployment-choices.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-a-b-deployment-choices.md)
-- [docs/router-A-B-signer.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-A-B-signer.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
+- [router-a-b-deployment.md](./router-a-b-deployment.md)
 
 ## Core Positioning
 

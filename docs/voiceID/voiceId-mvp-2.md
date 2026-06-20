@@ -19,7 +19,7 @@ Build a production-shaped VoiceID policy signal that can:
 
 VoiceID remains a recoverable owner-presence and liveness signal. The actual
 cryptographic operation uses the existing Router A/B signer architecture in
-`docs/router-A-B-signer.md`: Router owns public admission and policy, normal
+`docs/router-a-b-SPEC.md`: Router owns public admission and policy, normal
 signing flows through the dedicated SigningWorker, and Deriver A/B remain off
 the hot signing path except for setup/export/recovery/SigningWorker refresh.
 
@@ -932,7 +932,7 @@ VoiceID accepted owner presence
 ```
 
 The signing architecture is the existing Router A/B signer design in
-`docs/router-A-B-signer.md`. VoiceID supplies typed owner-presence evidence and
+`docs/router-a-b-SPEC.md`. VoiceID supplies typed owner-presence evidence and
 the bound VoiceID `intentDigest` plus Router normal-signing digest tuple. Router
 admission checks policy, quota, replay, session, and risk. Normal signing
 remains:
@@ -1011,7 +1011,7 @@ browser or robot
 ```
 
 The same typed result boundaries should support all deployment shapes. The
-Cloudflare production path should reuse `docs/router-A-B-signer.md`; AWS
+Cloudflare production path should reuse `docs/router-a-b-SPEC.md`; AWS
 ordinary-server and Nitro deployments should preserve the same Router,
 SigningWorker, and intent-binding semantics.
 

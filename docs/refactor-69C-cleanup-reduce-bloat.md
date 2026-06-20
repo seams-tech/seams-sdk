@@ -2,21 +2,33 @@
 
 Date created: June 18, 2026
 
-Status: implementation in progress. The concrete 69B cleanup slices through
-Phase 8 are complete. Package folding, server tsconfig isolation,
-package-export guard validation, and hard server-dependency removal from the
-browser package are implemented. The larger public server package split is a
-deferred packaging follow-up after the signing/session cleanup stabilizes. The
-broader Router A/B flow audit and follow-up slimming backlog remains active
-below.
+Status: complete for the current Router A/B flow-audit and slimming scope.
+The concrete 69B cleanup slices through Phase 8 are complete. Package folding,
+server tsconfig isolation, package-export guard validation, hard
+server-dependency removal from the browser package, and the public
+`@seams/sdk-server` split are implemented. Remaining adjacent work is tracked in
+the follow-up plans called out below, not in Refactor 69C.
+
+Follow-up ownership:
+
+- Server-authoritative signing-session budget and step-up behavior:
+  [refactor-70-server-budget.md](./refactor-70-server-budget.md).
+- Signing grant / naming baseline cleanup:
+  [refactor-71-inventory.md](./refactor-71-inventory.md) and
+  [refactor-71-rename-id.md](./refactor-71-rename-id.md).
+- Login without HSS during unlock and worker-owned material restore:
+  [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md).
+- Ed25519 worker-material simplification:
+  [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md).
+- Broad Router A/B cleanup, strict signable state, and deployment evidence:
+  [router-a-b-cleanup.md](./router-a-b-cleanup.md).
 
 Primary source of truth:
 
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
 - [refactor-70-rename-id.md](./refactor-70-rename-id.md)
 - [router-a-b-cleanup.md](./router-a-b-cleanup.md)
-- [router-A-B-signer-SPEC.md](./router-A-B-signer-SPEC.md)
-- [router-a-b-ecdsa.md](./router-a-b-ecdsa.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [router-a-b-local-dev.md](./router-a-b-local-dev.md)
 
 ## Goal
@@ -372,7 +384,13 @@ types should model the current selected behavior directly.
 
 ### 69B Phase 1: Prune Generated Startup-Latency Reports
 
-Status: partially complete on June 18, 2026.
+Status: complete on June 20, 2026.
+
+Completion note: no generated startup-latency JSON files are tracked, and
+`.gitignore` excludes `crates/router-ab-cloudflare/reports/startup-latencies/*.json`.
+The remaining startup-time evidence item in
+`docs/router-a-b-deployment.md` is deployment evidence, not generated-report
+cleanup.
 
 Delete committed generated startup-latency JSON files from
 `crates/router-ab-cloudflare/reports/startup-latencies`.
@@ -385,11 +403,11 @@ Keep:
 
 Update docs that link to deleted report files:
 
-- `docs/router-A-B-signer-SPEC.md`
-- `docs/router-a-b-single-session.md`
+- `docs/router-a-b-SPEC.md`
+- `docs/router-a-b-SPEC.md`
 - `docs/router-a-b-cleanup.md`
 - `docs/router-a-b-local-dev.md`
-- `docs/router-a-b-ecdsa.md`
+- `docs/router-a-b-SPEC.md`
 - deployment docs and audits that reference exact report paths
 
 Add or confirm an ignore rule so new report output is generated outside the
@@ -423,7 +441,7 @@ Keep:
 
 Validation:
 
-- `rtk rg "dev_router_ab_signer|router:dev:signer|dev-signer" package.json crates docs/router-A-B-signer.md docs/audits --glob '!**/target/**'`
+- `rtk rg "dev_router_ab_signer|router:dev:signer|dev-signer" package.json crates docs/router-a-b-SPEC.md docs/audits --glob '!**/target/**'`
 - `rtk cargo check --manifest-path crates/router-ab-core/Cargo.toml`
 - `rtk cargo check --manifest-path crates/router-ab-dev/Cargo.toml`
 
@@ -431,9 +449,9 @@ Validation:
 
 Status: complete on June 18, 2026. Runtime package folding,
 `sdk-server-ts` tsconfig isolation, shared type moves, public runtime value
-exports, package-export guard updates, and hard server-dependency removal from
-browser installs are implemented. The separate public server package/export
-split remains a packaging follow-up, not a blocker for this phase.
+exports, package-export guard updates, hard server-dependency removal from
+browser installs, and the later `@seams/sdk-server` package split are
+implemented.
 
 Delete only the stale direct generic prepare path. The active strict
 SigningWorker prepare route must continue to use the pool-backed path:
@@ -537,7 +555,7 @@ Possible target shape:
 
 Validation:
 
-- `rtk rg "candidate_measurement_gate_report_v1|candidate_round_trip_profiles_v1|selected_candidate_protocol_wire_profiles_v1|CANDIDATE_MEASUREMENT_GATES_VERSION_V1" crates/router-ab-core/src crates/router-ab-core/tests docs/audits docs/router-A-B-signer.md`
+- `rtk rg "candidate_measurement_gate_report_v1|candidate_round_trip_profiles_v1|selected_candidate_protocol_wire_profiles_v1|CANDIDATE_MEASUREMENT_GATES_VERSION_V1" crates/router-ab-core/src crates/router-ab-core/tests docs/audits docs/router-a-b-SPEC.md`
 - `rtk cargo test --manifest-path crates/router-ab-core/Cargo.toml`
 - Run Criterion only if the bench code itself changes.
 
@@ -679,39 +697,33 @@ Implementation notes:
   of importing browser SDK clients.
 - `packages/sdk-server-ts/tsconfig.json` no longer extends
   `packages/sdk-web/tsconfig.json` and no longer has an `@/*` web alias.
-- Current packaging decision: keep `@seams/sdk/server` as a public subpath
-  export for this development branch. `pg` and `@simplewebauthn/server` are no
-  longer hard browser dependencies; they are optional peers and dev
-  dependencies. The larger separate public server package split remains a
-  follow-up and is not a Router A/B correctness blocker.
-- Target package split: publish `packages/sdk-server-ts` as
-  `@seams/sdk-server`, move `./server`, `./server/router/express`,
-  `./server/router/cloudflare`, `./server/router/ror`, and
-  `./server/wasm/signer` out of `packages/sdk-web/package.json`, keep
-  `@seams/sdk` browser/runtime/react only, move server dependencies to
-  `@seams/sdk-server`, update imports, and delete the old
-  `@seams/sdk/server` subpaths. Sequence this after Router topology,
-  signer-material handles, raw-material deletion gates, and server auth/session
-  boundary cleanup are stable.
+- Current packaging decision: `@seams/sdk` is browser/runtime/react only, and
+  `packages/sdk-server-ts` publishes as `@seams/sdk-server` for root server APIs,
+  router adapters, Postgres stores, and server WebAuthn helpers. The old
+  `@seams/sdk/server` subpaths have been deleted.
+- The server package owns server dependencies such as `pg`, Express, and
+  `@simplewebauthn/server`. Browser installs of `@seams/sdk` no longer carry
+  server dependencies or optional server peers.
 - Package export guard validation now asserts the canonical
   `dist/types/sdk-web/...` declaration paths and the public
   `@seams/sdk/runtime` value exports. It also asserts `pg` and
   `@simplewebauthn/server` stay out of hard browser dependencies.
 - Package install smoke validation now covers browser/runtime imports without
-  server peers and current-branch `@seams/sdk/server` subpath imports with
-  server peers installed.
+  server dependencies, verifies the old `@seams/sdk/server` subpath is gone, and
+  verifies `@seams/sdk-server` imports root server APIs, router adapters, and
+  Postgres storage helpers.
 - The `core/runtime` import inventory is recorded in
   `docs/refactor-69D-cleanup-2.md`; current imports are sdk-web composition
   ports, runtime services, signing-flow ports, state ports, or sdk-web internal
   types. The source guard now also blocks server-only package imports from
   `core/runtime`.
 
-The TypeScript workspace currently has one public package and two private source
-packages:
+The TypeScript workspace currently has two public packages and one private
+shared source package:
 
 - `packages/sdk-web`: public `@seams/sdk` package and browser SDK source
-- `packages/sdk-server-ts`: private server source package surfaced through
-  `@seams/sdk/server`
+- `packages/sdk-server-ts`: public `@seams/sdk-server` package and server SDK
+  source
 - `packages/shared-ts`: private shared utility/protocol package
 
 The useful boundaries are `sdk-web`, `sdk-server-ts`, and `shared-ts`.
@@ -721,36 +733,34 @@ separate package, so it has been folded back into `sdk-web`.
 Todo:
 
 - [x] Move `packages/sdk-runtime-ts/src/runtime` to
-  `packages/sdk-web/src/core/runtime`.
+      `packages/sdk-web/src/core/runtime`.
 - [x] Keep the public `@seams/sdk/runtime` export working from
-  `packages/sdk-web/src/runtime.ts`.
+      `packages/sdk-web/src/runtime.ts`.
 - [x] Delete `packages/sdk-runtime-ts/package.json`,
-  `packages/sdk-runtime-ts/tsconfig.json`, and its `pnpm-workspace.yaml` entry.
+      `packages/sdk-runtime-ts/tsconfig.json`, and its `pnpm-workspace.yaml` entry.
 - [x] Remove runtime aliases for `@seams-internal/runtime` and
-  `@/core/runtime` that point outside `packages/sdk-web`.
+      `@/core/runtime` that point outside `packages/sdk-web`.
 - [x] Update `packages/sdk-web/rolldown.config.ts`, `tsconfig*.json`, and
-  `tests/tsconfig.playwright.json` after the runtime move.
+      `tests/tsconfig.playwright.json` after the runtime move.
 - [x] Keep or strengthen the runtime-entry guard so `@seams/sdk/runtime` still
-  avoids React, DOM, iframe, IndexedDB, and browser adapter imports.
+      avoids React, DOM, iframe, IndexedDB, and browser adapter imports.
 - [x] Keep `packages/shared-ts` as a separate internal package. It is the real
-  shared protocol/utility boundary used by web, server, tests, and the app.
+      shared protocol/utility boundary used by web, server, tests, and the app.
 - [x] Keep `packages/sdk-server-ts` as a separate source package, then isolate
-  it from the web package by giving it a server-oriented tsconfig instead of
-  extending `packages/sdk-web/tsconfig.json`.
+      it from the web package by giving it a server-oriented tsconfig instead of
+      extending `packages/sdk-web/tsconfig.json`.
 - [x] Remove server imports from `packages/sdk-web/src/core` by moving the small
-  shared NEAR action/client types into `packages/shared-ts` or server-local
-  modules.
+      shared NEAR action/client types into `packages/shared-ts` or server-local
+      modules.
 - [x] Remove the `@/*` web alias from `packages/sdk-server-ts/tsconfig.json`
-  once the server no longer imports web-core files.
-- [x] Decide, for this development branch, whether `@seams/sdk/server` stays as
-  a subpath export with optional/peer server dependencies or moves to a separate
-  public server package.
+      once the server no longer imports web-core files.
+- [x] Move server exports to the separate public `@seams/sdk-server` package.
 - [x] Move server-only runtime dependencies out of hard browser installs.
-  Browser consumers should not hard-install `pg` or
-  `@simplewebauthn/server`.
+      Browser consumers should not hard-install `pg` or
+      `@simplewebauthn/server`.
 - [x] Fix `tests/unit/refactor51bPackageExports.unit.test.ts` so it asserts the
-  canonical `dist/types/sdk-web/...` declaration paths and keeps
-  `@seams/sdk/runtime` value exports covered.
+      canonical `dist/types/sdk-web/...` declaration paths and keeps
+      `@seams/sdk/runtime` value exports covered.
 - [x] Update package docs that describe the four-package layout.
 
 Keep:
@@ -758,8 +768,7 @@ Keep:
 - public browser exports from `@seams/sdk`
 - public React exports from `@seams/sdk/react`
 - public runtime export from `@seams/sdk/runtime`
-- public server exports until the deliberate `@seams/sdk-server` package split
-  lands, then delete the old `@seams/sdk/server` subpaths
+- public server exports from `@seams/sdk-server`
 - shared domain parsers, constants, and wire helpers in `shared-ts`
 
 Validation:
@@ -815,8 +824,8 @@ cleanup and can land separately from the Rust Router A/B cuts.
 - `packages/sdk-runtime-ts` is gone or replaced by a real independent runtime
   package with no web/server alias leakage.
 - Browser installs no longer hard-require `pg` or `@simplewebauthn/server`.
-  A separate public server package/export split remains an explicit follow-up,
-  not a completed Phase 8 result or Router A/B correctness blocker.
+- Server APIs are published from `@seams/sdk-server`; old
+  `@seams/sdk/server` subpaths are gone.
 
 ## Typing And Compile-Time Guard Opportunities
 
@@ -1056,16 +1065,16 @@ Audit notes:
   pinning one fixture in runtime code.
 
 - [x] Verify every active signing-capable SDK flow requires Wallet Session JWT
-  material.
+      material.
 - [x] Verify bearer calls use `credentials: 'omit'`.
 - [x] Verify cookie auth is isolated to allowed request or persistence
-  boundaries.
+      boundaries.
 - [x] Verify legacy threshold-session JWT parsers are absent from active
-  signing.
+      signing.
 - [x] Verify worker payload parsers reject old fields and invalid session kinds.
 - [x] Remove committed smoke fixture markers from local runtime source.
 - [x] Tighten source guards so committed fixture names and fixture account ids
-  cannot re-enter local runtime files.
+      cannot re-enter local runtime files.
 
 Validation:
 
@@ -1096,109 +1105,90 @@ Resolved findings:
   normal-signing state, and handle-only ready-session client-share branches.
 
 - [x] Scan Router A/B signing state for optional identity, auth, session, and
-  raw-material fields.
+      raw-material fields.
 - [x] Record the Phase 3 type-model targets in the audit artifact.
 - [x] Split persisted compatibility records from signable in-memory records.
-      Current progress:
-      - [x] Added
-            `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-            as the Router A/B persisted-record classifier and strict
-            signable Wallet Session boundary for Ed25519 and ECDSA-HSS.
-      - [x] Added
-            `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts`
-            to reject missing auth/session/signing-root/material fields and
-            raw material on signable Wallet Session records.
-      - [x] Added
-            `tests/unit/signingCapabilityStrictRecords.unit.test.ts` to prove
-            selected signing capability reads expose only complete Router A/B
-            signable records.
+      Current progress: - [x] Added
+      `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+      as the Router A/B persisted-record classifier and strict
+      signable Wallet Session boundary for Ed25519 and ECDSA-HSS. - [x] Added
+      `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts`
+      to reject missing auth/session/signing-root/material fields and
+      raw material on signable Wallet Session records. - [x] Added
+      `tests/unit/signingCapabilityStrictRecords.unit.test.ts` to prove
+      selected signing capability reads expose only complete Router A/B
+      signable records.
 - [x] Require worker-owned Ed25519 material handles at final NEAR signing
-  ready-state boundaries.
+      ready-state boundaries.
 - [x] Add HSS worker store/open-by-handle operations for ECDSA-HSS role-local
-  signing material.
+      signing material.
 - [x] Route final EVM role-local signing-share opening through the ECDSA-HSS
-  worker material handle.
+      worker material handle.
 - [x] Convert EVM final signing to a handle-only signable ECDSA session union
-  after loading role-local material into the HSS worker.
+      after loading role-local material into the HSS worker.
 - [x] Replace the ECDSA-HSS `role_local_ready_state_blob` ready-session branch
-  with a handle-only signable branch.
-      Current progress:
-      - [x] `ReadyEcdsaSignerSession.clientShare` is now handle-only:
-            persisted `role_local_ready_state_blob` backend bindings are
-            converted to deterministic `role_local_worker_share` handles at the
-            signer-session boundary.
-      - [x] The secp256k1 final signing material carries an explicit
-            role-local restore record only at the final worker-restore boundary,
-            preserving reload repair without reintroducing raw blobs into the
-            ready signer-session union.
-      - [x] Type fixtures reject raw role-local blob client-share branches on
-            signable ready sessions.
+      with a handle-only signable branch.
+      Current progress: - [x] `ReadyEcdsaSignerSession.clientShare` is now handle-only:
+      persisted `role_local_ready_state_blob` backend bindings are
+      converted to deterministic `role_local_worker_share` handles at the
+      signer-session boundary. - [x] The secp256k1 final signing material carries an explicit
+      role-local restore record only at the final worker-restore boundary,
+      preserving reload repair without reintroducing raw blobs into the
+      ready signer-session union. - [x] Type fixtures reject raw role-local blob client-share branches on
+      signable ready sessions.
 - [x] Keep raw Ed25519 `xClientBaseB64u` / `clientVerifyingShareB64u` fields
-  behind reconstruction or persistence boundary parsers.
-      Current progress:
-      - [x] `RouterAbEd25519SigningWalletSession`,
-            `NearResolvedEd25519SigningSessionState`, and
-            `RouterAbEd25519NormalSigningReadyState` now carry a required
-            `signingMaterial` ref instead of top-level Ed25519 material fields.
-      - [x] `xClientBaseB64u` remains confined to persistence/repair and worker
-            material reconstruction paths; final NEAR signing receives only a
-            worker material handle, binding digest, and verifier through the
-            parsed material ref.
-      - [x] Type fixtures reject obsolete top-level raw verifier fields and
-            missing material refs at the strict Wallet Session and ready-state
-            boundaries.
+      behind reconstruction or persistence boundary parsers.
+      Current progress: - [x] `RouterAbEd25519SigningWalletSession`,
+      `NearResolvedEd25519SigningSessionState`, and
+      `RouterAbEd25519NormalSigningReadyState` now carry a required
+      `signingMaterial` ref instead of top-level Ed25519 material fields. - [x] `xClientBaseB64u` remains confined to persistence/repair and worker
+      material reconstruction paths; final NEAR signing receives only a
+      worker material handle, binding digest, and verifier through the
+      parsed material ref. - [x] Type fixtures reject obsolete top-level raw verifier fields and
+      missing material refs at the strict Wallet Session and ready-state
+      boundaries.
 - [x] Keep raw ECDSA client share/verifying-share fields behind worker,
-  registration, or persistence boundary parsers.
-      Current progress:
-      - [x] Added a strict Router A/B ECDSA-HSS Wallet Session signing material
-            ref so selected signable Wallet Session records expose the public
-            verifier through parsed `signingMaterial`, not top-level persisted
-            verifier field names.
-      - [x] The ECDSA signable Wallet Session parser now rejects missing
-            persisted client verifier material and verifier drift between the
-            persisted record and Router A/B normal-signing scope.
-      - [x] Finish the ready signer transport cleanup so active EVM signing code
-            consumes the same parsed material ref instead of direct
-            `clientVerifyingShareB64u` transport fields.
+      registration, or persistence boundary parsers.
+      Current progress: - [x] Added a strict Router A/B ECDSA-HSS Wallet Session signing material
+      ref so selected signable Wallet Session records expose the public
+      verifier through parsed `signingMaterial`, not top-level persisted
+      verifier field names. - [x] The ECDSA signable Wallet Session parser now rejects missing
+      persisted client verifier material and verifier drift between the
+      persisted record and Router A/B normal-signing scope. - [x] Finish the ready signer transport cleanup so active EVM signing code
+      consumes the same parsed material ref instead of direct
+      `clientVerifyingShareB64u` transport fields.
 - [x] Review domain lifecycle unions.
-      Current progress:
-      - [x] Tightened warm-session capability lifecycle branches so `ready` and
-            `material_pending` ECDSA states require ready Wallet Session auth
-            and a warm PRF claim, ECDSA no longer exposes an impossible
-            `invalid` branch, and Ed25519 non-`auth_missing` states require
-            bearer Wallet Session auth.
+      Current progress: - [x] Tightened warm-session capability lifecycle branches so `ready` and
+      `material_pending` ECDSA states require ready Wallet Session auth
+      and a warm PRF claim, ECDSA no longer exposes an impossible
+      `invalid` branch, and Ed25519 non-`auth_missing` states require
+      bearer Wallet Session auth.
 - [x] Review session, budget, signing, restore, auth, and protocol state types.
-      Current progress:
-      - [x] Confirmed remaining optional fields in this Phase 3 audit are
-            builder inputs, dependency/config ports, UI/display surfaces,
-            availability diagnostics, or request/persistence compatibility
-            boundaries. The full server budget reservation lifecycle remains
-            tracked in `docs/refactor-70-server-budget.md`.
+      Current progress: - [x] Confirmed remaining optional fields in this Phase 3 audit are
+      builder inputs, dependency/config ports, UI/display surfaces,
+      availability diagnostics, or request/persistence compatibility
+      boundaries. The full server budget reservation lifecycle remains
+      tracked in `docs/refactor-70-server-budget.md`.
 - [x] Add missing `never` exclusions.
-      Current progress:
-      - [x] Existing strict Router A/B signable Wallet Session, ready-state,
-            ECDSA identity, and sealed recovery boundary fixtures now cover the
-            raw-material and legacy auth-field exclusions found in the Phase 3
-            scan.
+      Current progress: - [x] Existing strict Router A/B signable Wallet Session, ready-state,
+      ECDSA identity, and sealed recovery boundary fixtures now cover the
+      raw-material and legacy auth-field exclusions found in the Phase 3
+      scan.
 - [x] Replace optional core identity fields with required fields where the flow can
-  require them.
-      Current progress:
-      - [x] `NearResolvedEd25519SigningSessionState` now requires signing root,
-            runtime policy scope, Router A/B normal-signing state, and bearer
-            Wallet Session auth at the active NEAR signing boundary.
+      require them.
+      Current progress: - [x] `NearResolvedEd25519SigningSessionState` now requires signing root,
+      runtime policy scope, Router A/B normal-signing state, and bearer
+      Wallet Session auth at the active NEAR signing boundary.
 - [x] Add type fixtures for known escape hatches.
-      Current progress:
-      - [x] Added
-            `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaHssClientSigningMaterialSource.typecheck.ts`
-            to prove the final ECDSA-HSS signing material boundary rejects raw
-            `role_local_ready_state_blob` client-share material after worker
-            handle loading.
-      - [x] Added resolved Ed25519 Wallet Session state fixtures rejecting
-            cookie auth and missing signing root, runtime policy scope, or
-            Router A/B state.
-      - [x] Added warm-session lifecycle fixtures rejecting Ed25519 `ready`
-            without bearer auth, ECDSA `ready` without a warm PRF claim, and
-            the impossible ECDSA `invalid` lifecycle branch.
+      Current progress: - [x] Added
+      `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaHssClientSigningMaterialSource.typecheck.ts`
+      to prove the final ECDSA-HSS signing material boundary rejects raw
+      `role_local_ready_state_blob` client-share material after worker
+      handle loading. - [x] Added resolved Ed25519 Wallet Session state fixtures rejecting
+      cookie auth and missing signing root, runtime policy scope, or
+      Router A/B state. - [x] Added warm-session lifecycle fixtures rejecting Ed25519 `ready`
+      without bearer auth, ECDSA `ready` without a warm PRF claim, and
+      the impossible ECDSA `invalid` lifecycle branch.
 
 Validation:
 
@@ -1252,23 +1242,23 @@ Task list:
 Large-module inventory from
 `rtk rg --files packages/sdk-web/src packages/sdk-server-ts/src | xargs wc -l | sort -nr | head -80`:
 
-| File | Lines | Ownership note |
-| --- | ---: | --- |
-| `packages/sdk-server-ts/src/core/AuthService.ts` | 16464 | Broad server auth/account service. Leave out of Router A/B cleanup unless a route/auth boundary task needs a narrow parser or issuer. |
-| `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts` | 4667 | Console route assembly; separate from Router A/B signing cleanup. |
-| `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts` | 4599 | Mixed threshold-era service surface. Extract only when active Router A/B handlers need narrower service ports. |
-| `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts` | 4522 | Console route assembly; keep out of signing cleanup. |
-| `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts` | 3074 | Persistence boundary for legacy/current records. Phase 15.11 owns strict signable-state split. |
-| `packages/sdk-server-ts/src/router/routeDefinitions.ts` | 2182 | Route metadata mixes public, console, API, and threshold-era signing labels. Phase 15.17 owns auth metadata cleanup. |
-| `packages/sdk-server-ts/src/router/express/routes/sessions.ts` | 1900 | Duplicated with Cloudflare sessions route; server auth/session boundary cleanup owns extraction. |
-| `packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts` | 1895 | Duplicated with Express sessions route; extract shared validation only after auth semantics are pinned. |
-| `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts` | 1111 | Active Router A/B ECDSA-HSS routes live in a threshold-named adapter file. |
-| `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts` | 816 | Cloudflare duplicate of active Router A/B ECDSA-HSS route behavior. |
-| `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts` | 837 | Active Router A/B Ed25519 normal-signing routes live in a threshold-named adapter file. |
-| `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts` | 745 | Cloudflare duplicate of active Router A/B Ed25519 route behavior. |
-| `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts` | 1514 | SDK route client mixes registration calls, local POST helper, auth headers, and Router A/B bootstrap response parsing. |
-| `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts` | 1087 | SDK Router A/B signing client owns canonical request/digest construction plus local POST helper. |
-| `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts` | 702 | ECDSA-HSS bootstrap client still carries threshold-era naming and separate bearer/fetch helpers. |
+| File                                                                            | Lines | Ownership note                                                                                                                        |
+| ------------------------------------------------------------------------------- | ----: | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/sdk-server-ts/src/core/AuthService.ts`                                | 16464 | Broad server auth/account service. Leave out of Router A/B cleanup unless a route/auth boundary task needs a narrow parser or issuer. |
+| `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`              |  4667 | Console route assembly; separate from Router A/B signing cleanup.                                                                     |
+| `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`   |  4599 | Mixed threshold-era service surface. Extract only when active Router A/B handlers need narrower service ports.                        |
+| `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts` |  4522 | Console route assembly; keep out of signing cleanup.                                                                                  |
+| `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`        |  3074 | Persistence boundary for legacy/current records. Phase 15.11 owns strict signable-state split.                                        |
+| `packages/sdk-server-ts/src/router/routeDefinitions.ts`                         |  2182 | Route metadata mixes public, console, API, and threshold-era signing labels. Phase 15.17 owns auth metadata cleanup.                  |
+| `packages/sdk-server-ts/src/router/express/routes/sessions.ts`                  |  1900 | Duplicated with Cloudflare sessions route; server auth/session boundary cleanup owns extraction.                                      |
+| `packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts`               |  1895 | Duplicated with Express sessions route; extract shared validation only after auth semantics are pinned.                               |
+| `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`            |  1111 | Active Router A/B ECDSA-HSS routes live in a threshold-named adapter file.                                                            |
+| `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`         |   816 | Cloudflare duplicate of active Router A/B ECDSA-HSS route behavior.                                                                   |
+| `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`          |   837 | Active Router A/B Ed25519 normal-signing routes live in a threshold-named adapter file.                                               |
+| `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`       |   745 | Cloudflare duplicate of active Router A/B Ed25519 route behavior.                                                                     |
+| `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`            |  1514 | SDK route client mixes registration calls, local POST helper, auth headers, and Router A/B bootstrap response parsing.                |
+| `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts`         |  1087 | SDK Router A/B signing client owns canonical request/digest construction plus local POST helper.                                      |
+| `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`                |   702 | ECDSA-HSS bootstrap client still carries threshold-era naming and separate bearer/fetch helpers.                                      |
 
 Mixed-responsibility findings and extraction targets:
 
@@ -1338,21 +1328,21 @@ Task list:
 
 Deleted-test replacement map, reconciled against the current branch:
 
-| Deleted obsolete test | Preserved invariant | Current coverage |
-| --- | --- | --- |
-| `tests/e2e/thresholdEd25519.authorizeUnauthorizedNoBroadcast.test.ts` | Unauthorized signing requests must not broadcast. | `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`, `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`, and `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` cover bearer-only Wallet Session auth and reject cookie/legacy signing-capable paths. |
-| `tests/e2e/thresholdEd25519.batchSigning.test.ts` | Active Ed25519 signing uses the Router A/B path rather than old threshold batch routes. | `tests/e2e/thresholdEd25519.nep413Signing.test.ts`, `tests/e2e/thresholdEd25519.delegateSigning.test.ts`, `tests/unit/routerAbNormalSigningVectors.unit.test.ts`, and `tests/unit/routerAbWireVectors.unit.test.ts`. |
-| `tests/e2e/thresholdEd25519.digestBinding.test.ts` | Request digest/scope binding is enforced. | `tests/unit/routerAbNormalSigningValidation.unit.test.ts`, `tests/unit/routerAbWireVectors.unit.test.ts`, `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts`, and Rust Router A/B vector tests. |
-| `tests/e2e/thresholdEd25519.frostTamper.test.ts` | Tampered signing/share material is rejected. | `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`, `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts`, `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts`, and current Rust Router A/B protocol tests. |
-| `tests/e2e/thresholdEd25519.onchainScope.test.ts` | Scope and account binding stay enforced. | `tests/unit/thresholdEd25519.sessionPolicyDigest.unit.test.ts`, `tests/unit/routerAbNormalSigningValidation.unit.test.ts`, and Router A/B Wallet Session claim guards. |
-| `tests/e2e/thresholdEd25519.relayerFailure.test.ts` | Relayer/SigningWorker failures do not fall back to old signing paths. | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts`, `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts`, and active relayer auth-boundary tests. |
-| `tests/e2e/thresholdEd25519.sessionExhaustion.test.ts` | Session use limits and exhausted-session behavior stay enforced. | `tests/unit/sessionTokens.unit.test.ts`, `tests/unit/walletSessionReadiness.gate.unit.test.ts`, `tests/unit/signingSessionBudgetFinalizer.unit.test.ts`, and server signing-budget tests. |
-| `tests/relayer/threshold-ed25519.scope.test.ts` | Old public threshold scope routes are gone. | `tests/unit/router.routeDefinitions.unit.test.ts` and `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` reject old public threshold signing route literals. |
-| `tests/unit/thresholdEd25519.finalizeAndDispatch.unit.test.ts` | Final Ed25519 signing dispatch uses current Router A/B finalization. | `tests/unit/routerAbNormalSigningVectors.unit.test.ts`, `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`, and `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`. |
-| `tests/unit/thresholdEd25519.immediateSignFallback.unit.test.ts` | Immediate fallback signing remains deleted. | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` rejects fallback route/helper names and requires Wallet Session v2 request builders. |
-| `tests/unit/thresholdEd25519.presignContracts.unit.test.ts`, `tests/unit/thresholdEd25519.presignFinalizeClient.unit.test.ts`, `tests/unit/thresholdEd25519.presignRefill.unit.test.ts`, `tests/unit/thresholdEd25519.relayerClient.unit.test.ts`, and `tests/unit/thresholdEd25519.relayerCosigners.stub.test.ts` | Old presign/refill client contract does not remain as active public behavior. | `tests/unit/thresholdEd25519.presignPool.unit.test.ts`, `tests/unit/thresholdEd25519.presignStore.unit.test.ts`, `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`, and Router A/B normal-signing source guards. |
-| `tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts` and `tests/unit/thresholdEd25519AuthSession.rehydrate.unit.test.ts` | Old single-key/auth-session rehydrate paths are not active signing paths. | `tests/unit/thresholdEd25519WalletSession.rehydrate.unit.test.ts`, `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`, and `tests/unit/sessionTokens.unit.test.ts`. |
-| `tests/unit/thresholdEcdsa.authorizePolicyHint.unit.test.ts`, `tests/unit/thresholdEcdsa.requestTimeout.unit.test.ts`, and `tests/unit/thresholdEcdsa.tempoHighLevel.integration.test.ts` | Old ECDSA authorize/direct-timeout/high-level paths do not define current Router A/B ECDSA-HSS signing. | `tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts`, `tests/unit/routerAbEcdsaHssPresignBridge.unit.test.ts`, `tests/unit/thresholdEcdsa.authorizationBootstrapVerifier.unit.test.ts`, `tests/unit/thresholdEcdsa.hssBootstrapPolicy.unit.test.ts`, and `tests/e2e/thresholdEcdsa.tempoSigning.test.ts`. |
+| Deleted obsolete test                                                                                                                                                                                                                                                                                              | Preserved invariant                                                                                     | Current coverage                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tests/e2e/thresholdEd25519.authorizeUnauthorizedNoBroadcast.test.ts`                                                                                                                                                                                                                                              | Unauthorized signing requests must not broadcast.                                                       | `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`, `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`, and `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` cover bearer-only Wallet Session auth and reject cookie/legacy signing-capable paths.                 |
+| `tests/e2e/thresholdEd25519.batchSigning.test.ts`                                                                                                                                                                                                                                                                  | Active Ed25519 signing uses the Router A/B path rather than old threshold batch routes.                 | `tests/e2e/thresholdEd25519.nep413Signing.test.ts`, `tests/e2e/thresholdEd25519.delegateSigning.test.ts`, `tests/unit/routerAbNormalSigningVectors.unit.test.ts`, and `tests/unit/routerAbWireVectors.unit.test.ts`.                                                                                         |
+| `tests/e2e/thresholdEd25519.digestBinding.test.ts`                                                                                                                                                                                                                                                                 | Request digest/scope binding is enforced.                                                               | `tests/unit/routerAbNormalSigningValidation.unit.test.ts`, `tests/unit/routerAbWireVectors.unit.test.ts`, `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts`, and Rust Router A/B vector tests.                                                                                                        |
+| `tests/e2e/thresholdEd25519.frostTamper.test.ts`                                                                                                                                                                                                                                                                   | Tampered signing/share material is rejected.                                                            | `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`, `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts`, `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts`, and current Rust Router A/B protocol tests.                                                                       |
+| `tests/e2e/thresholdEd25519.onchainScope.test.ts`                                                                                                                                                                                                                                                                  | Scope and account binding stay enforced.                                                                | `tests/unit/thresholdEd25519.sessionPolicyDigest.unit.test.ts`, `tests/unit/routerAbNormalSigningValidation.unit.test.ts`, and Router A/B Wallet Session claim guards.                                                                                                                                       |
+| `tests/e2e/thresholdEd25519.relayerFailure.test.ts`                                                                                                                                                                                                                                                                | Relayer/SigningWorker failures do not fall back to old signing paths.                                   | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts`, `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts`, and active relayer auth-boundary tests.                                                                                                                                         |
+| `tests/e2e/thresholdEd25519.sessionExhaustion.test.ts`                                                                                                                                                                                                                                                             | Session use limits and exhausted-session behavior stay enforced.                                        | `tests/unit/sessionTokens.unit.test.ts`, `tests/unit/walletSessionReadiness.gate.unit.test.ts`, `tests/unit/signingSessionBudgetFinalizer.unit.test.ts`, and server signing-budget tests.                                                                                                                    |
+| `tests/relayer/threshold-ed25519.scope.test.ts`                                                                                                                                                                                                                                                                    | Old public threshold scope routes are gone.                                                             | `tests/unit/router.routeDefinitions.unit.test.ts` and `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` reject old public threshold signing route literals.                                                                                                                                           |
+| `tests/unit/thresholdEd25519.finalizeAndDispatch.unit.test.ts`                                                                                                                                                                                                                                                     | Final Ed25519 signing dispatch uses current Router A/B finalization.                                    | `tests/unit/routerAbNormalSigningVectors.unit.test.ts`, `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`, and `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`.                                                                                                                      |
+| `tests/unit/thresholdEd25519.immediateSignFallback.unit.test.ts`                                                                                                                                                                                                                                                   | Immediate fallback signing remains deleted.                                                             | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` rejects fallback route/helper names and requires Wallet Session v2 request builders.                                                                                                                                                                |
+| `tests/unit/thresholdEd25519.presignContracts.unit.test.ts`, `tests/unit/thresholdEd25519.presignFinalizeClient.unit.test.ts`, `tests/unit/thresholdEd25519.presignRefill.unit.test.ts`, `tests/unit/thresholdEd25519.relayerClient.unit.test.ts`, and `tests/unit/thresholdEd25519.relayerCosigners.stub.test.ts` | Old presign/refill client contract does not remain as active public behavior.                           | `tests/unit/thresholdEd25519.presignPool.unit.test.ts`, `tests/unit/thresholdEd25519.presignStore.unit.test.ts`, `tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`, and Router A/B normal-signing source guards.                                                                                  |
+| `tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts` and `tests/unit/thresholdEd25519AuthSession.rehydrate.unit.test.ts`                                                                                                                                                                       | Old single-key/auth-session rehydrate paths are not active signing paths.                               | `tests/unit/thresholdEd25519WalletSession.rehydrate.unit.test.ts`, `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`, and `tests/unit/sessionTokens.unit.test.ts`.                                                                                                                                |
+| `tests/unit/thresholdEcdsa.authorizePolicyHint.unit.test.ts`, `tests/unit/thresholdEcdsa.requestTimeout.unit.test.ts`, and `tests/unit/thresholdEcdsa.tempoHighLevel.integration.test.ts`                                                                                                                          | Old ECDSA authorize/direct-timeout/high-level paths do not define current Router A/B ECDSA-HSS signing. | `tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts`, `tests/unit/routerAbEcdsaHssPresignBridge.unit.test.ts`, `tests/unit/thresholdEcdsa.authorizationBootstrapVerifier.unit.test.ts`, `tests/unit/thresholdEcdsa.hssBootstrapPolicy.unit.test.ts`, and `tests/e2e/thresholdEcdsa.tempoSigning.test.ts`. |
 
 Compatibility coverage is boundary-specific:
 
@@ -1405,14 +1395,16 @@ Active-flow coverage:
   `tests/unit/crossPlatformBoundaries.guard.unit.test.ts`, and the refactor
   package-boundary guard suites.
 
-Open follow-up from this audit:
+Closure note:
 
-- Keep the remaining raw-material and strict signable-state failures in Phase 3
-  and `docs/router-a-b-cleanup.md` Phases 15.10 through 15.12.
-- Keep route/auth extraction, SDK route-client helper consolidation, and server
-  metadata cleanup in Phase 6 / Router cleanup Phases 15.13 through 15.17.
-- Do not resurrect deleted threshold-era tests. Add replacement coverage only
-  against Router A/B routes, Wallet Session JWT boundaries, worker-owned
+- Raw-material and strict signable-state work moved to
+  `docs/refactor-74-login-no-hss.md`, `docs/refactor-75-simplify-ed25519.md`,
+  and `docs/router-a-b-cleanup.md`.
+- Route/auth extraction and SDK route-client helper consolidation landed in
+  Phase 6. Remaining route metadata cleanup belongs to
+  `docs/router-a-b-cleanup.md`.
+- Deleted threshold-era tests must stay deleted. Replacement coverage should
+  target Router A/B routes, Wallet Session JWT boundaries, worker-owned
   material handles, or explicit persistence/request compatibility parsers.
 
 Validation:
@@ -1429,114 +1421,93 @@ Implement after the audit report is reviewed.
 
 Suggested order:
 
-Status: in progress on June 19, 2026.
+Status: complete on June 20, 2026.
 
 Task list:
 
 - [x] Shared route handler extraction.
-      Current progress:
-      - [x] Extracted the Router A/B Ed25519 normal-signing route core into
-            `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`
-            so Express and Cloudflare share Wallet Session validation,
-            request-scope admission, quota/admission evaluation, replay
-            reservation, private SigningWorker path resolution, and forwarding.
-            Framework adapters still own logging and response serialization.
-      - [x] Review follow-up: Cloudflare normal-signing dispatch now reaches
-            the shared Router A/B core before old Ed25519 threshold scheme
-            resolution, presign-pool prepare uses phase-scoped replay
-            reservation, and success-path tests assert the exact private
-            SigningWorker URL for prepare, presign-pool prepare, normal
-            finalize, and presign-pool finalize.
-      - [x] Extracted the remaining duplicated Router A/B ECDSA-HSS route core
-            into `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`.
-            Express and Cloudflare now share Wallet Session validation,
-            request-scope admission, quota/admission evaluation, prepare replay,
-            final-signing budget consumption, private body construction, and
-            private SigningWorker forwarding. Legacy threshold route helpers
-            stay in the threshold-named adapters because they still own
-            request-boundary semantics.
+      Current progress: - [x] Extracted the Router A/B Ed25519 normal-signing route core into
+      `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`
+      so Express and Cloudflare share Wallet Session validation,
+      request-scope admission, quota/admission evaluation, replay
+      reservation, private SigningWorker path resolution, and forwarding.
+      Framework adapters still own logging and response serialization. - [x] Review follow-up: Cloudflare normal-signing dispatch now reaches
+      the shared Router A/B core before old Ed25519 threshold scheme
+      resolution, presign-pool prepare uses phase-scoped replay
+      reservation, and success-path tests assert the exact private
+      SigningWorker URL for prepare, presign-pool prepare, normal
+      finalize, and presign-pool finalize. - [x] Extracted the remaining duplicated Router A/B ECDSA-HSS route core
+      into `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`.
+      Express and Cloudflare now share Wallet Session validation,
+      request-scope admission, quota/admission evaluation, prepare replay,
+      final-signing budget consumption, private body construction, and
+      private SigningWorker forwarding. Legacy threshold route helpers
+      stay in the threshold-named adapters because they still own
+      request-boundary semantics.
 - [x] SDK Router A/B credential and route-client consolidation.
-      Current progress:
-      - [x] Browser relayer clients share
-            `packages/sdk-web/src/core/rpcClients/relayer/relayerHttp.ts` for
-            base URL normalization, JSON request init, `credentials: 'omit'`,
-            and bearer `Authorization` header construction. Protocol-specific
-            request bodies, digest construction, response parsers, and error
-            messages remain in `routerAbNormalSigning.ts`,
-            `routerAbPublicKeyset.ts`, `walletRegistration.ts`, and
-            `thresholdEcdsa.ts`.
-      - [x] Fix the stale ECDSA bootstrap fixture used by the route-client
-            consolidation tests.
-      - [x] Fix Ed25519 presign-pool request/response binding so the SDK
-            request builder and response parser prove that accepted pool entries
-            bind to the original request scope, generation, and client offers.
+      Current progress: - [x] Browser relayer clients share
+      `packages/sdk-web/src/core/rpcClients/relayer/relayerHttp.ts` for
+      base URL normalization, JSON request init, `credentials: 'omit'`,
+      and bearer `Authorization` header construction. Protocol-specific
+      request bodies, digest construction, response parsers, and error
+      messages remain in `routerAbNormalSigning.ts`,
+      `routerAbPublicKeyset.ts`, `walletRegistration.ts`, and
+      `thresholdEcdsa.ts`. - [x] Fix the stale ECDSA bootstrap fixture used by the route-client
+      consolidation tests. - [x] Fix Ed25519 presign-pool request/response binding so the SDK
+      request builder and response parser prove that accepted pool entries
+      bind to the original request scope, generation, and client offers.
 - [x] Worker operation split.
-      Closure evidence:
-      - `workerTypes.ts` now exposes domain operation aliases for Email OTP
-            challenge/enrollment/restore/warm-session/export operations, ETH
-            transaction/local-secp256k1/ECDSA-presign operations, Tempo
-            transaction operations, NEAR Ed25519 material/presign/digest/finalize
-            operations, and HSS Ed25519 / ECDSA role-local material and presign
-            operations.
-      - Runtime dispatch ownership remains unchanged:
-            `email-otp.worker.ts` owns Email OTP restore/export/warm-session
-            execution, `hss-client.worker.ts` owns HSS Ed25519 and ECDSA
-            role-local material execution, `eth-signer.worker.ts` owns ETH
-            transaction and ECDSA presignature execution, `tempo-signer.worker.ts`
-            owns Tempo transaction execution, and `near-signer.worker.ts` owns
-            NEAR Ed25519 material, digest, and finalize execution.
-      - `workerTypes.typecheck.ts` now proves old mixed-domain requests cannot
-            be constructed across ETH transaction vs ECDSA presign, NEAR
-            material vs digest, HSS Ed25519 vs ECDSA role-local, and Email OTP
-            export vs warm-session domains.
-      - HSS wrapper calls in `threshold/crypto/hssClientSignerWasm.ts` now
-            dispatch through narrow Ed25519 protocol, ECDSA role-local material,
-            and ECDSA role-local presign request helpers instead of accepting
-            the broad HSS worker request type at each call site.
-      - No worker cryptographic protocol semantics, replay protection, or
-            material lifetime rules changed.
+      Closure evidence: - `workerTypes.ts` now exposes domain operation aliases for Email OTP
+      challenge/enrollment/restore/warm-session/export operations, ETH
+      transaction/local-secp256k1/ECDSA-presign operations, Tempo
+      transaction operations, NEAR Ed25519 material/presign/digest/finalize
+      operations, and HSS Ed25519 / ECDSA role-local material and presign
+      operations. - Runtime dispatch ownership remains unchanged:
+      `email-otp.worker.ts` owns Email OTP restore/export/warm-session
+      execution, `hss-client.worker.ts` owns HSS Ed25519 and ECDSA
+      role-local material execution, `eth-signer.worker.ts` owns ETH
+      transaction and ECDSA presignature execution, `tempo-signer.worker.ts`
+      owns Tempo transaction execution, and `near-signer.worker.ts` owns
+      NEAR Ed25519 material, digest, and finalize execution. - `workerTypes.typecheck.ts` now proves old mixed-domain requests cannot
+      be constructed across ETH transaction vs ECDSA presign, NEAR
+      material vs digest, HSS Ed25519 vs ECDSA role-local, and Email OTP
+      export vs warm-session domains. - HSS wrapper calls in `threshold/crypto/hssClientSignerWasm.ts` now
+      dispatch through narrow Ed25519 protocol, ECDSA role-local material,
+      and ECDSA role-local presign request helpers instead of accepting
+      the broad HSS worker request type at each call site. - No worker cryptographic protocol semantics, replay protection, or
+      material lifetime rules changed.
 - [x] ECDSA identity and signing-root boundary consolidation.
-      Closure evidence:
-      - Active signable ECDSA state now derives Router A/B threshold-key,
-            signing-root, signing-root-version, signing-worker, and verifier
-            identity from `RouterAbEcdsaHssSigningMaterialRef`.
-      - `ReadyThresholdEcdsaSignerTransport` no longer duplicates
-            `ecdsaThresholdKeyId`; the role-local material-handle binding derives
-            it from parsed signing material.
-      - `evmFamilyEcdsaIdentity.typecheck.ts` rejects loose threshold-key,
-            signing-root, key-handle, raw verifier, cookie auth, broad key-ref,
-            raw Router A/B state, and raw role-local blob branches on active
-            ready signer sessions.
-      - ECDSA-HSS protocol derivation, key-handle derivation, and signing-root
-            share resolver semantics were not changed.
+      Closure evidence: - Active signable ECDSA state now derives Router A/B threshold-key,
+      signing-root, signing-root-version, signing-worker, and verifier
+      identity from `RouterAbEcdsaHssSigningMaterialRef`. - `ReadyThresholdEcdsaSignerTransport` no longer duplicates
+      `ecdsaThresholdKeyId`; the role-local material-handle binding derives
+      it from parsed signing material. - `evmFamilyEcdsaIdentity.typecheck.ts` rejects loose threshold-key,
+      signing-root, key-handle, raw verifier, cookie auth, broad key-ref,
+      raw Router A/B state, and raw role-local blob branches on active
+      ready signer sessions. - ECDSA-HSS protocol derivation, key-handle derivation, and signing-root
+      share resolver semantics were not changed.
 - [x] Folder moves with import-direction guards.
-      Closure evidence:
-      - Target ownership map:
-            `routerAb/ecdsaHss/signingMaterialRef.ts` and `poolFillRoutes.ts`
-            are pure Router A/B protocol/request-boundary modules;
-            `session/identity/*` owns parsed identity and active signer
-            boundaries; `workerManager/*` owns worker request/transport
-            boundaries; route adapters and operation flows depend inward on
-            those modules.
-      - `routerAbNormalSigningSdk.guard.unit.test.ts` now rejects import
-            direction drift: pure Router A/B modules cannot import flows,
-            persistence, warm-session, worker, or UI layers; identity modules
-            cannot import operation flows, worker manager, or warm-session
-            lifecycle logic; worker boundary modules cannot import signing flows
-            or UI layers.
-      - No file move was needed because the guarded ownership map has no current
-            violation requiring a path change.
+      Closure evidence: - Target ownership map:
+      `routerAb/ecdsaHss/signingMaterialRef.ts` and `poolFillRoutes.ts`
+      are pure Router A/B protocol/request-boundary modules;
+      `session/identity/*` owns parsed identity and active signer
+      boundaries; `workerManager/*` owns worker request/transport
+      boundaries; route adapters and operation flows depend inward on
+      those modules. - `routerAbNormalSigningSdk.guard.unit.test.ts` now rejects import
+      direction drift: pure Router A/B modules cannot import flows,
+      persistence, warm-session, worker, or UI layers; identity modules
+      cannot import operation flows, worker manager, or warm-session
+      lifecycle logic; worker boundary modules cannot import signing flows
+      or UI layers. - No file move was needed because the guarded ownership map has no current
+      violation requiring a path change.
 - [x] Legacy fixture/test deletion.
-      Closure evidence:
-      - Phase 5 lists the exact obsolete threshold-era tests deleted in this
-            cleanup and the replacement coverage that preserves current Router
-            A/B behavior.
-      - The zero-tolerance source guard continues to reject deleted public
-            threshold signing route literals, helper names, and legacy public
-            signing surfaces.
-      - No additional low-risk obsolete tests were identified in this pass.
-            Future deletions should name the exact stale fixture/test and point
-            to replacement coverage before removal.
+      Closure evidence: - Phase 5 lists the exact obsolete threshold-era tests deleted in this
+      cleanup and the replacement coverage that preserves current Router
+      A/B behavior. - The zero-tolerance source guard continues to reject deleted public
+      threshold signing route literals, helper names, and legacy public
+      signing surfaces. - No additional low-risk obsolete tests were identified in this pass.
+      Future deletions should name the exact stale fixture/test and point
+      to replacement coverage before removal.
 
 Each slice should include its own type fixtures or source guards.
 
@@ -1592,16 +1563,13 @@ work. They are not evidence that legacy public threshold signing remains active.
 Task list:
 
 - [x] Resolve threshold-era active Router A/B route-core ownership.
-      Closure evidence:
-      - Active Ed25519 and ECDSA-HSS normal-signing core code now lives in
-            `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`.
-      - Express and Cloudflare `thresholdEd25519.ts` / `thresholdEcdsa.ts`
-            files stay threshold-named because they still own threshold-era
-            request-boundary routes and framework response serialization.
-      - `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` now proves
-            normal-signing admission, request validation, private body
-            construction, budget consumption, and private worker forwarding stay
-            outside threshold-named adapters.
+      Closure evidence: - Active Ed25519 and ECDSA-HSS normal-signing core code now lives in
+      `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`. - Express and Cloudflare `thresholdEd25519.ts` / `thresholdEcdsa.ts`
+      files stay threshold-named because they still own threshold-era
+      request-boundary routes and framework response serialization. - `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` now proves
+      normal-signing admission, request validation, private body
+      construction, budget consumption, and private worker forwarding stay
+      outside threshold-named adapters.
 - [x] Keep the legacy public signing guard as a zero-tolerance check for old
       active signing routes and helpers. The current guard lives in
       `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` and should
@@ -1647,10 +1615,10 @@ Threshold-era naming cleanup closure criteria:
 
 Completed rename map:
 
-| Old path | New path | Reason |
-| --- | --- | --- |
-| `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts` | `packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts` | Mechanical Refactor 73 type-module rename for the server threshold scheme registry. Exported scheme IDs and real cryptographic threshold names remain unchanged. |
-| `packages/sdk-server-ts/src/router/cloudflare/types.ts` | `packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts` | Mechanical Refactor 73 type-module rename for Cloudflare adapter boundary types after Refactor 70 core budget work stabilized. Runtime bindings and route handling remain unchanged. |
+| Old path                                                                   | New path                                                                                      | Reason                                                                                                                                                                                                |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts`        | `packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts`   | Mechanical Refactor 73 type-module rename for the server threshold scheme registry. Exported scheme IDs and real cryptographic threshold names remain unchanged.                                      |
+| `packages/sdk-server-ts/src/router/cloudflare/types.ts`                    | `packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts`                            | Mechanical Refactor 73 type-module rename for Cloudflare adapter boundary types after Refactor 70 core budget work stabilized. Runtime bindings and route handling remain unchanged.                  |
 | `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` | `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts` | Mechanical Refactor 73 type-module rename for signing-session seal boundary types after Refactor 70 core budget work stabilized. Seal policy, auth, budget, and transport semantics remain unchanged. |
 
 Validation completed for the Phase 7 route-core ownership guard:
@@ -1720,7 +1688,11 @@ rtk pnpm router:deploy:browser-evidence
 
 ## Deliverable
 
-Create a follow-up audit document under `docs/audits/` with:
+Delivered audit document:
+
+- [refactor-69c-router-ab-flow-inventory-2026-06-18.md](./audits/refactor-69c-router-ab-flow-inventory-2026-06-18.md)
+
+The audit covers:
 
 - complete flow inventory
 - call graphs per flow
@@ -1731,12 +1703,12 @@ Create a follow-up audit document under `docs/audits/` with:
 - guard/test additions
 - validation evidence
 
-The audit should separate findings into:
+The audit separates findings into:
 
 - release-blocking correctness issues
 - high-value cleanup
 - naming and folder organization
 - optional ergonomics
 
-Refactor work should begin only after the inventory clearly shows which modules
-own each Router A/B behavior and which callers are allowed to reach them.
+Implementation work began after the inventory identified the modules that own
+each Router A/B behavior and the callers allowed to reach them.

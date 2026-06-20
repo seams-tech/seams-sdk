@@ -188,7 +188,7 @@ The current assumption is:
 - the removed threshold-ed25519 microbenchmark harness is obsolete and should
   not be used as a live performance reference for the active path
 - Router A/B Ed25519 signing performance and verification evidence now lives in
-  [router-a-b-single-session.md](../router-a-b-single-session.md)
+  [router-a-b-SPEC.md](../router-a-b-SPEC.md)
 
 The performance bar is therefore:
 

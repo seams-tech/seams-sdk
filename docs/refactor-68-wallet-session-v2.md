@@ -2,20 +2,19 @@
 
 Date created: June 15, 2026
 
-Status: implemented locally. Deployed Cloudflare release evidence remains open.
+Status: complete for the local Wallet Session V2 Router A/B normal-signing
+scope. Deployed Cloudflare evidence is tracked outside this historical refactor
+handoff.
 
 Primary source of truth:
 
-- [router-a-b-single-session.md](./router-a-b-single-session.md)
-- [router-A-B-signer.md](./router-A-B-signer.md)
-- [router-A-B-signer-SPEC.md](./router-A-B-signer-SPEC.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [router-a-b-local-dev.md](./router-a-b-local-dev.md)
 
 This file preserves the historical refactor plan for agents working on the SDK.
-The implementation plan was written in `docs/router-a-b-single-session.md` while
-the cutover was in progress. This refactor note records the finished shape,
-major decisions, completed phases, validation evidence, and the remaining
-release-tail work.
+The Router A/B implementation plans were consolidated into
+`docs/router-a-b-SPEC.md` after the cutover. This refactor note records the
+finished shape, major decisions, completed phases, and validation evidence.
 
 ## Goal
 
@@ -682,8 +681,8 @@ Representative validation from June 15, 2026:
 - `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
   passed after adding pool-backed ECDSA-HSS strict private prepare dispatch.
 - `rtk pnpm router:deploy:check` passed before ECDSA-HSS was promoted to a
-  pre-deploy release blocker; the current release tail remains blocked on the
-  ECDSA-HSS items below.
+  pre-deploy release blocker. Later ECDSA-HSS and Router A/B deployment gates
+  are tracked in the active cleanup/deployment plans.
 - `rtk pnpm -C packages/sdk-web type-check` passed.
 - `rtk pnpm -C apps/web-client typecheck` passed after the broader cleanup.
 - `rtk pnpm -C packages/sdk-server-ts type-check` passed after the broader
@@ -781,14 +780,10 @@ Representative validation from June 15, 2026:
 Focused stale-name scans found no active source matches for the deleted
 normal-signing v1/grant symbols outside docs and guard deny-lists.
 
-## Remaining Release Tail
+## Local Follow-Up Closure
 
-These are release-readiness tasks. They do not reopen the local Wallet Session
-V2 implementation.
-
-Cloudflare Router A/B deployment is now also blocked on release-complete
-ECDSA-HSS Router A/B support. See `docs/router-a-b-ecdsa.md`; that plan is an
-active pre-deploy requirement rather than a post-MVP feature.
+These completed items closed the local Wallet Session V2 follow-up work after
+ECDSA-HSS Router A/B was promoted to a local release requirement.
 
 - [x] Add initial release-blocking ECDSA-HSS Router A/B protocol/wire shapes,
       Router registration/bootstrap/export boundaries, and Router-mediated
@@ -888,48 +883,17 @@ active pre-deploy requirement rather than a post-MVP feature.
 - [x] Complete local ECDSA-HSS Router A/B support for the Wallet Session V2
       cutover. Registration, activation, export, recovery, refresh, SDK request
       building, local validation, and local benchmarks are covered by the Router
-      A/B ECDSA-HSS and cleanup plans; deployed Cloudflare evidence remains
-      below.
+      A/B ECDSA-HSS and cleanup plans.
 - [x] Run the final local Router A/B legacy and naming cleanup after Wallet
       Session V2 and ECDSA-HSS support. The canonical cleanup record is
       [router-a-b-cleanup.md](./router-a-b-cleanup.md); local Router A/B-only
-      cleanup is review-ready there, while deployed Cloudflare release evidence
-      remains below.
+      cleanup is tracked there.
 - [x] Harden the unlock-to-sign readiness boundary for Router A/B-only signing.
       Wallet unlock now requests and persists Ed25519 Router A/B
       normal-signing state, ECDSA runtime availability requires persisted
       ECDSA-HSS Router A/B normal-signing state, stale runtime lanes without
       that state are not advertised as sign-ready, and the server fails startup
       without `ROUTER_AB_NORMAL_SIGNING_WORKER_ID`.
-- [ ] Capture deployed strict Cloudflare browser evidence with
-      `rtk pnpm router:deploy:browser-evidence` for:
-      configured-origin success, rejected-origin behavior, preflight behavior,
-      and timing with preflight included.
-- [ ] Run real Cloudflare upload or deploy validation for Router, Deriver A,
-      Deriver B, and SigningWorker.
-- [ ] Record Wrangler `startup_time_ms` for each role. Dry-run reports bundle
-      size only and currently has `startupTimeMs: null`.
-- [ ] Record cold-ish and hot-isolate normal-signing latency against deployed
-      strict Cloudflare Workers.
-- [ ] Confirm deployed normal signing does not invoke Deriver A or Deriver B.
-- [ ] Pull Cloudflare metrics/logs for CPU time, wall time, invocation status,
-      and startup failure events.
-- [ ] Add the measured startup table to the Router A/B signer budget section.
-
-Current blockers:
-
-- `rtk pnpm router:deploy:browser-evidence` reaches the Playwright test and
-  fails before issuing deployed requests because `ROUTER_AB_DEPLOYED_BASE_URL`
-  is missing from the local shell.
-- `ROUTER_AB_DEPLOYED_ALLOWED_ORIGIN`,
-  `ROUTER_AB_DEPLOYED_REJECTED_ORIGIN`, a request-scoped Wallet Session flow
-  fixture, and deployed request body inputs are still needed.
-- GitHub repo-level Actions secrets and variables are empty.
-- `staging` and `production` environments contain generated Router A/B identity
-  key material, public variables, and private identity secrets.
-- Real upload/deploy still needs `ROUTER_AB_JWT_ISSUER`,
-  `ROUTER_AB_JWT_JWKS_URL`, optional `ROUTER_AB_JWT_AUDIENCE`, Cloudflare
-  credentials, and Deriver A/B root-share wire secrets.
 
 ## Manual Testing Readiness
 
@@ -951,9 +915,6 @@ rtk pnpm router:smoke:bundled
 rtk pnpm router:deploy:check
 ```
 
-Deployed manual testing should wait until the release-tail inputs above are
-available.
-
 ## Guardrails For Future Agents
 
 - Do not add a client-visible Router normal-signing grant.
@@ -972,5 +933,5 @@ available.
   requirements have tests.
 - Keep public wire-schema suffixes only where they describe current serialized
   contracts.
-- Treat `docs/router-a-b-single-session.md` as the detailed implementation log
-  and this file as the refactor handoff.
+- Treat `docs/router-a-b-SPEC.md` as the canonical Router A/B architecture and
+  this file as the historical Wallet Session V2 handoff.

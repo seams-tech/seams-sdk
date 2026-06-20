@@ -1,21 +1,23 @@
-# Refactor 69 Inventory: ID Rename Surfaces
+# Refactor 71 Inventory: ID Rename Surfaces
 
 Date created: June 18, 2026
 
-Status: inventory for `refactor-71-rename-id.md`.
+Status: old grant-name baseline, Agent A public threshold policy/bootstrap
+surfaces, and public `sessionId` allowlist closed; Agent B semantic renames
+remain.
 
 ## Scope
 
 This inventory covers the naming cleanup:
 
-| Current token | Target token | Replacement class |
-| --- | --- | --- |
-| `walletSigningSessionId` | `signingGrantId` | Direct rename when it identifies the user-approved signing allowance. |
-| `WalletSigningSessionId` | `SigningGrantId` | Branded type and parser rename. |
-| `wallet_signing_session_id` | `signing_grant_id` | Persistence and wire-field rename at boundary schemas. |
-| `wallet-signing-session` | `signing-grant` | Fixtures, string labels, source-guard samples. |
-| `sessionId` | `thresholdSessionId` | Rename only when it identifies the concrete threshold/MPC session. |
-| `session_id` | `threshold_session_id` | Rename only for threshold/MPC wire or persistence fields. |
+| Current token               | Target token           | Replacement class                                                     |
+| --------------------------- | ---------------------- | --------------------------------------------------------------------- |
+| `walletSigningSessionId`    | `signingGrantId`       | Direct rename when it identifies the user-approved signing allowance. |
+| `WalletSigningSessionId`    | `SigningGrantId`       | Branded type and parser rename.                                       |
+| `wallet_signing_session_id` | `signing_grant_id`     | Persistence and wire-field rename at boundary schemas.                |
+| `wallet-signing-session`    | `signing-grant`        | Fixtures, string labels, source-guard samples.                        |
+| `sessionId`                 | `thresholdSessionId`   | Rename only when it identifies the concrete threshold/MPC session.    |
+| `session_id`                | `threshold_session_id` | Rename only for threshold/MPC wire or persistence fields.             |
 
 `sessionId` is overloaded across app sessions, worker sessions, recovery
 sessions, request-local variables, and threshold sessions. Treat it as a
@@ -32,12 +34,32 @@ rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shar
 rg "signingGrantId|SigningGrantId|signing_grant_id|signing-grant" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
 ```
 
-Current baseline:
+Initial baseline:
 
 - Old grant name: 3,764 matches across 311 files.
 - Existing `thresholdSessionId` spelling: 5,103 matches across 348 files.
 - Plain `sessionId`: 291 files across code, tests, docs, Wasm, Rust, and apps.
 - Existing target `signingGrantId`: docs only before the grant-ID rename slice.
+
+Current Agent C audit:
+
+- Active package/test TS sources have no direct old grant-name hits:
+  `WalletSigningSessionId`, `parseWalletSigningSessionId`,
+  `walletSigningSessionId`, `wallet_signing_session_id`, or
+  `wallet-signing-session`.
+- Live-behavior docs are guarded for old grant-name identifiers and prose
+  variants. Historical refactor documents may still mention old terms as
+  background context.
+- The current source guard also covers Router A/B local smoke Rust fixtures under
+  `crates/router-ab-dev/src` and the SecureConfirm app docs page.
+- Public/wire `sessionId` surfaces now have an explicit source-guard allowlist.
+  The guard now scans exported type/interface shapes recursively, so nested
+  response fields are included. Current targeted guards also cover Router A/B
+  Wallet Session JWT claims.
+  Owner-specific semantic renames remain assigned to Agent B slices; the budget
+  projection internal state row, ECDSA registration prepare/client bootstrap row,
+  public threshold policy/bootstrap row, and Router A/B route/budget helper
+  structs are now closed.
 
 Post-grant rename slice evidence:
 
@@ -161,7 +183,10 @@ Budget and spend state:
 - `packages/sdk-web/src/core/signingEngine/session/budget/budget.ts`
 - `packages/sdk-web/src/core/signingEngine/session/budget/budget.typecheck.ts`
 - `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.ts`
+  - Closed: internal projection state uses `signingGrantId`; `sessionId` remains
+    only at the existing `SigningSessionStatus` boundary.
 - `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
+  - Closed: type fixtures reject old internal `sessionId` object shapes.
 - `packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts`
 - `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
 - `packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
@@ -282,6 +307,10 @@ Relayer RPC clients:
 - `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`
 - `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.typecheck.ts`
 - `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`
+  - Closed: ECDSA registration prepare/client bootstrap now uses
+    `thresholdSessionId`.
+  - Closed: nested Ed25519 registration session response now uses
+    `thresholdSessionId`.
 
 Threshold protocol surfaces:
 
@@ -362,31 +391,38 @@ Recovery and export:
 
 ### Rust, Wasm, Apps, And Docs Outside SDK Packages
 
-No direct `walletSigningSessionId` hits were found in `crates`, `wasm`, `apps`,
-or `voiceId`.
+Current scans have no direct old grant-name hits in `crates`, `wasm`, `apps`, or
+`voiceId`. Agent C follow-up removed stale Router A/B local smoke JWT claim names
+from `crates/router-ab-dev/src/bin/router_ab_local_smoke.rs`.
 
-Plain `sessionId` appears in these non-package files and needs classification:
+Plain `sessionId` / `session_id` appears in these non-package files and is now
+classified by `refactor71WalletSessionNaming.guard.unit.test.ts`:
 
-- `wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_client_verifying_share.rs`
-- `wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_hss_client_inputs.rs`
-- `crates/signer-core/src/commands/ecdsa_bootstrap.rs`
-- `apps/web-client/src/flows/demo/hooks/useDemoSigningSession.ts`
-- `apps/docs/src/concepts/security-model.md`
+| File                                                                                      | Classification                                                |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `apps/docs/src/concepts/security-model.md`                                                | keep: SecureConfirm worker session id.                        |
+| `apps/web-client/src/flows/demo/hooks/useDemoSigningSession.ts`                           | rename-later: Agent B, mirrors SDK signing-session status.    |
+| `crates/signer-core/src/commands/ecdsa_bootstrap.rs`                                      | keep: Email OTP worker session handle id.                     |
+| `crates/signer-core/src/commands/ed25519_worker_material.rs`                              | rename-later: Agent B, worker material session binding.       |
+| `wasm/near_signer/src/handlers/handle_sign_delegate_action.rs`                            | rename-later: Agent B, Wasm signer request contract.          |
+| `wasm/near_signer/src/handlers/handle_sign_nep413_message.rs`                             | rename-later: Agent B, Wasm signer request contract.          |
+| `wasm/near_signer/src/handlers/handle_sign_transactions_with_actions.rs`                  | rename-later: Agent B, Wasm signer request contract.          |
+| `wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_client_verifying_share.rs` | rename-later: Agent B, Wasm material-derive request contract. |
+| `wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_hss_client_inputs.rs`      | rename-later: Agent B, Wasm material-derive request contract. |
+| `wasm/near_signer/src/threshold/coordinator.rs`                                           | rename-later: Agent B, threshold protocol session plumbing.   |
+| `wasm/near_signer/src/threshold/relayer_http.rs`                                          | rename-later: Agent B, threshold protocol route contract.     |
+| `wasm/near_signer/src/threshold/signer_backend.rs`                                        | rename-later: Agent B, threshold protocol session plumbing.   |
+| `wasm/near_signer/src/threshold/transport.rs`                                             | rename-later: Agent B, threshold protocol route contract.     |
+| `wasm/near_signer/src/threshold/worker_material.rs`                                       | rename-later: Agent B, worker material session binding.       |
+| `wasm/near_signer/src/types/signing.rs`                                                   | rename-later: Agent B, threshold signer config.               |
 
-Notes:
-
-- The two Wasm request structs expose JS `sessionId` fields for threshold
-  derivation requests. Rename to `thresholdSessionId` if the field is still part
-  of the JS boundary, or remove it if unused.
-- `EcdsaBootstrapEmailOtpWorkerSessionHandle.session_id` in
-  `crates/signer-core/src/commands/ecdsa_bootstrap.rs` appears to identify an
-  Email OTP worker session handle. Keep that name if confirmed.
-- `DemoSigningSessionStatus.sessionId` should become `thresholdSessionId` if it
-  mirrors SDK signing-session status.
+Do not rename the Agent B rows in this slice. The guard keeps them classified so
+new ambiguous public/wire `sessionId` surfaces cannot appear silently while
+Refactor 74 owns signer-core/WASM material restore and unlock/signing flow.
 
 ### Tests And Fixtures
 
-Representative test groups with direct old-name hits:
+Initial baseline representative test groups with direct old-name hits:
 
 - `tests/helpers/thresholdEcdsaTempoFlow.ts`
 - `tests/helpers/thresholdEcdsaSealedRefreshHarness.ts`
@@ -432,11 +468,14 @@ Expected edits:
 Update active docs that describe current behavior:
 
 - `docs/refactor-71-rename-id.md`
+- `apps/docs/src/concepts/secureconfirm-sessions.md`
+- `docs/refactor-68-wallet-session-v2.md`
 - `docs/router-a-b-cleanup.md`
-- `docs/router-A-B-signer-SPEC.md`
-- `docs/router-A-B-signer.md`
+- `docs/router-a-b-SPEC.md`
+- `docs/refactor-74-login-no-hss.md`
 - `docs/otp/email-otp.md`
 - `docs/intended-behaviours.md`
+- `docs/ml-dsa-threshold.md`
 - `docs/signing-session-architecture/README.md`
 - `docs/signing-session-architecture/sealed-refresh.md`
 - `docs/threshold-ecdsa/ecdsa-hss-v2-integration.md`
@@ -461,11 +500,11 @@ being promoted as active source of truth:
 - `docs/refactor-49-stepup-budget.md`
 - `docs/refactor-50-cross-platform-1.md`
 - `docs/refactor-51-cross-platform-2.md`
-- `docs/ml-dsa-threshold.md`
 
-## Direct Old Grant-Name File List
+## Initial Direct Old Grant-Name File List
 
-These files contain at least one of:
+The initial baseline found at least one of these old grant-name tokens in the
+files below:
 `WalletSigningSessionId`, `walletSigningSessionId`,
 `wallet_signing_session_id`, or `wallet-signing-session`.
 
@@ -853,3 +892,13 @@ rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shar
 
 The second guard needs an allowlist because unrelated app/recovery/worker
 session identifiers should remain `sessionId`.
+
+The current source guard is:
+
+```sh
+pnpm -C tests exec playwright test -c playwright.config.ts unit/refactor71WalletSessionNaming.guard.unit.test.ts --reporter=line
+```
+
+It rejects old signing-grant names, Router A/B Wallet Session JWT payloads that
+use `sessionId`, unclassified exported `sessionId` public surfaces, and
+unclassified non-package boundary files containing `sessionId` / `session_id`.

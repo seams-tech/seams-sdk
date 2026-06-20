@@ -7,7 +7,7 @@ Related docs:
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
 - [VoiceID SDK auth method integration](voiceId-sdk-auth-method-integration.md)
 - [VoiceID MVP 2](voiceId-mvp-2.md)
-- [Router A/B signer architecture](../router-A-B-signer.md)
+- [Router A/B signer architecture](../router-a-b-SPEC.md)
 
 ## Goal
 
@@ -27,7 +27,7 @@ SDK transaction request
 ```
 
 Router A/B signing integration now targets the signer architecture in
-`docs/router-A-B-signer.md`: Router owns the public admission boundary, normal
+`docs/router-a-b-SPEC.md`: Router owns the public admission boundary, normal
 signing flows through the active `SigningWorker`, and Deriver A/B stay out of
 the hot signing path. VoiceID should depend on a narrow signing-gate adapter
 around typed normal-signing prepare/finalize requests while avoiding concrete

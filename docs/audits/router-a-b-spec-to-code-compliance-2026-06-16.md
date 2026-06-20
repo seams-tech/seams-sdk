@@ -28,10 +28,10 @@ The worktree was dirty during this audit. The review includes the current uncomm
 
 Primary specs reviewed:
 
-- [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md)
-- [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md)
-- [docs/router-A-B-signer.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer.md)
-- [docs/router-A-B-signer-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer-SPEC.md)
+- [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md)
+- [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md)
+- [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md)
+- [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md)
 - [crates/ecdsa-hss/specs/protocol.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/protocol.md)
 - [crates/ecdsa-hss/specs/export.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/export.md)
 
@@ -49,21 +49,21 @@ Primary implementation areas reviewed:
 
 ## 3. Spec Corpus
 
-The ECDSA-HSS plan makes the ECDSA work release-blocking for full Router A/B deployment. It states that Cloudflare deploy remains blocked until ECDSA registration, activation, normal signing, export, recovery/refresh, and validation are either implemented or the ECDSA public surface is explicitly removed from the release scope. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:15).
+The ECDSA-HSS plan makes the ECDSA work release-blocking for full Router A/B deployment. It states that Cloudflare deploy remains blocked until ECDSA registration, activation, normal signing, export, recovery/refresh, and validation are either implemented or the ECDSA public surface is explicitly removed from the release scope. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:15).
 
-The normal ECDSA hot path is specified as `Client -> Router -> SigningWorker -> Router -> Client`; Deriver A and Deriver B are outside the per-signature hot path. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:27).
+The normal ECDSA hot path is specified as `Client -> Router -> SigningWorker -> Router -> Client`; Deriver A and Deriver B are outside the per-signature hot path. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:27).
 
-The server-blindness invariant says production server paths must never reconstruct canonical `x`, return `privateKeyHex`, or accept both `y_client` and `y_server` in the same request. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:53) and [crates/ecdsa-hss/specs/protocol.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/protocol.md:5).
+The server-blindness invariant says production server paths must never reconstruct canonical `x`, return `privateKeyHex`, or accept both `y_client` and `y_server` in the same request. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:53) and [crates/ecdsa-hss/specs/protocol.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/protocol.md:5).
 
-The ECDSA protocol version and transcripts must bind ECDSA-specific purpose strings, secp256k1 keys, address, context, Deriver roles, SigningWorker identity, export authorization digest, and replay nonce. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:73) and [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:160).
+The ECDSA protocol version and transcripts must bind ECDSA-specific purpose strings, secp256k1 keys, address, context, Deriver roles, SigningWorker identity, export authorization digest, and replay nonce. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:73) and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:160).
 
-The normal-signing prepare/finalize path requires Router admission, replay reserve, SigningWorker presignature pool reservation, request-bound one-use presignature records, finalize take, and response. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:136).
+The normal-signing prepare/finalize path requires Router admission, replay reserve, SigningWorker presignature pool reservation, request-bound one-use presignature records, finalize take, and response. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:136).
 
-The public/private boundary says public Router routes accept typed registration, bootstrap, export, recovery, refresh, prepare, and finalize. The private Deriver boundary accepts only Router-forwarded role-encrypted material. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:116).
+The public/private boundary says public Router routes accept typed registration, bootstrap, export, recovery, refresh, prepare, and finalize. The private Deriver boundary accepts only Router-forwarded role-encrypted material. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:116).
 
 The explicit ECDSA export spec allows a server-side export share to be released only to an authorized client flow, and requires an export-distinct audit or telemetry event. The server export response may contain `x_relayer_export` plus public transcript/auth metadata, and must never contain canonical `x`, `privateKeyHex`, or client share material. See [crates/ecdsa-hss/specs/export.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/export.md:8), [crates/ecdsa-hss/specs/export.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/export.md:27), and [crates/ecdsa-hss/specs/export.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/export.md:183).
 
-The single-session release plan records that Ed25519 presign-pool UX work is implemented locally, while pool-hit/pool-miss latency, deployed strict browser evidence, CORS preflight behavior, and runtime evidence remain open. See [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:1458), [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:1478), and [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:1487).
+The single-session release plan records that Ed25519 presign-pool UX work is implemented locally, while pool-hit/pool-miss latency, deployed strict browser evidence, CORS preflight behavior, and runtime evidence remain open. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1458), [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1478), and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1487).
 
 ## 4. Spec-IR
 
@@ -135,7 +135,7 @@ Type: concrete divergence.
 
 Confidence: 0.92.
 
-Requirement: Router is the public boundary; Deriver and SigningWorker private boundaries accept Router-forwarded internal material. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:116) and [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:27).
+Requirement: Router is the public boundary; Deriver and SigningWorker private boundaries accept Router-forwarded internal material. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:116) and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:27).
 
 Observed code: the strict SigningWorker entrypoint directly dispatches private routes, including activation, normal signing prepare/finalize, presignature-pool put, ECDSA prepare, and ECDSA finalize. See [crates/router-ab-cloudflare/src/strict_worker.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/strict_worker.rs:1250).
 
@@ -176,7 +176,7 @@ Type: evidence gap.
 
 Confidence: 0.95.
 
-Requirement: release readiness requires actual upload/deploy evidence, deployed browser evidence for `/v2/router-ab/ed25519/sign/prepare` and `/v2/router-ab/ed25519/sign`, configured-origin success, rejected-origin behavior, preflight behavior, cold/hot latency, logs/metrics, Deriver non-invocation on normal signing, and startup evidence. See [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:1478), [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:1487), and [docs/router-A-B-signer.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer.md:3176).
+Requirement: release readiness requires actual upload/deploy evidence, deployed browser evidence for `/v2/router-ab/ed25519/sign/prepare` and `/v2/router-ab/ed25519/sign`, configured-origin success, rejected-origin behavior, preflight behavior, cold/hot latency, logs/metrics, Deriver non-invocation on normal signing, and startup evidence. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1478), [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1487), and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:3176).
 
 Observed evidence: local release gates and dry-run packaging pass, but the recorded startup-latency report is dry-run mode and has `startupTimeMs` as `null`, which is expected for that evidence type. Startup reports are generated as ignored timestamped JSON under `crates/router-ab-cloudflare/reports/startup-latencies/`.
 
@@ -196,7 +196,7 @@ Type: hardening gap.
 
 Confidence: 0.80.
 
-Requirement: the spec keeps a hardening item to review and either remove client-supplied `group_public_key` or prove it is harmless through transcript binding and validation. See [docs/router-A-B-signer-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer-SPEC.md:1581).
+Requirement: the spec keeps a hardening item to review and either remove client-supplied `group_public_key` or prove it is harmless through transcript binding and validation. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1581).
 
 Observed code: the SDK finalize protocol still includes a client-provided `group_public_key`, and the Cloudflare finalizer passes the decoded protocol value into role-separated Ed25519 finalization. See [packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts:154) and [crates/router-ab-cloudflare/src/lib.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/lib.rs:1943).
 
@@ -216,9 +216,9 @@ Type: documentation drift.
 
 Confidence: 0.86.
 
-Observed drift: [docs/router-A-B-signer-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer-SPEC.md:1570) still lists signature-only Ed25519 Router A/B flows as unchecked, but [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:958) and the SDK flow code show NEP-413 and delegate actions are routed through Router A/B before fallback. See [packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts:302) and [packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts:442).
+Observed drift: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1570) still lists signature-only Ed25519 Router A/B flows as unchecked, but [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:958) and the SDK flow code show NEP-413 and delegate actions are routed through Router A/B before fallback. See [packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts:302) and [packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts:442).
 
-Observed drift: [docs/router-A-B-signer-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer-SPEC.md:1627) still lists concrete JWKS JWT verifier and DO-backed policy/quota/abuse as unchecked, but implementation and tests exist. See [crates/router-ab-cloudflare/src/lib.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/lib.rs:10509), [crates/router-ab-cloudflare/src/durable_object.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/durable_object.rs:5990), and [crates/router-ab-cloudflare/tests/bindings.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/tests/bindings.rs:10090).
+Observed drift: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1627) still lists concrete JWKS JWT verifier and DO-backed policy/quota/abuse as unchecked, but implementation and tests exist. See [crates/router-ab-cloudflare/src/lib.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/lib.rs:10509), [crates/router-ab-cloudflare/src/durable_object.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/src/durable_object.rs:5990), and [crates/router-ab-cloudflare/tests/bindings.rs](/Users/pta/Dev/rust/seams-sdk/crates/router-ab-cloudflare/tests/bindings.rs:10090).
 
 Impact: stale unchecked items make the release tail harder to read and can cause duplicate implementation work.
 
@@ -230,7 +230,7 @@ Type: maintainability drift.
 
 Confidence: 0.82.
 
-Requirement: the ECDSA plan says new Router A/B ECDSA protocol names should use `server` terminology and `*_server` variables until the ECDSA version freezes legacy names. See [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:98).
+Requirement: the ECDSA plan says new Router A/B ECDSA protocol names should use `server` terminology and `*_server` variables until the ECDSA version freezes legacy names. See [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:98).
 
 Observed code: the new shared ECDSA bridge still exposes `relayerKeyId` in Router A/B ECDSA presignature share records, and the server bridge wraps legacy `ThresholdEcdsaPresignatureRelayerShareRecord`. See [packages/shared-ts/src/utils/routerAbEcdsaHss.ts](/Users/pta/Dev/rust/seams-sdk/packages/shared-ts/src/utils/routerAbEcdsaHss.ts:54), [packages/shared-ts/src/utils/routerAbEcdsaHss.ts](/Users/pta/Dev/rust/seams-sdk/packages/shared-ts/src/utils/routerAbEcdsaHss.ts:287), and [packages/sdk-server-ts/src/core/ThresholdService/routerAbEcdsaHssPresignBridge.ts](/Users/pta/Dev/rust/seams-sdk/packages/sdk-server-ts/src/core/ThresholdService/routerAbEcdsaHssPresignBridge.ts:1).
 
@@ -280,9 +280,9 @@ The docs are mostly useful, but the source of truth is split across the older si
 
 Recommended doc cleanup:
 
-1. Make [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md) the Ed25519 single-session/release-tail tracker.
-2. Make [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md) the ECDSA-HSS release blocker tracker.
-3. Treat [docs/router-A-B-signer.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer.md) and [docs/router-A-B-signer-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-A-B-signer-SPEC.md) as historical specs plus status summaries, with links to the active trackers.
+1. Make [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md) the Ed25519 single-session/release-tail tracker.
+2. Make [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md) the ECDSA-HSS release blocker tracker.
+3. Treat [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md) and [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md) as historical specs plus status summaries, with links to the active trackers.
 4. Remove stale unchecked items only after adding code/test evidence links.
 
 ## 13. Validation Run
@@ -348,13 +348,13 @@ Ambiguities:
 
 Spec evidence:
 
-- ECDSA release-blocking scope: [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:15)
-- ECDSA normal-signing topology: [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:27)
-- ECDSA server-blindness: [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:53)
-- ECDSA public/private boundary: [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:116)
-- ECDSA one-use normal signing: [docs/router-a-b-ecdsa.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-ecdsa.md:136)
+- ECDSA release-blocking scope: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:15)
+- ECDSA normal-signing topology: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:27)
+- ECDSA server-blindness: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:53)
+- ECDSA public/private boundary: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:116)
+- ECDSA one-use normal signing: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:136)
 - ECDSA export audit requirement: [crates/ecdsa-hss/specs/export.md](/Users/pta/Dev/rust/seams-sdk/crates/ecdsa-hss/specs/export.md:183)
-- Deployed evidence open: [docs/router-a-b-single-session.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-single-session.md:1478)
+- Deployed evidence open: [docs/router-a-b-SPEC.md](/Users/pta/Dev/rust/seams-sdk/docs/router-a-b-SPEC.md:1478)
 
 Code evidence:
 

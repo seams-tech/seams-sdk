@@ -80,12 +80,12 @@ Computing.
 
 ## Documentation Created Or Updated
 
-- `docs/router-A-B-signer.md`
+- `docs/router-a-b-SPEC.md`
   - Main architecture and implementation plan.
   - Operational roadmap.
   - Future N-of-N and t-of-N notes.
   - Cloudflare-only prototype path and future multi-provider/TEE path.
-- `docs/router-A-B-signer-SPEC.md`
+- `docs/router-a-b-SPEC.md`
   - Protocol gates, threat matrix, state machine, transcript binding, output
     correctness levels, observability/redaction, release gates, vectors, API
     shapes, examples, folder structure, and formal-verification notes.
@@ -548,7 +548,7 @@ work:
 - Handoff and local-dev docs:
   - `chats/chat-5-router-a-b.md`
   - `docs/router-a-b-local-dev.md`
-  - `docs/router-A-B-signer-SPEC.md`
+  - `docs/router-a-b-SPEC.md`
 - Local dev harness:
   - `crates/router-ab-dev/Cargo.toml`
   - `crates/router-ab-dev/Cargo.lock`

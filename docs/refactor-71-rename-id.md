@@ -2,13 +2,13 @@
 
 Date created: June 17, 2026
 
-Status: implementation-ready plan.
+Status: mostly complete; active docs/guards and public `sessionId` allowlist are
+closed, owner-specific semantic renames remain.
 
 Primary source of truth:
 
 - [refactor-68-wallet-session-v2.md](./refactor-68-wallet-session-v2.md)
-- [router-a-b-single-session.md](./router-a-b-single-session.md)
-- [router-A-B-signer-SPEC.md](./router-A-B-signer-SPEC.md)
+- [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [router-a-b-cleanup.md](./router-a-b-cleanup.md)
 
 ## Goal
@@ -48,13 +48,13 @@ The refactor should make this distinction obvious everywhere:
 
 ## Naming Decisions
 
-| Current name | New name | Meaning |
-| --- | --- | --- |
-| `sessionId` | `thresholdSessionId` | Concrete threshold/MPC session record and lifecycle state. |
-| `walletSigningSessionId` | `signingGrantId` | User-approved signing allowance spent by threshold sessions. |
-| `walletId` | `walletId` | Wallet/account resource being controlled. |
-| `rpId` | `rpId` | WebAuthn relying-party boundary. |
-| `relayerKeyId` | `relayerKeyId` | Relayer/server signing key identity. |
+| Current name             | New name             | Meaning                                                      |
+| ------------------------ | -------------------- | ------------------------------------------------------------ |
+| `sessionId`              | `thresholdSessionId` | Concrete threshold/MPC session record and lifecycle state.   |
+| `walletSigningSessionId` | `signingGrantId`     | User-approved signing allowance spent by threshold sessions. |
+| `walletId`               | `walletId`           | Wallet/account resource being controlled.                    |
+| `rpId`                   | `rpId`               | WebAuthn relying-party boundary.                             |
+| `relayerKeyId`           | `relayerKeyId`       | Relayer/server signing key identity.                         |
 
 Avoid `walletSessionId` for either renamed field. The project already uses
 Wallet Session as the client-facing credential concept, and `walletSessionId`
@@ -207,19 +207,37 @@ carry an old threshold-session id through a derivation or worker boundary.
 
 ## Phase 1: Inventory And Ownership
 
-- [ ] Inventory all `sessionId` usages in wallet-session, threshold-session,
-      Router A/B, SDK, tests, docs, and fixtures.
-- [ ] Classify each `sessionId` as one of:
-      `thresholdSessionId`, app/browser session id, request id, ceremony id, or
-      unrelated local variable.
+- [x] Inventory current public/wire `sessionId` usages in wallet-session,
+      threshold-session, Router A/B, SDK, docs, and non-package boundary
+      fixtures.
+- [x] Classify each current public/wire `sessionId` as one of:
+      `thresholdSessionId`, app/browser session id, request id, ceremony id,
+      worker session id, protocol session id, or owner-specific rename-later.
 - [x] Inventory all `walletSigningSessionId` usages.
-- [ ] Identify persisted field owners:
+- [x] Identify persisted field owners:
       `SessionStore`, `WalletSessionStore`, Cloudflare Durable Object records,
       sealed-refresh records, IndexedDB records, test fixtures, and docs.
-- [ ] Identify public request/response contracts that currently expose
+- [x] Identify public request/response contracts that currently expose
       `sessionId` or `signingGrantId`.
-- [ ] Decide whether each public wire contract receives a route/protocol version
+- [x] Decide whether each public wire contract receives a route/protocol version
       bump or a temporary request-boundary parser for old names.
+
+Current Phase 1 evidence:
+
+- Active package/test TS sources have no direct old grant-name hits:
+  `WalletSigningSessionId`, `parseWalletSigningSessionId`,
+  `walletSigningSessionId`, `wallet_signing_session_id`, or
+  `wallet-signing-session`.
+- Plain `sessionId` remains a classification pass rather than a mechanical
+  rename. Targeted guards cover Router A/B Wallet Session JWT claims, exported
+  `sessionId` public surfaces, and non-package Rust/Wasm/docs boundary files.
+  The exported-surface guard now scans nested type/interface shapes recursively.
+  Owner-specific semantic renames stay assigned to Agent B; the budget
+  projection internal state row, ECDSA registration prepare/client bootstrap
+  row, public threshold policy/bootstrap row, and Router A/B route/budget helper
+  structs are now closed.
+- Current docs that describe live signing surfaces, including the SecureConfirm
+  app docs page, are covered by the Refactor 71 source guard.
 
 ## Phase 2: Add Branded Domain IDs
 
@@ -360,10 +378,10 @@ Phase 5 evidence:
 - Rust source guards assert strict Router public routes derive admission from
   bearer Wallet Session verification and private SigningWorker routes do not
   parse Wallet Session material.
-- Validation: `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml
-  --features strict-worker-router-entrypoint`, `cargo test --manifest-path
-  crates/router-ab-cloudflare/Cargo.toml --test source_guards`, and filtered
-  `bindings` tests for verified Wallet Session and ECDSA-HSS admission.
+- Validation:
+  - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
+  - `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  - filtered `bindings` tests for verified Wallet Session and ECDSA-HSS admission.
 
 ## Phase 6: Tests, Fixtures, And Docs
 
@@ -404,24 +422,37 @@ Phase 6 evidence:
       cutover.
 - [x] Remove old helper names, type aliases, and test helpers.
 - [x] Remove docs references that present `sessionId` as the threshold session id.
-- [x] Run source guards for old names:
-      `walletSigningSessionId`, `thresholdSessionAuthToken`, and ambiguous
-      wallet-session `sessionId` public surfaces.
+- [x] Run source guards for old signing-grant names and
+      `thresholdSessionAuthToken` in active signing paths.
+- [x] Add the broad allowlist-backed guard for ambiguous wallet-session
+      `sessionId` public surfaces.
 - [x] Keep unrelated app-session, request-session, and browser-session names
       unchanged where `sessionId` is the correct local term.
 
 Phase 7 evidence:
 
-- Active package/test source guards reject the old signing-grant names and
-  Router A/B Wallet Session JWT payloads that place `sessionId` next to current
-  Wallet Session JWT kinds. Storage compatibility parsers keep old persisted
-  field names at the storage boundary only.
+- Active package/test source guards reject old signing-grant names, stale
+  signing-grant prose terminology, Router A/B Wallet Session JWT payloads that
+  place `sessionId` next to current Wallet Session JWT kinds, and
+  `thresholdSessionAuthToken` in current signing paths. The same guard now
+  requires explicit classifications for exported `sessionId` public surfaces and
+  non-package Rust/Wasm/docs boundary files containing `sessionId` /
+  `session_id`. Storage compatibility parsers keep old persisted field names at
+  the storage boundary only.
+- The same guard now covers Router A/B local smoke Rust fixtures under
+  `crates/router-ab-dev/src`, so local JWT fixtures cannot reintroduce
+  `sessionId` / `walletSigningSessionId` claims for current Wallet Session JWT
+  kinds.
 - Refactor 70, intended behavior docs, and the Refactor 71 trust-axis section
   use `signingGrantId` / `thresholdSessionId` for current behavior. Older
   historical refactor plans remain historical evidence.
 - App/browser auth sessions, Email OTP worker sessions, recovery sessions,
   request ids, and third-party protocol fields still use `sessionId` where that
-  is the accurate local term.
+  is the accurate local term. The budget projection row, ECDSA registration
+  prepare/client bootstrap row, public threshold policy/bootstrap row, and
+  Router A/B route/budget helper structs now use `thresholdSessionId`;
+  remaining Agent B SDK/WASM signing rows stay classified as owner-specific
+  semantic work.
 
 ## Validation Plan
 

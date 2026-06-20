@@ -38,7 +38,6 @@ are tracked in `router-a-b-cleanup.md` Phase 15.9 through Phase 15.12 and
 - [x] Verify no TouchID prompt appears before budget exhaustion.
 - [x] Verify exactly one step-up auth appears after budget exhaustion.
 - [x] Verify the step-up mint creates a new Wallet Session grant/counter.
-- [ ] Capture deployed Cloudflare browser evidence after deployment setup is ready.
 
 ## Goal
 
@@ -773,7 +772,6 @@ Current evidence status:
   - ECDSA-HSS prepare/finalize
 - [x] Replace the fail-closed strict Cloudflare budget guard with real
       reserve/commit/release calls.
-- [ ] Add strict browser evidence after deployment setup is ready.
 
 Implemented scope:
 

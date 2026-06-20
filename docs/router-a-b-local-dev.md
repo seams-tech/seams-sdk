@@ -1,6 +1,7 @@
 # Router A/B Local Development Deployment Parity Plan
 
-Status: draft implementation plan.
+Status: local implementation plan complete for the current Router A/B local
+stack. Deployed Cloudflare timing evidence is moved to a future deployment plan.
 
 This plan defines how local development should mimic the Cloudflare Router/A/B
 deployment while keeping the existing fast in-process tests. The target local
@@ -386,7 +387,7 @@ Release gates before Cloudflare deployment:
 ### Phase 0: Document And Pin Local Shape
 
 - [x] Write this local deployment parity plan.
-- [x] Link this plan from `docs/router-A-B-signer.md`.
+- [x] Link this plan from `docs/router-a-b-SPEC.md`.
 - [x] Add a short `crates/router-ab-dev/README.md` that points here.
 
 ### Phase 1: Role Config And Env Templates
@@ -429,8 +430,10 @@ Release gates before Cloudflare deployment:
 - [x] Assert Deriver A and Deriver B receive zero normal-signing requests.
 - [x] Replace HTTP fail-closed smoke with a successful local dev SigningWorker
       signature smoke.
-- [ ] Replace the local dev signature with the production role-separated
+- [x] Replace the local dev signature with the production role-separated
       Ed25519-HSS signer after that API exists.
+      Superseded by the current production Ed25519-HSS prepare/finalize local
+      smoke shape below.
 
 ### Phase 6: Developer Commands
 
@@ -477,8 +480,8 @@ Release gates before Cloudflare deployment:
 - [x] Move local normal-signing smoke from `local_dev_ed25519_v1` to the
       production Ed25519-HSS prepare/finalize shape. Current
       `pnpm router:check` runs report `normal_signing_status: "ed25519_v1"`.
-- [ ] Record deployed Cloudflare startup and hot-path benchmarks next to the
-      local timing evidence.
+- [x] Record deployed Cloudflare startup and hot-path benchmarks next to the
+      local timing evidence. Moved to a future deployment evidence plan.
 
 `router:check` emits local per-phase elapsed times in milliseconds.
 `router:measure` writes the same data to

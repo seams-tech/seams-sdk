@@ -768,7 +768,7 @@ Goal: replace fake verifier with a real verifier behind the same boundary.
   - [x] Cloudflare deployment keeps Workers capture/API/policy code separate
     from Container-hosted ECAPA inference
   - [x] Cloudflare signing uses the existing Router A/B SigningWorker design in
-    `docs/router-A-B-signer.md`
+    `docs/router-a-b-SPEC.md`
   - [x] AWS deployment supports normal servers and Nitro Enclave custody through
     a parent-instance bridge while preserving Router A/B signer semantics
   - [x] on-device browser/iOS verification is deferred to a later portability
@@ -1122,7 +1122,7 @@ Goal: consume VoiceID as owner presence in the normal SDK first, then connect
 that policy result to intent-bound Router A/B signing later.
 
 VoiceID must integrate with the existing Router A/B signer architecture in
-`docs/router-A-B-signer.md` for the later signing phase. The first integration
+`docs/router-a-b-SPEC.md` for the later signing phase. The first integration
 test should stay on the normal SDK route/module path:
 
 ```text

@@ -574,7 +574,7 @@ Those belong to this plan and to the lane architecture in refactor 70.
 ## Moved Router A/B Phase 7 Scope
 
 The former `Recovery, Rotation, And Migration` Phase 7 from
-[router-A-B-signer-SPEC.md](./router-A-B-signer-SPEC.md) is split here.
+[router-a-b-SPEC.md](./router-a-b-SPEC.md) is split here.
 Wallet/lane rotation belongs to this plan. Router A/B root custody remains in
 the Router spec as server-custody work.
 
@@ -731,7 +731,7 @@ Prep should leave these behaviors unchanged:
 ### Phase 6: Router A/B Phase 7 Migration
 
 - [ ] Move generic wallet/lane rotation requirements out of
-      `docs/router-A-B-signer-SPEC.md`.
+      `docs/router-a-b-SPEC.md`.
 - [ ] Keep Router A/B Phase 7 scoped to server-custody rotation, root-share
       refresh, self-host export/import, hosted disablement, and root-epoch
       rollback evidence.

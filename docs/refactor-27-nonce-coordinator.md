@@ -394,20 +394,21 @@ Recommended operation order for a warm session:
 sequenceDiagram
   participant Flow as "Signing flow"
   participant Session as "SigningSessionCoordinator"
-  participant Budget as "WalletSigningBudgetLedger"
+  participant Router as "Router budget admission"
   participant Nonce as "NonceCoordinator"
   participant Confirm as "Tx confirmer"
   participant Signer as "Threshold signer"
   participant Chain as "RPC / chain"
 
   Flow->>Session: "prepareSigning returns prepared identity"
-  Session->>Budget: "Reserve remainingUses for prepared operation"
+  Session->>Router: "Read server-authoritative available budget"
   Flow->>Nonce: "Reserve nonce lease with prepared identity"
   Flow->>Confirm: "Display exact transaction"
   Confirm-->>Flow: "User confirms"
-  Flow->>Signer: "Create threshold signature"
+  Flow->>Router: "Reserve request budget and forward to threshold signer"
+  Router->>Signer: "Create threshold signature"
+  Router->>Router: "Commit request budget before returning signature"
   Flow->>Nonce: "markSigned"
-  Flow->>Budget: "Consume server-authoritative use"
   Flow->>Chain: "Broadcast"
   Chain-->>Flow: "Accepted / rejected"
   Flow->>Nonce: "Broadcast lifecycle transition"
@@ -415,8 +416,8 @@ sequenceDiagram
 
 Recommended operation order for an exhausted session:
 
-1. Planner sees no available local budget after subtracting in-flight
-   reservations.
+1. Planner sees no server-available budget after Router status and in-flight
+   projections are applied.
 2. Tx confirmer owns the flow and shows the registered reauth method.
 3. Email OTP or passkey reauth mints or refreshes exactly the requested
    `remainingUses` for this operation.

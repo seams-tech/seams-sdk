@@ -69,7 +69,7 @@ lifecycle work is moved into deferred Router A/B scope instead of staying as
 open refactor-66 work.
 
 Do not expand this document into the full prepared-registration lifecycle. That
-work belongs in `docs/router-A-B-signer.md`, where the expensive HSS backend,
+work belongs in `docs/router-a-b-SPEC.md`, where the expensive HSS backend,
 prepared-registration route model, and signer topology will change together.
 
 Carry forward these stable lessons into Router A/B:

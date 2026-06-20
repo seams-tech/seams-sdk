@@ -86,18 +86,18 @@ the old mixed root.
 
 ## Current State
 
-| Area | Current location | Problem |
-| --- | --- | --- |
-| Browser SDK facade | `client/src/SeamsWeb/` | Correct internal boundary, wrong top-level root. |
-| React/browser SDK code | `client/src/react/`, `client/src/plugins/`, `client/src/theme/` | Lives beside runtime code under `client/`. |
-| Platform-neutral runtime | `client/src/core/runtime/` | Lives under a folder that reads as app-client code. |
-| Platform ports | `client/src/core/platform/` | Mixed neutral ports, browser adapter, and native notes. |
-| SDK package/build | `sdk/` | Package metadata points at `../client/src` and emits `dist/types/client/src/...`. |
-| Server library | `server/src/` | Published through `@seams/sdk/server`, but top-level relation to SDK packages is unclear. |
-| Web client app | `examples/seams-site/` | This is a deployable app, not an SDK package. |
-| Web server app | `examples/relay-server/` | This is a deployable server app, not the server library. |
-| iOS client | Adapter contract only | Needs a native root before implementation starts. |
-| Embedded client | `crates/signer-embedded-linux/` plus adapter notes | Needs an SDK facade decision separate from browser TypeScript. |
+| Area                     | Current location                                                | Problem                                                                                |
+| ------------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Browser SDK facade       | `client/src/SeamsWeb/`                                          | Correct internal boundary, wrong top-level root.                                       |
+| React/browser SDK code   | `client/src/react/`, `client/src/plugins/`, `client/src/theme/` | Lives beside runtime code under `client/`.                                             |
+| Platform-neutral runtime | `client/src/core/runtime/`                                      | Lives under a folder that reads as app-client code.                                    |
+| Platform ports           | `client/src/core/platform/`                                     | Mixed neutral ports, browser adapter, and native notes.                                |
+| SDK package/build        | `sdk/`                                                          | Package metadata points at `../client/src` and emits `dist/types/client/src/...`.      |
+| Server library           | `server/src/`                                                   | Move to a dedicated server package boundary instead of publishing through the web SDK. |
+| Web client app           | `examples/seams-site/`                                          | This is a deployable app, not an SDK package.                                          |
+| Web server app           | `examples/relay-server/`                                        | This is a deployable server app, not the server library.                               |
+| iOS client               | Adapter contract only                                           | Needs a native root before implementation starts.                                      |
+| Embedded client          | `crates/signer-embedded-linux/` plus adapter notes              | Needs an SDK facade decision separate from browser TypeScript.                         |
 
 ## Target Top-Level Layout
 
@@ -134,19 +134,19 @@ examples/
 
 ### Area Ownership
 
-| Area | Target location | Notes |
-| --- | --- | --- |
-| Web SDK package | `packages/sdk-web/` | Owns `SeamsWeb`, React exports, browser plugins, browser platform adapter, IndexedDB, wallet iframe, browser UI, and web build scripts. The npm package may remain `@seams/sdk` during the source move. |
-| Runtime TS directory | `packages/sdk-web/src/core/runtime/` | Owns platform-neutral TypeScript runtime composition. It must have no DOM, React, browser storage, wallet iframe, or server route dependencies. |
-| Server TS package | `packages/sdk-server-ts/` | Owns server routes, WebAuthn verifier policy, route adapters, storage adapters, and server wasm bindings currently under `server/src`. |
-| Shared TS package | `packages/shared-ts/` | Owns protocol/domain TypeScript shared by web SDK, runtime, server, and tests. This can start as a move of `shared/src`. |
-| Web client app | `apps/web-client/` | Owns the browser app or site currently represented by `examples/seams-site`. It imports package exports instead of relative source roots. |
-| Web server app | `apps/web-server/` | Owns the deployable relay/server app currently represented by `examples/relay-server`. It imports server package exports instead of `server/src`. |
-| Docs app | `apps/docs/` | Optional move for `examples/seams-docs`; keep in `examples/` until the app boundary is useful. |
-| iOS client | `clients/ios/` | Swift Package Manager root. Owns `SeamsIos`, AuthenticationServices adapter code, Keychain storage, native signer-core bindings, and native replay fixtures. |
-| Embedded client | `crates/seams-embedded/` | Rust SDK facade for embedded deployments. Owns `SeamsEmbedded`, Rust signer-core integration, embedded persistence, local secret source adapters, and replay fixtures. |
-| Linux embedded adapter | `crates/signer-embedded-linux/` | Linux-specific adapter or test target used by `crates/seams-embedded`. |
-| Examples | `examples/` | Keep small integration examples and deployment templates that are not primary apps. |
+| Area                   | Target location                      | Notes                                                                                                                                                                                                   |
+| ---------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web SDK package        | `packages/sdk-web/`                  | Owns `SeamsWeb`, React exports, browser plugins, browser platform adapter, IndexedDB, wallet iframe, browser UI, and web build scripts. The npm package may remain `@seams/sdk` during the source move. |
+| Runtime TS directory   | `packages/sdk-web/src/core/runtime/` | Owns platform-neutral TypeScript runtime composition. It must have no DOM, React, browser storage, wallet iframe, or server route dependencies.                                                         |
+| Server TS package      | `packages/sdk-server-ts/`            | Owns server routes, WebAuthn verifier policy, route adapters, storage adapters, and server wasm bindings currently under `server/src`.                                                                  |
+| Shared TS package      | `packages/shared-ts/`                | Owns protocol/domain TypeScript shared by web SDK, runtime, server, and tests. This can start as a move of `shared/src`.                                                                                |
+| Web client app         | `apps/web-client/`                   | Owns the browser app or site currently represented by `examples/seams-site`. It imports package exports instead of relative source roots.                                                               |
+| Web server app         | `apps/web-server/`                   | Owns the deployable relay/server app currently represented by `examples/relay-server`. It imports server package exports instead of `server/src`.                                                       |
+| Docs app               | `apps/docs/`                         | Optional move for `examples/seams-docs`; keep in `examples/` until the app boundary is useful.                                                                                                          |
+| iOS client             | `clients/ios/`                       | Swift Package Manager root. Owns `SeamsIos`, AuthenticationServices adapter code, Keychain storage, native signer-core bindings, and native replay fixtures.                                            |
+| Embedded client        | `crates/seams-embedded/`             | Rust SDK facade for embedded deployments. Owns `SeamsEmbedded`, Rust signer-core integration, embedded persistence, local secret source adapters, and replay fixtures.                                  |
+| Linux embedded adapter | `crates/signer-embedded-linux/`      | Linux-specific adapter or test target used by `crates/seams-embedded`.                                                                                                                                  |
+| Examples               | `examples/`                          | Keep small integration examples and deployment templates that are not primary apps.                                                                                                                     |
 
 ## Package Boundary Rules
 
@@ -669,13 +669,13 @@ Validation:
 Every temporary path must have an owner phase and a deletion trigger before it
 is introduced.
 
-| Temporary path or alias | Owner phase | Deletion trigger | Guard |
-| --- | --- | --- | --- |
-| `@/* -> client/src/*` | Phase 3 | `packages/sdk-web/src/**` imports no `client/src` files | source guard |
-| `client/src/runtime.ts` forwarding export | Phase 2 | web package imports runtime package entrypoint directly | source guard |
-| `sdk/` root | Phase 3 | `packages/sdk-web` owns package metadata and build scripts | source guard |
-| `server/src` root | Phase 4 | `packages/sdk-server-ts` owns server package source | source guard |
-| `shared/src` root | Phase 4 or earlier | `packages/shared-ts` owns shared TypeScript source | source guard |
+| Temporary path or alias                   | Owner phase        | Deletion trigger                                           | Guard        |
+| ----------------------------------------- | ------------------ | ---------------------------------------------------------- | ------------ |
+| `@/* -> client/src/*`                     | Phase 3            | `packages/sdk-web/src/**` imports no `client/src` files    | source guard |
+| `client/src/runtime.ts` forwarding export | Phase 2            | web package imports runtime package entrypoint directly    | source guard |
+| `sdk/` root                               | Phase 3            | `packages/sdk-web` owns package metadata and build scripts | source guard |
+| `server/src` root                         | Phase 4            | `packages/sdk-server-ts` owns server package source        | source guard |
+| `shared/src` root                         | Phase 4 or earlier | `packages/shared-ts` owns shared TypeScript source         | source guard |
 
 ## Guard Tests
 
@@ -706,9 +706,9 @@ Recommended migration:
    `packages/sdk-web`.
 2. Keep `@seams/sdk/runtime` as a web package export. Create a separate runtime
    package only when it has an independent dependency closure.
-3. Keep `@seams/sdk/server` as a web package export only until the server
-   package split is accepted.
-4. Add new published package names in a later plan if product packaging needs
+3. Publish server APIs from `@seams/sdk-server` so server dependencies stay out
+   of the web SDK package surface.
+4. Add any further published package names in a later plan if product packaging needs
    them. Source boundaries should land first.
 
 ## Review Checklist

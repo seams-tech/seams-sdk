@@ -226,10 +226,10 @@ Flagged issue classes:
 Reviewed files:
 
 - `docs/router-a-b-cleanup.md`
-- `docs/router-a-b-single-session.md`
-- `docs/router-a-b-ecdsa.md`
-- `docs/router-A-B-signer.md`
-- `docs/router-A-B-signer-SPEC.md`
+- `docs/router-a-b-SPEC.md`
+- `docs/router-a-b-SPEC.md`
+- `docs/router-a-b-SPEC.md`
+- `docs/router-a-b-SPEC.md`
 - `docs/refactor-68-wallet-session-v2.md`
 - `docs/refactor-69-rename-id.md`
 - `docs/refactor-69B-reduce-bloat.md`

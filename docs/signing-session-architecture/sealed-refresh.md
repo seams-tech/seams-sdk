@@ -4,7 +4,7 @@ Last updated: 2026-04-21
 
 ## Purpose
 
-Use `shamir3pass` to restore an already-authenticated wallet signing session after accidental iframe/page reload without prompting the user again, while keeping signing material out of browser storage in plaintext.
+Use `shamir3pass` to restore an already-authenticated signing grant after accidental iframe/page reload without prompting the user again, while keeping signing material out of browser storage in plaintext.
 
 This is an auth-method-neutral signing-session feature for live wallet sessions.
 
@@ -53,7 +53,7 @@ signing_session_seals_v1
 Primary key:
 
 ```text
-walletSigningSessionId
+signingGrantId
 ```
 
 Indexes:
@@ -88,7 +88,7 @@ Route auth:
 3. server validates wallet, user, signing root, auth method, TTL, remaining uses, revocation state, and seal key version;
 4. seal apply/remove is transaction-use neutral and must not increase TTL or remaining uses.
 
-Do not reintroduce auth-method-specific route names, storage names, or request fields. The steady-state terminology is `signing-session`, `sealedSecretB64u`, `signing_session_secret32`, and `walletSigningSessionId`.
+Do not reintroduce auth-method-specific route names, storage names, or request fields. The steady-state terminology is `signing-session`, `sealedSecretB64u`, `signing_session_secret32`, and `signingGrantId`.
 
 ## Flow
 
@@ -101,10 +101,10 @@ sequenceDiagram
 
   Worker->>Worker: "Derive signing_session_secret32"
   Worker->>Threshold: "Bootstrap Ed25519/ECDSA threshold sessions"
-  Threshold-->>Worker: "walletSigningSessionId + threshold-session auth"
+  Threshold-->>Worker: "signingGrantId + threshold-session auth"
   Worker->>Seal: "apply-server-seal with threshold-session auth"
   Seal-->>Worker: "server-sealed signing_session_secret32"
-  Worker->>Store: "Persist sealed record keyed by walletSigningSessionId"
+  Worker->>Store: "Persist sealed record keyed by signingGrantId"
 
   Worker->>Store: "After reload, load sealed record"
   Worker->>Seal: "remove-server-seal with threshold-session auth"
@@ -118,7 +118,7 @@ sequenceDiagram
 Passkey:
 
 1. fresh passkey auth derives `signing_session_secret32` from the WebAuthn PRF output;
-2. sealed refresh restores the same wallet signing session without another WebAuthn prompt while server policy allows it;
+2. sealed refresh restores the same signing grant without another WebAuthn prompt while server policy allows it;
 3. exhaustion or expiry routes the next transaction through WebAuthn/passkey confirmation.
 
 Email OTP:
@@ -126,7 +126,7 @@ Email OTP:
 1. Google SSO authenticates the app/user;
 2. Email OTP authorizes initial unseal of `S`;
 3. the Email OTP worker derives `signing_session_secret32` and seals only that session-scoped secret;
-4. sealed refresh restores the same wallet signing session without another OTP while server policy allows it;
+4. sealed refresh restores the same signing grant without another OTP while server policy allows it;
 5. exhaustion or expiry routes the next transaction through the Email OTP Tx Confirmer.
 
 `per_operation` sessions never write or consume sealed-refresh records.
@@ -140,7 +140,7 @@ Private-key export, link-device, and add-signer flows must:
 1. request fresh operation-scoped auth;
 2. verify the fresh OTP or passkey challenge;
 3. keep operation material separate from the transaction signing session;
-4. avoid consuming, replacing, clearing, or renewing the transaction `walletSigningSessionId`.
+4. avoid consuming, replacing, clearing, or renewing the transaction `signingGrantId`.
 
 After sealed refresh, restored signing-session route authority may request a fresh Email OTP challenge for a sensitive operation. It cannot directly authorize the operation without successful challenge verification and route-specific policy approval.
 
@@ -148,7 +148,7 @@ After sealed refresh, restored signing-session route authority may request a fre
 
 1. Session-mode passkey and Email OTP accounts can survive accidental iframe/page reload while server TTL and remaining uses remain valid.
 2. Email OTP sealed refresh does not store plaintext `S`, plaintext `signing_session_secret32`, or device-local `enc_s(S)`.
-3. Ed25519 and ECDSA restored capabilities remain tied to the same `walletSigningSessionId` budget.
+3. Ed25519 and ECDSA restored capabilities remain tied to the same `signingGrantId` budget.
 4. Remaining-use exhaustion prompts with the registered auth method: Email OTP for Email OTP-only accounts and WebAuthn for passkey accounts.
 5. Export and link-device/add-signer require fresh operation auth and do not clobber transaction signing sessions.
 6. Wrong-token usage between app-session and threshold-session lanes fails closed.

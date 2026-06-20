@@ -57,8 +57,7 @@ The server has a scheme-module boundary under
 Mithril should be added as a new scheme id, for example:
 
 ```ts
-export const THRESHOLD_ML_DSA_MITHRIL_V1_SCHEME_ID =
-  'threshold-ml-dsa-mithril-v1' as const;
+export const THRESHOLD_ML_DSA_MITHRIL_V1_SCHEME_ID = 'threshold-ml-dsa-mithril-v1' as const;
 ```
 
 The scheme module should own:
@@ -129,7 +128,7 @@ type ThresholdMlDsaKeyRef = {
   threshold: number;
   publicKeyB64u: string;
   thresholdSessionId: string;
-  walletSigningSessionId: string;
+  signingGrantId: string;
   thresholdSessionAuthToken: string;
 };
 ```
@@ -226,7 +225,7 @@ Tasks:
 2. Add typed keygen/import and session records.
 3. Add route handlers for Mithril signing rounds.
 4. Bind authorization to NEAR account, key id, parameter set, participant set,
-   threshold, operation digest, and wallet signing session.
+   threshold, operation digest, and signing grant.
 5. Verify the final signature server-side before returning it.
 
 Acceptance criteria:
