@@ -61,16 +61,23 @@ test.describe('refactor 67 folder reorg guards', () => {
   });
 
   test('keeps package type paths off deleted client and server roots', () => {
-    const packageJson = readRepoFile('packages/sdk-web/package.json');
-    expect(packageJson).not.toContain('dist/types/client/src');
-    expect(packageJson).not.toContain('dist/types/server/src');
-    expect(packageJson).toContain('dist/types/sdk-web/src');
-    expect(packageJson).toContain('dist/types/sdk-server-ts/src');
+    const webPackageJson = readRepoFile('packages/sdk-web/package.json');
+    const serverPackageJson = readRepoFile('packages/sdk-server-ts/package.json');
+    expect(webPackageJson).not.toContain('dist/types/client/src');
+    expect(webPackageJson).not.toContain('dist/types/server/src');
+    expect(webPackageJson).not.toContain('dist/types/sdk-server-ts/src');
+    expect(webPackageJson).toContain('dist/types/sdk-web/src');
+    expect(serverPackageJson).not.toContain('dist/types/client/src');
+    expect(serverPackageJson).not.toContain('dist/types/server/src');
+    expect(serverPackageJson).toContain('dist/types/sdk-server-ts/src');
   });
 
   test('keeps deployable apps from importing package implementation source', () => {
     const violations: string[] = [];
-    for (const file of [...listSourceFiles('apps/web-client'), ...listSourceFiles('apps/web-server')]) {
+    for (const file of [
+      ...listSourceFiles('apps/web-client'),
+      ...listSourceFiles('apps/web-server'),
+    ]) {
       const source = readRepoFile(file);
       if (/\.\.\/(?:\.\.\/)*packages\/(?:sdk-web|sdk-server-ts|shared-ts)\/src/.test(source)) {
         violations.push(file);
@@ -84,7 +91,10 @@ test.describe('refactor 67 folder reorg guards', () => {
 
   test('keeps native roots from importing npm implementation source', () => {
     const violations: string[] = [];
-    for (const file of [...listSourceFiles('clients/ios'), ...listSourceFiles('crates/seams-embedded')]) {
+    for (const file of [
+      ...listSourceFiles('clients/ios'),
+      ...listSourceFiles('crates/seams-embedded'),
+    ]) {
       const source = readRepoFile(file);
       if (/packages\/(?:sdk-web|sdk-server-ts|shared-ts)\/src/.test(source)) {
         violations.push(file);

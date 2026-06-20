@@ -7,11 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sdkWebRoot = path.join(repoRoot, 'packages/sdk-web');
-const serverPeerDeps = {
-  '@simplewebauthn/server': '^13.2.2',
-  express: '^4.21.2',
-  pg: '^8.17.2',
-};
+const sdkServerRoot = path.join(repoRoot, 'packages/sdk-server-ts');
 
 function run(command: string, args: readonly string[], cwd: string): string {
   try {
@@ -54,6 +50,19 @@ function packSdkWeb(tmpRoot: string): string {
   return tarball;
 }
 
+function packSdkServer(tmpRoot: string): string {
+  const packDir = path.join(tmpRoot, 'pack-server');
+  fs.mkdirSync(packDir);
+  run('pnpm', ['-C', sdkServerRoot, 'build'], repoRoot);
+  run('pnpm', ['-C', sdkServerRoot, 'pack', '--pack-destination', packDir], repoRoot);
+  const tarball = fs
+    .readdirSync(packDir)
+    .filter((name) => name.endsWith('.tgz'))
+    .map((name) => path.join(packDir, name))[0];
+  expect(tarball).toBeTruthy();
+  return tarball;
+}
+
 test.describe('refactor 51b package install smoke', () => {
   test('browser/runtime package install does not pull server-only peers', () => {
     test.setTimeout(90_000);
@@ -84,6 +93,15 @@ test.describe('refactor 51b package install smoke', () => {
       fs.writeFileSync(
         path.join(tmpRoot, 'import-browser-subpaths.mjs'),
         `
+          async function expectMissingServerSubpath() {
+            try {
+              await import('@seams/sdk/server');
+            } catch {
+              return;
+            }
+            throw new Error('old @seams/sdk/server subpath still resolves');
+          }
+
           const runtime = await import('@seams/sdk/runtime');
           if (typeof runtime.createSigningRuntime !== 'function') {
             throw new Error('missing createSigningRuntime');
@@ -95,6 +113,7 @@ test.describe('refactor 51b package install smoke', () => {
           if (typeof root.SeamsWeb !== 'function') {
             throw new Error('missing SeamsWeb export');
           }
+          await expectMissingServerSubpath();
         `,
       );
       run(process.execPath, ['import-browser-subpaths.mjs'], tmpRoot);
@@ -103,12 +122,12 @@ test.describe('refactor 51b package install smoke', () => {
     }
   });
 
-  test('server subpath package install resolves server peers and adapters', () => {
+  test('server package install resolves server dependencies and adapters', () => {
     test.setTimeout(120_000);
 
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'seams-sdk-server-install-'));
     try {
-      const tarball = packSdkWeb(tmpRoot);
+      const tarball = packSdkServer(tmpRoot);
 
       fs.writeFileSync(
         path.join(tmpRoot, 'package.json'),
@@ -117,23 +136,21 @@ test.describe('refactor 51b package install smoke', () => {
           private: true,
           type: 'module',
           dependencies: {
-            '@seams/sdk': `file:${tarball}`,
-            ...serverPeerDeps,
+            '@seams/sdk-server': `file:${tarball}`,
           },
         }),
       );
       run('pnpm', ['install', '--ignore-scripts', '--prod'], tmpRoot);
 
       const nodeModulesDir = path.join(tmpRoot, 'node_modules');
-      for (const packageName of Object.keys(serverPeerDeps)) {
-        expect(fs.existsSync(path.join(nodeModulesDir, packageName))).toBe(true);
+      for (const packageName of ['@simplewebauthn/server', 'express', 'pg']) {
         expect(hasPnpmPackage(nodeModulesDir, packageName)).toBe(true);
       }
 
       fs.writeFileSync(
         path.join(tmpRoot, 'import-server-subpaths.mjs'),
         `
-          const server = await import('@seams/sdk/server');
+          const server = await import('@seams/sdk-server');
           if (typeof server.AuthService !== 'function') {
             throw new Error('missing AuthService export');
           }
@@ -141,7 +158,7 @@ test.describe('refactor 51b package install smoke', () => {
             throw new Error('missing createRelayRouterModule export');
           }
 
-          const expressRouter = await import('@seams/sdk/server/router/express');
+          const expressRouter = await import('@seams/sdk-server/router/express');
           if (typeof expressRouter.createRelayRouter !== 'function') {
             throw new Error('missing createRelayRouter export');
           }
@@ -152,7 +169,7 @@ test.describe('refactor 51b package install smoke', () => {
             throw new Error('missing Express Postgres service export');
           }
 
-          const cloudflareRouter = await import('@seams/sdk/server/router/cloudflare');
+          const cloudflareRouter = await import('@seams/sdk-server/router/cloudflare');
           if (typeof cloudflareRouter.createCloudflareRouter !== 'function') {
             throw new Error('missing createCloudflareRouter export');
           }
@@ -161,6 +178,11 @@ test.describe('refactor 51b package install smoke', () => {
           }
           if (typeof cloudflareRouter.createPostgresConsoleBootstrapTokenService !== 'function') {
             throw new Error('missing Cloudflare Postgres service export');
+          }
+
+          const storage = await import('@seams/sdk-server/storage/postgres');
+          if (typeof storage.getPostgresPool !== 'function') {
+            throw new Error('missing getPostgresPool export');
           }
         `,
       );

@@ -9,6 +9,7 @@
     "wrangler": "^4.40.2"
   },
   "dependencies": {
-    "@seams/sdk": "workspace:*"
+    "@seams/sdk": "workspace:*",
+    "@seams/sdk-server": "workspace:*"
   }
 }

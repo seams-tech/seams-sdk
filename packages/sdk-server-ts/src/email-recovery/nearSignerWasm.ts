@@ -10,10 +10,8 @@ import initSignerWasm, {
 import type { InitInput } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 const SIGNER_WASM_PATH_CANDIDATES = [
+  '../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   '../../../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
-  '../../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
-  '../../workers/wasm_signer_worker_bg.wasm',
-  '../../../workers/wasm_signer_worker_bg.wasm',
 ];
 
 let signerWasmInitPromise: Promise<void> | null = null;

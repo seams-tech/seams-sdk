@@ -1,11 +1,11 @@
-import type { AuthService } from '@seams/sdk/server';
+import type { AuthService } from '@seams/sdk-server';
 import {
   createCloudflareCron,
   type CfExecutionContext as Ctx,
   type CfScheduledEvent,
   type RelayCloudflareWorkerEnv,
-} from '@seams/sdk/server/router/cloudflare';
-import type { ConsoleObservabilityIngestionService } from '@seams/sdk/server/router/express';
+} from '@seams/sdk-server/router/cloudflare';
+import type { ConsoleObservabilityIngestionService } from '@seams/sdk-server/router/express';
 import { createWorkerCronOptions, type WorkerCronConfigEnv } from './cronConfig';
 import { resolveWorkerCronFeatureFlags } from './cronFlags';
 import { collectWorkerCronConfigIssues } from './cronValidation';

@@ -15,14 +15,9 @@ import initEthSignerWasm, {
 import type { InitInput } from '../../../../../wasm/eth_signer/pkg/eth_signer.js';
 
 const ETH_SIGNER_WASM_PATH_CANDIDATES = [
-  // Source-tree execution (server/src/* -> repo/wasm/*)
+  '../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
+  '../wasm/eth_signer/pkg/eth_signer_bg.wasm',
   '../../../../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
-  // Built SDK execution (sdk/dist/esm/server/* -> repo/wasm/*)
-  '../../../../../../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
-  // Built SDK workers output (sdk/dist/workers/*)
-  '../../../../workers/eth_signer.wasm',
-  // Legacy/alternate workers output (sdk/dist/esm/workers/*)
-  '../../../workers/eth_signer.wasm',
 ];
 
 let ethSignerWasmInitPromise: Promise<void> | null = null;

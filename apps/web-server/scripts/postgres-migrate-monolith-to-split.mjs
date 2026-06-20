@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import {
   ensurePostgresSchema,
   getPostgresPool,
-} from '../../../packages/sdk-web/dist/esm/server/storage/postgres.js';
+} from '@seams/sdk-server/storage/postgres';
 import {
   ensureConsoleApiKeysPostgresSchema,
   ensureConsoleApprovalsPostgresSchema,
@@ -18,7 +18,7 @@ import {
   ensureConsoleTeamRbacPostgresSchema,
   ensureConsoleWalletsPostgresSchema,
   ensureConsoleWebhooksPostgresSchema,
-} from '@seams/sdk/server/router/express';
+} from '@seams/sdk-server/router/express';
 
 dotenv.config({ path: '.env' });
 

@@ -11,11 +11,9 @@ import type { ThresholdPrfPolicy } from './signingRootShareResolver';
 export type { ThresholdPrfPolicy } from './signingRootShareResolver';
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
-  '../../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
+  '../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
+  '../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
   '../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
-  '../../../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
-  '../../../../workers/threshold_prf.wasm',
-  '../../../workers/threshold_prf.wasm',
 ];
 
 let thresholdPrfWasmInitPromise: Promise<void> | null = null;

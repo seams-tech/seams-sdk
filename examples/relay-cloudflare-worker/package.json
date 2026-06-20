@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@seams/sdk": "workspace:*",
+    "@seams/sdk-server": "workspace:*",
     "jsonwebtoken": "^9.0.2"
   }
 }

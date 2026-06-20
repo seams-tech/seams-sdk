@@ -38,7 +38,7 @@ if (!watchSdk) {
 }
 
 const relayDistEntrypoint = path.resolve(process.cwd(), 'dist/index.js');
-const sdkServerDistDir = path.resolve(process.cwd(), '../../packages/sdk-web/dist/esm/server');
+const sdkServerDistDir = path.resolve(process.cwd(), '../../packages/sdk-server-ts/dist/esm');
 let relayRestartTouchTimer = null;
 let sdkDistWatcher = null;
 

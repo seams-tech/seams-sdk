@@ -100,24 +100,6 @@ if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js" "$BUIL
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm" "$BUILD_WORKERS/email_otp_runtime_bg.wasm" 2>/dev/null; then print_success "email_otp_runtime_bg.wasm copied"; else print_warning "email_otp_runtime_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm" "$BUILD_WORKERS/$WORKER_THRESHOLD_PRF_WASM" 2>/dev/null; then print_success "threshold_prf.wasm copied"; else print_warning "threshold_prf.wasm not found"; fi
 
-print_step "Copying server HSS WASM binary into dist/esm..."
-SERVER_HSS_WASM_DIR="$BUILD_ESM/server/wasm/near_signer/pkg-server"
-mkdir -p "$SERVER_HSS_WASM_DIR"
-if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker_bg.wasm" "$SERVER_HSS_WASM_DIR/" 2>/dev/null; then
-  print_success "Server HSS WASM copied"
-else
-  print_warning "Server HSS WASM not found"
-fi
-
-print_step "Copying server threshold-prf WASM binary into dist/esm..."
-SERVER_THRESHOLD_PRF_WASM_DIR="$BUILD_ESM/server/wasm/threshold_prf/pkg"
-mkdir -p "$SERVER_THRESHOLD_PRF_WASM_DIR"
-if cp "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm" "$SERVER_THRESHOLD_PRF_WASM_DIR/" 2>/dev/null; then
-  print_success "Server threshold-prf WASM copied"
-else
-  print_warning "Server threshold-prf WASM not found"
-fi
-
 print_step "Copying browser HSS client WASM binary into dist/esm..."
 HSS_CLIENT_WASM_DIR="$BUILD_ESM/wasm/hss_client_signer/pkg"
 mkdir -p "$HSS_CLIENT_WASM_DIR"

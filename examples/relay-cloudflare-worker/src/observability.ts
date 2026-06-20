@@ -1,7 +1,7 @@
 import {
   createPostgresConsoleObservabilityIngestionService,
   type ConsoleObservabilityIngestionService,
-} from '@seams/sdk/server/router/cloudflare';
+} from '@seams/sdk-server/router/cloudflare';
 
 export interface WorkerObservabilityEnv {
   BILLING_POSTGRES_URL?: string;

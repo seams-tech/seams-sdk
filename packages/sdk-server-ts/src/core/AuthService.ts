@@ -1573,20 +1573,14 @@ function toThresholdEcdsaBootstrapSession(session: {
 // WASM URL CONSTANTS + HELPERS
 // =============================
 
-// Server dist location when this file is emitted to `dist/esm/server/core/AuthService.js`.
-const SIGNER_WASM_SERVER_DIST_PATH = '../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm';
-// Browser dist location can initialize the same signer in local package runs.
-const SIGNER_WASM_BROWSER_DIST_PATH = '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
-// Worker copy location from `dist/esm/server/core/AuthService.js`.
-const SIGNER_WASM_WORKER_DIST_PATH = '../../../workers/wasm_signer_worker_bg.wasm';
+// Built package location for the signer glue imported above.
+const SIGNER_WASM_PACKAGE_DIST_PATH = '../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
 // Source-tree location when AuthService is executed directly from `packages/sdk-server-ts/src/core`.
 const SIGNER_WASM_SOURCE_PATH = '../../../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
 
 function getSignerWasmUrls(logger: NormalizedLogger): URL[] {
   const paths = [
-    SIGNER_WASM_SERVER_DIST_PATH,
-    SIGNER_WASM_BROWSER_DIST_PATH,
-    SIGNER_WASM_WORKER_DIST_PATH,
+    SIGNER_WASM_PACKAGE_DIST_PATH,
     SIGNER_WASM_SOURCE_PATH,
   ];
   const resolved: URL[] = [];

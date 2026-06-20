@@ -104,7 +104,7 @@ function readStdin() {
 async function deriveRelayerVerifyingShareB64u(signingShareB64u) {
   const modulePath = path.join(
     repoRoot,
-    'packages/sdk-web/dist/esm/server/core/ThresholdService/ed25519HssWasm.js',
+    'packages/sdk-server-ts/dist/esm/core/ThresholdService/ed25519HssWasm.js',
   );
   const { deriveThresholdEd25519VerifyingShareFromSigningShare } = await import(
     pathToFileURL(modulePath).href

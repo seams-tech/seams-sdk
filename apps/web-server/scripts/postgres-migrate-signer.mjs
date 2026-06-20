@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
-import { ensurePostgresSchema } from '../../../packages/sdk-web/dist/esm/server/storage/postgres.js';
+import { ensurePostgresSchema } from '@seams/sdk-server/storage/postgres';
 
 dotenv.config({ path: '.env' });
 

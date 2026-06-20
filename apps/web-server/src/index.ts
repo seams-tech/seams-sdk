@@ -27,7 +27,7 @@ import {
   type SigningRootSecretShareId,
   type SigningRootShareSource,
   type SigningRootShareResolver,
-} from '@seams/sdk/server';
+} from '@seams/sdk-server';
 import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
@@ -95,7 +95,7 @@ import {
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
   type RouterAbNormalSigningAdmissionAdapter,
-} from '@seams/sdk/server/router/express';
+} from '@seams/sdk-server/router/express';
 
 import dotenv from 'dotenv';
 import { dirname, resolve } from 'node:path';

@@ -1,5 +1,5 @@
-import type { CloudflareCronOptions } from '@seams/sdk/server/router/cloudflare';
-import type { ConsoleObservabilityIngestionService } from '@seams/sdk/server/router/express';
+import type { CloudflareCronOptions } from '@seams/sdk-server/router/cloudflare';
+import type { ConsoleObservabilityIngestionService } from '@seams/sdk-server/router/express';
 import type { WorkerCronFeatureFlags } from './cronFlags';
 
 export interface WorkerCronConfigEnv {

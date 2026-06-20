@@ -34,11 +34,9 @@ import type {
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
 const SIGNER_WASM_PATH_CANDIDATES = [
-  '../../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm',
+  '../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm',
+  '../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm',
   '../../../../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm',
-  '../../../../../../../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm',
-  '../../../../workers/wasm_signer_worker_bg.wasm',
-  '../../../workers/wasm_signer_worker_bg.wasm',
 ];
 
 const NATIVE_DRIVER_PATH_CANDIDATES = [

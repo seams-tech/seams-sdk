@@ -1,10 +1,89 @@
 {
-  "name": "@seams-internal/sdk-server-ts",
-  "private": true,
+  "name": "@seams/sdk-server",
+  "version": "0.46.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "description": "Seams server TypeScript SDK for NEAR and EVM-family wallets",
+  "main": "./dist/esm/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/sdk-server-ts/src/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "import": "./dist/esm/index.js",
+      "default": "./dist/esm/index.js",
+      "types": "./dist/types/sdk-server-ts/src/index.d.ts"
+    },
+    "./router/express": {
+      "import": "./dist/esm/router/express.js",
+      "default": "./dist/esm/router/express.js",
+      "types": "./dist/types/sdk-server-ts/src/router/express-adaptor.d.ts"
+    },
+    "./router/cloudflare": {
+      "import": "./dist/esm/router/cloudflare.js",
+      "default": "./dist/esm/router/cloudflare.js",
+      "types": "./dist/types/sdk-server-ts/src/router/cloudflare-adaptor.d.ts"
+    },
+    "./router/ror": {
+      "import": "./dist/esm/router/ror.js",
+      "default": "./dist/esm/router/ror.js",
+      "types": "./dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts"
+    },
+    "./storage/postgres": {
+      "import": "./dist/esm/storage/postgres.js",
+      "default": "./dist/esm/storage/postgres.js",
+      "types": "./dist/types/sdk-server-ts/src/storage/postgres.d.ts"
+    },
+    "./wasm/signer": {
+      "import": "./dist/esm/wasm/signer.js",
+      "default": "./dist/esm/wasm/signer.js",
+      "types": "./dist/types/sdk-server-ts/src/wasm/signer.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "src/README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && rolldown -c rolldown.config.ts && node ./scripts/copy-wasm-assets.mjs",
     "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "seams",
+    "wallet",
+    "server",
+    "NEAR",
+    "EVM",
+    "blockchain",
+    "passkey",
+    "typescript",
+    "sdk"
+  ],
+  "author": "web3authn.org",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/web3-authn/sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/web3-authn/sdk/issues"
+  },
+  "homepage": "https://github.com/web3-authn",
+  "dependencies": {
+    "@simplewebauthn/server": "^13.2.2",
+    "bs58": "^6.0.0",
+    "express": "^4.21.2",
+    "pg": "^8.17.2",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@near-js/types": "^2.4.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.19.9",
+    "@types/pg": "^8.16.0",
+    "rolldown": "^1.0.0-beta.27",
+    "typescript": "^5.8.3"
   }
 }

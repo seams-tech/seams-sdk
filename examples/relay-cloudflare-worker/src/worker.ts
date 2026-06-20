@@ -6,24 +6,24 @@ import {
   createRorOptions,
   type SigningRootSecretShareKekResolutionInput,
   type ThresholdStoreConfigInput,
-} from '@seams/sdk/server';
+} from '@seams/sdk-server';
 import {
   createCloudflareEmailHandler,
   createCloudflareRouter,
   createInMemoryRelayRuntimeSnapshotConsumer,
-} from '@seams/sdk/server/router/cloudflare';
+} from '@seams/sdk-server/router/cloudflare';
 import type {
   CfEmailMessage,
   CfScheduledEvent,
   CfExecutionContext as Ctx,
   RelayCloudflareWorkerEnv,
-} from '@seams/sdk/server/router/cloudflare';
-import signerWasmModule from '@seams/sdk/server/wasm/signer';
+} from '@seams/sdk-server/router/cloudflare';
+import signerWasmModule from '@seams/sdk-server/wasm/signer';
 import { createJwtSession } from './jwtSession';
 import { createWorkerCronObservabilityIngestion } from './observability';
 import { createWorkerScheduledHandler } from './scheduledHandler';
 
-export { ThresholdStoreDurableObject } from '@seams/sdk/server/router/cloudflare';
+export { ThresholdStoreDurableObject } from '@seams/sdk-server/router/cloudflare';
 
 type Env = RelayCloudflareWorkerEnv & {
   // base env vars

@@ -1,4 +1,4 @@
-import { SessionService } from '@seams/sdk/server';
+import { SessionService } from '@seams/sdk-server';
 import jwt from 'jsonwebtoken';
 // Optional JWT session integration example
 

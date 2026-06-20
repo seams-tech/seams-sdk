@@ -21,8 +21,8 @@ extra requirements and limitations compared to the Express example.
 ## WASM bundling
 
 - The signer worker WASM is imported directly from the package sources
-  (`import signerWasmModule from '@seams/sdk/server/wasm/signer'` and
-  `import shamirWasmModule from '@seams/sdk/server/wasm/signer'`).
+  (`import signerWasmModule from '@seams/sdk-server/wasm/signer'` and
+  `import shamirWasmModule from '@seams/sdk-server/wasm/signer'`).
   Wrangler bundles the referenced files automatically; no `[wasm_modules]`
   section is required in `wrangler.toml`.
 - Do **not** try to `fetch` the WASM from an arbitrary URL at runtime. Workers
@@ -162,14 +162,9 @@ const session = new SessionService({
   cookie: {
     name: 'seams-jwt',
     buildSetHeader: (token) =>
-      [
-        `seams-jwt=${token}`,
-        'Path=/',
-        'HttpOnly',
-        'Secure',
-        'SameSite=None',
-        'Max-Age=86400',
-      ].join('; '),
+      [`seams-jwt=${token}`, 'Path=/', 'HttpOnly', 'Secure', 'SameSite=None', 'Max-Age=86400'].join(
+        '; ',
+      ),
     buildClearHeader: () =>
       [
         'seams-jwt=',

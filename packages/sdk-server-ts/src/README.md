@@ -7,8 +7,8 @@ AuthService provides the server‑side pieces for account creation and WebAuthn 
 ```ts
 import express from 'express';
 import cors from 'cors';
-import { AuthService, SessionService } from '@seams/sdk/server';
-import { createRelayRouter } from '@seams/sdk/server/router/express';
+import { AuthService, SessionService } from '@seams/sdk-server';
+import { createRelayRouter } from '@seams/sdk-server/router/express';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
@@ -77,9 +77,9 @@ app.listen(3000);
 ## Quick Start (Cloudflare Workers)
 
 ```ts
-import { AuthService, SessionService } from '@seams/sdk/server';
-import { createCloudflareRouter } from '@seams/sdk/server/router/cloudflare';
-import signerWasm from '@seams/sdk/server/wasm/signer';
+import { AuthService, SessionService } from '@seams/sdk-server';
+import { createCloudflareRouter } from '@seams/sdk-server/router/cloudflare';
+import signerWasm from '@seams/sdk-server/wasm/signer';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
@@ -224,13 +224,13 @@ Cloudflare CORS note
 `signingSessionSeal` routes are opt-in and can be composed with helper builders:
 
 ```ts
-import { createRelayRouter } from '@seams/sdk/server/router/express';
+import { createRelayRouter } from '@seams/sdk-server/router/express';
 import {
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealShamir3PassCipherAdapter,
   resolveSigningSessionSealRateLimitFromEnv,
-} from '@seams/sdk/server';
+} from '@seams/sdk-server';
 
 const ecdsaWalletSessionStore = /* your ECDSA Wallet Session store */;
 const signingSessionSeal = createSigningSessionSealRoutesOptions({

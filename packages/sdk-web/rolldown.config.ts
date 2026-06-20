@@ -7,12 +7,11 @@ import { pathToFileURL } from 'url';
 // NOTE: Rolldown's `preserveModulesRoot` is sensitive to relative paths; when it
 // can't resolve the root cleanly it will preserve `client/src/...` (or similar)
 // into the output. Use absolute roots so dist paths match `sdk/package.json`
-// export maps (e.g. `dist/esm/index.js`, `dist/esm/core/...`, `dist/esm/server/...`).
+// export maps (e.g. `dist/esm/index.js`, `dist/esm/core/...`).
 const SDK_ROOT_ABS = process.cwd();
 const CLIENT_SRC_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src');
 const CLIENT_REACT_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/react');
 const CLIENT_PLUGINS_ROOT_ABS = path.resolve(SDK_ROOT_ABS, 'src/plugins');
-const SERVER_SRC_ROOT_ABS = path.resolve(SDK_ROOT_ABS, '../sdk-server-ts/src');
 const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   SDK_ROOT_ABS,
   '../../wasm/near_signer/pkg/wasm_signer_worker.js',
@@ -102,7 +101,7 @@ const external = [
   'lit-html',
   /lit-html\/.*/,
 
-  // Node.js native modules for /server SDK
+  // Node.js native modules used by package tooling helpers
   'fs',
   'path',
   'url',
@@ -110,13 +109,6 @@ const external = [
   'crypto',
   'util',
   /^node:.*/,
-  // Express-only helpers (optional consumers)
-  'express',
-  'cors',
-
-  // Node-only database clients (optional consumers)
-  '@simplewebauthn/server',
-  'pg',
 
   // Core dependencies that should be provided by consuming application
   'borsh',
@@ -148,8 +140,6 @@ const aliasConfig = {
   '@/core/runtime/*': path.resolve(SDK_ROOT_ABS, 'src/core/runtime/*'),
   '@/*': path.resolve(SDK_ROOT_ABS, 'src/*'),
   '@shared/*': path.resolve(SDK_ROOT_ABS, '../shared-ts/src/*'),
-  '@server': path.resolve(SDK_ROOT_ABS, '../sdk-server-ts/src/index.ts'),
-  '@server/*': path.resolve(SDK_ROOT_ABS, '../sdk-server-ts/src/*'),
 };
 
 // Static assets expected to be served under `/sdk/*` by hosts.
@@ -443,37 +433,6 @@ const configs = [
       alias: aliasConfig,
     },
   },
-  // Server ESM build
-  {
-    input: '../sdk-server-ts/src/index.ts',
-    output: {
-      dir: BUILD_PATHS.BUILD.ESM,
-      format: 'esm',
-      preserveModules: true,
-      preserveModulesRoot: SERVER_SRC_ROOT_ABS,
-      entryFileNames: (chunk) => {
-        if (!chunk.facadeModuleId) return `server/${chunk.name}.js`;
-        return preservedModuleOut({
-          facadeModuleId: chunk.facadeModuleId,
-          rootAbs: SERVER_SRC_ROOT_ABS,
-          prefix: 'server',
-        });
-      },
-      chunkFileNames: (chunk) => {
-        if (!chunk.facadeModuleId) return `server/${chunk.name}.js`;
-        return preservedModuleOut({
-          facadeModuleId: chunk.facadeModuleId,
-          rootAbs: SERVER_SRC_ROOT_ABS,
-          prefix: 'server',
-        });
-      },
-      sourcemap: true,
-    },
-    external,
-    resolve: {
-      alias: aliasConfig,
-    },
-  },
   // Plugins: headers helper ESM
   {
     input: 'src/plugins/headers.ts',
@@ -495,62 +454,6 @@ const configs = [
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
       entryFileNames: 'plugins/next.js',
-      sourcemap: true,
-    },
-    external,
-    resolve: {
-      alias: aliasConfig,
-    },
-  },
-  // Express router helper ESM bundle
-  {
-    input: '../sdk-server-ts/src/router/express-adaptor.ts',
-    output: {
-      dir: BUILD_PATHS.BUILD.ESM,
-      format: 'esm',
-      entryFileNames: 'server/router/express.js',
-      sourcemap: true,
-    },
-    external,
-    resolve: {
-      alias: aliasConfig,
-    },
-  },
-  // Cloudflare Workers router adaptor ESM bundle
-  {
-    input: '../sdk-server-ts/src/router/cloudflare-adaptor.ts',
-    output: {
-      dir: BUILD_PATHS.BUILD.ESM,
-      format: 'esm',
-      entryFileNames: 'server/router/cloudflare.js',
-      sourcemap: true,
-    },
-    external,
-    resolve: {
-      alias: aliasConfig,
-    },
-  },
-  // ROR provider adaptor ESM bundle
-  {
-    input: '../sdk-server-ts/src/router/ror-adaptor.ts',
-    output: {
-      dir: BUILD_PATHS.BUILD.ESM,
-      format: 'esm',
-      entryFileNames: 'server/router/ror.js',
-      sourcemap: true,
-    },
-    external,
-    resolve: {
-      alias: aliasConfig,
-    },
-  },
-  // WASM signer re-export ESM
-  {
-    input: '../sdk-server-ts/src/wasm/signer.ts',
-    output: {
-      dir: BUILD_PATHS.BUILD.ESM,
-      format: 'esm',
-      entryFileNames: 'server/wasm/signer.js',
       sourcemap: true,
     },
     external,

@@ -14,11 +14,16 @@
       "@server/*": ["../packages/sdk-server-ts/src/*"],
       "@build-paths": ["../packages/sdk-web/build-paths.ts"],
       "@seams/sdk/advanced": ["../packages/sdk-web/src/advanced.ts"],
-      "@seams/sdk/server": ["../packages/sdk-server-ts/src/index.ts"],
-      "@seams/sdk/server/router/cloudflare": ["../packages/sdk-server-ts/src/router/cloudflare-adaptor.ts"],
-      "@seams/sdk/server/router/express": ["../packages/sdk-server-ts/src/router/express-adaptor.ts"],
-      "@seams/sdk/server/router/ror": ["../packages/sdk-server-ts/src/router/ror-adaptor.ts"],
-      "@seams/sdk/server/wasm/signer": ["../packages/sdk-server-ts/src/wasm/signer.ts"]
+      "@seams/sdk-server": ["../packages/sdk-server-ts/src/index.ts"],
+      "@seams/sdk-server/router/cloudflare": [
+        "../packages/sdk-server-ts/src/router/cloudflare-adaptor.ts"
+      ],
+      "@seams/sdk-server/router/express": [
+        "../packages/sdk-server-ts/src/router/express-adaptor.ts"
+      ],
+      "@seams/sdk-server/router/ror": ["../packages/sdk-server-ts/src/router/ror-adaptor.ts"],
+      "@seams/sdk-server/storage/postgres": ["../packages/sdk-server-ts/src/storage/postgres.ts"],
+      "@seams/sdk-server/wasm/signer": ["../packages/sdk-server-ts/src/wasm/signer.ts"]
     }
   }
 }

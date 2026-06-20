@@ -18,6 +18,11 @@ function resolveSdkWebPath(packagePath: string): string {
   return path.join(repoRoot, 'packages/sdk-web', normalized);
 }
 
+function resolveSdkServerPath(packagePath: string): string {
+  const normalized = packagePath.replace(/^\.\//, '');
+  return path.join(repoRoot, 'packages/sdk-server-ts', normalized);
+}
+
 const browserSurfacePatterns = [
   /\bWalletIframe\b/,
   /SeamsWeb/,
@@ -31,7 +36,7 @@ const browserSurfacePatterns = [
 ];
 
 test.describe('refactor 51b package exports', () => {
-  test('maps public roots to current web, runtime, and server entries', () => {
+  test('maps public roots to current web and runtime entries', () => {
     const packageJson = readJson('packages/sdk-web/package.json');
     const exportsMap = packageJson.exports;
 
@@ -47,8 +52,54 @@ test.describe('refactor 51b package exports', () => {
     });
     expect(fs.existsSync(resolveSdkWebPath(exportsMap['./runtime'].types))).toBe(true);
 
+    expect(exportsMap['./server']).toBeUndefined();
+    expect(exportsMap['./server/router/express']).toBeUndefined();
+    expect(exportsMap['./server/router/cloudflare']).toBeUndefined();
+    expect(exportsMap['./server/router/ror']).toBeUndefined();
+    expect(exportsMap['./server/storage/postgres']).toBeUndefined();
+    expect(exportsMap['./server/wasm/signer']).toBeUndefined();
     expect(exportsMap['./ios']).toBeUndefined();
     expect(exportsMap['./embedded']).toBeUndefined();
+  });
+
+  test('maps server roots to @seams/sdk-server entries', () => {
+    const packageJson = readJson('packages/sdk-server-ts/package.json');
+    const exportsMap = packageJson.exports;
+
+    expect(packageJson.name).toBe('@seams/sdk-server');
+    expect(packageJson.private).toBeUndefined();
+    expect(exportsMap['.']).toEqual({
+      import: './dist/esm/index.js',
+      default: './dist/esm/index.js',
+      types: './dist/types/sdk-server-ts/src/index.d.ts',
+    });
+    expect(exportsMap['./router/express']).toEqual({
+      import: './dist/esm/router/express.js',
+      default: './dist/esm/router/express.js',
+      types: './dist/types/sdk-server-ts/src/router/express-adaptor.d.ts',
+    });
+    expect(exportsMap['./router/cloudflare']).toEqual({
+      import: './dist/esm/router/cloudflare.js',
+      default: './dist/esm/router/cloudflare.js',
+      types: './dist/types/sdk-server-ts/src/router/cloudflare-adaptor.d.ts',
+    });
+    expect(exportsMap['./router/ror']).toEqual({
+      import: './dist/esm/router/ror.js',
+      default: './dist/esm/router/ror.js',
+      types: './dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts',
+    });
+    expect(exportsMap['./storage/postgres']).toEqual({
+      import: './dist/esm/storage/postgres.js',
+      default: './dist/esm/storage/postgres.js',
+      types: './dist/types/sdk-server-ts/src/storage/postgres.d.ts',
+    });
+    expect(exportsMap['./wasm/signer']).toEqual({
+      import: './dist/esm/wasm/signer.js',
+      default: './dist/esm/wasm/signer.js',
+      types: './dist/types/sdk-server-ts/src/wasm/signer.d.ts',
+    });
+    expect(readRepoFile('packages/sdk-server-ts/src/index.ts')).toContain('export { AuthService }');
+    expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/sdk-server-ts');
   });
 
   test('public runtime package export exposes runtime value constructors', async () => {
@@ -98,29 +149,41 @@ test.describe('refactor 51b package exports', () => {
     const packageJson = readJson('packages/sdk-web/package.json');
     expect(packageJson.description).toContain('web');
     expect(packageJson.description).toContain('runtime');
-    expect(packageJson.description).toContain('server');
     expect(packageJson.description).toContain('TypeScript');
+    expect(packageJson.description).not.toContain('server');
     expect(packageJson.description).not.toContain('native-facing');
-    expect(packageJson.keywords).toEqual(
-      expect.arrayContaining(['browser', 'signing-runtime', 'server']),
-    );
+    expect(packageJson.keywords).toEqual(expect.arrayContaining(['browser', 'signing-runtime']));
+    expect(packageJson.keywords).not.toContain('server');
     expect(packageJson.keywords).not.toContain('native');
     expect(packageJson.keywords).not.toContain('embedded');
   });
 
   test('keeps server-only packages out of hard browser installs', () => {
     const packageJson = readJson('packages/sdk-web/package.json');
-    const serverOnlyPackages = ['pg', '@simplewebauthn/server'];
+    const serverOnlyPackages = ['pg', '@simplewebauthn/server', 'express'];
 
     for (const packageName of serverOnlyPackages) {
       expect(packageJson.dependencies?.[packageName]).toBeUndefined();
-      expect(packageJson.peerDependencies?.[packageName]).toBeTruthy();
-      expect(packageJson.peerDependenciesMeta?.[packageName]?.optional).toBe(true);
-      expect(packageJson.devDependencies?.[packageName]).toBeTruthy();
+      expect(packageJson.peerDependencies?.[packageName]).toBeUndefined();
+      expect(packageJson.peerDependenciesMeta?.[packageName]).toBeUndefined();
     }
 
     const rolldownConfig = readRepoFile('packages/sdk-web/rolldown.config.ts');
     for (const packageName of serverOnlyPackages) {
+      expect(rolldownConfig).not.toContain(`'${packageName}'`);
+    }
+  });
+
+  test('keeps server runtime dependencies on @seams/sdk-server', () => {
+    const packageJson = readJson('packages/sdk-server-ts/package.json');
+    const serverPackages = ['pg', '@simplewebauthn/server', 'express', 'bs58'];
+
+    for (const packageName of serverPackages) {
+      expect(packageJson.dependencies?.[packageName]).toBeTruthy();
+    }
+
+    const rolldownConfig = readRepoFile('packages/sdk-server-ts/rolldown.config.ts');
+    for (const packageName of serverPackages) {
       expect(rolldownConfig).toContain(`'${packageName}'`);
     }
   });

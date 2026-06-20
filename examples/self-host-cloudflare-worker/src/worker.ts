@@ -4,11 +4,11 @@ import {
   createSigningRootSecretAesGcmDecryptAdapter,
   type SigningRootSecretShareKekResolutionInput,
   type ThresholdStoreConfigInput,
-} from '@seams/sdk/server';
-import { createSelfHostedCloudflareSigningWorker } from '@seams/sdk/server/router/cloudflare';
-import signerWasmModule from '@seams/sdk/server/wasm/signer';
+} from '@seams/sdk-server';
+import { createSelfHostedCloudflareSigningWorker } from '@seams/sdk-server/router/cloudflare';
+import signerWasmModule from '@seams/sdk-server/wasm/signer';
 
-export { ThresholdStoreDurableObject } from '@seams/sdk/server/router/cloudflare';
+export { ThresholdStoreDurableObject } from '@seams/sdk-server/router/cloudflare';
 
 type DurableObjectNamespace = {
   idFromName(name: string): unknown;
