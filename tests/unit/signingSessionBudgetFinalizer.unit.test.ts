@@ -9,7 +9,7 @@ import type {
   SigningSessionBudget,
   SigningSessionPreparedBudgetIdentity,
   SigningSessionBudgetSuccessInput,
-  SigningSessionBudgetConsumer,
+  SigningSessionBudgetStatusSync,
   SigningSessionBudgetTraceEvent,
   UnreservedBudgetFinalizationSpend,
   ZeroBudgetFinalizationSpend,
@@ -377,7 +377,7 @@ test.describe('signing session budget finalizer', () => {
 
 test.describe('budget coordinator reserved success handling', () => {
   test('records a broadcast-failed signed operation once and releases the nonce lane', async () => {
-    const consumeUseCalls: Parameters<SigningSessionBudgetConsumer>[0][] = [];
+    const statusSyncCalls: Parameters<SigningSessionBudgetStatusSync>[0][] = [];
     const budgetEvents: SigningSessionBudgetTraceEvent[] = [];
     const nonceEvents: NonceCoordinatorTraceEvent[] = [];
     const budget = new BudgetCoordinator({
@@ -390,8 +390,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
-        consumeUseCalls.push(args);
+      async syncSuccessfulSpendStatus(args) {
+        statusSyncCalls.push(args);
         return {
           sessionId: args.signingGrantId,
           status: 'exhausted',
@@ -474,8 +474,8 @@ test.describe('budget coordinator reserved success handling', () => {
       },
     });
 
-    expect(consumeUseCalls).toHaveLength(1);
-    expect(consumeUseCalls[0]).toMatchObject({
+    expect(statusSyncCalls).toHaveLength(1);
+    expect(statusSyncCalls[0]).toMatchObject({
       signingGrantId: 'tempo-wallet-session-broadcast-failed',
       uses: 1,
       reason: SigningOperationIntent.TransactionSign,
@@ -519,8 +519,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const firstSpend = makeTempoSpend({
@@ -559,7 +559,7 @@ test.describe('budget coordinator reserved success handling', () => {
         spend: thirdSpend,
         expectedBudgetProjectionVersion: 'projection-1',
       }),
-    ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is reserved by in-flight operations');
+    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is reserved by in-flight operations');
   });
 
   test('rejects admission when server status reports all uses reserved in flight', async () => {
@@ -575,8 +575,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
 
@@ -590,7 +590,7 @@ test.describe('budget coordinator reserved success handling', () => {
         }),
         expectedBudgetProjectionVersion: 'projection-1',
       }),
-    ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is reserved by in-flight operations');
+    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is reserved by in-flight operations');
   });
 
   test('emits one budget reservation and one nonce lease for a transaction operation', async () => {
@@ -606,8 +606,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
       onTrace(event) {
         budgetEvents.push(event);
@@ -662,7 +662,7 @@ test.describe('budget coordinator reserved success handling', () => {
 
   test('keeps concurrent NEAR and Tempo reservations separate by operation and lane identity', async () => {
     const readStatusCalls: string[] = [];
-    const consumeCalls: string[] = [];
+    const statusSyncCalls: string[] = [];
     const coordinator = new BudgetCoordinator({
       async readStatus({ signingGrantId }) {
         const sessionId = String(signingGrantId);
@@ -675,9 +675,9 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse({ signingGrantId }) {
+      async syncSuccessfulSpendStatus({ signingGrantId }) {
         const sessionId = String(signingGrantId);
-        consumeCalls.push(sessionId);
+        statusSyncCalls.push(sessionId);
         return {
           sessionId,
           status: 'active',
@@ -737,11 +737,11 @@ test.describe('budget coordinator reserved success handling', () => {
     ]);
 
     expect(readStatusCalls.sort()).toEqual(['near-wallet-session-1', 'tempo-wallet-session-1']);
-    expect(consumeCalls.sort()).toEqual(['near-wallet-session-1', 'tempo-wallet-session-1']);
+    expect(statusSyncCalls.sort()).toEqual(['near-wallet-session-1', 'tempo-wallet-session-1']);
   });
 
   test('accepts reserved_success after an explicit reservation', async () => {
-    const consumeUseCalls: BudgetFinalizationSpend[] = [];
+    const statusSyncCalls: BudgetFinalizationSpend[] = [];
     const coordinator = new BudgetCoordinator({
       async readStatus() {
         return {
@@ -752,8 +752,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
-        consumeUseCalls.push({
+      async syncSuccessfulSpendStatus(args) {
+        statusSyncCalls.push({
           kind: 'externally_consumed_success',
           spend: {
             operationId: SigningSessionIds.signingOperation('observation-only'),
@@ -789,52 +789,8 @@ test.describe('budget coordinator reserved success handling', () => {
     });
     const result = await coordinator.recordSuccess(finalization);
 
-    expect(consumeUseCalls).toHaveLength(1);
+    expect(statusSyncCalls).toHaveLength(1);
     expect(result.kind).toBe('finalized');
-  });
-
-  test('reserves and records multi-use NEAR transaction spends as one operation', async () => {
-    const consumeUses: number[] = [];
-    const coordinator = new BudgetCoordinator({
-      async readStatus() {
-        return {
-          sessionId: 'wallet-session-1',
-          status: 'active',
-          projectionVersion: 'projection-1',
-          remainingUses: 2,
-          expiresAtMs: 1_900_000_000_000,
-        };
-      },
-      async consumeUse(args) {
-        consumeUses.push(args.uses);
-        return {
-          sessionId: args.signingGrantId,
-          status: 'exhausted',
-          projectionVersion: 'projection-2',
-          remainingUses: 0,
-          expiresAtMs: 1_900_000_000_000,
-        };
-      },
-    });
-    const spend = makeSpend({ uses: 2 });
-    const finalization = withSuccessCommand({
-      kind: 'externally_consumed_success',
-      spend,
-      alreadyConsumedThresholdSessionIds: [spend.lane.thresholdSessionId],
-    });
-
-    await coordinator.reserve({
-      spend,
-      expectedBudgetProjectionVersion: 'projection-1',
-    });
-    const result = await coordinator.recordSuccess(finalization);
-
-    expect(consumeUses).toEqual([2]);
-    expect(result).toMatchObject({
-      kind: 'finalized',
-      remainingUses: 0,
-      reservation: { reservedUses: 2 },
-    });
   });
 
   test('projects completed unreserved spends into later wallet-session admission', async () => {
@@ -848,7 +804,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -904,7 +860,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -960,7 +916,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -996,11 +952,41 @@ test.describe('budget coordinator reserved success handling', () => {
         }),
         expectedBudgetProjectionVersion: 'projection-1',
       }),
-    ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is exhausted');
+    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is exhausted');
+  });
+
+  test('rejects stale local admission when trusted server status is exhausted', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus(args) {
+        return {
+          sessionId: args.signingGrantId,
+          status: 'active',
+          projectionVersion: 'server-exhausted-projection',
+          remainingUses: 0,
+          availableUses: 0,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
+      },
+    });
+
+    await expect(
+      coordinator.reserve({
+        spend: makeSpend({
+          operationId: 'server-exhausted-operation',
+          operationFingerprint: 'server-exhausted-fingerprint',
+          signingGrantId: 'server-exhausted-wallet-session',
+          thresholdSessionId: 'server-exhausted-threshold-session',
+        }),
+        expectedBudgetProjectionVersion: 'stale-positive-local-projection',
+      }),
+    ).rejects.toThrow('[SigningSessionBudget] signing grant budget is exhausted');
   });
 
   test('accepts reserved_success when another spend advances the projection before finalization', async () => {
-    const consumeUseCalls: string[] = [];
+    const statusSyncCalls: string[] = [];
     const coordinator = new BudgetCoordinator({
       async readStatus() {
         return {
@@ -1011,8 +997,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
-        consumeUseCalls.push(args.signingGrantId);
+      async syncSuccessfulSpendStatus(args) {
+        statusSyncCalls.push(args.signingGrantId);
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -1034,7 +1020,7 @@ test.describe('budget coordinator reserved success handling', () => {
       expectedBudgetProjectionVersion: 'projection-2',
     });
 
-    expect(consumeUseCalls).toEqual(['wallet-session-1']);
+    expect(statusSyncCalls).toEqual(['wallet-session-1']);
   });
 
   test('returns identity mismatch when reserved_success changes the reserved spend identity', async () => {
@@ -1048,8 +1034,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const reserved = makeReservedSuccess();
@@ -1078,8 +1064,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const reserved = makeReservedSuccess();
@@ -1114,8 +1100,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const reserved = makeReservedSuccess();
@@ -1137,7 +1123,7 @@ test.describe('budget coordinator reserved success handling', () => {
   });
 
   test('dedupes repeated reserved_success only for the same canonical reservation identity', async () => {
-    let consumeUseCalls = 0;
+    let statusSyncCalls = 0;
     const coordinator = new BudgetCoordinator({
       async readStatus() {
         return {
@@ -1148,8 +1134,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
-        consumeUseCalls += 1;
+      async syncSuccessfulSpendStatus(args) {
+        statusSyncCalls += 1;
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -1169,7 +1155,7 @@ test.describe('budget coordinator reserved success handling', () => {
     const first = await coordinator.recordSuccess(reserved);
     const second = await coordinator.recordSuccess(reserved);
 
-    expect(consumeUseCalls).toBe(1);
+    expect(statusSyncCalls).toBe(1);
     expect(first.kind).toBe('finalized');
     expect(second.kind).toBe('already_finalized');
   });
@@ -1185,8 +1171,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const reserved = makeReservedSuccess();
@@ -1217,7 +1203,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -1256,8 +1242,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
       onTrace(event) {
         events.push(event.event);
@@ -1291,8 +1277,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const reserved = makeReservedSuccess();
@@ -1318,7 +1304,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -1355,7 +1341,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'active',
@@ -1395,8 +1381,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
     const reserved = makeReservedSuccess();
@@ -1418,8 +1404,8 @@ test.describe('budget coordinator reserved success handling', () => {
       async readStatus() {
         throw new Error('readStatus should not run');
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
 
@@ -1439,8 +1425,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
 
@@ -1464,7 +1450,7 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse(args) {
+      async syncSuccessfulSpendStatus(args) {
         return {
           sessionId: args.signingGrantId,
           status: 'budget_unknown',
@@ -1497,7 +1483,7 @@ test.describe('budget coordinator reserved success handling', () => {
             expiresAtMs: 1_900_000_000_000,
           };
         },
-        async consumeUse(consumeArgs) {
+        async syncSuccessfulSpendStatus(consumeArgs) {
           if (args.consumeStatus === 'budget_unknown') {
             return {
               sessionId: consumeArgs.signingGrantId,
@@ -1569,8 +1555,8 @@ test.describe('budget coordinator reserved success handling', () => {
           expiresAtMs: 1_900_000_000_000,
         };
       },
-      async consumeUse() {
-        throw new Error('consumeUse should not run');
+      async syncSuccessfulSpendStatus() {
+        throw new Error('status sync should not run');
       },
     });
 

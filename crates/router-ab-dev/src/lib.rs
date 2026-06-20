@@ -2358,12 +2358,24 @@ pub fn handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1(
         pool_hit_request.pool_binding.pool_entry_binding_digest,
     )?;
     pool_entry.validate()?;
+    let RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
+        protocol,
+    ) = &pool_hit_request.protocol;
+    let expected_server_commitments =
+        local_normal_signing_commitments_wire_from_role_separated_v1(
+            pool_entry.round1_state.commitments,
+        )?;
     if pool_entry.active_signing_worker != active_signing_worker
-        || pool_entry.scope != pool_hit_request.scope
         || pool_entry.client_presign_id != pool_hit_request.pool_binding.client_presign_id
         || pool_entry.client_nonce_handle != pool_hit_request.pool_binding.client_nonce_handle
         || pool_entry.generation != pool_hit_request.pool_binding.generation
-        || pool_entry.expires_at_ms != pool_hit_request.expires_at_ms
+        || pool_entry.server_round1_handle != pool_hit_request.pool_binding.server_round1_handle
+        || pool_entry.pool_entry_binding_digest
+            != pool_hit_request.pool_binding.pool_entry_binding_digest
+        || pool_entry.client_commitments != protocol.client_commitments
+        || pool_entry.client_verifying_share_b64u != protocol.client_verifying_share_b64u
+        || expected_server_commitments != protocol.server_commitments
+        || pool_entry.server_verifying_share_b64u != protocol.server_verifying_share_b64u
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLifecycleState,

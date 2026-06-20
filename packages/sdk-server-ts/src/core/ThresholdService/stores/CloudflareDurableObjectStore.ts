@@ -28,6 +28,8 @@ import type {
   WalletSessionReplayGuardResult,
   WalletSessionConsumeUsesResult,
   WalletSessionBudgetCommitReservedUseCountInput,
+  WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
+  WalletSessionBudgetValidateReservedUseCountInput,
   WalletSessionBudgetReleaseReservedUseCountInput,
   WalletSessionBudgetReleaseResult,
   WalletSessionBudgetReservationResult,
@@ -122,10 +124,20 @@ type DoAuthCommitReservedBudgetUseCountRequest = {
   key: string;
   input: WalletSessionBudgetCommitReservedUseCountInput;
 };
+type DoAuthValidateReservedBudgetUseCountRequest = {
+  op: 'authValidateReservedBudgetUseCount';
+  key: string;
+  input: WalletSessionBudgetValidateReservedUseCountInput;
+};
 type DoAuthReleaseReservedBudgetUseCountRequest = {
   op: 'authReleaseReservedBudgetUseCount';
   key: string;
   input: WalletSessionBudgetReleaseReservedUseCountInput;
+};
+type DoAuthReleaseReservedBudgetUseCountForIdentityRequest = {
+  op: 'authReleaseReservedBudgetUseCountForIdentity';
+  key: string;
+  input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput;
 };
 type DoAuthReserveReplayGuardRequest = {
   op: 'authReserveReplayGuard';
@@ -204,7 +216,9 @@ type DoRequest =
   | DoAuthGetBudgetStatusRequest
   | DoAuthReserveBudgetUseCountRequest
   | DoAuthCommitReservedBudgetUseCountRequest
+  | DoAuthValidateReservedBudgetUseCountRequest
   | DoAuthReleaseReservedBudgetUseCountRequest
+  | DoAuthReleaseReservedBudgetUseCountForIdentityRequest
   | DoAuthReserveReplayGuardRequest
   | DoRouterAbEcdsaHssPresignaturePutRequest
   | DoRouterAbEcdsaHssPresignatureReserveRequest
@@ -552,6 +566,18 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
     return { ok: true, remainingUses: resp.value.remainingUses };
   }
 
+  async validateReservedUseCount(
+    input: WalletSessionBudgetValidateReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult> {
+    const resp = await callDo<{ remainingUses: number }>(this.stub, {
+      op: 'authValidateReservedBudgetUseCount',
+      key: this.key(input.signingGrantId),
+      input,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return { ok: true, remainingUses: resp.value.remainingUses };
+  }
+
   async releaseReservedUseCount(
     input: WalletSessionBudgetReleaseReservedUseCountInput,
   ): Promise<WalletSessionBudgetReleaseResult> {
@@ -562,6 +588,29 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
       availableUses: number;
     }>(this.stub, {
       op: 'authReleaseReservedBudgetUseCount',
+      key: this.key(input.signingGrantId),
+      input,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return {
+      ok: true,
+      released: resp.value.released,
+      remainingUses: resp.value.remainingUses,
+      reservedUses: resp.value.reservedUses,
+      availableUses: resp.value.availableUses,
+    };
+  }
+
+  async releaseReservedUseCountForIdentity(
+    input: WalletSessionBudgetReleaseReservedUseCountForIdentityInput,
+  ): Promise<WalletSessionBudgetReleaseResult> {
+    const resp = await callDo<{
+      released: boolean;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }>(this.stub, {
+      op: 'authReleaseReservedBudgetUseCountForIdentity',
       key: this.key(input.signingGrantId),
       input,
     });

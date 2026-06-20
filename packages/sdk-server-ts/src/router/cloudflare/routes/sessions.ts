@@ -1217,7 +1217,7 @@ export async function handleSigningBudgetStatus(
         {
           ok: false,
           code: 'wallet_signing_session_mismatch',
-          message: 'Wallet signing-session status token does not match requested wallet session',
+          message: 'Signing grant status token does not match requested wallet session',
         },
         { status: 403 },
       );
@@ -1227,7 +1227,7 @@ export async function handleSigningBudgetStatus(
         {
           ok: false,
           code: 'threshold_session_mismatch',
-          message: 'Wallet signing-session status token does not match requested threshold session',
+          message: 'Signing grant status token does not match requested threshold session',
         },
         { status: 403 },
       );

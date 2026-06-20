@@ -5,6 +5,7 @@ import type {
   RouterAbNormalSigningAdmissionInput,
   ThresholdSigningAdapter,
 } from '@server/router/express-adaptor';
+import { deriveRouterAbEcdsaHssBudgetOperationId } from '@server/router/routerAbPrivateSigningWorker';
 import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
   ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
@@ -27,16 +28,14 @@ import {
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { fetchJson, makeFakeAuthService, makeSessionAdapter, startExpressRouter } from './helpers';
 
-type LegacyThresholdSessionKind =
-  | 'threshold_ed25519_session_v1'
-  | 'threshold_ecdsa_session_v2';
+type LegacyThresholdSessionKind = 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2';
 
 type RouterAbBudgetConsumeCall = {
   curve: 'ed25519' | 'ecdsa-hss';
   phase: 'finalize';
   thresholdSessionId: string;
   signingGrantId: string;
-  requestId: string;
+  operationId: string;
 };
 
 const ROUTER_AB_TEST_EXPIRES_AT_MS = Date.now() + 60 * 60 * 1000;
@@ -184,6 +183,16 @@ function legacyThresholdClaims(kind: LegacyThresholdSessionKind): Record<string,
   };
 }
 
+async function allowRouterAbNormalSigningAdmission(
+  _input: RouterAbNormalSigningAdmissionInput,
+): Promise<{ ok: true }> {
+  return { ok: true };
+}
+
+const ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION: RouterAbNormalSigningAdmissionAdapter = {
+  evaluate: allowRouterAbNormalSigningAdmission,
+};
+
 async function withAuthBoundaryRouter<T>(
   parseSession: ReturnType<typeof makeSessionAdapter>['parse'],
   run: (input: { baseUrl: string; getThresholdServiceReadCount: () => number }) => Promise<T>,
@@ -201,6 +210,7 @@ async function withAuthBoundaryRouter<T>(
   const router = createRelayRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
+    routerAbNormalSigningAdmission: ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION,
   });
   const srv = await startExpressRouter(router);
   try {
@@ -259,10 +269,10 @@ async function withReplayProtectedNormalSigningRouter<T>(
     reserveRouterAbNormalSigningPrepareReplay: async (input: {
       curve: 'ed25519' | 'ecdsa-hss';
       phase: 'prepare' | 'presign-pool-prepare';
-      sessionId: string;
+      thresholdSessionId: string;
       requestId: string;
     }) => {
-      const key = `${input.curve}:${input.phase}:${input.sessionId}:${input.requestId}`;
+      const key = `${input.curve}:${input.phase}:${input.thresholdSessionId}:${input.requestId}`;
       if (reserved.has(key)) {
         return {
           ok: false as const,
@@ -289,6 +299,10 @@ async function withReplayProtectedNormalSigningRouter<T>(
       ok: true as const,
       remainingUses: 2,
     }),
+    validateRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      remainingUses: 3,
+    }),
     releaseRouterAbNormalSigningBudget: async () => ({
       ok: true as const,
       released: true,
@@ -303,6 +317,7 @@ async function withReplayProtectedNormalSigningRouter<T>(
   const router = createRelayRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
+    routerAbNormalSigningAdmission: ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION,
   });
   const srv = await startExpressRouter(router);
   try {
@@ -384,6 +399,10 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
       budgetConsumes += 1;
       return { ok: true as const, remainingUses: 2 };
     },
+    validateRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      remainingUses: 3,
+    }),
     releaseRouterAbNormalSigningBudget: async () => ({
       ok: true as const,
       released: true,
@@ -416,7 +435,7 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
 
 async function withBudgetedNormalSigningRouter<T>(
   parseSession: ReturnType<typeof makeSessionAdapter>['parse'],
-  consumeRouterAbNormalSigningBudget: (
+  validateRouterAbNormalSigningBudget: (
     input: RouterAbBudgetConsumeCall,
   ) => Promise<
     | { ok: true; remainingUses: number }
@@ -463,7 +482,6 @@ async function withBudgetedNormalSigningRouter<T>(
       },
     }),
     reserveRouterAbNormalSigningPrepareReplay: async () => ({ ok: true as const }),
-    consumeRouterAbNormalSigningBudget,
     reserveRouterAbNormalSigningBudget: async (input: { operationId: string }) => ({
       ok: true as const,
       reservationId: `${input.operationId}-budget-reservation`,
@@ -474,16 +492,23 @@ async function withBudgetedNormalSigningRouter<T>(
     commitRouterAbNormalSigningBudget: async (input: {
       curve: 'ed25519' | 'ecdsa-hss';
       phase: 'finalize';
-      sessionId: string;
+      thresholdSessionId: string;
+      signingGrantId: string;
+      operationId: string;
+    }) => ({ ok: true as const, remainingUses: 2 }),
+    validateRouterAbNormalSigningBudget: async (input: {
+      curve: 'ed25519' | 'ecdsa-hss';
+      phase: 'finalize';
+      thresholdSessionId: string;
       signingGrantId: string;
       operationId: string;
     }) =>
-      consumeRouterAbNormalSigningBudget({
+      validateRouterAbNormalSigningBudget({
         curve: input.curve,
         phase: input.phase,
-        thresholdSessionId: input.sessionId,
+        thresholdSessionId: input.thresholdSessionId,
         signingGrantId: input.signingGrantId,
-        requestId: input.operationId,
+        operationId: input.operationId,
       }),
     releaseRouterAbNormalSigningBudget: async () => ({
       ok: true as const,
@@ -499,6 +524,7 @@ async function withBudgetedNormalSigningRouter<T>(
   const router = createRelayRouter(service, {
     session: makeSessionAdapter({ parse: parseSession }),
     threshold: thresholdOption,
+    routerAbNormalSigningAdmission: ALLOW_ROUTER_AB_NORMAL_SIGNING_ADMISSION,
   });
   const srv = await startExpressRouter(router);
   try {
@@ -605,10 +631,23 @@ async function ecdsaFinalizeBudgetCase(input: {
       context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(context),
     },
   };
+  const operationIdentityBody = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
+    scope,
+    requestId: input.requestId,
+    clientPresignatureId: `${input.requestId}-server-presignature`,
+    expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
+    signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+  });
+  const operationId = await deriveRouterAbEcdsaHssBudgetOperationId({
+    body: operationIdentityBody,
+    signingWorkerId: scope.signing_worker.server_id,
+    thresholdSessionId: input.thresholdSessionId,
+  });
   const body = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
     scope,
     requestId: input.requestId,
     budgetReservationId: `${input.requestId}-budget-reservation`,
+    budgetOperationId: operationId,
     expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
     signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
     serverPresignatureId: `${input.requestId}-server-presignature`,
@@ -640,7 +679,7 @@ async function ecdsaFinalizeBudgetCase(input: {
       phase: 'finalize',
       thresholdSessionId: input.thresholdSessionId,
       signingGrantId: input.signingGrantId,
-      requestId: input.requestId,
+      operationId,
     },
   };
 }
@@ -669,7 +708,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
       phase: 'finalize' as const,
       thresholdSessionId: ROUTER_AB_ED25519_CLAIMS.thresholdSessionId,
       signingGrantId: ROUTER_AB_ED25519_CLAIMS.signingGrantId,
-      requestId: `${ed25519RequestId}-operation`,
+      operationId: `${ed25519RequestId}-operation`,
     },
   };
   const ecdsaEvmCase = await ecdsaFinalizeBudgetCase({
@@ -697,24 +736,27 @@ async function routerAbBudgetFinalizationCases(): Promise<
 
 test.describe('Router A/B normal signing auth boundary', () => {
   test('rejects missing Wallet Session bearer auth before private SigningWorker forwarding', async () => {
-    await withAuthBoundaryRouter(async () => ({ ok: false as const }), async (srv) => {
-      for (const route of NORMAL_SIGNING_ROUTES) {
-        const res = await fetchJson(`${srv.baseUrl}${route.path}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-        });
+    await withAuthBoundaryRouter(
+      async () => ({ ok: false as const }),
+      async (srv) => {
+        for (const route of NORMAL_SIGNING_ROUTES) {
+          const res = await fetchJson(`${srv.baseUrl}${route.path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
 
-        expect(res.status, route.label).toBe(401);
-        expect(res.json, route.label).toMatchObject({
-          ok: false,
-          code: 'unauthorized',
-          message: route.message,
-        });
-      }
+          expect(res.status, route.label).toBe(401);
+          expect(res.json, route.label).toMatchObject({
+            ok: false,
+            code: 'unauthorized',
+            message: route.message,
+          });
+        }
 
-      expect(srv.getThresholdServiceReadCount()).toBe(0);
-    });
+        expect(srv.getThresholdServiceReadCount()).toBe(0);
+      },
+    );
   });
 
   test('rejects cookie sessionKind before Wallet Session parsing', async () => {
@@ -860,6 +902,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               scope: driftedScope,
               requestId: 'router-ab-ecdsa-hss-scope-drift-finalize',
               budgetReservationId: 'router-ab-ecdsa-hss-scope-drift-budget-reservation',
+              budgetOperationId: 'router-ab-ecdsa-hss-scope-drift-budget-operation',
               expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
               signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
               serverPresignatureId: 'server-presignature-scope-drift',
@@ -882,7 +925,8 @@ test.describe('Router A/B normal signing auth boundary', () => {
           expect(res.json, route.label).toMatchObject({
             ok: false,
             code: 'forbidden',
-            message: 'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
+            message:
+              'Router A/B ECDSA-HSS normal-signing scope does not match Wallet Session claims',
           });
           expect(srv.getThresholdServiceReadCount(), route.label).toBe(0);
         },
@@ -937,6 +981,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               scope: ECDSA_HSS_SCOPE,
               requestId: 'router-ab-ecdsa-hss-expired-finalize',
               budgetReservationId: 'router-ab-ecdsa-hss-expired-budget-reservation',
+              budgetOperationId: 'router-ab-ecdsa-hss-expired-budget-operation',
               expiresAtMs: 1,
               signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
               serverPresignatureId: 'server-presignature-expired',
@@ -995,7 +1040,12 @@ test.describe('Router A/B normal signing auth boundary', () => {
       {
         path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
         body: ed25519NormalSigningBody('router-ab-ed25519-private-pool-finalize', {
-          pool_binding: {},
+          pool_binding: {
+            server_round1_handle: 'router-ab-ed25519-private-pool-finalize-server-round-1',
+            pool_entry_binding_digest: {
+              bytes: Array.from({ length: 32 }, (_, index) => index + 7),
+            },
+          },
         }),
         privatePath: '/router-ab/v1/signing-worker/sign/presign-pool',
       },
@@ -1077,7 +1127,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           ok: false as const,
           status: 409,
           code: 'exhausted',
-          message: 'wallet signing session exhausted',
+          message: 'signing grant exhausted',
         };
       },
       async (srv) => {
@@ -1095,7 +1145,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           expect(res.json, testCase.label).toMatchObject({
             ok: false,
             code: 'exhausted',
-            message: 'wallet signing session exhausted',
+            message: 'signing grant exhausted',
           });
         }
 
@@ -1105,7 +1155,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
     );
   });
 
-  test('dedupes Router A/B final signing budget retries by request identity', async () => {
+  test('dedupes Router A/B final signing budget retries by operation identity', async () => {
     const cases = await routerAbBudgetFinalizationCases();
     const claimsByToken = new Map(cases.map((testCase) => [testCase.token, testCase.claims]));
     const remainingBySession = new Map(
@@ -1121,7 +1171,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           input.phase,
           input.thresholdSessionId,
           input.signingGrantId,
-          input.requestId,
+          input.operationId,
         ].join(':');
         if (!consumedKeys.has(key)) {
           const remaining = remainingBySession.get(input.thresholdSessionId) ?? 0;
@@ -1130,7 +1180,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               ok: false as const,
               status: 409,
               code: 'exhausted',
-              message: 'wallet signing session exhausted',
+              message: 'signing grant exhausted',
             };
           }
           remainingBySession.set(input.thresholdSessionId, remaining - 1);
@@ -1165,13 +1215,10 @@ test.describe('Router A/B normal signing auth boundary', () => {
 
   test('rejects replayed prepare request ids before a second SigningWorker forward', async () => {
     const ed25519Body = ed25519NormalSigningBody('router-ab-ed25519-replay-shared-id');
-    const ed25519PresignPoolBody = ed25519NormalSigningBody(
-      'router-ab-ed25519-replay-shared-id',
-      {
-        generation: 1,
-        client_offers: [],
-      },
-    );
+    const ed25519PresignPoolBody = ed25519NormalSigningBody('router-ab-ed25519-replay-shared-id', {
+      generation: 1,
+      client_offers: [],
+    });
     await withReplayProtectedNormalSigningRouter(
       async () => ({ ok: true as const, claims: ROUTER_AB_ED25519_CLAIMS }),
       async (srv) => {
@@ -1270,6 +1317,11 @@ test.describe('Router A/B normal signing auth boundary', () => {
       expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
     });
+    const ecdsaBudgetOperationId = await deriveRouterAbEcdsaHssBudgetOperationId({
+      body: ecdsaBody,
+      signingWorkerId: ecdsaReplayScope.signing_worker.server_id,
+      thresholdSessionId: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdSessionId,
+    });
     await withReplayProtectedNormalSigningRouter(
       async () => ({ ok: true as const, claims: ecdsaReplayClaims }),
       async (srv) => {
@@ -1298,13 +1350,15 @@ test.describe('Router A/B normal signing auth boundary', () => {
 
         expect(first.status).toBe(200);
         expect(first.json).toMatchObject({
-          budget_reservation_id: 'router-ab-ecdsa-hss-replay-prepare-budget-reservation',
+          budget_reservation_id: `${ecdsaBudgetOperationId}-budget-reservation`,
+          budget_operation_id: ecdsaBudgetOperationId,
           budget_status: {
             committed_remaining_uses: 3,
             reserved_uses: 1,
             available_uses: 2,
           },
         });
+        expect(first.json?.budget_operation_id).not.toBe(ecdsaBody.request_id);
         expect(replay.status).toBe(400);
         expect(replay.json).toMatchObject({
           ok: false,
@@ -1420,6 +1474,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           scope: ecdsaScope,
           requestId: 'router-ab-ecdsa-hss-abuse-finalize',
           budgetReservationId: 'router-ab-ecdsa-hss-abuse-budget-reservation',
+          budgetOperationId: 'router-ab-ecdsa-hss-abuse-budget-operation',
           expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
           signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
           serverPresignatureId: 'server-presignature-abuse',

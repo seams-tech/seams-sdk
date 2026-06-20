@@ -93,12 +93,12 @@ function parseParticipantIds(raw: unknown): number[] | undefined {
 function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSession | undefined {
   if (!isObject(raw)) return undefined;
   const sessionKind = toOptionalTrimmedString(raw.sessionKind);
-  const sessionId = toOptionalTrimmedString(raw.sessionId);
+  const thresholdSessionId = toOptionalTrimmedString(raw.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(raw.signingGrantId);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
   if (
     (sessionKind !== 'jwt' && sessionKind !== 'cookie') ||
-    !sessionId ||
+    !thresholdSessionId ||
     !signingGrantId ||
     !expiresAtMs
   ) {
@@ -111,7 +111,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   const jwt = toOptionalTrimmedString(raw.jwt);
   return {
     sessionKind,
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
     expiresAtMs,
     ...(expiresAt ? { expiresAt } : {}),
@@ -169,7 +169,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     keyScope: toOptionalTrimmedString(prepare.keyScope),
     relayerKeyId: toOptionalTrimmedString(prepare.relayerKeyId),
     requestId: toOptionalTrimmedString(prepare.requestId),
-    sessionId: toOptionalTrimmedString(prepare.sessionId),
+    thresholdSessionId: toOptionalTrimmedString(prepare.thresholdSessionId),
     signingGrantId: toOptionalTrimmedString(prepare.signingGrantId),
   };
   if (
@@ -182,7 +182,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     !required.signingRootVersion ||
     !required.relayerKeyId ||
     !required.requestId ||
-    !required.sessionId ||
+    !required.thresholdSessionId ||
     !required.signingGrantId ||
     ttlMs === undefined ||
     remainingUses === undefined ||
@@ -203,7 +203,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
       keyScope: 'evm-family',
       relayerKeyId: required.relayerKeyId,
       requestId: required.requestId,
-      sessionId: required.sessionId,
+      thresholdSessionId: required.thresholdSessionId,
       signingGrantId: required.signingGrantId,
       ttlMs,
       remainingUses,

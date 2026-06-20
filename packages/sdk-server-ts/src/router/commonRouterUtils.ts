@@ -184,18 +184,17 @@ export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJ
 export type RouterAbEd25519WalletSessionJwtSessionInfo =
   RouterAbEd25519WalletSessionJwtSigningInput['sessionInfo'];
 
-export type RouterAbEcdsaHssWalletSessionJwtSigningInput =
-  RouterAbWalletSessionJwtSigningInput & {
-    sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
-      sessionKind: 'jwt';
-      keyHandle: unknown;
-      stableKeyContext: unknown;
-      publicIdentity: unknown;
-      activationEpoch: unknown;
-      signingWorkerId: unknown;
-      routerAbEcdsaHssNormalSigning: unknown;
-    };
+export type RouterAbEcdsaHssWalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
+  sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
+    sessionKind: 'jwt';
+    keyHandle: unknown;
+    stableKeyContext: unknown;
+    publicIdentity: unknown;
+    activationEpoch: unknown;
+    signingWorkerId: unknown;
+    routerAbEcdsaHssNormalSigning: unknown;
   };
+};
 
 export type RouterAbEcdsaHssWalletSessionJwtSessionInfo =
   RouterAbEcdsaHssWalletSessionJwtSigningInput['sessionInfo'];
@@ -215,6 +214,21 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
     runtimePolicyScope: input.runtimePolicyScope,
     routerAbNormalSigning: input.routerAbNormalSigning,
   };
+}
+
+export function parseRouterAbEd25519BootstrapSessionJwtSessionInfo(
+  input: unknown,
+): RouterAbEd25519WalletSessionJwtSessionInfo | null {
+  if (!isPlainObject(input)) return null;
+  return parseRouterAbEd25519WalletSessionJwtSessionInfo({
+    sessionKind: input.sessionKind,
+    thresholdSessionId: input.thresholdSessionId,
+    signingGrantId: input.signingGrantId,
+    expiresAtMs: input.expiresAtMs,
+    participantIds: input.participantIds,
+    runtimePolicyScope: input.runtimePolicyScope,
+    routerAbNormalSigning: input.routerAbNormalSigning,
+  });
 }
 
 function rejectNonJwtWalletSessionKind(
@@ -297,9 +311,7 @@ function normalizeRouterAbWalletSessionSigningBase(
   };
 }
 
-function rejectInvalidRouterAbEd25519Binding(
-  args: RouterAbEd25519WalletSessionJwtSigningInput,
-):
+function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519WalletSessionJwtSigningInput):
   | {
       ok: true;
       runtimePolicyScope: RuntimePolicyScope;
@@ -388,7 +400,7 @@ export function buildRouterAbEcdsaHssNormalSigningStateForBootstrap(input: {
           key_epoch: signingWorkerHpke.key_epoch,
           recipient_encryption_key: signingWorkerHpke.public_key,
         },
-        activation_epoch: bootstrap.sessionId,
+        activation_epoch: bootstrap.thresholdSessionId,
       },
     });
     if (!state) {
@@ -411,9 +423,7 @@ export function buildRouterAbEcdsaHssNormalSigningStateForBootstrap(input: {
   }
 }
 
-function rejectInvalidRouterAbEcdsaHssBinding(
-  args: RouterAbEcdsaHssWalletSessionJwtSigningInput,
-):
+function rejectInvalidRouterAbEcdsaHssBinding(args: RouterAbEcdsaHssWalletSessionJwtSigningInput):
   | {
       ok: true;
       normalSigning: RouterAbEcdsaHssNormalSigningStateV1;
@@ -492,17 +502,16 @@ function doesEcdsaHssBindingMatchSessionInfo(
 
   return (
     String(args.sessionInfo.keyHandle || '').trim() !== '' &&
-    String(args.sessionInfo.activationEpoch || '').trim() === normalSigning.scope.activation_epoch &&
+    String(args.sessionInfo.activationEpoch || '').trim() ===
+      normalSigning.scope.activation_epoch &&
     String(args.sessionInfo.signingWorkerId || '').trim() === signingWorker.server_id &&
     String(stableKeyContext.walletId || '').trim() === context.wallet_id &&
     String(stableKeyContext.rpId || '').trim() === context.rp_id &&
     String(stableKeyContext.keyScope || '').trim() === context.key_scope &&
-    String(stableKeyContext.ecdsaThresholdKeyId || '').trim() ===
-      context.ecdsa_threshold_key_id &&
+    String(stableKeyContext.ecdsaThresholdKeyId || '').trim() === context.ecdsa_threshold_key_id &&
     String(stableKeyContext.signingRootId || '').trim() === context.signing_root_id &&
     String(stableKeyContext.signingRootVersion || '').trim() === context.signing_root_version &&
-    String(stableKeyContext.contextBinding32B64u || '').trim() ===
-      identity.context_binding_b64u &&
+    String(stableKeyContext.contextBinding32B64u || '').trim() === identity.context_binding_b64u &&
     String(publicIdentity.hssClientSharePublicKey33B64u || '').trim() ===
       identity.client_public_key33_b64u &&
     String(publicIdentity.relayerPublicKey33B64u || '').trim() ===

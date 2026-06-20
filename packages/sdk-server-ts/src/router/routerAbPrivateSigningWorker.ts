@@ -109,9 +109,9 @@ type RouterAbEd25519NormalSigningThresholdService = {
     requestId: string;
     expiresAtMs: number;
   }): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }>;
-} & RouterAbNormalSigningBudgetService;
+} & RouterAbBudgetServiceMethods;
 
-type RouterAbNormalSigningBudgetService = {
+type RouterAbBudgetServiceMethods = {
   reserveRouterAbNormalSigningBudget(
     input: RouterAbNormalSigningBudgetReservationInput,
   ): Promise<RouterAbNormalSigningBudgetReservationResult>;
@@ -138,7 +138,7 @@ type RouterAbEcdsaHssNormalSigningThresholdService = {
     requestId: string;
     expiresAtMs: number;
   }): Promise<{ ok: true } | { ok: false; status: number; code: string; message: string }>;
-} & RouterAbNormalSigningBudgetService;
+} & RouterAbBudgetServiceMethods;
 
 export type RouterAbNormalSigningRouteAdmission =
   | {
@@ -575,7 +575,7 @@ function budgetOperationId(body: Record<string, unknown>): string {
 }
 
 async function forwardThenCommitBudgetedSigning(input: {
-  threshold: RouterAbNormalSigningBudgetService;
+  threshold: RouterAbBudgetServiceMethods;
   signingWorker: RouterAbSigningWorkerPrivateHttpConfig;
   path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaHssPrivateSigningPath;
   body: unknown;

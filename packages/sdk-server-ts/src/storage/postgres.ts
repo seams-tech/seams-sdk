@@ -737,6 +737,7 @@ export async function ensurePostgresSchema(input: {
         request_digest TEXT NOT NULL,
         curve TEXT NOT NULL,
         threshold_session_id TEXT NOT NULL,
+        signing_worker_id TEXT NOT NULL,
         signature_uses INTEGER NOT NULL,
         expires_at_ms BIGINT NOT NULL,
         status TEXT NOT NULL,
@@ -744,11 +745,24 @@ export async function ensurePostgresSchema(input: {
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, session_id, reservation_id),
-        UNIQUE (namespace, session_id, operation_id, request_digest),
+        UNIQUE (namespace, session_id, signing_worker_id, operation_id, request_digest),
         CHECK (curve IN ('ed25519', 'ecdsa')),
         CHECK (status IN ('reserved', 'committed')),
         CHECK (signature_uses > 0)
       )
+    `);
+    await pool.query(`
+      ALTER TABLE threshold_wallet_session_budget_reservations
+      ADD COLUMN IF NOT EXISTS signing_worker_id TEXT NOT NULL DEFAULT 'legacy-signing-worker-unknown'
+    `);
+    await pool.query(`
+      ALTER TABLE threshold_wallet_session_budget_reservations
+      DROP CONSTRAINT IF EXISTS threshold_wallet_session_budget_reservations_namespace_session_id_operation_id_request_digest_key
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS threshold_wallet_session_budget_reservations_operation_identity_idx
+      ON threshold_wallet_session_budget_reservations
+        (namespace, session_id, signing_worker_id, operation_id, request_digest)
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS threshold_wallet_session_budget_reservations_expires_idx

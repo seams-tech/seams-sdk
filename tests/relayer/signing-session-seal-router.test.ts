@@ -86,10 +86,7 @@ function makeThresholdSessionClaims(input?: { userId?: string; signingGrantId?: 
   };
 }
 
-function makeLegacyThresholdSessionClaims(input?: {
-  userId?: string;
-  signingGrantId?: string;
-}) {
+function makeLegacyThresholdSessionClaims(input?: { userId?: string; signingGrantId?: string }) {
   return {
     ...makeThresholdSessionClaims(input),
     kind: 'threshold_ecdsa_session_v2' as const,
@@ -149,7 +146,13 @@ function makePolicy(
     participantIds,
   };
   return {
-    getThresholdSession: async ({ curve, thresholdSessionId }: { curve: 'ecdsa' | 'ed25519'; thresholdSessionId: string }) => {
+    getThresholdSession: async ({
+      curve,
+      thresholdSessionId,
+    }: {
+      curve: 'ecdsa' | 'ed25519';
+      thresholdSessionId: string;
+    }) => {
       if (curve !== 'ecdsa' || thresholdSessionId !== THRESHOLD_SESSION_ID) return null;
       return thresholdSession;
     },
@@ -170,9 +173,7 @@ function makePolicy(
       curve: 'ecdsa' | 'ed25519';
       signingGrantId: string;
     }) =>
-      curve === 'ecdsa' && requestedSigningGrantId === signingGrantId
-        ? walletBudgetStatus
-        : null,
+      curve === 'ecdsa' && requestedSigningGrantId === signingGrantId ? walletBudgetStatus : null,
     consumeUseCount: async () => ({
       ok: true as const,
       remainingUses: Math.max(0, remainingUses - 1),
@@ -373,7 +374,7 @@ test.describe('signing-session seal routes', () => {
     expect(applyCalls).toBe(2);
   });
 
-  test('service reports the shared wallet signing-session budget instead of curve-session uses', async () => {
+  test('service reports the shared signing grant budget instead of curve-session uses', async () => {
     const signingGrantId = 'wallet-session-seal-budget';
     const service = createSigningSessionSealService({
       sessionPolicy: {
@@ -431,7 +432,7 @@ test.describe('signing-session seal routes', () => {
     });
   });
 
-  test('service rejects sealed refresh when the shared wallet signing-session budget is exhausted', async () => {
+  test('service rejects sealed refresh when the shared signing grant budget is exhausted', async () => {
     const signingGrantId = 'wallet-session-seal-exhausted';
     let cipherCalls = 0;
     const service = createSigningSessionSealService({
@@ -483,7 +484,7 @@ test.describe('signing-session seal routes', () => {
     expect(result).toEqual({
       ok: false,
       code: 'exhausted',
-      message: 'wallet signing session exhausted',
+      message: 'signing grant exhausted',
     });
     expect(cipherCalls).toBe(0);
   });
@@ -729,14 +730,11 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(
-        `${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(makeBody()),
-        },
-      );
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeBody()),
+      });
       expect(res.status).toBe(403);
       expect(res.json?.ok).toBe(false);
       expect(res.json?.code).toBe('forbidden');
@@ -917,19 +915,16 @@ test.describe('signing-session seal routes', () => {
       expect(applied.json?.keyVersion).toBe(keyVersion);
       expect(applied.json?.ciphertext).not.toBe(plaintextCiphertextB64u);
 
-      const removed = await fetchJson(
-        `${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(
-            makeBody({
-              ciphertext: applied.json?.ciphertext,
-              keyVersion,
-            }),
-          ),
-        },
-      );
+      const removed = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          makeBody({
+            ciphertext: applied.json?.ciphertext,
+            keyVersion,
+          }),
+        ),
+      });
 
       expect(removed.status).toBe(200);
       expect(removed.json?.ok).toBe(true);

@@ -291,7 +291,7 @@ async function resolveBudgetStatusForSealOperation(input: {
     return {
       ok: false,
       code: 'not_configured',
-      message: 'wallet signing-session status is not configured',
+      message: 'signing grant status is not configured',
     };
   }
   const walletStatus = await input.options.sessionPolicy.getWalletBudgetStatus(walletBudgetLookup);
@@ -299,21 +299,21 @@ async function resolveBudgetStatusForSealOperation(input: {
     return {
       ok: false,
       code: 'not_found',
-      message: 'wallet signing session not found',
+      message: 'signing grant not found',
     };
   }
   if (walletStatus.userId !== input.auth.userId) {
     return {
       ok: false,
       code: 'forbidden',
-      message: 'wallet signing session does not belong to authenticated user',
+      message: 'signing grant does not belong to authenticated user',
     };
   }
   if (isExpired(walletStatus, input.nowMs)) {
     return {
       ok: false,
       code: 'expired',
-      message: 'wallet signing session expired',
+      message: 'signing grant expired',
     };
   }
   const remainingUses = toNonNegativeInt(walletStatus.remainingUses) ?? 0;
@@ -321,7 +321,7 @@ async function resolveBudgetStatusForSealOperation(input: {
     return {
       ok: false,
       code: 'exhausted',
-      message: 'wallet signing session exhausted',
+      message: 'signing grant exhausted',
     };
   }
   return {

@@ -19,6 +19,8 @@ const logger = {
   debug() {},
 } as const;
 
+const testSigningWorkerId = 'signing-worker-1';
+
 function createStore() {
   return createEd25519WalletSessionStore({
     config: { kind: 'in-memory' },
@@ -115,6 +117,7 @@ async function expectReservationLifecycleContract(input: {
 }) {
   const sessionId = `${input.label}-wallet-session`;
   const thresholdSessionId = `${input.label}-threshold-session`;
+  const signingWorkerId = `${input.label}-signing-worker`;
   const expiresAtMs = Date.now() + 60_000;
   await putWalletSessionOnStore(input.store, {
     id: sessionId,
@@ -128,6 +131,7 @@ async function expectReservationLifecycleContract(input: {
       signingGrantId: sessionId,
       curve: 'ed25519',
       thresholdSessionId,
+      signingWorkerId,
       operationId: `${input.label}-operation-1`,
       requestDigest: `${input.label}-digest-1`,
       signatureUses: 1,
@@ -137,6 +141,7 @@ async function expectReservationLifecycleContract(input: {
       signingGrantId: sessionId,
       curve: 'ed25519',
       thresholdSessionId,
+      signingWorkerId,
       operationId: `${input.label}-operation-2`,
       requestDigest: `${input.label}-digest-2`,
       signatureUses: 1,
@@ -153,6 +158,7 @@ async function expectReservationLifecycleContract(input: {
     signingGrantId: sessionId,
     curve: 'ed25519',
     thresholdSessionId,
+    signingWorkerId,
     operationId: reserved.reservation.operationId,
     requestDigest: reserved.reservation.requestDigest,
     signatureUses: 1,
@@ -166,6 +172,7 @@ async function expectReservationLifecycleContract(input: {
   const committed = await input.store.commitReservedUseCountOnce({
     signingGrantId: sessionId,
     reservationId: reserved.reservation.reservationId,
+    signingWorkerId,
     operationId: reserved.reservation.operationId,
     requestDigest: reserved.reservation.requestDigest,
   });
@@ -173,10 +180,26 @@ async function expectReservationLifecycleContract(input: {
   const duplicateCommit = await input.store.commitReservedUseCountOnce({
     signingGrantId: sessionId,
     reservationId: reserved.reservation.reservationId,
+    signingWorkerId,
     operationId: reserved.reservation.operationId,
     requestDigest: reserved.reservation.requestDigest,
   });
   expect(duplicateCommit).toEqual({ ok: true, remainingUses: 0 });
+
+  const reserveAfterCommit = await input.store.reserveUseCountOnce({
+    signingGrantId: sessionId,
+    curve: 'ed25519',
+    thresholdSessionId,
+    signingWorkerId,
+    operationId: reserved.reservation.operationId,
+    requestDigest: reserved.reservation.requestDigest,
+    signatureUses: 1,
+    expiresAtMs,
+  });
+  expect(reserveAfterCommit).toMatchObject({
+    ok: false,
+    code: 'wallet_budget_reservation_mismatch',
+  });
 
   const releaseSessionId = `${input.label}-release-wallet-session`;
   const releaseThresholdSessionId = `${input.label}-release-threshold-session`;
@@ -190,6 +213,7 @@ async function expectReservationLifecycleContract(input: {
     signingGrantId: releaseSessionId,
     curve: 'ed25519',
     thresholdSessionId: releaseThresholdSessionId,
+    signingWorkerId,
     operationId: `${input.label}-release-operation`,
     requestDigest: `${input.label}-release-digest`,
     signatureUses: 1,
@@ -219,6 +243,7 @@ test.describe('Wallet Session budget reservations', () => {
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
@@ -233,6 +258,7 @@ test.describe('Wallet Session budget reservations', () => {
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
@@ -246,6 +272,7 @@ test.describe('Wallet Session budget reservations', () => {
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-2',
       requestDigest: 'digest-2',
       signatureUses: 1,
@@ -264,6 +291,7 @@ test.describe('Wallet Session budget reservations', () => {
     const committed = await store.commitReservedUseCountOnce({
       signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
     });
@@ -272,6 +300,7 @@ test.describe('Wallet Session budget reservations', () => {
     const duplicateCommit = await store.commitReservedUseCountOnce({
       signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
     });
@@ -285,6 +314,7 @@ test.describe('Wallet Session budget reservations', () => {
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
@@ -311,6 +341,53 @@ test.describe('Wallet Session budget reservations', () => {
     });
   });
 
+  test('identity-bound release refuses mismatched reservations', async () => {
+    const { store, expiresAtMs } = await putWalletSession({ remainingUses: 1 });
+
+    const reservation = await store.reserveUseCountOnce({
+      signingGrantId: 'wallet-session-1',
+      curve: 'ed25519',
+      thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
+      operationId: 'operation-1',
+      requestDigest: 'digest-1',
+      signatureUses: 1,
+      expiresAtMs,
+    });
+    expect(reservation.ok).toBe(true);
+    if (!reservation.ok) throw new Error(reservation.message);
+
+    await expect(
+      store.releaseReservedUseCountForIdentity({
+        signingGrantId: 'wallet-session-1',
+        reservationId: reservation.reservation.reservationId,
+        signingWorkerId: testSigningWorkerId,
+        operationId: 'operation-1',
+        requestDigest: 'digest-2',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      released: false,
+      reservedUses: 1,
+      availableUses: 0,
+    });
+
+    await expect(
+      store.releaseReservedUseCountForIdentity({
+        signingGrantId: 'wallet-session-1',
+        reservationId: reservation.reservation.reservationId,
+        signingWorkerId: testSigningWorkerId,
+        operationId: 'operation-1',
+        requestDigest: 'digest-1',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      released: true,
+      reservedUses: 0,
+      availableUses: 1,
+    });
+  });
+
   test('reserve rejects exhausted budget', async () => {
     const { store, expiresAtMs } = await putWalletSession({ remainingUses: 0 });
 
@@ -318,6 +395,7 @@ test.describe('Wallet Session budget reservations', () => {
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
@@ -330,12 +408,65 @@ test.describe('Wallet Session budget reservations', () => {
     });
   });
 
+  test('three committed signing operations exhaust the fourth reserve', async () => {
+    const { store, expiresAtMs } = await putWalletSession({ remainingUses: 3 });
+
+    for (let index = 1; index <= 3; index += 1) {
+      const operationId = `operation-${index}`;
+      const requestDigest = `digest-${index}`;
+      const reservation = await store.reserveUseCountOnce({
+        signingGrantId: 'wallet-session-1',
+        curve: 'ed25519',
+        thresholdSessionId: 'threshold-session-1',
+        signingWorkerId: testSigningWorkerId,
+        operationId,
+        requestDigest,
+        signatureUses: 1,
+        expiresAtMs,
+      });
+      expect(reservation.ok).toBe(true);
+      if (!reservation.ok) throw new Error(reservation.message);
+      await expect(
+        store.commitReservedUseCountOnce({
+          signingGrantId: 'wallet-session-1',
+          reservationId: reservation.reservation.reservationId,
+          signingWorkerId: testSigningWorkerId,
+          operationId,
+          requestDigest,
+        }),
+      ).resolves.toEqual({ ok: true, remainingUses: 3 - index });
+    }
+
+    await expect(
+      store.reserveUseCountOnce({
+        signingGrantId: 'wallet-session-1',
+        curve: 'ed25519',
+        thresholdSessionId: 'threshold-session-1',
+        signingWorkerId: testSigningWorkerId,
+        operationId: 'operation-4',
+        requestDigest: 'digest-4',
+        signatureUses: 1,
+        expiresAtMs,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'wallet_budget_exhausted',
+    });
+    await expect(store.getSessionStatus('wallet-session-1')).resolves.toMatchObject({
+      committedRemainingUses: 0,
+      reservedUses: 0,
+      availableUses: 0,
+      remainingUses: 0,
+    });
+  });
+
   test('commit rejects expired reservations and releases visible availability', async () => {
     const { store } = await putWalletSession({ remainingUses: 1 });
     const expiredReservation = await store.reserveUseCountOnce({
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
@@ -349,6 +480,7 @@ test.describe('Wallet Session budget reservations', () => {
     const committed = await store.commitReservedUseCountOnce({
       signingGrantId: 'wallet-session-1',
       reservationId: expiredReservation.reservation.reservationId,
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
     });
@@ -372,6 +504,7 @@ test.describe('Wallet Session budget reservations', () => {
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
       thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
@@ -383,6 +516,7 @@ test.describe('Wallet Session budget reservations', () => {
     const committed = await store.commitReservedUseCountOnce({
       signingGrantId: 'wallet-session-1',
       reservationId: reservation.reservation.reservationId,
+      signingWorkerId: testSigningWorkerId,
       operationId: 'operation-1',
       requestDigest: 'digest-2',
     });
@@ -396,6 +530,50 @@ test.describe('Wallet Session budget reservations', () => {
       reservedUses: 1,
       availableUses: 0,
       remainingUses: 0,
+    });
+  });
+
+  test('validate and commit reject SigningWorker identity mismatch', async () => {
+    const { store, expiresAtMs } = await putWalletSession({ remainingUses: 1 });
+
+    const reservation = await store.reserveUseCountOnce({
+      signingGrantId: 'wallet-session-1',
+      curve: 'ed25519',
+      thresholdSessionId: 'threshold-session-1',
+      signingWorkerId: testSigningWorkerId,
+      operationId: 'operation-1',
+      requestDigest: 'digest-1',
+      signatureUses: 1,
+      expiresAtMs,
+    });
+    expect(reservation.ok).toBe(true);
+    if (!reservation.ok) throw new Error(reservation.message);
+
+    const mismatchedSigningWorkerId = 'signing-worker-2';
+    await expect(
+      store.validateReservedUseCount({
+        signingGrantId: 'wallet-session-1',
+        reservationId: reservation.reservation.reservationId,
+        signingWorkerId: mismatchedSigningWorkerId,
+        operationId: 'operation-1',
+        requestDigest: 'digest-1',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'wallet_budget_reservation_mismatch',
+    });
+
+    await expect(
+      store.commitReservedUseCountOnce({
+        signingGrantId: 'wallet-session-1',
+        reservationId: reservation.reservation.reservationId,
+        signingWorkerId: mismatchedSigningWorkerId,
+        operationId: 'operation-1',
+        requestDigest: 'digest-1',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'wallet_budget_reservation_mismatch',
     });
   });
 });

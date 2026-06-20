@@ -179,7 +179,7 @@ function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
     ethereumAddress: issuer.publicIdentity.ethereumAddress,
     relayerVerifyingShareB64u: issuer.publicIdentity.relayerPublicKey33B64u,
     participantIds: [1, 2],
-    sessionId: 'threshold-ecdsa-session',
+    thresholdSessionId: 'threshold-ecdsa-session',
     signingGrantId: 'signing-grant-ecdsa',
     expiresAtMs: Date.now() + 60_000,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -331,9 +331,9 @@ test.describe('threshold session auth token claims', () => {
         routerAbEcdsaHssIssuerBinding: routerAbEcdsaIssuerBinding(),
       }),
     ).toBeNull();
-    expect(
-      parseRouterAbEcdsaHssWalletSessionClaims(routerAbEcdsaClaims())?.keyHandle,
-    ).toBe('ehss-key-test');
+    expect(parseRouterAbEcdsaHssWalletSessionClaims(routerAbEcdsaClaims())?.keyHandle).toBe(
+      'ehss-key-test',
+    );
   });
 
   test('Router A/B route validators reject legacy threshold-session JWT claims', async () => {
@@ -473,23 +473,23 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
-          thresholdSessionId: ecdsaBootstrap.sessionId,
+          thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
           signingGrantId: ecdsaBootstrap.signingGrantId,
           expiresAtMs: ecdsaBootstrap.expiresAtMs,
           participantIds: ecdsaBootstrap.participantIds,
           runtimePolicyScope,
           keyHandle: ecdsaBootstrap.keyHandle,
           ...routerAbEcdsaIssuerBinding(),
-          activationEpoch: ecdsaBootstrap.sessionId,
+          activationEpoch: ecdsaBootstrap.thresholdSessionId,
           routerAbEcdsaHssNormalSigning: ecdsaNormalSigning.state,
         },
         requireJwtErrorMessage: 'jwt required',
         invalidPayloadErrorMessage: 'invalid ecdsa payload',
       }),
     ).resolves.toMatchObject({ ok: true });
-    expect(parseRouterAbEd25519WalletSessionClaims(signedPayloads[0])?.routerAbNormalSigning).toEqual(
-      routerAbNormalSigning,
-    );
+    expect(
+      parseRouterAbEd25519WalletSessionClaims(signedPayloads[0])?.routerAbNormalSigning,
+    ).toEqual(routerAbNormalSigning);
     const signedEcdsaClaims = parseRouterAbEcdsaHssWalletSessionClaims(signedPayloads[1]);
     expect(signedEcdsaClaims?.routerAbEcdsaHssNormalSigning).toEqual(ecdsaNormalSigning.state);
     if (!signedEcdsaClaims?.routerAbEcdsaHssNormalSigning) {
@@ -546,7 +546,7 @@ test.describe('threshold session auth token claims', () => {
       ...routerAbEcdsaIssuerBinding(),
       routerAbEcdsaHssIssuerBinding: routerAbEcdsaIssuerBinding(),
       sessionKind: 'jwt' as const,
-      thresholdSessionId: ecdsaBootstrap.sessionId,
+      thresholdSessionId: ecdsaBootstrap.thresholdSessionId,
       signingGrantId: ecdsaBootstrap.signingGrantId,
       expiresAtMs: ecdsaBootstrap.expiresAtMs,
       participantIds: ecdsaBootstrap.participantIds,
@@ -714,6 +714,7 @@ test.describe('threshold session auth token claims', () => {
       scope,
       requestId: prepareRequest.request_id,
       budgetReservationId: 'router-ab-ecdsa-private-validator-budget-reservation',
+      budgetOperationId: 'router-ab-ecdsa-private-validator-budget-operation',
       expiresAtMs: prepareRequest.expires_at_ms,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
       serverPresignatureId: prepareRequest.client_presignature_id,

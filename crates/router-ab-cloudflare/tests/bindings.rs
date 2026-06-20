@@ -121,6 +121,8 @@ use router_ab_cloudflare::{
     CloudflareRouterTrustedAdmissionV1, CloudflareRouterTrustedRequestMetadataV1,
     CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedSessionProviderV1,
     CloudflareRouterVerifiedSessionV1, CloudflareRouterVerifiedWalletSessionV1,
+    CloudflareRouterWalletBudgetCurveV1, CloudflareRouterWalletBudgetPutGrantRequestV1,
+    CloudflareRouterWalletBudgetReserveRequestV1, CloudflareRouterWalletBudgetSignerBindingV1,
     CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWalletSessionVerifierV1,
     CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1,
     CloudflareServerOutputHpkeDecryptKeyBindingV1, CloudflareServerOutputMaterialRecordV1,
@@ -200,11 +202,10 @@ use router_ab_core::{
     decode_router_to_signer_payload_v1, encode_ab_peer_message_authentication_input_v1,
     AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1, AbPeerMessageSignatureSchemeV1,
     AbPeerMessageVerifyingKeyV1, ActiveSigningWorkerStateV1, CanonicalWireBytesV1, Clock,
-    CorrectnessLevel, Csprng, DeriverAEngine, EncryptedPayloadV1, ExpensiveWorkGateContextV1,
+    CorrectnessLevel, Csprng, EncryptedPayloadV1, ExpensiveWorkGateContextV1,
     ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1, GateDeferReasonV1, GatePrincipalV1,
     GateRejectReasonV1, LifecycleScopeV1, MpcPrfOutputRequestV1, MpcPrfSigningRootShareWireV1,
-    MpcPrfSuiteId, NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
-    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
+    MpcPrfSuiteId, NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningScopeV1,
     OpenedShareKind, PeerTransport, PublicRouterRequestV1, RecipientOutputEncryptionAlgorithmV1,
     RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
     RecipientProofBundleEncryptorV1, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
@@ -288,6 +289,7 @@ fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerif
         "user-1",
         "account.near",
         "session-1",
+        "signing-grant-1",
         "org-1",
         "project-1",
         "dev",
@@ -844,13 +846,6 @@ fn deriver_b_envelope_hpke_decrypt_key() -> CloudflareSignerEnvelopeHpkeDecryptK
     .expect("signer b hpke envelope decrypt key")
 }
 
-fn deriver_b_envelope_hpke_decrypt_key_set() -> CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1 {
-    CloudflareSignerEnvelopeHpkeDecryptKeyBindingSetV1::current_only(
-        deriver_b_envelope_hpke_decrypt_key(),
-    )
-    .expect("signer b hpke envelope decrypt key set")
-}
-
 fn server_output_hpke_decrypt_key() -> CloudflareServerOutputHpkeDecryptKeyBindingV1 {
     let server = &signer_set().selected_server;
     CloudflareServerOutputHpkeDecryptKeyBindingV1::new(
@@ -890,6 +885,7 @@ fn router_runtime() -> CloudflareRouterWorkerRuntimeV1 {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
+            router_wallet_budget_binding(),
             router_admission_bindings(),
             peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -1075,20 +1071,6 @@ fn trusted_metadata() -> CloudflareRouterTrustedRequestMetadataV1 {
     .expect("trusted metadata")
 }
 
-fn normal_signing_trusted_metadata() -> CloudflareRouterNormalSigningTrustedMetadataV1 {
-    CloudflareRouterNormalSigningTrustedMetadataV1::new(
-        "org-1",
-        "project-1",
-        "dev",
-        "account.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
-            .expect("auth context"),
-        digest(0x90),
-        digest(0x91),
-    )
-    .expect("normal signing metadata")
-}
-
 fn admission_store_request(now_unix_ms: u64) -> CloudflareRouterAdmissionStoreRequestV1 {
     CloudflareRouterAdmissionStoreRequestV1::new(
         trusted_metadata(),
@@ -1241,6 +1223,7 @@ fn valid_router_jwt_claims() -> serde_json::Value {
 
 fn valid_wallet_session_jwt_claims() -> serde_json::Value {
     let mut claims = valid_router_jwt_claims();
+    claims["signingGrantId"] = serde_json::json!("signing-grant-1");
     claims["routerAbNormalSigning"] = serde_json::json!({
         "authorizationLevel": "normal-signing",
         "signingWorkerId": "server-a",
@@ -1914,6 +1897,7 @@ fn ecdsa_hss_wallet_session(
         "subject-1",
         request.scope.context.wallet_id.clone(),
         active_session_id,
+        "signing-grant-ecdsa-1",
         "org-1",
         "project-1",
         "dev",
@@ -2886,6 +2870,45 @@ fn router_admission_bindings() -> CloudflareRouterAdmissionBindingsV1 {
         .expect("router admission bindings")
 }
 
+fn router_wallet_budget_binding() -> CloudflareDurableObjectBindingV1 {
+    do_binding(
+        CloudflareDurableObjectScopeV1::RouterWalletBudget,
+        "ROUTER_WALLET_BUDGET_DO",
+    )
+}
+
+fn router_wallet_budget_put_grant_request() -> CloudflareRouterWalletBudgetPutGrantRequestV1 {
+    CloudflareRouterWalletBudgetPutGrantRequestV1 {
+        signing_grant_id: "signing-grant-1".to_owned(),
+        wallet_id: "account.near".to_owned(),
+        rp_id: "localhost".to_owned(),
+        authorized_signers: vec![CloudflareRouterWalletBudgetSignerBindingV1::new(
+            CloudflareRouterWalletBudgetCurveV1::Ed25519,
+            "session-1",
+            "server-a",
+        )
+        .expect("wallet budget signer binding")],
+        initial_signature_uses: 3,
+        expires_at_ms: 3_000,
+        issuer_jwt_id: "issuer-jwt-1".to_owned(),
+        now_unix_ms: 1_000,
+    }
+}
+
+fn router_wallet_budget_reserve_request() -> CloudflareRouterWalletBudgetReserveRequestV1 {
+    CloudflareRouterWalletBudgetReserveRequestV1 {
+        signing_grant_id: "signing-grant-1".to_owned(),
+        curve: CloudflareRouterWalletBudgetCurveV1::Ed25519,
+        threshold_session_id: "session-1".to_owned(),
+        signing_worker_id: "server-a".to_owned(),
+        operation_id: "operation-1".to_owned(),
+        request_digest: digest(0x70),
+        signature_uses: 1,
+        expires_at_ms: 2_000,
+        now_unix_ms: 1_000,
+    }
+}
+
 fn deriver_a_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (
@@ -3034,6 +3057,7 @@ fn router_bindings_accept_router_scoped_durable_objects() {
             CloudflareDurableObjectScopeV1::RouterLifecycle,
             "ROUTER_LIFECYCLE_DO",
         ),
+        router_wallet_budget_binding(),
         router_admission_bindings(),
         peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3112,6 +3136,7 @@ fn router_worker_runtime_builds_only_router_scoped_durable_object_calls() {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
+            router_wallet_budget_binding(),
             router_admission_bindings(),
             peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3181,6 +3206,7 @@ fn router_worker_runtime_normalizes_public_request_into_admission_plan() {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
+            router_wallet_budget_binding(),
             router_admission_bindings(),
             peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3245,6 +3271,7 @@ fn router_worker_runtime_builds_forward_plan_for_accepted_admission() {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
+            router_wallet_budget_binding(),
             router_admission_bindings(),
             peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3305,6 +3332,7 @@ fn router_worker_runtime_builds_stop_plan_for_rejected_admission() {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
+            router_wallet_budget_binding(),
             router_admission_bindings(),
             peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3798,9 +3826,42 @@ fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
     assert_eq!(session.subject_id, "user-1");
     assert_eq!(session.account_id, "account.near");
     assert_eq!(session.threshold_session_id, "session-1");
+    assert_eq!(session.signing_grant_id, "signing-grant-1");
     assert_eq!(session.authorization_level, "normal-signing");
     assert_eq!(session.signing_worker_id, "server-a");
     assert_eq!(session.expires_at_ms, 3_000);
+}
+
+#[test]
+fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_signing_grant_id() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let mut claims = valid_wallet_session_jwt_claims();
+    claims
+        .as_object_mut()
+        .expect("claims object")
+        .remove("signingGrantId");
+    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
+    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+            "Bearer {token}"
+        ))
+        .expect("authorization"),
+    )
+    .expect("wallet session credential");
+
+    let err = verifier
+        .verify_wallet_session(
+            &router_admission_bindings().jwt,
+            &credential,
+            digest(0x90),
+            1_000,
+        )
+        .expect_err("missing signing grant must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 
 #[test]
@@ -7974,6 +8035,7 @@ fn router_worker_runtime_rejects_expired_public_request() {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
+            router_wallet_budget_binding(),
             router_admission_bindings(),
             peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -8003,6 +8065,7 @@ fn router_bindings_reject_signer_root_share_scope() {
             CloudflareDurableObjectScopeV1::RouterLifecycle,
             "ROUTER_LIFECYCLE_DO",
         ),
+        router_wallet_budget_binding(),
         router_admission_bindings(),
         peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -11199,6 +11262,93 @@ fn durable_object_handler_accepts_and_reuses_router_quota() {
         )
         .expect("reuse response")
     );
+}
+
+#[test]
+fn durable_object_wallet_budget_put_grant_is_idempotent_for_same_material() {
+    let runtime = router_runtime();
+    let request = router_wallet_budget_put_grant_request();
+    let call = runtime
+        .wallet_budget_put_grant_call(request)
+        .expect("wallet budget put grant call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let first = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect("first wallet budget grant put");
+    let second = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect("idempotent wallet budget grant put");
+
+    assert_eq!(first, second);
+    let CloudflareDurableObjectResponseV1::RouterWalletBudgetGrantPut { status } = first else {
+        panic!("put grant response branch");
+    };
+    assert_eq!(status.signing_grant_id, "signing-grant-1");
+    assert_eq!(status.committed_remaining_uses, 3);
+    assert_eq!(status.available_uses, 3);
+    assert!(
+        storage.wallet_budget_grant(&call.storage_key()).is_some(),
+        "wallet budget grant should be stored"
+    );
+}
+
+#[test]
+fn durable_object_wallet_budget_put_grant_rejects_reused_id_with_different_binding() {
+    let runtime = router_runtime();
+    let request = router_wallet_budget_put_grant_request();
+    let call = runtime
+        .wallet_budget_put_grant_call(request)
+        .expect("wallet budget put grant call");
+    let mut conflicting = router_wallet_budget_put_grant_request();
+    conflicting.authorized_signers = vec![CloudflareRouterWalletBudgetSignerBindingV1::new(
+        CloudflareRouterWalletBudgetCurveV1::Ed25519,
+        "session-1",
+        "server-b",
+    )
+    .expect("conflicting wallet budget signer binding")];
+    let conflicting_call = runtime
+        .wallet_budget_put_grant_call(conflicting)
+        .expect("conflicting wallet budget put grant call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&call, &mut storage).expect("first grant put");
+    let err = handle_cloudflare_durable_object_call_v1(&conflicting_call, &mut storage)
+        .expect_err("conflicting grant material must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ReplayedLocalRequest);
+}
+
+#[test]
+fn durable_object_wallet_budget_reserve_rejects_missing_grant_record() {
+    let runtime = router_runtime();
+    let call = runtime
+        .wallet_budget_reserve_call(router_wallet_budget_reserve_request())
+        .expect("wallet budget reserve call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let err = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect_err("reserve without grant must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MissingLocalBinding);
+}
+
+#[test]
+fn durable_object_wallet_budget_reserve_rejects_unauthorized_signer_binding() {
+    let runtime = router_runtime();
+    let put_call = runtime
+        .wallet_budget_put_grant_call(router_wallet_budget_put_grant_request())
+        .expect("wallet budget put grant call");
+    let mut reserve_request = router_wallet_budget_reserve_request();
+    reserve_request.signing_worker_id = "server-b".to_owned();
+    let reserve_call = runtime
+        .wallet_budget_reserve_call(reserve_request)
+        .expect("wallet budget reserve call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&put_call, &mut storage).expect("grant put");
+    let err = handle_cloudflare_durable_object_call_v1(&reserve_call, &mut storage)
+        .expect_err("unauthorized signer must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
 
 #[test]

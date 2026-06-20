@@ -112,6 +112,7 @@ import type {
 import { registrationPreparationIdFromString } from './types';
 import {
   parseEcdsaHssClientBootstrapRequest,
+  parseWalletRegistrationEcdsaClientBootstrap,
   type RouterAbEcdsaHssWalletSessionClaims,
 } from './ThresholdService/validation';
 
@@ -875,7 +876,7 @@ type ThresholdEd25519RegistrationInput = {
 
 type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;
   expiresAt?: string;
@@ -1457,13 +1458,43 @@ function isMatchingEcdsaClientBootstrap(
     actual.relayerKeyId === expected.relayerKeyId &&
     actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
-    actual.sessionId === expected.sessionId &&
+    actual.thresholdSessionId === expected.thresholdSessionId &&
     actual.signingGrantId === expected.signingGrantId &&
     actual.ttlMs === expected.ttlMs &&
     actual.remainingUses === expected.remainingUses &&
     JSON.stringify(actual.participantIds) === JSON.stringify(expected.participantIds) &&
     thresholdRuntimePolicyScopesEqual(actual.runtimePolicyScope, expected.runtimePolicyScope)
   );
+}
+
+function toEcdsaHssClientBootstrapRequest(
+  clientBootstrap: WalletRegistrationEcdsaClientBootstrap,
+): EcdsaHssClientBootstrapRequest {
+  return {
+    formatVersion: clientBootstrap.formatVersion,
+    walletId: clientBootstrap.walletId,
+    rpId: clientBootstrap.rpId,
+    ecdsaThresholdKeyId: clientBootstrap.ecdsaThresholdKeyId,
+    signingRootId: clientBootstrap.signingRootId,
+    signingRootVersion: clientBootstrap.signingRootVersion,
+    keyScope: clientBootstrap.keyScope,
+    relayerKeyId: clientBootstrap.relayerKeyId,
+    ...(clientBootstrap.registrationPreparationId
+      ? { registrationPreparationId: clientBootstrap.registrationPreparationId }
+      : {}),
+    hssClientSharePublicKey33B64u: clientBootstrap.hssClientSharePublicKey33B64u,
+    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+    requestId: clientBootstrap.requestId,
+    sessionId: clientBootstrap.thresholdSessionId,
+    signingGrantId: clientBootstrap.signingGrantId,
+    ttlMs: clientBootstrap.ttlMs,
+    remainingUses: clientBootstrap.remainingUses,
+    participantIds: clientBootstrap.participantIds,
+    ...(clientBootstrap.runtimePolicyScope
+      ? { runtimePolicyScope: clientBootstrap.runtimePolicyScope }
+      : {}),
+  };
 }
 
 function validateThresholdEd25519SessionPolicyBindings(args: {
@@ -1490,7 +1521,7 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
 }
 
 function toThresholdEd25519BootstrapSession(session: {
-  sessionId?: unknown;
+  thresholdSessionId?: unknown;
   signingGrantId?: unknown;
   expiresAtMs?: unknown;
   expiresAt?: unknown;
@@ -1500,18 +1531,18 @@ function toThresholdEd25519BootstrapSession(session: {
   routerAbNormalSigning?: unknown;
   jwt?: unknown;
 }): ThresholdEd25519BootstrapSession | null {
-  const sessionId = String(session.sessionId || '').trim();
+  const thresholdSessionId = String(session.thresholdSessionId || '').trim();
   const signingGrantId = String(session.signingGrantId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     session.routerAbNormalSigning,
   );
-  if (!sessionId || !signingGrantId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
+  if (!thresholdSessionId || !signingGrantId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
     return null;
   return {
     sessionKind: 'jwt',
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
     expiresAtMs: Number(expiresAtMs),
     ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
@@ -5795,7 +5826,7 @@ export class AuthService {
           ? { registrationPreparationId: input.registrationPreparationId }
           : {}),
         requestId: `${input.registrationCeremonyId}:ecdsa`,
-        sessionId: `tehss_${randomBase64Url(24)}`,
+        thresholdSessionId: `tehss_${randomBase64Url(24)}`,
         signingGrantId: `wss_${randomBase64Url(24)}`,
         ttlMs: 10 * 60_000,
         remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
@@ -5810,7 +5841,8 @@ export class AuthService {
     clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
     walletId: WalletId;
   }): Promise<EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>> {
-    const first = await input.threshold.ecdsaHssRoleLocalBootstrap(input.clientBootstrap);
+    const clientBootstrapRequest = toEcdsaHssClientBootstrapRequest(input.clientBootstrap);
+    const first = await input.threshold.ecdsaHssRoleLocalBootstrap(clientBootstrapRequest);
     if (first.ok || first.code !== 'identity_mismatch') return first;
 
     const existingWallet = await this.getWalletStore().getWallet({ walletId: input.walletId });
@@ -5822,7 +5854,7 @@ export class AuthService {
       signingRootVersion: input.clientBootstrap.signingRootVersion,
     });
     if (!deleted.ok) return deleted;
-    return await input.threshold.ecdsaHssRoleLocalBootstrap(input.clientBootstrap);
+    return await input.threshold.ecdsaHssRoleLocalBootstrap(clientBootstrapRequest);
   }
 
   private async verifyEcdsaRegistrationBootstrapPersisted(input: {
@@ -7789,7 +7821,11 @@ export class AuthService {
               } as any,
             }),
         );
-        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+        if (
+          !session.ok ||
+          !session.thresholdSessionId ||
+          !Number.isFinite(Number(session.expiresAtMs))
+        ) {
           return {
             ok: false,
             code: session.code || 'internal',
@@ -8185,7 +8221,11 @@ export class AuthService {
           } as any,
         }),
       );
-      if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+      if (
+        !session.ok ||
+        !session.thresholdSessionId ||
+        !Number.isFinite(Number(session.expiresAtMs))
+      ) {
         return {
           ok: false,
           code: session.code || 'internal',
@@ -8566,7 +8606,7 @@ export class AuthService {
           keyScope: 'evm-family' as const,
           relayerKeyId,
           requestId: `${addSignerCeremonyId}:ecdsa`,
-          sessionId: `tehss_${randomBase64Url(24)}`,
+          thresholdSessionId: `tehss_${randomBase64Url(24)}`,
           signingGrantId: `wss_${randomBase64Url(24)}`,
           ttlMs: 10 * 60_000,
           remainingUses: REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES,
@@ -9222,7 +9262,9 @@ export class AuthService {
         message: 'threshold signing is not configured on this server',
       };
     }
-    const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(actual);
+    const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
+      toEcdsaHssClientBootstrapRequest(actual),
+    );
     if (!bootstrap.ok) {
       return {
         ok: false,
@@ -9375,7 +9417,11 @@ export class AuthService {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
-        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+        if (
+          !session.ok ||
+          !session.thresholdSessionId ||
+          !Number.isFinite(Number(session.expiresAtMs))
+        ) {
           return {
             ok: false,
             code: session.code || 'internal',
@@ -9855,7 +9901,11 @@ export class AuthService {
             relayerKeyId: thresholdKeygen.relayerKeyId,
             sessionPolicy: thresholdEd25519PolicyWithRelayerKeyId,
           });
-          if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+          if (
+            !session.ok ||
+            !session.thresholdSessionId ||
+            !Number.isFinite(Number(session.expiresAtMs))
+          ) {
             throw new Error(
               session.message ||
                 session.code ||
@@ -14559,16 +14609,7 @@ export class AuthService {
       clientParticipantId?: number;
       relayerParticipantId?: number;
       participantIds?: number[];
-      session?: {
-        sessionKind: 'jwt' | 'cookie';
-        sessionId: string;
-        signingGrantId: string;
-        expiresAtMs: number;
-        expiresAt?: string;
-        participantIds?: number[];
-        remainingUses?: number;
-        jwt?: string;
-      };
+      session?: ThresholdEd25519BootstrapSession;
     };
     code?: string;
     message?: string;
@@ -14753,7 +14794,11 @@ export class AuthService {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
-        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+        if (
+          !session.ok ||
+          !session.thresholdSessionId ||
+          !Number.isFinite(Number(session.expiresAtMs))
+        ) {
           return {
             ok: false,
             verified: false,
@@ -15070,17 +15115,7 @@ export class AuthService {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
-          session?: {
-            sessionKind: 'jwt' | 'cookie';
-            sessionId: string;
-            signingGrantId: string;
-            expiresAtMs: number;
-            expiresAt?: string;
-            participantIds?: number[];
-            remainingUses?: number;
-            runtimePolicyScope?: ThresholdRuntimePolicyScope;
-            jwt?: string;
-          };
+          session?: ThresholdEd25519BootstrapSession;
         };
         ecdsa?: WalletRegistrationEcdsaPreparePayload;
       }
@@ -15320,7 +15355,11 @@ export class AuthService {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
-        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+        if (
+          !session.ok ||
+          !session.thresholdSessionId ||
+          !Number.isFinite(Number(session.expiresAtMs))
+        ) {
           return {
             ok: false,
             code: session.code || 'internal',
@@ -15469,10 +15508,10 @@ export class AuthService {
       if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(sessionId)) {
         return { ok: false, code: 'invalid_body', message: 'Invalid sessionId' };
       }
-      const parsed = parseEcdsaHssClientBootstrapRequest(
+      const parsed = parseWalletRegistrationEcdsaClientBootstrap(
         request?.client_bootstrap ?? request?.clientBootstrap,
       );
-      if (!parsed || parsed.clientRootProof || parsed.passkeyBootstrapAuthorization) {
+      if (!parsed) {
         return {
           ok: false,
           code: 'invalid_body',
@@ -15512,7 +15551,9 @@ export class AuthService {
           message: 'Threshold signing is not configured on this server',
         };
       }
-      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(parsed);
+      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
+        toEcdsaHssClientBootstrapRequest(parsed),
+      );
       if (!bootstrap.ok) {
         return {
           ok: false,
@@ -15570,17 +15611,7 @@ export class AuthService {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
-          session?: {
-            sessionKind: 'jwt' | 'cookie';
-            sessionId: string;
-            signingGrantId: string;
-            expiresAtMs: number;
-            expiresAt?: string;
-            participantIds?: number[];
-            remainingUses?: number;
-            runtimePolicyScope?: ThresholdRuntimePolicyScope;
-            jwt?: string;
-          };
+          session?: ThresholdEd25519BootstrapSession;
         };
         ecdsa: WalletRegistrationEcdsaPreparePayload;
       }
@@ -15822,7 +15853,11 @@ export class AuthService {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
-        if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+        if (
+          !session.ok ||
+          !session.thresholdSessionId ||
+          !Number.isFinite(Number(session.expiresAtMs))
+        ) {
           return {
             ok: false,
             code: session.code || 'internal',
@@ -15957,10 +15992,10 @@ export class AuthService {
       if (!requestId || !/^[A-Za-z0-9_-]{3,64}$/.test(requestId)) {
         return { ok: false, code: 'invalid_body', message: 'Invalid requestId' };
       }
-      const parsed = parseEcdsaHssClientBootstrapRequest(
+      const parsed = parseWalletRegistrationEcdsaClientBootstrap(
         request?.client_bootstrap ?? request?.clientBootstrap,
       );
-      if (!parsed || parsed.clientRootProof || parsed.passkeyBootstrapAuthorization) {
+      if (!parsed) {
         return {
           ok: false,
           code: 'invalid_body',
@@ -15992,7 +16027,9 @@ export class AuthService {
           message: 'Threshold signing is not configured on this server',
         };
       }
-      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(parsed);
+      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
+        toEcdsaHssClientBootstrapRequest(parsed),
+      );
       if (!bootstrap.ok) {
         return {
           ok: false,
@@ -16087,13 +16124,13 @@ export class AuthService {
           thresholdEd25519: {
             relayerKeyId: preparation.thresholdEd25519.relayerKeyId,
             ...(preparation.thresholdEd25519.session
-              ? { sessionId: preparation.thresholdEd25519.session.sessionId }
+              ? { sessionId: preparation.thresholdEd25519.session.thresholdSessionId }
               : {}),
           },
           thresholdEcdsa: {
             relayerKeyId: bootstrap.value.relayerKeyId,
             ethereumAddress: newEvmOwnerAddress,
-            sessionId: bootstrap.value.sessionId,
+            sessionId: bootstrap.value.thresholdSessionId,
           },
         },
       });

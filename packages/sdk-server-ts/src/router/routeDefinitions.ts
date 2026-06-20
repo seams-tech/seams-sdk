@@ -1926,7 +1926,7 @@ export function createRelayRouteDefinitions(
       'session_signing_budget_status',
       'POST',
       '/session/signing-budget/status',
-      'Read wallet signing-session budget status',
+      'Read signing grant budget status',
       'ed25519',
       ['session'],
     ),

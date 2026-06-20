@@ -1,7 +1,7 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
 import {
-  parseRouterAbEd25519WalletSessionJwtSessionInfo,
+  parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
 
@@ -10,8 +10,7 @@ export async function handleEmailRecoveryPrepare(
 ): Promise<Response | null> {
   if (
     ctx.method !== 'POST' ||
-    (ctx.pathname !== '/email-recovery/prepare' &&
-      ctx.pathname !== '/email-recovery/ecdsa/respond')
+    (ctx.pathname !== '/email-recovery/prepare' && ctx.pathname !== '/email-recovery/ecdsa/respond')
   ) {
     return null;
   }
@@ -43,7 +42,7 @@ export async function handleEmailRecoveryPrepare(
         { status: 400 },
       );
     }
-    const sessionInfo = parseRouterAbEd25519WalletSessionJwtSessionInfo(
+    const sessionInfo = parseRouterAbEd25519BootstrapSessionJwtSessionInfo(
       result.thresholdEd25519.session,
     );
     if (!sessionInfo) {

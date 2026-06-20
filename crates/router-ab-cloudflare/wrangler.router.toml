@@ -13,6 +13,7 @@ bindings = [
   { name = "ROUTER_PROJECT_POLICY_DO", class_name = "RouterAbRouterProjectPolicyDurableObject" },
   { name = "ROUTER_QUOTA_DO", class_name = "RouterAbRouterQuotaDurableObject" },
   { name = "ROUTER_ABUSE_DO", class_name = "RouterAbRouterAbuseDurableObject" },
+  { name = "ROUTER_WALLET_BUDGET_DO", class_name = "RouterAbRouterWalletBudgetDurableObject" },
 ]
 
 [[migrations]]
@@ -23,6 +24,12 @@ new_classes = [
   "RouterAbRouterProjectPolicyDurableObject",
   "RouterAbRouterQuotaDurableObject",
   "RouterAbRouterAbuseDurableObject",
+]
+
+[[migrations]]
+tag = "router_ab_router_wallet_budget_v1"
+new_classes = [
+  "RouterAbRouterWalletBudgetDurableObject",
 ]
 
 [[services]]
@@ -65,6 +72,9 @@ ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
 ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
 ROUTER_ABUSE_DO_OBJECT = "router-abuse"
 ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
+ROUTER_WALLET_BUDGET_DO_BINDING = "ROUTER_WALLET_BUDGET_DO"
+ROUTER_WALLET_BUDGET_DO_OBJECT = "router-wallet-budget"
+ROUTER_WALLET_BUDGET_DO_KEY_PREFIX = "router-wallet-budget/"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
 SIGNER_B_PEER_BINDING = "SIGNER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
@@ -93,6 +103,10 @@ class_name = "RouterAbRouterQuotaDurableObject"
 [[env.staging.durable_objects.bindings]]
 name = "ROUTER_ABUSE_DO"
 class_name = "RouterAbRouterAbuseDurableObject"
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_WALLET_BUDGET_DO"
+class_name = "RouterAbRouterWalletBudgetDurableObject"
 
 [[env.staging.services]]
 binding = "SIGNER_A"
@@ -134,6 +148,9 @@ ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
 ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
 ROUTER_ABUSE_DO_OBJECT = "router-abuse"
 ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
+ROUTER_WALLET_BUDGET_DO_BINDING = "ROUTER_WALLET_BUDGET_DO"
+ROUTER_WALLET_BUDGET_DO_OBJECT = "router-wallet-budget"
+ROUTER_WALLET_BUDGET_DO_KEY_PREFIX = "router-wallet-budget/"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
 SIGNER_B_PEER_BINDING = "SIGNER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
@@ -161,6 +178,10 @@ class_name = "RouterAbRouterQuotaDurableObject"
 [[env.production.durable_objects.bindings]]
 name = "ROUTER_ABUSE_DO"
 class_name = "RouterAbRouterAbuseDurableObject"
+
+[[env.production.durable_objects.bindings]]
+name = "ROUTER_WALLET_BUDGET_DO"
+class_name = "RouterAbRouterWalletBudgetDurableObject"
 
 [[env.production.services]]
 binding = "SIGNER_A"
@@ -202,6 +223,9 @@ ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
 ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
 ROUTER_ABUSE_DO_OBJECT = "router-abuse"
 ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
+ROUTER_WALLET_BUDGET_DO_BINDING = "ROUTER_WALLET_BUDGET_DO"
+ROUTER_WALLET_BUDGET_DO_OBJECT = "router-wallet-budget"
+ROUTER_WALLET_BUDGET_DO_KEY_PREFIX = "router-wallet-budget/"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
 SIGNER_B_PEER_BINDING = "SIGNER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"

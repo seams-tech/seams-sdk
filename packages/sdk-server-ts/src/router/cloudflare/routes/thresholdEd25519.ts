@@ -116,10 +116,10 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
   participantIds: number[];
   runtimePolicyScope: NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope'];
 }): Promise<string> {
-  const sessionId = String(args.sessionResult.sessionId || '').trim();
+  const thresholdSessionId = String(args.sessionResult.thresholdSessionId || '').trim();
   const signingGrantId = String(args.sessionResult.signingGrantId || '').trim();
   const expiresAtMs = Number(args.sessionResult.expiresAtMs);
-  if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+  if (!thresholdSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('threshold-ed25519 session bootstrap returned incomplete session state');
   }
   const signed = await signRouterAbEd25519WalletSessionJwt({
@@ -129,7 +129,7 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
     relayerKeyId: args.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
-      thresholdSessionId: sessionId,
+      thresholdSessionId,
       signingGrantId,
       expiresAtMs,
       participantIds: args.participantIds,
@@ -144,14 +144,8 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
   return signed.jwt;
 }
 
-function publicEd25519WalletSessionResult<T extends { sessionId?: string }>(
-  result: T,
-): Omit<T, 'sessionId'> & { thresholdSessionId?: string } {
-  const { sessionId, ...rest } = result;
-  return {
-    ...rest,
-    ...(sessionId ? { thresholdSessionId: sessionId } : {}),
-  };
+function publicEd25519WalletSessionResult<T extends { thresholdSessionId?: string }>(result: T): T {
+  return result;
 }
 
 async function handleRouterAbEd25519NormalSigningRoute(input: {
@@ -352,10 +346,14 @@ export async function handleThresholdEd25519(
       });
       if (!result.ok) return json(result, { status });
 
-      const sessionId = String(result.sessionId || '').trim();
-      if (!sessionId) {
+      const thresholdSessionId = String(result.thresholdSessionId || '').trim();
+      if (!thresholdSessionId) {
         return json(
-          { ok: false, code: 'internal', message: 'threshold session missing sessionId' },
+          {
+            ok: false,
+            code: 'internal',
+            message: 'threshold session missing thresholdSessionId',
+          },
           { status: 500 },
         );
       }
@@ -409,7 +407,7 @@ export async function handleThresholdEd25519(
         relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
-          thresholdSessionId: sessionId,
+          thresholdSessionId,
           signingGrantId: result.signingGrantId,
           expiresAtMs: thresholdExpiresAtMs,
           participantIds,

@@ -4,9 +4,11 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBootstrapTokenService,
   createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryRouterAbNormalSigningAdmissionStore,
   createRelayBootstrapGrantBroker,
   createRelayPublishableKeyAuthAdapter,
   createRelayRouter,
+  createRouterAbNormalSigningAdmissionAdapter,
 } from '@server/router/express-adaptor';
 import { deriveThresholdEd25519RegistrationMaterialFromHssFinalize } from '@server/core/ThresholdService/ed25519HssWasm';
 import {
@@ -22,6 +24,10 @@ import {
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+} from '@shared/utils/routerAbPublicKeyset';
+import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
@@ -35,6 +41,8 @@ import {
   installFastNearRpcMock,
   makeAuthServiceForThreshold,
   setupThresholdE2ePage,
+  setupRouterAbEcdsaHssPrivateSigningWorker,
+  TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
 } from '../e2e/thresholdEd25519.testUtils';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
@@ -46,6 +54,37 @@ const TEST_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXS
 export const TEST_WEBAUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
 const TEST_SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
+const TEST_ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  signer_envelope_hpke: {
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
+    },
+  },
+  signer_peer_verifying_keys: {
+    deriver_a: {
+      role: 'signer_a',
+      verifying_key_hex: '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+    },
+    deriver_b: {
+      role: 'signer_b',
+      verifying_key_hex: '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+    },
+  },
+  signing_worker_server_output_hpke: {
+    key_epoch: 'epoch-server',
+    public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
+  },
+});
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
@@ -457,15 +496,28 @@ async function installThresholdRegistrationBootstrapMock(
         });
 
         thresholdEcdsaResponse = {
+          walletId: accountId,
+          rpId,
+          keyHandle: String(bootstrap.keyHandle || ''),
           ecdsaThresholdKeyId: String(bootstrap.ecdsaThresholdKeyId || ''),
           relayerKeyId: bootstrapRelayerKeyId,
+          contextBinding32B64u: String(bootstrap.contextBinding32B64u || ''),
+          publicIdentity: bootstrap.publicIdentity,
+          signingRootId: String(bootstrap.signingRootId || ''),
+          signingRootVersion: String(bootstrap.signingRootVersion || ''),
           thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || ''),
           ethereumAddress: String(bootstrap.ethereumAddress || ''),
           relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || ''),
           participantIds: bootstrapParticipantIds,
+          thresholdSessionId: bootstrapSessionId,
+          signingGrantId,
+          expiresAtMs,
+          remainingUses: Number(bootstrap.remainingUses || remainingUses),
+          jwt,
           session: {
             sessionKind: 'jwt',
             sessionId: bootstrapSessionId,
+            thresholdSessionId: bootstrapSessionId,
             signingGrantId,
             expiresAtMs,
             participantIds: bootstrapParticipantIds,
@@ -592,6 +644,7 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
 
 export async function setupThresholdEcdsaSealedRefreshHarness(
   page: Page,
+  options: { injectWalletServiceImportMap?: boolean } = {},
 ): Promise<SealedRefreshHarness> {
   const keysOnChain = new Set<string>();
   const nonceByPublicKey = new Map<string, number>();
@@ -603,7 +656,11 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     removeServerSealCalls: 0,
   };
 
-  const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
+  const signingWorker = await setupRouterAbEcdsaHssPrivateSigningWorker();
+  const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, {
+    ROUTER_AB_SIGNING_WORKER_URL: signingWorker.baseUrl,
+    ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
+  });
   await service.getRelayerAccount();
   const bootstrapTokenStore = createInMemoryConsoleBootstrapTokenService();
   const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
@@ -650,6 +707,9 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
   } as const;
 
   const session = createThresholdAwareSealedRefreshSessionAdapter();
+  const routerAbNormalSigningAdmission = createRouterAbNormalSigningAdmissionAdapter(
+    createInMemoryRouterAbNormalSigningAdmissionStore(),
+  );
   const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
   const thresholdWalletSessionStores = threshold as unknown as {
     walletSessionStore?: unknown;
@@ -680,6 +740,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
       },
     }),
     bootstrapTokenStore,
+    routerAbNormalSigningAdmission,
     signingSessionSeal: createSigningSessionSealRoutesOptions({
       sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
         ed25519Stores: [thresholdWalletSessionStores.walletSessionStore as any],
@@ -703,6 +764,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
         shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
       },
     }),
+    routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
   });
   const server = await startExpressRouter(router);
 
@@ -710,7 +772,9 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     await targetPage.addInitScript((config) => {
       (window as any).__w3aManagedRegistration = config;
     }, managedRegistration);
-    await setupThresholdE2ePage(targetPage);
+    await setupThresholdE2ePage(targetPage, {
+      injectWalletServiceImportMap: options.injectWalletServiceImportMap,
+    });
     await targetPage.evaluate((config) => {
       (window as any).__w3aManagedRegistration = config;
     }, managedRegistration);
@@ -761,7 +825,13 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     managedRegistration,
     signingSessionSealRouteCounts,
     attachPage,
-    close: server.close,
+    close: async () => {
+      const results = await Promise.allSettled([server.close(), signingWorker.close()]);
+      const failed = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      if (failed) throw failed.reason;
+    },
   };
 }
 

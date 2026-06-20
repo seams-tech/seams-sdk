@@ -191,13 +191,13 @@ acceptsEmailOtpChallengeId(registrationAttemptId);
 // @ts-expect-error OTP challenge ids are not registration attempt ids.
 acceptsEmailOtpRegistrationAttemptId(emailOtpChallengeId);
 
-// @ts-expect-error Wallet signing-session ids are not threshold Ed25519 session ids.
+// @ts-expect-error Signing grant ids are not threshold Ed25519 session ids.
 acceptsThresholdEd25519SessionId(signingGrantId);
 
 // @ts-expect-error Threshold Ed25519 and ECDSA session ids are curve-specific.
 acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
 
-// @ts-expect-error Threshold ECDSA session ids are not wallet signing-session ids.
+// @ts-expect-error Threshold ECDSA session ids are not signing grant ids.
 acceptsSigningGrantId(thresholdEcdsaSessionId);
 
 // @ts-expect-error Wallet keys are not wallet ids.
@@ -206,10 +206,10 @@ acceptsWalletId(walletKeyId);
 // @ts-expect-error Wallet ids are not wallet keys.
 acceptsWalletKeyId(walletId);
 
-// @ts-expect-error Signing lanes are not wallet signing sessions.
+// @ts-expect-error Signing lanes are not signing grants.
 acceptsSigningGrantId(signingLaneId);
 
-// @ts-expect-error Wallet signing sessions are not signing lanes.
+// @ts-expect-error Signing grants are not signing lanes.
 acceptsSigningLaneId(signingGrantId);
 
 // @ts-expect-error Lane share epochs are not signing lanes.

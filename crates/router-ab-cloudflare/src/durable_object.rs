@@ -40,11 +40,12 @@ use crate::{
     ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV, ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
     ROUTER_QUOTA_DO_BINDING_ENV, ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV,
     ROUTER_REPLAY_DO_BINDING_ENV, ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
-    SIGNER_A_ROOT_SHARE_DO_BINDING_ENV, SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV,
-    SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV, SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
-    SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV,
-    SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
-    SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
+    ROUTER_WALLET_BUDGET_DO_BINDING_ENV, ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
+    ROUTER_WALLET_BUDGET_DO_OBJECT_ENV, SIGNER_A_ROOT_SHARE_DO_BINDING_ENV,
+    SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV,
+    SIGNER_B_ROOT_SHARE_DO_BINDING_ENV, SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV,
+    SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
 };
 
 /// Version label for the Router/A/B Cloudflare Durable Object API.
@@ -190,6 +191,34 @@ impl worker::DurableObject for RouterAbRouterAbuseDurableObject {
     }
 }
 
+/// Router Wallet Session budget Durable Object class.
+#[cfg(feature = "workers-rs")]
+#[worker::durable_object(fetch)]
+pub struct RouterAbRouterWalletBudgetDurableObject {
+    state: worker::State,
+    env: worker::Env,
+}
+
+#[cfg(feature = "workers-rs")]
+impl worker::DurableObject for RouterAbRouterWalletBudgetDurableObject {
+    fn new(state: worker::State, env: worker::Env) -> Self {
+        Self { state, env }
+    }
+
+    async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
+        handle_cloudflare_durable_object_class_fetch_v1(
+            CloudflareDurableObjectScopeV1::RouterWalletBudget,
+            ROUTER_WALLET_BUDGET_DO_BINDING_ENV,
+            ROUTER_WALLET_BUDGET_DO_OBJECT_ENV,
+            ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
+            &self.env,
+            &self.state,
+            request,
+        )
+        .await
+    }
+}
+
 /// Signer A root-share Durable Object class.
 #[cfg(feature = "workers-rs")]
 #[worker::durable_object(fetch)]
@@ -310,6 +339,18 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     RouterNormalSigningQuotaEvaluate,
     /// Evaluate Router abuse-control state for normal signing.
     RouterNormalSigningAbuseEvaluate,
+    /// Create or reuse a Wallet Session signing budget grant.
+    RouterWalletBudgetPutGrant,
+    /// Reserve Wallet Session signing budget before prepare.
+    RouterWalletBudgetReserve,
+    /// Validate an existing Wallet Session signing budget reservation before finalize.
+    RouterWalletBudgetValidate,
+    /// Commit Wallet Session signing budget after successful signing.
+    RouterWalletBudgetCommit,
+    /// Release an uncommitted Wallet Session signing budget reservation.
+    RouterWalletBudgetRelease,
+    /// Read Wallet Session signing budget status.
+    RouterWalletBudgetStatus,
     /// Activate server-output material for the designated server.
     SigningWorkerOutputActivate,
     /// Read active SigningWorker state for normal signing.
@@ -364,6 +405,12 @@ impl CloudflareDurableObjectOperationKindV1 {
             }
             Self::RouterNormalSigningQuotaEvaluate => "router_normal_signing_quota.evaluate",
             Self::RouterNormalSigningAbuseEvaluate => "router_normal_signing_abuse.evaluate",
+            Self::RouterWalletBudgetPutGrant => "router_wallet_budget.put_grant",
+            Self::RouterWalletBudgetReserve => "router_wallet_budget.reserve",
+            Self::RouterWalletBudgetValidate => "router_wallet_budget.validate",
+            Self::RouterWalletBudgetCommit => "router_wallet_budget.commit",
+            Self::RouterWalletBudgetRelease => "router_wallet_budget.release",
+            Self::RouterWalletBudgetStatus => "router_wallet_budget.status",
             Self::SigningWorkerOutputActivate => "signing_worker_output.activate",
             Self::SigningWorkerOutputActiveStateGet => "signing_worker_output.active_state_get",
             Self::SigningWorkerOutputMaterialGet => "signing_worker_output.material_get",
@@ -418,6 +465,12 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::RouterNormalSigningAbuseEvaluate => {
                 "/router-ab/do/v1/router-abuse/normal-signing/evaluate"
             }
+            Self::RouterWalletBudgetPutGrant => "/router-ab/do/v1/router-wallet-budget/put-grant",
+            Self::RouterWalletBudgetReserve => "/router-ab/do/v1/router-wallet-budget/reserve",
+            Self::RouterWalletBudgetValidate => "/router-ab/do/v1/router-wallet-budget/validate",
+            Self::RouterWalletBudgetCommit => "/router-ab/do/v1/router-wallet-budget/commit",
+            Self::RouterWalletBudgetRelease => "/router-ab/do/v1/router-wallet-budget/release",
+            Self::RouterWalletBudgetStatus => "/router-ab/do/v1/router-wallet-budget/status",
             Self::SigningWorkerOutputActivate => "/router-ab/do/v1/signing-worker-output/activate",
             Self::SigningWorkerOutputActiveStateGet => {
                 "/router-ab/do/v1/signing-worker-output/active-state/get"
@@ -627,6 +680,697 @@ impl CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
                 RouterAbProtocolErrorCode::ExpiredLocalRequest,
                 "normal-signing admission-store request is already expired",
             ));
+        }
+        Ok(())
+    }
+}
+
+/// Curve branch consuming a Wallet Session signing budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareRouterWalletBudgetCurveV1 {
+    /// NEAR/Ed25519 normal signing.
+    Ed25519,
+    /// ECDSA-HSS EVM-family normal signing.
+    #[serde(rename = "ecdsa")]
+    EcdsaHss,
+}
+
+/// Signer binding authorized by one Wallet Session budget grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetSignerBindingV1 {
+    /// Curve branch authorized for this budget.
+    pub curve: CloudflareRouterWalletBudgetCurveV1,
+    /// Threshold session or active-state session id.
+    pub threshold_session_id: String,
+    /// SigningWorker id authorized to consume the budget.
+    pub signing_worker_id: String,
+}
+
+impl CloudflareRouterWalletBudgetSignerBindingV1 {
+    /// Creates a validated signer binding.
+    pub fn new(
+        curve: CloudflareRouterWalletBudgetCurveV1,
+        threshold_session_id: impl Into<String>,
+        signing_worker_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let binding = Self {
+            curve,
+            threshold_session_id: threshold_session_id.into(),
+            signing_worker_id: signing_worker_id.into(),
+        };
+        binding.validate()?;
+        Ok(binding)
+    }
+
+    /// Validates signer binding fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty(
+            "wallet budget threshold_session_id",
+            &self.threshold_session_id,
+        )?;
+        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)
+    }
+}
+
+/// Create-or-reuse request for a Wallet Session signing budget grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetPutGrantRequestV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Wallet/account id.
+    pub wallet_id: String,
+    /// Relying party id.
+    pub rp_id: String,
+    /// Curve/session/worker bindings allowed to consume this grant.
+    pub authorized_signers: Vec<CloudflareRouterWalletBudgetSignerBindingV1>,
+    /// Initial signature uses for this Wallet Session.
+    pub initial_signature_uses: u32,
+    /// Grant expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+    /// JWT id or issuer-side idempotency key.
+    pub issuer_jwt_id: String,
+    /// Current Worker time in Unix milliseconds.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareRouterWalletBudgetPutGrantRequestV1 {
+    /// Validates grant issuance fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_non_empty("wallet budget wallet_id", &self.wallet_id)?;
+        require_non_empty("wallet budget rp_id", &self.rp_id)?;
+        require_non_empty("wallet budget issuer_jwt_id", &self.issuer_jwt_id)?;
+        if self.initial_signature_uses == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget initial_signature_uses must be greater than zero",
+            ));
+        }
+        require_positive_ms("wallet budget expires_at_ms", self.expires_at_ms)?;
+        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)?;
+        if self.now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "wallet budget grant is already expired",
+            ));
+        }
+        require_non_empty_vec("wallet budget authorized_signers", &self.authorized_signers)?;
+        for signer in &self.authorized_signers {
+            signer.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Reserve request for one Wallet Session signing operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetReserveRequestV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Curve branch consuming the budget.
+    pub curve: CloudflareRouterWalletBudgetCurveV1,
+    /// Threshold session or active-state session id.
+    pub threshold_session_id: String,
+    /// SigningWorker id consuming the budget.
+    pub signing_worker_id: String,
+    /// Canonical signing operation id independent of transport request id.
+    pub operation_id: String,
+    /// Canonical operation request digest.
+    pub request_digest: PublicDigest32,
+    /// Signature uses consumed by this operation.
+    pub signature_uses: u32,
+    /// Reservation expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+    /// Current Worker time in Unix milliseconds.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareRouterWalletBudgetReserveRequestV1 {
+    /// Validates reserve fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_non_empty(
+            "wallet budget threshold_session_id",
+            &self.threshold_session_id,
+        )?;
+        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
+        require_non_empty("wallet budget operation_id", &self.operation_id)?;
+        if self.signature_uses == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget signature_uses must be greater than zero",
+            ));
+        }
+        require_positive_ms(
+            "wallet budget reservation expires_at_ms",
+            self.expires_at_ms,
+        )?;
+        require_positive_ms("wallet budget reservation now_unix_ms", self.now_unix_ms)?;
+        if self.now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "wallet budget reservation is already expired",
+            ));
+        }
+        Ok(())
+    }
+
+    fn reservation_id(&self) -> String {
+        router_wallet_budget_reservation_id_v1(
+            &self.signing_worker_id,
+            &self.operation_id,
+            self.request_digest,
+        )
+    }
+}
+
+/// Identity for validating or committing an existing budget reservation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetReservationIdentityV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Reservation id returned by prepare.
+    pub reservation_id: String,
+    /// SigningWorker id consuming the budget.
+    pub signing_worker_id: String,
+    /// Canonical signing operation id.
+    pub operation_id: String,
+    /// Canonical operation request digest.
+    pub request_digest: PublicDigest32,
+    /// Current Worker time in Unix milliseconds.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareRouterWalletBudgetReservationIdentityV1 {
+    /// Creates a validated reservation identity.
+    pub fn new(
+        signing_grant_id: impl Into<String>,
+        reservation_id: impl Into<String>,
+        signing_worker_id: impl Into<String>,
+        operation_id: impl Into<String>,
+        request_digest: PublicDigest32,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let identity = Self {
+            signing_grant_id: signing_grant_id.into(),
+            reservation_id: reservation_id.into(),
+            signing_worker_id: signing_worker_id.into(),
+            operation_id: operation_id.into(),
+            request_digest,
+            now_unix_ms,
+        };
+        identity.validate()?;
+        Ok(identity)
+    }
+
+    /// Validates identity fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_non_empty("wallet budget reservation_id", &self.reservation_id)?;
+        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
+        require_non_empty("wallet budget operation_id", &self.operation_id)?;
+        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)
+    }
+}
+
+/// Release request for an uncommitted Wallet Session budget reservation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetReleaseRequestV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Reservation id to release.
+    pub reservation_id: String,
+    /// SigningWorker id that owns the reservation.
+    pub signing_worker_id: String,
+    /// Canonical signing operation id.
+    pub operation_id: String,
+    /// Canonical operation request digest.
+    pub request_digest: PublicDigest32,
+    /// Current Worker time in Unix milliseconds.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareRouterWalletBudgetReleaseRequestV1 {
+    /// Validates release fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_non_empty("wallet budget reservation_id", &self.reservation_id)?;
+        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
+        require_non_empty("wallet budget operation_id", &self.operation_id)?;
+        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)
+    }
+}
+
+/// Status request for one Wallet Session signing budget grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetStatusRequestV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Current Worker time in Unix milliseconds.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareRouterWalletBudgetStatusRequestV1 {
+    /// Validates status fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_positive_ms("wallet budget now_unix_ms", self.now_unix_ms)
+    }
+}
+
+/// Budget projection returned from the Wallet Session budget Durable Object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetStatusV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Remaining committed uses after finalized signatures.
+    pub committed_remaining_uses: u32,
+    /// Uses currently reserved by in-flight prepare requests.
+    pub reserved_uses: u32,
+    /// Uses available for a new reservation now.
+    pub available_uses: u32,
+    /// Monotonic record version for diagnostics and cache invalidation.
+    pub projection_version: u64,
+    /// Grant expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareRouterWalletBudgetStatusV1 {
+    /// Creates a validated status projection.
+    pub fn new(
+        signing_grant_id: impl Into<String>,
+        committed_remaining_uses: u32,
+        reserved_uses: u32,
+        projection_version: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let available_uses = committed_remaining_uses.saturating_sub(reserved_uses);
+        let status = Self {
+            signing_grant_id: signing_grant_id.into(),
+            committed_remaining_uses,
+            reserved_uses,
+            available_uses,
+            projection_version,
+            expires_at_ms,
+        };
+        status.validate()?;
+        Ok(status)
+    }
+
+    /// Validates status fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_positive_ms("wallet budget expires_at_ms", self.expires_at_ms)
+    }
+}
+
+/// Wallet Session signing budget reservation status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareRouterWalletBudgetReservationStatusV1 {
+    /// In-flight prepare reserved budget.
+    Reserved,
+    /// Finalize successfully committed the budget.
+    Committed,
+}
+
+/// Stored Wallet Session signing budget reservation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetReservationRecordV1 {
+    /// Reservation id.
+    pub reservation_id: String,
+    /// Curve branch.
+    pub curve: CloudflareRouterWalletBudgetCurveV1,
+    /// Threshold session or active-state session id.
+    pub threshold_session_id: String,
+    /// SigningWorker id.
+    pub signing_worker_id: String,
+    /// Canonical signing operation id.
+    pub operation_id: String,
+    /// Canonical operation request digest.
+    pub request_digest: PublicDigest32,
+    /// Signature uses consumed by this operation.
+    pub signature_uses: u32,
+    /// Reservation expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+    /// Reservation lifecycle status.
+    pub status: CloudflareRouterWalletBudgetReservationStatusV1,
+    /// Remaining committed uses after commit, or zero while reserved.
+    pub remaining_uses_after_commit: u32,
+}
+
+impl CloudflareRouterWalletBudgetReservationRecordV1 {
+    fn from_request(request: &CloudflareRouterWalletBudgetReserveRequestV1) -> Self {
+        Self {
+            reservation_id: request.reservation_id(),
+            curve: request.curve,
+            threshold_session_id: request.threshold_session_id.clone(),
+            signing_worker_id: request.signing_worker_id.clone(),
+            operation_id: request.operation_id.clone(),
+            request_digest: request.request_digest,
+            signature_uses: request.signature_uses,
+            expires_at_ms: request.expires_at_ms,
+            status: CloudflareRouterWalletBudgetReservationStatusV1::Reserved,
+            remaining_uses_after_commit: 0,
+        }
+    }
+
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget reservation_id", &self.reservation_id)?;
+        require_non_empty(
+            "wallet budget threshold_session_id",
+            &self.threshold_session_id,
+        )?;
+        require_non_empty("wallet budget signing_worker_id", &self.signing_worker_id)?;
+        require_non_empty("wallet budget operation_id", &self.operation_id)?;
+        if self.signature_uses == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget reservation signature_uses must be greater than zero",
+            ));
+        }
+        require_positive_ms(
+            "wallet budget reservation expires_at_ms",
+            self.expires_at_ms,
+        )
+    }
+
+    fn validate_identity(
+        &self,
+        identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        identity.validate()?;
+        if self.reservation_id == identity.reservation_id
+            && self.signing_worker_id == identity.signing_worker_id
+            && self.operation_id == identity.operation_id
+            && self.request_digest == identity.request_digest
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "wallet budget reservation identity does not match",
+        ))
+    }
+}
+
+/// Stored Wallet Session signing budget grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterWalletBudgetGrantRecordV1 {
+    /// Wallet Session signing grant id.
+    pub signing_grant_id: String,
+    /// Wallet/account id.
+    pub wallet_id: String,
+    /// Relying party id.
+    pub rp_id: String,
+    /// Issuer-side idempotency key.
+    pub issuer_jwt_id: String,
+    /// Authorized curve/session/worker bindings.
+    pub authorized_signers: Vec<CloudflareRouterWalletBudgetSignerBindingV1>,
+    /// Initial signature uses issued for this grant.
+    pub initial_signature_uses: u32,
+    /// Remaining uses after committed signatures.
+    pub committed_remaining_uses: u32,
+    /// Grant expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+    /// Active and committed reservations keyed by reservation id.
+    pub reservations: BTreeMap<String, CloudflareRouterWalletBudgetReservationRecordV1>,
+    /// Committed operation identities keyed by canonical operation identity.
+    pub committed_operations: BTreeMap<String, String>,
+    /// Monotonic projection version.
+    pub projection_version: u64,
+}
+
+impl CloudflareRouterWalletBudgetGrantRecordV1 {
+    fn from_put_request(
+        request: &CloudflareRouterWalletBudgetPutGrantRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        request.validate()?;
+        let record = Self {
+            signing_grant_id: request.signing_grant_id.clone(),
+            wallet_id: request.wallet_id.clone(),
+            rp_id: request.rp_id.clone(),
+            issuer_jwt_id: request.issuer_jwt_id.clone(),
+            authorized_signers: request.authorized_signers.clone(),
+            initial_signature_uses: request.initial_signature_uses,
+            committed_remaining_uses: request.initial_signature_uses,
+            expires_at_ms: request.expires_at_ms,
+            reservations: BTreeMap::new(),
+            committed_operations: BTreeMap::new(),
+            projection_version: 1,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("wallet budget signing_grant_id", &self.signing_grant_id)?;
+        require_non_empty("wallet budget wallet_id", &self.wallet_id)?;
+        require_non_empty("wallet budget rp_id", &self.rp_id)?;
+        require_non_empty("wallet budget issuer_jwt_id", &self.issuer_jwt_id)?;
+        require_non_empty_vec("wallet budget authorized_signers", &self.authorized_signers)?;
+        if self.initial_signature_uses == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget initial_signature_uses must be greater than zero",
+            ));
+        }
+        if self.committed_remaining_uses > self.initial_signature_uses {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget committed remaining uses exceeds initial uses",
+            ));
+        }
+        for signer in &self.authorized_signers {
+            signer.validate()?;
+        }
+        for reservation in self.reservations.values() {
+            reservation.validate()?;
+        }
+        require_positive_ms("wallet budget expires_at_ms", self.expires_at_ms)
+    }
+
+    fn validate_matches_put_request(
+        &self,
+        request: &CloudflareRouterWalletBudgetPutGrantRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate()?;
+        if self.signing_grant_id == request.signing_grant_id
+            && self.wallet_id == request.wallet_id
+            && self.rp_id == request.rp_id
+            && self.issuer_jwt_id == request.issuer_jwt_id
+            && self.authorized_signers == request.authorized_signers
+            && self.initial_signature_uses == request.initial_signature_uses
+            && self.expires_at_ms == request.expires_at_ms
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+            "wallet budget grant id is already stored for different material",
+        ))
+    }
+
+    fn clean_expired_reservations(&mut self, now_unix_ms: u64) -> RouterAbProtocolResult<bool> {
+        self.validate()?;
+        require_positive_ms("wallet budget now_unix_ms", now_unix_ms)?;
+        let before = self.reservations.len();
+        self.reservations.retain(|_, reservation| {
+            reservation.status == CloudflareRouterWalletBudgetReservationStatusV1::Committed
+                || reservation.expires_at_ms > now_unix_ms
+        });
+        let changed = before != self.reservations.len();
+        if changed {
+            self.projection_version = self.projection_version.saturating_add(1);
+        }
+        Ok(changed)
+    }
+
+    fn status_at(
+        &self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareRouterWalletBudgetStatusV1> {
+        self.validate()?;
+        require_positive_ms("wallet budget now_unix_ms", now_unix_ms)?;
+        if now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "wallet budget grant expired",
+            ));
+        }
+        let reserved_uses = self
+            .reservations
+            .values()
+            .filter(|reservation| {
+                reservation.status == CloudflareRouterWalletBudgetReservationStatusV1::Reserved
+                    && reservation.expires_at_ms > now_unix_ms
+            })
+            .try_fold(0u32, |total, reservation| {
+                total
+                    .checked_add(reservation.signature_uses)
+                    .ok_or_else(|| {
+                        RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                            "wallet budget reserved uses overflow",
+                        )
+                    })
+            })?;
+        CloudflareRouterWalletBudgetStatusV1::new(
+            self.signing_grant_id.clone(),
+            self.committed_remaining_uses,
+            reserved_uses,
+            self.projection_version,
+            self.expires_at_ms,
+        )
+    }
+
+    fn require_authorized_signer(
+        &self,
+        request: &CloudflareRouterWalletBudgetReserveRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        request.validate()?;
+        if self.authorized_signers.iter().any(|signer| {
+            signer.curve == request.curve
+                && signer.threshold_session_id == request.threshold_session_id
+                && signer.signing_worker_id == request.signing_worker_id
+        }) {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "wallet budget reserve signer is not authorized by grant",
+        ))
+    }
+
+    fn reserve(
+        &mut self,
+        request: &CloudflareRouterWalletBudgetReserveRequestV1,
+    ) -> RouterAbProtocolResult<String> {
+        self.clean_expired_reservations(request.now_unix_ms)?;
+        self.require_authorized_signer(request)?;
+        let reservation_id = request.reservation_id();
+        if let Some(existing) = self.reservations.get(&reservation_id) {
+            existing.validate()?;
+            if existing == &CloudflareRouterWalletBudgetReservationRecordV1::from_request(request) {
+                return Ok(reservation_id);
+            }
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "wallet budget reservation id is already stored for different material",
+            ));
+        }
+        if self
+            .committed_operations
+            .contains_key(&router_wallet_budget_operation_key_v1(
+                &request.signing_worker_id,
+                &request.operation_id,
+                request.request_digest,
+            ))
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                "wallet budget operation was already committed",
+            ));
+        }
+        let status = self.status_at(request.now_unix_ms)?;
+        if status.available_uses < request.signature_uses {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget exhausted",
+            ));
+        }
+        self.reservations.insert(
+            reservation_id.clone(),
+            CloudflareRouterWalletBudgetReservationRecordV1::from_request(request),
+        );
+        self.projection_version = self.projection_version.saturating_add(1);
+        Ok(reservation_id)
+    }
+
+    fn validate_reservation(
+        &mut self,
+        identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.clean_expired_reservations(identity.now_unix_ms)?;
+        let reservation = self
+            .reservations
+            .get(&identity.reservation_id)
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget reservation is missing",
+                )
+            })?;
+        reservation.validate_identity(identity)?;
+        if reservation.status == CloudflareRouterWalletBudgetReservationStatusV1::Reserved
+            && identity.now_unix_ms >= reservation.expires_at_ms
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "wallet budget reservation expired",
+            ));
+        }
+        Ok(())
+    }
+
+    fn commit(
+        &mut self,
+        identity: &CloudflareRouterWalletBudgetReservationIdentityV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate_reservation(identity)?;
+        let reservation = self
+            .reservations
+            .get_mut(&identity.reservation_id)
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget reservation is missing",
+                )
+            })?;
+        if reservation.status == CloudflareRouterWalletBudgetReservationStatusV1::Committed {
+            return Ok(());
+        }
+        if self.committed_remaining_uses < reservation.signature_uses {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "wallet budget exhausted at commit",
+            ));
+        }
+        self.committed_remaining_uses -= reservation.signature_uses;
+        reservation.status = CloudflareRouterWalletBudgetReservationStatusV1::Committed;
+        reservation.remaining_uses_after_commit = self.committed_remaining_uses;
+        self.committed_operations.insert(
+            router_wallet_budget_operation_key_v1(
+                &reservation.signing_worker_id,
+                &reservation.operation_id,
+                reservation.request_digest,
+            ),
+            reservation.reservation_id.clone(),
+        );
+        self.projection_version = self.projection_version.saturating_add(1);
+        Ok(())
+    }
+
+    fn release(
+        &mut self,
+        request: &CloudflareRouterWalletBudgetReleaseRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.clean_expired_reservations(request.now_unix_ms)?;
+        let release_matches =
+            self.reservations
+                .get(&request.reservation_id)
+                .is_some_and(|reservation| {
+                    reservation.status == CloudflareRouterWalletBudgetReservationStatusV1::Reserved
+                        && reservation.signing_worker_id == request.signing_worker_id
+                        && reservation.operation_id == request.operation_id
+                        && reservation.request_digest == request.request_digest
+                });
+        if release_matches && self.reservations.remove(&request.reservation_id).is_some() {
+            self.projection_version = self.projection_version.saturating_add(1);
         }
         Ok(())
     }
@@ -3124,6 +3868,36 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Normal-signing admission-store request.
         request: CloudflareRouterNormalSigningAdmissionStoreRequestV1,
     },
+    /// Create or reuse a Wallet Session signing budget grant.
+    RouterWalletBudgetPutGrant {
+        /// Grant put request.
+        request: CloudflareRouterWalletBudgetPutGrantRequestV1,
+    },
+    /// Reserve Wallet Session signing budget before prepare.
+    RouterWalletBudgetReserve {
+        /// Reservation request.
+        request: CloudflareRouterWalletBudgetReserveRequestV1,
+    },
+    /// Validate Wallet Session signing budget before finalize.
+    RouterWalletBudgetValidate {
+        /// Reservation identity.
+        identity: CloudflareRouterWalletBudgetReservationIdentityV1,
+    },
+    /// Commit Wallet Session signing budget after successful finalize.
+    RouterWalletBudgetCommit {
+        /// Reservation identity.
+        identity: CloudflareRouterWalletBudgetReservationIdentityV1,
+    },
+    /// Release uncommitted Wallet Session signing budget.
+    RouterWalletBudgetRelease {
+        /// Release request.
+        request: CloudflareRouterWalletBudgetReleaseRequestV1,
+    },
+    /// Read Wallet Session signing budget status.
+    RouterWalletBudgetStatus {
+        /// Status request.
+        request: CloudflareRouterWalletBudgetStatusRequestV1,
+    },
     /// Activate server-output material.
     SigningWorkerOutputActivate {
         /// Strict SigningWorker proof-bundle activation request.
@@ -3337,6 +4111,60 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
+    /// Creates a Wallet Session budget grant put request.
+    pub fn router_wallet_budget_put_grant(
+        request: CloudflareRouterWalletBudgetPutGrantRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterWalletBudgetPutGrant { request };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a Wallet Session budget reserve request.
+    pub fn router_wallet_budget_reserve(
+        request: CloudflareRouterWalletBudgetReserveRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterWalletBudgetReserve { request };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a Wallet Session budget validate request.
+    pub fn router_wallet_budget_validate(
+        identity: CloudflareRouterWalletBudgetReservationIdentityV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterWalletBudgetValidate { identity };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a Wallet Session budget commit request.
+    pub fn router_wallet_budget_commit(
+        identity: CloudflareRouterWalletBudgetReservationIdentityV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterWalletBudgetCommit { identity };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a Wallet Session budget release request.
+    pub fn router_wallet_budget_release(
+        request: CloudflareRouterWalletBudgetReleaseRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterWalletBudgetRelease { request };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a Wallet Session budget status request.
+    pub fn router_wallet_budget_status(
+        request: CloudflareRouterWalletBudgetStatusRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterWalletBudgetStatus { request };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Creates a SigningWorker-output activation request.
     pub fn signing_worker_output_activate(
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
@@ -3530,6 +4358,24 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RouterNormalSigningAbuseEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterNormalSigningAbuseEvaluate
             }
+            Self::RouterWalletBudgetPutGrant { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetPutGrant
+            }
+            Self::RouterWalletBudgetReserve { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetReserve
+            }
+            Self::RouterWalletBudgetValidate { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetValidate
+            }
+            Self::RouterWalletBudgetCommit { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetCommit
+            }
+            Self::RouterWalletBudgetRelease { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetRelease
+            }
+            Self::RouterWalletBudgetStatus { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetStatus
+            }
             Self::SigningWorkerOutputActivate { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActivate
             }
@@ -3611,6 +4457,14 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RouterNormalSigningAbuseEvaluate { .. } => {
                 CloudflareDurableObjectScopeV1::RouterAbuse
             }
+            Self::RouterWalletBudgetPutGrant { .. }
+            | Self::RouterWalletBudgetReserve { .. }
+            | Self::RouterWalletBudgetValidate { .. }
+            | Self::RouterWalletBudgetCommit { .. }
+            | Self::RouterWalletBudgetRelease { .. }
+            | Self::RouterWalletBudgetStatus { .. } => {
+                CloudflareDurableObjectScopeV1::RouterWalletBudget
+            }
             Self::SigningWorkerOutputActivate { .. }
             | Self::SigningWorkerOutputActiveStateGet { .. }
             | Self::SigningWorkerOutputMaterialGet { .. }
@@ -3650,6 +4504,12 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RouterNormalSigningProjectPolicyEvaluate { request }
             | Self::RouterNormalSigningQuotaEvaluate { request }
             | Self::RouterNormalSigningAbuseEvaluate { request } => request.validate(),
+            Self::RouterWalletBudgetPutGrant { request } => request.validate(),
+            Self::RouterWalletBudgetReserve { request } => request.validate(),
+            Self::RouterWalletBudgetValidate { identity }
+            | Self::RouterWalletBudgetCommit { identity } => identity.validate(),
+            Self::RouterWalletBudgetRelease { request } => request.validate(),
+            Self::RouterWalletBudgetStatus { request } => request.validate(),
             Self::SigningWorkerOutputActivate {
                 activation,
                 material,
@@ -3753,6 +4613,44 @@ pub enum CloudflareDurableObjectResponseV1 {
     RouterNormalSigningAbuseEvaluate {
         /// Abuse-control outcome.
         abuse: CloudflareRouterAbuseCheckV1,
+    },
+    /// Wallet Session budget grant put response.
+    RouterWalletBudgetGrantPut {
+        /// Current budget status.
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    /// Wallet Session budget reserve response.
+    RouterWalletBudgetReserved {
+        /// Reservation id.
+        reservation_id: String,
+        /// Current budget status.
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    /// Wallet Session budget validate response.
+    RouterWalletBudgetValidated {
+        /// Reservation id.
+        reservation_id: String,
+        /// Current budget status.
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    /// Wallet Session budget commit response.
+    RouterWalletBudgetCommitted {
+        /// Reservation id.
+        reservation_id: String,
+        /// Current budget status.
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    /// Wallet Session budget release response.
+    RouterWalletBudgetReleased {
+        /// Reservation id.
+        reservation_id: String,
+        /// Current budget status.
+        status: CloudflareRouterWalletBudgetStatusV1,
+    },
+    /// Wallet Session budget status response.
+    RouterWalletBudgetStatus {
+        /// Current budget status.
+        status: CloudflareRouterWalletBudgetStatusV1,
     },
     /// SigningWorker-output activation response.
     SigningWorkerOutputActivate {
@@ -3959,6 +4857,76 @@ impl CloudflareDurableObjectResponseV1 {
         Ok(response)
     }
 
+    /// Creates a Wallet Session budget grant put response.
+    pub fn router_wallet_budget_grant_put(
+        status: CloudflareRouterWalletBudgetStatusV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterWalletBudgetGrantPut { status };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a Wallet Session budget reserve response.
+    pub fn router_wallet_budget_reserved(
+        reservation_id: impl Into<String>,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterWalletBudgetReserved {
+            reservation_id: reservation_id.into(),
+            status,
+        };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a Wallet Session budget validate response.
+    pub fn router_wallet_budget_validated(
+        reservation_id: impl Into<String>,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterWalletBudgetValidated {
+            reservation_id: reservation_id.into(),
+            status,
+        };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a Wallet Session budget commit response.
+    pub fn router_wallet_budget_committed(
+        reservation_id: impl Into<String>,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterWalletBudgetCommitted {
+            reservation_id: reservation_id.into(),
+            status,
+        };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a Wallet Session budget release response.
+    pub fn router_wallet_budget_released(
+        reservation_id: impl Into<String>,
+        status: CloudflareRouterWalletBudgetStatusV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterWalletBudgetReleased {
+            reservation_id: reservation_id.into(),
+            status,
+        };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a Wallet Session budget status response.
+    pub fn router_wallet_budget_status(
+        status: CloudflareRouterWalletBudgetStatusV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterWalletBudgetStatus { status };
+        response.validate()?;
+        Ok(response)
+    }
+
     /// Creates a SigningWorker-output activation response.
     pub fn signing_worker_output_activate(
         receipt: CloudflareSigningWorkerOutputActivationReceiptV1,
@@ -4148,6 +5116,24 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RouterNormalSigningAbuseEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterNormalSigningAbuseEvaluate
             }
+            Self::RouterWalletBudgetGrantPut { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetPutGrant
+            }
+            Self::RouterWalletBudgetReserved { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetReserve
+            }
+            Self::RouterWalletBudgetValidated { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetValidate
+            }
+            Self::RouterWalletBudgetCommitted { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetCommit
+            }
+            Self::RouterWalletBudgetReleased { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetRelease
+            }
+            Self::RouterWalletBudgetStatus { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterWalletBudgetStatus
+            }
             Self::SigningWorkerOutputActivate { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputActivate
             }
@@ -4216,6 +5202,27 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RouterNormalSigningProjectPolicyEvaluate { policy } => policy.validate(),
             Self::RouterNormalSigningQuotaEvaluate { quota } => quota.validate(),
             Self::RouterNormalSigningAbuseEvaluate { abuse } => abuse.validate(),
+            Self::RouterWalletBudgetGrantPut { status }
+            | Self::RouterWalletBudgetStatus { status } => status.validate(),
+            Self::RouterWalletBudgetReserved {
+                reservation_id,
+                status,
+            }
+            | Self::RouterWalletBudgetValidated {
+                reservation_id,
+                status,
+            }
+            | Self::RouterWalletBudgetCommitted {
+                reservation_id,
+                status,
+            }
+            | Self::RouterWalletBudgetReleased {
+                reservation_id,
+                status,
+            } => {
+                require_non_empty("wallet budget reservation_id", reservation_id)?;
+                status.validate()
+            }
             Self::SigningWorkerOutputActivate { receipt } => receipt.validate(),
             Self::SigningWorkerDirectActivationPut { outcome } => outcome.validate(),
             Self::SigningWorkerOutputActiveStateGet {
@@ -4325,6 +5332,93 @@ impl CloudflareDurableObjectResponseV1 {
                 Self::RouterNormalSigningAbuseEvaluate { .. },
                 CloudflareDurableObjectRequestV1::RouterNormalSigningAbuseEvaluate { request },
             ) => request.validate(),
+            (
+                Self::RouterWalletBudgetGrantPut { status },
+                CloudflareDurableObjectRequestV1::RouterWalletBudgetPutGrant { request },
+            ) => {
+                if status.signing_grant_id == request.signing_grant_id {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "wallet budget grant response does not match request",
+                    ))
+                }
+            }
+            (
+                Self::RouterWalletBudgetStatus { status },
+                CloudflareDurableObjectRequestV1::RouterWalletBudgetStatus { request },
+            ) => {
+                if status.signing_grant_id == request.signing_grant_id {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "wallet budget response grant id does not match request",
+                    ))
+                }
+            }
+            (
+                Self::RouterWalletBudgetReserved {
+                    reservation_id,
+                    status,
+                },
+                CloudflareDurableObjectRequestV1::RouterWalletBudgetReserve { request },
+            ) => {
+                if status.signing_grant_id == request.signing_grant_id
+                    && reservation_id == &request.reservation_id()
+                {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "wallet budget reserve response does not match request",
+                    ))
+                }
+            }
+            (
+                Self::RouterWalletBudgetValidated {
+                    reservation_id,
+                    status,
+                },
+                CloudflareDurableObjectRequestV1::RouterWalletBudgetValidate { identity },
+            )
+            | (
+                Self::RouterWalletBudgetCommitted {
+                    reservation_id,
+                    status,
+                },
+                CloudflareDurableObjectRequestV1::RouterWalletBudgetCommit { identity },
+            ) => {
+                if status.signing_grant_id == identity.signing_grant_id
+                    && reservation_id == &identity.reservation_id
+                {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "wallet budget reservation response does not match request",
+                    ))
+                }
+            }
+            (
+                Self::RouterWalletBudgetReleased {
+                    reservation_id,
+                    status,
+                },
+                CloudflareDurableObjectRequestV1::RouterWalletBudgetRelease { request },
+            ) => {
+                if status.signing_grant_id == request.signing_grant_id
+                    && reservation_id == &request.reservation_id
+                {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "wallet budget release response does not match request",
+                    ))
+                }
+            }
             (
                 Self::SigningWorkerOutputActivate { receipt },
                 CloudflareDurableObjectRequestV1::SigningWorkerOutputActivate {
@@ -4554,6 +5648,37 @@ impl CloudflareDurableObjectCallV1 {
                     request.metadata.account_id
                 )
             }
+            CloudflareDurableObjectRequestV1::RouterWalletBudgetPutGrant { request } => {
+                format!(
+                    "{}wallet-budget/{}",
+                    self.binding.key_prefix, request.signing_grant_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::RouterWalletBudgetReserve { request } => {
+                format!(
+                    "{}wallet-budget/{}",
+                    self.binding.key_prefix, request.signing_grant_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::RouterWalletBudgetValidate { identity }
+            | CloudflareDurableObjectRequestV1::RouterWalletBudgetCommit { identity } => {
+                format!(
+                    "{}wallet-budget/{}",
+                    self.binding.key_prefix, identity.signing_grant_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::RouterWalletBudgetRelease { request } => {
+                format!(
+                    "{}wallet-budget/{}",
+                    self.binding.key_prefix, request.signing_grant_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::RouterWalletBudgetStatus { request } => {
+                format!(
+                    "{}wallet-budget/{}",
+                    self.binding.key_prefix, request.signing_grant_id
+                )
+            }
             CloudflareDurableObjectRequestV1::SigningWorkerOutputActivate {
                 activation, ..
             } => format!(
@@ -4697,6 +5822,11 @@ impl CloudflareDurableObjectCallV1 {
     /// Returns the prefix used by quota storage records.
     pub fn quota_storage_prefix(&self) -> String {
         format!("{}quota/", self.binding.key_prefix)
+    }
+
+    /// Returns the prefix used by Wallet Session budget storage records.
+    pub fn wallet_budget_storage_prefix(&self) -> String {
+        format!("{}wallet-budget/", self.binding.key_prefix)
     }
 
     /// Returns the prefix used by SigningWorker round-1 storage records.
@@ -4868,6 +5998,19 @@ pub trait CloudflareDurableObjectStorageV1 {
         reservation: CloudflareRouterQuotaReservationV1,
     ) -> RouterAbProtocolResult<()>;
 
+    /// Reads a Wallet Session budget grant by storage key.
+    fn router_wallet_budget(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareRouterWalletBudgetGrantRecordV1>>;
+
+    /// Stores a Wallet Session budget grant by storage key.
+    fn put_router_wallet_budget(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareRouterWalletBudgetGrantRecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
     /// Removes expired quota reservations.
     fn cleanup_expired_router_quota_reservations(
         &mut self,
@@ -5021,6 +6164,7 @@ pub struct CloudflareDurableObjectMemoryStorageV1 {
     project_policies: BTreeMap<String, CloudflareRouterProjectPolicyRecordV1>,
     abuse_records: BTreeMap<String, CloudflareRouterAbuseRecordV1>,
     quota_reservations: BTreeMap<String, CloudflareRouterQuotaReservationV1>,
+    wallet_budget_grants: BTreeMap<String, CloudflareRouterWalletBudgetGrantRecordV1>,
     signing_worker_activations: BTreeMap<String, CloudflareSigningWorkerOutputActivationRecordV1>,
     signing_worker_direct_activations: BTreeMap<
         String,
@@ -5132,6 +6276,14 @@ impl CloudflareDurableObjectMemoryStorageV1 {
         storage_key: &str,
     ) -> Option<&CloudflareRouterQuotaReservationV1> {
         self.quota_reservations.get(storage_key)
+    }
+
+    /// Reads a Wallet Session budget grant for tests and local smoke checks.
+    pub fn wallet_budget_grant(
+        &self,
+        storage_key: &str,
+    ) -> Option<&CloudflareRouterWalletBudgetGrantRecordV1> {
+        self.wallet_budget_grants.get(storage_key)
     }
 
     /// Reads a stored ECDSA presignature for tests and local smoke checks.
@@ -5297,6 +6449,26 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         reservation.validate()?;
         self.quota_reservations
             .insert(storage_key.to_owned(), reservation);
+        Ok(())
+    }
+
+    fn router_wallet_budget(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareRouterWalletBudgetGrantRecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self.wallet_budget_grants.get(storage_key).cloned())
+    }
+
+    fn put_router_wallet_budget(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareRouterWalletBudgetGrantRecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        record.validate()?;
+        self.wallet_budget_grants
+            .insert(storage_key.to_owned(), record);
         Ok(())
     }
 
@@ -5800,6 +6972,97 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 None => CloudflareRouterAbuseCheckV1::Allowed,
             };
             CloudflareDurableObjectResponseV1::router_normal_signing_abuse_evaluate(abuse)?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetPutGrant { request } => {
+            let record = match storage.router_wallet_budget(&storage_key)? {
+                Some(existing) => {
+                    existing.validate_matches_put_request(request)?;
+                    existing
+                }
+                None => {
+                    let record =
+                        CloudflareRouterWalletBudgetGrantRecordV1::from_put_request(request)?;
+                    storage.put_router_wallet_budget(&storage_key, record.clone())?;
+                    record
+                }
+            };
+            CloudflareDurableObjectResponseV1::router_wallet_budget_grant_put(
+                record.status_at(request.now_unix_ms)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetReserve { request } => {
+            let mut record = storage.router_wallet_budget(&storage_key)?.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            let reservation_id = record.reserve(request)?;
+            let status = record.status_at(request.now_unix_ms)?;
+            storage.put_router_wallet_budget(&storage_key, record)?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_reserved(
+                reservation_id,
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetValidate { identity } => {
+            let mut record = storage.router_wallet_budget(&storage_key)?.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            record.validate_reservation(identity)?;
+            let status = record.status_at(identity.now_unix_ms)?;
+            storage.put_router_wallet_budget(&storage_key, record)?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_validated(
+                identity.reservation_id.clone(),
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetCommit { identity } => {
+            let mut record = storage.router_wallet_budget(&storage_key)?.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            record.commit(identity)?;
+            let status = record.status_at(identity.now_unix_ms)?;
+            storage.put_router_wallet_budget(&storage_key, record)?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_committed(
+                identity.reservation_id.clone(),
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetRelease { request } => {
+            let mut record = storage.router_wallet_budget(&storage_key)?.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            record.release(request)?;
+            let status = record.status_at(request.now_unix_ms)?;
+            storage.put_router_wallet_budget(&storage_key, record)?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_released(
+                request.reservation_id.clone(),
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetStatus { request } => {
+            let mut record = storage.router_wallet_budget(&storage_key)?.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            let changed = record.clean_expired_reservations(request.now_unix_ms)?;
+            let status = record.status_at(request.now_unix_ms)?;
+            if changed {
+                storage.put_router_wallet_budget(&storage_key, record)?;
+            }
+            CloudflareDurableObjectResponseV1::router_wallet_budget_status(status)?
         }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActivate {
             activation,
@@ -6528,6 +7791,139 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             };
             CloudflareDurableObjectResponseV1::router_normal_signing_abuse_evaluate(abuse)?
         }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetPutGrant { request } => {
+            let record = match worker_storage_get::<CloudflareRouterWalletBudgetGrantRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            {
+                Some(existing) => {
+                    existing.validate_matches_put_request(request)?;
+                    existing
+                }
+                None => {
+                    let record =
+                        CloudflareRouterWalletBudgetGrantRecordV1::from_put_request(request)?;
+                    worker_storage_put(
+                        storage,
+                        &storage_key,
+                        record.clone(),
+                        call.operation_kind(),
+                    )
+                    .await?;
+                    record
+                }
+            };
+            CloudflareDurableObjectResponseV1::router_wallet_budget_grant_put(
+                record.status_at(request.now_unix_ms)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetReserve { request } => {
+            let mut record = worker_storage_get::<CloudflareRouterWalletBudgetGrantRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            let reservation_id = record.reserve(request)?;
+            let status = record.status_at(request.now_unix_ms)?;
+            worker_storage_put(storage, &storage_key, record, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_reserved(
+                reservation_id,
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetValidate { identity } => {
+            let mut record = worker_storage_get::<CloudflareRouterWalletBudgetGrantRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            record.validate_reservation(identity)?;
+            let status = record.status_at(identity.now_unix_ms)?;
+            worker_storage_put(storage, &storage_key, record, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_validated(
+                identity.reservation_id.clone(),
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetCommit { identity } => {
+            let mut record = worker_storage_get::<CloudflareRouterWalletBudgetGrantRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            record.commit(identity)?;
+            let status = record.status_at(identity.now_unix_ms)?;
+            worker_storage_put(storage, &storage_key, record, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_committed(
+                identity.reservation_id.clone(),
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetRelease { request } => {
+            let mut record = worker_storage_get::<CloudflareRouterWalletBudgetGrantRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            record.release(request)?;
+            let status = record.status_at(request.now_unix_ms)?;
+            worker_storage_put(storage, &storage_key, record, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::router_wallet_budget_released(
+                request.reservation_id.clone(),
+                status,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::RouterWalletBudgetStatus { request } => {
+            let mut record = worker_storage_get::<CloudflareRouterWalletBudgetGrantRecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "wallet budget grant is missing",
+                )
+            })?;
+            let changed = record.clean_expired_reservations(request.now_unix_ms)?;
+            let status = record.status_at(request.now_unix_ms)?;
+            if changed {
+                worker_storage_put(storage, &storage_key, record, call.operation_kind()).await?;
+            }
+            CloudflareDurableObjectResponseV1::router_wallet_budget_status(status)?
+        }
         CloudflareDurableObjectRequestV1::SigningWorkerOutputActivate {
             activation,
             material,
@@ -7054,7 +8450,8 @@ fn worker_role_for_durable_object_scope(
         | CloudflareDurableObjectScopeV1::RouterLifecycle
         | CloudflareDurableObjectScopeV1::RouterProjectPolicy
         | CloudflareDurableObjectScopeV1::RouterQuota
-        | CloudflareDurableObjectScopeV1::RouterAbuse => Ok(CloudflareWorkerRoleV1::Router),
+        | CloudflareDurableObjectScopeV1::RouterAbuse
+        | CloudflareDurableObjectScopeV1::RouterWalletBudget => Ok(CloudflareWorkerRoleV1::Router),
         CloudflareDurableObjectScopeV1::SignerRootShare {
             role: Role::SignerA,
         } => Ok(CloudflareWorkerRoleV1::SignerA),
@@ -7322,6 +8719,30 @@ fn digest_hex(digest: PublicDigest32) -> String {
         out.push(HEX[(byte & 0x0f) as usize] as char);
     }
     out
+}
+
+fn router_wallet_budget_operation_key_v1(
+    signing_worker_id: &str,
+    operation_id: &str,
+    request_digest: PublicDigest32,
+) -> String {
+    format!(
+        "{}/{}/{}",
+        signing_worker_id,
+        operation_id,
+        digest_hex(request_digest)
+    )
+}
+
+fn router_wallet_budget_reservation_id_v1(
+    signing_worker_id: &str,
+    operation_id: &str,
+    request_digest: PublicDigest32,
+) -> String {
+    format!(
+        "wbudg-res/{}",
+        router_wallet_budget_operation_key_v1(signing_worker_id, operation_id, request_digest)
+    )
 }
 
 fn require_non_empty(field: &str, value: &str) -> RouterAbProtocolResult<()> {

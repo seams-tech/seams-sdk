@@ -147,6 +147,7 @@ export type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   request_id: string;
   budget_reservation_id: string;
+  budget_operation_id: string;
   expires_at_ms: number;
   signing_digest_b64u: string;
   server_presignature_id: string;
@@ -163,6 +164,7 @@ export type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   request_id: string;
   budget_reservation_id: string;
+  budget_operation_id: string;
   budget_status: RouterAbEcdsaHssBudgetStatusV1Wire;
   request_digest: RouterAbPublicDigest32V1Wire;
   signing_digest: RouterAbPublicDigest32V1Wire;
@@ -1001,6 +1003,7 @@ export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   requestId: string;
   budgetReservationId: string;
+  budgetOperationId: string;
   expiresAtMs: number;
   signingDigest32: Uint8Array;
   serverPresignatureId: string;
@@ -1010,6 +1013,7 @@ export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
     scope: input.scope,
     request_id: input.requestId,
     budget_reservation_id: input.budgetReservationId,
+    budget_operation_id: input.budgetOperationId,
     expires_at_ms: input.expiresAtMs,
     signing_digest_b64u: base64UrlEncode(
       requireUint8ArrayFixed(input.signingDigest32, 'signingDigest32', 32),
@@ -1029,6 +1033,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(
     'scope',
     'request_id',
     'budget_reservation_id',
+    'budget_operation_id',
     'expires_at_ms',
     'signing_digest_b64u',
     'server_presignature_id',
@@ -1040,6 +1045,10 @@ export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(
     budget_reservation_id: requireAsciiNonEmptyString(
       record.budget_reservation_id,
       'ecdsaFinalizeRequest.budget_reservation_id',
+    ),
+    budget_operation_id: requireAsciiNonEmptyString(
+      record.budget_operation_id,
+      'ecdsaFinalizeRequest.budget_operation_id',
     ),
     expires_at_ms: requirePositiveUnixMs(
       record.expires_at_ms,
@@ -1093,6 +1102,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
     'scope',
     'request_id',
     'budget_reservation_id',
+    'budget_operation_id',
     'budget_status',
     'request_digest',
     'signing_digest',
@@ -1109,6 +1119,10 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
     budget_reservation_id: requireAsciiNonEmptyString(
       record.budget_reservation_id,
       'ecdsaPrepareResponse.budget_reservation_id',
+    ),
+    budget_operation_id: requireAsciiNonEmptyString(
+      record.budget_operation_id,
+      'ecdsaPrepareResponse.budget_operation_id',
     ),
     budget_status: parseRouterAbEcdsaHssBudgetStatusV1(
       record.budget_status,

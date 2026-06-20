@@ -21,8 +21,12 @@ use crate::{
     handle_cloudflare_router_normal_signing_presign_pool_hit_finalize_authenticated_public_request_v2,
     handle_cloudflare_router_normal_signing_presign_pool_prepare_authenticated_public_request_v2,
     handle_cloudflare_router_recipient_proof_bundle_authenticated_public_request_v1,
+    handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1,
+    handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1,
     load_cloudflare_router_ed25519_jwks_jwt_verifier_v1,
     parse_cloudflare_router_bearer_authorization_from_request_v1,
+    parse_cloudflare_router_budgeted_ecdsa_hss_finalize_request_v1_json,
+    parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json,
     CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWorkerRuntimeV1,
     CloudflareWorkerEnvReaderV1, CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH_V1,
     CLOUDFLARE_ROUTER_ECDSA_HSS_RECOVERY_PUBLIC_REQUEST_PATH_V1,
@@ -35,6 +39,8 @@ use crate::{
     CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH_V2,
     CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH_V2, CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH_V2,
     CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1,
+    CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH_V1,
+    CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1,
 };
 #[cfg(any(
     feature = "strict-worker-signer-a-entrypoint",
@@ -84,6 +90,7 @@ use crate::{
     CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH_V1,
 };
 #[cfg(any(
+    feature = "strict-worker-router-entrypoint",
     feature = "strict-worker-signer-a-entrypoint",
     feature = "strict-worker-signer-b-entrypoint",
     feature = "strict-worker-signing-worker-entrypoint"
@@ -122,12 +129,10 @@ use router_ab_core::{
 #[cfg(feature = "strict-worker-router-entrypoint")]
 use router_ab_core::{
     parse_router_ab_ecdsa_hss_activation_refresh_request_v1_json,
-    parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json,
     parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json,
     parse_router_ab_ecdsa_hss_explicit_export_request_v1_json,
     parse_router_ab_ecdsa_hss_recovery_request_v1_json,
     parse_router_ab_ecdsa_hss_registration_bootstrap_request_v1_json,
-    parse_router_ab_ed25519_normal_signing_finalize_request_v2_json,
     parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,
     parse_router_ab_ed25519_presign_pool_hit_finalize_request_v2_json,
     parse_router_ab_ed25519_presign_pool_prepare_request_v2_json, PublicRouterRequestV1,
@@ -193,6 +198,27 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
         return cloudflare_router_public_keyset_response_v1(response, &request, &env);
     }
 
+    if path == CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH_V1 {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
+            Ok(runtime) => runtime,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let now_unix_ms = match cloudflare_now_unix_ms_v1() {
+            Ok(now_unix_ms) => now_unix_ms,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        return handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1(
+            request,
+            &env,
+            &runtime,
+            now_unix_ms,
+        )
+        .await;
+    }
+
     if request.method() == Method::Options
         && (is_cloudflare_router_normal_signing_public_path_v2(&path)
             || is_cloudflare_router_ecdsa_hss_public_path_v1(&path))
@@ -213,10 +239,11 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
         && path != CLOUDFLARE_ROUTER_ECDSA_HSS_REFRESH_PUBLIC_REQUEST_PATH_V1
         && path != CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PUBLIC_REQUEST_PATH_V1
         && path != CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH_V1
+        && path != CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1
     {
         return Response::error(
             format!(
-                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
+                "Router A/B strict public request must be served at {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, or {}",
                 CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1,
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH_V2,
                 CLOUDFLARE_ROUTER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PUBLIC_REQUEST_PATH_V2,
@@ -226,7 +253,8 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
                 CLOUDFLARE_ROUTER_ECDSA_HSS_RECOVERY_PUBLIC_REQUEST_PATH_V1,
                 CLOUDFLARE_ROUTER_ECDSA_HSS_REFRESH_PUBLIC_REQUEST_PATH_V1,
                 CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PUBLIC_REQUEST_PATH_V1,
-                CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH_V1
+                CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH_V1,
+                CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1
             ),
             404,
         );
@@ -256,6 +284,28 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
         Ok(verifier) => verifier,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
+
+    if path == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1 {
+        let credential = match CloudflareRouterWalletSessionCredentialV1::bearer(authorization) {
+            Ok(credential) => credential,
+            Err(err) => {
+                let response = cloudflare_protocol_error_response_v1(err)?;
+                return cloudflare_router_normal_signing_response_v1(response, &request, &env);
+            }
+        };
+        let response =
+            handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1(
+                &mut request,
+                &env,
+                &runtime,
+                now_unix_ms,
+                credential,
+                trusted_source_digest,
+                verifier,
+            )
+            .await?;
+        return cloudflare_router_normal_signing_response_v1(response, &request, &env);
+    }
 
     if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH_V2 {
         let request_body = match request.bytes().await {
@@ -366,8 +416,8 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
                 return cloudflare_router_normal_signing_response_v1(response, &request, &env);
             }
         };
-        match parse_router_ab_ed25519_normal_signing_finalize_request_v2_json(&request_body) {
-            Ok(finalize_request) => {
+        match parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json(&request_body) {
+            Ok((finalize_request, budget_metadata)) => {
                 let credential =
                     match CloudflareRouterWalletSessionCredentialV1::bearer(authorization) {
                         Ok(credential) => credential,
@@ -383,6 +433,7 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
                     &runtime,
                     now_unix_ms,
                     finalize_request,
+                    budget_metadata,
                     credential,
                     trusted_source_digest,
                     verifier,
@@ -671,10 +722,9 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
                 return cloudflare_router_normal_signing_response_v1(response, &request, &env);
             }
         };
-        let finalize_request =
-            match parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json(
-                &request_body,
-            ) {
+        let (finalize_request, budget_metadata) =
+            match parse_cloudflare_router_budgeted_ecdsa_hss_finalize_request_v1_json(&request_body)
+            {
                 Ok(parsed) => parsed,
                 Err(err) => {
                     let response = cloudflare_protocol_error_response_v1(err)?;
@@ -693,6 +743,7 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
             &runtime,
             now_unix_ms,
             finalize_request,
+            budget_metadata,
             credential,
             trusted_source_digest,
             verifier,
@@ -749,6 +800,7 @@ fn is_cloudflare_router_normal_signing_public_path_v2(path: &str) -> bool {
         || normalized
             == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PUBLIC_REQUEST_PATH_V2
         || normalized == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH_V2
+        || normalized == CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]

@@ -69,10 +69,17 @@ type DoReq =
   | { op: 'authGetBudgetStatus'; key: string }
   | { op: 'authReserveBudgetUseCount'; key: string; input: unknown }
   | { op: 'authCommitReservedBudgetUseCount'; key: string; input: unknown }
+  | { op: 'authValidateReservedBudgetUseCount'; key: string; input: unknown }
   | { op: 'authReleaseReservedBudgetUseCount'; key: string; input: unknown }
+  | { op: 'authReleaseReservedBudgetUseCountForIdentity'; key: string; input: unknown }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | { op: 'routerAbEcdsaHssPresignaturePut'; listKey: string; value: unknown }
-  | { op: 'routerAbEcdsaHssPresignatureReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
+  | {
+      op: 'routerAbEcdsaHssPresignatureReserve';
+      listKey: string;
+      reservedKeyPrefix: string;
+      ttlMs?: number;
+    }
   | {
       op: 'routerAbEcdsaHssPresignatureReserveById';
       listKey: string;
@@ -143,6 +150,7 @@ type AuthBudgetReservation = {
   signingGrantId: string;
   curve: 'ed25519' | 'ecdsa';
   thresholdSessionId: string;
+  signingWorkerId: string;
   operationId: string;
   requestDigest: string;
   signatureUses: number;
@@ -153,6 +161,7 @@ type AuthBudgetReservation = {
 
 type AuthBudgetCommit = {
   operationKey: string;
+  signingWorkerId: string;
   operationId: string;
   requestDigest: string;
   remainingUses: number;
@@ -425,12 +434,19 @@ function normalizeBudgetField(value: unknown): string {
 }
 
 function normalizeBudgetToken(value: unknown): string {
-  return normalizeBudgetField(value).replace(/[^A-Za-z0-9._:-]/g, '_').slice(0, 512);
+  return normalizeBudgetField(value)
+    .replace(/[^A-Za-z0-9._:-]/g, '_')
+    .slice(0, 512);
 }
 
-function authBudgetOperationKey(input: { operationId: string; requestDigest: string }): string {
+function authBudgetOperationKey(input: {
+  signingWorkerId: string;
+  operationId: string;
+  requestDigest: string;
+}): string {
   return [
     'wallet-signing-budget',
+    normalizeBudgetToken(input.signingWorkerId),
     normalizeBudgetToken(input.operationId),
     normalizeBudgetToken(input.requestDigest),
   ].join(':');
@@ -442,7 +458,10 @@ function createAuthBudgetReservationId(): string {
   return `wbudget_${base64UrlEncode(bytes)}`;
 }
 
-function authBudgetProjection(entry: AuthEntry, nowMs: number): {
+function authBudgetProjection(
+  entry: AuthEntry,
+  nowMs: number,
+): {
   remainingUses: number;
   reservedUses: number;
   availableUses: number;
@@ -465,15 +484,36 @@ function authBudgetProjection(entry: AuthEntry, nowMs: number): {
   };
 }
 
-function parseAuthBudgetReserveInput(raw: unknown, sessionExpiresAtMs: number, nowMs: number):
-  | { ok: true; value: Omit<AuthBudgetReservation, 'reservationId' | 'operationKey'> }
-  | DoErr {
+function authCommittedBudgetOperationExists(
+  entry: AuthEntry,
+  operationKey: string,
+  nowMs: number,
+): boolean {
+  const committedReservations = entry.committedBudgetReservations || {};
+  let found = false;
+  Object.entries(committedReservations).forEach(([reservationId, committed]) => {
+    if (committed.expiresAtMs <= nowMs) {
+      delete committedReservations[reservationId];
+      return;
+    }
+    if (committed.operationKey === operationKey) found = true;
+  });
+  entry.committedBudgetReservations = committedReservations;
+  return found;
+}
+
+function parseAuthBudgetReserveInput(
+  raw: unknown,
+  sessionExpiresAtMs: number,
+  nowMs: number,
+): { ok: true; value: Omit<AuthBudgetReservation, 'reservationId' | 'operationKey'> } | DoErr {
   if (!isPlainObject(raw)) {
     return err('invalid_budget_request', 'budget reservation input must be an object');
   }
   const signingGrantId = normalizeBudgetField(raw.signingGrantId);
   const curve = raw.curve === 'ed25519' || raw.curve === 'ecdsa' ? raw.curve : null;
   const thresholdSessionId = normalizeBudgetField(raw.thresholdSessionId);
+  const signingWorkerId = normalizeBudgetField(raw.signingWorkerId);
   const operationId = normalizeBudgetField(raw.operationId);
   const requestDigest = normalizeBudgetField(raw.requestDigest);
   const signatureUses = Math.floor(Number(raw.signatureUses));
@@ -482,6 +522,7 @@ function parseAuthBudgetReserveInput(raw: unknown, sessionExpiresAtMs: number, n
     !signingGrantId ||
     !curve ||
     !thresholdSessionId ||
+    !signingWorkerId ||
     !operationId ||
     !requestDigest ||
     !Number.isSafeInteger(signatureUses) ||
@@ -501,6 +542,7 @@ function parseAuthBudgetReserveInput(raw: unknown, sessionExpiresAtMs: number, n
       signingGrantId,
       curve,
       thresholdSessionId,
+      signingWorkerId,
       operationId,
       requestDigest,
       signatureUses,
@@ -515,6 +557,7 @@ function parseAuthBudgetCommitInput(raw: unknown):
       value: {
         signingGrantId: string;
         reservationId: string;
+        signingWorkerId: string;
         operationId: string;
         requestDigest: string;
       };
@@ -525,30 +568,31 @@ function parseAuthBudgetCommitInput(raw: unknown):
   }
   const signingGrantId = normalizeBudgetField(raw.signingGrantId);
   const reservationId = normalizeBudgetField(raw.reservationId);
+  const signingWorkerId = normalizeBudgetField(raw.signingWorkerId);
   const operationId = normalizeBudgetField(raw.operationId);
   const requestDigest = normalizeBudgetField(raw.requestDigest);
-  if (!signingGrantId || !reservationId || !operationId || !requestDigest) {
+  if (!signingGrantId || !reservationId || !signingWorkerId || !operationId || !requestDigest) {
     return err(
       'invalid_budget_request',
-      'budget commit requires wallet signing session, reservation, operation, and request digest',
+      'budget commit requires signing grant, reservation, SigningWorker, operation, and request digest',
     );
   }
-  return { ok: true, value: { signingGrantId, reservationId, operationId, requestDigest } };
+  return {
+    ok: true,
+    value: { signingGrantId, reservationId, signingWorkerId, operationId, requestDigest },
+  };
 }
 
-function parseAuthBudgetReleaseInput(raw: unknown):
-  | { ok: true; value: { signingGrantId: string; reservationId: string } }
-  | DoErr {
+function parseAuthBudgetReleaseInput(
+  raw: unknown,
+): { ok: true; value: { signingGrantId: string; reservationId: string } } | DoErr {
   if (!isPlainObject(raw)) {
     return err('invalid_budget_request', 'budget release input must be an object');
   }
   const signingGrantId = normalizeBudgetField(raw.signingGrantId);
   const reservationId = normalizeBudgetField(raw.reservationId);
   if (!signingGrantId || !reservationId) {
-    return err(
-      'invalid_budget_request',
-      'budget release requires wallet signing session and reservation',
-    );
+    return err('invalid_budget_request', 'budget release requires signing grant and reservation');
   }
   return { ok: true, value: { signingGrantId, reservationId } };
 }
@@ -560,11 +604,20 @@ function authBudgetReservationMismatch(): DoErr {
   );
 }
 
+function authBudgetOperationAlreadyCommitted(): DoErr {
+  return err(
+    'wallet_budget_reservation_mismatch',
+    'wallet signing budget operation was already committed',
+  );
+}
+
 function authBudgetReservationExpired(): DoErr {
   return err('wallet_budget_reservation_expired', 'wallet signing budget reservation expired');
 }
 
-function parseRouterAbEcdsaHssPoolFillSessionRecord(raw: unknown): RouterAbEcdsaHssPoolFillSessionRecord | null {
+function parseRouterAbEcdsaHssPoolFillSessionRecord(
+  raw: unknown,
+): RouterAbEcdsaHssPoolFillSessionRecord | null {
   if (!isPlainObject(raw)) return null;
   const expiresAtMs = (raw as { expiresAtMs?: unknown }).expiresAtMs;
   const version = (raw as { version?: unknown }).version;
@@ -913,10 +966,10 @@ export class ThresholdStoreDurableObject {
           if (projection.remainingUses > 0 && projection.reservedUses > 0) {
             return err(
               'wallet_budget_in_flight',
-              'wallet signing session budget is reserved by another signing operation',
+              'signing grant budget is reserved by another signing operation',
             );
           }
-          return err('wallet_budget_exhausted', 'wallet signing session exhausted');
+          return err('wallet_budget_exhausted', 'signing grant exhausted');
         }
 
         entry.remainingUses -= 1;
@@ -959,10 +1012,10 @@ export class ThresholdStoreDurableObject {
           if (projection.remainingUses > 0 && projection.reservedUses > 0) {
             return err(
               'wallet_budget_in_flight',
-              'wallet signing session budget is reserved by another signing operation',
+              'signing grant budget is reserved by another signing operation',
             );
           }
-          return err('wallet_budget_exhausted', 'wallet signing session exhausted');
+          return err('wallet_budget_exhausted', 'signing grant exhausted');
         }
 
         entry.remainingUses -= 1;
@@ -1067,15 +1120,21 @@ export class ThresholdStoreDurableObject {
             availableUses: projection.availableUses,
           });
         }
+        if (authCommittedBudgetOperationExists(entry, operationKey, nowMs)) {
+          return authBudgetOperationAlreadyCommitted();
+        }
         const projection = authBudgetProjection(entry, nowMs);
         if (projection.availableUses < parsed.value.signatureUses) {
-          if (projection.remainingUses >= parsed.value.signatureUses && projection.reservedUses > 0) {
+          if (
+            projection.remainingUses >= parsed.value.signatureUses &&
+            projection.reservedUses > 0
+          ) {
             return err(
               'wallet_budget_in_flight',
-              'wallet signing session budget is reserved by another signing operation',
+              'signing grant budget is reserved by another signing operation',
             );
           }
-          return err('wallet_budget_exhausted', 'wallet signing session exhausted');
+          return err('wallet_budget_exhausted', 'signing grant exhausted');
         }
         const reservation: AuthBudgetReservation = {
           ...parsed.value,
@@ -1120,6 +1179,7 @@ export class ThresholdStoreDurableObject {
         if (committed) {
           if (
             committed.operationKey !== operationKey ||
+            committed.signingWorkerId !== parsed.value.signingWorkerId ||
             committed.operationId !== parsed.value.operationId ||
             committed.requestDigest !== parsed.value.requestDigest
           ) {
@@ -1131,6 +1191,7 @@ export class ThresholdStoreDurableObject {
         if (!reservation) return authBudgetReservationExpired();
         if (
           reservation.operationId !== parsed.value.operationId ||
+          reservation.signingWorkerId !== parsed.value.signingWorkerId ||
           reservation.requestDigest !== parsed.value.requestDigest
         ) {
           return authBudgetReservationMismatch();
@@ -1140,7 +1201,7 @@ export class ThresholdStoreDurableObject {
           return authBudgetReservationExpired();
         }
         if (entry.remainingUses < reservation.signatureUses) {
-          return err('wallet_budget_exhausted', 'wallet signing session exhausted');
+          return err('wallet_budget_exhausted', 'signing grant exhausted');
         }
         entry.remainingUses -= reservation.signatureUses;
         delete entry.budgetReservations?.[parsed.value.reservationId];
@@ -1148,6 +1209,7 @@ export class ThresholdStoreDurableObject {
           ...(entry.committedBudgetReservations || {}),
           [parsed.value.reservationId]: {
             operationKey,
+            signingWorkerId: parsed.value.signingWorkerId,
             operationId: parsed.value.operationId,
             requestDigest: parsed.value.requestDigest,
             remainingUses: entry.remainingUses,
@@ -1160,12 +1222,61 @@ export class ThresholdStoreDurableObject {
         return ok({ remainingUses: entry.remainingUses });
       });
 
+	      return json(res);
+	    }
+
+    if (op === 'authValidateReservedBudgetUseCount') {
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      const input = (req as { input?: unknown }).input;
+
+      const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
+        const raw = await store.get(key);
+        const entry = parseAuthEntry(raw);
+        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+
+        const nowMs = Date.now();
+        if (nowMs > entry.expiresAtMs) {
+          await store.delete(key);
+          return err('unauthorized', 'threshold session expired');
+        }
+        const parsed = parseAuthBudgetCommitInput(input);
+        if (!parsed.ok) return parsed;
+        const operationKey = authBudgetOperationKey(parsed.value);
+        const committed = entry.committedBudgetReservations?.[parsed.value.reservationId];
+        if (committed) {
+          if (
+            committed.operationKey !== operationKey ||
+            committed.signingWorkerId !== parsed.value.signingWorkerId ||
+            committed.operationId !== parsed.value.operationId ||
+            committed.requestDigest !== parsed.value.requestDigest
+          ) {
+            return authBudgetReservationMismatch();
+          }
+          return ok({ remainingUses: committed.remainingUses });
+        }
+        const reservation = entry.budgetReservations?.[parsed.value.reservationId];
+        if (!reservation) return authBudgetReservationExpired();
+        if (
+          reservation.operationId !== parsed.value.operationId ||
+          reservation.signingWorkerId !== parsed.value.signingWorkerId ||
+          reservation.requestDigest !== parsed.value.requestDigest
+        ) {
+          return authBudgetReservationMismatch();
+        }
+        if (reservation.expiresAtMs <= nowMs) return authBudgetReservationExpired();
+        if (entry.remainingUses < reservation.signatureUses) {
+          return err('wallet_budget_exhausted', 'signing grant exhausted');
+        }
+        return ok({ remainingUses: entry.remainingUses });
+      });
+
       return json(res);
     }
 
     if (op === 'authReleaseReservedBudgetUseCount') {
-      const key = toKey((req as { key?: unknown }).key);
-      if (!key) return json(err('invalid_body', 'Missing key'));
+	      const key = toKey((req as { key?: unknown }).key);
+	      if (!key) return json(err('invalid_body', 'Missing key'));
       const input = (req as { input?: unknown }).input;
 
       const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
@@ -1182,6 +1293,41 @@ export class ThresholdStoreDurableObject {
         if (!parsed.ok) return parsed;
         const released = !!entry.budgetReservations?.[parsed.value.reservationId];
         delete entry.budgetReservations?.[parsed.value.reservationId];
+        const projection = authBudgetProjection(entry, nowMs);
+        const ttlSeconds = Math.max(1, Math.ceil((entry.expiresAtMs - nowMs) / 1000));
+        await store.put(key, entry, { expirationTtl: ttlSeconds });
+        return ok({ released, ...projection });
+      });
+
+      return json(res);
+    }
+
+    if (op === 'authReleaseReservedBudgetUseCountForIdentity') {
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      const input = (req as { input?: unknown }).input;
+
+      const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
+        const raw = await store.get(key);
+        const entry = parseAuthEntry(raw);
+        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+
+        const nowMs = Date.now();
+        if (nowMs > entry.expiresAtMs) {
+          await store.delete(key);
+          return err('unauthorized', 'threshold session expired');
+        }
+        const parsed = parseAuthBudgetCommitInput(input);
+        if (!parsed.ok) return parsed;
+        const reservation = entry.budgetReservations?.[parsed.value.reservationId];
+        const released =
+          !!reservation &&
+          reservation.operationId === parsed.value.operationId &&
+          reservation.signingWorkerId === parsed.value.signingWorkerId &&
+          reservation.requestDigest === parsed.value.requestDigest;
+        if (released) {
+          delete entry.budgetReservations?.[parsed.value.reservationId];
+        }
         const projection = authBudgetProjection(entry, nowMs);
         const ttlSeconds = Math.max(1, Math.ceil((entry.expiresAtMs - nowMs) / 1000));
         await store.put(key, entry, { expirationTtl: ttlSeconds });
@@ -1336,7 +1482,8 @@ export class ThresholdStoreDurableObject {
         return json(err('invalid_body', 'Invalid expectedVersion'));
       }
       const nextRecord = parseRouterAbEcdsaHssPoolFillSessionRecord(value);
-      if (!nextRecord) return json(err('invalid_body', 'Invalid Router A/B ECDSA-HSS pool-fill session record'));
+      if (!nextRecord)
+        return json(err('invalid_body', 'Invalid Router A/B ECDSA-HSS pool-fill session record'));
 
       const result = await withTxn(this.state, async (store) => {
         const nowMs = Date.now();

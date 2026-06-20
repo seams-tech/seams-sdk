@@ -44,7 +44,7 @@ import {
 } from '../core/thresholdEcdsaChainTarget';
 import {
   parseAppSessionClaims,
-  parseEcdsaHssClientBootstrapRequest,
+  parseWalletRegistrationEcdsaClientBootstrap,
 } from '../core/ThresholdService/validation';
 import {
   buildRouterAbEcdsaHssNormalSigningStateForBootstrap,
@@ -120,7 +120,10 @@ function exposesRegistrationRouteDiagnostics(input: RelayWalletRegistrationInput
 }
 
 function stripRegistrationRouteDiagnostics<T>(response: T): T {
-  if (!isPlainObject(response) || !Object.prototype.hasOwnProperty.call(response, 'registrationDiagnostics')) {
+  if (
+    !isPlainObject(response) ||
+    !Object.prototype.hasOwnProperty.call(response, 'registrationDiagnostics')
+  ) {
     return response;
   }
   const copy = { ...response };
@@ -296,7 +299,10 @@ function findOwnField(raw: Record<string, unknown>, fields: readonly string[]): 
   return fields.find((field) => Object.prototype.hasOwnProperty.call(raw, field));
 }
 
-function findUnknownField(raw: Record<string, unknown>, allowed: readonly string[]): string | undefined {
+function findUnknownField(
+  raw: Record<string, unknown>,
+  allowed: readonly string[],
+): string | undefined {
   return Object.keys(raw).find((field) => !allowed.includes(field));
 }
 
@@ -363,7 +369,7 @@ async function attachEd25519WalletSessionJwt(
     sessionInfo: {
       ...session,
       sessionKind: 'jwt',
-      thresholdSessionId: session.sessionId,
+      thresholdSessionId: session.thresholdSessionId,
       runtimePolicyScope: session.runtimePolicyScope,
       routerAbNormalSigning: session.routerAbNormalSigning,
     },
@@ -404,7 +410,7 @@ async function attachEcdsaWalletSessionJwt(
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
-      thresholdSessionId: bootstrap.sessionId,
+      thresholdSessionId: bootstrap.thresholdSessionId,
       signingGrantId: bootstrap.signingGrantId,
       expiresAtMs: bootstrap.expiresAtMs,
       participantIds: bootstrap.participantIds,
@@ -420,7 +426,7 @@ async function attachEcdsaWalletSessionJwt(
         contextBinding32B64u: bootstrap.contextBinding32B64u,
       },
       publicIdentity: bootstrap.publicIdentity,
-      activationEpoch: bootstrap.sessionId,
+      activationEpoch: bootstrap.thresholdSessionId,
       signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
       routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigning.state,
     },
@@ -550,9 +556,7 @@ function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> 
   };
 }
 
-function parseRegistrationSignerSelection(
-  raw: unknown,
-): ParseResult<RegistrationSignerSelection> {
+function parseRegistrationSignerSelection(raw: unknown): ParseResult<RegistrationSignerSelection> {
   if (!isPlainObject(raw)) {
     return {
       ok: false,
@@ -1190,7 +1194,10 @@ async function parseWalletRegistrationStartBody(
         registrationIntentDigestB64u: expectedDigest,
         intent: normalizedIntent,
         ...(registrationPreparationId
-          ? { registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId) }
+          ? {
+              registrationPreparationId:
+                registrationPreparationIdFromString(registrationPreparationId),
+            }
           : {}),
         authority: {
           kind: 'passkey',
@@ -1222,7 +1229,10 @@ async function parseWalletRegistrationStartBody(
         registrationIntentDigestB64u: expectedDigest,
         intent: normalizedIntent,
         ...(registrationPreparationId
-          ? { registrationPreparationId: registrationPreparationIdFromString(registrationPreparationId) }
+          ? {
+              registrationPreparationId:
+                registrationPreparationIdFromString(registrationPreparationId),
+            }
           : {}),
         authority: {
           kind: 'email_otp',
@@ -1582,7 +1592,7 @@ function parseWalletRegistrationHssRespondRequest(
         message: `ecdsa.clientBootstrap.${forbiddenField} must stay outside the registration ceremony request`,
       };
     }
-    const parsed = parseEcdsaHssClientBootstrapRequest(clientBootstrap);
+    const parsed = parseWalletRegistrationEcdsaClientBootstrap(clientBootstrap);
     if (!parsed) {
       return { ok: false, code: 'invalid_body', message: 'ecdsa.clientBootstrap is invalid' };
     }
@@ -1603,7 +1613,7 @@ function parseWalletRegistrationHssRespondRequest(
         clientShareRetryCounter: parsed.clientShareRetryCounter,
         contextBinding32B64u: parsed.contextBinding32B64u,
         requestId: parsed.requestId,
-        sessionId: parsed.sessionId,
+        thresholdSessionId: parsed.thresholdSessionId,
         signingGrantId: parsed.signingGrantId,
         ttlMs: parsed.ttlMs,
         remainingUses: parsed.remainingUses,
@@ -1828,7 +1838,10 @@ function parseWalletRegistrationFinalizeRequest(
         message: 'emailOtpEnrollment finalize input is invalid',
       };
     }
-    const forbiddenEnrollmentField = findOwnField(enrollment, EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS);
+    const forbiddenEnrollmentField = findOwnField(
+      enrollment,
+      EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS,
+    );
     if (forbiddenEnrollmentField) {
       return {
         ok: false,
@@ -1836,7 +1849,10 @@ function parseWalletRegistrationFinalizeRequest(
         message: `emailOtpEnrollment.${forbiddenEnrollmentField} must not be included`,
       };
     }
-    const unknownEnrollmentField = findUnknownField(enrollment, EMAIL_OTP_ENROLLMENT_ALLOWED_FIELDS);
+    const unknownEnrollmentField = findUnknownField(
+      enrollment,
+      EMAIL_OTP_ENROLLMENT_ALLOWED_FIELDS,
+    );
     if (unknownEnrollmentField) {
       return {
         ok: false,

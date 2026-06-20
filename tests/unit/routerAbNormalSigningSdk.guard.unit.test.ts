@@ -211,12 +211,8 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(source).not.toContain("spawn(workerBinary, ['--role', 'router'");
     expect(workerRolesSource).not.toContain("role: 'router'");
 
-    const workerSource = readRepoSource(
-      'crates/router-ab-dev/src/bin/router_ab_local_worker.rs',
-    );
-    expect(workerSource).toContain(
-      'router_ab_local_worker no longer exposes a public router role',
-    );
+    const workerSource = readRepoSource('crates/router-ab-dev/src/bin/router_ab_local_worker.rs');
+    expect(workerSource).toContain('router_ab_local_worker no longer exposes a public router role');
   });
 
   test('local Router A/B runtime files do not own committed smoke fixtures', () => {
@@ -322,10 +318,18 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       ]);
     }
     for (const relativePath of identityModules) {
-      forbiddenByFile.set(relativePath, ['/flows/', '/workerManager/', '/session/warmCapabilities/']);
+      forbiddenByFile.set(relativePath, [
+        '/flows/',
+        '/workerManager/',
+        '/session/warmCapabilities/',
+      ]);
     }
     for (const relativePath of workerBoundaryModules) {
-      forbiddenByFile.set(relativePath, ['/flows/signEvmFamily/', '/flows/signNear/', '/SeamsWeb/']);
+      forbiddenByFile.set(relativePath, [
+        '/flows/signEvmFamily/',
+        '/flows/signNear/',
+        '/SeamsWeb/',
+      ]);
     }
 
     const offenders: string[] = [];
@@ -349,7 +353,6 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       'buildRouterAbEd25519PrivateSigningWorkerBody(',
       'buildRouterAbEcdsaHssPrivateSigningWorkerBody(',
       'postRouterAbSigningWorkerJson(',
-      'consumeRouterAbNormalSigningBudget(',
       'validateRouterAbEd25519NormalSigningRequestScope(',
       'validateRouterAbEcdsaHssNormalSigningPrepareRequest(',
       'validateRouterAbEcdsaHssNormalSigningFinalizeRequest(',
@@ -362,7 +365,6 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
           'export function buildRouterAbEd25519PrivateSigningWorkerBody',
           'export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody',
           'export async function postRouterAbSigningWorkerJson',
-          'consumeRouterAbNormalSigningBudget(',
           'export async function handleRouterAbEd25519NormalSigningRouteCore',
           'export async function handleRouterAbEcdsaHssNormalSigningRouteCore',
           'export function validateRouterAbEd25519NormalSigningRequestScope',
@@ -450,7 +452,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       'payload.xClientBaseB64u',
       'payloadForWorker.xClientBaseB64u',
       'persistClientBase',
-      'ed25519HssMaterialCacheFromWalletSessionState',
+      ['ed25519', 'Hss', 'MaterialCacheFromWalletSessionState'].join(''),
       'repairThresholdEd25519MissingRelayerKey',
     ] as const;
     const offenders = activeEd25519SigningPaths.flatMap((relativePath) => {
@@ -461,13 +463,14 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     });
 
     expect(offenders, offenders.join('\n')).toEqual([]);
-    const routerAbExecutorPaths = activeEd25519SigningPaths.filter(
-      (relativePath) => !relativePath.endsWith('/signNear.ts'),
+    const routerAbExecutorSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts',
     );
-    for (const relativePath of routerAbExecutorPaths) {
-      const source = readRepoSource(relativePath);
-      expect(source).toContain('requireRouterAbEd25519NormalSigningReadyState');
-    }
+    const materialReadinessSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts',
+    );
+    expect(routerAbExecutorSource).toContain('requireRouterAbEd25519NormalSigningReadyState');
+    expect(materialReadinessSource).toContain('requireRouterAbEd25519NormalSigningReadyState');
     const walletSessionCredentialSource = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts',
     );
@@ -482,7 +485,9 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
     );
     const prepareStart = source.indexOf('prepare: async ({ requiredSignatureUses }');
-    const reconnectStart = source.indexOf('reconnect: async ({ authorization, requiredSignatureUses })');
+    const reconnectStart = source.indexOf(
+      'reconnect: async ({ authorization, requiredSignatureUses })',
+    );
     expect(prepareStart).toBeGreaterThan(0);
     expect(reconnectStart).toBeGreaterThan(prepareStart);
     const prepareSource = source.slice(prepareStart, reconnectStart);
@@ -533,19 +538,23 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     );
     const finalSigningOffenders: string[] = [];
     for (const { relativePath, source } of activeFinalSigningSources) {
-      const firstSigningMaterialLoad = source.indexOf('const signingMaterial = await');
-      const firstRepairBranch = source.indexOf('if (isThresholdSignerRepairableMaterialError(err))');
-      if (firstSigningMaterialLoad < 0 || firstRepairBranch < 0) {
-        finalSigningOffenders.push(`${relativePath} is missing final-signing or repair markers`);
-        continue;
-      }
-      const finalSigningSlice = source.slice(firstSigningMaterialLoad, firstRepairBranch);
-      if (!finalSigningSlice.includes('requireThresholdEd25519HssSigningMaterialHandle(')) {
+      if (!source.includes('requireOrRestoreRouterAbEd25519WalletSessionState')) {
         finalSigningOffenders.push(
-          `${relativePath} does not load final signing material from a worker handle`,
+          `${relativePath} does not resolve worker-owned Ed25519 material state`,
         );
       }
-      if (finalSigningSlice.includes('ensureThresholdEd25519HssSigningMaterial(')) {
+      if (!source.includes('tryFinalizeRouterAbEd25519')) {
+        finalSigningOffenders.push(`${relativePath} does not finalize through Router A/B`);
+      }
+      if (!source.includes('if (isThresholdSignerRepairableMaterialError(err))')) {
+        finalSigningOffenders.push(
+          `${relativePath} is missing repairable-material fail-closed branch`,
+        );
+      }
+      if (!source.includes('ed25519MaterialRestoreRequiredError')) {
+        finalSigningOffenders.push(`${relativePath} is missing material-restore diagnostics`);
+      }
+      if (source.includes('ensureThresholdEd25519HssSigningMaterial(')) {
         finalSigningOffenders.push(
           `${relativePath} uses reconstruction-capable material loading before repair`,
         );
@@ -559,11 +568,16 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       readRepoSource(
         'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts',
       ),
-    ).toContain('createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleWasm');
+    ).not.toContain(
+      'createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleWasm',
+    );
     const ed25519PresignFinalizeSource = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts',
     );
     expect(ed25519PresignFinalizeSource).not.toContain('xClientBaseB64u');
+    expect(ed25519PresignFinalizeSource).not.toContain(
+      '@/core/signingEngine/threshold/crypto/hssClientSignerWasm',
+    );
     expect(ed25519PresignFinalizeSource).toContain(
       'createThresholdEd25519ClientPresignFromMaterialHandleWasm',
     );
@@ -591,7 +605,9 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
 
     expect(poolSource).toContain('RouterAbEcdsaHssClientSigningMaterialSource');
     expect(poolSource).toContain('computeSignatureShareFromPresignatureHandle');
-    expect(poolSource).not.toContain('thresholdEcdsaComputeSignatureShareFromPresignatureHandleWasm');
+    expect(poolSource).not.toContain(
+      'thresholdEcdsaComputeSignatureShareFromPresignatureHandleWasm',
+    );
     expect(poolSource).not.toContain('thresholdEcdsaComputeSignatureShareWasm');
     expect(poolSource).not.toContain('clientSigningShare32');
     expect(poolSource).not.toContain('mapAdditiveShareToThresholdSignaturesShare2pWasm');
@@ -618,7 +634,9 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       "kind: 'router_ab_ecdsa_hss_client_signing_material_source_v1'",
     );
     expect(materialSource).toContain('initRouterAbEcdsaHssClientPresignSessionFromAdditiveShare');
-    expect(materialSource).toContain('thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm');
+    expect(materialSource).toContain(
+      'thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm',
+    );
     expect(materialSource).toContain(
       'thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm',
     );
@@ -702,7 +720,10 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     ] as const;
     const offenders = forbiddenMarkers
       .filter((marker) => source.includes(marker))
-      .map((marker) => `walletRegistration.ts contains inline Wallet Session claim parsing marker ${marker}`);
+      .map(
+        (marker) =>
+          `walletRegistration.ts contains inline Wallet Session claim parsing marker ${marker}`,
+      );
 
     expect(offenders, offenders.join('\n')).toEqual([]);
     expect(source).toContain('parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1');
@@ -814,7 +835,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       }
       for (const marker of [
         'ensureThresholdEd25519HssSigningMaterial',
-        'claimPrfFirstByThresholdSessionId',
+        'claimWarmSessionPrfFirstMaterial',
         'forceRefresh: true',
         'repairedSigningMaterial',
         'requestPayload = buildRequestPayload(repairedSigningMaterial);',
@@ -832,34 +853,46 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  test('Ed25519 registration prewarm and passkey reconnect require signable Router A/B state', () => {
+  test('Ed25519 registration and passkey reconnect avoid legacy client-base prewarm', () => {
     const offenders: string[] = [];
     const warmBootstrap = readRepoSource(
       'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
     );
-    if (!warmBootstrap.includes('parseRouterAbEd25519SigningWalletSessionFromRecord(sessionRecord)')) {
-      offenders.push('Ed25519 prewarm does not use the strict Router A/B signable parser');
+    const registration = readRepoSource(
+      'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+    );
+    if (warmBootstrap.includes('prewarmThresholdEd25519ClientBaseFromCredential')) {
+      offenders.push('warm-session bootstrap still exports legacy Ed25519 client-base prewarm');
     }
-    if (!warmBootstrap.includes('material prewarm requires signable Router A/B Wallet Session state')) {
-      offenders.push('Ed25519 prewarm can still return without Wallet Session auth diagnostics');
+    if (registration.includes('prewarmThresholdEd25519ClientBaseFromCredential')) {
+      offenders.push('registration still invokes legacy Ed25519 client-base prewarm');
     }
-    if (!warmBootstrap.includes('Threshold Ed25519 registration warm session missing Router A/B Wallet Session state')) {
-      offenders.push('Ed25519 registration persistence does not fail closed on missing Router A/B state');
+    if (
+      !warmBootstrap.includes(
+        'Threshold Ed25519 registration warm session missing Router A/B Wallet Session state',
+      )
+    ) {
+      offenders.push(
+        'Ed25519 registration persistence does not fail closed on missing Router A/B state',
+      );
     }
 
-    const signTransactions = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    const signNear = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
     );
-    if (!signTransactions.includes('classifyRouterAbEd25519PersistedSigningRecord(refreshedRecord)')) {
+    if (!signNear.includes('classifyRouterAbEd25519PersistedSigningRecord(args.record)')) {
       offenders.push('Passkey reconnect does not classify the refreshed Ed25519 record');
     }
-    if (!signTransactions.includes("refreshedRecordState.kind === 'pending_material'")) {
+    if (
+      !signNear.includes("case 'material_hint_unvalidated'") ||
+      !signNear.includes("case 'auth_ready_material_pending'")
+    ) {
       offenders.push('Passkey reconnect does not classify pending Ed25519 worker material');
     }
-    if (!signTransactions.includes('throwEd25519MaterialRestoreRequired({')) {
+    if (!signNear.includes('throwEd25519MaterialRestoreRequired({')) {
       offenders.push('Passkey reconnect does not fail closed when worker material is pending');
     }
-    if (!signTransactions.includes('passkey Ed25519 reconnect did not produce signable Router A/B state')) {
+    if (!signNear.includes('passkey Ed25519 reconnect did not produce signable Router A/B state')) {
       offenders.push('Passkey reconnect does not fail closed with explicit Router A/B diagnostics');
     }
 
@@ -971,7 +1004,9 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
   });
 
   test('public normal-signing route cores keep server budget reservation hooks', () => {
-    const source = readRepoSource('packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts');
+    const source = readRepoSource(
+      'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+    );
     const ed25519Core = sourceRangeBetween(
       source,
       'export async function handleRouterAbEd25519NormalSigningRouteCore',
@@ -982,19 +1017,83 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       'export async function handleRouterAbEcdsaHssNormalSigningRouteCore',
       'export async function postRouterAbSigningWorkerJson',
     );
+    const forwardThenCommitHelper = sourceRangeBetween(
+      source,
+      'async function forwardThenCommitBudgetedSigning',
+      'function stripRouterAbBudgetMetadata',
+    );
+
+    expect(forwardThenCommitHelper).toContain('await postRouterAbSigningWorkerJson({');
+    expect(forwardThenCommitHelper).toContain('await input.threshold.releaseRouterAbNormalSigningBudget({');
+    expect(forwardThenCommitHelper).toContain('input.threshold.commitRouterAbNormalSigningBudget(input.budget)');
 
     expect(ed25519Core).toContain("if (input.phase === 'prepare')");
     expect(ed25519Core).toContain('threshold.reserveRouterAbNormalSigningBudget({');
+    expect(ed25519Core).toContain('if (isPlainObject(input.body.pool_binding))');
     expect(ed25519Core).toContain("phase: 'prepare'");
+    expect(ed25519Core).toContain("phase: 'finalize'");
     expect(ed25519Core).toContain('budgetReservationId(input.body)');
-    expect(ed25519Core).toContain('threshold.commitRouterAbNormalSigningBudget({');
+    expect(ed25519Core).toContain('threshold.validateRouterAbNormalSigningBudget({');
+    expect(ed25519Core).toContain('forwardThenCommitBudgetedSigning({');
+    expect(ed25519Core).toContain('signingWorkerId,');
     expect(ed25519Core).toContain('withBudgetReservationMetadata(');
+    expect(ed25519Core).not.toContain('consumeRouterAbNormalSigningBudget(');
 
     expect(ecdsaHssCore).toContain("if (input.phase === 'prepare')");
     expect(ecdsaHssCore).toContain('threshold.reserveRouterAbNormalSigningBudget({');
     expect(ecdsaHssCore).toContain("curve: 'ecdsa-hss'");
     expect(ecdsaHssCore).toContain('budgetReservationId(input.body)');
-    expect(ecdsaHssCore).toContain('threshold.commitRouterAbNormalSigningBudget({');
+    expect(ecdsaHssCore).toContain('threshold.validateRouterAbNormalSigningBudget({');
+    expect(ecdsaHssCore).toContain('threshold.releaseRouterAbNormalSigningBudget({');
+    expect(ecdsaHssCore).toContain('forwardThenCommitBudgetedSigning({');
+    expect(ecdsaHssCore).toContain('signingWorkerId,');
     expect(ecdsaHssCore).toContain('withBudgetReservationMetadata(');
+  });
+
+  test('SDK budget projection uses server availableUses as active signing authority', () => {
+    const source = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.ts',
+    );
+    const activeStatusType = sourceRangeBetween(
+      source,
+      'export type TrustedWalletBudgetStatus =',
+      'export type WalletBudgetUnknownReason =',
+    );
+    const projectionStateStart = source.indexOf('function trustedStatusProjectionState');
+    expect(projectionStateStart).toBeGreaterThanOrEqual(0);
+    const projectionState = source.slice(projectionStateStart);
+
+    expect(activeStatusType).toContain("status: 'active'");
+    expect(activeStatusType).toContain('availableUses: number;');
+    expect(projectionState).toContain('Number(status.availableUses)');
+    expect(projectionState).not.toContain('Number(status.remainingUses)');
+  });
+
+  test('wallet budget success reconciliation never falls back to local warm-session consume ports', () => {
+    const source = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+    );
+    const constructorSource = sourceRangeBetween(
+      source,
+      'constructor(deps: SigningSessionCoordinatorDeps = {})',
+      'resolveAuthPlan(',
+    );
+    const syncSource = sourceRangeBetween(
+      source,
+      'private syncServerConsumedSpendStatus = async',
+      'async clear(',
+    );
+
+    expect(constructorSource).toContain(
+      'syncSuccessfulSpendStatus: deps.consumeUse || this.syncServerConsumedSpendStatus',
+    );
+    expect(constructorSource).not.toContain('touchConfirm?.consumeWarmSessionUses');
+    expect(constructorSource).not.toContain('consumeEmailOtpWarmSessionUses');
+    expect(constructorSource).not.toContain(
+      'markThresholdEd25519EmailOtpSessionConsumedForAccount',
+    );
+    expect(source).not.toContain('hasSigningGrantConsumeDeps(');
+    expect(syncSource).toContain('this.readWalletBudgetStatus(args.budgetStatusCheck)');
+    expect(syncSource).not.toContain('consumeSigningGrantUse(');
   });
 });

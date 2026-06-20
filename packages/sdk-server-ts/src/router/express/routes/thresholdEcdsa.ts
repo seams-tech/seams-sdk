@@ -64,11 +64,8 @@ const NOT_IMPLEMENTED = {
   message: 'threshold-ecdsa is not implemented',
 } as const;
 
-function publicEcdsaHssBootstrapValue<T extends { sessionId: string }>(
-  value: T,
-): Omit<T, 'sessionId'> & { thresholdSessionId: string } {
-  const { sessionId, ...rest } = value;
-  return { ...rest, thresholdSessionId: sessionId };
+function publicEcdsaHssBootstrapValue<T extends { thresholdSessionId: string }>(value: T): T {
+  return value;
 }
 
 function validateEcdsaHssSessionIdentity(input: {
@@ -718,12 +715,11 @@ export function registerThresholdEcdsaRoutes(
             message: 'Threshold signing is not configured on this server',
           };
         }
-        const routerAbEcdsaHssNormalSigning =
-          buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
-            bootstrap: bootstrap.value,
-            routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
-            signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
-          });
+        const routerAbEcdsaHssNormalSigning = buildRouterAbEcdsaHssNormalSigningStateForBootstrap({
+          bootstrap: bootstrap.value,
+          routerAbPublicKeyset: ctx.opts.routerAbPublicKeyset,
+          signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
+        });
         if (!routerAbEcdsaHssNormalSigning.ok) return routerAbEcdsaHssNormalSigning;
         const signed = await signRouterAbEcdsaHssWalletSessionJwt({
           session: ctx.opts.session,
@@ -732,7 +728,7 @@ export function registerThresholdEcdsaRoutes(
           relayerKeyId: parsed.relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',
-            thresholdSessionId: bootstrap.value.sessionId,
+            thresholdSessionId: bootstrap.value.thresholdSessionId,
             signingGrantId: bootstrap.value.signingGrantId,
             expiresAtMs: bootstrap.value.expiresAtMs,
             participantIds: bootstrap.value.participantIds,
@@ -748,7 +744,7 @@ export function registerThresholdEcdsaRoutes(
               contextBinding32B64u: parsed.contextBinding32B64u,
             },
             publicIdentity: bootstrap.value.publicIdentity,
-            activationEpoch: bootstrap.value.sessionId,
+            activationEpoch: bootstrap.value.thresholdSessionId,
             signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
             routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigning.state,
           },

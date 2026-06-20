@@ -32,7 +32,6 @@ import type {
   Ed25519WalletSessionRecord,
   WalletSessionBudgetReservationResult,
   WalletSessionBudgetReleaseResult,
-  WalletSessionConsumeUsesResult,
 } from './stores/WalletSessionStore';
 import type {
   ThresholdEd25519KeygenMaterial,
@@ -254,45 +253,12 @@ type ThresholdEcdsaMpcSessionRecord = Omit<ThresholdEd25519MpcSessionRecord, 'us
   walletSessionUserId: string;
 };
 
-function routerAbNormalSigningBudgetIdempotencyKey(
-  input: RouterAbNormalSigningBudgetConsumeInput,
-): string {
-  return [
-    'router-ab-normal-signing',
-    input.curve,
-    input.phase,
-    input.sessionId,
-    input.requestId,
-  ].join(':');
-}
-
-function routerAbBudgetConsumeFailure(
-  result: WalletSessionConsumeUsesResult & { ok: false },
-): RouterAbNormalSigningBudgetConsumeResult {
-  const code = toOptionalTrimmedString(result.code) || 'unauthorized';
-  const message = toOptionalTrimmedString(result.message) || 'Wallet Session budget rejected';
-  const lowered = message.toLowerCase();
-  if (code === 'expired' || lowered.includes('expired')) {
-    return { ok: false, status: 409, code: 'expired', message: 'wallet signing session expired' };
-  }
-  if (code === 'exhausted' || lowered.includes('exhaust')) {
-    return {
-      ok: false,
-      status: 409,
-      code: 'exhausted',
-      message: 'wallet signing session exhausted',
-    };
-  }
-  if (code === 'not_found') return { ok: false, status: 404, code, message };
-  if (code === 'invalid_body') return { ok: false, status: 400, code, message };
-  if (code === 'unauthorized') return { ok: false, status: 401, code, message };
-  return { ok: false, status: 500, code: 'internal', message };
-}
-
-function routerAbBudgetStoreFailure(input: {
+function routerAbBudgetStoreFailure(input: { code: string; message: string }): {
+  ok: false;
+  status: number;
   code: string;
   message: string;
-}): { ok: false; status: number; code: string; message: string } {
+} {
   const code = toOptionalTrimmedString(input.code) || 'wallet_budget_internal';
   const message = toOptionalTrimmedString(input.message) || 'Wallet Session budget rejected';
   switch (code) {
@@ -677,7 +643,7 @@ function parseThresholdEd25519SessionRequest(
   relayerKeyId: string;
   nearAccountId: string;
   rpId: string;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   runtimePolicyScope?: RuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
@@ -708,10 +674,12 @@ function parseThresholdEd25519SessionRequest(
     (policyRaw as Record<string, unknown>).nearAccountId,
   );
   const rpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
-  const sessionId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).sessionId);
+  const thresholdSessionId = toOptionalTrimmedString(
+    (policyRaw as Record<string, unknown>).thresholdSessionId,
+  );
   const signingGrantId =
     toOptionalTrimmedString((policyRaw as Record<string, unknown>).signingGrantId) ||
-    sessionId;
+    thresholdSessionId;
   const policyRelayerKeyId = toOptionalTrimmedString(
     (policyRaw as Record<string, unknown>).relayerKeyId,
   );
@@ -757,12 +725,12 @@ function parseThresholdEd25519SessionRequest(
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
   const expectedOrigin = toOptionalTrimmedString(rec.expected_origin) || null;
-  if (!nearAccountId || !rpId || !sessionId || !signingGrantId || !policyRelayerKeyId) {
+  if (!nearAccountId || !rpId || !thresholdSessionId || !signingGrantId || !policyRelayerKeyId) {
     return {
       ok: false,
       code: 'invalid_body',
       message:
-        'sessionPolicy{nearAccountId,rpId,relayerKeyId,sessionId,signingGrantId} are required',
+        'sessionPolicy{nearAccountId,rpId,relayerKeyId,thresholdSessionId,signingGrantId} are required',
     };
   }
   if (policyRelayerKeyId !== relayerKeyId) {
@@ -824,7 +792,7 @@ function parseThresholdEd25519SessionRequest(
       relayerKeyId,
       nearAccountId,
       rpId,
-      sessionId,
+      thresholdSessionId,
       signingGrantId,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
@@ -1107,14 +1075,14 @@ export type RouterAbNormalSigningPrepareReplayReservationInput =
   | {
       curve: 'ed25519';
       phase: 'prepare' | 'presign-pool-prepare';
-      sessionId: string;
+      thresholdSessionId: string;
       requestId: string;
       expiresAtMs: number;
     }
   | {
       curve: 'ecdsa-hss';
       phase: 'prepare';
-      sessionId: string;
+      thresholdSessionId: string;
       requestId: string;
       expiresAtMs: number;
     };
@@ -1123,32 +1091,13 @@ export type RouterAbNormalSigningPrepareReplayReservationResult =
   | { ok: true }
   | { ok: false; status: number; code: string; message: string };
 
-export type RouterAbNormalSigningBudgetConsumeInput =
-  | {
-      curve: 'ed25519';
-      phase: 'finalize';
-      sessionId: string;
-      signingGrantId: string;
-      requestId: string;
-    }
-  | {
-      curve: 'ecdsa-hss';
-      phase: 'finalize';
-      sessionId: string;
-      signingGrantId: string;
-      requestId: string;
-    };
-
-export type RouterAbNormalSigningBudgetConsumeResult =
-  | { ok: true; remainingUses: number }
-  | { ok: false; status: number; code: string; message: string };
-
 export type RouterAbNormalSigningBudgetReservationInput =
   | {
       curve: 'ed25519';
-      phase: 'prepare';
-      sessionId: string;
+      phase: 'prepare' | 'finalize';
+      thresholdSessionId: string;
       signingGrantId: string;
+      signingWorkerId: string;
       operationId: string;
       requestDigest: string;
       signatureUses: number;
@@ -1157,8 +1106,9 @@ export type RouterAbNormalSigningBudgetReservationInput =
   | {
       curve: 'ecdsa-hss';
       phase: 'prepare';
-      sessionId: string;
+      thresholdSessionId: string;
       signingGrantId: string;
+      signingWorkerId: string;
       operationId: string;
       requestDigest: string;
       signatureUses: number;
@@ -1179,21 +1129,28 @@ export type RouterAbNormalSigningBudgetCommitInput =
   | {
       curve: 'ed25519';
       phase: 'finalize';
-      sessionId: string;
+      thresholdSessionId: string;
       signingGrantId: string;
       reservationId: string;
+      signingWorkerId: string;
       operationId: string;
       requestDigest: string;
     }
   | {
       curve: 'ecdsa-hss';
       phase: 'finalize';
-      sessionId: string;
+      thresholdSessionId: string;
       signingGrantId: string;
       reservationId: string;
+      signingWorkerId: string;
       operationId: string;
       requestDigest: string;
     };
+
+export type RouterAbNormalSigningBudgetValidateInput = RouterAbNormalSigningBudgetCommitInput;
+
+export type RouterAbNormalSigningBudgetIdentityReleaseInput =
+  RouterAbNormalSigningBudgetCommitInput;
 
 export type RouterAbNormalSigningBudgetCommitResult =
   | { ok: true; remainingUses: number }
@@ -1203,14 +1160,14 @@ export type RouterAbNormalSigningBudgetReleaseInput =
   | {
       curve: 'ed25519';
       phase: 'prepare' | 'finalize';
-      sessionId: string;
+      thresholdSessionId: string;
       signingGrantId: string;
       reservationId: string;
     }
   | {
       curve: 'ecdsa-hss';
       phase: 'prepare' | 'finalize';
-      sessionId: string;
+      thresholdSessionId: string;
       signingGrantId: string;
       reservationId: string;
     };
@@ -1478,7 +1435,7 @@ export class ThresholdSigningService {
   async reserveRouterAbNormalSigningPrepareReplay(
     input: RouterAbNormalSigningPrepareReplayReservationInput,
   ): Promise<RouterAbNormalSigningPrepareReplayReservationResult> {
-    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const sessionId = toOptionalTrimmedString(input.thresholdSessionId);
     const requestId = toOptionalTrimmedString(input.requestId);
     const expiresAtMs = Number(input.expiresAtMs);
     if (!sessionId || !requestId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
@@ -1486,7 +1443,8 @@ export class ThresholdSigningService {
         ok: false,
         status: 400,
         code: 'invalid_body',
-        message: 'Router A/B normal-signing replay reservation requires session, request id, and expiry',
+        message:
+          'Router A/B normal-signing replay reservation requires session, request id, and expiry',
       };
     }
     const store =
@@ -1521,47 +1479,12 @@ export class ThresholdSigningService {
     };
   }
 
-  async consumeRouterAbNormalSigningBudget(
-    input: RouterAbNormalSigningBudgetConsumeInput,
-  ): Promise<RouterAbNormalSigningBudgetConsumeResult> {
-    const sessionId = toOptionalTrimmedString(input.sessionId);
-    const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
-    const requestId = toOptionalTrimmedString(input.requestId);
-    if (!sessionId || !signingGrantId || !requestId) {
-      return {
-        ok: false,
-        status: 400,
-        code: 'invalid_body',
-        message: 'Router A/B normal-signing budget consume requires session and request identity',
-      };
-    }
-    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
-    const curveStore =
-      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
-    const consumed = await this.consumeWalletOrCurveSessionUse({
-      signingGrantId,
-      curve,
-      curveSessionId: sessionId,
-      curveStore,
-      idempotencyKey: routerAbNormalSigningBudgetIdempotencyKey({
-        ...input,
-        sessionId,
-        signingGrantId,
-        requestId,
-      }),
-    });
-    if (!consumed.ok) return routerAbBudgetConsumeFailure(consumed);
-    return {
-      ok: true,
-      remainingUses: Math.max(0, Math.floor(Number(consumed.remainingUses) || 0)),
-    };
-  }
-
   async reserveRouterAbNormalSigningBudget(
     input: RouterAbNormalSigningBudgetReservationInput,
   ): Promise<RouterAbNormalSigningBudgetReservationResult> {
-    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const sessionId = toOptionalTrimmedString(input.thresholdSessionId);
     const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
+    const signingWorkerId = toOptionalTrimmedString(input.signingWorkerId);
     const operationId = toOptionalTrimmedString(input.operationId);
     const requestDigest = toOptionalTrimmedString(input.requestDigest);
     const signatureUses = Math.floor(Number(input.signatureUses));
@@ -1569,6 +1492,7 @@ export class ThresholdSigningService {
     if (
       !sessionId ||
       !signingGrantId ||
+      !signingWorkerId ||
       !operationId ||
       !requestDigest ||
       !Number.isSafeInteger(signatureUses) ||
@@ -1596,6 +1520,7 @@ export class ThresholdSigningService {
       signingGrantId: resolved.budgetSessionId,
       curve,
       thresholdSessionId: sessionId,
+      signingWorkerId,
       operationId,
       requestDigest,
       signatureUses,
@@ -1614,17 +1539,26 @@ export class ThresholdSigningService {
   async commitRouterAbNormalSigningBudget(
     input: RouterAbNormalSigningBudgetCommitInput,
   ): Promise<RouterAbNormalSigningBudgetCommitResult> {
-    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const sessionId = toOptionalTrimmedString(input.thresholdSessionId);
     const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
     const reservationId = toOptionalTrimmedString(input.reservationId);
+    const signingWorkerId = toOptionalTrimmedString(input.signingWorkerId);
     const operationId = toOptionalTrimmedString(input.operationId);
     const requestDigest = toOptionalTrimmedString(input.requestDigest);
-    if (!sessionId || !signingGrantId || !reservationId || !operationId || !requestDigest) {
+    if (
+      !sessionId ||
+      !signingGrantId ||
+      !reservationId ||
+      !signingWorkerId ||
+      !operationId ||
+      !requestDigest
+    ) {
       return {
         ok: false,
         status: 422,
         code: 'invalid_budget_request',
-        message: 'Router A/B budget commit requires reservation, operation, and digest',
+        message:
+          'Router A/B budget commit requires reservation, SigningWorker, operation, and digest',
       };
     }
     const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
@@ -1640,6 +1574,7 @@ export class ThresholdSigningService {
     const committed = await resolved.store.commitReservedUseCountOnce({
       signingGrantId: resolved.budgetSessionId,
       reservationId,
+      signingWorkerId,
       operationId,
       requestDigest,
     });
@@ -1650,10 +1585,59 @@ export class ThresholdSigningService {
     };
   }
 
+  async validateRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetValidateInput,
+  ): Promise<RouterAbNormalSigningBudgetCommitResult> {
+    const sessionId = toOptionalTrimmedString(input.thresholdSessionId);
+    const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
+    const reservationId = toOptionalTrimmedString(input.reservationId);
+    const signingWorkerId = toOptionalTrimmedString(input.signingWorkerId);
+    const operationId = toOptionalTrimmedString(input.operationId);
+    const requestDigest = toOptionalTrimmedString(input.requestDigest);
+    if (
+      !sessionId ||
+      !signingGrantId ||
+      !reservationId ||
+      !signingWorkerId ||
+      !operationId ||
+      !requestDigest
+    ) {
+      return {
+        ok: false,
+        status: 422,
+        code: 'invalid_budget_request',
+        message:
+          'Router A/B budget validation requires reservation, SigningWorker, operation, and digest',
+      };
+    }
+    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
+    const curveStore =
+      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
+    const resolved = await this.resolveWalletOrCurveBudgetStore({
+      signingGrantId,
+      curve,
+      curveSessionId: sessionId,
+      curveStore,
+    });
+    if (!resolved.ok) return routerAbBudgetStoreFailure(resolved);
+    const validated = await resolved.store.validateReservedUseCount({
+      signingGrantId: resolved.budgetSessionId,
+      reservationId,
+      signingWorkerId,
+      operationId,
+      requestDigest,
+    });
+    if (!validated.ok) return routerAbBudgetStoreFailure(validated);
+    return {
+      ok: true,
+      remainingUses: Math.max(0, Math.floor(Number(validated.remainingUses) || 0)),
+    };
+  }
+
   async releaseRouterAbNormalSigningBudget(
     input: RouterAbNormalSigningBudgetReleaseInput,
   ): Promise<RouterAbNormalSigningBudgetReleaseResult> {
-    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const sessionId = toOptionalTrimmedString(input.thresholdSessionId);
     const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
     const reservationId = toOptionalTrimmedString(input.reservationId);
     if (!sessionId || !signingGrantId || !reservationId) {
@@ -1677,6 +1661,52 @@ export class ThresholdSigningService {
     const released = await resolved.store.releaseReservedUseCount({
       signingGrantId: resolved.budgetSessionId,
       reservationId,
+    });
+    if (!released.ok) return routerAbBudgetStoreFailure(released);
+    return released;
+  }
+
+  async releaseRouterAbNormalSigningBudgetForIdentity(
+    input: RouterAbNormalSigningBudgetIdentityReleaseInput,
+  ): Promise<RouterAbNormalSigningBudgetReleaseResult> {
+    const sessionId = toOptionalTrimmedString(input.thresholdSessionId);
+    const signingGrantId = toOptionalTrimmedString(input.signingGrantId);
+    const reservationId = toOptionalTrimmedString(input.reservationId);
+    const signingWorkerId = toOptionalTrimmedString(input.signingWorkerId);
+    const operationId = toOptionalTrimmedString(input.operationId);
+    const requestDigest = toOptionalTrimmedString(input.requestDigest);
+    if (
+      !sessionId ||
+      !signingGrantId ||
+      !reservationId ||
+      !signingWorkerId ||
+      !operationId ||
+      !requestDigest
+    ) {
+      return {
+        ok: false,
+        status: 422,
+        code: 'invalid_budget_request',
+        message:
+          'Router A/B budget identity release requires reservation, SigningWorker, operation, and digest',
+      };
+    }
+    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
+    const curveStore =
+      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
+    const resolved = await this.resolveWalletOrCurveBudgetStore({
+      signingGrantId,
+      curve,
+      curveSessionId: sessionId,
+      curveStore,
+    });
+    if (!resolved.ok) return routerAbBudgetStoreFailure(resolved);
+    const released = await resolved.store.releaseReservedUseCountForIdentity({
+      signingGrantId: resolved.budgetSessionId,
+      reservationId,
+      signingWorkerId,
+      operationId,
+      requestDigest,
     });
     if (!released.ok) return routerAbBudgetStoreFailure(released);
     return released;
@@ -2052,9 +2082,7 @@ export class ThresholdSigningService {
             '[threshold-ed25519] relayer share self-heal refused conflicting key identity',
           );
         }
-        const existingSigningShareB64u = toOptionalTrimmedString(
-          existing.relayerSigningShareB64u,
-        );
+        const existingSigningShareB64u = toOptionalTrimmedString(existing.relayerSigningShareB64u);
         const existingVerifyingShareB64u = toOptionalTrimmedString(
           existing.relayerVerifyingShareB64u,
         );
@@ -2324,7 +2352,7 @@ export class ThresholdSigningService {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'wallet signing-session budget binding thresholdSessionId is required',
+        message: 'signing grant budget binding thresholdSessionId is required',
       };
     }
     if (!sessionId) {
@@ -2408,61 +2436,6 @@ export class ThresholdSigningService {
     return { ok: true, expiresAtMs, participantIds: input.participantIds };
   }
 
-  private async consumeWalletOrCurveSessionUse(input: {
-    signingGrantId?: string;
-    curve: 'ed25519' | 'ecdsa';
-    curveSessionId: string;
-    curveStore: Ed25519WalletSessionStore;
-    idempotencyKey?: string;
-  }): Promise<WalletSessionConsumeUsesResult> {
-    const walletBudgetSessionId = this.walletSigningBudgetSessionId({
-      signingGrantId: input.signingGrantId || '',
-      binding: {
-        curve: input.curve,
-        thresholdSessionId: input.curveSessionId,
-      },
-    });
-    const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
-    if (walletBudgetSessionId) {
-      const walletBudgetSession = await this.walletSessionStore.getSession(walletBudgetSessionId);
-      const curveSession = await input.curveStore.getSession(input.curveSessionId);
-      if (
-        !walletBudgetSession ||
-        !curveSession ||
-        walletBudgetSession.userId !== curveSession.userId ||
-        walletBudgetSession.rpId !== curveSession.rpId ||
-        walletBudgetSession.participantIds.length !== curveSession.participantIds.length ||
-        !walletBudgetSession.participantIds.every(
-          (id, index) => id === curveSession.participantIds[index],
-        )
-      ) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'wallet signing-session budget does not match this threshold session',
-        };
-      }
-      if (idempotencyKey) {
-        return await this.walletSessionStore.consumeUseCountOnce(
-          walletBudgetSessionId,
-          idempotencyKey,
-        );
-      }
-      // Wallet budgets are shared across curves and runtimes. A consume
-      // without an operation-derived idempotency key would reopen overspend
-      // races at the authoritative server boundary.
-      return {
-        ok: false,
-        code: 'internal',
-        message: 'wallet signing-session budget consume requires an idempotency key',
-      };
-    }
-    if (idempotencyKey) {
-      return await input.curveStore.consumeUseCountOnce(input.curveSessionId, idempotencyKey);
-    }
-    return await input.curveStore.consumeUseCount(input.curveSessionId);
-  }
-
   private async resolveWalletOrCurveBudgetStore(input: {
     signingGrantId?: string;
     curve: 'ed25519' | 'ecdsa';
@@ -2490,58 +2463,17 @@ export class ThresholdSigningService {
       walletBudgetSession.userId !== curveSession.userId ||
       walletBudgetSession.rpId !== curveSession.rpId ||
       walletBudgetSession.participantIds.length !== curveSession.participantIds.length ||
-      !walletBudgetSession.participantIds.every((id, index) => id === curveSession.participantIds[index])
+      !walletBudgetSession.participantIds.every(
+        (id, index) => id === curveSession.participantIds[index],
+      )
     ) {
       return {
         ok: false,
         code: 'wallet_budget_forbidden',
-        message: 'wallet signing-session budget does not match this threshold session',
+        message: 'signing grant budget does not match this threshold session',
       };
     }
     return { ok: true, budgetSessionId: walletBudgetSessionId, store: this.walletSessionStore };
-  }
-
-  private async hasConsumedWalletOrCurveSessionUse(input: {
-    signingGrantId?: string;
-    curve: 'ed25519' | 'ecdsa';
-    curveSessionId: string;
-    curveStore: Ed25519WalletSessionStore;
-    idempotencyKey: string;
-  }): Promise<{ ok: true; consumed: boolean } | { ok: false; code: string; message: string }> {
-    const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
-    if (!idempotencyKey) return { ok: true, consumed: false };
-    const walletBudgetSessionId = this.walletSigningBudgetSessionId({
-      signingGrantId: input.signingGrantId || '',
-      binding: {
-        curve: input.curve,
-        thresholdSessionId: input.curveSessionId,
-      },
-    });
-    if (walletBudgetSessionId) {
-      const walletBudgetSession = await this.walletSessionStore.getSession(walletBudgetSessionId);
-      const curveSession = await input.curveStore.getSession(input.curveSessionId);
-      if (
-        !walletBudgetSession ||
-        !curveSession ||
-        walletBudgetSession.userId !== curveSession.userId ||
-        walletBudgetSession.rpId !== curveSession.rpId ||
-        walletBudgetSession.participantIds.length !== curveSession.participantIds.length ||
-        !walletBudgetSession.participantIds.every(
-          (id, index) => id === curveSession.participantIds[index],
-        )
-      ) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'wallet signing-session budget does not match this threshold session',
-        };
-      }
-      return await this.walletSessionStore.hasConsumedUseCountOnce(
-        walletBudgetSessionId,
-        idempotencyKey,
-      );
-    }
-    return await input.curveStore.hasConsumedUseCountOnce(input.curveSessionId, idempotencyKey);
   }
 
   private createRouterAbEcdsaHssPoolFillSessionId(): string {
@@ -2806,16 +2738,15 @@ export class ThresholdSigningService {
         };
       }
 
-      const sessionId = String(policy.sessionId || '').trim();
-      if (!sessionId) {
+      const thresholdSessionId = String(policy.thresholdSessionId || '').trim();
+      if (!thresholdSessionId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy.sessionId is required',
+          message: 'threshold_ed25519.session_policy.thresholdSessionId is required',
         };
       }
-      const signingGrantId =
-        String(policy.signingGrantId || '').trim() || sessionId;
+      const signingGrantId = String(policy.signingGrantId || '').trim() || thresholdSessionId;
 
       const { ttlMs, remainingUses } = this.clampSessionPolicy({
         ttlMs: Number(policy.ttlMs),
@@ -2856,7 +2787,7 @@ export class ThresholdSigningService {
         return { ok: false, code: relayerKey.code, message: relayerKey.message };
       }
 
-      const existingSession = await this.walletSessionStore.getSession(sessionId);
+      const existingSession = await this.walletSessionStore.getSession(thresholdSessionId);
       if (existingSession) {
         if (existingSession.userId !== nearAccountId) {
           return {
@@ -2891,7 +2822,7 @@ export class ThresholdSigningService {
         }
         const walletBudget = await this.ensureSigningGrantBudget({
           signingGrantId,
-          binding: { curve: 'ed25519', thresholdSessionId: sessionId },
+          binding: { curve: 'ed25519', thresholdSessionId },
           userId: nearAccountId,
           rpId,
           participantIds: existingSession.participantIds,
@@ -2902,7 +2833,7 @@ export class ThresholdSigningService {
         if (!walletBudget.ok) return walletBudget;
         return {
           ok: true,
-          sessionId,
+          thresholdSessionId,
           signingGrantId,
           expiresAtMs: walletBudget.expiresAtMs,
           expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
@@ -2926,7 +2857,7 @@ export class ThresholdSigningService {
       const expiresAtMs = Date.now() + ttlMs;
       await this.putWalletSessionRecord({
         store: this.walletSessionStore,
-        sessionId,
+        sessionId: thresholdSessionId,
         record: {
           expiresAtMs,
           relayerKeyId,
@@ -2939,7 +2870,7 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureSigningGrantBudget({
         signingGrantId,
-        binding: { curve: 'ed25519', thresholdSessionId: sessionId },
+        binding: { curve: 'ed25519', thresholdSessionId },
         userId: nearAccountId,
         rpId,
         participantIds,
@@ -2951,7 +2882,7 @@ export class ThresholdSigningService {
 
       return {
         ok: true,
-        sessionId,
+        thresholdSessionId,
         signingGrantId,
         expiresAtMs: walletBudget.expiresAtMs,
         expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
@@ -3515,7 +3446,7 @@ export class ThresholdSigningService {
           ethereumAddress,
           relayerVerifyingShareB64u: relayerPublicKey33B64u,
           participantIds: session.participantIds,
-          sessionId: session.sessionId,
+          thresholdSessionId: session.sessionId,
           signingGrantId: session.signingGrantId || request.signingGrantId,
           expiresAtMs: session.expiresAtMs,
           expiresAt: session.expiresAt,
@@ -3817,7 +3748,7 @@ export class ThresholdSigningService {
         relayerKeyId,
         nearAccountId,
         rpId,
-        sessionId,
+        thresholdSessionId,
         signingGrantId,
         runtimePolicyScope,
         routerAbNormalSigning,
@@ -3825,9 +3756,10 @@ export class ThresholdSigningService {
         remainingUsesRaw,
         policyParticipantIds,
       } = parsedRequest.value;
+      const sessionId = thresholdSessionId;
       const routerAbPolicy = this.validateRouterAbNormalSigningSessionPolicy(routerAbNormalSigning);
       if (!routerAbPolicy.ok) return routerAbPolicy;
-      context = { nearAccountId, rpId, relayerKeyId, sessionId, signingGrantId };
+      context = { nearAccountId, rpId, relayerKeyId, thresholdSessionId, signingGrantId };
 
       await this.ensureReady();
 
@@ -3883,7 +3815,7 @@ export class ThresholdSigningService {
         nearAccountId,
         rpId,
         relayerKeyId,
-        sessionId,
+        thresholdSessionId,
         signingGrantId,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
@@ -4000,7 +3932,7 @@ export class ThresholdSigningService {
         if (!walletBudget.ok) return walletBudget;
         return {
           ok: true,
-          sessionId,
+          thresholdSessionId: sessionId,
           signingGrantId,
           expiresAtMs: walletBudget.expiresAtMs,
           expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
@@ -4037,7 +3969,7 @@ export class ThresholdSigningService {
 
       return {
         ok: true,
-        sessionId,
+        thresholdSessionId: sessionId,
         signingGrantId,
         expiresAtMs: walletBudget.expiresAtMs,
         expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),

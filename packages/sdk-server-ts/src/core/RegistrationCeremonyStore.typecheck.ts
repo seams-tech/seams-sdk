@@ -234,7 +234,7 @@ const ecdsaPrepare = {
     keyScope: 'evm-family',
     relayerKeyId: 'rk_registration',
     requestId: 'ecdsa-registration-request',
-    sessionId: 'threshold-session',
+    thresholdSessionId: 'threshold-session',
     signingGrantId: 'signing-grant',
     ttlMs: 300_000,
     remainingUses: 10,
@@ -250,8 +250,7 @@ const ecdsaBootstrap = {
   relayerKeyId: 'rk_registration',
   contextBinding32B64u: 'context',
   publicIdentity: {
-    hssClientSharePublicKey33B64u:
-      'client-public' as EcdsaHssClientSharePublicKey33B64u,
+    hssClientSharePublicKey33B64u: 'client-public' as EcdsaHssClientSharePublicKey33B64u,
     relayerPublicKey33B64u: 'relayer-public' as EcdsaRelayerHssPublicKey33B64u,
     groupPublicKey33B64u: 'group-public',
     ethereumAddress: '0x0000000000000000000000000000000000000001',
@@ -266,7 +265,7 @@ const ecdsaBootstrap = {
   ethereumAddress: '0x0000000000000000000000000000000000000001',
   relayerVerifyingShareB64u: 'relayer-public',
   participantIds: [1, 2],
-  sessionId: 'threshold-session',
+  thresholdSessionId: 'threshold-session',
   signingGrantId: 'signing-grant',
   expiresAtMs: 300_000,
   expiresAt: '1970-01-01T00:05:00.000Z',

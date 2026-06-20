@@ -70,7 +70,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
   const keyScope = toOptionalTrimmedString(prepare?.keyScope);
   const relayerKeyId = toOptionalTrimmedString(prepare?.relayerKeyId);
   const requestId = toOptionalTrimmedString(prepare?.requestId);
-  const sessionId = toOptionalTrimmedString(prepare?.sessionId);
+  const thresholdSessionId = toOptionalTrimmedString(prepare?.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(prepare?.signingGrantId);
   const ttlMs = typeof prepare?.ttlMs === 'number' ? prepare.ttlMs : Number(prepare?.ttlMs);
   const remainingUses =
@@ -94,7 +94,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
     keyScope !== 'evm-family' ||
     !relayerKeyId ||
     !requestId ||
-    !sessionId ||
+    !thresholdSessionId ||
     !signingGrantId ||
     !Number.isFinite(ttlMs) ||
     ttlMs < 0 ||
@@ -118,13 +118,16 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
       keyScope: 'evm-family',
       relayerKeyId,
       requestId,
-      sessionId,
+      thresholdSessionId,
       signingGrantId,
       ttlMs: Math.floor(ttlMs),
       remainingUses: Math.floor(remainingUses),
       participantIds,
       ...(isObject(prepare?.runtimePolicyScope)
-        ? { runtimePolicyScope: prepare.runtimePolicyScope as WalletRegistrationEcdsaPreparePayload['prepare']['runtimePolicyScope'] }
+        ? {
+            runtimePolicyScope:
+              prepare.runtimePolicyScope as WalletRegistrationEcdsaPreparePayload['prepare']['runtimePolicyScope'],
+          }
         : {}),
     },
   };

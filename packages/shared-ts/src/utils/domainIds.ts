@@ -44,7 +44,7 @@ export type OrgId = DomainId<'OrgId'>;
 // bind to it so old app sessions cannot consume new challenges.
 export type AppSessionVersion = DomainId<'AppSessionVersion'>;
 
-// Client wallet signing-session id. This groups one local approval/session
+// Client signing grant id. This groups one local approval/session
 // budget and can cover multiple threshold-session ids.
 export type SigningGrantId = DomainId<'SigningGrantId'>;
 

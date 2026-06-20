@@ -7,14 +7,8 @@ import {
 
 const BASE_EXPIRES_AT_MS = 10_000;
 
-type Ed25519AdmissionInput = Extract<
-  RouterAbNormalSigningAdmissionInput,
-  { curve: 'ed25519' }
->;
-type EcdsaHssAdmissionInput = Extract<
-  RouterAbNormalSigningAdmissionInput,
-  { curve: 'ecdsa-hss' }
->;
+type Ed25519AdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ed25519' }>;
+type EcdsaHssAdmissionInput = Extract<RouterAbNormalSigningAdmissionInput, { curve: 'ecdsa-hss' }>;
 
 function ed25519AdmissionInput(
   overrides: Partial<Ed25519AdmissionInput> = {},
@@ -24,7 +18,7 @@ function ed25519AdmissionInput(
     phase: 'prepare',
     walletId: 'alice.testnet',
     rpId: 'example.localhost',
-    sessionId: 'threshold-session-1',
+    thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     requestId: 'request-1',
     expiresAtMs: BASE_EXPIRES_AT_MS,
@@ -47,7 +41,7 @@ function ecdsaHssAdmissionInput(
     phase: 'prepare',
     walletId: 'alice.testnet',
     rpId: 'example.localhost',
-    sessionId: 'ecdsa-session-1',
+    thresholdSessionId: 'ecdsa-session-1',
     signingGrantId: 'signing-grant-1',
     requestId: 'ecdsa-request-1',
     expiresAtMs: BASE_EXPIRES_AT_MS,
@@ -192,9 +186,7 @@ test.describe('Router A/B normal-signing admission store', () => {
     const store = createInMemoryRouterAbNormalSigningAdmissionStore({ now: () => nowMs });
     const adapter = createRouterAbNormalSigningAdmissionAdapter(store, { now: () => nowMs });
 
-    await expect(
-      adapter.evaluate(ed25519AdmissionInput({ expiresAtMs: nowMs })),
-    ).resolves.toEqual({
+    await expect(adapter.evaluate(ed25519AdmissionInput({ expiresAtMs: nowMs }))).resolves.toEqual({
       ok: false,
       status: 408,
       code: 'invalid_body',

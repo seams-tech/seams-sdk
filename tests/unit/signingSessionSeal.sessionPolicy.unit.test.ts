@@ -64,7 +64,17 @@ function makeStore(entries: {
     async commitReservedUseCountOnce() {
       return { ok: false, code: 'not_found', message: 'missing' };
     },
+    async validateReservedUseCount() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
     async releaseReservedUseCount() {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'missing',
+      };
+    },
+    async releaseReservedUseCountForIdentity() {
       return {
         ok: false,
         code: 'not_found',
@@ -287,6 +297,9 @@ test.describe('signing session seal session policy', () => {
       userId: 'alice',
       expiresAtMs: 333_000,
       remainingUses: 2,
+      committedRemainingUses: 2,
+      reservedUses: 0,
+      availableUses: 2,
       relayerKeyId: 'relayer-wallet-budget',
       rpId: 'rp-wallet-budget.example',
       participantIds: [5, 6],
@@ -306,13 +319,16 @@ test.describe('signing session seal session policy', () => {
       userId: 'alice',
       expiresAtMs: 333_000,
       remainingUses: 2,
+      committedRemainingUses: 2,
+      reservedUses: 0,
+      availableUses: 2,
       relayerKeyId: 'relayer-wallet-budget',
       rpId: 'rp-wallet-budget.example',
       participantIds: [5, 6],
     });
   });
 
-  test('shares one wallet budget across signers under one wallet signing session id', async () => {
+  test('shares one wallet budget across signers under one signing grant id', async () => {
     const signingGrantId = 'shared-wallet-session';
     const ed25519ThresholdSessionId = 'threshold-ed25519-shared-wallet';
     const ecdsaThresholdSessionId = 'threshold-ecdsa-shared-wallet';

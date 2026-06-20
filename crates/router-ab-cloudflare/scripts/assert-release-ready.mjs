@@ -29,6 +29,183 @@ if (
     'P1: strict SigningWorker normal-signing finalizer still lacks server round-1 nonce persistence',
   );
 }
+if (
+  cloudflareSource.includes('STRICT_CLOUDFLARE_WALLET_SESSION_BUDGET_ENFORCEMENT_REQUIRED_V1')
+) {
+  blockers.push(
+    'P1: strict Cloudflare Router A/B Wallet Session budget enforcement is fail-closed pending reserve/commit store wiring',
+  );
+}
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare Wallet Session model is missing signing_grant_id',
+  cloudflareSource,
+  'pub struct CloudflareRouterVerifiedWalletSessionV1',
+  'impl CloudflareRouterVerifiedWalletSessionV1',
+  'pub signing_grant_id: String',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare Wallet Session JWT payload is missing signingGrantId',
+  cloudflareSource,
+  'struct CloudflareRouterJwtClaimsPayloadV1',
+  'struct CloudflareRouterJwtNormalSigningWalletSessionClaimsV1',
+  'signingGrantId',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare Wallet Session validation does not require signingGrantId',
+  cloudflareSource,
+  'fn validate_for_wallet_session',
+  'fn validate_common_for_request_expiry',
+  'Router Wallet Session requires signingGrantId',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare Router private grant route is missing internal service auth',
+  strictWorkerSource,
+  'CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH_V1',
+  'if request.method() == Method::Options',
+  'require_cloudflare_internal_service_auth_request_v1',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare grant issuer does not call Wallet Budget PutGrant',
+  cloudflareSource,
+  'handle_cloudflare_router_wallet_budget_put_grant_private_fetch_v1',
+  'handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2',
+  'put_cloudflare_router_wallet_budget_grant_v1',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare grant issuer does not execute the Wallet Budget DO PutGrant operation',
+  cloudflareSource,
+  'put_cloudflare_router_wallet_budget_grant_v1',
+  'validate_cloudflare_router_wallet_budget_v1',
+  'wallet_budget_put_grant_call',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare Wallet Budget status route is missing from strict Router dispatch',
+  strictWorkerSource,
+  'CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1',
+  'if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH_V2',
+  'handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1',
+);
+requireSourceRangeIncludes(
+  'P1: strict Cloudflare Wallet Budget status route does not read the Wallet Budget DO',
+  cloudflareSource,
+  'handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1',
+  'handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2',
+  'status_cloudflare_router_wallet_budget_v1',
+);
+for (const [label, startNeedle, endNeedle, requiredNeedle] of [
+  [
+    'P1: strict Ed25519 prepare route does not reserve Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_normal_signing_prepare_authenticated_public_request_v2',
+    'execute_cloudflare_signing_worker_normal_signing_prepare_service_call_v2',
+    'reserve_cloudflare_router_wallet_budget_v1',
+  ],
+  [
+    'P1: strict Ed25519 presign-pool prepare route does not check Wallet Session budget availability before SigningWorker forwarding',
+    'handle_cloudflare_router_normal_signing_presign_pool_prepare_authenticated_public_request_v2',
+    'execute_cloudflare_signing_worker_normal_signing_presign_pool_prepare_service_call_v2',
+    'require_cloudflare_router_wallet_budget_available_use_v1',
+  ],
+  [
+    'P1: strict ECDSA-HSS prepare route does not reserve Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1',
+    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_service_call_v1',
+    'reserve_cloudflare_router_wallet_budget_v1',
+  ],
+  [
+    'P1: strict ECDSA-HSS finalize route does not validate Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_ecdsa_hss_evm_digest_signing_finalize_authenticated_public_request_v1',
+    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+    'validate_cloudflare_router_wallet_budget_v1',
+  ],
+  [
+    'P1: strict Ed25519 finalize route does not validate Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_normal_signing_finalize_authenticated_public_request_v2',
+    'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
+    'validate_cloudflare_router_wallet_budget_v1',
+  ],
+  [
+    'P1: strict Ed25519 pool-hit finalize route does not reserve Wallet Session budget before SigningWorker forwarding',
+    'handle_cloudflare_router_normal_signing_presign_pool_hit_finalize_authenticated_public_request_v2',
+    'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
+    'reserve_cloudflare_router_wallet_budget_v1',
+  ],
+]) {
+  requireSourceRangeIncludes(
+    label,
+    cloudflareSource,
+    startNeedle,
+    endNeedle,
+    requiredNeedle,
+  );
+}
+for (const [label, startNeedle, endNeedle] of [
+  [
+    'P1: strict ECDSA-HSS finalize route does not commit Wallet Session budget after SigningWorker success',
+    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+    'CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)',
+  ],
+  [
+    'P1: strict Ed25519 finalize route does not commit Wallet Session budget after SigningWorker success',
+    'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
+    'CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)',
+  ],
+  [
+    'P1: strict Ed25519 pool-hit finalize route does not commit Wallet Session budget after SigningWorker success',
+    'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
+    'CloudflareRouterWalletBudgetedFinalizeResponseV1::new(response, budget_status)',
+  ],
+]) {
+  requireSourceRangeIncludes(
+    label,
+    cloudflareSource,
+    startNeedle,
+    endNeedle,
+    'commit_cloudflare_router_wallet_budget_v1',
+  );
+}
+for (const [label, startNeedle, endNeedle] of [
+  [
+    'P1: strict ECDSA-HSS finalize route does not release Wallet Session budget on SigningWorker failure',
+    'execute_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_service_call_v1',
+    'commit_cloudflare_router_wallet_budget_v1',
+  ],
+  [
+    'P1: strict Ed25519 finalize route does not release Wallet Session budget on SigningWorker failure',
+    'execute_cloudflare_signing_worker_normal_signing_finalize_service_call_v2',
+    'commit_cloudflare_router_wallet_budget_v1',
+  ],
+  [
+    'P1: strict Ed25519 pool-hit finalize route does not release Wallet Session budget on SigningWorker failure',
+    'execute_cloudflare_signing_worker_normal_signing_presign_pool_hit_finalize_service_call_v2',
+    'commit_cloudflare_router_wallet_budget_v1',
+  ],
+]) {
+  requireSourceRangeIncludes(
+    label,
+    cloudflareSource,
+    startNeedle,
+    endNeedle,
+    'release_cloudflare_router_wallet_budget_best_effort_v1',
+  );
+}
+for (const [label, needle] of [
+  [
+    'P1: Router Wrangler config is missing Wallet Budget Durable Object class',
+    'RouterAbRouterWalletBudgetDurableObject',
+  ],
+  [
+    'P1: Router Wrangler config is missing Wallet Budget Durable Object binding env',
+    'ROUTER_WALLET_BUDGET_DO_BINDING',
+  ],
+  [
+    'P1: Router Wrangler config is missing Wallet Budget Durable Object key prefix env',
+    'ROUTER_WALLET_BUDGET_DO_KEY_PREFIX',
+  ],
+]) {
+  if (!routerWrangler.includes(needle)) {
+    blockers.push(label);
+  }
+}
 for (const [label, source] of [
   ['Signer A', signerAWrangler],
   ['Signer B', signerBWrangler],

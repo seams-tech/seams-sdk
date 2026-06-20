@@ -1,12 +1,16 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import {
-  parseRouterAbEd25519WalletSessionJwtSessionInfo,
+  parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
 
 export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
-  async function signEmailRecoveryThresholdSession(result: any, rpId: unknown, res: any): Promise<boolean> {
+  async function signEmailRecoveryThresholdSession(
+    result: any,
+    rpId: unknown,
+    res: any,
+  ): Promise<boolean> {
     const thresholdSession = result.thresholdEd25519?.session;
     if (!thresholdSession) return true;
     if (thresholdSession.sessionKind !== 'jwt') {
@@ -17,7 +21,7 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
       });
       return false;
     }
-    const sessionInfo = parseRouterAbEd25519WalletSessionJwtSessionInfo(thresholdSession);
+    const sessionInfo = parseRouterAbEd25519BootstrapSessionJwtSessionInfo(thresholdSession);
     if (!sessionInfo) {
       res.status(500).json({
         ok: false,

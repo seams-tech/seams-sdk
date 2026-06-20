@@ -1,8 +1,5 @@
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import {
-  getPostgresPool,
-  type PgQueryExecutor,
-} from '../storage/postgres';
+import { getPostgresPool, type PgQueryExecutor } from '../storage/postgres';
 import type {
   RouterAbNormalSigningAdmissionAdapter,
   RouterAbNormalSigningAdmissionInput,
@@ -43,7 +40,8 @@ export interface RouterAbNormalSigningQuotaStore {
 }
 
 export interface RouterAbNormalSigningAdmissionStore
-  extends RouterAbNormalSigningProjectPolicyProvider,
+  extends
+    RouterAbNormalSigningProjectPolicyProvider,
     RouterAbNormalSigningAbuseProvider,
     RouterAbNormalSigningQuotaStore {}
 
@@ -59,14 +57,9 @@ type RouterAbNormalSigningQuotaReservation = {
 
 const ROUTER_AB_NORMAL_SIGNING_QUOTA_RESERVATION_TTL_MS = 5_000;
 
-export class InMemoryRouterAbNormalSigningAdmissionStore
-  implements RouterAbNormalSigningAdmissionStore
-{
+export class InMemoryRouterAbNormalSigningAdmissionStore implements RouterAbNormalSigningAdmissionStore {
   private readonly now: () => number;
-  private readonly projectPolicies = new Map<
-    string,
-    RouterAbNormalSigningProjectPolicyDecision
-  >();
+  private readonly projectPolicies = new Map<string, RouterAbNormalSigningProjectPolicyDecision>();
   private readonly abuseDecisions = new Map<string, RouterAbNormalSigningAbuseDecision>();
   private readonly quotaReservations = new Map<string, RouterAbNormalSigningQuotaReservation>();
 
@@ -193,9 +186,7 @@ export async function ensurePostgresRouterAbNormalSigningAdmissionStoreSchema(
   `);
 }
 
-export class PostgresRouterAbNormalSigningAdmissionStore
-  implements RouterAbNormalSigningAdmissionStore
-{
+export class PostgresRouterAbNormalSigningAdmissionStore implements RouterAbNormalSigningAdmissionStore {
   private readonly postgresUrl: string;
   private readonly namespace: string;
   private readonly now: () => number;
@@ -497,19 +488,19 @@ export function createPostgresRouterAbNormalSigningAdmissionStore(
 
 function admissionFailure(
   status: 400 | 401 | 403 | 408 | 409 | 429 | 500 | 503,
-  code: 'project_policy_rejected' | 'quota_saturated' | 'abuse_rejected' | 'rate_limited' | 'invalid_body',
+  code:
+    | 'project_policy_rejected'
+    | 'quota_saturated'
+    | 'abuse_rejected'
+    | 'rate_limited'
+    | 'invalid_body',
   message: string,
 ): RouterAbNormalSigningAdmissionResult {
   return { ok: false, status, code, message };
 }
 
 function runtimePolicyScopeKey(scope: RuntimePolicyScope): string {
-  return [
-    scope.orgId,
-    scope.projectId,
-    scope.envId,
-    scope.signingRootVersion,
-  ].join('\x1f');
+  return [scope.orgId, scope.projectId, scope.envId, scope.signingRootVersion].join('\x1f');
 }
 
 function abusePrincipalKey(input: RouterAbNormalSigningAdmissionInput): string {
@@ -528,7 +519,7 @@ function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): string {
     input.rpId,
     input.curve,
     input.phase,
-    input.sessionId,
+    input.thresholdSessionId,
     input.signingGrantId,
     input.requestId,
     input.signingWorkerId,
@@ -552,7 +543,7 @@ function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): s
     input.phase,
     input.walletId,
     input.rpId,
-    input.sessionId,
+    input.thresholdSessionId,
     input.signingGrantId,
     input.requestId,
     input.signingWorkerId,

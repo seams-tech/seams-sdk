@@ -54,7 +54,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
     expect(consumed).toEqual({
       ok: false,
       code: 'internal',
-      message: 'wallet signing-session budget consume requires an idempotency key',
+      message: 'signing grant budget consume requires an idempotency key',
     });
     await expect(walletSessionStore.getSessionStatus(WALLET_BUDGET_SESSION_ID)).resolves.toMatchObject(
       {

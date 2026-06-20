@@ -160,7 +160,8 @@ fn strict_router_normal_signing_routes_apply_cors_boundary() {
 
     let lib_rs = read_src_file("lib.rs");
     assert!(
-        lib_rs.contains(r#""/v2/router-ab/ed25519/sign/prepare""#) && lib_rs.contains(r#""/v2/router-ab/ed25519/sign""#),
+        lib_rs.contains(r#""/v2/router-ab/ed25519/sign/prepare""#)
+            && lib_rs.contains(r#""/v2/router-ab/ed25519/sign""#),
         "strict Router normal-signing public paths must use explicit v2 routes"
     );
     assert!(

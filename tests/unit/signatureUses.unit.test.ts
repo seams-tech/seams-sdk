@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { ActionType, type TransactionInputWasm } from '@/core/types/actions';
-import { requiredNearTransactionSignatureUses } from '@/core/signingEngine/flows/signNear/signatureUses';
+import {
+  rejectNearMultiTransactionSigning,
+  requiredNearTransactionSignatureUses,
+} from '@/core/signingEngine/flows/signNear/signatureUses';
 import {
   requiredEvmFamilyRequestSignatureUses,
   requiredEvmFamilySignatureUses,
@@ -17,8 +20,8 @@ function nearTx(actions: TransactionInputWasm['actions']): TransactionInputWasm 
 }
 
 test.describe('signing signature-use accounting', () => {
-  test('counts NEAR signature uses by transaction, not action', () => {
-    const oneTransactionWithMultipleActions = [
+  test('counts one NEAR transaction with multiple actions as one signature use', () => {
+    const oneTransactionWithMultipleActions =
       nearTx([
         {
           action_type: ActionType.FunctionCall,
@@ -31,16 +34,18 @@ test.describe('signing signature-use accounting', () => {
           action_type: ActionType.Transfer,
           deposit: '1',
         },
-      ]),
-    ];
+      ]);
 
     expect(requiredNearTransactionSignatureUses(oneTransactionWithMultipleActions)).toBe(1);
-    expect(
-      requiredNearTransactionSignatureUses([
-        ...oneTransactionWithMultipleActions,
+  });
+
+  test('rejects NEAR multi-transaction signing', () => {
+    expect(() =>
+      rejectNearMultiTransactionSigning([
+        nearTx([{ action_type: ActionType.Transfer, deposit: '1' }]),
         nearTx([{ action_type: ActionType.Transfer, deposit: '2' }]),
       ]),
-    ).toBe(2);
+    ).toThrow('exactly one NEAR transaction is supported');
   });
 
   test('counts current EVM and Tempo requests as one threshold signature', () => {

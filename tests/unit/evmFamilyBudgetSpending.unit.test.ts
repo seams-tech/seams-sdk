@@ -228,6 +228,40 @@ test.describe('EVM-family budget finalization spending', () => {
     ).rejects.toThrow(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
   });
 
+  test('rejects the fourth signing admission after three committed server spends', async () => {
+    const signingGrantId = 'wallet-session-server-exhausted';
+    const thresholdSessionId = 'threshold-session-server-exhausted';
+    const lane = buildTempoTransactionSigningLane({
+      authMethod: 'email_otp',
+      key: ECDSA_KEY,
+      keyHandle: ECDSA_KEY_HANDLE,
+      walletId: WALLET_ID,
+      chainTarget: CHAIN_TARGET,
+      signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
+    });
+    const coordinator = new SigningSessionCoordinator({
+      getStatus: async ({ signingGrantId: requestedSigningGrantId }) =>
+        makeBudgetStatus({
+          signingGrantId: String(requestedSigningGrantId),
+          status: 'active',
+          projectionVersion: 'projection-server-exhausted-after-third-spend',
+          remainingUses: 0,
+          availableUses: 0,
+        }),
+      consumeUse: async () => {
+        throw new Error('consumeUse is not expected during admission');
+      },
+    });
+
+    await expect(
+      coordinator.prepareBudgetIdentity({
+        lane,
+        operationUsesNeeded: 1,
+      }),
+    ).rejects.toThrow(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+  });
+
   test('records one spend per operation id after reauth', async () => {
     const exhaustedSigningGrantId = 'wallet-session-exhausted';
     const exhaustedThresholdSessionId = 'threshold-session-exhausted';

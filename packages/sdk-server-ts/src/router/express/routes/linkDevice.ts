@@ -1,7 +1,7 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import {
-  parseRouterAbEd25519WalletSessionJwtSessionInfo,
+  parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
 
@@ -94,7 +94,7 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
           });
           return;
         }
-        const sessionInfo = parseRouterAbEd25519WalletSessionJwtSessionInfo(thresholdSession);
+        const sessionInfo = parseRouterAbEd25519BootstrapSessionJwtSessionInfo(thresholdSession);
         if (!sessionInfo) {
           res.status(500).json({
             ok: false,
@@ -114,9 +114,7 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
           invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
         });
         if (!signed.ok) {
-          res
-            .status(signed.status)
-            .json({ ok: false, code: signed.code, message: signed.message });
+          res.status(signed.status).json({ ok: false, code: signed.code, message: signed.message });
           return;
         }
         result.thresholdEd25519!.session!.jwt = signed.jwt;

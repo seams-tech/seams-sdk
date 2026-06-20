@@ -11,6 +11,16 @@ import {
 } from './helpers';
 
 const THRESHOLD_ED25519_TEST_KEY_VERSION = 'threshold-ed25519-v1';
+const ROUTER_AB_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org',
+  projectId: 'project',
+  envId: 'env',
+  signingRootVersion: 'v1',
+} as const;
+const ROUTER_AB_NORMAL_SIGNING = {
+  kind: 'router_ab_ed25519_normal_signing_v1',
+  signingWorkerId: 'signing-worker-local',
+} as const;
 
 function makeThresholdEd25519PrepareRequest() {
   return {
@@ -24,7 +34,7 @@ function makeThresholdEd25519PrepareRequest() {
       nearAccountId: 'alice.testnet',
       rpId: 'wallet.example.test',
       relayerKeyId: 'rk-near',
-      sessionId: 'near-session-1',
+      thresholdSessionId: 'near-session-1',
       participantIds: [1, 2],
       ttlMs: 60_000,
       remainingUses: 5,
@@ -48,11 +58,13 @@ function makePreparedRecoveryService() {
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt',
-          sessionId: 'near-session-1',
+          thresholdSessionId: 'near-session-1',
           signingGrantId: 'signing-grant-1',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           remainingUses: 5,
+          runtimePolicyScope: ROUTER_AB_RUNTIME_POLICY_SCOPE,
+          routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
         },
       },
       ecdsa: {
@@ -68,7 +80,7 @@ function makePreparedRecoveryService() {
           keyScope: 'evm-family' as const,
           relayerKeyId: 'ecdsa-relayer-key',
           requestId: 'ABC123:ecdsa',
-          sessionId: 'tehss_ABC123',
+          thresholdSessionId: 'tehss_ABC123',
           signingGrantId: 'wss_ABC123',
           ttlMs: 60_000,
           remainingUses: 1,
@@ -90,11 +102,13 @@ function makePreparedRecoveryService() {
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt' as const,
-          sessionId: 'near-session-1',
+          thresholdSessionId: 'near-session-1',
           signingGrantId: 'signing-grant-1',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           remainingUses: 5,
+          runtimePolicyScope: ROUTER_AB_RUNTIME_POLICY_SCOPE,
+          routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
         },
       },
       ecdsa: {
@@ -108,7 +122,7 @@ function makePreparedRecoveryService() {
           keyScope: 'evm-family',
           relayerKeyId: 'ecdsa-relayer-key',
           requestId: 'ABC123:ecdsa',
-          sessionId: 'tehss_ABC123',
+          thresholdSessionId: 'tehss_ABC123',
           signingGrantId: 'wss_ABC123',
           ttlMs: 60_000,
           remainingUses: 1,
@@ -142,7 +156,8 @@ function makePreparedRecoveryService() {
 test.describe('email-recovery prepare routing', () => {
   test('express route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
-      signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
+      signJwt: async (sub, claims) =>
+        `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
     const router = createRelayRouter(makePreparedRecoveryService(), { session });
     const srv = await startExpressRouter(router);
@@ -165,7 +180,7 @@ test.describe('email-recovery prepare routing', () => {
       expect(res.status).toBe(200);
       expect(res.json?.thresholdEd25519).toBeTruthy();
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
-      expect((res.json?.ecdsa as any)?.prepare?.sessionId).toBe('tehss_ABC123');
+      expect((res.json?.ecdsa as any)?.prepare?.thresholdSessionId).toBe('tehss_ABC123');
       expect(res.json?.recoverySession).toBeUndefined();
     } finally {
       await srv.close();
@@ -174,7 +189,8 @@ test.describe('email-recovery prepare routing', () => {
 
   test('cloudflare route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
-      signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
+      signJwt: async (sub, claims) =>
+        `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
     const handler = createCloudflareRouter(makePreparedRecoveryService(), { session });
     const { ctx } = makeCfCtx();
@@ -196,13 +212,14 @@ test.describe('email-recovery prepare routing', () => {
 
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
-    expect((res.json?.ecdsa as any)?.prepare?.sessionId).toBe('tehss_ABC123');
+    expect((res.json?.ecdsa as any)?.prepare?.thresholdSessionId).toBe('tehss_ABC123');
     expect(res.json?.recoverySession).toBeUndefined();
   });
 
   test('express ECDSA respond signs session and returns canonical recovery email', async () => {
     const session = makeSessionAdapter({
-      signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
+      signJwt: async (sub, claims) =>
+        `jwt:${sub}:${String((claims as any)?.thresholdSessionId || '')}`,
     });
     const router = createRelayRouter(makePreparedRecoveryService(), { session });
     const srv = await startExpressRouter(router);
