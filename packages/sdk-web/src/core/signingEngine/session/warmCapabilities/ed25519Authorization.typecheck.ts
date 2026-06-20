@@ -1,8 +1,12 @@
-import type { RouterAbEd25519SigningMaterialReady } from '../../threshold/ed25519/hssClientBase';
+import type { RouterAbEd25519SigningMaterialReady } from '../../threshold/ed25519/workerMaterialHandle';
 import { buildRouterAbEd25519SigningMaterialRef } from '../../threshold/ed25519/hssMaterialBinding';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WarmEd25519SigningSessionAuthorization } from './ed25519Authorization';
+import type {
+  ThresholdEd25519WorkerMaterialBinding,
+  ThresholdEd25519WorkerMaterialSessionBinding,
+} from '@/core/types/signer-worker';
 
 const runtimePolicyScope = {
   orgId: 'org-test',
@@ -53,7 +57,7 @@ void warmAuthorization;
 const warmAuthorizationWithMaterialHandle = {
   ...warmAuthorization,
   // @ts-expect-error Unlock authorization cannot carry Ed25519 material handles.
-  ed25519HssMaterialHandle: 'ed25519-material-handle',
+  ed25519WorkerMaterialHandle: 'ed25519-material-handle',
 } satisfies WarmEd25519SigningSessionAuthorization;
 void warmAuthorizationWithMaterialHandle;
 
@@ -66,7 +70,7 @@ void warmAuthorizationWithRawClientBase;
 
 const warmAuthorizationMissingSigningGrant = {
   ...warmAuthorization,
-  // @ts-expect-error Unlock authorization requires the wallet signing session id.
+  // @ts-expect-error Unlock authorization requires the signing grant id.
   signingGrantId: undefined,
 } satisfies WarmEd25519SigningSessionAuthorization;
 void warmAuthorizationMissingSigningGrant;
@@ -77,6 +81,42 @@ const signingMaterialRef = buildRouterAbEd25519SigningMaterialRef({
   clientVerifyingShareB64u: 'client-verifying-share',
 });
 void signingMaterialRef;
+
+const materialBinding = {
+  kind: 'ed25519_worker_material_binding_v1',
+  curve: 'ed25519',
+  protocol: 'router_ab_normal_signing',
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+  signingRootId: 'project-test:dev',
+  signingRootVersion: 'default',
+  relayerKeyId: 'near-key-1',
+  keyVersion: 'threshold-ed25519-hss-v1',
+  participantIds: [1, 2, 3],
+  clientVerifyingShareB64u: signingMaterialRef.clientVerifierB64u,
+  materialFormatVersion: 'ed25519_worker_material_v1',
+  materialKeyId: 'material-key-id',
+  createdAtMs: 1_700_000_000_000,
+} satisfies ThresholdEd25519WorkerMaterialBinding;
+void materialBinding;
+
+const sessionBinding = {
+  kind: 'ed25519_worker_material_session_binding_v1',
+  materialBindingDigest: signingMaterialRef.bindingDigest,
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+  thresholdSessionId: 'threshold-session-1',
+  signingGrantId: 'signing-grant-1',
+  signingRootId: 'project-test:dev',
+  signingRootVersion: 'default',
+  runtimePolicyScope,
+  relayerKeyId: 'near-key-1',
+  keyVersion: 'threshold-ed25519-hss-v1',
+  participantIds: [1, 2, 3],
+  signingWorkerId: 'signing-worker-a',
+  expiresAtMs: 1_900_000_000_000,
+} satisfies ThresholdEd25519WorkerMaterialSessionBinding;
+void sessionBinding;
 
 const signingMaterialReady = {
   kind: 'router_ab_ed25519_signing_material_ready_v1',
@@ -92,6 +132,8 @@ const signingMaterialReady = {
   participantIds: [1, 2, 3],
   signingWorkerId: 'signing-worker-a',
   clientVerifyingShareB64u: signingMaterialRef.clientVerifierB64u,
+  materialBinding,
+  sessionBinding,
 } satisfies RouterAbEd25519SigningMaterialReady;
 void signingMaterialReady;
 

@@ -105,6 +105,7 @@ export async function provisionThresholdEd25519Session(
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     participantIds,
     sessionKind: 'jwt',
+    signerSlot: args.signerSlot,
     sessionId: resolvedSessionId,
     signingGrantId,
     expiresAtMs,

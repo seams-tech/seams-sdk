@@ -7,12 +7,9 @@ export const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND =
 export const ROUTER_AB_ED25519_HEALTH_PATH_V2 = '/v2/router-ab/ed25519/healthz' as const;
 export const ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 =
   '/v2/router-ab/wallet-session/ed25519' as const;
-export const ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2 =
-  '/v2/router-ab/ed25519/hss/prepare' as const;
-export const ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2 =
-  '/v2/router-ab/ed25519/hss/respond' as const;
-export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2 =
-  '/v2/router-ab/ed25519/hss/finalize' as const;
+export const ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2 = '/v2/router-ab/ed25519/hss/prepare' as const;
+export const ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2 = '/v2/router-ab/ed25519/hss/respond' as const;
+export const ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2 = '/v2/router-ab/ed25519/hss/finalize' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2 =
   '/v2/router-ab/ed25519/sign/prepare' as const;
 export const ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2 =
@@ -112,8 +109,16 @@ export type SealedSigningSessionEd25519RestoreMetadata = {
   walletSessionJwt?: string;
   sessionKind: 'jwt' | 'cookie';
   runtimePolicyScope?: unknown;
-  xClientBaseB64u?: string;
   clientVerifyingShareB64u?: string;
+  ed25519WorkerMaterialHandle?: string;
+  ed25519WorkerMaterialBindingDigest?: string;
+  sealedWorkerMaterialRef?: string;
+  sealedWorkerMaterialB64u?: string;
+  materialFormatVersion?: string;
+  materialKeyId?: string;
+  materialCreatedAtMs?: number;
+  signerSlot: number;
+  keyVersion?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
 };
 

@@ -2,19 +2,23 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  HssClientCustomRequestType,
-  HssClientCustomResponseType,
-} from '@/core/signingEngine/workerManager/workerTypes';
-import {
   NearSignerWorkerCustomRequestType,
 } from '@/core/types/signer-worker';
-import { ensureThresholdEd25519HssSigningMaterial } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
+import { requireThresholdEd25519WorkerMaterialHandle } from '@/core/signingEngine/threshold/ed25519/workerMaterialHandle';
 import {
-  storeRouterAbEd25519SigningMaterialHandleWasm,
-} from '@/core/signingEngine/threshold/ed25519/hssClientBase';
+  buildRouterAbEd25519WorkerMaterialBinding,
+  buildRouterAbEd25519WorkerMaterialSessionBinding,
+} from '@/core/signingEngine/threshold/ed25519/hssMaterialBinding';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/base64';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
+
+async function digestCanonicalJsonB64u(input: unknown): Promise<string> {
+  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input)));
+}
 
 test.describe('threshold Ed25519 HSS material handles', () => {
-  test('near signer stores HSS material with role-separated verifier', () => {
+  test('near signer stores worker material in Rust without a TypeScript raw-material map', () => {
     const workspaceRoot = process.cwd().endsWith(`${path.sep}tests`)
       ? path.resolve(process.cwd(), '..')
       : process.cwd();
@@ -26,33 +30,64 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       'utf8',
     );
 
-    expect(source).toContain(
-      'threshold_ed25519_role_separated_client_verifying_share_from_base_share',
-    );
+    expect(source).toContain('threshold_ed25519_worker_material_store_from_hss_output');
+    expect(source).not.toContain('thresholdEd25519HssMaterialByHandle');
+    expect(source).not.toContain('StoredEd25519HssMaterial');
     expect(source).not.toContain('threshold_ed25519_hss_verifying_share_from_signing_share');
   });
 
-  test('uses loaded worker handles before PRF reconstruction', async () => {
-    const materialHandle = 'ed25519-hss-material:tsess:test-binding';
-    const bindingDigest = 'test-binding';
+  test('requires loaded near-signer worker handles without PRF reconstruction', async () => {
+    const workspaceRoot = process.cwd().endsWith(`${path.sep}tests`)
+      ? path.resolve(process.cwd(), '..')
+      : process.cwd();
+    const materialHandleSource = readFileSync(
+      path.join(
+        workspaceRoot,
+        'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
+      ),
+      'utf8',
+    );
+    const materialHandle = 'ed25519-worker-material:tsess:test-binding';
     const clientVerifyingShareB64u = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const thresholdKeyMaterial = {
+      nearAccountId: 'alice.testnet',
+      signerSlot: 1,
+      kind: 'threshold_ed25519_v1',
+      publicKey: 'ed25519:group',
+      relayerKeyId: 'ed25519:relayer',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      participants: [
+        { id: 1, role: 'client' },
+        { id: 2, role: 'relayer', relayerKeyId: 'ed25519:relayer' },
+      ],
+      timestamp: 1_700_000_000_000,
+    } satisfies ThresholdEd25519KeyMaterial;
+    const material = await buildRouterAbEd25519WorkerMaterialBinding({
+      nearAccountId: 'alice.testnet',
+      signerSlot: thresholdKeyMaterial.signerSlot,
+      signingRootId: 'root',
+      signingRootVersion: 'v1',
+      relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+      keyVersion: thresholdKeyMaterial.keyVersion,
+      participantIds: [1, 2],
+      clientVerifyingShareB64u,
+      createdAtMs: thresholdKeyMaterial.timestamp,
+    });
+    const bindingDigest = material.materialBindingDigest;
     const calls: Array<{ kind: string; type: unknown }> = [];
 
-    const result = await ensureThresholdEd25519HssSigningMaterial({
+    const result = await requireThresholdEd25519WorkerMaterialHandle({
       ctx: {
         requestWorkerOperation: async ({ kind, request }) => {
           calls.push({ kind, type: request.type });
           if (
-            kind === 'hssClient' &&
-            request.type === HssClientCustomRequestType.ValidateThresholdEd25519HssMaterial
+            kind === 'nearSigner' &&
+            request.type === NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateWorkerMaterial
           ) {
             return {
-              type: HssClientCustomResponseType.ValidateThresholdEd25519HssMaterialSuccess,
-              payload: {
-                materialHandle,
-                bindingDigest,
-                clientVerifyingShareB64u,
-              },
+              materialHandle,
+              bindingDigest,
+              clientVerifyingShareB64u,
             } as never;
           }
           throw new Error(`unexpected worker call ${kind}:${String(request.type)}`);
@@ -63,19 +98,24 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       existingMaterialHandle: materialHandle,
       existingMaterialBindingDigest: bindingDigest,
       existingMaterialClientVerifierB64u: clientVerifyingShareB64u,
-      walletSessionJwt: 'jwt',
       signingRootId: 'root',
       signingRootVersion: 'v1',
       expiresAtMs: Date.now() + 60_000,
-      relayerUrl: 'https://router.example',
       relayerKeyId: 'ed25519:relayer',
       nearAccountId: 'alice.testnet',
-      keyVersion: 'threshold-ed25519-hss-v1',
       participantIds: [1, 2],
       signingWorkerId: 'signing-worker',
-      prfFirstB64u: '',
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'project',
+        envId: 'env',
+        signingRootVersion: 'v1',
+      },
+      thresholdKeyMaterial,
     });
 
+    expect(materialHandleSource).toContain('buildRouterAbEd25519SigningMaterialRef');
+    expect(materialHandleSource).not.toContain('as Ed25519WorkerMaterialHandle');
     expect(result).toMatchObject({
       materialHandle,
       bindingDigest,
@@ -86,70 +126,68 @@ test.describe('threshold Ed25519 HSS material handles', () => {
     });
     expect(calls).toEqual([
       {
-        kind: 'hssClient',
-        type: HssClientCustomRequestType.ValidateThresholdEd25519HssMaterial,
+        kind: 'nearSigner',
+        type: NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateWorkerMaterial,
       },
     ]);
   });
 
-  test('stores Router A/B Ed25519 HSS material in both signing workers', async () => {
-    const calls: Array<{ kind: string; type: unknown; payload: Record<string, unknown> }> = [];
-    const result = await storeRouterAbEd25519SigningMaterialHandleWasm({
-      workerCtx: {
-        requestWorkerOperation: async ({ kind, request }) => {
-          const payload = request.payload as Record<string, unknown>;
-          calls.push({ kind, type: request.type, payload });
-          if (
-            kind === 'hssClient' &&
-            request.type === HssClientCustomRequestType.StoreThresholdEd25519HssMaterial
-          ) {
-            return {
-              type: HssClientCustomResponseType.StoreThresholdEd25519HssMaterialSuccess,
-              payload: {
-                materialHandle: payload.materialHandle,
-                bindingDigest: payload.bindingDigest,
-                clientVerifyingShareB64u: payload.expectedClientVerifyingShareB64u,
-              },
-            } as never;
-          }
-          if (
-            kind === 'nearSigner' &&
-            request.type === NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial
-          ) {
-            return {
-              materialHandle: payload.materialHandle,
-              bindingDigest: payload.bindingDigest,
-              clientVerifyingShareB64u: payload.expectedClientVerifyingShareB64u,
-            } as never;
-          }
-          throw new Error(`unexpected worker call ${kind}:${String(request.type)}`);
-        },
-      },
-      materialCache: {
-        kind: 'ed25519_hss_material_cache_v1',
-        xClientBaseB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-        clientVerifyingShareB64u: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-      },
-      thresholdSessionId: 'tsess-dual-store',
-      signingGrantId: 'wsess-dual-store',
-      signingRootId: 'root-dual-store',
+  test('worker material digest vectors match Rust canonicalization', async () => {
+    const material = await buildRouterAbEd25519WorkerMaterialBinding({
+      nearAccountId: 'alice.near',
+      signerSlot: 1,
+      signingRootId: 'project:env',
       signingRootVersion: 'v1',
-      expiresAtMs: Date.now() + 60_000,
-      nearAccountId: 'dual-store.testnet',
-      relayerKeyId: 'ed25519:dual-store-relayer',
+      relayerKeyId: 'ed25519:relayer',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      participantIds: [1, 2],
+      clientVerifyingShareB64u: 'clientVerifier',
+      createdAtMs: 1_700_000_000_000,
+    });
+    const sessionBinding = buildRouterAbEd25519WorkerMaterialSessionBinding({
+      materialBindingDigest: material.materialBindingDigest,
+      nearAccountId: 'alice.near',
+      signerSlot: 1,
+      thresholdSessionId: 'threshold-session',
+      signingGrantId: 'signing-grant',
+      signingRootId: 'project:env',
+      signingRootVersion: 'v1',
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'project',
+        envId: 'env',
+        signingRootVersion: 'v1',
+      },
+      relayerKeyId: 'ed25519:relayer',
+      keyVersion: 'threshold-ed25519-hss-v1',
       participantIds: [1, 2],
       signingWorkerId: 'signing-worker',
+      expiresAtMs: 1_900_000_000_000,
     });
+    const aad = {
+      kind: 'ed25519_sealed_worker_material_aad_v1',
+      materialFormatVersion: 'ed25519_worker_material_v1',
+      materialBindingDigest: material.materialBindingDigest,
+      binding: material.materialBinding,
+      aeadAlgorithm: 'chacha20poly1305',
+      kdfAlgorithm: 'hkdf_sha256',
+      kdfInfo: 'seams-ed25519-worker-material-v1',
+    };
 
-    expect(calls.map((call) => [call.kind, call.type])).toEqual([
-      ['hssClient', HssClientCustomRequestType.StoreThresholdEd25519HssMaterial],
-      ['nearSigner', NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial],
-    ]);
-    expect(calls[1].payload.materialHandle).toBe(calls[0].payload.materialHandle);
-    expect(calls[1].payload.bindingDigest).toBe(calls[0].payload.bindingDigest);
-    expect(calls[1].payload.expectedClientVerifyingShareB64u).toBe(
-      calls[0].payload.expectedClientVerifyingShareB64u,
+    expect(alphabetizeStringify(material.materialBinding)).toBe(
+      '{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","keyVersion":"threshold-ed25519-hss-v1","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}',
     );
-    expect(result.materialHandle).toBe(calls[0].payload.materialHandle);
+    expect(material.materialBinding.materialKeyId).toBe(
+      '68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo',
+    );
+    expect(material.materialBindingDigest).toBe(
+      'nVj1qAfSRNkAiFqo-AOhidltXdCj5rsvPiVmfxTalZY',
+    );
+    expect(await digestCanonicalJsonB64u(sessionBinding)).toBe(
+      'SBCUK9pp4dT3AHPupQgx7MoIQ-RXq3aFKhxbucibB1o',
+    );
+    expect(await digestCanonicalJsonB64u(aad)).toBe(
+      '2RLqwrXrAy5p30JhaSYf2ncZJJDMpBVN_-LmcSVLyw8',
+    );
   });
 });

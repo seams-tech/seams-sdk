@@ -48,10 +48,7 @@ import {
   type ThresholdEcdsaHssRoleLocalClientRootProof,
   type ThresholdEcdsaHssRouteAuth,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import {
-  decodeJwtPayloadRecord,
-  type AppOrWalletSessionAuth,
-} from '@shared/utils/sessionTokens';
+import { decodeJwtPayloadRecord, type AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type {
@@ -485,9 +482,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
       signingRootScope.signingRootId,
       'ed25519.runtimePolicyScope.signingRootId',
     );
-    const signingRootVersion = normalizeOptionalNonEmptyString(
-      signingRootScope.signingRootVersion,
-    );
+    const signingRootVersion = normalizeOptionalNonEmptyString(signingRootScope.signingRootVersion);
     ed25519Restore = {
       sessionId: readString(args.restore.ed25519.sessionId, 'ed25519.sessionId'),
       signingRootId,
@@ -516,10 +511,7 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
         userId: walletId,
         rpId,
         chainTarget: args.restore.chainTarget,
-        signingGrantId: readString(
-          args.restore.signingGrantId,
-          'signingGrantId',
-        ),
+        signingGrantId: readString(args.restore.signingGrantId, 'signingGrantId'),
         keyHandle: readString(args.restore.keyHandle, 'keyHandle'),
         keyContext: buildSessionBootstrapKeyContext({
           walletId,
@@ -814,7 +806,7 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
   return out;
 }
 
-async function deriveEmailOtpEd25519PrfFirstB64u(args: {
+async function deriveEmailOtpEd25519RecoveryCodeSecret32B64u(args: {
   clientSecret32: Uint8Array;
   walletId: string;
   userId: string;
@@ -1097,10 +1089,7 @@ function prepareEcdsaClientBootstrapFromResolvedEmailOtpRoot(args: {
             'context.ecdsaThresholdKeyId',
           ),
           signingRootId: readString(context.signingRootId, 'context.signingRootId'),
-          signingRootVersion: readString(
-            context.signingRootVersion,
-            'context.signingRootVersion',
-          ),
+          signingRootVersion: readString(context.signingRootVersion, 'context.signingRootVersion'),
           keyPurpose: ECDSA_HSS_KEY_PURPOSE,
           keyVersion: ECDSA_HSS_KEY_VERSION,
         },
@@ -2440,7 +2429,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
-  thresholdEd25519PrfFirstB64u: string;
+  thresholdEd25519RecoveryCodeSecret32B64u: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
   challengeId: string;
@@ -2481,7 +2470,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   let unlockPrivateKey32: Uint8Array | null = null;
   let thresholdEcdsaClientVerifyingShare33: Uint8Array | null = null;
   let unlockPublicKey33: Uint8Array | null = null;
-  let thresholdEd25519PrfFirstB64u = '';
+  let thresholdEd25519RecoveryCodeSecret32B64u = '';
   try {
     const sessionAuth = routePlanSessionAuth(args.routePlan);
     let challengeId = readOptionalString(args.challengeId);
@@ -2537,7 +2526,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       walletId,
       userId,
     });
-    thresholdEd25519PrfFirstB64u = await deriveEmailOtpEd25519PrfFirstB64u({
+    thresholdEd25519RecoveryCodeSecret32B64u = await deriveEmailOtpEd25519RecoveryCodeSecret32B64u({
       clientSecret32,
       walletId,
       userId,
@@ -2626,7 +2615,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
 
     return {
       thresholdEcdsaClientVerifyingShareB64u,
-      thresholdEd25519PrfFirstB64u,
+      thresholdEd25519RecoveryCodeSecret32B64u,
       recoveryKeys,
       recoveryCodesIssuedAtMs,
       challengeId: challengeId || '',
@@ -2670,7 +2659,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
 }): Promise<{
   clientSecret32?: Uint8Array;
   clientRootShare32: Uint8Array;
-  thresholdEd25519PrfFirstB64u: string;
+  thresholdEd25519RecoveryCodeSecret32B64u: string;
   challengeId: string;
   enrollmentSealKeyVersion: string;
   unlockChallengeId: string;
@@ -2810,7 +2799,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       userId,
       clientSecret32,
     });
-    const thresholdEd25519PrfFirstB64u = await deriveEmailOtpEd25519PrfFirstB64u({
+    const thresholdEd25519RecoveryCodeSecret32B64u = await deriveEmailOtpEd25519RecoveryCodeSecret32B64u({
       clientSecret32,
       walletId,
       userId,
@@ -2823,7 +2812,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
     return {
       ...(returnedClientSecret32 ? { clientSecret32: returnedClientSecret32 } : {}),
       clientRootShare32: unlocked.clientRootShare32,
-      thresholdEd25519PrfFirstB64u,
+      thresholdEd25519RecoveryCodeSecret32B64u,
       challengeId,
       enrollmentSealKeyVersion,
       unlockChallengeId: unlocked.unlockChallengeId,
@@ -3031,10 +3020,7 @@ async function buildEmailOtpEcdsaClientRootProof(args: {
     clientRootPublicKey33 = secp256k1_private_key_32_to_public_key_33(
       args.clientRootShare32,
     ) as Uint8Array;
-    signature65 = sign_secp256k1_recoverable(
-      digest32,
-      args.clientRootShare32,
-    ) as Uint8Array;
+    signature65 = sign_secp256k1_recoverable(digest32, args.clientRootShare32) as Uint8Array;
     return {
       version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
       clientRootPublicKey33B64u: base64UrlEncode(
@@ -3089,8 +3075,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     ? String(args.lanePolicy.signingGrantId).trim()
     : String(args.signingGrantId || '').trim();
   const sessionId = requestedSessionId || generateThresholdSessionId();
-  const signingGrantId =
-    requestedSigningGrantId || generateSigningGrantId();
+  const signingGrantId = requestedSigningGrantId || generateSigningGrantId();
   if (
     operation === 'session_bootstrap' &&
     (!keyHandle || !requestedSessionId || !requestedSigningGrantId)
@@ -3439,8 +3424,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   if (publicationChainTargets.length > 1 && String(args.sessionId || '').trim()) {
     throw new Error('Email OTP multi-target ECDSA bootstrap requires per-target session ids');
   }
-  const signingGrantId =
-    String(args.signingGrantId || '').trim() || generateSigningGrantId();
+  const signingGrantId = String(args.signingGrantId || '').trim() || generateSigningGrantId();
   let canonicalKeyHandle = String(args.keyHandle || '').trim();
   const bootstraps: ThresholdEcdsaSessionBootstrapResult[] = [];
 
@@ -3728,10 +3712,7 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
         args.primaryBootstrap.session.thresholdSessionId,
         'thresholdSessionId',
       ),
-      signingGrantId: readString(
-        args.primaryBootstrap.session.signingGrantId,
-        'signingGrantId',
-      ),
+      signingGrantId: readString(args.primaryBootstrap.session.signingGrantId, 'signingGrantId'),
       thresholdExpiresAtMs: args.primaryBootstrap.session.expiresAtMs,
       participantIds: args.primaryBootstrap.thresholdEcdsaKeyRef.participantIds || [],
       walletSessionJwt: readString(args.primaryBootstrap.session.jwt, 'walletSessionJwt'),
@@ -4012,16 +3993,14 @@ function parseWalletRegistrationEcdsaPrepareContext(
     relayerKeyId: readString(obj.relayerKeyId, 'prepare.relayerKeyId'),
     ...(registrationPreparationIdRaw
       ? {
-          registrationPreparationId:
-            registrationPreparationIdFromString(registrationPreparationIdRaw),
+          registrationPreparationId: registrationPreparationIdFromString(
+            registrationPreparationIdRaw,
+          ),
         }
       : {}),
     requestId: readString(obj.requestId, 'prepare.requestId'),
-    sessionId: readString(obj.sessionId, 'prepare.sessionId'),
-    signingGrantId: readString(
-      obj.signingGrantId,
-      'prepare.signingGrantId',
-    ),
+    thresholdSessionId: readString(obj.thresholdSessionId, 'prepare.thresholdSessionId'),
+    signingGrantId: readString(obj.signingGrantId, 'prepare.signingGrantId'),
     ttlMs,
     remainingUses,
     participantIds,
@@ -4420,10 +4399,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         restore.runtimePolicyScope,
       );
       const ed25519RuntimePolicyScope = ed25519
-        ? parseWorkerRuntimePolicyScope(
-            ed25519.runtimePolicyScope,
-            'restore.ed25519',
-          )
+        ? parseWorkerRuntimePolicyScope(ed25519.runtimePolicyScope, 'restore.ed25519')
         : undefined;
       return {
         id,
@@ -4438,10 +4414,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             walletId: readString(restore.walletId, 'restore.walletId'),
             rpId: readString(restore.rpId, 'restore.rpId'),
             chainTarget: parseWorkerChainTarget(restore.chainTarget),
-            signingGrantId: readString(
-              restore.signingGrantId,
-              'restore.signingGrantId',
-            ),
+            signingGrantId: readString(restore.signingGrantId, 'restore.signingGrantId'),
             keyHandle: readString(restore.keyHandle, 'restore.keyHandle'),
             relayerKeyId: readString(restore.relayerKeyId, 'restore.relayerKeyId'),
             participantIds:
@@ -4489,10 +4462,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayerKeyId: readString(payload.relayerKeyId, 'relayerKeyId'),
           readyRecord: parseEcdsaRoleLocalReadyRecord(payload.readyRecord),
           thresholdSessionId: readString(payload.thresholdSessionId, 'thresholdSessionId'),
-          signingGrantId: readString(
-            payload.signingGrantId,
-            'signingGrantId',
-          ),
+          signingGrantId: readString(payload.signingGrantId, 'signingGrantId'),
           thresholdExpiresAtMs: readNumber(payload.thresholdExpiresAtMs, 'thresholdExpiresAtMs'),
           participantIds:
             parseWorkerParticipantIds(payload.participantIds) ||
@@ -4661,7 +4631,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ok: true,
           result: {
             thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
-            thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
+            thresholdEd25519RecoveryCodeSecret32B64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
             recoveryKeys: result.recoveryKeys,
             recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
             challengeId: result.challengeId,
@@ -4715,7 +4685,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ok: true,
           result: {
             thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
-            thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
+            thresholdEd25519RecoveryCodeSecret32B64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
             recoveryKeys: result.recoveryKeys,
             recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
             otpChannel: result.otpChannel,
@@ -4898,7 +4868,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 unlockChallengeB64u: result.unlockChallengeB64u,
                 clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
                 unlockSignatureB64u: result.unlockSignatureB64u,
-                thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
+                thresholdEd25519RecoveryCodeSecret32B64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
               },
               ...(msg.payload.ecdsaClientRootHandleBinding
                 ? {
@@ -4948,7 +4918,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             thresholdSessionId: readString(msg.payload.thresholdSessionId, 'thresholdSessionId'),
             walletSessionJwt: readString(msg.payload.walletSessionJwt, 'walletSessionJwt'),
             relayerKeyId: readString(msg.payload.relayerKeyId, 'relayerKeyId'),
-            prfFirstB64u: result.thresholdEd25519PrfFirstB64u,
+            prfFirstB64u: result.thresholdEd25519RecoveryCodeSecret32B64u,
             expectedPublicKey: readString(msg.payload.expectedPublicKey, 'expectedPublicKey'),
           });
           postToMainThread({
@@ -5157,10 +5127,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             relayerKeyId: readString(msg.payload.relayerKeyId, 'relayerKeyId'),
             ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
             thresholdSessionId: readString(msg.payload.thresholdSessionId, 'thresholdSessionId'),
-            signingGrantId: readString(
-              msg.payload.signingGrantId,
-              'signingGrantId',
-            ),
+            signingGrantId: readString(msg.payload.signingGrantId, 'signingGrantId'),
             thresholdExpiresAtMs: Number(msg.payload.thresholdExpiresAtMs),
             participantIds: msg.payload.participantIds,
             walletSessionJwt: readString(msg.payload.walletSessionJwt, 'walletSessionJwt'),

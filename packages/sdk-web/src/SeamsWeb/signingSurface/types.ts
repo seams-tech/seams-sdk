@@ -16,6 +16,7 @@ import type {
   RuntimeStartupSurface,
   SeamsWebBaseContext,
   SigningSessionSurface,
+  ThresholdEd25519HssCeremonySurface,
   TempoNonceLifecycleSurface,
   ThresholdEd25519HssClientSurface,
   UserProfileStoreSurface,
@@ -26,6 +27,7 @@ import type {
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 
 export type {
   AccountSyncSigningSurface,
@@ -65,6 +67,7 @@ export type {
   SigningSessionSurface,
   TempoNonceLifecycleSurface,
   TempoSigningSurface,
+  ThresholdEd25519HssCeremonySurface,
   ThresholdEd25519HssClientSurface,
   UserAccountLookupSurface,
   UserProfileStoreSurface,
@@ -83,6 +86,7 @@ export interface SeamsWebSigningSurface
     NonceCoordinatorSurface,
     WalletIframeWarmupSurface,
     RuntimeStartupSurface,
+    WorkerOperationContext,
     SigningSessionSurface,
     Ed25519SessionConnectionSurface,
     EcdsaSessionBootstrapSurface,
@@ -101,7 +105,8 @@ export interface SeamsWebSigningSurface
     PasskeyLoginAssertionSurface,
     WebAuthnAttestationSurface,
     KeyExportSigningSurface,
-    ThresholdEd25519HssClientSurface {
+    ThresholdEd25519HssClientSurface,
+    ThresholdEd25519HssCeremonySurface {
   readonly seamsWebConfigs: SeamsConfigsReadonly;
   setTheme(next: ThemeName): void;
   getUserPreferences(): UserPreferencesManager;

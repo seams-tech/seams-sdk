@@ -1,14 +1,12 @@
 import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   persistStoredThresholdEd25519SessionMaterialHandle,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEd25519SessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
-import {
-  buildNearTransactionSigningLane,
-} from '@/core/signingEngine/session/operationState/lanes';
+import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
 import {
   toAuthorizingSigningGrantId,
@@ -18,16 +16,16 @@ import {
   walletSessionAuthFromPersistedEd25519Record,
   walletSessionJwtFromPersistedEd25519Record,
 } from '@/core/signingEngine/session/walletSessionAuthBoundary';
-import { SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR } from './signingSessionAuthMode';
 import {
+  classifyRouterAbEd25519PersistedSigningRecord,
+  markRouterAbEd25519WorkerMaterialRuntimeValidated,
   parseRouterAbEd25519SigningWalletSessionFromRecord,
   type RouterAbEd25519SigningWalletSession,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
-export type ResolvedRouterAbEd25519WalletSessionState =
-  NearResolvedEd25519SigningSessionState & {
-    signingWalletSession: RouterAbEd25519SigningWalletSession;
-  };
+export type ResolvedRouterAbEd25519WalletSessionState = NearResolvedEd25519SigningSessionState & {
+  signingWalletSession: RouterAbEd25519SigningWalletSession;
+};
 
 function resolveEd25519PasskeyStorageSource(
   source: ThresholdEd25519SessionStoreSource | undefined,
@@ -39,11 +37,34 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
   record: ThresholdEd25519SessionRecord | undefined,
 ): ResolvedRouterAbEd25519WalletSessionState | null {
   if (!record) return null;
+  const signingWalletSession = classifyRouterAbEd25519PersistedSigningRecord(record);
+  if (signingWalletSession.kind !== 'runtime_validated') return null;
+  return resolveRouterAbEd25519WalletSessionStateFromParsedSession({
+    record,
+    signingWalletSession: signingWalletSession.value,
+  });
+}
+
+export function resolveRouterAbEd25519WalletSessionStateFromCurrentRecord(
+  record: ThresholdEd25519SessionRecord | undefined,
+): ResolvedRouterAbEd25519WalletSessionState | null {
+  if (!record) return null;
+  const signingWalletSession = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
+  if (!signingWalletSession.ok) return null;
+  return resolveRouterAbEd25519WalletSessionStateFromParsedSession({
+    record,
+    signingWalletSession: signingWalletSession.value,
+  });
+}
+
+function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
+  record: ThresholdEd25519SessionRecord;
+  signingWalletSession: RouterAbEd25519SigningWalletSession;
+}): ResolvedRouterAbEd25519WalletSessionState | null {
+  const record = args.record;
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
   const signingGrantId = String(record.signingGrantId || '').trim();
   if (!thresholdSessionId || !signingGrantId) return null;
-  const signingWalletSession = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
-  if (!signingWalletSession.ok) return null;
   const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(record);
   if (!walletSessionAuth) return null;
   const signingLane =
@@ -51,18 +72,15 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
       ? buildNearTransactionSigningLane({
           accountId: record.nearAccountId,
           authMethod: 'email_otp',
-          signingGrantId:
-            SigningSessionIds.signingGrant(signingGrantId),
+          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
           retention: record.emailOtpAuthContext?.retention || 'session',
-          sessionOrigin:
-            record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+          sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
         })
       : buildNearTransactionSigningLane({
           accountId: record.nearAccountId,
           authMethod: 'passkey',
-          signingGrantId:
-            SigningSessionIds.signingGrant(signingGrantId),
+          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
           storageSource: resolveEd25519PasskeyStorageSource(record.source),
         });
@@ -71,26 +89,55 @@ export function resolveRouterAbEd25519WalletSessionStateFromRecord(
     signingGrantId,
     signingLane,
     remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
-    signingMaterial: signingWalletSession.value.signingMaterial,
-    signingRootId: signingWalletSession.value.signingRootId,
-    signingRootVersion: signingWalletSession.value.signingRootVersion,
-    routerAbNormalSigning: signingWalletSession.value.routerAbNormalSigning,
-    runtimePolicyScope: signingWalletSession.value.runtimePolicyScope,
+    signingMaterial: args.signingWalletSession.signingMaterial,
+    signingRootId: args.signingWalletSession.signingRootId,
+    signingRootVersion: args.signingWalletSession.signingRootVersion,
+    routerAbNormalSigning: args.signingWalletSession.routerAbNormalSigning,
+    runtimePolicyScope: args.signingWalletSession.runtimePolicyScope,
     relayerUrl: String(record.relayerUrl || '').trim(),
     persistSigningMaterial: (material: {
       materialHandle: string;
       bindingDigest: string;
       clientVerifyingShareB64u: string;
-    }) =>
-      Boolean(
+      sealedWorkerMaterialRef?: string;
+      sealedWorkerMaterialB64u?: string;
+      materialFormatVersion?: string;
+      materialKeyId?: string;
+      materialCreatedAtMs?: number;
+      signerSlot?: number;
+      keyVersion?: string;
+    }) => {
+      const persisted = Boolean(
         persistStoredThresholdEd25519SessionMaterialHandle({
           thresholdSessionId,
-          ed25519HssMaterialHandle: material.materialHandle,
-          ed25519HssMaterialBindingDigest: material.bindingDigest,
+          ed25519WorkerMaterialHandle: material.materialHandle,
+          ed25519WorkerMaterialBindingDigest: material.bindingDigest,
           clientVerifyingShareB64u: material.clientVerifyingShareB64u,
+          ...(material.sealedWorkerMaterialRef
+            ? { sealedWorkerMaterialRef: material.sealedWorkerMaterialRef }
+            : {}),
+          ...(material.sealedWorkerMaterialB64u
+            ? { sealedWorkerMaterialB64u: material.sealedWorkerMaterialB64u }
+            : {}),
+          ...(material.materialFormatVersion
+            ? { materialFormatVersion: material.materialFormatVersion }
+            : {}),
+          ...(material.materialKeyId ? { materialKeyId: material.materialKeyId } : {}),
+          ...(material.materialCreatedAtMs
+            ? { materialCreatedAtMs: material.materialCreatedAtMs }
+            : {}),
+          ...(material.signerSlot ? { signerSlot: material.signerSlot } : {}),
+          ...(material.keyVersion ? { keyVersion: material.keyVersion } : {}),
         }),
-      ),
-    signingWalletSession: signingWalletSession.value,
+      );
+      if (persisted) {
+        markRouterAbEd25519WorkerMaterialRuntimeValidated(
+          getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
+        );
+      }
+      return persisted;
+    },
+    signingWalletSession: args.signingWalletSession,
   };
   return {
     ...common,
@@ -127,9 +174,7 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
   const persist = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
   if (typeof persist !== 'function') return;
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const signingGrantId = String(
-    args.walletSessionState.signingGrantId || '',
-  ).trim();
+  const signingGrantId = String(args.walletSessionState.signingGrantId || '').trim();
   const relayerUrl = String(args.walletSessionState.relayerUrl || '').trim();
   const materialHandle = String(args.materialHandle || '').trim();
   if (!thresholdSessionId || !signingGrantId || !relayerUrl || !materialHandle) return;
@@ -145,11 +190,14 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
         : {}),
     },
   }).catch((error: unknown) => {
-    console.warn('[SigningEngine][near] failed to refresh passkey Ed25519 sealed restore metadata', {
-      nearAccountId: args.nearAccountId,
-      thresholdSessionId,
-      error: error instanceof Error ? error.message : String(error || 'unknown error'),
-    });
+    console.warn(
+      '[SigningEngine][near] failed to refresh passkey Ed25519 sealed restore metadata',
+      {
+        nearAccountId: args.nearAccountId,
+        thresholdSessionId,
+        error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      },
+    );
     return null;
   });
   if (result && !result.ok && result.code !== 'not_enabled') {
@@ -160,29 +208,4 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
       message: result.message,
     });
   }
-}
-
-export function requireResolvedRouterAbEd25519WalletSessionState(args: {
-  signingSessionCoordinator: WarmSessionCapabilityReader;
-  thresholdSessionId: string;
-}): ResolvedRouterAbEd25519WalletSessionState {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) {
-    throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
-  }
-  const record = args.signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
-    thresholdSessionId,
-  );
-  if (!record) {
-    throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
-  }
-  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
-  if (!parsed.ok) {
-    throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${parsed.reason}`);
-  }
-  const state = resolveRouterAbEd25519WalletSessionStateFromRecord(record);
-  if (!state) {
-    throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: unresolved_signable_record`);
-  }
-  return state;
 }

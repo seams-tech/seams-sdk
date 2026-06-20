@@ -1,34 +1,17 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  getPrfResultsFromCredential,
-} from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
-import {
   getLastLoggedInSignerSlot,
   parseSignerSlot,
 } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 
-export const PRF_MISSING_ERROR =
-  'Missing PRF.first output from credential (requires a PRF-enabled passkey)';
-
 export function generateNearSigningSessionId(): string {
   return secureRandomId('sess', 32, 'NEAR signing session IDs');
-}
-
-export function requirePrfFirstFromCredential(
-  credential?: WebAuthnAuthenticationCredential,
-): string {
-  const prfFirstB64u = getPrfResultsFromCredential(credential).first;
-  if (!prfFirstB64u) {
-    throw new Error(PRF_MISSING_ERROR);
-  }
-  return prfFirstB64u;
 }
 
 export type ResolvedNearSigningMaterials = {
@@ -68,7 +51,6 @@ export async function resolveNearSigningMaterials(args: {
   if (!thresholdKeyMaterial) {
     throw new Error('[SigningEngine] threshold key material is unavailable');
   }
-
   return {
     nearAccountId,
     resolvedSignerSlot,

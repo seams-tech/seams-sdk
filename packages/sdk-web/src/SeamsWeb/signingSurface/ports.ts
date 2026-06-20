@@ -93,6 +93,7 @@ import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
 import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
@@ -193,6 +194,8 @@ export interface Ed25519SessionConnectionSurface {
 export type LoginWarmSigningSurface = RuntimeStartupSurface &
   EcdsaSessionBootstrapSurface &
   Ed25519SessionConnectionSurface &
+  WorkerOperationContext &
+  Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   NonceCoordinatorSurface &
   RpIdSurface;
 
@@ -275,7 +278,6 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
   EcdsaLoginSessionSurface &
-  ThresholdEd25519HssClientSurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
@@ -303,6 +305,7 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
   ThresholdEd25519HssClientSurface &
+  ThresholdEd25519HssCeremonySurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   RpIdSurface &
   PasskeyLoginAssertionSurface &
@@ -413,6 +416,20 @@ export interface ThresholdEd25519HssClientSurface {
   prepareThresholdEd25519HssClientRequest(
     args: Parameters<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientRequest>[1],
   ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientRequest>;
+  prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
+  >;
+  prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
+  >;
   deriveThresholdEd25519HssClientOutputMask(
     args: Parameters<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>[1],
   ): ReturnType<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>;
@@ -430,6 +447,9 @@ export interface ThresholdEd25519HssClientSurface {
   ): ReturnType<
     typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
   >;
+}
+
+export interface ThresholdEd25519HssCeremonySurface {
   runThresholdEd25519HssCeremonyWithSession(
     args: Parameters<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession>;
@@ -438,9 +458,6 @@ export interface ThresholdEd25519HssClientSurface {
       typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle
     >[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle>;
-  storeThresholdEd25519HssSigningMaterial(
-    args: Parameters<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial>[1],
-  ): ReturnType<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial>;
 }
 
 export interface EmailOtpRegistrationEnrollmentSurface {
@@ -471,7 +488,8 @@ export type RegistrationSigningSurface = RpIdSurface &
   WebAuthnRegistrationConfirmationSurface &
   RegistrationAccountSurface &
   EcdsaRegistrationSurface &
-  ThresholdEd25519HssClientSurface;
+  ThresholdEd25519HssClientSurface &
+  ThresholdEd25519HssCeremonySurface;
 
 export type SeamsWebBaseContext<TSigningEngine> = {
   signingEngine: TSigningEngine;
@@ -516,6 +534,7 @@ export type EmailRecoveryWebContext = SeamsWebBaseContext<EmailRecoverySigningSu
 export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
   NearSigningSurface &
   ThresholdEd25519HssClientSurface &
+  ThresholdEd25519HssCeremonySurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   RpIdSurface &
   WebAuthnRegistrationConfirmationSurface &

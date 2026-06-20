@@ -20,11 +20,11 @@ import {
   buildThresholdEd25519RegistrationHssClientOwnedArtifact,
   completeRegisteredThresholdEd25519Registration,
   createThresholdWarmSessionPolicyDraft,
-  prewarmThresholdEd25519ClientBaseFromCredential,
   prepareThresholdEd25519RegistrationHssClientMaterial,
   prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst,
   prepareThresholdEd25519RegistrationHssClientRequest,
   persistRegisteredThresholdEd25519Session,
+  reconstructThresholdEd25519SigningMaterialFromWarmSession,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import type {
   PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
@@ -101,8 +101,8 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
+  classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
-  parseRouterAbEd25519SigningWalletSessionFromRecord,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
@@ -172,7 +172,6 @@ type RegistrationTimingBucketValues = {
   ed25519CompletionParseMs: number;
   localWalletRegistrationPersistenceMs: number;
   thresholdEd25519SessionPersistenceMs: number;
-  thresholdEd25519ClientBasePrewarmMs: number;
   ecdsaRegistrationPersistenceMs: number;
   walletStateActivationMs: number;
   immediateSigningLaneAssertionMs: number;
@@ -321,7 +320,6 @@ type Ed25519EnabledRegistrationTiming = {
   ed25519EvaluationArtifactMs: number;
   ed25519CompletionParseMs: number;
   thresholdEd25519SessionPersistenceMs: number;
-  thresholdEd25519ClientBasePrewarmMs: number;
 };
 
 type Ed25519DisabledRegistrationTiming = {
@@ -331,7 +329,6 @@ type Ed25519DisabledRegistrationTiming = {
   ed25519EvaluationArtifactMs: 0;
   ed25519CompletionParseMs: 0;
   thresholdEd25519SessionPersistenceMs: 0;
-  thresholdEd25519ClientBasePrewarmMs: 0;
 };
 
 type RegistrationEd25519Timing =
@@ -533,7 +530,6 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     ed25519CompletionParseMs: 0,
     localWalletRegistrationPersistenceMs: 0,
     thresholdEd25519SessionPersistenceMs: 0,
-    thresholdEd25519ClientBasePrewarmMs: 0,
     ecdsaRegistrationPersistenceMs: 0,
     walletStateActivationMs: 0,
     immediateSigningLaneAssertionMs: 0,
@@ -591,7 +587,6 @@ function copyRegistrationTimingBucketValues(
     ed25519CompletionParseMs: buckets.ed25519CompletionParseMs,
     localWalletRegistrationPersistenceMs: buckets.localWalletRegistrationPersistenceMs,
     thresholdEd25519SessionPersistenceMs: buckets.thresholdEd25519SessionPersistenceMs,
-    thresholdEd25519ClientBasePrewarmMs: buckets.thresholdEd25519ClientBasePrewarmMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
     walletStateActivationMs: buckets.walletStateActivationMs,
     immediateSigningLaneAssertionMs: buckets.immediateSigningLaneAssertionMs,
@@ -674,8 +669,6 @@ function buildRegistrationEd25519Timing(input: {
         ed25519EvaluationArtifactMs: input.buckets.ed25519EvaluationArtifactMs,
         ed25519CompletionParseMs: input.buckets.ed25519CompletionParseMs,
         thresholdEd25519SessionPersistenceMs: input.buckets.thresholdEd25519SessionPersistenceMs,
-        thresholdEd25519ClientBasePrewarmMs:
-          input.buckets.thresholdEd25519ClientBasePrewarmMs,
       };
     case 'ecdsa_only':
       return {
@@ -685,7 +678,6 @@ function buildRegistrationEd25519Timing(input: {
         ed25519EvaluationArtifactMs: 0,
         ed25519CompletionParseMs: 0,
         thresholdEd25519SessionPersistenceMs: 0,
-        thresholdEd25519ClientBasePrewarmMs: 0,
       };
     default:
       return assertNever(input.signerMode);
@@ -769,7 +761,6 @@ function buildRegistrationTimingBuckets(input: {
     ed25519CompletionParseMs: buckets.ed25519CompletionParseMs,
     localWalletRegistrationPersistenceMs: buckets.localWalletRegistrationPersistenceMs,
     thresholdEd25519SessionPersistenceMs: buckets.thresholdEd25519SessionPersistenceMs,
-    thresholdEd25519ClientBasePrewarmMs: buckets.thresholdEd25519ClientBasePrewarmMs,
     ecdsaRegistrationPersistenceMs: buckets.ecdsaRegistrationPersistenceMs,
     walletStateActivationMs: buckets.walletStateActivationMs,
     immediateSigningLaneAssertionMs: buckets.immediateSigningLaneAssertionMs,
@@ -1597,8 +1588,8 @@ function describeEcdsaMaterialPostconditionFailure(
 
 function assertStrictRegistrationEd25519SigningRecord(args: { walletId: string }): void {
   const record = getStoredThresholdEd25519SessionRecordForAccount(args.walletId);
-  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
-  if (!parsed.ok) {
+  const parsed = classifyRouterAbEd25519PersistedSigningRecord(record);
+  if (parsed.kind !== 'runtime_validated') {
     throw new Error(
       `[Registration][postcondition] Ed25519 Router A/B signable state missing: ${parsed.reason}`,
     );
@@ -2311,7 +2302,7 @@ async function registerWalletInternal(
           appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         }),
       );
-      ed25519PrfFirstB64u = enrollment.thresholdEd25519PrfFirstB64u;
+      ed25519PrfFirstB64u = enrollment.thresholdEd25519RecoveryCodeSecret32B64u;
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
       emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
@@ -2655,6 +2646,23 @@ async function registerWalletInternal(
           registrationSessionPolicy: thresholdEd25519RegistrationSessionPolicy,
           completedRegistration: completedThresholdEd25519Registration,
         });
+        const registrationWarmSession = completedThresholdEd25519Registration.registered.session;
+        if (!registrationWarmSession) {
+          throw new Error('Wallet registration did not return an Ed25519 warm session');
+        }
+        await reconstructThresholdEd25519SigningMaterialFromWarmSession({
+          context,
+          credential: passkeyAuthority!.credential,
+          nearAccountId,
+          rpId,
+          relayerUrl,
+          relayerKeyId: finalizedEd25519.relayerKeyId,
+          signerSlot,
+          session: registrationWarmSession,
+          keyVersion: finalizedEd25519.keyVersion,
+          materialCreatedAtMs: Date.now(),
+          participantIdsHint: finalizedEd25519.participantIds,
+        });
       }
     });
     if (ecdsaWalletKeys.length > 0) {
@@ -2695,16 +2703,6 @@ async function registerWalletInternal(
             walletKeys: ecdsaWalletKeys,
           });
         }
-      });
-    }
-    if (passkeyAuthority) {
-      await registrationTiming.measure('thresholdEd25519ClientBasePrewarmMs', async () => {
-        await prewarmThresholdEd25519ClientBaseFromCredential({
-          context,
-          credential: passkeyAuthority.credential,
-          nearAccountId,
-          signerSlot,
-        });
       });
     }
     await registrationTiming.measure('walletStateActivationMs', async () => {

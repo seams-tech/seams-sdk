@@ -22,6 +22,8 @@ import { SigningSessionIds } from '@/core/signingEngine/session/operationState/t
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
+  clearRouterAbEd25519WorkerMaterialRuntimeValidation,
+  markRouterAbEd25519WorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   ThresholdEcdsaSessionRecord,
@@ -32,8 +34,7 @@ const accountId = toAccountId('strict-ed25519-capability.testnet');
 const signingGrantId = SigningSessionIds.signingGrant('wsess-strict-ed25519');
 const thresholdSessionId = SigningSessionIds.thresholdEd25519Session('tsess-strict-ed25519');
 const ecdsaWalletId = toAccountId('strict-ecdsa-capability.testnet');
-const ecdsaSigningGrantId =
-  SigningSessionIds.signingGrant('wsess-strict-ecdsa');
+const ecdsaSigningGrantId = SigningSessionIds.signingGrant('wsess-strict-ecdsa');
 const ecdsaThresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-strict-ecdsa');
 const ecdsaChainTarget: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -77,8 +78,8 @@ function makeEd25519Record(
       envId: 'dev',
       signingRootVersion: '1',
     },
-    ed25519HssMaterialHandle: 'hss-material-handle-strict',
-    ed25519HssMaterialBindingDigest: 'sha256:strict-material-binding',
+    ed25519WorkerMaterialHandle: 'hss-material-handle-strict',
+    ed25519WorkerMaterialBindingDigest: 'sha256:strict-material-binding',
     clientVerifyingShareB64u: 'strict-client-verifier',
     routerAbNormalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
@@ -237,12 +238,16 @@ function makeEcdsaRecord(
 }
 
 test.describe('selected signing capability strict persisted records', () => {
+  test.beforeEach(() => {
+    clearRouterAbEd25519WorkerMaterialRuntimeValidation();
+  });
+
   test('rejects selected Ed25519 records missing worker-owned material handles', () => {
     const lane = makeLane();
     const record = makeEd25519Record();
-    delete record.ed25519HssMaterialHandle;
+    delete record.ed25519WorkerMaterialHandle;
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'pending_material',
+      kind: 'auth_ready_material_pending',
       reason: 'missing_material_handle',
       record,
     });
@@ -262,39 +267,17 @@ test.describe('selected signing capability strict persisted records', () => {
     });
   });
 
-  test('rejects selected Ed25519 records that only carry stale raw client material', () => {
-    const lane = makeLane();
-    const record = makeEd25519Record({
-      xClientBaseB64u: 'stale-raw-client-base',
-    });
-    delete record.ed25519HssMaterialHandle;
-    expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'invalid',
-      reason: 'raw_material_without_handle',
-      record,
-    });
-
-    const result = readSigningCapabilityRecord(
-      {
-        readEd25519SessionRecordByThresholdSessionId: () => record,
-      },
-      lane,
-    );
-
-    expect(result).toMatchObject({
-      ok: false,
-      code: 'record_mismatch',
-      message:
-        'Selected Ed25519 session record is not Router A/B signable: raw_material_without_handle',
-    });
-  });
-
-  test('accepts selected Ed25519 records only when Router A/B signing material is complete', () => {
+  test('accepts selected Ed25519 records only after worker material runtime validation', () => {
     const lane = makeLane();
     const record = makeEd25519Record();
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'signable',
+      kind: 'material_hint_unvalidated',
       record,
+      reason: 'worker_material_unvalidated',
+    });
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
+      kind: 'runtime_validated',
       value: {
         curve: 'ed25519',
         thresholdSessionId,
@@ -322,9 +305,10 @@ test.describe('selected signing capability strict persisted records', () => {
     const record = makeEd25519Record();
     delete record.signingRootId;
     delete record.signingRootVersion;
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
 
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'signable',
+      kind: 'runtime_validated',
       record,
       value: {
         curve: 'ed25519',
@@ -364,8 +348,7 @@ test.describe('selected signing capability strict persisted records', () => {
     expect(result).toMatchObject({
       ok: false,
       code: 'record_mismatch',
-      message:
-        'Selected Ed25519 session record is not Router A/B signable: missing_signing_root',
+      message: 'Selected Ed25519 session record is not Router A/B signable: missing_signing_root',
     });
   });
 

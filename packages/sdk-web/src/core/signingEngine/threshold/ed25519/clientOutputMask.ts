@@ -3,6 +3,7 @@ import {
   deriveThresholdEd25519HssClientOutputMaskWasm,
   type ThresholdEd25519HssCanonicalContext,
 } from '../crypto/hssClientSignerWasm';
+import { prepareThresholdEd25519HssClientOutputMaskHandleNearSignerWasm } from '../../chains/near/nearSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 
 export type ThresholdEd25519HssClientOutputMaskOperation =
@@ -90,6 +91,38 @@ export async function resolveThresholdEd25519HssClientOutputMaskB64u(args: {
         context: args.context,
         workerCtx: args.workerCtx,
       });
+    default: {
+      return throwUnsupportedPolicy(args.policy);
+    }
+  }
+}
+
+export async function resolveThresholdEd25519HssClientOutputMaskHandle(args: {
+  policy: ThresholdEd25519HssOutputProjectionPolicy;
+  context: ThresholdEd25519HssClientOutputMaskContext;
+  workerCtx: WorkerOperationContext;
+}): Promise<string> {
+  validateThresholdEd25519HssOutputProjectionPolicy(args.policy);
+  switch (args.policy.kind) {
+    case 'client-masked-projection': {
+      const result = await prepareThresholdEd25519HssClientOutputMaskHandleNearSignerWasm({
+        request: {
+          signingRootId: args.context.signingRootId,
+          nearAccountId: args.context.nearAccountId,
+          keyPurpose: args.context.keyPurpose,
+          keyVersion: args.context.keyVersion,
+          participantIds: args.context.participantIds,
+          derivationVersion: args.context.derivationVersion,
+          contextBindingB64u: args.context.contextBindingB64u,
+          operation: args.context.operation,
+          relayerKeyId: args.context.relayerKeyId,
+          clientRecoverableSecretB64u: args.policy.clientRecoverableSecretB64u,
+          expiresAtMs: 0,
+        },
+        workerCtx: args.workerCtx,
+      });
+      return result.clientOutputMaskHandle;
+    }
     default: {
       return throwUnsupportedPolicy(args.policy);
     }

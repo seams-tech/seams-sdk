@@ -1,9 +1,6 @@
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
-import type {
-  ThresholdCredentialStorePort,
-  ThresholdWebAuthnPromptPort,
-} from '../crypto/webauthn';
+import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import { buildEd25519SessionPolicy } from '../sessionPolicy';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
@@ -77,7 +74,7 @@ export async function connectEd25519Session(args: {
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     participantIds: args.participantIds,
-    sessionId: args.sessionId,
+    thresholdSessionId: args.sessionId,
     signingGrantId: args.signingGrantId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
@@ -125,12 +122,10 @@ export async function connectEd25519Session(args: {
   if (!minted.ok) {
     return minted;
   }
-  const requestedSessionId = String(policy.sessionId || '').trim();
+  const requestedSessionId = String(policy.thresholdSessionId || '').trim();
   const resolvedSessionId =
     String(minted.sessionId || requestedSessionId).trim() || requestedSessionId;
-  const signingGrantId = String(
-    minted.signingGrantId || policy.signingGrantId || '',
-  ).trim();
+  const signingGrantId = String(minted.signingGrantId || policy.signingGrantId || '').trim();
 
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;

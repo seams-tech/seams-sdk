@@ -85,7 +85,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   ecdsaClientRootHandleBinding: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
-  thresholdEd25519PrfFirstB64u: string;
+  thresholdEd25519RecoveryCodeSecret32B64u: string;
   recoveryKeys: EmailOtpRecoveryCodeSet;
   recoveryCodesIssuedAtMs: number;
   otpChannel: WalletEmailOtpChannel;
@@ -132,9 +132,9 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
       ...result,
       recoveryKeys: recoveryCodeMaterial.recoveryKeys,
       recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
-      thresholdEd25519PrfFirstB64u: readString(
-        result.thresholdEd25519PrfFirstB64u,
-        'thresholdEd25519PrfFirstB64u',
+      thresholdEd25519RecoveryCodeSecret32B64u: readString(
+        result.thresholdEd25519RecoveryCodeSecret32B64u,
+        'thresholdEd25519RecoveryCodeSecret32B64u',
       ),
       clientRootShareHandle: result.clientRootShareHandle,
       emailOtpEnrollment: result.emailOtpEnrollment,

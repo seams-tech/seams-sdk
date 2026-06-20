@@ -40,8 +40,8 @@ export type WarmEd25519SigningSessionAuthorization = {
   availableUses: number;
   expiresAtMs: number;
   prfClaim: WarmEd25519PrfClaimReady;
-  ed25519HssMaterialHandle?: never;
-  ed25519HssMaterialBindingDigest?: never;
+  ed25519WorkerMaterialHandle?: never;
+  ed25519WorkerMaterialBindingDigest?: never;
   clientVerifyingShareB64u?: never;
   xClientBaseB64u?: never;
 } & WarmEd25519SigningSessionMaterialState;
@@ -91,8 +91,8 @@ function authMethodForEd25519Record(record: ThresholdEd25519SessionRecord): Wall
 function materialStateForEd25519Record(
   record: ThresholdEd25519SessionRecord,
 ): WarmEd25519SigningSessionMaterialState {
-  const hasHandle = Boolean(nonEmptyString(record.ed25519HssMaterialHandle));
-  const hasBindingDigest = Boolean(nonEmptyString(record.ed25519HssMaterialBindingDigest));
+  const hasHandle = Boolean(nonEmptyString(record.ed25519WorkerMaterialHandle));
+  const hasBindingDigest = Boolean(nonEmptyString(record.ed25519WorkerMaterialBindingDigest));
   const hasClientVerifier = Boolean(nonEmptyString(record.clientVerifyingShareB64u));
   return hasHandle && hasBindingDigest && hasClientVerifier
     ? { materialState: 'material_ready' }

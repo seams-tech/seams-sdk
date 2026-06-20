@@ -20,7 +20,13 @@ import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { SigningRuntime } from '@/core/runtime/runtime.types';
-import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpWorkerProgressEvent,
+  SignerWorkerKind,
+  SignerWorkerOperationRequest,
+  SignerWorkerOperationResult,
+  SignerWorkerOperationType,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
@@ -43,7 +49,6 @@ import {
   signNear as signNearOperation,
   type NearSignIntentRequest,
   type NearSignIntentResult,
-  type SignTransactionsWithActionsInput,
 } from '@/core/signingEngine/flows/signNear/signNear';
 import {
   reconcileTempoNonceLane as reconcileTempoNonceLaneOperation,
@@ -134,6 +139,9 @@ import {
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
+import {
+  restoreThresholdEd25519WorkerMaterialFromCredential,
+} from '../operations/session/thresholdWarmSessionBootstrap';
 
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
@@ -297,6 +305,8 @@ export class BrowserSigningSurface {
       shouldPrewarmWorkers: deps.shouldPrewarmWorkers,
       getTheme: () => this.theme,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
+      restorePasskeyEd25519SigningMaterial:
+        this.restorePasskeyEd25519SigningMaterialForReconnect.bind(this),
       getEnginePorts: () => this.enginePorts,
       getRegistrationPublicDeps: () => this.registrationPublicDeps,
     });
@@ -611,6 +621,45 @@ export class BrowserSigningSurface {
     return this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypair();
   }
 
+  requestWorkerOperation = <
+    K extends SignerWorkerKind,
+    T extends SignerWorkerOperationType<K>,
+  >(args: {
+    kind: K;
+    request: SignerWorkerOperationRequest<K, T>;
+  }): Promise<SignerWorkerOperationResult<K, T>> =>
+    this.signerWorkerManager.getContext().requestWorkerOperation(args);
+
+  private async restorePasskeyEd25519SigningMaterialForReconnect(args: {
+    nearAccountId: AccountId;
+    credential: WebAuthnAuthenticationCredential;
+    signerSlot: number;
+    thresholdSessionId: string;
+  }): Promise<void> {
+    const result = await restoreThresholdEd25519WorkerMaterialFromCredential({
+      context: {
+        signingEngine: this,
+      },
+      credential: args.credential,
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      thresholdSessionId: args.thresholdSessionId,
+    });
+    switch (result.kind) {
+      case 'already_loaded':
+      case 'restored':
+        return;
+      case 'material_pending':
+        throw new Error(
+          '[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: missing_material_handle',
+        );
+      default: {
+        const exhaustive: never = result;
+        return exhaustive;
+      }
+    }
+  }
+
   hydrateSigningSession(
     input: Parameters<typeof warmCapabilitiesPublic.hydrateSigningSession>[1],
   ): ReturnType<typeof warmCapabilitiesPublic.hydrateSigningSession> {
@@ -895,6 +944,32 @@ export class BrowserSigningSurface {
     );
   }
 
+  prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization
+  > {
+    return thresholdEd25519Public.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
+  prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
+  > {
+    return thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
   deriveThresholdEd25519HssClientOutputMask(
     args: Parameters<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>[1],
   ): ReturnType<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask> {
@@ -945,15 +1020,6 @@ export class BrowserSigningSurface {
     >[1],
   ): ReturnType<typeof thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle> {
     return thresholdEd25519Public.runThresholdEd25519HssCeremonyWithMaterialHandle(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  storeThresholdEd25519HssSigningMaterial(
-    args: Parameters<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial>[1],
-  ): ReturnType<typeof thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial> {
-    return thresholdEd25519Public.storeThresholdEd25519HssSigningMaterial(
       this.thresholdEd25519PublicDeps,
       args,
     );

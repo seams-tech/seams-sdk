@@ -9,7 +9,7 @@ import type {
 import { buildRouterAbEd25519SigningMaterialRef } from '../../../threshold/ed25519/hssMaterialBinding';
 
 const validSigningMaterial = buildRouterAbEd25519SigningMaterialRef({
-  materialHandle: 'ed25519-hss-material:threshold-session-1:binding',
+  materialHandle: 'ed25519-worker-material:threshold-session-1:binding',
   bindingDigest: 'binding',
   clientVerifyingShareB64u: 'client-verifying-share',
 });

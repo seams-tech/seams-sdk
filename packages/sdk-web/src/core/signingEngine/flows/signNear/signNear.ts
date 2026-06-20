@@ -12,7 +12,7 @@ import type {
   RpcCallPayload,
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
-import type { NearTransactionsWithActionsPayload } from '../../interfaces/near';
+import type { NearTransactionWithActionsPayload } from '../../interfaces/near';
 import type { SignTransactionResult } from '@/core/types/seams';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import {
@@ -86,6 +86,10 @@ import {
   type ResolvedRouterAbEd25519WalletSessionState,
 } from './shared/routerAbEd25519WalletSessionState';
 import { classifyRouterAbEd25519PersistedSigningRecord } from '../../session/routerAbSigningWalletSession';
+import {
+  isEd25519MaterialUnsealAuthorizationRequiredError,
+  throwEd25519MaterialRestoreRequired,
+} from './shared/ed25519MaterialRestore';
 import { hasRouterAbEd25519SigningAuth } from './shared/routerAbWalletSessionCredential';
 import {
   receiveTransactionIntent,
@@ -142,9 +146,9 @@ export type SignNep413MessageResult = {
   error?: string;
 };
 
-export type SignTransactionsWithActionsInput = {
+export type SignTransactionWithActionsInput = {
   nearAccount: NearAccountRef;
-  transactions: TransactionInputWasm[];
+  transaction: TransactionInputWasm;
   rpcCall: RpcCallPayload;
   signerSlot?: number;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -156,7 +160,7 @@ export type SignTransactionsWithActionsInput = {
 };
 
 type NearTransactionPublicSigningOptions = Pick<
-  SignTransactionsWithActionsInput,
+  SignTransactionWithActionsInput,
   'confirmationConfigOverride' | 'title' | 'body' | 'onEvent' | 'signerSlot'
 >;
 
@@ -174,8 +178,8 @@ export type SignDelegateActionInput = {
 export type NearSignIntentRequest =
   | {
       chain: 'near';
-      kind: 'transactionsWithActions';
-      args: SignTransactionsWithActionsInput;
+      kind: 'transactionWithActions';
+      args: SignTransactionWithActionsInput;
     }
   | {
       chain: 'near';
@@ -189,7 +193,7 @@ export type NearSignIntentRequest =
     };
 
 export type NearSignIntentResultByKind = {
-  transactionsWithActions: SignTransactionResult[];
+  transactionWithActions: SignTransactionResult;
   delegateAction: SignDelegateActionResult;
   nep413: SignNep413MessageResult;
 };
@@ -206,10 +210,7 @@ function resolveTransactionStepUpSessionUses(args: {
   operationId: SigningOperationId;
   requiredSignatureUses: number;
 }): number {
-  const requiredSignatureUses = Math.max(
-    1,
-    Math.floor(Number(args.requiredSignatureUses) || 1),
-  );
+  const requiredSignatureUses = Math.max(1, Math.floor(Number(args.requiredSignatureUses) || 1));
   const budgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
     operationId: normalizeStepUpOperationId(args.operationId),
     requiredSignatureUses,
@@ -217,15 +218,21 @@ function resolveTransactionStepUpSessionUses(args: {
   return Math.max(requiredSignatureUses, resolveSigningBudgetPolicyRemainingUses(budgetPolicy));
 }
 
+function resolveMaterialRestoreSessionUses(args: {
+  record: ThresholdEd25519SessionRecord;
+  requiredSignatureUses: number;
+}): number {
+  const requiredSignatureUses = Math.max(1, Math.floor(Number(args.requiredSignatureUses) || 1));
+  const recordRemainingUses = Math.max(0, Math.floor(Number(args.record.remainingUses) || 0));
+  return Math.max(requiredSignatureUses, recordRemainingUses);
+}
+
 export async function signNear<TRequest extends NearSignIntentRequest>(
   deps: NearSigningApiDeps,
   request: TRequest,
 ): Promise<NearSignIntentResult<TRequest>> {
-  if (request.kind === 'transactionsWithActions') {
-    return (await signTransactionsWithActions(
-      deps,
-      request.args,
-    )) as NearSignIntentResult<TRequest>;
+  if (request.kind === 'transactionWithActions') {
+    return (await signTransactionWithActions(deps, request.args)) as NearSignIntentResult<TRequest>;
   }
   if (request.kind === 'delegateAction') {
     return (await signDelegateAction(deps, request.args)) as NearSignIntentResult<TRequest>;
@@ -275,6 +282,8 @@ type NearEd25519PasskeyReconnect = {
     requiredSignatureUses: number;
   }) => Promise<{ sessionId: string; sessionState: ResolvedRouterAbEd25519WalletSessionState }>;
 };
+
+type NearEd25519PasskeyReconnectMode = 'session_reconnect' | 'material_restore';
 
 type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
   SelectedEd25519Lane,
@@ -406,9 +415,7 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
     );
   }
   if (!signingGrantId) {
-    throw new Error(
-      '[SigningEngine][near] missing wallet signing session id for transaction auth planning',
-    );
+    throw new Error('[SigningEngine][near] missing signing grant id for transaction auth planning');
   }
   if (args.record.source === 'email_otp') {
     return buildNearTransactionSigningLane({
@@ -461,10 +468,7 @@ function transactionReadinessFromPlannerInput(
   if (status === 'ready') {
     return {
       status: 'ready',
-      remainingUses: Math.max(
-        0,
-        Math.floor(Number(readiness.readiness.remainingUses) || 0),
-      ),
+      remainingUses: Math.max(0, Math.floor(Number(readiness.readiness.remainingUses) || 0)),
       expiresAtMs: Math.max(0, Math.floor(Number(readiness.readiness.expiresAtMs) || 0)),
     };
   }
@@ -558,14 +562,12 @@ async function resolveNearTransactionPlannerReadiness(args: {
   const isSingleUseEmailOtpRecord =
     args.record.source === 'email_otp' &&
     args.record.emailOtpAuthContext?.retention === 'single_use';
-  const hasWorkerMaterialHandle =
-    Boolean(String(args.record.ed25519HssMaterialHandle || '').trim()) &&
-    Boolean(String(args.record.ed25519HssMaterialBindingDigest || '').trim()) &&
-    Boolean(String(args.record.clientVerifyingShareB64u || '').trim());
   const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  const hasRuntimeValidatedWorkerMaterial = persistedState.kind === 'runtime_validated';
   const hasRepairablePasskeyWorkerMaterial =
     args.record.source !== 'email_otp' &&
-    persistedState.kind === 'pending_material' &&
+    (persistedState.kind === 'material_hint_unvalidated' ||
+      persistedState.kind === 'restore_available') &&
     hasRouterAbEd25519SigningAuth(args.record);
   if (!sessionId || isSingleUseEmailOtpRecord || !hasRouterAbEd25519SigningAuth(args.record)) {
     return buildReadiness('missing_session', 0);
@@ -580,7 +582,7 @@ async function resolveNearTransactionPlannerReadiness(args: {
       .catch(() => null)) || null;
   const remainingUses = resolveRemainingUses();
   const expiresAtMs = resolveExpiresAtMs();
-  if (hasWorkerMaterialHandle) {
+  if (hasRuntimeValidatedWorkerMaterial) {
     if (remainingUses < requiredSignatureUses) {
       return buildReadiness('exhausted', remainingUses, expiresAtMs);
     }
@@ -596,6 +598,25 @@ async function resolveNearTransactionPlannerReadiness(args: {
     });
     return buildReadiness('ready', remainingUses, expiresAtMs);
   }
+  if (hasRepairablePasskeyWorkerMaterial) {
+    if (remainingUses < requiredSignatureUses) {
+      return buildReadiness('exhausted', remainingUses, expiresAtMs);
+    }
+    console.info(
+      '[SigningEngine][near] rejecting pending-material Ed25519 warm-session readiness',
+      {
+        nearAccountId: args.nearAccount.accountId,
+        thresholdSessionId: sessionId,
+        signingGrantId: args.record.signingGrantId,
+        source: args.record.source,
+        reason: persistedState.reason,
+        remainingUses,
+        expiresAtMs,
+        requiredSignatureUses,
+      },
+    );
+    return buildReadiness('missing_session', 0);
+  }
   if (liveStatus?.sessionId === sessionId) {
     if (liveStatus.status === 'expired') return buildReadiness('expired', 0);
     if (liveStatus.status === 'exhausted') return buildReadiness('exhausted', 0);
@@ -609,25 +630,9 @@ async function resolveNearTransactionPlannerReadiness(args: {
     );
   }
 
-  if (hasRepairablePasskeyWorkerMaterial) {
-    if (remainingUses < requiredSignatureUses) {
-      return buildReadiness('exhausted', remainingUses, expiresAtMs);
-    }
-    console.info('[SigningEngine][near] using pending-material Ed25519 warm-session readiness', {
-      nearAccountId: args.nearAccount.accountId,
-      thresholdSessionId: sessionId,
-      signingGrantId: args.record.signingGrantId,
-      source: args.record.source,
-      reason: persistedState.reason,
-      remainingUses,
-      expiresAtMs,
-      requiredSignatureUses,
-    });
-    return buildReadiness('ready', remainingUses, expiresAtMs);
-  }
-
   if (args.preConfirmDeps.hasUiConfirm()) return buildReadiness('missing_session', 0);
-  if (remainingUses < requiredSignatureUses) return buildReadiness('exhausted', remainingUses, expiresAtMs);
+  if (remainingUses < requiredSignatureUses)
+    return buildReadiness('exhausted', remainingUses, expiresAtMs);
   return buildReadiness('ready', remainingUses, expiresAtMs);
 }
 
@@ -854,12 +859,63 @@ function buildPreparedNearTransactionExecutionState(args: {
   };
 }
 
+function assertNeverRouterAbEd25519ReconnectState(value: never): never {
+  throw new Error(`Unexpected passkey Ed25519 reconnect state: ${String(value)}`);
+}
+
+function requireSignablePasskeyReconnectEd25519SessionState(args: {
+  record: ThresholdEd25519SessionRecord;
+  thresholdSessionId: string;
+}): ResolvedRouterAbEd25519WalletSessionState {
+  const sessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(args.record);
+  if (sessionState) return sessionState;
+
+  const refreshedRecordState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  switch (refreshedRecordState.kind) {
+    case 'material_hint_unvalidated':
+    case 'auth_ready_material_pending':
+      throwEd25519MaterialRestoreRequired({
+        operation: 'passkey_reconnect',
+        thresholdSessionId: args.thresholdSessionId,
+        reason: 'pending_material',
+      });
+    case 'restore_available':
+      throwEd25519MaterialRestoreRequired({
+        operation: 'passkey_reconnect',
+        thresholdSessionId: args.thresholdSessionId,
+        reason: 'restore_available',
+      });
+    case 'runtime_validated':
+      throw new Error(
+        '[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: unresolved_signable_record',
+      );
+    case 'non_signing':
+    case 'invalid':
+      throw new Error(
+        `[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: ${refreshedRecordState.reason}`,
+      );
+    default:
+      assertNeverRouterAbEd25519ReconnectState(refreshedRecordState satisfies never);
+  }
+}
+
+function requirePasskeyReconnectThresholdEd25519SessionRecord(args: {
+  record: ThresholdEd25519SessionRecord | undefined;
+  thresholdSessionId: string;
+}): ThresholdEd25519SessionRecord {
+  if (args.record) return args.record;
+  throw new Error(
+    `[SigningEngine][near] passkey Ed25519 reconnect did not return a session record for ${args.thresholdSessionId}`,
+  );
+}
+
 function buildNearPasskeyEd25519Reconnect(args: {
   deps: NearSigningApiDeps;
   nearAccount: NearAccountRef;
   ctx: ReturnType<NearSigningApiDeps['getSignerWorkerContext']>;
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   operationId: SigningOperationId;
+  mode: NearEd25519PasskeyReconnectMode;
 }): NearEd25519PasskeyReconnect | undefined {
   if (
     !args.thresholdSessionRecord ||
@@ -870,21 +926,27 @@ function buildNearPasskeyEd25519Reconnect(args: {
   const thresholdSessionRecord = args.thresholdSessionRecord;
   return {
     prepare: async ({ requiredSignatureUses }: { requiredSignatureUses: number }) => {
-      const sessionBudgetUses = resolveTransactionStepUpSessionUses({
-        operationId: args.operationId,
-        requiredSignatureUses,
-      });
+      const materialRestoreOnly = args.mode === 'material_restore';
+      const sessionBudgetUses = materialRestoreOnly
+        ? resolveMaterialRestoreSessionUses({
+            record: thresholdSessionRecord,
+            requiredSignatureUses,
+          })
+        : resolveTransactionStepUpSessionUses({
+            operationId: args.operationId,
+            requiredSignatureUses,
+          });
       const rpId = String(args.ctx.touchIdPrompt.getRpId() || '').trim();
-      const signingGrantId = String(
-        thresholdSessionRecord.signingGrantId || '',
-      ).trim();
+      const thresholdSessionId = String(thresholdSessionRecord.thresholdSessionId || '').trim();
+      const signingGrantId = String(thresholdSessionRecord.signingGrantId || '').trim();
       if (!rpId) {
         throw new Error('[SigningEngine] missing rpId for passkey Ed25519 reauth');
       }
+      if (materialRestoreOnly && !thresholdSessionId) {
+        throw new Error('[SigningEngine] missing threshold session id for passkey Ed25519 restore');
+      }
       if (!signingGrantId) {
-        throw new Error(
-          '[SigningEngine] missing wallet signing session id for passkey Ed25519 reauth',
-        );
+        throw new Error('[SigningEngine] missing signing grant id for passkey Ed25519 reauth');
       }
       const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
         nearAccountId: args.nearAccount.accountId,
@@ -897,16 +959,27 @@ function buildNearPasskeyEd25519Reconnect(args: {
           ? { routerAbNormalSigning: thresholdSessionRecord.routerAbNormalSigning }
           : {}),
         participantIds: thresholdSessionRecord.participantIds,
+        ...(materialRestoreOnly ? { thresholdSessionId } : {}),
         signingGrantId,
         remainingUses: sessionBudgetUses,
       });
       return {
-        sessionId: policy.sessionId,
+        sessionId: policy.thresholdSessionId,
         signingGrantId: policy.signingGrantId,
         sessionPolicyDigest32,
       };
     },
     reconnect: async ({ authorization, requiredSignatureUses }) => {
+      const materialRestoreOnly = args.mode === 'material_restore';
+      const sessionBudgetUses = materialRestoreOnly
+        ? resolveMaterialRestoreSessionUses({
+            record: thresholdSessionRecord,
+            requiredSignatureUses,
+          })
+        : resolveTransactionStepUpSessionUses({
+            operationId: args.operationId,
+            requiredSignatureUses,
+          });
       const refreshed = await args.deps.reconnectPasskeyEd25519CapabilityForSigning!({
         nearAccountId: args.nearAccount.accountId,
         record: thresholdSessionRecord,
@@ -915,21 +988,18 @@ function buildNearPasskeyEd25519Reconnect(args: {
           rpId: thresholdSessionRecord.rpId,
         }),
         usesNeeded: requiredSignatureUses,
-        remainingUses: resolveTransactionStepUpSessionUses({
-          operationId: args.operationId,
-          requiredSignatureUses,
-        }),
+        remainingUses: sessionBudgetUses,
         sessionId: authorization.plannedPasskeyReconnect.sessionId,
         signingGrantId: authorization.plannedPasskeyReconnect.signingGrantId,
       });
-      const sessionState = resolveRouterAbEd25519WalletSessionStateFromRecord(refreshed.record);
-      if (!sessionState) {
-        const state = classifyRouterAbEd25519PersistedSigningRecord(refreshed.record);
-        const reason = state.kind === 'signable' ? 'unresolved_signable_record' : state.reason;
-        throw new Error(
-          `[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: ${reason}`,
-        );
-      }
+      const record = requirePasskeyReconnectThresholdEd25519SessionRecord({
+        record: refreshed.record,
+        thresholdSessionId: refreshed.sessionId,
+      });
+      const sessionState = requireSignablePasskeyReconnectEd25519SessionState({
+        record,
+        thresholdSessionId: refreshed.sessionId,
+      });
       return {
         sessionId: refreshed.sessionId,
         sessionState,
@@ -1389,14 +1459,14 @@ async function prepareNearEd25519TransactionOperation(args: {
 
 async function prepareNearEd25519TransactionSigningSession(args: {
   deps: NearSigningApiDeps;
-  input: SignTransactionsWithActionsInput;
+  input: SignTransactionWithActionsInput;
   nearAccount: NearAccountRef;
   signingSessionCoordinator: SigningSessionCoordinator;
   operationId: SigningOperationId;
   forceFreshAuth?: boolean;
 }): Promise<PreparedNearEd25519TransactionSigningSession> {
   const nearAccountId = args.nearAccount.accountId;
-  const operationUsesNeeded = requiredNearTransactionSignatureUses(args.input.transactions);
+  const operationUsesNeeded = requiredNearTransactionSignatureUses(args.input.transaction);
   const hasPendingEmailOtpEd25519Warmup = (): boolean =>
     args.deps.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true;
   if (hasPendingEmailOtpEd25519Warmup()) {
@@ -1520,16 +1590,17 @@ async function prepareNearEd25519TransactionSigningSession(args: {
   };
 }
 
-export async function signTransactionsWithActions(
+export async function signTransactionWithActions(
   deps: NearSigningApiDeps,
-  args: SignTransactionsWithActionsInput,
+  args: SignTransactionWithActionsInput,
   attempt: {
     forceFreshAuth?: boolean;
+    materialRestoreOnly?: boolean;
     operationId?: SigningOperationId;
     retryingFreshAuth?: boolean;
     signingSessionCoordinator?: SigningSessionCoordinator;
   } = {},
-): Promise<SignTransactionResult[]> {
+): Promise<SignTransactionResult> {
   const nearAccountId = toAccountId(args.nearAccount.accountId);
   const publicOptions: NearTransactionPublicSigningOptions = {
     signerSlot: args.signerSlot,
@@ -1576,6 +1647,7 @@ export async function signTransactionsWithActions(
           ctx,
           thresholdSessionRecord,
           operationId: confirmationOperationId,
+          mode: attempt.materialRestoreOnly ? 'material_restore' : 'session_reconnect',
         });
         const executionState = buildPreparedNearTransactionExecutionState({
           preparedSigningSession,
@@ -1590,10 +1662,10 @@ export async function signTransactionsWithActions(
           signingLane: executionState.signingLane,
           initialBudgetAdmittedOperation: executionState.initialBudgetAdmittedOperation,
         };
-        const payload: NearTransactionsWithActionsPayload = {
+        const payload: NearTransactionWithActionsPayload = {
           ctx,
           nearAccount: args.nearAccount,
-          transactions: args.transactions,
+          transaction: args.transaction,
           rpcCall: args.rpcCall,
           signerSlot: publicOptions.signerSlot,
           confirmationConfigOverride: publicOptions.confirmationConfigOverride,
@@ -1607,18 +1679,16 @@ export async function signTransactionsWithActions(
           signingSessionCoordinator: executionState.signingSessionCoordinator,
           transactionOperation: executionState.transactionOperation,
           ed25519SigningBoundary,
-          ...(executionState.ed25519Warmup
-            ? { ed25519Warmup: executionState.ed25519Warmup }
-            : {}),
+          ...(executionState.ed25519Warmup ? { ed25519Warmup: executionState.ed25519Warmup } : {}),
           ...(executionState.passkeyEd25519Reconnect
             ? { passkeyEd25519Reconnect: executionState.passkeyEd25519Reconnect }
             : {}),
         };
         const result = (await signNearWithUiConfirm({
           chain: 'near',
-          kind: 'transactionsWithActions',
+          kind: 'transactionWithActions',
           payload,
-        })) as unknown as SignTransactionResult[];
+        })) as unknown as SignTransactionResult;
         return result;
       },
     });
@@ -1627,14 +1697,22 @@ export async function signTransactionsWithActions(
       signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
       signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth ||
       Boolean(preparedSigningSession.emailOtpSigning);
+    const materialUnsealAuthorizationRequired =
+      isEd25519MaterialUnsealAuthorizationRequiredError(error);
     if (
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
       thresholdSessionRecord &&
       (isSigningSessionAuthUnavailableError(error) ||
-        isSigningSessionBudgetAdmissionBlockedError(error))
+        isSigningSessionBudgetAdmissionBlockedError(error) ||
+        materialUnsealAuthorizationRequired)
     ) {
       const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
+      const reason = isSigningSessionBudgetAdmissionBlockedError(error)
+        ? 'wallet_signing_budget_reserved'
+        : materialUnsealAuthorizationRequired
+          ? 'ed25519_material_unseal_authorization_required'
+          : 'threshold_session_expired';
       emitNearSigningEvent(publicOptions.onEvent, nearAccountId, {
         phase: isEmailOtpSession
           ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED
@@ -1646,13 +1724,12 @@ export async function signTransactionsWithActions(
         interaction: { kind: 'none', overlay: 'none' },
         data: {
           chain: 'near',
-          reason: isSigningSessionBudgetAdmissionBlockedError(error)
-            ? 'wallet_signing_budget_reserved'
-            : 'threshold_session_expired',
+          reason,
         },
       });
-      return await signTransactionsWithActions(deps, args, {
+      return await signTransactionWithActions(deps, args, {
         forceFreshAuth: true,
+        materialRestoreOnly: materialUnsealAuthorizationRequired,
         operationId: operationId || createNearTransactionSigningOperationId(),
         retryingFreshAuth: true,
         signingSessionCoordinator,
@@ -1692,6 +1769,7 @@ export async function signDelegateAction(
             nearAccount: args.nearAccount,
             delegate: args.delegate,
             rpcCall: normalizedRpcCall,
+            signingSessionCoordinator: deps.signingSessionCoordinator,
             signerSlot: args.signerSlot,
             confirmationConfigOverride: args.confirmationConfigOverride,
             title: args.title,
@@ -1730,6 +1808,7 @@ export async function signNEP413Message(
           payload: {
             ctx,
             nearAccount: payload.nearAccount,
+            signingSessionCoordinator: deps.signingSessionCoordinator,
             payload: {
               message: payload.message,
               recipient: payload.recipient,

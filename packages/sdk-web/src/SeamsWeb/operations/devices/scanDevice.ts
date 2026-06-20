@@ -83,7 +83,7 @@ export async function linkDeviceWithScannedQRData(
 
     const device1AccountId = device1LoginState.nearAccountId;
 
-    // 4. Execute batched transaction: AddKey + Contract notification
+    // 4. Execute one transaction: AddKey + contract notification actions
     const fundingAmount = options.fundingAmount;
 
     // Parse the device public key for AddKey action

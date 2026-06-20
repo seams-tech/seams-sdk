@@ -35,6 +35,15 @@ pub enum WorkerRequestType {
     PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
     FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
     CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
+    StoreThresholdEd25519WorkerMaterialFromHssOutput,
+    RestoreThresholdEd25519WorkerMaterial,
+    ValidateThresholdEd25519WorkerMaterial,
+    CreateThresholdEd25519ClientPresignFromWorkerMaterial,
+    SignThresholdEd25519ClientPresignFromWorkerMaterial,
+    BurnThresholdEd25519WorkerMaterial,
+    PutThresholdEd25519SealedWorkerMaterial,
+    ReadThresholdEd25519SealedWorkerMaterial,
+    DeleteThresholdEd25519SealedWorkerMaterial,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -60,6 +69,15 @@ impl From<u32> for WorkerRequestType {
             17 => WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
             18 => WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
             19 => WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
+            20 => WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput,
+            21 => WorkerRequestType::RestoreThresholdEd25519WorkerMaterial,
+            22 => WorkerRequestType::ValidateThresholdEd25519WorkerMaterial,
+            23 => WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial,
+            24 => WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial,
+            25 => WorkerRequestType::BurnThresholdEd25519WorkerMaterial,
+            26 => WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial,
+            27 => WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial,
+            28 => WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -114,6 +132,33 @@ impl WorkerRequestType {
             }
             WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
                 "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE"
+            }
+            WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput => {
+                "STORE_THRESHOLD_ED25519_WORKER_MATERIAL_FROM_HSS_OUTPUT"
+            }
+            WorkerRequestType::RestoreThresholdEd25519WorkerMaterial => {
+                "RESTORE_THRESHOLD_ED25519_WORKER_MATERIAL"
+            }
+            WorkerRequestType::ValidateThresholdEd25519WorkerMaterial => {
+                "VALIDATE_THRESHOLD_ED25519_WORKER_MATERIAL"
+            }
+            WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial => {
+                "CREATE_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL"
+            }
+            WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial => {
+                "SIGN_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL"
+            }
+            WorkerRequestType::BurnThresholdEd25519WorkerMaterial => {
+                "BURN_THRESHOLD_ED25519_WORKER_MATERIAL"
+            }
+            WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial => {
+                "PUT_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
+            }
+            WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial => {
+                "READ_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
+            }
+            WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial => {
+                "DELETE_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
             }
         }
     }
@@ -170,6 +215,33 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         }
         WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
             "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE"
+        }
+        WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput => {
+            "STORE_THRESHOLD_ED25519_WORKER_MATERIAL_FROM_HSS_OUTPUT"
+        }
+        WorkerRequestType::RestoreThresholdEd25519WorkerMaterial => {
+            "RESTORE_THRESHOLD_ED25519_WORKER_MATERIAL"
+        }
+        WorkerRequestType::ValidateThresholdEd25519WorkerMaterial => {
+            "VALIDATE_THRESHOLD_ED25519_WORKER_MATERIAL"
+        }
+        WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial => {
+            "CREATE_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL"
+        }
+        WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial => {
+            "SIGN_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL"
+        }
+        WorkerRequestType::BurnThresholdEd25519WorkerMaterial => {
+            "BURN_THRESHOLD_ED25519_WORKER_MATERIAL"
+        }
+        WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial => {
+            "PUT_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
+        }
+        WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial => {
+            "READ_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
+        }
+        WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial => {
+            "DELETE_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
         }
     }
 }
@@ -241,6 +313,24 @@ pub enum WorkerResponseType {
     FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 41,
     CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess = 42,
     CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure = 43,
+    StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess = 44,
+    StoreThresholdEd25519WorkerMaterialFromHssOutputFailure = 45,
+    RestoreThresholdEd25519WorkerMaterialSuccess = 46,
+    RestoreThresholdEd25519WorkerMaterialFailure = 47,
+    ValidateThresholdEd25519WorkerMaterialSuccess = 48,
+    ValidateThresholdEd25519WorkerMaterialFailure = 49,
+    CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 50,
+    CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure = 51,
+    SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 52,
+    SignThresholdEd25519ClientPresignFromWorkerMaterialFailure = 53,
+    BurnThresholdEd25519WorkerMaterialSuccess = 54,
+    BurnThresholdEd25519WorkerMaterialFailure = 55,
+    PutThresholdEd25519SealedWorkerMaterialSuccess = 56,
+    PutThresholdEd25519SealedWorkerMaterialFailure = 57,
+    ReadThresholdEd25519SealedWorkerMaterialSuccess = 58,
+    ReadThresholdEd25519SealedWorkerMaterialFailure = 59,
+    DeleteThresholdEd25519SealedWorkerMaterialSuccess = 60,
+    DeleteThresholdEd25519SealedWorkerMaterialFailure = 61,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -299,6 +389,24 @@ impl From<u32> for WorkerResponseType {
             41 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure,
             42 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess,
             43 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure,
+            44 => WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess,
+            45 => WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputFailure,
+            46 => WorkerResponseType::RestoreThresholdEd25519WorkerMaterialSuccess,
+            47 => WorkerResponseType::RestoreThresholdEd25519WorkerMaterialFailure,
+            48 => WorkerResponseType::ValidateThresholdEd25519WorkerMaterialSuccess,
+            49 => WorkerResponseType::ValidateThresholdEd25519WorkerMaterialFailure,
+            50 => WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess,
+            51 => WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure,
+            52 => WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess,
+            53 => WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialFailure,
+            54 => WorkerResponseType::BurnThresholdEd25519WorkerMaterialSuccess,
+            55 => WorkerResponseType::BurnThresholdEd25519WorkerMaterialFailure,
+            56 => WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialSuccess,
+            57 => WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialFailure,
+            58 => WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialSuccess,
+            59 => WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialFailure,
+            60 => WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialSuccess,
+            61 => WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -424,6 +532,60 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure => {
             "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE_FAILURE"
+        }
+        WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess => {
+            "STORE_THRESHOLD_ED25519_WORKER_MATERIAL_FROM_HSS_OUTPUT_SUCCESS"
+        }
+        WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputFailure => {
+            "STORE_THRESHOLD_ED25519_WORKER_MATERIAL_FROM_HSS_OUTPUT_FAILURE"
+        }
+        WorkerResponseType::RestoreThresholdEd25519WorkerMaterialSuccess => {
+            "RESTORE_THRESHOLD_ED25519_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::RestoreThresholdEd25519WorkerMaterialFailure => {
+            "RESTORE_THRESHOLD_ED25519_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::ValidateThresholdEd25519WorkerMaterialSuccess => {
+            "VALIDATE_THRESHOLD_ED25519_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::ValidateThresholdEd25519WorkerMaterialFailure => {
+            "VALIDATE_THRESHOLD_ED25519_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess => {
+            "CREATE_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure => {
+            "CREATE_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess => {
+            "SIGN_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialFailure => {
+            "SIGN_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::BurnThresholdEd25519WorkerMaterialSuccess => {
+            "BURN_THRESHOLD_ED25519_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::BurnThresholdEd25519WorkerMaterialFailure => {
+            "BURN_THRESHOLD_ED25519_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialSuccess => {
+            "PUT_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialFailure => {
+            "PUT_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialSuccess => {
+            "READ_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialFailure => {
+            "READ_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL_FAILURE"
+        }
+        WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialSuccess => {
+            "DELETE_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL_SUCCESS"
+        }
+        WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialFailure => {
+            "DELETE_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL_FAILURE"
         }
     }
 }

@@ -25,12 +25,19 @@ import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/crypto/webauthn';
 import {
-  getStoredThresholdEd25519SessionRecordForAccount,
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   persistStoredThresholdEd25519SessionMaterialHandle,
+  type ThresholdEd25519SessionRecord,
+  upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import {
-  parseRouterAbEd25519SigningWalletSessionFromRecord,
+  classifyRouterAbEd25519PersistedSigningRecord,
+  markRouterAbEd25519WorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  listExactSealedSessionsForWallet,
+  type CurrentEd25519SealedSessionRecord,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
@@ -46,9 +53,11 @@ import {
 } from '@shared/utils/signingSessionSeal';
 import type {
   SigningSessionSurface,
+  ThresholdEd25519HssCeremonySurface,
   ThresholdEd25519HssClientSurface,
 } from '@/SeamsWeb/signingSurface/types';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
@@ -62,6 +71,14 @@ import type {
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import { resolveThresholdWarmSessionDefaults } from '@/SeamsWeb/operations/session/thresholdWarmSessionDefaults';
+import type { ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier } from '@/core/types/signer-worker';
+import { prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential } from '@/core/signingEngine/session/passkey/prfClaim';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import {
+  requireOrRestoreRouterAbEd25519WalletSessionState,
+  type RouterAbEd25519WorkerMaterialRestoreAuthorization,
+} from '@/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness';
+import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential } from '@/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization';
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
@@ -103,7 +120,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     nearAccountId?: string;
     rpId: string;
     relayerKeyId?: string;
-    sessionId: string;
+    thresholdSessionId: string;
     signingGrantId?: string;
     participantIds?: number[];
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -147,7 +164,7 @@ export type PersistRegisteredThresholdEd25519SessionArgs =
 
 type ThresholdWarmSessionRelayResult = {
   sessionKind?: string;
-  sessionId?: string;
+  thresholdSessionId?: string;
   signingGrantId?: string;
   expiresAtMs?: number;
   participantIds?: number[];
@@ -160,7 +177,12 @@ type ThresholdWarmSessionRelayResult = {
 export type ThresholdWarmSessionContext = {
   configs: SeamsConfigsReadonly;
   signingEngine: ThresholdEd25519HssClientSurface &
+    ThresholdEd25519HssCeremonySurface &
     Pick<SigningSessionSurface, 'hydrateSigningSession'>;
+};
+
+export type ThresholdEd25519WorkerMaterialRestoreContext = {
+  signingEngine: WorkerOperationContext;
 };
 
 export type ThresholdEd25519RegistrationHssContext = ThresholdEd25519HssCanonicalContext;
@@ -175,7 +197,388 @@ export type ThresholdEd25519RegistrationHssClientMaterial = {
   };
 };
 
-const thresholdEd25519ClientBasePrewarmBySessionId = new Map<string, Promise<void>>();
+export type RestoreThresholdEd25519WorkerMaterialFromCredentialResult =
+  | {
+      kind: 'already_loaded';
+      thresholdSessionId: string;
+      pendingReason?: never;
+    }
+  | {
+      kind: 'restored';
+      thresholdSessionId: string;
+      pendingReason?: never;
+    }
+  | {
+      kind: 'material_pending';
+      thresholdSessionId: string;
+      pendingReason: 'pending_material';
+    };
+
+function requireThresholdEd25519SessionRecordForWorkerMaterialRestore(args: {
+  thresholdSessionId: string;
+  nearAccountId: string;
+  signerSlot: number;
+}): ThresholdEd25519SessionRecord {
+  const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+    args.thresholdSessionId,
+  );
+  if (!record) {
+    throw new Error('[threshold-ed25519] worker material restore requires a stored session record');
+  }
+  if (String(record.nearAccountId || '').trim() !== args.nearAccountId) {
+    throw new Error('[threshold-ed25519] worker material restore account mismatch');
+  }
+  if (Math.floor(Number(record.signerSlot) || 0) !== args.signerSlot) {
+    throw new Error('[threshold-ed25519] worker material restore signer slot mismatch');
+  }
+  return record;
+}
+
+type RouterAbEd25519RestoreAvailableState = Extract<
+  ReturnType<typeof classifyRouterAbEd25519PersistedSigningRecord>,
+  { kind: 'restore_available' }
+>;
+
+function normalizedRestoreString(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function normalizedRestorePositiveInteger(value: unknown): number {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function restoreParticipantIdsEqual(left: readonly number[], right: readonly number[]): boolean {
+  const normalizedLeft = normalizeThresholdEd25519ParticipantIds(left);
+  const normalizedRight = normalizeThresholdEd25519ParticipantIds(right);
+  return Boolean(
+    normalizedLeft &&
+    normalizedRight &&
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((participantId, index) => participantId === normalizedRight[index]),
+  );
+}
+
+function ed25519RecordSigningRoot(record: ThresholdEd25519SessionRecord): {
+  signingRootId: string;
+  signingRootVersion: string;
+} {
+  const runtimePolicyScope = record.runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope)
+    : null;
+  return {
+    signingRootId:
+      normalizedRestoreString(record.signingRootId) ||
+      normalizedRestoreString(runtimePolicyScope?.signingRootId),
+    signingRootVersion:
+      normalizedRestoreString(record.signingRootVersion) ||
+      normalizedRestoreString(runtimePolicyScope?.signingRootVersion),
+  };
+}
+
+function sealedEd25519RestoreHasWorkerMaterial(record: CurrentEd25519SealedSessionRecord): boolean {
+  const restore = record.ed25519Restore;
+  return Boolean(
+    normalizedRestoreString(restore.clientVerifyingShareB64u) &&
+    normalizedRestoreString(restore.ed25519WorkerMaterialBindingDigest) &&
+    normalizedRestoreString(restore.sealedWorkerMaterialRef) &&
+    normalizedRestoreString(restore.sealedWorkerMaterialB64u) &&
+    normalizedRestoreString(restore.materialFormatVersion) &&
+    normalizedRestoreString(restore.materialKeyId) &&
+    normalizedRestorePositiveInteger(restore.materialCreatedAtMs) &&
+    normalizedRestorePositiveInteger(restore.signerSlot) &&
+    normalizedRestoreString(restore.keyVersion),
+  );
+}
+
+function sealedEd25519RestoreMatchesCurrentRecord(args: {
+  current: ThresholdEd25519SessionRecord;
+  sealed: CurrentEd25519SealedSessionRecord;
+}): boolean {
+  const current = args.current;
+  const sealed = args.sealed;
+  const restore = sealed.ed25519Restore;
+  const signingRoot = ed25519RecordSigningRoot(current);
+  if (normalizedRestoreString(sealed.walletId) !== normalizedRestoreString(current.nearAccountId)) {
+    return false;
+  }
+  if (normalizedRestoreString(sealed.signingRootId) !== signingRoot.signingRootId) return false;
+  if (normalizedRestoreString(sealed.signingRootVersion) !== signingRoot.signingRootVersion) {
+    return false;
+  }
+  if (normalizedRestoreString(restore.rpId) !== normalizedRestoreString(current.rpId)) {
+    return false;
+  }
+  if (
+    normalizedRestoreString(restore.relayerKeyId) !== normalizedRestoreString(current.relayerKeyId)
+  ) {
+    return false;
+  }
+  if (!restoreParticipantIdsEqual(restore.participantIds, current.participantIds)) return false;
+  if (
+    normalizedRestorePositiveInteger(restore.signerSlot) !==
+    normalizedRestorePositiveInteger(current.signerSlot)
+  ) {
+    return false;
+  }
+  const currentSigningWorkerId = normalizedRestoreString(
+    current.routerAbNormalSigning?.signingWorkerId,
+  );
+  const sealedSigningWorkerId = normalizedRestoreString(
+    restore.routerAbNormalSigning?.signingWorkerId,
+  );
+  return Boolean(
+    currentSigningWorkerId &&
+    sealedSigningWorkerId &&
+    currentSigningWorkerId === sealedSigningWorkerId,
+  );
+}
+
+function mostRecentEd25519SealedSessionRecord(
+  records: CurrentEd25519SealedSessionRecord[],
+): CurrentEd25519SealedSessionRecord | null {
+  return (
+    [...records].sort(
+      (left, right) =>
+        normalizedRestorePositiveInteger(right.updatedAtMs) -
+        normalizedRestorePositiveInteger(left.updatedAtMs),
+    )[0] || null
+  );
+}
+
+async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
+  record: ThresholdEd25519SessionRecord,
+): Promise<ThresholdEd25519SessionRecord | null> {
+  const records = await listExactSealedSessionsForWallet({
+    walletId: record.nearAccountId,
+    filter: {
+      authMethod: 'passkey',
+      curve: 'ed25519',
+    },
+  });
+  const matchingRecords = records.filter(
+    (sealedRecord): sealedRecord is CurrentEd25519SealedSessionRecord =>
+      sealedRecord.curve === 'ed25519' &&
+      sealedEd25519RestoreHasWorkerMaterial(sealedRecord) &&
+      sealedEd25519RestoreMatchesCurrentRecord({ current: record, sealed: sealedRecord }),
+  );
+  const selected = mostRecentEd25519SealedSessionRecord(matchingRecords);
+  if (!selected) return null;
+  const restore = selected.ed25519Restore;
+  const signingRoot = ed25519RecordSigningRoot(record);
+  return upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: record.nearAccountId,
+    rpId: record.rpId,
+    relayerUrl: record.relayerUrl,
+    relayerKeyId: record.relayerKeyId,
+    participantIds: record.participantIds,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
+    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    clientVerifyingShareB64u: normalizedRestoreString(restore.clientVerifyingShareB64u),
+    ed25519WorkerMaterialBindingDigest: normalizedRestoreString(
+      restore.ed25519WorkerMaterialBindingDigest,
+    ),
+    sealedWorkerMaterialRef: normalizedRestoreString(restore.sealedWorkerMaterialRef),
+    sealedWorkerMaterialB64u: normalizedRestoreString(restore.sealedWorkerMaterialB64u),
+    materialFormatVersion: normalizedRestoreString(restore.materialFormatVersion),
+    materialKeyId: normalizedRestoreString(restore.materialKeyId),
+    materialCreatedAtMs: normalizedRestorePositiveInteger(restore.materialCreatedAtMs),
+    signerSlot: normalizedRestorePositiveInteger(restore.signerSlot),
+    keyVersion: normalizedRestoreString(restore.keyVersion),
+    ...(record.routerAbNormalSigning
+      ? { routerAbNormalSigning: record.routerAbNormalSigning }
+      : {}),
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: record.thresholdSessionId,
+    ...(record.signingGrantId ? { signingGrantId: record.signingGrantId } : {}),
+    walletSessionJwt: record.walletSessionJwt,
+    expiresAtMs: record.expiresAtMs,
+    remainingUses: record.remainingUses,
+    updatedAtMs: Date.now(),
+    source: record.source,
+  });
+}
+
+async function requireThresholdEd25519KeyMaterialForWorkerMaterialRestore(args: {
+  nearAccountId: string;
+  signerSlot: number;
+}): Promise<ThresholdEd25519KeyMaterial> {
+  const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+    {
+      clientDB: IndexedDBManager,
+      keyMaterialStore: IndexedDBManager,
+    },
+    toAccountId(args.nearAccountId),
+    args.signerSlot,
+  ).catch(() => null);
+  if (!thresholdKeyMaterial) {
+    throw new Error('[threshold-ed25519] worker material restore requires threshold key material');
+  }
+  return thresholdKeyMaterial;
+}
+
+async function restoreAvailableThresholdEd25519WorkerMaterialFromCredential(args: {
+  context: ThresholdEd25519WorkerMaterialRestoreContext;
+  credential: WebAuthnAuthenticationCredential;
+  nearAccountId: string;
+  signerSlot: number;
+  thresholdSessionId: string;
+  state: RouterAbEd25519RestoreAvailableState;
+}): Promise<RestoreThresholdEd25519WorkerMaterialFromCredentialResult> {
+  const thresholdKeyMaterial = await requireThresholdEd25519KeyMaterialForWorkerMaterialRestore({
+    nearAccountId: args.nearAccountId,
+    signerSlot: args.signerSlot,
+  });
+  const restoreAuthorization =
+    await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential({
+      ctx: args.context.signingEngine,
+      record: args.state.record,
+      credential: args.credential,
+    });
+  await requireOrRestoreRouterAbEd25519WalletSessionState({
+    ctx: args.context.signingEngine,
+    signingSessionCoordinator: createWarmSessionCapabilityReader(),
+    thresholdSessionId: args.thresholdSessionId,
+    operation: 'wallet_unlock',
+    nearAccountId: args.nearAccountId,
+    thresholdKeyMaterial,
+    restoreAuthorization,
+  });
+  return {
+    kind: 'restored',
+    thresholdSessionId: args.thresholdSessionId,
+  };
+}
+
+async function validateOrRestoreSignableThresholdEd25519WorkerMaterialFromCredential(args: {
+  context: ThresholdEd25519WorkerMaterialRestoreContext;
+  credential: WebAuthnAuthenticationCredential;
+  nearAccountId: string;
+  signerSlot: number;
+  thresholdSessionId: string;
+  record: ThresholdEd25519SessionRecord;
+}): Promise<RestoreThresholdEd25519WorkerMaterialFromCredentialResult> {
+  const thresholdKeyMaterial = await requireThresholdEd25519KeyMaterialForWorkerMaterialRestore({
+    nearAccountId: args.nearAccountId,
+    signerSlot: args.signerSlot,
+  });
+  const restoreAuthorization =
+    await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential({
+      ctx: args.context.signingEngine,
+      record: args.record,
+      credential: args.credential,
+    });
+  await requireOrRestoreRouterAbEd25519WalletSessionState({
+    ctx: args.context.signingEngine,
+    signingSessionCoordinator: createWarmSessionCapabilityReader(),
+    thresholdSessionId: args.thresholdSessionId,
+    operation: 'wallet_unlock',
+    nearAccountId: args.nearAccountId,
+    thresholdKeyMaterial,
+    restoreAuthorization,
+  });
+  return {
+    kind: 'already_loaded',
+    thresholdSessionId: args.thresholdSessionId,
+  };
+}
+
+export async function restoreThresholdEd25519WorkerMaterialFromCredential(args: {
+  context: ThresholdEd25519WorkerMaterialRestoreContext;
+  credential: WebAuthnAuthenticationCredential;
+  nearAccountId: AccountId;
+  signerSlot: number;
+  thresholdSessionId: string;
+}): Promise<RestoreThresholdEd25519WorkerMaterialFromCredentialResult> {
+  const nearAccountId = String(args.nearAccountId || '').trim();
+  const signerSlot = Number(args.signerSlot);
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!nearAccountId || !thresholdSessionId) {
+    throw new Error('[threshold-ed25519] worker material restore requires account and session ids');
+  }
+  if (!Number.isInteger(signerSlot) || signerSlot <= 0) {
+    throw new Error('[threshold-ed25519] worker material restore requires a valid signer slot');
+  }
+
+  const record = requireThresholdEd25519SessionRecordForWorkerMaterialRestore({
+    thresholdSessionId,
+    nearAccountId,
+    signerSlot,
+  });
+  const signingSessionState = classifyRouterAbEd25519PersistedSigningRecord(record);
+  switch (signingSessionState.kind) {
+    case 'runtime_validated':
+      return await validateOrRestoreSignableThresholdEd25519WorkerMaterialFromCredential({
+        context: args.context,
+        credential: args.credential,
+        nearAccountId,
+        signerSlot,
+        thresholdSessionId,
+        record: signingSessionState.record,
+      });
+    case 'material_hint_unvalidated': {
+      const thresholdKeyMaterial =
+        await requireThresholdEd25519KeyMaterialForWorkerMaterialRestore({
+          nearAccountId,
+          signerSlot,
+        });
+      await requireOrRestoreRouterAbEd25519WalletSessionState({
+        ctx: args.context.signingEngine,
+        signingSessionCoordinator: createWarmSessionCapabilityReader(),
+        thresholdSessionId,
+        operation: 'wallet_unlock',
+        nearAccountId,
+        thresholdKeyMaterial,
+        restoreAuthorization: { kind: 'unseal_authorization_unavailable' },
+      });
+      return {
+        kind: 'already_loaded',
+        thresholdSessionId,
+      };
+    }
+    case 'auth_ready_material_pending':
+      {
+        const hydrated = await hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
+          signingSessionState.record,
+        );
+        const hydratedState = classifyRouterAbEd25519PersistedSigningRecord(hydrated);
+        if (hydratedState.kind === 'restore_available') {
+          return await restoreAvailableThresholdEd25519WorkerMaterialFromCredential({
+            context: args.context,
+            credential: args.credential,
+            nearAccountId,
+            signerSlot,
+            thresholdSessionId,
+            state: hydratedState,
+          });
+        }
+      }
+      return {
+        kind: 'material_pending',
+        thresholdSessionId,
+        pendingReason: 'pending_material',
+      };
+    case 'restore_available':
+      return await restoreAvailableThresholdEd25519WorkerMaterialFromCredential({
+        context: args.context,
+        credential: args.credential,
+        nearAccountId,
+        signerSlot,
+        thresholdSessionId,
+        state: signingSessionState,
+      });
+    case 'non_signing':
+    case 'invalid':
+      throw new Error(
+        `[threshold-ed25519] worker material restore requires Router A/B signable session state: ${signingSessionState.reason}`,
+      );
+    default: {
+      const exhaustive: never = signingSessionState;
+      return exhaustive;
+    }
+  }
+}
 
 function parsePositiveInt(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value);
@@ -233,9 +636,9 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
   relayerKeyId?: string;
 }): ThresholdWarmSessionRequestEnvelope {
   const rpId = String(args.rpId || '').trim();
-  const sessionId = String(args.requestedPolicy.sessionId || '').trim();
-  if (!rpId || !sessionId) {
-    throw new Error('Threshold warm-session request is missing rpId or sessionId');
+  const thresholdSessionId = String(args.requestedPolicy.sessionId || '').trim();
+  if (!rpId || !thresholdSessionId) {
+    throw new Error('Threshold warm-session request is missing rpId or thresholdSessionId');
   }
   return {
     session_policy: {
@@ -243,7 +646,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       ...(args.nearAccountId ? { nearAccountId: String(args.nearAccountId || '').trim() } : {}),
       rpId,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
-      sessionId,
+      thresholdSessionId,
       ...(args.requestedPolicy.signingGrantId
         ? { signingGrantId: args.requestedPolicy.signingGrantId }
         : {}),
@@ -460,24 +863,26 @@ export function completeRegisteredThresholdEd25519Registration(args: {
   const sessionKind = String(session?.sessionKind || '')
     .trim()
     .toLowerCase();
-  const sessionId = String(session?.sessionId || '').trim();
+  const thresholdSessionId = String(session?.thresholdSessionId || '').trim();
   const walletSessionJwt = String(session?.jwt || '').trim();
   const expiresAtMs = Number(session?.expiresAtMs);
   if (
     sessionKind !== 'jwt' ||
-    !sessionId ||
+    !thresholdSessionId ||
     !walletSessionJwt ||
     !Number.isFinite(expiresAtMs) ||
     expiresAtMs <= 0
   ) {
     throw new Error('Registration did not return a valid threshold-ed25519 warm session');
   }
-  if (sessionId !== String(args.expectedSessionPolicy.sessionId || '').trim()) {
-    throw new Error('threshold-ed25519 sessionId mismatch');
+  if (thresholdSessionId !== String(args.expectedSessionPolicy.thresholdSessionId || '').trim()) {
+    throw new Error('threshold-ed25519 thresholdSessionId mismatch');
   }
   const signingGrantId = String(session?.signingGrantId || '').trim();
   const expectedSigningGrantId = String(
-    args.expectedSessionPolicy.signingGrantId || args.expectedSessionPolicy.sessionId || '',
+    args.expectedSessionPolicy.signingGrantId ||
+      args.expectedSessionPolicy.thresholdSessionId ||
+      '',
   ).trim();
   if (signingGrantId && signingGrantId !== expectedSigningGrantId) {
     throw new Error('threshold-ed25519 signingGrantId mismatch');
@@ -601,12 +1006,12 @@ export async function persistRegisteredThresholdEd25519Session(
   if (!session) {
     throw new Error('Threshold Ed25519 warm session missing from registration response');
   }
-  const sessionId = String(session.sessionId || '').trim();
+  const sessionId = String(session.thresholdSessionId || '').trim();
   const jwt = String(session.jwt || '').trim();
   const signingGrantId =
     String(session.signingGrantId || '').trim() ||
     String(args.registrationSessionPolicy.signingGrantId || '').trim() ||
-    String(args.registrationSessionPolicy.sessionId || '').trim();
+    String(args.registrationSessionPolicy.thresholdSessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const remainingUsesRaw =
     typeof session.remainingUses === 'number'
@@ -673,6 +1078,7 @@ export async function persistRegisteredThresholdEd25519Session(
       expiresAtMs,
       remainingUses,
       jwt,
+      signerSlot: args.signerSlot,
       emailOtpAuthContext: args.auth.emailOtpAuthContext,
       source: 'email_otp',
     };
@@ -701,6 +1107,7 @@ export async function persistRegisteredThresholdEd25519Session(
       expiresAtMs,
       remainingUses,
       jwt,
+      signerSlot: args.signerSlot,
       source: 'registration',
     };
     if (runtimePolicyScope) {
@@ -737,17 +1144,20 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   context: ThresholdWarmSessionContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
   nearAccountId: AccountId;
+  rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
+  signerSlot: number;
   session: ThresholdWarmSessionRelayResult;
   keyVersion: string;
+  materialCreatedAtMs: number;
   participantIdsHint?: number[];
 }): Promise<{
   materialHandle: string;
   bindingDigest: string;
   clientVerifyingShareB64u: string;
 }> {
-  const thresholdSessionId = String(args.session.sessionId || '').trim();
+  const thresholdSessionId = String(args.session.thresholdSessionId || '').trim();
   const walletSessionJwt = String(args.session.jwt || '').trim();
   if (!thresholdSessionId || !walletSessionJwt) {
     throw new Error('Threshold Ed25519 warm session is missing JWT session state');
@@ -776,12 +1186,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   const signingGrantId = String(args.session.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(args.session.expiresAtMs));
   const signingWorkerId = String(args.session.routerAbNormalSigning?.signingWorkerId || '').trim();
-  if (
-    !signingGrantId ||
-    !signingRootVersion ||
-    !Number.isFinite(expiresAtMs) ||
-    expiresAtMs <= 0
-  ) {
+  if (!signingGrantId || !signingRootVersion || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('Threshold Ed25519 warm-session reconstruction is missing session binding');
   }
   if (!signingWorkerId) {
@@ -808,6 +1213,43 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
       prepared.message || 'Failed to prepare threshold Ed25519 HSS reconstruction ceremony',
     );
   }
+  const materialBinding = {
+    thresholdSessionId,
+    signingGrantId,
+    signingRootId,
+    signingRootVersion,
+    expiresAtMs,
+    nearAccountId: String(args.nearAccountId || '').trim(),
+    signerSlot: args.signerSlot,
+    relayerKeyId,
+    keyVersion,
+    participantIds,
+    createdAtMs: args.materialCreatedAtMs,
+    signingWorkerId,
+  };
+  const bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier = {
+    nearAccountId: materialBinding.nearAccountId,
+    signerSlot: materialBinding.signerSlot,
+    signingRootId: materialBinding.signingRootId,
+    signingRootVersion: materialBinding.signingRootVersion,
+    relayerKeyId: materialBinding.relayerKeyId,
+    keyVersion: materialBinding.keyVersion,
+    participantIds: materialBinding.participantIds,
+    createdAtMs: materialBinding.createdAtMs,
+  };
+  const preparedSealAuthorization =
+    await prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential({
+      authorizationPort: {
+        prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: (authorizationArgs) =>
+          args.context.signingEngine.prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
+            authorizationArgs,
+          ),
+      },
+      bindingInput,
+      rpId: args.rpId,
+      credential: args.credential,
+      expiresAtMs,
+    });
   const completed =
     await args.context.signingEngine.runThresholdEd25519HssCeremonyWithMaterialHandle({
       relayerUrl,
@@ -831,17 +1273,8 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
         kind: 'client-masked-projection',
         clientRecoverableSecretB64u: prfFirstB64u,
       },
-      materialBinding: {
-        thresholdSessionId,
-        signingGrantId,
-        signingRootId,
-        signingRootVersion,
-        expiresAtMs,
-        nearAccountId: String(args.nearAccountId || '').trim(),
-        relayerKeyId,
-        participantIds,
-        signingWorkerId,
-      },
+      materialBinding,
+      preparedSealAuthorization,
     });
   if (!completed.ok) {
     throw new Error(
@@ -856,125 +1289,27 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   const persisted = persistStoredThresholdEd25519SessionMaterialHandle({
     thresholdSessionId,
     clientVerifyingShareB64u,
-    ed25519HssMaterialHandle: signingMaterial.materialHandle,
-    ed25519HssMaterialBindingDigest: signingMaterial.bindingDigest,
+    ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
+    ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
+    sealedWorkerMaterialRef: signingMaterial.sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u: signingMaterial.sealedWorkerMaterialB64u,
+    materialFormatVersion: signingMaterial.materialFormatVersion,
+    materialKeyId: signingMaterial.materialKeyId,
+    materialCreatedAtMs: materialBinding.createdAtMs,
+    signerSlot: signingMaterial.signerSlot,
+    keyVersion: signingMaterial.keyVersion,
   });
   if (!persisted) {
     throw new Error('Failed to persist HSS client output to the threshold session store');
   }
+  markRouterAbEd25519WorkerMaterialRuntimeValidated(
+    getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
+  );
   return {
     materialHandle: signingMaterial.materialHandle,
-    bindingDigest: signingMaterial.bindingDigest,
+    bindingDigest: signingMaterial.materialBindingDigest,
     clientVerifyingShareB64u,
   };
-}
-
-export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
-  context: ThresholdWarmSessionContext;
-  credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-  nearAccountId: AccountId;
-  signerSlot: number;
-}): Promise<void> {
-  const nearAccountId = String(args.nearAccountId || '').trim();
-  const signerSlot = Number(args.signerSlot);
-  if (!nearAccountId) {
-    throw new Error('[threshold-ed25519] material prewarm requires nearAccountId');
-  }
-  if (!Number.isInteger(signerSlot) || signerSlot <= 0) {
-    throw new Error('[threshold-ed25519] material prewarm requires a valid signer slot');
-  }
-
-  const sessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-  if (!sessionRecord) {
-    throw new Error('[threshold-ed25519] material prewarm requires a stored session record');
-  }
-  const signingSessionState = parseRouterAbEd25519SigningWalletSessionFromRecord(sessionRecord);
-  if (signingSessionState.ok) {
-    return;
-  }
-  if (
-    signingSessionState.reason !== 'missing_material_handle' &&
-    signingSessionState.reason !== 'missing_material_binding_digest' &&
-    signingSessionState.reason !== 'missing_client_verifying_share'
-  ) {
-    throw new Error(
-      `[threshold-ed25519] material prewarm requires signable Router A/B Wallet Session state: ${signingSessionState.reason}`,
-    );
-  }
-
-  const thresholdSessionId = String(sessionRecord.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) {
-    throw new Error('[threshold-ed25519] material prewarm requires thresholdSessionId');
-  }
-
-  const existingTask = thresholdEd25519ClientBasePrewarmBySessionId.get(thresholdSessionId);
-  if (existingTask) {
-    await existingTask;
-    return;
-  }
-
-  const task = (async (): Promise<void> => {
-    const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
-      {
-        clientDB: IndexedDBManager,
-        keyMaterialStore: IndexedDBManager,
-      },
-      toAccountId(nearAccountId),
-      signerSlot,
-    ).catch(() => null);
-    if (!thresholdKeyMaterial) {
-      throw new Error('[threshold-ed25519] material prewarm requires threshold key material');
-    }
-
-    const walletSessionAuth = createWarmSessionCapabilityReader().resolveEd25519AuthByThresholdSessionId(
-      thresholdSessionId,
-    );
-    const walletSessionRecord = walletSessionAuth?.record || null;
-    const walletSessionJwt =
-      walletSessionRecord &&
-      String(walletSessionRecord.nearAccountId || '') === nearAccountId &&
-      String(walletSessionRecord.thresholdSessionId || '') === thresholdSessionId
-        ? String(walletSessionAuth?.walletSessionJwt || '').trim()
-        : '';
-    if (!walletSessionJwt) {
-      throw new Error('[threshold-ed25519] material prewarm requires Wallet Session JWT');
-    }
-    if (!sessionRecord.runtimePolicyScope) {
-      throw new Error('[threshold-ed25519] material prewarm requires runtime policy scope');
-    }
-
-    const startedAt = performance.now();
-    await reconstructThresholdEd25519SigningMaterialFromWarmSession({
-      context: args.context,
-      credential: args.credential,
-      nearAccountId,
-      relayerUrl: sessionRecord.relayerUrl,
-      relayerKeyId: sessionRecord.relayerKeyId || thresholdKeyMaterial.relayerKeyId,
-      session: {
-        sessionKind: 'jwt',
-        sessionId: sessionRecord.thresholdSessionId,
-        expiresAtMs: sessionRecord.expiresAtMs,
-        participantIds: sessionRecord.participantIds,
-        remainingUses: sessionRecord.remainingUses,
-        jwt: walletSessionJwt,
-        runtimePolicyScope: sessionRecord.runtimePolicyScope,
-        signingGrantId: sessionRecord.signingGrantId,
-        routerAbNormalSigning: sessionRecord.routerAbNormalSigning,
-      },
-      keyVersion: thresholdKeyMaterial.keyVersion,
-      participantIdsHint: thresholdKeyMaterial.participants.map((participant) => participant.id),
-    });
-    console.debug('[threshold-ed25519] client material prewarm complete', {
-      nearAccountId,
-      thresholdSessionId,
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-  })().finally(() => {
-    thresholdEd25519ClientBasePrewarmBySessionId.delete(thresholdSessionId);
-  });
-
-  thresholdEd25519ClientBasePrewarmBySessionId.set(thresholdSessionId, task);
-  await task;
 }
 
 export async function hydrateThresholdWarmSessionFromRelay(args: {
@@ -984,6 +1319,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   rpId: string;
   relayerKeyId: string;
   credential: WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential;
+  signerSlot: number;
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
   session: ThresholdWarmSessionRelayResult;
   participantIdsHint?: number[];
@@ -1001,7 +1337,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   }
 
   const sessionId =
-    String(args.session?.sessionId || '').trim() ||
+    String(args.session?.thresholdSessionId || '').trim() ||
     String(args.requestedPolicy.sessionId || '').trim();
   const signingGrantId =
     String(args.session?.signingGrantId || '').trim() ||
@@ -1052,6 +1388,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
     jwt: walletSessionJwt,
+    signerSlot: args.signerSlot,
     ...(signingRootId ? { signingRootId } : {}),
     ...(signingRootVersion ? { signingRootVersion } : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

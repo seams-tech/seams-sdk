@@ -12,11 +12,7 @@ import { createWarmSessionStatusReader } from '@/core/signingEngine/session/warm
 import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionCapabilityReader,
-  WarmSessionProvisioner,
 } from '@/core/signingEngine/session/warmCapabilities/types';
-import { claimPasskeyEcdsaPrfFirst } from '@/core/signingEngine/session/passkey/ecdsaRecovery';
-import { claimPasskeyEd25519PrfFirst } from '@/core/signingEngine/session/passkey/ed25519Recovery';
-import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import type {
   WarmSessionPersistedRestorer,
   WarmSessionStatusResult,
@@ -45,9 +41,7 @@ import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  classifyRouterAbEd25519PersistedSigningRecord,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 export type NearSigningSessionAuthPlan = {
   sessionId: string;
@@ -81,7 +75,7 @@ type NearEd25519Capability = Awaited<
 
 export function createNearSigningSessionCoordinator(
   touchConfirm: NearSigningSessionCoordinatorPort,
-): NearWarmSessionReader & Pick<WarmSessionProvisioner, 'claimPrfFirstByThresholdSessionId'> {
+): NearWarmSessionReader {
   const getEmailOtpWarmSessionStatus = async (
     sessionId: string,
   ): Promise<WarmSessionStatusResult> => {
@@ -110,64 +104,6 @@ export function createNearSigningSessionCoordinator(
             touchConfirm.restorePersistedSessionForSigning.bind(touchConfirm),
         }
       : {}),
-    claimPrfFirstByThresholdSessionId: async (claimArgs) => {
-      let consume = claimArgs.consume;
-      if (typeof consume !== 'boolean') {
-        if (claimArgs.kind === 'threshold_only_claim') {
-          consume = true;
-        } else {
-          const statusBeforeRestore = await touchConfirm
-            ?.getWarmSessionStatus?.({ sessionId: claimArgs.thresholdSessionId })
-            .catch(() => null);
-          // Restoring from a durable seal removes the server seal and spends one
-          // trusted use. In that case the immediate PRF claim must only read the
-          // freshly rehydrated material; hot in-memory claims still spend locally.
-          consume = statusBeforeRestore?.ok === true;
-        }
-      }
-      switch (claimArgs.kind) {
-        case 'threshold_only_claim':
-          return await claimWarmSessionPrfFirst({
-            touchConfirm,
-            thresholdSessionId: claimArgs.thresholdSessionId,
-            errorContext: claimArgs.errorContext,
-            uses: claimArgs.uses,
-            consume,
-          });
-        case 'wallet_scoped_ecdsa_claim':
-          return await claimPasskeyEcdsaPrfFirst({
-            touchConfirm,
-            walletId: claimArgs.walletId,
-            signingGrantId: claimArgs.signingGrantId,
-            thresholdSessionId: claimArgs.thresholdSessionId,
-            chainTarget: claimArgs.chainTarget,
-            errorContext: claimArgs.errorContext,
-            uses: claimArgs.uses,
-            consume,
-          });
-        case 'wallet_scoped_ed25519_claim':
-          if (claimArgs.authMethod === 'email_otp') {
-            return await claimWarmSessionPrfFirst({
-              touchConfirm,
-              thresholdSessionId: claimArgs.thresholdSessionId,
-              errorContext: claimArgs.errorContext,
-              uses: claimArgs.uses,
-              consume,
-              curve: 'ed25519',
-              chain: 'near',
-            });
-          }
-          return await claimPasskeyEd25519PrfFirst({
-            touchConfirm,
-            walletId: claimArgs.walletId,
-            signingGrantId: claimArgs.signingGrantId,
-            thresholdSessionId: claimArgs.thresholdSessionId,
-            errorContext: claimArgs.errorContext,
-            uses: claimArgs.uses,
-            consume,
-          });
-      }
-    },
   };
 }
 
@@ -188,9 +124,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
   const isEmailOtpSession = record?.source === 'email_otp';
   const signingGrantId = String(record?.signingGrantId || '').trim();
   if (!signingGrantId) {
-    throw new Error(
-      '[SigningEngine][near] missing wallet signing session id for transaction auth planning',
-    );
+    throw new Error('[SigningEngine][near] missing signing grant id for transaction auth planning');
   }
   const lane =
     record?.source === 'email_otp'
@@ -230,6 +164,9 @@ export async function resolveNearSigningSessionAuthContext(args: {
       phase: 'pre_confirm',
     }),
   );
+  const persistedRecordState = classifyRouterAbEd25519PersistedSigningRecord(record);
+  const emailOtpMaterialNeedsFreshAuth =
+    persistedRecordState.kind === 'auth_ready_material_pending';
   const coordinatorInput = {
     lane,
     readiness: readiness.readiness,
@@ -240,9 +177,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
       isEmailOtpSession &&
       capability.state === 'ready' &&
       capability.prfClaim?.state !== 'warm' &&
-      (!String(record?.ed25519HssMaterialHandle || '').trim() ||
-        !String(record?.ed25519HssMaterialBindingDigest || '').trim() ||
-        !String(record?.clientVerifyingShareB64u || '').trim()),
+      emailOtpMaterialNeedsFreshAuth,
   };
   return {
     sessionId,
@@ -325,11 +260,10 @@ async function resolvePlannerReadinessForEd25519(args: {
   let isEmailOtpSession = capability.record?.source === 'email_otp';
   const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(args.sessionId);
   const hasSignableEd25519Record = (state: NearEd25519Capability): boolean =>
-    classifyRouterAbEd25519PersistedSigningRecord(state.record).kind === 'signable';
+    classifyRouterAbEd25519PersistedSigningRecord(state.record).kind === 'runtime_validated';
   const resolveExpiresAtMs = (): number =>
     Math.floor(
-      Number(capability.prfClaim?.expiresAtMs ?? capability.record?.expiresAtMs) ||
-        Date.now(),
+      Number(capability.prfClaim?.expiresAtMs ?? capability.record?.expiresAtMs) || Date.now(),
     );
   const resolveRemainingUses = (): number =>
     Math.max(

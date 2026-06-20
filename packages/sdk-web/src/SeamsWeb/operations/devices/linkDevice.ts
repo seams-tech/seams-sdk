@@ -120,15 +120,13 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
     rpId: requireLinkDeviceString(value.rpId, 'rpId'),
     ecdsaThresholdKeyId: requireLinkDeviceString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
     signingRootId: signingRootScope.signingRootId,
-    signingRootVersion: signingRootScope.signingRootVersion || runtimePolicyScope.signingRootVersion,
+    signingRootVersion:
+      signingRootScope.signingRootVersion || runtimePolicyScope.signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId: requireLinkDeviceString(value.relayerKeyId, 'relayerKeyId'),
     requestId: requireLinkDeviceString(value.requestId, 'requestId'),
-    sessionId: requireLinkDeviceString(value.sessionId, 'sessionId'),
-    signingGrantId: requireLinkDeviceString(
-      value.signingGrantId,
-      'signingGrantId',
-    ),
+    thresholdSessionId: requireLinkDeviceString(value.thresholdSessionId, 'thresholdSessionId'),
+    signingGrantId: requireLinkDeviceString(value.signingGrantId, 'signingGrantId'),
     ttlMs: coercePositiveInt(value.ttlMs, 1),
     remainingUses: coercePositiveInt(value.remainingUses, 1),
     participantIds,
@@ -619,15 +617,14 @@ export class LinkDeviceFlow {
       delayMs: 500,
       finality: 'optimistic',
     });
-    const signed =
-      await this.context.signingEngine.signTransactionWithKeyPair({
-        nearPrivateKey: session.tempPrivateKey,
-        signerAccountId: String(nearAccountId),
-        receiverId: String(nearAccountId),
-        nonce: txContext.nextNonce,
-        blockHash: txContext.blockHash,
-        actions,
-      });
+    const signed = await this.context.signingEngine.signTransactionWithKeyPair({
+      nearPrivateKey: session.tempPrivateKey,
+      signerAccountId: String(nearAccountId),
+      receiverId: String(nearAccountId),
+      nonce: txContext.nextNonce,
+      blockHash: txContext.blockHash,
+      actions,
+    });
     await this.context.nearClient.sendTransaction(
       signed.signedTransaction,
       DEFAULT_WAIT_STATUS.linkDeviceSwapKey,
@@ -648,6 +645,7 @@ export class LinkDeviceFlow {
       thresholdSection,
       'link-device/prepare',
     );
+    const thresholdKeyMaterialCreatedAtMs = Date.now();
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
       signerSlot: resolvedSignerSlot,
@@ -662,7 +660,7 @@ export class LinkDeviceFlow {
         ? Math.floor(Number(thresholdSection.relayerParticipantId))
         : null,
       relayerUrl,
-      timestamp: Date.now(),
+      timestamp: thresholdKeyMaterialCreatedAtMs,
     });
     await hydrateThresholdWarmSessionFromRelay({
       context: this.context,
@@ -671,6 +669,7 @@ export class LinkDeviceFlow {
       rpId,
       relayerKeyId,
       credential,
+      signerSlot: resolvedSignerSlot,
       requestedPolicy: thresholdWarmPolicy,
       session: thresholdSession,
       participantIdsHint: Array.isArray(thresholdSection.participantIds)
@@ -681,10 +680,13 @@ export class LinkDeviceFlow {
       context: this.context,
       credential,
       nearAccountId,
+      rpId,
       relayerUrl,
       relayerKeyId,
       session: thresholdSession,
       keyVersion: thresholdKeyVersion,
+      signerSlot: resolvedSignerSlot,
+      materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
       participantIdsHint: Array.isArray(thresholdSection.participantIds)
         ? thresholdSection.participantIds
         : undefined,
@@ -693,13 +695,14 @@ export class LinkDeviceFlow {
       if (!primaryEcdsaProvisionTarget) {
         throw new Error('link-device/prepare did not resolve an ECDSA chain target');
       }
-      const preparedClientBootstrap =
-        await this.context.signingEngine.preparePasskeyEcdsaBootstrap({
+      const preparedClientBootstrap = await this.context.signingEngine.preparePasskeyEcdsaBootstrap(
+        {
           prepare: ecdsaPrepare,
           chainTarget: primaryEcdsaProvisionTarget.chainTarget,
           passkeyPrfFirstB64u,
           credentialIdB64u: String(credential.rawId || credential.id || '').trim(),
-        });
+        },
+      );
       const clientBootstrap: WalletRegistrationEcdsaClientBootstrap =
         preparedClientBootstrap.clientBootstrap;
       const ecdsaResp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/ecdsa/respond'), {
@@ -867,8 +870,7 @@ export class LinkDeviceFlow {
       const sessionId = secureRandomId('ldsess', 32, 'link device session IDs');
 
       const signerSlot = coerceSignerSlot(this.options?.signerSlot ?? 2);
-      const tempKeypair =
-        await this.context.signingEngine.generateEphemeralNearKeypair();
+      const tempKeypair = await this.context.signingEngine.generateEphemeralNearKeypair();
 
       this.session = {
         sessionId,

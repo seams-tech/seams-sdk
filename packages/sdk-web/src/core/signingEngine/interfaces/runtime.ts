@@ -1,6 +1,6 @@
 import type { AccountKeyMaterialStorePort } from '@/core/indexedDB/accountKeyMaterial';
 import type { LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
-import type { ProfileAccountContextPort } from '@/core/indexedDB/profileAccountProjection';
+import type { NearAccountClientDbPort } from '@/core/accountData/near/accountProjection';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
@@ -14,7 +14,7 @@ import type {
   SignerWorkerOperationType,
 } from '../workerManager/workerTypes';
 
-export type NearSigningKeyMaterialStorePort = ProfileAccountContextPort &
+export type NearSigningKeyMaterialStorePort = NearAccountClientDbPort &
   AccountKeyMaterialStorePort & {
     getLastProfileState: () => Promise<LastProfileState | null>;
   };

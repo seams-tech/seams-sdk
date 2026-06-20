@@ -10,12 +10,36 @@ import {
   type ThresholdEd25519BuildDelegateSigningPayloadResult,
   type ThresholdEd25519ClientPresignCreateResult,
   type ThresholdEd25519ClientPresignSignResult,
-  type ThresholdEd25519StoreHssMaterialResult,
-  type ThresholdEd25519ValidateHssMaterialResult,
+  type ThresholdEd25519RoleSeparatedNormalSigningClientShareResult,
+  type ThresholdEd25519DeleteSealedWorkerMaterialRequest,
+  type ThresholdEd25519DeleteSealedWorkerMaterialResult,
+  type ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorizationRequest,
+  type ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorizationRequest,
+  type ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorizationRequest,
+  type ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorizationRequest,
+  type ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult,
+  type ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult,
+  type ThresholdEd25519PutSealedWorkerMaterialRequest,
+  type ThresholdEd25519PutSealedWorkerMaterialResult,
+  type ThresholdEd25519ReadSealedWorkerMaterialRequest,
+  type ThresholdEd25519ReadSealedWorkerMaterialResult,
+  type ThresholdEd25519RestoreWorkerMaterialRequest,
+  type ThresholdEd25519RestoreWorkerMaterialResult,
+  type ThresholdEd25519WorkerMaterialFailure,
+  type ThresholdEd25519WorkerMaterialResult,
+  type ThresholdEd25519StoreWorkerMaterialFromHssOutputResult,
+  type ThresholdEd25519WorkerMaterialStoredResult,
+  type ThresholdEd25519ValidateWorkerMaterialResult,
   type ThresholdEd25519ComputeSigningDigestResult,
   type ThresholdEd25519FinalizeNearTxFromSignatureResult,
   type ThresholdEd25519NearTxUnsignedBorsh,
   type ThresholdEd25519DecodeSignedNearTxBorshResult,
+  type ThresholdEd25519PrepareHssClientOutputMaskHandleRequest,
+  type ThresholdEd25519PrepareHssClientOutputMaskHandleResult,
+  type ThresholdEd25519WorkerMaterialBinding,
+  type ThresholdEd25519WorkerMaterialSessionBinding,
+  type ThresholdEd25519WorkerMaterialCredentialAuthorization,
+  type ThresholdEd25519WorkerMaterialSealAuthorization,
   type WasmTransactionSignResult,
   type WasmDeriveThresholdEd25519ClientVerifyingShareResult,
   type WasmSignedDelegate,
@@ -27,90 +51,250 @@ import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
+import { digestRouterAbEd25519WorkerMaterialSessionBinding } from '../../threshold/ed25519/hssMaterialBinding';
 
 const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
-export async function storeThresholdEd25519HssMaterialNearSignerWasm(args: {
-  materialHandle: string;
-  xClientBaseB64u: string;
-  expectedClientVerifyingShareB64u: string;
-  bindingDigest: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519StoreHssMaterialResult> {
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      type: NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial,
-      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        materialHandle: args.materialHandle,
-        xClientBaseB64u: args.xClientBaseB64u,
-        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
-        bindingDigest: args.bindingDigest,
-      },
-    },
-  });
-  return requireThresholdEd25519StoreHssMaterialResult(response);
-}
-
-export async function validateThresholdEd25519HssMaterialNearSignerWasm(args: {
-  materialHandle: string;
-  expectedClientVerifyingShareB64u: string;
-  expectedBindingDigest: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519ValidateHssMaterialResult> {
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateHssMaterial,
-      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        materialHandle: args.materialHandle,
-        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
-        expectedBindingDigest: args.expectedBindingDigest,
-      },
-    },
-  });
-  return requireThresholdEd25519StoreHssMaterialResult(response);
-}
-
-export async function createThresholdEd25519ClientPresignWasm(args: {
+function assertWorkerMaterialSessionBindingEnvelope(args: {
   sessionId: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  xClientBaseB64u: string;
-  groupPublicKey: string;
+  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
+  operation: string;
+}): void {
+  const sessionId = String(args.sessionId || '').trim();
+  const bindingSessionId = String(args.expectedSessionBinding.thresholdSessionId || '').trim();
+  if (!sessionId || sessionId !== bindingSessionId) {
+    throw new Error(
+      `${args.operation} sessionId mismatch: envelope sessionId must equal expectedSessionBinding.thresholdSessionId`,
+    );
+  }
+}
+
+export async function storeThresholdEd25519WorkerMaterialFromHssOutputNearSignerWasm(args: {
+  evaluatorDriverStateB64u: string;
+  clientOutputMessageB64u: string;
+  clientOutputMaskHandle: string;
+  expectedContextBindingB64u: string;
+  nearAccountId: string;
+  signerSlot: number;
+  signingRootId: string;
+  signingRootVersion: string;
+  relayerKeyId: string;
+  keyVersion: string;
+  participantIds: number[];
+  createdAtMs: number;
+  sealAuthorization: ThresholdEd25519WorkerMaterialSealAuthorization;
   workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519ClientPresignCreateResult> {
+}): Promise<ThresholdEd25519StoreWorkerMaterialFromHssOutputResult> {
   const response = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      sessionId: args.sessionId,
-      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate,
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        clientParticipantId: args.clientParticipantId,
-        relayerParticipantId: args.relayerParticipantId,
-        xClientBaseB64u: args.xClientBaseB64u,
-        groupPublicKey: args.groupPublicKey,
+        evaluatorDriverStateB64u: args.evaluatorDriverStateB64u,
+        clientOutputMessageB64u: args.clientOutputMessageB64u,
+        clientOutputMask: {
+          kind: 'rust_owned_mask_handle_v1',
+          clientOutputMaskHandle: args.clientOutputMaskHandle,
+        },
+        expectedContextBindingB64u: args.expectedContextBindingB64u,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.signerSlot,
+        signingRootId: args.signingRootId,
+        signingRootVersion: args.signingRootVersion,
+        relayerKeyId: args.relayerKeyId,
+        keyVersion: args.keyVersion,
+        participantIds: args.participantIds,
+        createdAtMs: args.createdAtMs,
+        sealAuthorization: args.sealAuthorization,
       },
     },
   });
-  return requireThresholdEd25519ClientPresignCreateResult(response);
+  return requireThresholdEd25519WorkerMaterialStoredResult(response);
+}
+
+export async function prepareThresholdEd25519HssClientOutputMaskHandleNearSignerWasm(args: {
+  request: ThresholdEd25519PrepareHssClientOutputMaskHandleRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PrepareHssClientOutputMaskHandleResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareHssClientOutputMaskHandle,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519PrepareHssClientOutputMaskHandleResult(response);
+}
+
+export async function prepareThresholdEd25519PasskeyPrfWorkerMaterialUnsealAuthorizationNearSignerWasm(args: {
+  request: ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorizationRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult(response);
+}
+
+export async function prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorizationNearSignerWasm(args: {
+  request: ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorizationRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorization,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult(response);
+}
+
+export async function prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizationNearSignerWasm(args: {
+  request: ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorizationRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorization,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult(response);
+}
+
+export async function prepareThresholdEd25519RecoveryCodeWorkerMaterialUnsealAuthorizationNearSignerWasm(args: {
+  request: ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorizationRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult(response);
+}
+
+export async function validateThresholdEd25519WorkerMaterialNearSignerWasm(args: {
+  materialHandle: string;
+  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519ValidateWorkerMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateWorkerMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: args.materialHandle,
+        expectedMaterialBinding: args.expectedMaterialBinding,
+      },
+    },
+  });
+  return requireThresholdEd25519WorkerMaterialResult(response);
+}
+
+export async function restoreThresholdEd25519WorkerMaterialNearSignerWasm(args: {
+  request: ThresholdEd25519RestoreWorkerMaterialRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519RestoreWorkerMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519RestoreWorkerMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519RestoreWorkerMaterialResult(response);
+}
+
+export async function putThresholdEd25519SealedWorkerMaterialNearSignerWasm(args: {
+  request: ThresholdEd25519PutSealedWorkerMaterialRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519PutSealedWorkerMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519PutSealedWorkerMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519PutSealedWorkerMaterialResult(response);
+}
+
+export async function readThresholdEd25519SealedWorkerMaterialNearSignerWasm(args: {
+  request: ThresholdEd25519ReadSealedWorkerMaterialRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519ReadSealedWorkerMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ReadSealedWorkerMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519ReadSealedWorkerMaterialResult(response);
+}
+
+export async function deleteThresholdEd25519SealedWorkerMaterialNearSignerWasm(args: {
+  request: ThresholdEd25519DeleteSealedWorkerMaterialRequest;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519DeleteSealedWorkerMaterialResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519DeleteSealedWorkerMaterial,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: args.request,
+    },
+  });
+  return requireThresholdEd25519DeleteSealedWorkerMaterialResult(response);
 }
 
 export async function createThresholdEd25519ClientPresignFromMaterialHandleWasm(args: {
   sessionId: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
+  clientParticipantId: number;
+  relayerParticipantId: number;
   materialHandle: string;
-  expectedClientVerifyingShareB64u: string;
+  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
+  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
   groupPublicKey: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519ClientPresignCreateResult> {
+  assertWorkerMaterialSessionBindingEnvelope({
+    sessionId: args.sessionId,
+    expectedSessionBinding: args.expectedSessionBinding,
+    operation: 'ThresholdEd25519ClientPresignCreateFromMaterialHandle',
+  });
+  const expectedSessionBindingDigest =
+    await digestRouterAbEd25519WorkerMaterialSessionBinding(args.expectedSessionBinding);
   const response = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: 'nearSigner',
@@ -122,7 +306,9 @@ export async function createThresholdEd25519ClientPresignFromMaterialHandleWasm(
         clientParticipantId: args.clientParticipantId,
         relayerParticipantId: args.relayerParticipantId,
         materialHandle: args.materialHandle,
-        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
+        expectedMaterialBinding: args.expectedMaterialBinding,
+        expectedSessionBinding: args.expectedSessionBinding,
+        expectedSessionBindingDigest,
         groupPublicKey: args.groupPublicKey,
       },
     },
@@ -130,46 +316,13 @@ export async function createThresholdEd25519ClientPresignFromMaterialHandleWasm(
   return requireThresholdEd25519ClientPresignCreateResult(response);
 }
 
-export async function signThresholdEd25519ClientPresignWasm(args: {
-  sessionId: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  xClientBaseB64u: string;
-  groupPublicKey: string;
-  signingDigestB64u: string;
-  clientNonceHandleB64u: string;
-  clientCommitments: { hiding: string; binding: string };
-  relayerCommitments: { hiding: string; binding: string };
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519ClientPresignSignResult> {
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      sessionId: args.sessionId,
-      type: NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign,
-      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        clientParticipantId: args.clientParticipantId,
-        relayerParticipantId: args.relayerParticipantId,
-        xClientBaseB64u: args.xClientBaseB64u,
-        groupPublicKey: args.groupPublicKey,
-        signingDigestB64u: args.signingDigestB64u,
-        clientNonceHandleB64u: args.clientNonceHandleB64u,
-        clientCommitments: args.clientCommitments,
-        relayerCommitments: args.relayerCommitments,
-      },
-    },
-  });
-  return requireThresholdEd25519ClientPresignSignResult(response);
-}
-
 export async function signThresholdEd25519ClientPresignFromMaterialHandleWasm(args: {
   sessionId: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
+  clientParticipantId: number;
+  relayerParticipantId: number;
   materialHandle: string;
-  expectedClientVerifyingShareB64u: string;
+  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
+  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
   groupPublicKey: string;
   signingDigestB64u: string;
   clientNonceHandleB64u: string;
@@ -177,6 +330,13 @@ export async function signThresholdEd25519ClientPresignFromMaterialHandleWasm(ar
   relayerCommitments: { hiding: string; binding: string };
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519ClientPresignSignResult> {
+  assertWorkerMaterialSessionBindingEnvelope({
+    sessionId: args.sessionId,
+    expectedSessionBinding: args.expectedSessionBinding,
+    operation: 'ThresholdEd25519ClientPresignSignFromMaterialHandle',
+  });
+  const expectedSessionBindingDigest =
+    await digestRouterAbEd25519WorkerMaterialSessionBinding(args.expectedSessionBinding);
   const response = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: 'nearSigner',
@@ -188,7 +348,9 @@ export async function signThresholdEd25519ClientPresignFromMaterialHandleWasm(ar
         clientParticipantId: args.clientParticipantId,
         relayerParticipantId: args.relayerParticipantId,
         materialHandle: args.materialHandle,
-        expectedClientVerifyingShareB64u: args.expectedClientVerifyingShareB64u,
+        expectedMaterialBinding: args.expectedMaterialBinding,
+        expectedSessionBinding: args.expectedSessionBinding,
+        expectedSessionBindingDigest,
         groupPublicKey: args.groupPublicKey,
         signingDigestB64u: args.signingDigestB64u,
         clientNonceHandleB64u: args.clientNonceHandleB64u,
@@ -198,6 +360,46 @@ export async function signThresholdEd25519ClientPresignFromMaterialHandleWasm(ar
     },
   });
   return requireThresholdEd25519ClientPresignSignResult(response);
+}
+
+export async function createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleNearSignerWasm(args: {
+  sessionId: string;
+  materialHandle: string;
+  expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;
+  expectedSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
+  groupPublicKey: string;
+  serverVerifyingShareB64u: string;
+  serverCommitments: { hiding: string; binding: string };
+  signingDigestB64u: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519RoleSeparatedNormalSigningClientShareResult> {
+  assertWorkerMaterialSessionBindingEnvelope({
+    sessionId: args.sessionId,
+    expectedSessionBinding: args.expectedSessionBinding,
+    operation: 'ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle',
+  });
+  const expectedSessionBindingDigest =
+    await digestRouterAbEd25519WorkerMaterialSessionBinding(args.expectedSessionBinding);
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      sessionId: args.sessionId,
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        materialHandle: args.materialHandle,
+        expectedMaterialBinding: args.expectedMaterialBinding,
+        expectedSessionBinding: args.expectedSessionBinding,
+        expectedSessionBindingDigest,
+        groupPublicKey: args.groupPublicKey,
+        serverVerifyingShareB64u: args.serverVerifyingShareB64u,
+        serverCommitments: args.serverCommitments,
+        signingDigestB64u: args.signingDigestB64u,
+      },
+    },
+  });
+  return requireThresholdEd25519RoleSeparatedNormalSigningClientShareResult(response);
 }
 
 export async function burnThresholdEd25519ClientPresignWasm(args: {
@@ -312,10 +514,10 @@ export async function finalizeThresholdEd25519DelegateFromSignatureWasm(args: {
 
 export async function buildThresholdEd25519NearTxUnsignedBorshWasm(args: {
   sessionId: string;
-  txSigningRequests: readonly TransactionPayload[];
+  txSigningRequest: TransactionPayload;
   transactionContext: TransactionContext;
   workerCtx: WorkerOperationContext;
-}): Promise<readonly ThresholdEd25519NearTxUnsignedBorsh[]> {
+}): Promise<ThresholdEd25519NearTxUnsignedBorsh> {
   const response = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: 'nearSigner',
@@ -324,12 +526,17 @@ export async function buildThresholdEd25519NearTxUnsignedBorshWasm(args: {
       type: NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh,
       timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        txSigningRequests: args.txSigningRequests,
+        txSigningRequests: [args.txSigningRequest],
         transactionContext: args.transactionContext,
       },
     },
   });
-  return requireThresholdEd25519NearTxUnsignedBorshResult(response);
+  const unsigned = requireThresholdEd25519NearTxUnsignedBorshResult(response);
+  const first = unsigned[0];
+  if (!first || unsigned.length !== 1) {
+    throw new Error('near signer worker returned invalid single-transaction unsigned payload');
+  }
+  return first;
 }
 
 export async function finalizeThresholdEd25519NearTxFromSignatureWasm(args: {
@@ -421,12 +628,154 @@ function requireThresholdEd25519ClientPresignCreateResult(
   return parsed;
 }
 
-function requireThresholdEd25519StoreHssMaterialResult(
+function requireThresholdEd25519WorkerMaterialResult(
   value: unknown,
-): ThresholdEd25519StoreHssMaterialResult {
-  const parsed = value as ThresholdEd25519StoreHssMaterialResult;
+): ThresholdEd25519WorkerMaterialResult | ThresholdEd25519WorkerMaterialFailure {
+  if (isThresholdEd25519WorkerMaterialFailure(value)) return value;
+  return requireThresholdEd25519WorkerMaterialSuccessResult(value);
+}
+
+function requireThresholdEd25519WorkerMaterialSuccessResult(
+  value: unknown,
+): ThresholdEd25519WorkerMaterialResult {
+  const parsed = value as ThresholdEd25519WorkerMaterialResult;
   if (!parsed?.materialHandle || !parsed.clientVerifyingShareB64u || !parsed.bindingDigest) {
-    throw new Error('near signer worker returned invalid Ed25519 HSS material store result');
+    throw new Error('near signer worker returned invalid Ed25519 worker material result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519WorkerMaterialStoredResult(
+  value: unknown,
+): ThresholdEd25519StoreWorkerMaterialFromHssOutputResult {
+  if (isThresholdEd25519WorkerMaterialFailure(value)) return value;
+  const parsed = value as ThresholdEd25519WorkerMaterialStoredResult;
+  if (
+    parsed?.ok !== true ||
+    !parsed.materialHandle ||
+    !parsed.materialBindingDigest ||
+    !parsed.clientVerifyingShareB64u ||
+    !parsed.sealedWorkerMaterialRef ||
+    !parsed.sealedWorkerMaterialB64u ||
+    !parsed.materialFormatVersion ||
+    !parsed.materialKeyId ||
+    !parsed.signerSlot ||
+    !parsed.keyVersion
+  ) {
+    throw new Error('near signer worker returned invalid Ed25519 stored material result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519RestoreWorkerMaterialResult(
+  value: unknown,
+): ThresholdEd25519RestoreWorkerMaterialResult {
+  if (isThresholdEd25519WorkerMaterialFailure(value)) return value;
+  const parsed = value as ThresholdEd25519RestoreWorkerMaterialResult;
+  if (
+    parsed?.ok !== true ||
+    !parsed.materialHandle ||
+    !parsed.materialBindingDigest ||
+    !parsed.clientVerifyingShareB64u ||
+    !parsed.sealedWorkerMaterialRef ||
+    !parsed.sealedWorkerMaterialB64u ||
+    !parsed.materialFormatVersion ||
+    !parsed.materialKeyId ||
+    !parsed.signerSlot ||
+    !parsed.keyVersion
+  ) {
+    throw new Error('near signer worker returned invalid Ed25519 restore result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519PrepareHssClientOutputMaskHandleResult(
+  value: unknown,
+): ThresholdEd25519PrepareHssClientOutputMaskHandleResult {
+  const parsed = value as ThresholdEd25519PrepareHssClientOutputMaskHandleResult;
+  if (
+    parsed?.ok !== true ||
+    !parsed.clientOutputMaskHandle ||
+    !parsed.contextBindingB64u ||
+    !Number.isSafeInteger(Number(parsed.expiresAtMs)) ||
+    Number(parsed.expiresAtMs) <= 0 ||
+    !Number.isSafeInteger(Number(parsed.remainingUses)) ||
+    Number(parsed.remainingUses) <= 0
+  ) {
+    throw new Error('near signer worker returned invalid Ed25519 HSS output-mask handle result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult(
+  value: unknown,
+): ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult {
+  const parsed = value as ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult;
+  if (
+    parsed?.ok !== true ||
+    !parsed.unsealAuthorization ||
+    typeof parsed.unsealAuthorization !== 'object' ||
+    !('kind' in parsed.unsealAuthorization) ||
+    !Number.isSafeInteger(Number(parsed.remainingUses)) ||
+    Number(parsed.remainingUses) <= 0
+  ) {
+    throw new Error('near signer worker returned invalid Ed25519 unseal authorization result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult(
+  value: unknown,
+): ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult {
+  const parsed = value as ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult;
+  if (
+    parsed?.ok !== true ||
+    !parsed.materialKeyId ||
+    !parsed.sealAuthorization ||
+    typeof parsed.sealAuthorization !== 'object' ||
+    !('kind' in parsed.sealAuthorization) ||
+    !Number.isSafeInteger(Number(parsed.remainingUses)) ||
+    Number(parsed.remainingUses) <= 0
+  ) {
+    throw new Error('near signer worker returned invalid Ed25519 seal authorization result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519PutSealedWorkerMaterialResult(
+  value: unknown,
+): ThresholdEd25519PutSealedWorkerMaterialResult {
+  if (isThresholdEd25519WorkerMaterialFailure(value)) return value;
+  const parsed = value as ThresholdEd25519PutSealedWorkerMaterialResult;
+  if (parsed?.ok !== true || !parsed.sealedWorkerMaterialRef || !parsed.materialBindingDigest) {
+    throw new Error('near signer worker returned invalid Ed25519 sealed material put result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519ReadSealedWorkerMaterialResult(
+  value: unknown,
+): ThresholdEd25519ReadSealedWorkerMaterialResult {
+  if (isThresholdEd25519WorkerMaterialFailure(value)) return value;
+  const parsed = value as ThresholdEd25519ReadSealedWorkerMaterialResult;
+  if (
+    parsed?.ok !== true ||
+    !parsed.sealedMaterial ||
+    typeof parsed.sealedMaterial !== 'object' ||
+    !parsed.sealedMaterial.materialBindingDigest
+  ) {
+    throw new Error('near signer worker returned invalid Ed25519 sealed material read result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519DeleteSealedWorkerMaterialResult(
+  value: unknown,
+): ThresholdEd25519DeleteSealedWorkerMaterialResult {
+  if (isThresholdEd25519WorkerMaterialFailure(value)) return value;
+  const parsed = value as ThresholdEd25519DeleteSealedWorkerMaterialResult;
+  if (parsed?.ok !== true || typeof parsed.deleted !== 'boolean') {
+    throw new Error('near signer worker returned invalid Ed25519 sealed material delete result');
   }
   return parsed;
 }
@@ -437,6 +786,23 @@ function requireThresholdEd25519ClientPresignSignResult(
   const parsed = value as ThresholdEd25519ClientPresignSignResult;
   if (!parsed?.clientSignatureShareB64u) {
     throw new Error('near signer worker returned invalid Ed25519 client presign sign result');
+  }
+  return parsed;
+}
+
+function requireThresholdEd25519RoleSeparatedNormalSigningClientShareResult(
+  value: unknown,
+): ThresholdEd25519RoleSeparatedNormalSigningClientShareResult {
+  const parsed = value as ThresholdEd25519RoleSeparatedNormalSigningClientShareResult;
+  if (
+    !parsed?.clientCommitments?.hiding ||
+    !parsed.clientCommitments.binding ||
+    !parsed.clientVerifyingShareB64u ||
+    !parsed.clientSignatureShareB64u
+  ) {
+    throw new Error(
+      'near signer worker returned invalid Ed25519 role-separated normal-signing client share result',
+    );
   }
   return parsed;
 }
@@ -523,6 +889,37 @@ function requireThresholdEd25519DecodeSignedNearTxBorshResult(
     throw new Error('near signer worker returned invalid Ed25519 signed tx decode result');
   }
   return parsed;
+}
+
+function isThresholdEd25519WorkerMaterialFailure(
+  value: unknown,
+): value is ThresholdEd25519WorkerMaterialFailure {
+  const parsed = value as ThresholdEd25519WorkerMaterialFailure | null;
+  return (
+    parsed?.ok === false &&
+    isThresholdEd25519WorkerMaterialErrorCode(parsed.code) &&
+    typeof parsed.message === 'string' &&
+    parsed.message.trim().length > 0
+  );
+}
+
+function isThresholdEd25519WorkerMaterialErrorCode(
+  value: unknown,
+): value is ThresholdEd25519WorkerMaterialFailure['code'] {
+  switch (value) {
+    case 'material_restore_required':
+    case 'material_seal_authorization_required':
+    case 'material_unseal_authorization_required':
+    case 'material_restore_expired':
+    case 'material_binding_mismatch':
+    case 'material_scope_mismatch':
+    case 'material_handle_not_loaded':
+    case 'material_corrupt':
+    case 'worker_unavailable':
+      return true;
+    default:
+      return false;
+  }
 }
 
 export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {

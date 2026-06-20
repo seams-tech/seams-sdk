@@ -22,13 +22,127 @@ import type {
 import {
   HssClientCustomRequestType,
 } from './workerTypes';
-import { NearSignerWorkerCustomRequestType } from '@/core/types/signer-worker';
+import {
+  NearSignerWorkerCustomRequestType,
+  type ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest,
+  type ThresholdEd25519ClientPresignSignFromMaterialHandleRequest,
+  type ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest as NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest,
+  type ThresholdEd25519WorkerMaterialBinding,
+  type ThresholdEd25519WorkerMaterialSessionBinding,
+} from '@/core/types/signer-worker';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicationChainTargets: ThresholdEcdsaChainTarget[];
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 declare const routeAuth: AppOrWalletSessionAuth;
 declare const incomingMessage: ArrayBuffer;
+
+const nearSignerMaterialBinding: ThresholdEd25519WorkerMaterialBinding = {
+  kind: 'ed25519_worker_material_binding_v1',
+  curve: 'ed25519',
+  protocol: 'router_ab_normal_signing',
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+  signingRootId: 'signing-root',
+  signingRootVersion: 'v1',
+  relayerKeyId: 'near-relayer-key',
+  keyVersion: 'threshold-ed25519-hss-v1',
+  participantIds: [1, 2],
+  clientVerifyingShareB64u: 'client-verifying-share',
+  materialFormatVersion: 'ed25519_worker_material_v1',
+  materialKeyId: 'material-key-id',
+  createdAtMs: 1_700_000_000_000,
+};
+
+const nearSignerSessionBinding: ThresholdEd25519WorkerMaterialSessionBinding = {
+  kind: 'ed25519_worker_material_session_binding_v1',
+  materialBindingDigest: 'material-binding-digest',
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+  thresholdSessionId: 'threshold-session',
+  signingGrantId: 'signing-grant',
+  signingRootId: 'signing-root',
+  signingRootVersion: 'v1',
+  runtimePolicyScope,
+  relayerKeyId: 'near-relayer-key',
+  keyVersion: 'threshold-ed25519-hss-v1',
+  participantIds: [1, 2],
+  signingWorkerId: 'signing-worker',
+  expiresAtMs: 1_900_000_000_000,
+};
+
+const nearSignerPresignCreateRequest: ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest = {
+  clientParticipantId: 1,
+  relayerParticipantId: 2,
+  materialHandle: 'material-handle',
+  expectedMaterialBinding: nearSignerMaterialBinding,
+  expectedSessionBinding: nearSignerSessionBinding,
+  expectedSessionBindingDigest: 'session-binding-digest',
+  groupPublicKey: 'ed25519:group',
+};
+void nearSignerPresignCreateRequest;
+
+const nearSignerPresignCreateRequestWithoutSessionDigest = {
+  clientParticipantId: 1,
+  relayerParticipantId: 2,
+  materialHandle: 'material-handle',
+  expectedMaterialBinding: nearSignerMaterialBinding,
+  expectedSessionBinding: nearSignerSessionBinding,
+  groupPublicKey: 'ed25519:group',
+};
+
+// @ts-expect-error Material-backed presign creation requires the session binding digest.
+const invalidNearSignerPresignCreateRequest: ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest =
+  nearSignerPresignCreateRequestWithoutSessionDigest;
+void invalidNearSignerPresignCreateRequest;
+
+const nearSignerPresignSignRequest: ThresholdEd25519ClientPresignSignFromMaterialHandleRequest = {
+  clientParticipantId: 1,
+  relayerParticipantId: 2,
+  materialHandle: 'material-handle',
+  expectedMaterialBinding: nearSignerMaterialBinding,
+  expectedSessionBinding: nearSignerSessionBinding,
+  expectedSessionBindingDigest: 'session-binding-digest',
+  groupPublicKey: 'ed25519:group',
+  signingDigestB64u: 'signing-digest',
+  clientNonceHandleB64u: 'nonce-handle',
+  clientCommitments: { hiding: 'client-hiding', binding: 'client-binding' },
+  relayerCommitments: { hiding: 'relayer-hiding', binding: 'relayer-binding' },
+};
+void nearSignerPresignSignRequest;
+
+const nearSignerPresignSignRequestWithoutSessionDigest = {
+  ...nearSignerPresignSignRequest,
+  expectedSessionBindingDigest: undefined,
+};
+
+// @ts-expect-error Material-backed presign signing requires the session binding digest.
+const invalidNearSignerPresignSignRequest: ThresholdEd25519ClientPresignSignFromMaterialHandleRequest =
+  nearSignerPresignSignRequestWithoutSessionDigest;
+void invalidNearSignerPresignSignRequest;
+
+const nearSignerRoleSeparatedRequest: NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest =
+  {
+    materialHandle: 'material-handle',
+    expectedMaterialBinding: nearSignerMaterialBinding,
+    expectedSessionBinding: nearSignerSessionBinding,
+    expectedSessionBindingDigest: 'session-binding-digest',
+    groupPublicKey: 'ed25519:group',
+    serverVerifyingShareB64u: 'server-verifying-share',
+    serverCommitments: { hiding: 'server-hiding', binding: 'server-binding' },
+    signingDigestB64u: 'signing-digest',
+  };
+void nearSignerRoleSeparatedRequest;
+
+const nearSignerRoleSeparatedRequestWithoutSessionDigest = {
+  ...nearSignerRoleSeparatedRequest,
+  expectedSessionBindingDigest: undefined,
+};
+
+// @ts-expect-error Role-separated worker-material signing requires the session binding digest.
+const invalidNearSignerRoleSeparatedRequest: NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest =
+  nearSignerRoleSeparatedRequestWithoutSessionDigest;
+void invalidNearSignerRoleSeparatedRequest;
 
 const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1',
@@ -195,13 +309,13 @@ type InvalidNearDigestAsMaterial = NearEd25519MaterialOperationRequest<typeof Ne
 declare const invalidNearDigestAsMaterial: InvalidNearDigestAsMaterial;
 void invalidNearDigestAsMaterial;
 
-// @ts-expect-error NEAR HSS material storage cannot be sent through the digest domain.
-type InvalidNearMaterialAsDigest = NearEd25519DigestOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial>;
+// @ts-expect-error NEAR worker material storage cannot be sent through the digest domain.
+type InvalidNearMaterialAsDigest = NearEd25519DigestOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput>;
 declare const invalidNearMaterialAsDigest: InvalidNearMaterialAsDigest;
 void invalidNearMaterialAsDigest;
 
 // @ts-expect-error Ed25519 HSS material operations cannot use the ECDSA role-local domain.
-type InvalidHssEd25519AsEcdsaRoleLocal = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEd25519HssMaterial>;
+type InvalidHssEd25519AsEcdsaRoleLocal = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare>;
 declare const invalidHssEd25519AsEcdsaRoleLocal: InvalidHssEd25519AsEcdsaRoleLocal;
 void invalidHssEd25519AsEcdsaRoleLocal;
 

@@ -3,14 +3,13 @@ import type { ConfirmTransactionSigningOperationResult } from '../shared/signing
 import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 import type {
   NearEd25519EmailOtpStepUpAuthorization,
+  NearEd25519EmailOtpMaterialRestoreAuthorization,
   NearEd25519PasskeyStepUpAuthorization,
   NearEd25519StepUpAuthorization,
   NearEd25519WarmSessionStepUpAuthorization,
   NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
-import type {
-  EmailOtpConfirmPrompt,
-} from '@/core/signingEngine/stepUpConfirmation/types';
+import type { EmailOtpConfirmPrompt } from '@/core/signingEngine/stepUpConfirmation/types';
 
 export type {
   NearEd25519EmailOtpStepUpAuthorization,
@@ -23,6 +22,7 @@ export type {
 export function buildNearEd25519StepUpAuthorization(args: {
   prepared: NearPreparedStepUpAuth;
   confirmation: ConfirmTransactionSigningOperationResult;
+  emailOtpMaterialRestoreAuthorization?: NearEd25519EmailOtpMaterialRestoreAuthorization;
 }): NearEd25519StepUpAuthorization {
   if (args.prepared.kind === 'warm_session') {
     const signingAuthPlan = args.prepared.confirmationAuthPayload.signingAuthPlan;
@@ -47,6 +47,9 @@ export function buildNearEd25519StepUpAuthorization(args: {
       signingAuthPlan: args.prepared.confirmationAuthPayload.signingAuthPlan,
       challengeId,
       otpCode,
+      ed25519MaterialRestoreAuthorization:
+        args.emailOtpMaterialRestoreAuthorization ||
+        unavailableEmailOtpMaterialRestoreAuthorization(),
       ...(args.prepared.emailOtpPrompt.emailHint
         ? { emailHint: args.prepared.emailOtpPrompt.emailHint }
         : {}),
@@ -82,4 +85,11 @@ function normalizeChallengeId(
     throw new Error(`[SigningEngine] missing Email OTP challenge id for ${context}`);
   }
   return challengeId;
+}
+
+function unavailableEmailOtpMaterialRestoreAuthorization(): NearEd25519EmailOtpMaterialRestoreAuthorization {
+  return {
+    kind: 'ed25519_email_otp_material_unseal_authorization_unavailable',
+    reason: 'no_recovery_code_material',
+  };
 }

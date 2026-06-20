@@ -80,8 +80,8 @@ export type ParentToChildType =
   | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
-  | 'PM_SIGN_TXS_WITH_ACTIONS'
-  | 'PM_SIGN_AND_SEND_TXS'
+  | 'PM_SIGN_TX_WITH_ACTIONS'
+  | 'PM_SIGN_AND_SEND_TX'
   | 'PM_SEND_TRANSACTION'
   | 'PM_EXECUTE_ACTION'
   | 'PM_SIGN_DELEGATE_ACTION'
@@ -272,9 +272,9 @@ export type PMGoogleEmailOtpWalletAuthSubmitWireResult =
 export type PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult =
   PMGoogleEmailOtpWalletAuthWireResult<GoogleEmailOtpWalletAuthRegistrationCompleted>;
 
-export interface PMSignTxsPayload {
+export interface PMSignTxPayload {
   nearAccountId: string;
-  transactions: TransactionInput[];
+  transaction: TransactionInput;
   options: {
     signerSlot?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
@@ -283,9 +283,9 @@ export interface PMSignTxsPayload {
   };
 }
 
-export interface PMSignAndSendTxsPayload {
+export interface PMSignAndSendTxPayload {
   nearAccountId: string;
-  transactions: TransactionInput[];
+  transaction: TransactionInput;
   options: {
     signerSlot?: number;
     // Keep only serializable fields; functions are bridged via PROGRESS
@@ -296,7 +296,6 @@ export interface PMSignAndSendTxsPayload {
       | 'EXECUTED'
       | 'FINAL'
       | 'EXECUTED_OPTIMISTIC';
-    executionWait?: Record<string, unknown>;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
     [key: string]: unknown;
@@ -615,8 +614,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
-  | RpcEnvelope<'PM_SIGN_TXS_WITH_ACTIONS', PMSignTxsPayload>
-  | RpcEnvelope<'PM_SIGN_AND_SEND_TXS', PMSignAndSendTxsPayload>
+  | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>
+  | RpcEnvelope<'PM_SIGN_AND_SEND_TX', PMSignAndSendTxPayload>
   | RpcEnvelope<'PM_SEND_TRANSACTION', PMSendTxPayload>
   | RpcEnvelope<'PM_EXECUTE_ACTION', PMExecuteActionPayload>
   | RpcEnvelope<'PM_SIGN_DELEGATE_ACTION', PMSignDelegateActionPayload>

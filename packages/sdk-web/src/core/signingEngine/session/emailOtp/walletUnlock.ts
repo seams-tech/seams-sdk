@@ -16,7 +16,7 @@ export type EmailOtpWalletUnlockRecovery = {
   unlockChallengeB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockSignatureB64u: string;
-  thresholdEd25519PrfFirstB64u: string;
+  thresholdEd25519RecoveryCodeSecret32B64u: string;
 };
 
 export type EmailOtpWalletUnlockResult = {
@@ -58,11 +58,11 @@ export async function unlockEmailOtpWalletForEd25519Session(
       onEvent: args.onProgress,
     },
   });
-  const thresholdEd25519PrfFirstB64u = String(
-    result.recovery?.thresholdEd25519PrfFirstB64u || '',
+  const thresholdEd25519RecoveryCodeSecret32B64u = String(
+    result.recovery?.thresholdEd25519RecoveryCodeSecret32B64u || '',
   ).trim();
-  if (!thresholdEd25519PrfFirstB64u) {
-    throw new Error('Email OTP wallet unlock did not return Ed25519 PRF material');
+  if (!thresholdEd25519RecoveryCodeSecret32B64u) {
+    throw new Error('Email OTP wallet unlock did not return Ed25519 recovery-code material');
   }
   return {
     recovery: result.recovery,

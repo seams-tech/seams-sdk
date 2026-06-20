@@ -305,8 +305,8 @@ export function createWarmSessionStatusReader(
   function hasRecordBackedEd25519Status(
     record: ThresholdEd25519SessionRecord | null | undefined,
   ): record is ThresholdEd25519SessionRecord {
-    if (!record || !String(record.ed25519HssMaterialHandle || '').trim()) return false;
-    if (!String(record.ed25519HssMaterialBindingDigest || '').trim()) return false;
+    if (!record || !String(record.ed25519WorkerMaterialHandle || '').trim()) return false;
+    if (!String(record.ed25519WorkerMaterialBindingDigest || '').trim()) return false;
     if (!String(record.clientVerifyingShareB64u || '').trim()) return false;
     if (record.source === 'email_otp') return record.emailOtpAuthContext?.retention === 'session';
     return true;

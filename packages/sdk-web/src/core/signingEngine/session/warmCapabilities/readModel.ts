@@ -260,7 +260,7 @@ export function deriveEd25519CapabilityState(args: {
     return 'prf_missing';
   }
   const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
-  if (persistedState.kind === 'signable') {
+  if (persistedState.kind === 'runtime_validated') {
     return 'ready';
   }
   if (
@@ -269,6 +269,7 @@ export function deriveEd25519CapabilityState(args: {
   ) {
     return 'auth_missing';
   }
+  if (persistedState.kind === 'restore_available') return 'material_pending';
   if (persistedState.kind === 'invalid') return 'invalid';
   if (args.record.source !== 'email_otp') {
     if (!args.prfClaim || args.prfClaim.state === 'missing' || args.prfClaim.state === 'warm') {

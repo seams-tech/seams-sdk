@@ -266,7 +266,7 @@ test.describe('sealed recovery method adapters', () => {
     });
   });
 
-  test('rejects Email OTP ECDSA sealed restore on wallet signing-session mismatch', async () => {
+  test('rejects Email OTP ECDSA sealed restore on signing grant mismatch', async () => {
     const sealedRecord = makeEmailOtpEcdsaSealedRecord();
 
     await expect(
@@ -311,7 +311,7 @@ test.describe('sealed recovery method adapters', () => {
           updatedAtMs: Date.now(),
         } as never,
       }),
-    ).rejects.toThrow('wallet signing-session id mismatch');
+    ).rejects.toThrow('signing grant id mismatch');
   });
 
   for (const staleCase of [

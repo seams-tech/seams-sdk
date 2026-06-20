@@ -35,11 +35,10 @@ function payload(input?: {
   targetDepth?: number;
   lowWatermark?: number;
   offerCount?: number;
-  clientVerifyingShareB64u?: string;
+  materialBindingDigest?: string;
 }): RouterAbEd25519PresignPoolRefillPayload {
   const offerCount = input?.offerCount ?? 2;
-  const clientVerifyingShareB64u =
-    input?.clientVerifyingShareB64u || 'client-verifying-share';
+  const materialBindingDigest = input?.materialBindingDigest || 'material-binding-digest';
   return {
     kind: 'router_ab_ed25519_presign_pool_refill_v1',
     relayUrl: 'https://relay.example',
@@ -51,6 +50,7 @@ function payload(input?: {
     signerPublicKey: 'ed25519-public-key',
     participantIds: [1, 2],
     runtimePolicyScope,
+    materialBindingDigest,
     policy: {
       targetDepth: input?.targetDepth ?? 2,
       lowWatermark: input?.lowWatermark ?? 1,
@@ -62,7 +62,7 @@ function payload(input?: {
     clientPresigns: Array.from({ length: offerCount }, (_, index) => ({
       clientPresignId: `client-presign-${index + 1}`,
       nonceHandle: `nonce-handle-${index + 1}`,
-      clientVerifyingShareB64u,
+      clientVerifyingShareB64u: 'client-verifying-share',
       clientCommitments: {
         hiding: `client-hiding-${index + 1}`,
         binding: `client-binding-${index + 1}`,
@@ -83,7 +83,7 @@ function scopeKeyForPayload(
     signerPublicKey: input.signerPublicKey,
     participantIds: input.participantIds,
     runtimePolicyScope: input.runtimePolicyScope,
-    clientVerifyingShareB64u: input.clientPresigns[0].clientVerifyingShareB64u,
+    materialBindingDigest: input.materialBindingDigest,
   });
 }
 
@@ -185,10 +185,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       generation: 1,
     });
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_001),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_001,
+      ),
     ).toMatchObject({
       offeredCount: 2,
       readyCount: 0,
@@ -212,10 +215,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
     });
 
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_200),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_200,
+      ),
     ).toMatchObject({
       offeredCount: 0,
       readyCount: 1,
@@ -224,10 +230,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       nextExpiryAtMs: 5_000,
     });
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 5_001),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        5_001,
+      ),
     ).toMatchObject({
       readyCount: 0,
       burnedCount: 2,
@@ -258,10 +267,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
     });
 
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_200),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_200,
+      ),
     ).toMatchObject({
       generation: 2,
       offeredCount: 0,
@@ -270,7 +282,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
     });
   });
 
-  test('scope key changes when generation-defining session fields change', () => {
+  test('scope key changes when session and material identity fields change', () => {
     const request = payload();
     const base = scopeKeyForPayload(request);
     const variants = [
@@ -278,7 +290,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       { ...request, signingGrantId: 'signing-grant-next' },
       { ...request, relayerKeyId: 'relayer-key-next' },
       { ...request, participantIds: [1, 3] },
-      payload({ clientVerifyingShareB64u: 'client-verifying-share-next' }),
+      payload({ materialBindingDigest: 'material-binding-digest-next' }),
     ].map(scopeKeyForPayload);
 
     for (const variant of variants) {
@@ -382,7 +394,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       signerPublicKey: request.signerPublicKey,
       participantIds: request.participantIds,
       runtimePolicyScope: request.runtimePolicyScope,
-      clientVerifyingShareB64u: request.clientPresigns[0].clientVerifyingShareB64u,
+      materialBindingDigest: request.materialBindingDigest,
       operation,
       nowMs: 1_200,
     });
@@ -399,10 +411,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       },
     });
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_201),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_201,
+      ),
     ).toMatchObject({
       readyCount: 0,
     });
@@ -414,10 +429,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       nowMs: 1_300,
     });
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_301),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_301,
+      ),
     ).toMatchObject({
       readyCount: 0,
       burnedCount: 1,
@@ -437,7 +455,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       signerPublicKey: request.signerPublicKey,
       participantIds: request.participantIds,
       runtimePolicyScope: request.runtimePolicyScope,
-      clientVerifyingShareB64u: request.clientPresigns[0].clientVerifyingShareB64u,
+      materialBindingDigest: request.materialBindingDigest,
       operation,
       nowMs: 1_000,
     });
@@ -453,10 +471,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       generation: 1,
     });
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_001),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_001,
+      ),
     ).toMatchObject({
       offeredCount: 2,
       readyCount: 0,
@@ -464,7 +485,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
     });
   });
 
-  test('does not reserve a ready entry for a different client verifying share', () => {
+  test('does not reserve a ready entry for a different material binding digest', () => {
     const request = payload({ offerCount: 1, lowWatermark: 0 });
     const scopeKey = scopeKeyForPayload(request);
     scheduleRouterAbEd25519ClientPresignPoolRefill(request, 1_000);
@@ -492,7 +513,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       signerPublicKey: request.signerPublicKey,
       participantIds: request.participantIds,
       runtimePolicyScope: request.runtimePolicyScope,
-      clientVerifyingShareB64u: 'different-client-verifying-share',
+      materialBindingDigest: 'different-material-binding-digest',
       operation,
       nowMs: 1_200,
     });
@@ -502,10 +523,13 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       code: 'pool_empty',
     });
     expect(
-      getRouterAbEd25519ClientPresignPoolStatus({
-        kind: 'get_router_ab_ed25519_presign_pool_status_v1',
-        scopeKey,
-      }, 1_201),
+      getRouterAbEd25519ClientPresignPoolStatus(
+        {
+          kind: 'get_router_ab_ed25519_presign_pool_status_v1',
+          scopeKey,
+        },
+        1_201,
+      ),
     ).toMatchObject({
       readyCount: 1,
     });

@@ -431,13 +431,14 @@ function assertCapabilityStateInvariant(args: {
     if (emailOtpSingleUseConsumed) return 'prf_missing';
     if (capability.capability === 'ed25519') {
       const persistedState = classifyRouterAbEd25519PersistedSigningRecord(capability.record);
-      if (persistedState.kind === 'signable') return 'ready';
+      if (persistedState.kind === 'runtime_validated') return 'ready';
       if (
         persistedState.kind === 'non_signing' ||
         persistedState.reason === 'missing_wallet_session_jwt'
       ) {
         return 'auth_missing';
       }
+      if (persistedState.kind === 'restore_available') return 'material_pending';
       if (persistedState.kind === 'invalid') return 'invalid';
       if (record.source !== 'email_otp') {
         if (!prfClaim || prfClaim.state === 'missing' || prfClaim.state === 'warm') {
@@ -503,6 +504,7 @@ type ProvisionWarmEd25519CapabilityCommonArgs = {
   };
   participantIds: readonly number[];
   sessionKind: 'jwt';
+  signerSlot: number;
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -743,7 +745,7 @@ export type WarmSessionProvisioner = {
   ensureEcdsaCapabilityReady: (
     args: EnsureWarmEcdsaProvisionPlanReadyArgs,
   ) => Promise<EnsureWarmEcdsaCapabilityReadyResult>;
-  claimPrfFirstByThresholdSessionId: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
+  claimWarmSessionPrfFirstMaterial: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
   ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;

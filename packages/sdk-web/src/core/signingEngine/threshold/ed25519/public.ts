@@ -12,16 +12,15 @@ import {
   type ThresholdEd25519LifecycleDeps,
 } from './hssLifecycle';
 import {
-  storeRouterAbEd25519SigningMaterialHandleWasm,
-  type RouterAbEd25519SigningMaterialReady,
-  type Ed25519HssMaterialCache,
-} from './hssClientBase';
-import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
   deriveThresholdEd25519HssClientOutputMaskWasm,
   deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm,
   prepareThresholdEd25519HssClientRequestWasm,
 } from '../crypto/hssClientSignerWasm';
+import {
+  prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorizationNearSignerWasm,
+  prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizationNearSignerWasm,
+} from '../../chains/near/nearSignerWasm';
 
 export type ThresholdEd25519PublicDeps = ThresholdEd25519LifecycleDeps;
 
@@ -65,6 +64,32 @@ export function prepareThresholdEd25519HssClientRequest(
   args: Omit<Parameters<typeof prepareThresholdEd25519HssClientRequestWasm>[0], 'workerCtx'>,
 ): ReturnType<typeof prepareThresholdEd25519HssClientRequestWasm> {
   return prepareThresholdEd25519HssClientRequestWasm({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorizationNearSignerWasm>[0],
+    'workerCtx'
+  >,
+): ReturnType<typeof prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorizationNearSignerWasm> {
+  return prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorizationNearSignerWasm({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizationNearSignerWasm>[0],
+    'workerCtx'
+  >,
+): ReturnType<typeof prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizationNearSignerWasm> {
+  return prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizationNearSignerWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });
@@ -134,21 +159,6 @@ export function runThresholdEd25519HssCeremonyWithMaterialHandle(
   >,
 ): ReturnType<typeof runThresholdEd25519HssCeremonyWithMaterialHandleValue> {
   return runThresholdEd25519HssCeremonyWithMaterialHandleValue({
-    ...args,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
-}
-
-export function storeThresholdEd25519HssSigningMaterial(
-  deps: ThresholdEd25519PublicDeps,
-  args: Omit<
-    Parameters<typeof storeRouterAbEd25519SigningMaterialHandleWasm>[0],
-    'workerCtx' | 'materialCache'
-  > & {
-    materialCache: Ed25519HssMaterialCache;
-  },
-): Promise<RouterAbEd25519SigningMaterialReady> {
-  return storeRouterAbEd25519SigningMaterialHandleWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });

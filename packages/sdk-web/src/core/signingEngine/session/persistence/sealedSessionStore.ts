@@ -495,14 +495,27 @@ function normalizeEd25519RestoreMetadata(
         .map((participantId) => Math.floor(Number(participantId)))
         .filter((participantId) => Number.isFinite(participantId) && participantId > 0)
     : [];
-  const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
-  const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(
-    obj.clientVerifyingShareB64u,
+  const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
+  const ed25519WorkerMaterialHandle = normalizeOptionalNonEmptyString(obj.ed25519WorkerMaterialHandle);
+  const ed25519WorkerMaterialBindingDigest = normalizeOptionalNonEmptyString(
+    obj.ed25519WorkerMaterialBindingDigest,
   );
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    obj.routerAbNormalSigning,
-  );
-  if (!rpId || !relayerKeyId || !sessionKind || !participantIds.length) {
+  const sealedWorkerMaterialRef = normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialRef);
+  const sealedWorkerMaterialB64u = normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialB64u);
+  const materialFormatVersion = normalizeOptionalNonEmptyString(obj.materialFormatVersion);
+  const materialKeyId = normalizeOptionalNonEmptyString(obj.materialKeyId);
+  const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
+  const signerSlot = normalizeInteger(obj.signerSlot);
+  const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
+  if (
+    !rpId ||
+    !relayerKeyId ||
+    !sessionKind ||
+    !participantIds.length ||
+    signerSlot == null ||
+    signerSlot <= 0
+  ) {
     return undefined;
   }
   const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
@@ -515,8 +528,16 @@ function normalizeEd25519RestoreMetadata(
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }
       : {}),
-    ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    ...(ed25519WorkerMaterialHandle ? { ed25519WorkerMaterialHandle } : {}),
+    ...(ed25519WorkerMaterialBindingDigest ? { ed25519WorkerMaterialBindingDigest } : {}),
+    ...(sealedWorkerMaterialRef ? { sealedWorkerMaterialRef } : {}),
+    ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
+    ...(materialFormatVersion ? { materialFormatVersion } : {}),
+    ...(materialKeyId ? { materialKeyId } : {}),
+    ...(materialCreatedAtMs != null && materialCreatedAtMs > 0 ? { materialCreatedAtMs } : {}),
+    signerSlot,
+    ...(keyVersion ? { keyVersion } : {}),
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
   };
 }
@@ -526,10 +547,7 @@ function ed25519RestoreHasRawMaterial(value: unknown): boolean {
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
-  return Boolean(
-    normalizeOptionalNonEmptyString(obj?.xClientBaseB64u) ||
-      normalizeOptionalNonEmptyString(obj?.clientVerifyingShareB64u),
-  );
+  return Boolean(normalizeOptionalNonEmptyString(obj?.xClientBaseB64u));
 }
 
 type SealedRecordStoreKeyInput =
@@ -556,9 +574,7 @@ function makeSealedRecordStoreKey(args: SealedRecordStoreKeyInput): string {
       .map(sealedStoreKeyPart)
       .join(':');
   }
-  return [args.signingGrantId, args.authMethod, args.curve]
-    .map(sealedStoreKeyPart)
-    .join(':');
+  return [args.signingGrantId, args.authMethod, args.curve].map(sealedStoreKeyPart).join(':');
 }
 
 function sealedStoreKeyPart(value: unknown): string {
@@ -1062,15 +1078,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
     if (ecdsaRestore.sessionKind === 'jwt') {
-      const walletSessionJwt = normalizeOptionalNonEmptyString(
-        ecdsaRestoreObj.walletSessionJwt,
-      );
+      const walletSessionJwt = normalizeOptionalNonEmptyString(ecdsaRestoreObj.walletSessionJwt);
       if (!walletSessionJwt) {
-        return classifyNonCurrentRecord(
-          'delete_required',
-          obj,
-          'missing_wallet_session_jwt',
-        );
+        return classifyNonCurrentRecord('delete_required', obj, 'missing_wallet_session_jwt');
       }
       if (
         !isCurrentThresholdEcdsaSessionJwt({
@@ -1130,10 +1140,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   if (!ed25519Restore) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
   }
-  if (
-    normalizeOptionalNonEmptyString(ed25519RestoreObj.xClientBaseB64u) ||
-    normalizeOptionalNonEmptyString(ed25519RestoreObj.clientVerifyingShareB64u)
-  ) {
+  if (normalizeOptionalNonEmptyString(ed25519RestoreObj.xClientBaseB64u)) {
     return classifyNonCurrentRecord('delete_required', obj, 'missing_restore_metadata');
   }
   if (

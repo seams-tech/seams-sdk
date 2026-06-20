@@ -81,7 +81,7 @@ export type Ed25519SessionPolicy = {
   nearAccountId: string;
   rpId: string;
   relayerKeyId: string;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
@@ -156,7 +156,7 @@ export function generateThresholdSessionId(): string {
 }
 
 export function generateSigningGrantId(): string {
-  return secureRandomId('wsess', 32, 'wallet signing session IDs');
+  return secureRandomId('wsess', 32, 'signing grant IDs');
 }
 
 export async function computeEd25519SessionPolicyDigest32(
@@ -182,7 +182,7 @@ export async function buildEd25519SessionPolicy(params: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   participantIds?: number[];
-  sessionId?: string;
+  thresholdSessionId?: string;
   signingGrantId?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -191,9 +191,8 @@ export async function buildEd25519SessionPolicy(params: {
   policyJson: string;
   sessionPolicyDigest32: string;
 }> {
-  const sessionId = params.sessionId || generateThresholdSessionId();
-  const signingGrantId =
-    String(params.signingGrantId || '').trim() || generateSigningGrantId();
+  const thresholdSessionId = params.thresholdSessionId || generateThresholdSessionId();
+  const signingGrantId = String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -205,10 +204,12 @@ export async function buildEd25519SessionPolicy(params: {
     nearAccountId: params.nearAccountId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(params.routerAbNormalSigning ? { routerAbNormalSigning: params.routerAbNormalSigning } : {}),
+    ...(params.routerAbNormalSigning
+      ? { routerAbNormalSigning: params.routerAbNormalSigning }
+      : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
     remainingUses,
@@ -269,8 +270,7 @@ export function buildEcdsaHssSessionPolicy(params: {
   remainingUses?: number;
 }): EcdsaHssSessionPolicy {
   const sessionId = params.sessionId || generateThresholdSessionId();
-  const signingGrantId =
-    String(params.signingGrantId || '').trim() || generateSigningGrantId();
+  const signingGrantId = String(params.signingGrantId || '').trim() || generateSigningGrantId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -331,6 +331,8 @@ export function isThresholdSignerRepairableMaterialError(err: unknown): boolean 
     isThresholdSignerMissingKeyError(err) ||
     msg.includes('ed25519 verifying shares do not sum to group public key') ||
     msg.includes('client verifying share does not match x_client_base') ||
-    msg.includes('router a/b ed25519 signing material handle')
+    msg.includes('router a/b ed25519 signing material handle') ||
+    msg.includes('ed25519 hss material handle is not loaded') ||
+    msg.includes('ed25519 worker material handle is not loaded')
   );
 }

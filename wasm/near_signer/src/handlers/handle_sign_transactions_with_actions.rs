@@ -1,6 +1,6 @@
 // ******************************************************************************
 // *                                                                            *
-// *                 HANDLER: SIGN TRANSACTIONS WITH ACTIONS                  *
+// *                 HANDLER: SIGN TRANSACTION WITH ACTIONS                   *
 // *                                                                            *
 // ******************************************************************************
 
@@ -132,9 +132,8 @@ impl KeyActionResult {
 // ******************************************************************************
 
 /// **Handles:** `WorkerRequestType::SignTransactionsWithActions`
-/// This handler processes multiple transactions in a single batch, performing contract verification
-/// once and then signing all transactions with the same decrypted private key. It provides detailed
-/// progress updates and comprehensive error handling for each transaction in the batch.
+/// The worker enum name is kept until generated request IDs are renamed, but
+/// current signing accepts exactly one NEAR transaction with one or more actions.
 ///
 /// # Arguments
 /// * `tx_batch_request` - Contains verification data, decryption parameters, and array of transaction requests
@@ -144,16 +143,15 @@ impl KeyActionResult {
 pub async fn handle_sign_transactions_with_actions(
     tx_batch_request: SignTransactionsWithActionsRequest,
 ) -> Result<TransactionSignResult, String> {
-    // Validate input
-    if tx_batch_request.tx_signing_requests.is_empty() {
-        return Err("No transactions provided".to_string());
+    if tx_batch_request.tx_signing_requests.len() != 1 {
+        return Err(format!(
+            "Expected exactly one NEAR transaction but received {}",
+            tx_batch_request.tx_signing_requests.len()
+        ));
     }
 
     let mut logs: Vec<String> = Vec::new();
-    logs.push(format!(
-        "Processing {} transactions",
-        tx_batch_request.tx_signing_requests.len()
-    ));
+    logs.push("Processing one transaction".to_string());
 
     // Validate session expiry if created_at is present
     if let Some(created_at) = tx_batch_request.created_at {
@@ -163,24 +161,21 @@ pub async fn handle_sign_transactions_with_actions(
         }
     }
 
-    // Step 1: Validate pre-confirmed context (confirmation already ran in SecureConfirm-driven flow)
-    for (i, tx) in tx_batch_request.tx_signing_requests.iter().enumerate() {
-        logs.push(format!(
-            "Transaction {}: {} -> {} ({} actions)",
-            i + 1,
-            tx.near_account_id,
-            tx.receiver_id,
-            tx.actions.len()
-        ));
-    }
+    let tx_request = tx_batch_request
+        .tx_signing_requests
+        .first()
+        .ok_or_else(|| "Expected exactly one NEAR transaction".to_string())?;
+    logs.push(format!(
+        "Transaction: {} -> {} ({} actions)",
+        tx_request.near_account_id,
+        tx_request.receiver_id,
+        tx_request.actions.len()
+    ));
     send_progress_message(
         ProgressMessageType::ExecuteActionsProgress,
         ProgressStep::UserConfirmation,
         "Using pre-confirmed signing session from SecureConfirm flow...",
-        Some(
-            &ProgressData::new(1, 4)
-                .with_transaction_count(tx_batch_request.tx_signing_requests.len()),
-        ),
+        Some(&ProgressData::new(1, 4).with_transaction_count(1)),
     );
 
     let intent_digest = tx_batch_request
@@ -207,25 +202,14 @@ pub async fn handle_sign_transactions_with_actions(
         Some(&ProgressData::new(2, 4)),
     );
 
-    // Step 3: Batch transaction signing (confirmation and verification already completed in SecureConfirm/confirmTxFlow)
-    logs.push(format!(
-        "Signing {} transactions in secure WASM context...",
-        tx_batch_request.tx_signing_requests.len()
-    ));
+    logs.push("Signing transaction in secure WASM context...".to_string());
 
-    // Send signing progress
     send_progress_message(
         ProgressMessageType::ExecuteActionsProgress,
         ProgressStep::TransactionSigningProgress,
-        "Signing transactions...",
-        Some(
-            &ProgressData::new(4, 4)
-                .with_transaction_count(tx_batch_request.tx_signing_requests.len()),
-        ),
+        "Signing transaction...",
+        Some(&ProgressData::new(4, 4).with_transaction_count(1)),
     );
-
-    // Process all transactions using the shared verification and decryption
-    let tx_count = tx_batch_request.tx_signing_requests.len();
 
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -257,8 +241,13 @@ pub async fn handle_sign_transactions_with_actions(
         &tx_batch_request.threshold,
     )?;
 
-    let result = sign_near_transactions_with_actions_impl(
-        tx_batch_request.tx_signing_requests,
+    let transaction_request = tx_batch_request
+        .tx_signing_requests
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Expected exactly one NEAR transaction".to_string())?;
+    let result = sign_near_transaction_with_actions_impl(
+        transaction_request,
         &signer,
         &transaction_context,
         logs,
@@ -270,11 +259,11 @@ pub async fn handle_sign_transactions_with_actions(
         // Mark as terminal success so UIs don't remain "stuck" treating this as in-progress.
         ProgressMessageType::ExecuteActionsComplete,
         ProgressStep::TransactionSigningComplete,
-        &format!("{} transactions signed successfully", tx_count),
+        "Transaction signed successfully",
         Some(
             &ProgressData::new(4, 4)
                 .with_success(result.success)
-                .with_transaction_count(tx_count)
+                .with_transaction_count(1)
                 .with_logs(result.logs.clone()),
         ),
     );
@@ -282,10 +271,8 @@ pub async fn handle_sign_transactions_with_actions(
     Ok(result)
 }
 
-/// Internal implementation for batch transaction signing after verification is complete.
-/// This function handles the actual signing logic for multiple transactions using a shared
-/// decrypted private key. It processes each transaction individually, provides detailed logging
-/// for each step, and handles errors gracefully while continuing with remaining transactions.
+/// Internal implementation for one transaction with one or more actions after
+/// verification is complete.
 ///
 /// # Arguments
 /// * `tx_requests` - Array of transaction payloads to sign
@@ -294,174 +281,106 @@ pub async fn handle_sign_transactions_with_actions(
 ///
 /// # Returns
 /// * `TransactionSignResult` - Contains batch signing results with individual transaction details
-async fn sign_near_transactions_with_actions_impl(
-    tx_requests: Vec<TransactionPayload>,
+async fn sign_near_transaction_with_actions_impl(
+    tx_data: TransactionPayload,
     signer: &Ed25519SignerBackend,
     transaction_context: &crate::types::handlers::TransactionContext,
     mut logs: Vec<String>,
 ) -> Result<TransactionSignResult, String> {
-    if tx_requests.is_empty() {
-        let error_msg = "No transactions provided".to_string();
-        logs.push(error_msg.clone());
-        return Ok(TransactionSignResult::failed(logs, error_msg));
-    }
-
-    // Decrypt private key using the shared decryption data (use first transaction's signer account)
-    let first_transaction = &tx_requests[0];
-
-    // Validate that all transactions use the same NEAR account ID
-    for tx in &tx_requests {
-        if first_transaction.near_account_id != tx.near_account_id {
-            let error_msg = format!("All transactions must use the same NEAR account ID");
-            return Ok(TransactionSignResult::failed(logs, error_msg));
-        }
-    }
-
-    logs.push(format!("Processing {} transactions", tx_requests.len()));
+    logs.push("Processing transaction".to_string());
     let public_key_bytes = signer.public_key_bytes()?;
     logs.push("Signer backend initialized successfully".to_string());
 
-    // Prepare nonce sequencing: start from next_nonce and increment per transaction
-    let mut current_nonce: u64 = transaction_context
+    let current_nonce: u64 = transaction_context
         .next_nonce
         .parse()
         .map_err(|e| format!("Invalid nonce: {}", e))?;
 
-    // Process each transaction
-    let mut signed_transactions_wasm = Vec::new();
-    let mut transaction_hashes = Vec::new();
+    let action_params: Vec<ActionParams> = {
+        let params = tx_data.actions.clone();
+        logs.push(format!("Transaction: Parsed {} actions", params.len()));
+        params
+    };
 
-    for (index, tx_data) in tx_requests.iter().enumerate() {
-        logs.push(format!(
-            "Processing transaction {} of {}",
-            index + 1,
-            tx_requests.len()
-        ));
-
-        // Parse and build actions for this transaction
-        let action_params: Vec<ActionParams> = {
-            let params = tx_data.actions.clone();
-            logs.push(format!(
-                "Transaction {}: Parsed {} actions",
-                index + 1,
-                params.len()
-            ));
-            params
-        };
-
-        let actions = match build_actions_from_params(action_params) {
-            Ok(actions) => {
-                logs.push(format!(
-                    "Transaction {}: Actions built successfully",
-                    index + 1
-                ));
-                actions
-            }
-            Err(e) => {
-                let error_msg =
-                    format!("Transaction {}: Failed to build actions: {}", index + 1, e);
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        // Build and sign transaction
-        let transaction = match build_transaction_with_actions(
-            &tx_data.near_account_id,
-            &tx_data.receiver_id,
-            current_nonce,
-            &bs58::decode(&transaction_context.tx_block_hash)
-                .into_vec()
-                .map_err(|e| format!("Invalid block hash: {}", e))?,
-            &public_key_bytes,
-            actions,
-        ) {
-            Ok(tx) => {
-                logs.push(format!(
-                    "Transaction {}: Built successfully (nonce used: {})",
-                    index + 1,
-                    current_nonce
-                ));
-                tx
-            }
-            Err(e) => {
-                let error_msg = format!(
-                    "Transaction {}: Failed to build transaction: {}",
-                    index + 1,
-                    e
-                );
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        let (transaction_hash_to_sign, _size) = transaction.get_hash_and_size();
-        let signature_bytes = match signer.sign(&transaction_hash_to_sign.0).await {
-            Ok(sig) => sig,
-            Err(e) => {
-                let error_msg = format!(
-                    "Transaction {}: Failed to sign transaction: {}",
-                    index + 1,
-                    e
-                );
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        let signed_tx_bytes = match sign_transaction(transaction, &signature_bytes) {
-            Ok(bytes) => {
-                logs.push(format!("Transaction {}: Signed successfully", index + 1));
-                bytes
-            }
-            Err(e) => {
-                let error_msg = format!(
-                    "Transaction {}: Failed to serialize signed transaction: {}",
-                    index + 1,
-                    e
-                );
-                logs.push(error_msg.clone());
-                return Ok(TransactionSignResult::failed(logs, error_msg));
-            }
-        };
-
-        // Calculate transaction hash from signed transaction bytes (before moving the bytes)
-        let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
-        logs.push(format!(
-            "Transaction {}: Hash calculated - {}",
-            index + 1,
-            transaction_hash
-        ));
-
-        // Create SignedTransaction from signed bytes
-        let signed_tx: SignedTransaction = borsh::from_slice(&signed_tx_bytes).map_err(|e| {
-            let error_msg = format!(
-                "Transaction {}: Failed to deserialize SignedTransaction: {}",
-                index + 1,
-                e
-            );
+    let actions = match build_actions_from_params(action_params) {
+        Ok(actions) => {
+            logs.push("Transaction: Actions built successfully".to_string());
+            actions
+        }
+        Err(e) => {
+            let error_msg = format!("Transaction: Failed to build actions: {}", e);
             logs.push(error_msg.clone());
-            error_msg
-        })?;
+            return Ok(TransactionSignResult::failed(logs, error_msg));
+        }
+    };
 
-        let signed_tx_wasm = WasmSignedTransaction::from(&signed_tx);
+    let transaction = match build_transaction_with_actions(
+        &tx_data.near_account_id,
+        &tx_data.receiver_id,
+        current_nonce,
+        &bs58::decode(&transaction_context.tx_block_hash)
+            .into_vec()
+            .map_err(|e| format!("Invalid block hash: {}", e))?,
+        &public_key_bytes,
+        actions,
+    ) {
+        Ok(tx) => {
+            logs.push(format!(
+                "Transaction: Built successfully (nonce used: {})",
+                current_nonce
+            ));
+            tx
+        }
+        Err(e) => {
+            let error_msg = format!("Transaction: Failed to build transaction: {}", e);
+            logs.push(error_msg.clone());
+            return Ok(TransactionSignResult::failed(logs, error_msg));
+        }
+    };
 
-        signed_transactions_wasm.push(signed_tx_wasm);
-        transaction_hashes.push(transaction_hash);
+    let (transaction_hash_to_sign, _size) = transaction.get_hash_and_size();
+    let signature_bytes = match signer.sign(&transaction_hash_to_sign.0).await {
+        Ok(sig) => sig,
+        Err(e) => {
+            let error_msg = format!("Transaction: Failed to sign transaction: {}", e);
+            logs.push(error_msg.clone());
+            return Ok(TransactionSignResult::failed(logs, error_msg));
+        }
+    };
 
-        // Increment nonce for the next transaction in the batch
-        current_nonce = current_nonce.saturating_add(1);
-    }
+    let signed_tx_bytes = match sign_transaction(transaction, &signature_bytes) {
+        Ok(bytes) => {
+            logs.push("Transaction: Signed successfully".to_string());
+            bytes
+        }
+        Err(e) => {
+            let error_msg = format!("Transaction: Failed to serialize signed transaction: {}", e);
+            logs.push(error_msg.clone());
+            return Ok(TransactionSignResult::failed(logs, error_msg));
+        }
+    };
 
+    let transaction_hash = calculate_transaction_hash(&signed_tx_bytes);
     logs.push(format!(
-        "All {} transactions signed successfully",
-        signed_transactions_wasm.len()
+        "Transaction: Hash calculated - {}",
+        transaction_hash
     ));
+
+    let signed_tx: SignedTransaction = borsh::from_slice(&signed_tx_bytes).map_err(|e| {
+        let error_msg = format!(
+            "Transaction: Failed to deserialize SignedTransaction: {}",
+            e
+        );
+        logs.push(error_msg.clone());
+        error_msg
+    })?;
+
+    logs.push("Transaction signed successfully".to_string());
 
     Ok(TransactionSignResult::new(
         true,
-        Some(transaction_hashes),
-        Some(signed_transactions_wasm),
+        Some(vec![transaction_hash]),
+        Some(vec![WasmSignedTransaction::from(&signed_tx)]),
         logs,
         None,
     ))

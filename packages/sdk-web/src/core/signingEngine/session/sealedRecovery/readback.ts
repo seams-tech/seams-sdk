@@ -1,5 +1,5 @@
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
-import type { RestoreSealedRecordResult } from './types';
+import type { RestoreSealedRecordResult } from './sealedRecovery.types';
 
 export type RestoredWarmSessionStatus = {
   ok: true;

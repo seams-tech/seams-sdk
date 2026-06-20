@@ -16,7 +16,6 @@ import initHssClientSigner, {
   threshold_ed25519_hss_prepare_client_request,
   threshold_ed25519_hss_prepare_session,
   threshold_ed25519_role_separated_client_verifying_share_from_base_share,
-  threshold_ed25519_role_separated_normal_signing_create_client_share,
   threshold_ed25519_seed_export_artifact_from_seed,
 } from '../../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import initEthSigner, {
@@ -35,7 +34,6 @@ import {
   type ThresholdEcdsaPresignProgressResult,
   type HssWorkerOperationType,
 } from '../workerTypes';
-import { buildRouterAbEd25519SigningMaterialPersistedHandle } from '../../threshold/ed25519/hssMaterialBinding';
 
 const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'HSS Client ECDSA Presign');
@@ -46,25 +44,13 @@ let messageQueue: Promise<void> = Promise.resolve();
 const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
 const DIAGNOSTIC_BREAKDOWN_MAX_FIELDS = 64;
 
-type StoredEd25519HssMaterial = {
-  materialHandle: string;
-  xClientBaseB64u: string;
-  clientVerifyingShareB64u: string;
-  bindingDigest: string;
-};
-
-const ed25519HssMaterialStore = new Map<string, StoredEd25519HssMaterial>();
-
 type StoredEcdsaRoleLocalSigningMaterial = {
   materialHandle: string;
   stateBlobB64u: string;
   bindingDigest: string;
 };
 
-const ecdsaRoleLocalSigningMaterialStore = new Map<
-  string,
-  StoredEcdsaRoleLocalSigningMaterial
->();
+const ecdsaRoleLocalSigningMaterialStore = new Map<string, StoredEcdsaRoleLocalSigningMaterial>();
 
 type HssEcdsaStoredPresignature = {
   materialHandle: string;
@@ -292,134 +278,7 @@ function requireRecordPayload(payload: unknown): Record<string, unknown> {
   return payload as Record<string, unknown>;
 }
 
-async function storeRouterAbEd25519HssMaterialFromClientOutput(
-  payload: unknown,
-): Promise<StoredEd25519HssMaterial> {
-  const record = requireRecordPayload(payload);
-  const opened = threshold_ed25519_hss_open_client_output({
-    evaluatorDriverStateB64u: readNonEmptyString(record, 'evaluatorDriverStateB64u'),
-    clientOutputMessageB64u: readNonEmptyString(record, 'clientOutputMessageB64u'),
-    clientOutputMaskB64u: readNonEmptyString(record, 'clientOutputMaskB64u'),
-  }) as { contextBindingB64u?: unknown; xClientBaseB64u?: unknown };
-  const contextBindingB64u = String(opened.contextBindingB64u || '').trim();
-  const expectedContextBindingB64u = readNonEmptyString(record, 'expectedContextBindingB64u');
-  if (contextBindingB64u !== expectedContextBindingB64u) {
-    throw new Error('Ed25519 HSS client output context binding mismatch');
-  }
-  const xClientBaseB64u = String(opened.xClientBaseB64u || '').trim();
-  if (!xClientBaseB64u) {
-    throw new Error('Ed25519 HSS client output is missing client base material');
-  }
-  const derived = threshold_ed25519_role_separated_client_verifying_share_from_base_share({
-    xClientBaseB64u,
-  }) as { clientVerifyingShareB64u?: unknown };
-  const clientVerifyingShareB64u = String(derived.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
-    throw new Error('HSS client worker failed to derive Ed25519 client verifying share');
-  }
-  const persistedHandle = await buildRouterAbEd25519SigningMaterialPersistedHandle({
-    thresholdSessionId: readNonEmptyString(record, 'thresholdSessionId'),
-    signingGrantId: readNonEmptyString(record, 'signingGrantId'),
-    signingRootId: readNonEmptyString(record, 'signingRootId'),
-    signingRootVersion: readNonEmptyString(record, 'signingRootVersion'),
-    expiresAtMs: readPositiveInteger(record, 'expiresAtMs'),
-    nearAccountId: readNonEmptyString(record, 'nearAccountId'),
-    relayerKeyId: readNonEmptyString(record, 'relayerKeyId'),
-    participantIds: readParticipantIds(record, 'participantIds'),
-    signingWorkerId: readNonEmptyString(record, 'signingWorkerId'),
-    clientVerifyingShareB64u,
-  });
-  const stored = {
-    materialHandle: persistedHandle.materialHandle,
-    xClientBaseB64u,
-    clientVerifyingShareB64u: persistedHandle.clientVerifyingShareB64u,
-    bindingDigest: persistedHandle.bindingDigest,
-  };
-  ed25519HssMaterialStore.set(stored.materialHandle, stored);
-  return stored;
-}
-
-function storeEd25519HssMaterial(payload: unknown): StoredEd25519HssMaterial {
-  const record = requireRecordPayload(payload);
-  const materialHandle = readNonEmptyString(record, 'materialHandle');
-  const xClientBaseB64u = readNonEmptyString(record, 'xClientBaseB64u');
-  const expectedClientVerifyingShareB64u = readNonEmptyString(
-    record,
-    'expectedClientVerifyingShareB64u',
-  );
-  const bindingDigest = readNonEmptyString(record, 'bindingDigest');
-  const derived = threshold_ed25519_role_separated_client_verifying_share_from_base_share({
-    xClientBaseB64u,
-  }) as { clientVerifyingShareB64u?: unknown };
-  const clientVerifyingShareB64u = String(derived.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
-    throw new Error('HSS client worker failed to derive Ed25519 client verifying share');
-  }
-  if (clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
-    throw new Error('Ed25519 HSS material verifying-share binding mismatch');
-  }
-  const stored = {
-    materialHandle,
-    xClientBaseB64u,
-    clientVerifyingShareB64u,
-    bindingDigest,
-  };
-  ed25519HssMaterialStore.set(materialHandle, stored);
-  return stored;
-}
-
-function createEd25519NormalSigningClientShareFromHandle(payload: unknown): unknown {
-  const record = requireRecordPayload(payload);
-  const materialHandle = readNonEmptyString(record, 'materialHandle');
-  const expectedClientVerifyingShareB64u = readNonEmptyString(
-    record,
-    'expectedClientVerifyingShareB64u',
-  );
-  const stored = ed25519HssMaterialStore.get(materialHandle);
-  if (!stored) {
-    throw new Error('Ed25519 HSS material handle is not loaded in this worker');
-  }
-  if (stored.clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
-    throw new Error('Ed25519 HSS material handle verifying-share binding mismatch');
-  }
-  return threshold_ed25519_role_separated_normal_signing_create_client_share({
-    ...record,
-    xClientBaseB64u: stored.xClientBaseB64u,
-  });
-}
-
-function validateEd25519HssMaterialHandle(payload: unknown): {
-  materialHandle: string;
-  clientVerifyingShareB64u: string;
-  bindingDigest: string;
-} {
-  const record = requireRecordPayload(payload);
-  const materialHandle = readNonEmptyString(record, 'materialHandle');
-  const expectedClientVerifyingShareB64u = readNonEmptyString(
-    record,
-    'expectedClientVerifyingShareB64u',
-  );
-  const expectedBindingDigest = readNonEmptyString(record, 'expectedBindingDigest');
-  const stored = ed25519HssMaterialStore.get(materialHandle);
-  if (!stored) {
-    throw new Error('Ed25519 HSS material handle is not loaded in this worker');
-  }
-  if (stored.clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
-    throw new Error('Ed25519 HSS material handle verifying-share binding mismatch');
-  }
-  if (stored.bindingDigest !== expectedBindingDigest) {
-    throw new Error('Ed25519 HSS material handle binding digest mismatch');
-  }
-  return {
-    materialHandle: stored.materialHandle,
-    clientVerifyingShareB64u: stored.clientVerifyingShareB64u,
-    bindingDigest: stored.bindingDigest,
-  };
-}
-
-function storeEcdsaRoleLocalSigningMaterial(
-  payload: unknown,
-): StoredEcdsaRoleLocalSigningMaterial {
+function storeEcdsaRoleLocalSigningMaterial(payload: unknown): StoredEcdsaRoleLocalSigningMaterial {
   const record = requireRecordPayload(payload);
   const materialHandle = readNonEmptyString(record, 'materialHandle');
   const bindingDigest = readNonEmptyString(record, 'bindingDigest');
@@ -768,61 +627,21 @@ async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandRe
           type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
           payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
         };
-      case WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare:
-        return {
-          type: WorkerResponseType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess,
-          payload: threshold_ed25519_role_separated_normal_signing_create_client_share(payload),
-        };
       case HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare:
         return {
           type: HssClientCustomResponseType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareSuccess,
           payload: threshold_ed25519_role_separated_client_verifying_share_from_base_share(payload),
         };
-      case HssClientCustomRequestType.StoreThresholdEd25519HssMaterial:
-        {
-          const stored = storeEd25519HssMaterial(payload);
-          return {
-            type: HssClientCustomResponseType.StoreThresholdEd25519HssMaterialSuccess,
-            payload: {
-              materialHandle: stored.materialHandle,
-              clientVerifyingShareB64u: stored.clientVerifyingShareB64u,
-              bindingDigest: stored.bindingDigest,
-            },
-          };
-        }
-      case HssClientCustomRequestType.StoreRouterAbEd25519HssMaterialFromClientOutput:
-        {
-          const stored = await storeRouterAbEd25519HssMaterialFromClientOutput(payload);
-          return {
-            type: HssClientCustomResponseType.StoreRouterAbEd25519HssMaterialFromClientOutputSuccess,
-            payload: {
-              materialHandle: stored.materialHandle,
-              clientVerifyingShareB64u: stored.clientVerifyingShareB64u,
-              bindingDigest: stored.bindingDigest,
-            },
-          };
-        }
-      case HssClientCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle:
+      case HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial: {
+        const stored = storeEcdsaRoleLocalSigningMaterial(payload);
         return {
-          type: HssClientCustomResponseType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleSuccess,
-          payload: createEd25519NormalSigningClientShareFromHandle(payload),
+          type: HssClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess,
+          payload: {
+            materialHandle: stored.materialHandle,
+            bindingDigest: stored.bindingDigest,
+          },
         };
-      case HssClientCustomRequestType.ValidateThresholdEd25519HssMaterial:
-        return {
-          type: HssClientCustomResponseType.ValidateThresholdEd25519HssMaterialSuccess,
-          payload: validateEd25519HssMaterialHandle(payload),
-        };
-      case HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial:
-        {
-          const stored = storeEcdsaRoleLocalSigningMaterial(payload);
-          return {
-            type: HssClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess,
-            payload: {
-              materialHandle: stored.materialHandle,
-              bindingDigest: stored.bindingDigest,
-            },
-          };
-        }
+      }
       case HssClientCustomRequestType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle:
         return {
           type: HssClientCustomResponseType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleSuccess,
@@ -919,7 +738,8 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
     });
   } catch (error: unknown) {
     if (
-      requestType === HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle ||
+      requestType ===
+        HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle ||
       requestType === HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep
     ) {
       const sessionId = String(

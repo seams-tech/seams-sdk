@@ -179,7 +179,7 @@ export function assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession(arg
   if (!args.authorizingSigningGrantId) return;
   if (String(args.mintedSigningGrantId) === String(args.authorizingSigningGrantId)) {
     throw new Error(
-      'Email OTP per-operation ECDSA minting must create a fresh wallet signing-session id',
+      'Email OTP per-operation ECDSA minting must create a fresh signing grant id',
     );
   }
 }
@@ -254,7 +254,7 @@ export function ecdsaBootstrapWithSigningGrantId(args: {
     args.signingGrantId,
   );
   if (!signingGrantId) {
-    throw new Error('Email OTP ECDSA bootstrap is missing wallet signing-session identity');
+    throw new Error('Email OTP ECDSA bootstrap is missing signing grant identity');
   }
   return {
     ...args.bootstrap,

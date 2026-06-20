@@ -688,12 +688,6 @@ export interface NearSignerCapability {
     options: ActionHooksOptions;
   }): Promise<ActionResult>;
 
-  signAndSendTransactions(args: {
-    nearAccount: NearAccountRef;
-    transactions: TransactionInput[];
-    options: SignAndSendTransactionHooksOptions;
-  }): Promise<ActionResult[]>;
-
   signAndSendTransaction(args: {
     nearAccount: NearAccountRef;
     receiverId: string;
@@ -701,11 +695,11 @@ export interface NearSignerCapability {
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult>;
 
-  signTransactionsWithActions(args: {
+  signTransactionWithActions(args: {
     nearAccount: NearAccountRef;
-    transactions: TransactionInput[];
+    transaction: TransactionInput;
     options: SignTransactionHooksOptions;
-  }): Promise<SignTransactionResult[]>;
+  }): Promise<SignTransactionResult>;
 
   sendTransaction(args: {
     signedTransaction: SignedTransaction;

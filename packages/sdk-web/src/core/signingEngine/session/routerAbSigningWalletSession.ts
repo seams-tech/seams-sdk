@@ -7,9 +7,7 @@ import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/rou
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import {
-  resolveRouterAbEcdsaWalletSessionAuthFromRecord,
-} from './warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   buildRouterAbEd25519SigningMaterialRef,
   type RouterAbEd25519SigningMaterialRef,
@@ -65,7 +63,6 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_material_binding_digest'
   | 'missing_client_verifying_share'
   | 'material_identity_mismatch'
-  | 'raw_material_without_handle'
   | 'missing_runtime_policy_scope'
   | 'missing_router_ab_state'
   | 'invalid_router_ab_state'
@@ -75,22 +72,36 @@ export type RouterAbSigningWalletSessionResult<T> =
   | { ok: true; value: T }
   | { ok: false; reason: RouterAbSigningWalletSessionParseFailureReason };
 
-export type RouterAbEd25519PendingMaterialReason =
+export type RouterAbEd25519AuthReadyMaterialPendingReason =
   | 'missing_material_handle'
   | 'missing_material_binding_digest'
   | 'missing_client_verifying_share';
 
-type RouterAbPersistedSigningRecordState<TRecord, TSession> =
+export type RouterAbEd25519MaterialHintUnvalidatedReason = 'worker_material_unvalidated';
+
+type RouterAbEd25519PersistedSigningRecordStateBase<TRecord, TSession> =
   | {
-      kind: 'signable';
+      kind: 'runtime_validated';
       record: TRecord;
       value: TSession;
       reason?: never;
     }
   | {
-      kind: 'pending_material';
+      kind: 'restore_available';
       record: TRecord;
-      reason: RouterAbEd25519PendingMaterialReason;
+      reason: 'loaded_material_missing';
+      value?: never;
+    }
+  | {
+      kind: 'material_hint_unvalidated';
+      record: TRecord;
+      reason: RouterAbEd25519MaterialHintUnvalidatedReason;
+      value?: never;
+    }
+  | {
+      kind: 'auth_ready_material_pending';
+      record: TRecord;
+      reason: RouterAbEd25519AuthReadyMaterialPendingReason;
       value?: never;
     }
   | {
@@ -107,16 +118,30 @@ type RouterAbPersistedSigningRecordState<TRecord, TSession> =
     };
 
 export type RouterAbEd25519PersistedSigningRecordState =
-  RouterAbPersistedSigningRecordState<
-    ThresholdEd25519SessionRecord,
-    RouterAbEd25519SigningWalletSession
-  >;
+  RouterAbEd25519PersistedSigningRecordStateBase<
+  ThresholdEd25519SessionRecord,
+  RouterAbEd25519SigningWalletSession
+>;
 
 export type RouterAbEcdsaHssPersistedSigningRecordState =
-  RouterAbPersistedSigningRecordState<
-    ThresholdEcdsaSessionRecord,
-    RouterAbEcdsaHssSigningWalletSession
-  >;
+  | {
+      kind: 'signable';
+      record: ThresholdEcdsaSessionRecord;
+      value: RouterAbEcdsaHssSigningWalletSession;
+      reason?: never;
+    }
+  | {
+      kind: 'non_signing';
+      record: ThresholdEcdsaSessionRecord;
+      reason: 'cookie_session';
+      value?: never;
+    }
+  | {
+      kind: 'invalid';
+      record: ThresholdEcdsaSessionRecord | null;
+      reason: RouterAbSigningWalletSessionParseFailureReason;
+      value?: never;
+    };
 
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
@@ -138,6 +163,45 @@ function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessio
       walletSessionJwt,
     },
   };
+}
+
+const routerAbEd25519RuntimeValidatedMaterialKeys = new Set<string>();
+
+function routerAbEd25519RuntimeMaterialKey(session: RouterAbEd25519SigningWalletSession): string {
+  return [
+    session.thresholdSessionId,
+    session.signingGrantId,
+    session.auth.walletSessionJwt,
+    session.signingMaterial.materialHandle,
+    session.signingMaterial.bindingDigest,
+    session.signingMaterial.clientVerifierB64u,
+    session.signingRootId,
+    session.signingRootVersion,
+    session.routerAbNormalSigning.signingWorkerId,
+  ].join('\x1f');
+}
+
+export function markRouterAbEd25519WorkerMaterialRuntimeValidated(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): boolean {
+  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
+  if (!parsed.ok) return false;
+  routerAbEd25519RuntimeValidatedMaterialKeys.add(routerAbEd25519RuntimeMaterialKey(parsed.value));
+  return true;
+}
+
+export function isRouterAbEd25519WorkerMaterialRuntimeValidated(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): boolean {
+  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
+  if (!parsed.ok) return false;
+  return routerAbEd25519RuntimeValidatedMaterialKeys.has(
+    routerAbEd25519RuntimeMaterialKey(parsed.value),
+  );
+}
+
+export function clearRouterAbEd25519WorkerMaterialRuntimeValidation(): void {
+  routerAbEd25519RuntimeValidatedMaterialKeys.clear();
 }
 
 export function resolveRouterAbEd25519SigningRootFromRecord(
@@ -246,17 +310,12 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (!signingRoot.ok) return signingRoot;
   const runtimePolicyScope = record.runtimePolicyScope;
   if (!runtimePolicyScope) return { ok: false, reason: 'missing_runtime_policy_scope' };
-  const ed25519HssMaterialHandle = nonEmptyString(record.ed25519HssMaterialHandle);
-  if (!ed25519HssMaterialHandle) {
-    if (nonEmptyString(record.xClientBaseB64u)) {
-      return { ok: false, reason: 'raw_material_without_handle' };
-    }
+  const ed25519WorkerMaterialHandle = nonEmptyString(record.ed25519WorkerMaterialHandle);
+  if (!ed25519WorkerMaterialHandle) {
     return { ok: false, reason: 'missing_material_handle' };
   }
-  const ed25519HssMaterialBindingDigest = nonEmptyString(
-    record.ed25519HssMaterialBindingDigest,
-  );
-  if (!ed25519HssMaterialBindingDigest) {
+  const ed25519WorkerMaterialBindingDigest = nonEmptyString(record.ed25519WorkerMaterialBindingDigest);
+  if (!ed25519WorkerMaterialBindingDigest) {
     return { ok: false, reason: 'missing_material_binding_digest' };
   }
   const clientVerifyingShareB64u = nonEmptyString(record.clientVerifyingShareB64u);
@@ -264,8 +323,8 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
     return { ok: false, reason: 'missing_client_verifying_share' };
   }
   const signingMaterial = buildRouterAbEd25519SigningMaterialRef({
-    materialHandle: ed25519HssMaterialHandle,
-    bindingDigest: ed25519HssMaterialBindingDigest,
+    materialHandle: ed25519WorkerMaterialHandle,
+    bindingDigest: ed25519WorkerMaterialBindingDigest,
     clientVerifyingShareB64u,
   });
   if (!record.routerAbNormalSigning) return { ok: false, reason: 'missing_router_ab_state' };
@@ -356,13 +415,29 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   };
 }
 
-function isEd25519PendingMaterialReason(
+function isEd25519AuthReadyMaterialPendingReason(
   reason: RouterAbSigningWalletSessionParseFailureReason,
-): reason is RouterAbEd25519PendingMaterialReason {
+): reason is RouterAbEd25519AuthReadyMaterialPendingReason {
   return (
     reason === 'missing_material_handle' ||
     reason === 'missing_material_binding_digest' ||
     reason === 'missing_client_verifying_share'
+  );
+}
+
+function hasEd25519SealedWorkerMaterial(record: ThresholdEd25519SessionRecord): boolean {
+  return Boolean(
+    record.thresholdSessionKind === 'jwt' &&
+    nonEmptyString(record.thresholdSessionId) &&
+    nonEmptyString(record.signingGrantId) &&
+    nonEmptyString(record.walletSessionJwt) &&
+    nonEmptyString(record.sealedWorkerMaterialRef) &&
+    nonEmptyString(record.ed25519WorkerMaterialBindingDigest) &&
+    nonEmptyString(record.clientVerifyingShareB64u) &&
+    nonEmptyString(record.materialFormatVersion) &&
+    nonEmptyString(record.materialKeyId) &&
+    positiveInteger(record.signerSlot) &&
+    nonEmptyString(record.keyVersion),
   );
 }
 
@@ -378,10 +453,24 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
   }
   const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
   if (parsed.ok) {
+    if (isRouterAbEd25519WorkerMaterialRuntimeValidated(record)) {
+      return {
+        kind: 'runtime_validated',
+        record,
+        value: parsed.value,
+      };
+    }
+    if (hasEd25519SealedWorkerMaterial(record)) {
+      return {
+        kind: 'restore_available',
+        record,
+        reason: 'loaded_material_missing',
+      };
+    }
     return {
-      kind: 'signable',
+      kind: 'material_hint_unvalidated',
       record,
-      value: parsed.value,
+      reason: 'worker_material_unvalidated',
     };
   }
   if (parsed.reason === 'cookie_session') {
@@ -391,9 +480,16 @@ export function classifyRouterAbEd25519PersistedSigningRecord(
       reason: 'cookie_session',
     };
   }
-  if (isEd25519PendingMaterialReason(parsed.reason)) {
+  if (parsed.reason === 'missing_material_handle' && hasEd25519SealedWorkerMaterial(record)) {
     return {
-      kind: 'pending_material',
+      kind: 'restore_available',
+      record,
+      reason: 'loaded_material_missing',
+    };
+  }
+  if (isEd25519AuthReadyMaterialPendingReason(parsed.reason)) {
+    return {
+      kind: 'auth_ready_material_pending',
       record,
       reason: parsed.reason,
     };
@@ -435,14 +531,6 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
     record,
     reason: parsed.reason,
   };
-}
-
-export function requireRouterAbEd25519SigningWalletSessionFromRecord(
-  record: ThresholdEd25519SessionRecord | null | undefined,
-): RouterAbEd25519SigningWalletSession {
-  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
-  if (parsed.ok) return parsed.value;
-  throw new Error(`[wallet-session] Ed25519 signing Wallet Session is invalid: ${parsed.reason}`);
 }
 
 export function requireRouterAbEcdsaHssSigningWalletSessionFromRecord(

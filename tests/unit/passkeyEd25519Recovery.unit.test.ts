@@ -13,6 +13,16 @@ const RP_ID = 'localhost';
 const RELAYER_URL = 'https://relay.example.test';
 const RELAYER_KEY_ID = 'ed25519:relayer-key';
 const PARTICIPANT_IDS = [1, 2, 3];
+const RUNTIME_POLICY_SCOPE = {
+  orgId: 'org-ed25519-reconnect',
+  projectId: 'project-ed25519-reconnect',
+  envId: 'dev',
+  signingRootVersion: 'default',
+} as const;
+const ROUTER_AB_NORMAL_SIGNING = {
+  kind: 'router_ab_ed25519_normal_signing_v1',
+  signingWorkerId: 'local-signing-worker',
+} as const;
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',
   rawId: 'credential-id',
@@ -38,6 +48,8 @@ function writeEd25519Record(args: {
   thresholdSessionId: string;
   signingGrantId: string;
   remainingUses?: number;
+  withWorkerMaterial?: boolean;
+  signingWorkerId?: string;
 }) {
   const record = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: ACCOUNT_ID,
@@ -45,6 +57,25 @@ function writeEd25519Record(args: {
     relayerUrl: RELAYER_URL,
     relayerKeyId: RELAYER_KEY_ID,
     participantIds: PARTICIPANT_IDS,
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    routerAbNormalSigning: {
+      ...ROUTER_AB_NORMAL_SIGNING,
+      signingWorkerId: args.signingWorkerId || ROUTER_AB_NORMAL_SIGNING.signingWorkerId,
+    },
+    signerSlot: 1,
+    ...(args.withWorkerMaterial
+      ? {
+          clientVerifyingShareB64u: 'client-verifier-reconnect',
+          ed25519WorkerMaterialHandle: 'runtime-handle-reconnect',
+          ed25519WorkerMaterialBindingDigest: 'material-binding-reconnect',
+          sealedWorkerMaterialRef: 'sealed-ref-reconnect',
+          sealedWorkerMaterialB64u: 'sealed-blob-reconnect',
+          materialFormatVersion: 'ed25519_sealed_worker_material_v1',
+          materialKeyId: 'material-key-reconnect',
+          materialCreatedAtMs: 1_800_000_100_000,
+          keyVersion: 'threshold-ed25519-hss-v1',
+        }
+      : {}),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
@@ -126,6 +157,7 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
           jwt: `jwt:${plannedSessionId}`,
         };
       },
+      restorePasskeyEd25519SigningMaterial: async () => undefined,
     });
 
     expect(result.sessionId).toBe(plannedSessionId);
@@ -134,5 +166,59 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
     expect(getStoredThresholdEd25519SessionRecordForAccount(ACCOUNT_ID)?.thresholdSessionId).toBe(
       competingSessionId,
     );
+  });
+
+  test('retains sealed worker material facts across a planned reconnect session remint', async () => {
+    const oldRecord = writeEd25519Record({
+      thresholdSessionId: 'tsess-ed25519-material-old',
+      signingGrantId: 'wsess-ed25519-material-old',
+      remainingUses: 0,
+      withWorkerMaterial: true,
+    });
+    const plannedSessionId = 'tsess-ed25519-material-planned';
+    const plannedSigningGrantId = 'wsess-ed25519-material-planned';
+
+    await reconnectPasskeyEd25519CapabilityForSigning({
+      nearAccountId: ACCOUNT_ID,
+      record: oldRecord,
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: TEST_WEBAUTHN_CREDENTIAL as any,
+        rpId: RP_ID,
+      }),
+      remainingUses: 1,
+      sessionId: plannedSessionId,
+      signingGrantId: plannedSigningGrantId,
+      provisionThresholdEd25519Session: async () => {
+        writeEd25519Record({
+          thresholdSessionId: plannedSessionId,
+          signingGrantId: plannedSigningGrantId,
+        });
+        return {
+          ok: true,
+          sessionId: plannedSessionId,
+          signingGrantId: plannedSigningGrantId,
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          jwt: `jwt:${plannedSessionId}`,
+        };
+      },
+      restorePasskeyEd25519SigningMaterial: async ({ thresholdSessionId }) => {
+        const plannedRecord =
+          getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+        expect(plannedRecord?.clientVerifyingShareB64u).toBe('client-verifier-reconnect');
+        expect(plannedRecord?.ed25519WorkerMaterialBindingDigest).toBe(
+          'material-binding-reconnect',
+        );
+        expect(plannedRecord?.sealedWorkerMaterialRef).toBe('sealed-ref-reconnect');
+        expect(plannedRecord?.sealedWorkerMaterialB64u).toBe('sealed-blob-reconnect');
+        expect(plannedRecord?.materialKeyId).toBe('material-key-reconnect');
+        expect(plannedRecord?.keyVersion).toBe('threshold-ed25519-hss-v1');
+      },
+    });
+
+    const plannedRecord =
+      getStoredThresholdEd25519SessionRecordByThresholdSessionId(plannedSessionId);
+    expect(plannedRecord?.signingGrantId).toBe(plannedSigningGrantId);
+    expect(plannedRecord?.sealedWorkerMaterialRef).toBe('sealed-ref-reconnect');
   });
 });

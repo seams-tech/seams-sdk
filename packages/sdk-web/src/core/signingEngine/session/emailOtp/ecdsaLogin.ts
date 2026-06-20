@@ -621,14 +621,14 @@ export async function loginWithEmailOtpEcdsaCapability(
     },
     ports.publicationPorts,
   );
-  const thresholdEd25519PrfFirstB64u = String(
-    workerResult.recovery?.thresholdEd25519PrfFirstB64u || '',
+  const thresholdEd25519RecoveryCodeSecret32B64u = String(
+    workerResult.recovery?.thresholdEd25519RecoveryCodeSecret32B64u || '',
   ).trim();
   let ed25519Reconstruction: EmailOtpEd25519ReconstructionResult = {
     kind: 'deferred',
     reason: 'missing_client_seed_material',
   };
-  if (thresholdEd25519PrfFirstB64u) {
+  if (thresholdEd25519RecoveryCodeSecret32B64u) {
     const freshWalletSessionRouteAuth = walletSessionRouteAuthFromEcdsaBootstrap(bootstrap);
     const shouldAwaitEd25519Reconstruction = args.ed25519ReconstructionMode === 'await';
     const reconstructionAuth = freshWalletSessionRouteAuth || bootstrapTransportAuth;
@@ -652,7 +652,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         nearAccountId,
         relayUrl,
         rpId,
-        prfFirstB64u: thresholdEd25519PrfFirstB64u,
+        recoveryCodeSecret32B64u: thresholdEd25519RecoveryCodeSecret32B64u,
         emailOtpAuthContext: ed25519ReconstructionAuthContext,
         routeAuth: reconstructionAuth,
         runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope,

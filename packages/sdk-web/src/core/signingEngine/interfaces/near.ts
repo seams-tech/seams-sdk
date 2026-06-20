@@ -6,6 +6,7 @@ import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   ConfirmationConfig,
   RpcCallPayload,
+  ThresholdEd25519WorkerMaterialCredentialAuthorization,
   TransactionPayload,
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
@@ -19,10 +20,7 @@ import type {
 } from '../stepUpConfirmation/types';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import type {
-  SigningOperationId,
-  SigningSessionPlan,
-} from '../session/operationState/types';
+import type { SigningOperationId, SigningSessionPlan } from '../session/operationState/types';
 import type { NearTransactionSigningLane } from '../session/operationState/lanes';
 import type { SelectedEd25519Lane } from '../session/identity/laneIdentity';
 import type {
@@ -48,8 +46,28 @@ export type NearEd25519WarmSessionStepUpAuthorization = WarmSessionStepUpAuthori
   Extract<SigningAuthPlan, { kind: 'warmSession' }>
 >;
 
+export type NearEd25519EmailOtpRecoveryCodeUnsealAuthorization = Extract<
+  ThresholdEd25519WorkerMaterialCredentialAuthorization,
+  { kind: 'recovery_code_material_authorization_handle_v1' }
+> & {
+  purpose: 'unseal';
+};
+
+export type NearEd25519EmailOtpMaterialRestoreAuthorization =
+  | {
+      kind: 'ed25519_email_otp_material_unseal_authorization_available';
+      unsealAuthorization: NearEd25519EmailOtpRecoveryCodeUnsealAuthorization;
+    }
+  | {
+      kind: 'ed25519_email_otp_material_unseal_authorization_unavailable';
+      reason: 'no_recovery_code_material' | 'not_restore_available';
+    };
+
 export type NearEd25519EmailOtpStepUpAuthorization = EmailOtpStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>
+  Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>,
+  {
+    ed25519MaterialRestoreAuthorization: NearEd25519EmailOtpMaterialRestoreAuthorization;
+  }
 >;
 
 export type NearEd25519PasskeyStepUpAuthorization = PasskeyStepUpAuthorization<
@@ -80,6 +98,13 @@ export type NearResolvedEd25519SigningSessionState = {
     materialHandle: string;
     bindingDigest: string;
     clientVerifyingShareB64u: string;
+    sealedWorkerMaterialRef?: string;
+    sealedWorkerMaterialB64u?: string;
+    materialFormatVersion?: string;
+    materialKeyId?: string;
+    materialCreatedAtMs?: number;
+    signerSlot?: number;
+    keyVersion?: string;
   }) => boolean;
   signingWalletSession: RouterAbEd25519SigningWalletSession;
   sessionKind?: never;
@@ -138,10 +163,10 @@ export type NearEd25519TransactionAdmissionBoundary = {
 
 export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmissionBoundary;
 
-export type NearTransactionsWithActionsPayload = {
+export type NearTransactionWithActionsPayload = {
   ctx: NearSigningRuntimeDeps;
   nearAccount: NearAccountRef;
-  transactions: TransactionInputWasm[];
+  transaction: TransactionInputWasm;
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -164,6 +189,7 @@ export type NearDelegateActionPayload = {
   nearAccount: NearAccountRef;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
+  signingSessionCoordinator: SigningSessionCoordinator;
   onEvent?: (update: SigningFlowEvent) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
@@ -175,6 +201,7 @@ export type NearDelegateActionPayload = {
 export type NearNep413Payload = {
   ctx: NearSigningRuntimeDeps;
   nearAccount: NearAccountRef;
+  signingSessionCoordinator: SigningSessionCoordinator;
   payload: {
     message: string;
     recipient: string;
@@ -192,8 +219,8 @@ export type NearNep413Payload = {
 export type NearSigningRequest =
   | {
       chain: 'near';
-      kind: 'transactionsWithActions';
-      payload: NearTransactionsWithActionsPayload;
+      kind: 'transactionWithActions';
+      payload: NearTransactionWithActionsPayload;
     }
   | {
       chain: 'near';
@@ -208,9 +235,9 @@ export type NearSigningRequest =
 
 export type NearEd25519SignRequest =
   | {
-      kind: 'near-transactions-with-actions';
+      kind: 'near-transaction-with-actions';
       algorithm: 'ed25519';
-      payload: NearTransactionsWithActionsPayload;
+      payload: NearTransactionWithActionsPayload;
     }
   | {
       kind: 'near-delegate-action';
@@ -223,11 +250,11 @@ export type NearEd25519SignRequest =
       payload: NearNep413Payload;
     };
 
-export type NearTransactionsWithActionsResult = Array<{
+export type NearTransactionWithActionsResult = {
   signedTransaction: SignedTransaction;
   nearAccountId: AccountId;
   logs?: string[];
-}>;
+};
 
 export type NearDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;
@@ -247,8 +274,8 @@ export type NearNep413Result = {
 
 export type NearEd25519SignOutput =
   | {
-      kind: 'near-transactions-with-actions';
-      result: NearTransactionsWithActionsResult;
+      kind: 'near-transaction-with-actions';
+      result: NearTransactionWithActionsResult;
     }
   | {
       kind: 'near-delegate-action';
@@ -262,7 +289,7 @@ export type NearEd25519SignOutput =
 export type NearSignedResult = NearEd25519SignOutput['result'];
 
 export type NearIntentResultByKind = {
-  transactionsWithActions: NearTransactionsWithActionsResult;
+  transactionWithActions: NearTransactionWithActionsResult;
   delegateAction: NearDelegateActionResult;
   nep413: NearNep413Result;
 };
@@ -275,11 +302,10 @@ export type NearIntentResult<T extends NearSigningRequest> = T extends { kind: i
 
 export type NearIntentUiModel =
   | {
-      kind: 'transactionsWithActions';
+      kind: 'transactionWithActions';
       nearAccountId: string;
-      transactionCount: number;
       totalActionCount: number;
-      txSigningRequests: TransactionPayload[];
+      txSigningRequest: TransactionPayload;
     }
   | {
       kind: 'delegateAction';

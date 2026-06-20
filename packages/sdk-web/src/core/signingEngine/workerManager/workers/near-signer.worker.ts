@@ -36,21 +36,34 @@
 import {
   NearSignerWorkerCustomRequestType,
   type SignerWorkerRequestType,
+  type ThresholdEd25519WorkerMaterialFailure,
   WasmRequestPayload,
 } from '@/core/types/signer-worker';
 // Import WASM binary directly
 import init, {
   handle_signer_message,
   threshold_ed25519_build_delegate_signing_payload,
-  threshold_ed25519_client_presign_create,
-  threshold_ed25519_client_presign_sign,
-  threshold_ed25519_role_separated_client_verifying_share_from_base_share,
+  threshold_ed25519_client_presign_burn,
+  threshold_ed25519_client_presign_create_from_worker_material,
+  threshold_ed25519_client_presign_sign_from_worker_material,
+  threshold_ed25519_role_separated_normal_signing_client_share_from_worker_material,
+  threshold_ed25519_sealed_worker_material_delete,
+  threshold_ed25519_sealed_worker_material_put,
+  threshold_ed25519_sealed_worker_material_read,
+  threshold_ed25519_worker_material_restore,
+  threshold_ed25519_worker_material_store_from_hss_output,
+  threshold_ed25519_worker_material_validate,
   threshold_ed25519_build_near_tx_unsigned_borsh,
   threshold_ed25519_compute_delegate_signing_digest,
   threshold_ed25519_compute_nep413_signing_digest,
   threshold_ed25519_decode_signed_near_tx_borsh,
   threshold_ed25519_finalize_delegate_from_signature,
   threshold_ed25519_finalize_near_tx_from_signature,
+  threshold_ed25519_prepare_hss_client_output_mask_handle,
+  threshold_ed25519_prepare_passkey_prf_worker_material_seal_authorization,
+  threshold_ed25519_prepare_passkey_prf_worker_material_unseal_authorization,
+  threshold_ed25519_prepare_recovery_code_worker_material_seal_authorization,
+  threshold_ed25519_prepare_recovery_code_worker_material_unseal_authorization,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -74,16 +87,6 @@ const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
 let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let activeRequestId: string | null = null;
-const thresholdEd25519ClientPresignNonceByHandle = new Map<string, string>();
-
-type StoredEd25519HssMaterial = {
-  materialHandle: string;
-  xClientBaseB64u: string;
-  clientVerifyingShareB64u: string;
-  bindingDigest: string;
-};
-
-const thresholdEd25519HssMaterialByHandle = new Map<string, StoredEd25519HssMaterial>();
 
 /**
  * Function called by WASM to send progress messages
@@ -255,18 +258,34 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
 
 function handleCustomNearSignerRequest(type: string, payload: unknown): unknown {
   switch (type) {
-    case NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial:
-      return storeThresholdEd25519HssMaterial(payload);
-    case NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateHssMaterial:
-      return validateThresholdEd25519HssMaterial(payload);
-    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate:
-      return createOpaqueClientPresignHandle(threshold_ed25519_client_presign_create(payload));
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareHssClientOutputMaskHandle:
+      return prepareThresholdEd25519HssClientOutputMaskHandle(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput:
+      return storeThresholdEd25519WorkerMaterialFromHssOutput(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialSealAuthorization:
+      return prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialSealAuthorization:
+      return prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization:
+      return prepareThresholdEd25519PasskeyPrfWorkerMaterialUnsealAuthorization(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareRecoveryCodeWorkerMaterialUnsealAuthorization:
+      return prepareThresholdEd25519RecoveryCodeWorkerMaterialUnsealAuthorization(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519RestoreWorkerMaterial:
+      return restoreThresholdEd25519WorkerMaterial(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateWorkerMaterial:
+      return validateThresholdEd25519WorkerMaterial(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519PutSealedWorkerMaterial:
+      return putThresholdEd25519SealedWorkerMaterial(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ReadSealedWorkerMaterial:
+      return readThresholdEd25519SealedWorkerMaterial(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519DeleteSealedWorkerMaterial:
+      return deleteThresholdEd25519SealedWorkerMaterial(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreateFromMaterialHandle:
       return createOpaqueClientPresignFromMaterialHandle(payload);
-    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign:
-      return signWithOpaqueClientPresignHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSignFromMaterialHandle:
       return signWithOpaqueClientPresignHandleFromMaterialHandle(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle:
+      return createRoleSeparatedNormalSigningClientShareFromMaterialHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn:
       return burnOpaqueClientPresignHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest:
@@ -304,100 +323,270 @@ function handleCustomNearSignerRequest(type: string, payload: unknown): unknown 
   }
 }
 
-function readNonEmptyString(record: Record<string, unknown>, key: string): string {
-  const parsed = String(record[key] || '').trim();
-  if (!parsed) throw new Error(`near signer worker request is missing ${key}`);
-  return parsed;
-}
-
-function requireRecordPayload(payload: unknown): Record<string, unknown> {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('near signer worker request payload must be an object');
-  }
-  return payload as Record<string, unknown>;
-}
-
-function storeThresholdEd25519HssMaterial(payload: unknown): {
-  materialHandle: string;
-  clientVerifyingShareB64u: string;
-  bindingDigest: string;
+function prepareThresholdEd25519HssClientOutputMaskHandle(payload: unknown): {
+  ok: true;
+  clientOutputMaskHandle: string;
+  contextBindingB64u: string;
+  expiresAtMs: number;
+  remainingUses: number;
 } {
-  const record = requireRecordPayload(payload);
-  const materialHandle = readNonEmptyString(record, 'materialHandle');
-  const xClientBaseB64u = readNonEmptyString(record, 'xClientBaseB64u');
-  const expectedClientVerifyingShareB64u = readNonEmptyString(
-    record,
-    'expectedClientVerifyingShareB64u',
-  );
-  const bindingDigest = readNonEmptyString(record, 'bindingDigest');
-  const derived = threshold_ed25519_role_separated_client_verifying_share_from_base_share({
-    xClientBaseB64u,
-  }) as { clientVerifyingShareB64u?: unknown };
-  const clientVerifyingShareB64u = String(derived.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
-    throw new Error('near signer worker failed to derive Ed25519 client verifying share');
-  }
-  if (clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
-    throw new Error('near signer worker Ed25519 HSS material verifying-share mismatch');
-  }
-  thresholdEd25519HssMaterialByHandle.set(materialHandle, {
-    materialHandle,
-    xClientBaseB64u,
-    clientVerifyingShareB64u,
-    bindingDigest,
-  });
-  return { materialHandle, clientVerifyingShareB64u, bindingDigest };
-}
-
-function requireThresholdEd25519HssMaterial(payload: unknown): {
-  record: Record<string, unknown>;
-  material: StoredEd25519HssMaterial;
-} {
-  const record = requireRecordPayload(payload);
-  const materialHandle = readNonEmptyString(record, 'materialHandle');
-  const expectedClientVerifyingShareB64u = readNonEmptyString(
-    record,
-    'expectedClientVerifyingShareB64u',
-  );
-  const material = thresholdEd25519HssMaterialByHandle.get(materialHandle);
-  if (!material) {
-    throw new Error('near signer worker Ed25519 HSS material handle is not loaded');
-  }
-  if (material.clientVerifyingShareB64u !== expectedClientVerifyingShareB64u) {
-    throw new Error('near signer worker Ed25519 HSS material handle binding mismatch');
-  }
-  return { record, material };
-}
-
-function validateThresholdEd25519HssMaterial(payload: unknown): {
-  materialHandle: string;
-  clientVerifyingShareB64u: string;
-  bindingDigest: string;
-} {
-  const record = requireRecordPayload(payload);
-  const expectedBindingDigest = readNonEmptyString(record, 'expectedBindingDigest');
-  const { material } = requireThresholdEd25519HssMaterial(payload);
-  if (material.bindingDigest !== expectedBindingDigest) {
-    throw new Error('near signer worker Ed25519 HSS material binding digest mismatch');
-  }
-  return {
-    materialHandle: material.materialHandle,
-    clientVerifyingShareB64u: material.clientVerifyingShareB64u,
-    bindingDigest: material.bindingDigest,
+  return threshold_ed25519_prepare_hss_client_output_mask_handle(payload) as {
+    ok: true;
+    clientOutputMaskHandle: string;
+    contextBindingB64u: string;
+    expiresAtMs: number;
+    remainingUses: number;
   };
 }
 
-function createOpaqueClientPresignHandle(output: unknown): {
-  clientNonceHandleB64u: string;
-  clientVerifyingShareB64u: string;
-  clientCommitments: { hiding: string; binding: string };
+function storeThresholdEd25519WorkerMaterialFromHssOutput(payload: unknown):
+  | {
+      ok: true;
+      materialHandle: string;
+      materialBindingDigest: string;
+      sealedWorkerMaterialRef: string;
+      sealedWorkerMaterialB64u: string;
+      clientVerifyingShareB64u: string;
+      materialFormatVersion: string;
+      materialKeyId: string;
+      signerSlot: number;
+      keyVersion: string;
+    }
+  | ThresholdEd25519WorkerMaterialFailure {
+  return runMaterialCommand(
+    payload,
+    threshold_ed25519_worker_material_store_from_hss_output,
+    requireStoredMaterialOutput,
+  );
+}
+
+function restoreThresholdEd25519WorkerMaterial(payload: unknown):
+  | {
+      ok: true;
+      materialHandle: string;
+      materialBindingDigest: string;
+      clientVerifyingShareB64u: string;
+      sealedWorkerMaterialRef: string;
+      sealedWorkerMaterialB64u: string;
+      materialFormatVersion: string;
+      materialKeyId: string;
+      signerSlot: number;
+      keyVersion: string;
+    }
+  | ThresholdEd25519WorkerMaterialFailure {
+  return runMaterialCommand(
+    payload,
+    threshold_ed25519_worker_material_restore,
+    requireRestoredMaterialOutput,
+  );
+}
+
+function prepareThresholdEd25519PasskeyPrfWorkerMaterialUnsealAuthorization(payload: unknown): {
+  ok: true;
+  unsealAuthorization: unknown;
+  remainingUses: number;
 } {
-  const parsed = requireClientPresignCreateOutput(output);
-  const handle = createOpaquePresignHandle();
-  thresholdEd25519ClientPresignNonceByHandle.set(handle, parsed.clientNonceHandleB64u);
+  return requirePreparedMaterialUnsealAuthorizationOutput(
+    threshold_ed25519_prepare_passkey_prf_worker_material_unseal_authorization(payload),
+  );
+}
+
+function prepareThresholdEd25519RecoveryCodeWorkerMaterialUnsealAuthorization(payload: unknown): {
+  ok: true;
+  unsealAuthorization: unknown;
+  remainingUses: number;
+} {
+  return requirePreparedMaterialUnsealAuthorizationOutput(
+    threshold_ed25519_prepare_recovery_code_worker_material_unseal_authorization(payload),
+  );
+}
+
+function prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization(payload: unknown): {
+  ok: true;
+  materialKeyId: string;
+  sealAuthorization: unknown;
+  remainingUses: number;
+} {
+  return requirePreparedMaterialSealAuthorizationOutput(
+    threshold_ed25519_prepare_passkey_prf_worker_material_seal_authorization(payload),
+  );
+}
+
+function prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization(payload: unknown): {
+  ok: true;
+  materialKeyId: string;
+  sealAuthorization: unknown;
+  remainingUses: number;
+} {
+  return requirePreparedMaterialSealAuthorizationOutput(
+    threshold_ed25519_prepare_recovery_code_worker_material_seal_authorization(payload),
+  );
+}
+
+function validateThresholdEd25519WorkerMaterial(payload: unknown):
+  | {
+      materialHandle: string;
+      clientVerifyingShareB64u: string;
+      bindingDigest: string;
+    }
+  | ThresholdEd25519WorkerMaterialFailure {
+  return runMaterialCommand(
+    payload,
+    threshold_ed25519_worker_material_validate,
+    requireValidatedMaterialOutput,
+  );
+}
+
+function putThresholdEd25519SealedWorkerMaterial(payload: unknown):
+  | {
+      ok: true;
+      sealedWorkerMaterialRef: string;
+      materialBindingDigest: string;
+    }
+  | ThresholdEd25519WorkerMaterialFailure {
+  return runMaterialCommand(
+    payload,
+    threshold_ed25519_sealed_worker_material_put,
+    requirePutSealedMaterialOutput,
+  );
+}
+
+function readThresholdEd25519SealedWorkerMaterial(payload: unknown):
+  | {
+      ok: true;
+      sealedMaterial: unknown;
+    }
+  | ThresholdEd25519WorkerMaterialFailure {
+  return runMaterialCommand(
+    payload,
+    threshold_ed25519_sealed_worker_material_read,
+    requireReadSealedMaterialOutput,
+  );
+}
+
+function deleteThresholdEd25519SealedWorkerMaterial(payload: unknown):
+  | {
+      ok: true;
+      deleted: boolean;
+    }
+  | ThresholdEd25519WorkerMaterialFailure {
+  return runMaterialCommand(
+    payload,
+    threshold_ed25519_sealed_worker_material_delete,
+    requireDeleteSealedMaterialOutput,
+  );
+}
+
+function runMaterialCommand<T>(
+  payload: unknown,
+  wasmOperation: (payload: unknown) => unknown,
+  parseOutput: (output: unknown) => T,
+): T | ThresholdEd25519WorkerMaterialFailure {
+  try {
+    return parseOutput(wasmOperation(payload));
+  } catch (error: unknown) {
+    const failure = materialFailureFromError(error);
+    if (failure) return failure;
+    throw error;
+  }
+}
+
+function materialFailureFromError(error: unknown): ThresholdEd25519WorkerMaterialFailure | null {
+  const message = materialErrorMessage(error).trim();
+  const code = materialErrorCodeFromMessage(message);
+  if (!code) return null;
+  return { ok: false, code, message };
+}
+
+function materialErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) return error.message;
+  const maybeMessage = (error as { message?: unknown } | null)?.message;
+  if (typeof maybeMessage === 'string') return maybeMessage;
+  return errorMessage(error);
+}
+
+function materialErrorCodeFromMessage(
+  message: string,
+): ThresholdEd25519WorkerMaterialFailure['code'] | null {
+  const prefix = message.split(':', 1)[0]?.trim();
+  switch (prefix) {
+    case 'material_restore_required':
+    case 'material_seal_authorization_required':
+    case 'material_unseal_authorization_required':
+    case 'material_restore_expired':
+    case 'material_binding_mismatch':
+    case 'material_scope_mismatch':
+    case 'material_handle_not_loaded':
+    case 'material_corrupt':
+    case 'worker_unavailable':
+      return prefix;
+    case 'Ed25519 worker material handle is not loaded in this worker':
+      return 'material_handle_not_loaded';
+    case 'Ed25519 worker material handle binding mismatch':
+    case 'Ed25519 worker material binding digest mismatch':
+    case 'Ed25519 worker material verifying-share binding mismatch':
+    case 'Ed25519 sealed worker material binding digest mismatch':
+      return 'material_binding_mismatch';
+    default:
+      return null;
+  }
+}
+
+function requirePreparedMaterialUnsealAuthorizationOutput(output: unknown): {
+  ok: true;
+  unsealAuthorization: unknown;
+  remainingUses: number;
+} {
+  const parsed = output as {
+    ok?: unknown;
+    unsealAuthorization?: unknown;
+    remainingUses?: unknown;
+  };
+  const remainingUses = Math.floor(Number(parsed?.remainingUses) || 0);
+  if (
+    parsed?.ok !== true ||
+    !parsed.unsealAuthorization ||
+    typeof parsed.unsealAuthorization !== 'object' ||
+    remainingUses <= 0
+  ) {
+    throw new Error(
+      'threshold_ed25519_prepare_material_unseal_authorization returned invalid output',
+    );
+  }
+  return { ok: true, unsealAuthorization: parsed.unsealAuthorization, remainingUses };
+}
+
+function requirePreparedMaterialSealAuthorizationOutput(output: unknown): {
+  ok: true;
+  materialKeyId: string;
+  sealAuthorization: unknown;
+  remainingUses: number;
+} {
+  const parsed = output as {
+    ok?: unknown;
+    materialKeyId?: unknown;
+    sealAuthorization?: unknown;
+    remainingUses?: unknown;
+  };
+  const materialKeyId = String(parsed?.materialKeyId || '').trim();
+  const remainingUses = Math.floor(Number(parsed?.remainingUses) || 0);
+  if (
+    parsed?.ok !== true ||
+    !materialKeyId ||
+    !parsed.sealAuthorization ||
+    typeof parsed.sealAuthorization !== 'object' ||
+    remainingUses <= 0
+  ) {
+    throw new Error(
+      'threshold_ed25519_prepare_worker_material_seal_authorization returned invalid output',
+    );
+  }
   return {
-    ...parsed,
-    clientNonceHandleB64u: handle,
+    ok: true,
+    materialKeyId,
+    sealAuthorization: parsed.sealAuthorization,
+    remainingUses,
   };
 }
 
@@ -406,61 +595,32 @@ function createOpaqueClientPresignFromMaterialHandle(payload: unknown): {
   clientVerifyingShareB64u: string;
   clientCommitments: { hiding: string; binding: string };
 } {
-  const { record, material } = requireThresholdEd25519HssMaterial(payload);
-  return createOpaqueClientPresignHandle(
-    threshold_ed25519_client_presign_create({
-      ...record,
-      xClientBaseB64u: material.xClientBaseB64u,
-    }),
-  );
-}
-
-function signWithOpaqueClientPresignHandle(payload: unknown): { clientSignatureShareB64u: string } {
-  const parsed = payload as { clientNonceHandleB64u?: unknown };
-  const handle = String(parsed?.clientNonceHandleB64u || '').trim();
-  const nonceBytesB64u = thresholdEd25519ClientPresignNonceByHandle.get(handle);
-  if (!handle || !nonceBytesB64u) {
-    throw new Error('threshold-ed25519 client presign handle is not available');
-  }
-  thresholdEd25519ClientPresignNonceByHandle.delete(handle);
-  return requireClientPresignSignOutput(
-    threshold_ed25519_client_presign_sign({
-      ...(payload as Record<string, unknown>),
-      clientNonceHandleB64u: nonceBytesB64u,
-    }),
+  return requireClientPresignCreateOutput(
+    threshold_ed25519_client_presign_create_from_worker_material(payload),
   );
 }
 
 function signWithOpaqueClientPresignHandleFromMaterialHandle(payload: unknown): {
   clientSignatureShareB64u: string;
 } {
-  const { record, material } = requireThresholdEd25519HssMaterial(payload);
-  return signWithOpaqueClientPresignHandle({
-    ...record,
-    xClientBaseB64u: material.xClientBaseB64u,
-  });
+  return requireClientPresignSignOutput(
+    threshold_ed25519_client_presign_sign_from_worker_material(payload),
+  );
+}
+
+function createRoleSeparatedNormalSigningClientShareFromMaterialHandle(payload: unknown): {
+  clientCommitments: { hiding: string; binding: string };
+  clientVerifyingShareB64u: string;
+  clientSignatureShareB64u: string;
+} {
+  return requireRoleSeparatedNormalSigningClientShareOutput(
+    threshold_ed25519_role_separated_normal_signing_client_share_from_worker_material(payload),
+  );
 }
 
 function burnOpaqueClientPresignHandle(payload: unknown): { burned: true } {
-  const parsed = payload as { clientNonceHandleB64u?: unknown };
-  const handle = String(parsed?.clientNonceHandleB64u || '').trim();
-  if (handle) {
-    thresholdEd25519ClientPresignNonceByHandle.delete(handle);
-  }
+  threshold_ed25519_client_presign_burn(payload);
   return { burned: true };
-}
-
-function createOpaquePresignHandle(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
-    return `ed25519-client-presign:${cryptoApi.randomUUID()}`;
-  }
-  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
-    throw new Error('secure randomness is unavailable for threshold-ed25519 presign handle');
-  }
-  const bytes = new Uint8Array(16);
-  cryptoApi.getRandomValues(bytes);
-  return `ed25519-client-presign:${base64UrlEncode(bytes)}`;
 }
 
 function requireClientPresignCreateOutput(output: unknown): {
@@ -487,6 +647,187 @@ function requireClientPresignCreateOutput(output: unknown): {
   };
 }
 
+function requireStoredMaterialOutput(output: unknown): {
+  ok: true;
+  materialHandle: string;
+  materialBindingDigest: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u: string;
+  clientVerifyingShareB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  signerSlot: number;
+  keyVersion: string;
+} {
+  const parsed = output as {
+    ok?: unknown;
+    materialHandle?: unknown;
+    materialBindingDigest?: unknown;
+    sealedWorkerMaterialRef?: unknown;
+    sealedWorkerMaterialB64u?: unknown;
+    clientVerifyingShareB64u?: unknown;
+    materialFormatVersion?: unknown;
+    materialKeyId?: unknown;
+    signerSlot?: unknown;
+    keyVersion?: unknown;
+  };
+  const materialHandle = String(parsed?.materialHandle || '').trim();
+  const materialBindingDigest = String(parsed?.materialBindingDigest || '').trim();
+  const sealedWorkerMaterialRef = String(parsed?.sealedWorkerMaterialRef || '').trim();
+  const sealedWorkerMaterialB64u = String(parsed?.sealedWorkerMaterialB64u || '').trim();
+  const clientVerifyingShareB64u = String(parsed?.clientVerifyingShareB64u || '').trim();
+  const materialFormatVersion = String(parsed?.materialFormatVersion || '').trim();
+  const materialKeyId = String(parsed?.materialKeyId || '').trim();
+  const signerSlot = Math.floor(Number(parsed?.signerSlot) || 0);
+  const keyVersion = String(parsed?.keyVersion || '').trim();
+  if (
+    parsed?.ok !== true ||
+    !materialHandle ||
+    !materialBindingDigest ||
+    !sealedWorkerMaterialRef ||
+    !sealedWorkerMaterialB64u ||
+    !clientVerifyingShareB64u ||
+    !materialFormatVersion ||
+    !materialKeyId ||
+    signerSlot <= 0 ||
+    !keyVersion
+  ) {
+    throw new Error('threshold_ed25519_worker_material returned invalid output');
+  }
+  return {
+    ok: true,
+    materialHandle,
+    materialBindingDigest,
+    sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u,
+    clientVerifyingShareB64u,
+    materialFormatVersion,
+    materialKeyId,
+    signerSlot,
+    keyVersion,
+  };
+}
+
+function requireValidatedMaterialOutput(output: unknown): {
+  materialHandle: string;
+  clientVerifyingShareB64u: string;
+  bindingDigest: string;
+} {
+  const parsed = output as {
+    materialHandle?: unknown;
+    clientVerifyingShareB64u?: unknown;
+    bindingDigest?: unknown;
+  };
+  const materialHandle = String(parsed?.materialHandle || '').trim();
+  const clientVerifyingShareB64u = String(parsed?.clientVerifyingShareB64u || '').trim();
+  const bindingDigest = String(parsed?.bindingDigest || '').trim();
+  if (!materialHandle || !clientVerifyingShareB64u || !bindingDigest) {
+    throw new Error('threshold_ed25519_worker_material_validate returned invalid output');
+  }
+  return { materialHandle, clientVerifyingShareB64u, bindingDigest };
+}
+
+function requireRestoredMaterialOutput(output: unknown): {
+  ok: true;
+  materialHandle: string;
+  materialBindingDigest: string;
+  clientVerifyingShareB64u: string;
+  sealedWorkerMaterialRef: string;
+  sealedWorkerMaterialB64u: string;
+  materialFormatVersion: string;
+  materialKeyId: string;
+  signerSlot: number;
+  keyVersion: string;
+} {
+  const parsed = output as {
+    ok?: unknown;
+    materialHandle?: unknown;
+    materialBindingDigest?: unknown;
+    clientVerifyingShareB64u?: unknown;
+    sealedWorkerMaterialRef?: unknown;
+    sealedWorkerMaterialB64u?: unknown;
+    materialFormatVersion?: unknown;
+    materialKeyId?: unknown;
+    signerSlot?: unknown;
+    keyVersion?: unknown;
+  };
+  const materialHandle = String(parsed?.materialHandle || '').trim();
+  const materialBindingDigest = String(parsed?.materialBindingDigest || '').trim();
+  const clientVerifyingShareB64u = String(parsed?.clientVerifyingShareB64u || '').trim();
+  const sealedWorkerMaterialRef = String(parsed?.sealedWorkerMaterialRef || '').trim();
+  const sealedWorkerMaterialB64u = String(parsed?.sealedWorkerMaterialB64u || '').trim();
+  const materialFormatVersion = String(parsed?.materialFormatVersion || '').trim();
+  const materialKeyId = String(parsed?.materialKeyId || '').trim();
+  const signerSlot = Math.floor(Number(parsed?.signerSlot) || 0);
+  const keyVersion = String(parsed?.keyVersion || '').trim();
+  if (
+    parsed?.ok !== true ||
+    !materialHandle ||
+    !materialBindingDigest ||
+    !clientVerifyingShareB64u ||
+    !sealedWorkerMaterialRef ||
+    !sealedWorkerMaterialB64u ||
+    !materialFormatVersion ||
+    !materialKeyId ||
+    signerSlot <= 0 ||
+    !keyVersion
+  ) {
+    throw new Error('threshold_ed25519_worker_material_restore returned invalid output');
+  }
+  return {
+    ok: true,
+    materialHandle,
+    materialBindingDigest,
+    clientVerifyingShareB64u,
+    sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u,
+    materialFormatVersion,
+    materialKeyId,
+    signerSlot,
+    keyVersion,
+  };
+}
+
+function requirePutSealedMaterialOutput(output: unknown): {
+  ok: true;
+  sealedWorkerMaterialRef: string;
+  materialBindingDigest: string;
+} {
+  const parsed = output as {
+    ok?: unknown;
+    sealedWorkerMaterialRef?: unknown;
+    materialBindingDigest?: unknown;
+  };
+  const sealedWorkerMaterialRef = String(parsed?.sealedWorkerMaterialRef || '').trim();
+  const materialBindingDigest = String(parsed?.materialBindingDigest || '').trim();
+  if (parsed?.ok !== true || !sealedWorkerMaterialRef || !materialBindingDigest) {
+    throw new Error('threshold_ed25519_sealed_worker_material_put returned invalid output');
+  }
+  return { ok: true, sealedWorkerMaterialRef, materialBindingDigest };
+}
+
+function requireReadSealedMaterialOutput(output: unknown): {
+  ok: true;
+  sealedMaterial: unknown;
+} {
+  const parsed = output as { ok?: unknown; sealedMaterial?: unknown };
+  if (parsed?.ok !== true || !parsed.sealedMaterial || typeof parsed.sealedMaterial !== 'object') {
+    throw new Error('threshold_ed25519_sealed_worker_material_read returned invalid output');
+  }
+  return { ok: true, sealedMaterial: parsed.sealedMaterial };
+}
+
+function requireDeleteSealedMaterialOutput(output: unknown): {
+  ok: true;
+  deleted: boolean;
+} {
+  const parsed = output as { ok?: unknown; deleted?: unknown };
+  if (parsed?.ok !== true || typeof parsed.deleted !== 'boolean') {
+    throw new Error('threshold_ed25519_sealed_worker_material_delete returned invalid output');
+  }
+  return { ok: true, deleted: parsed.deleted };
+}
+
 function requireClientPresignSignOutput(output: unknown): { clientSignatureShareB64u: string } {
   const clientSignatureShareB64u = String(
     (output as { clientSignatureShareB64u?: unknown })?.clientSignatureShareB64u || '',
@@ -495,6 +836,30 @@ function requireClientPresignSignOutput(output: unknown): { clientSignatureShare
     throw new Error('threshold_ed25519_client_presign_sign returned invalid output');
   }
   return { clientSignatureShareB64u };
+}
+
+function requireRoleSeparatedNormalSigningClientShareOutput(output: unknown): {
+  clientCommitments: { hiding: string; binding: string };
+  clientVerifyingShareB64u: string;
+  clientSignatureShareB64u: string;
+} {
+  const parsed = output as {
+    clientCommitments?: { hiding?: unknown; binding?: unknown };
+    clientVerifyingShareB64u?: unknown;
+    clientSignatureShareB64u?: unknown;
+  };
+  const hiding = String(parsed?.clientCommitments?.hiding || '').trim();
+  const binding = String(parsed?.clientCommitments?.binding || '').trim();
+  const clientVerifyingShareB64u = String(parsed?.clientVerifyingShareB64u || '').trim();
+  const clientSignatureShareB64u = String(parsed?.clientSignatureShareB64u || '').trim();
+  if (!hiding || !binding || !clientVerifyingShareB64u || !clientSignatureShareB64u) {
+    throw new Error('threshold_ed25519_role_separated_normal_signing returned invalid output');
+  }
+  return {
+    clientCommitments: { hiding, binding },
+    clientVerifyingShareB64u,
+    clientSignatureShareB64u,
+  };
 }
 
 function requireSignedDelegateOutput(output: unknown): unknown {

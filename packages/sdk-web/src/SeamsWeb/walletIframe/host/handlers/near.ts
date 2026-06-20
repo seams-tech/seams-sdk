@@ -344,34 +344,35 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOk(deps, req.requestId);
     },
 
-    PM_SIGN_TXS_WITH_ACTIONS: async (req: Req<'PM_SIGN_TXS_WITH_ACTIONS'>) => {
+    PM_SIGN_TX_WITH_ACTIONS: async (req: Req<'PM_SIGN_TX_WITH_ACTIONS'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, transactions, options } = req.payload!;
-      const results = await pm.near.signTransactionsWithActions({
+      const { nearAccountId, transaction, options } = req.payload!;
+      const result = await pm.near.signTransactionWithActions({
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
-        transactions,
+        transaction,
         options: {
           ...withProgress(deps, req.requestId, options || {}),
         } as SignTransactionHooksOptions,
       });
 
       if (deps.respondIfCancelled(req.requestId)) return;
-      respondOkResult(deps, req.requestId, results);
+      respondOkResult(deps, req.requestId, result);
     },
 
-    PM_SIGN_AND_SEND_TXS: async (req: Req<'PM_SIGN_AND_SEND_TXS'>) => {
+    PM_SIGN_AND_SEND_TX: async (req: Req<'PM_SIGN_AND_SEND_TX'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, transactions, options } = req.payload || {};
-      const results = await pm.near.signAndSendTransactions({
+      const { nearAccountId, transaction, options } = req.payload!;
+      const result = await pm.near.signAndSendTransaction({
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
-        transactions: transactions || [],
+        receiverId: transaction.receiverId,
+        actions: transaction.actions,
         options: {
           ...withProgress(deps, req.requestId, options || {}),
         } as SignAndSendTransactionHooksOptions,
       });
 
       if (deps.respondIfCancelled(req.requestId)) return;
-      respondOkResult(deps, req.requestId, results);
+      respondOkResult(deps, req.requestId, result);
     },
 
     PM_SEND_TRANSACTION: async (req: Req<'PM_SEND_TRANSACTION'>) => {

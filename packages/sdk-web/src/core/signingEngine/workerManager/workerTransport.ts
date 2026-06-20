@@ -18,6 +18,7 @@ import {
 } from '@/core/walletRuntimePaths/multichainWorkers';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
+import { clearRouterAbEd25519WorkerMaterialRuntimeValidation } from '../session/routerAbSigningWalletSession';
 import { withSessionId } from './session';
 import type {
   HssWorkerOperationRequest,
@@ -767,6 +768,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   }
 
   private resetWorker(kind: SignerWorkerKind): void {
+    if (kind === 'nearSigner') {
+      clearRouterAbEd25519WorkerMaterialRuntimeValidation();
+    }
+
     const worker = this.workers.get(kind);
     if (!worker) return;
 

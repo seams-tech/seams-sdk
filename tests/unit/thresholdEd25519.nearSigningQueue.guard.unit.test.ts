@@ -5,13 +5,24 @@ import { expect, test } from '@playwright/test';
 
 function readNearSigningSource(): string {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-  const filePath = path.join(repoRoot, 'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts');
+  const filePath = path.join(
+    repoRoot,
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+  );
   return fs.readFileSync(filePath, 'utf8');
 }
 
 function readRepoSource(relativePath: string): string {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function sourceBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  expect(startIndex, `missing source marker ${start}`).toBeGreaterThanOrEqual(0);
+  expect(endIndex, `missing source marker ${end}`).toBeGreaterThan(startIndex);
+  return source.slice(startIndex, endIndex);
 }
 
 test.describe('threshold Ed25519 near signing queue guard', () => {
@@ -90,7 +101,6 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(transactionsFlow).toContain('signingSessionCoordinator');
     expect(transactionsFlow).not.toContain('cachedXClientBaseB64u');
     expect(signingSessionCoordinator).toContain('consumeSigningGrantUse');
-    expect(signingSessionCoordinator).toContain('consumeEmailOtpWarmSessionUses');
     expect(emailOtpCoordinator).toContain('consumeWarmSessionUses');
     expect(emailOtpWarmSessionRuntime).toContain('consumeEmailOtpWarmSessionUses');
     expect(worker).toContain('consumeEmailOtpWarmSessionUses');
@@ -98,19 +108,158 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
   test('passkey unlock does not prewarm Ed25519 HSS material', () => {
     const loginFlow = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
+    const signingSurfacePorts = readRepoSource(
+      'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts',
+    );
+    const loginSurfaceMatch = signingSurfacePorts.match(
+      /export type LoginUnlockSigningSurface[\s\S]*?export type RecentUnlocksSigningSurface/,
+    );
+    const loginSurface = loginSurfaceMatch?.[0] || '';
 
     expect(loginFlow).not.toContain('prewarmThresholdEd25519ClientBaseFromCredential');
     expect(loginFlow).not.toContain('prewarmEd25519MaterialForWarmup');
     expect(loginFlow).toContain('parseWarmEd25519SigningSessionAuthorizationFromRecord');
-    expect(loginFlow).not.toContain('ed25519HssMaterialHandle');
+    expect(loginFlow).toContain('restoreThresholdEd25519WorkerMaterialFromCredential');
+    expect(loginFlow).not.toContain('ed25519WorkerMaterialHandle');
     expect(loginFlow).not.toContain('clientVerifyingShareB64u');
+    expect(loginSurface).not.toContain('ThresholdEd25519HssClientSurface');
+    expect(loginSurface).not.toContain('ThresholdEd25519HssCeremonySurface');
+  });
+
+  test('normal Ed25519 signing flows do not run HSS material repair', () => {
+    const transactionFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    );
+    const nep413Flow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+    );
+    const delegateFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+    );
+    const materialHandle = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
+    );
+    const materialRestore = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestore.ts',
+    );
+    const materialReadiness = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts',
+    );
+    const flows = [
+      ['transaction', transactionFlow],
+      ['nep413', nep413Flow],
+      ['delegate', delegateFlow],
+    ] as const;
+    const forbiddenRepairMarkers = [
+      'ensureThresholdEd25519HssSigningMaterial',
+      'ensureThresholdEd25519HssClientBase',
+      'runThresholdEd25519HssCeremonyWithSession',
+      'runThresholdEd25519HssCeremonyWithMaterialHandle',
+      'claimWarmSessionPrfFirstMaterial',
+      'prewarmThresholdEd25519ClientBaseFromCredential',
+    ] as const;
+
+    expect(transactionFlow).toContain('ed25519MaterialRestoreRequiredError');
+    expect(materialRestore).toContain('material_restore_required');
+    expect(materialReadiness).toContain('requireSignableRouterAbEd25519WalletSessionState');
+    expect(materialReadiness).toContain("case 'material_hint_unvalidated'");
+    expect(materialReadiness).toContain("case 'auth_ready_material_pending'");
+    expect(materialReadiness).toContain('throwEd25519MaterialRestoreRequired');
+    expect(materialHandle).toContain('requireThresholdEd25519WorkerMaterialHandle');
+    expect(materialHandle).toContain('validateThresholdEd25519WorkerMaterialNearSignerWasm');
+
+    for (const [label, source] of flows) {
+      expect(source, `${label} flow must use shared material readiness`).toContain(
+        'requireOrRestoreRouterAbEd25519WalletSessionState',
+      );
+      for (const marker of forbiddenRepairMarkers) {
+        expect(source, `${label} flow must not invoke ${marker}`).not.toContain(marker);
+      }
+    }
+
+    for (const marker of forbiddenRepairMarkers) {
+      expect(materialHandle, `material handle module must not expose ${marker}`).not.toContain(
+        marker,
+      );
+    }
+  });
+
+  test('normal Ed25519 signing flows do not read raw client-base material', () => {
+    const transactionFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    );
+    const nep413Flow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+    );
+    const delegateFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+    );
+    const materialReadiness = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts',
+    );
+    const materialHandle = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
+    );
+    const flows = [
+      ['transaction', transactionFlow],
+      ['nep413', nep413Flow],
+      ['delegate', delegateFlow],
+      ['material-readiness', materialReadiness],
+    ] as const;
+
+    for (const [label, source] of flows) {
+      expect(source, `${label} flow must not read raw client-base material`).not.toContain(
+        'xClientBaseB64u',
+      );
+    }
+    expect(materialHandle.match(/xClientBaseB64u/g)?.length || 0).toBe(1);
+    expect(materialHandle).toContain('xClientBaseB64u?: never');
+  });
+
+  test('active NEAR Ed25519 signing planners use classified worker-material state', () => {
+    const scannedPaths = [
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts',
+    ] as const;
+    const forbiddenRawMaterialFields = [
+      'record.ed25519WorkerMaterialHandle',
+      'record?.ed25519WorkerMaterialHandle',
+      'record.ed25519WorkerMaterialBindingDigest',
+      'record?.ed25519WorkerMaterialBindingDigest',
+      'record.clientVerifyingShareB64u',
+      'record?.clientVerifyingShareB64u',
+    ] as const;
+    const offenders: string[] = [];
+
+    for (const relativePath of scannedPaths) {
+      const source = readRepoSource(relativePath);
+      if (
+        (relativePath.endsWith('/signNear.ts') ||
+          relativePath.endsWith('/signingSessionAuthMode.ts')) &&
+        !source.includes('classifyRouterAbEd25519PersistedSigningRecord')
+      ) {
+        offenders.push(`${relativePath} does not use the Ed25519 material classifier`);
+      }
+      for (const marker of forbiddenRawMaterialFields) {
+        if (source.includes(marker)) {
+          offenders.push(`${relativePath} reads raw persisted material field ${marker}`);
+        }
+      }
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
   test('Email OTP NEAR cached client-base signing consumes shared session budgets without PRF claim', () => {
     const enginePorts = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/assembly/createPorts.ts',
     );
-    const touchConfirmTypes = readRepoSource('packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts');
+    const touchConfirmTypes = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts',
+    );
     const touchConfirmManager = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts',
     );
@@ -138,7 +287,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const transactionsFlow = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
     );
-    const evmSigning = readRepoSource('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
+    const evmSigning = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    );
 
     expect(transactionsFlow).toContain('signingSessionCoordinator');
     expect(transactionsFlow).not.toContain('consumeSigningGrantUse');
@@ -148,7 +299,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(evmSigning).not.toContain('.consumeWarmSessionUses');
   });
 
-  test('export code cannot consume wallet signing-session budget', () => {
+  test('export code cannot consume signing grant budget', () => {
     const recovery = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/recovery/privateKeyExportRecovery.ts',
     );
@@ -184,9 +335,6 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(nep413Flow).toContain('tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning');
     expect(delegateFlow).toContain('tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning');
     for (const [label, source] of flows) {
-      expect(source, `${label} flow must build Router A/B-ready state`).toContain(
-        'requireRouterAbEd25519NormalSigningReadyState',
-      );
       expect(source, `${label} flow must not call old public Ed25519 routes`).not.toContain(
         '/threshold-ed25519/',
       );
@@ -195,13 +343,23 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       );
     }
 
-    expect(normalSigningExecutor).toContain('prepareRouterAbNormalSigningV2');
-    expect(normalSigningExecutor).toContain('finalizeRouterAbNormalSigningV2');
-    expect(normalSigningExecutor).toContain('prepareRouterAbNormalSigningPresignPoolV2');
-    expect(normalSigningExecutor).toContain('finalizeRouterAbNormalSigningPresignPoolHitV2');
-    expect(normalSigningExecutor).toContain('requireRouterAbNormalSigningPrepareMatchesRequest');
-    expect(normalSigningExecutor).toContain('requireRouterAbNormalSigningResponseMatchesRequest');
-    expect(normalSigningExecutor).toContain('credential: routerAbReadyState.credential');
+    const activeFinalizer = sourceBetween(
+      normalSigningExecutor,
+      'async function tryFinalizeRouterAbEd25519NormalSigningSignature',
+      'export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning',
+    );
+
+    expect(activeFinalizer).toContain('prepareRouterAbNormalSigningV2');
+    expect(activeFinalizer).toContain('finalizeRouterAbNormalSigningV2');
+    expect(activeFinalizer).toContain(
+      'createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleNearSignerWasm',
+    );
+    expect(normalSigningExecutor).toContain('requireRouterAbEd25519NormalSigningReadyState');
+    expect(activeFinalizer).toContain('requireRouterAbNormalSigningResponseMatchesRequest');
+    expect(activeFinalizer).toContain('credential: routerAbReadyState.credential');
+    expect(activeFinalizer).not.toContain('refillRouterAbEd25519ClientPresignPool');
+    expect(activeFinalizer).not.toContain('prepareRouterAbNormalSigningPresignPoolV2');
+    expect(activeFinalizer).not.toContain('finalizeRouterAbNormalSigningPresignPoolHitV2');
     expect(walletSessionCredential).toContain(
       "requireNonEmpty(signingWalletSession.auth.walletSessionJwt, 'Wallet Session bearer JWT')",
     );

@@ -1,7 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
-import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type {
   listStoredThresholdEcdsaSessionRecordsForWallet,
   ThresholdEcdsaSessionRecord,
@@ -66,6 +65,9 @@ import type {
 import {
   unlockEmailOtpWalletForEd25519Session,
 } from './walletUnlock';
+import type {
+  EmailOtpEd25519RecoveryCodeSigningSessionHydration,
+} from './recoveryCodeWarmSessionHydration';
 
 export type LoginEmailOtpEd25519CapabilityArgs = {
   walletSession: WalletSessionRef;
@@ -154,13 +156,7 @@ export type EmailOtpEd25519WarmupPorts = {
   persistWarmSessionEd25519Capability: (
     args: PersistWarmSessionEd25519CapabilityArgs,
   ) => unknown | Promise<unknown>;
-  hydrateSigningSession: (args: {
-    sessionId: string;
-    prfFirstB64u: string;
-    expiresAtMs: number;
-    remainingUses: number;
-    transport?: WarmSessionSealTransportInput;
-  }) => Promise<void>;
+  recoveryCodeSigningSessionHydration: EmailOtpEd25519RecoveryCodeSigningSessionHydration;
   readExactSealedSession: typeof readExactSealedSession;
   getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
@@ -202,7 +198,7 @@ export class EmailOtpEd25519Warmup {
       input: args,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       persistWarmSessionEd25519Capability: this.ports.persistWarmSessionEd25519Capability,
-      hydrateSigningSession: this.ports.hydrateSigningSession,
+      recoveryCodeSigningSessionHydration: this.ports.recoveryCodeSigningSessionHydration,
       sessionPersistenceMode: this.ports.configs.signing.sessionPersistenceMode,
       readExactSealedSession: this.ports.readExactSealedSession,
       getThresholdEcdsaSessionRecordByThresholdSessionId:
@@ -261,11 +257,11 @@ export class EmailOtpEd25519Warmup {
       ...(args.challengeId ? { challengeId: args.challengeId } : {}),
       ...(args.onProgress ? { onProgress: args.onProgress } : {}),
     });
-    const prfFirstB64u = String(
-      workerResult.recovery.thresholdEd25519PrfFirstB64u || '',
+    const recoveryCodeSecret32B64u = String(
+      workerResult.recovery.thresholdEd25519RecoveryCodeSecret32B64u || '',
     ).trim();
-    if (!prfFirstB64u) {
-      throw new Error('Email OTP Ed25519 login did not return client seed material');
+    if (!recoveryCodeSecret32B64u) {
+      throw new Error('Email OTP Ed25519 login did not return recovery-code material');
     }
     const emailOtpAuthContext = {
       policy: args.emailOtpAuthPolicy || this.ports.configs.signing.emailOtp.authPolicy,
@@ -278,7 +274,7 @@ export class EmailOtpEd25519Warmup {
       nearAccountId,
       relayUrl,
       rpId,
-      prfFirstB64u,
+      recoveryCodeSecret32B64u,
       emailOtpAuthContext,
       routeAuth,
       runtimePolicyScope,

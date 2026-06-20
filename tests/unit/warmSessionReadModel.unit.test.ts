@@ -144,13 +144,14 @@ test.describe('warmSessionReadModel', () => {
       nearAccountId: 'derive.testnet',
       thresholdSessionId: 'derive-ed25519-session',
       walletSessionJwt: 'jwt:derive-ed25519-session',
+      runtimeValidated: true,
     });
     const unvalidatedRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'derive-unavailable.testnet',
       thresholdSessionId: 'derive-unavailable-ed25519-session',
       walletSessionJwt: 'jwt:derive-unavailable-ed25519-session',
-      ed25519HssMaterialHandle: '',
-      ed25519HssMaterialBindingDigest: '',
+      ed25519WorkerMaterialHandle: '',
+      ed25519WorkerMaterialBindingDigest: '',
     });
 
     expect(
@@ -179,15 +180,14 @@ test.describe('warmSessionReadModel', () => {
     ).toBe('prf_unavailable');
   });
 
-  test('derives invalid for restored Ed25519 raw material without worker handle', () => {
+  test('derives material_pending for restored Ed25519 records without worker handle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'pending-material.testnet',
       thresholdSessionId: 'pending-material-session',
       walletSessionJwt: 'jwt:pending-material-session',
-      xClientBaseB64u: 'restored-raw-client-base',
       clientVerifyingShareB64u: 'restored-client-verifier',
-      ed25519HssMaterialHandle: '',
-      ed25519HssMaterialBindingDigest: '',
+      ed25519WorkerMaterialHandle: '',
+      ed25519WorkerMaterialBindingDigest: '',
     });
 
     expect(
@@ -201,7 +201,7 @@ test.describe('warmSessionReadModel', () => {
           expiresAtMs: ed25519Record.expiresAtMs,
         },
       }),
-    ).toBe('invalid');
+    ).toBe('material_pending');
   });
 
   test('derives invalid for Ed25519 records missing Router A/B state', () => {
@@ -234,7 +234,6 @@ test.describe('warmSessionReadModel', () => {
       nearAccountId: 'cookie-record-backed.testnet',
       thresholdSessionId: 'cookie-record-backed-session',
       thresholdSessionKind: 'cookie',
-      xClientBaseB64u: 'cookie-record-backed-client-base',
     });
 
     expect(

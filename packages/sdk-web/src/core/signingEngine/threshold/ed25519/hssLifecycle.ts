@@ -17,7 +17,6 @@ import {
   openThresholdEd25519HssClientOutputWasm,
   openThresholdEd25519HssSeedOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
-  storeRouterAbEd25519HssMaterialFromClientOutputWasm,
   type ThresholdEd25519HssCanonicalContext,
   type ThresholdEd25519HssClientRequestEnvelope,
   type ThresholdEd25519HssClientInputs,
@@ -29,10 +28,15 @@ import {
   type ThresholdEd25519SeedExportArtifact,
   type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '../crypto/hssClientSignerWasm';
-import type { StoreRouterAbEd25519HssMaterialFromClientOutputResult } from '../../workerManager/workerTypes';
+import { storeThresholdEd25519WorkerMaterialFromHssOutputNearSignerWasm } from '../../chains/near/nearSignerWasm';
+import type {
+  ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult,
+  ThresholdEd25519WorkerMaterialStoredResult,
+} from '@/core/types/signer-worker';
 import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../crypto/ed25519WrapKeySalt';
 import {
   resolveThresholdEd25519HssClientOutputMaskB64u,
+  resolveThresholdEd25519HssClientOutputMaskHandle,
   validateThresholdEd25519HssOutputProjectionPolicy,
   type ThresholdEd25519HssOutputProjectionPolicy,
 } from './clientOutputMask';
@@ -100,7 +104,9 @@ export type DeriveThresholdEd25519HssClientInputsResult =
 
 export type PrepareThresholdEd25519HssClientCeremonyResult =
   | ThresholdEd25519HssClientInputsSuccess
-  | ThresholdEd25519HssClientInputsFailure<'derive_client_inputs_failed' | 'prepare_client_ceremony_failed'>;
+  | ThresholdEd25519HssClientInputsFailure<
+      'derive_client_inputs_failed' | 'prepare_client_ceremony_failed'
+    >;
 
 export type CompleteThresholdEd25519HssClientCeremonyResult =
   | {
@@ -128,7 +134,7 @@ export type CompleteThresholdEd25519HssMaterialHandleCeremonyResult =
       contextBindingB64u: string;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
       finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-      signingMaterial: StoreRouterAbEd25519HssMaterialFromClientOutputResult;
+      signingMaterial: ThresholdEd25519WorkerMaterialStoredResult;
       code?: never;
       message?: never;
     }
@@ -301,6 +307,50 @@ export async function deriveThresholdEd25519ClientVerifyingShareFromCredential(
   const nearAccountId = args.nearAccountId;
   try {
     const prfFirstB64u = requirePrfFirstB64uFromCredential(args.credential);
+    const sessionId = deps.createSessionId('threshold-client-share');
+    const derived = await deps.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
+      sessionId,
+      nearAccountId,
+      prfFirstB64u,
+      wrapKeySalt: THRESHOLD_ED25519_WRAP_KEY_SALT_B64U,
+    });
+    if (!derived.success) {
+      return {
+        ok: false,
+        nearAccountId,
+        code: 'derive_client_verifying_share_failed',
+        message: String(derived.error || 'Failed to derive threshold Ed25519 client share'),
+      };
+    }
+    return {
+      ok: true,
+      nearAccountId: derived.nearAccountId,
+      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+    };
+  } catch (error: unknown) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return {
+      ok: false,
+      nearAccountId,
+      code: 'derive_client_verifying_share_failed',
+      message,
+    };
+  }
+}
+
+export async function deriveThresholdEd25519ClientVerifyingShareFromPrfFirst(
+  deps: ThresholdEd25519LifecycleDeps,
+  args: {
+    prfFirstB64u: string;
+    nearAccountId: AccountId;
+  },
+): Promise<DeriveThresholdEd25519ClientVerifyingShareResult> {
+  const nearAccountId = args.nearAccountId;
+  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
+  try {
+    if (!prfFirstB64u) {
+      throw new Error('prfFirstB64u is required for threshold Ed25519 verifier derivation');
+    }
     const sessionId = deps.createSessionId('threshold-client-share');
     const derived = await deps.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
       sessionId,
@@ -698,7 +748,13 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
         ? (data.preparedSession as ThresholdEd25519HssPreparedSessionEnvelope)
         : undefined;
     const clientOtOfferMessageB64u = String(data.clientOtOfferMessageB64u || '').trim();
-    if (!response.ok || data.ok !== true || !ceremonyHandle || !clientOtOfferMessageB64u || !preparedSession) {
+    if (
+      !response.ok ||
+      data.ok !== true ||
+      !ceremonyHandle ||
+      !clientOtOfferMessageB64u ||
+      !preparedSession
+    ) {
       throw new Error(data.message || data.code || `HTTP ${response.status}`);
     }
     const responsePayload = {
@@ -977,7 +1033,6 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     },
     workerCtx: args.workerCtx,
   });
-
   const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
     evaluatorDriverStateB64u: prepared.preparedSession.evaluatorDriverStateB64u,
     clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
@@ -1002,14 +1057,13 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   }
 
   const evaluateStartedAt = Date.now();
-  const evaluationResult =
-    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
-      preparedSession: prepared.preparedSession,
-      clientRequest,
-      serverInputDelivery: responded.serverInputDelivery,
-      clientOutputMaskB64u,
-      workerCtx: args.workerCtx,
-    });
+  const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+    preparedSession: prepared.preparedSession,
+    clientRequest,
+    serverInputDelivery: responded.serverInputDelivery,
+    clientOutputMaskB64u,
+    workerCtx: args.workerCtx,
+  });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
     return {
       ok: false,
@@ -1073,10 +1127,14 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     signingRootVersion: string;
     expiresAtMs: number;
     nearAccountId: string;
+    signerSlot: number;
     relayerKeyId: string;
+    keyVersion: string;
     participantIds: number[];
+    createdAtMs: number;
     signingWorkerId: string;
   };
+  preparedSealAuthorization: ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult;
   workerCtx: WorkerOperationContext;
 }): Promise<CompleteThresholdEd25519HssMaterialHandleCeremonyResult> {
   validateThresholdEd25519HssOutputProjectionPolicy(args.outputProjection);
@@ -1107,7 +1165,6 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     },
     workerCtx: args.workerCtx,
   });
-
   const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
     evaluatorDriverStateB64u: prepared.preparedSession.evaluatorDriverStateB64u,
     clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
@@ -1132,14 +1189,13 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
   }
 
   const evaluateStartedAt = Date.now();
-  const evaluationResult =
-    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
-      preparedSession: prepared.preparedSession,
-      clientRequest,
-      serverInputDelivery: responded.serverInputDelivery,
-      clientOutputMaskB64u,
-      workerCtx: args.workerCtx,
-    });
+  const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+    preparedSession: prepared.preparedSession,
+    clientRequest,
+    serverInputDelivery: responded.serverInputDelivery,
+    clientOutputMaskB64u,
+    workerCtx: args.workerCtx,
+  });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
     return {
       ok: false,
@@ -1166,22 +1222,50 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     };
   }
 
-  const completeStartedAt = Date.now();
-  const signingMaterial = await storeRouterAbEd25519HssMaterialFromClientOutputWasm({
-    preparedSession: prepared.preparedSession,
-    finalizedReport: finalized.finalizedReport,
-    clientOutputMaskB64u,
-    thresholdSessionId: args.materialBinding.thresholdSessionId,
-    signingGrantId: args.materialBinding.signingGrantId,
-    signingRootId: args.materialBinding.signingRootId,
-    signingRootVersion: args.materialBinding.signingRootVersion,
-    expiresAtMs: args.materialBinding.expiresAtMs,
-    nearAccountId: args.materialBinding.nearAccountId,
-    relayerKeyId: args.materialBinding.relayerKeyId,
-    participantIds: args.materialBinding.participantIds,
-    signingWorkerId: args.materialBinding.signingWorkerId,
+  const clientOutputMaskHandle = await resolveThresholdEd25519HssClientOutputMaskHandle({
+    policy: args.outputProjection,
+    context: {
+      ...args.context,
+      contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+      operation: args.operation,
+      relayerKeyId: args.relayerKeyId,
+    },
     workerCtx: args.workerCtx,
   });
+
+  const completeStartedAt = Date.now();
+  const signingMaterial = await storeThresholdEd25519WorkerMaterialFromHssOutputNearSignerWasm({
+    evaluatorDriverStateB64u: prepared.preparedSession.evaluatorDriverStateB64u,
+    clientOutputMessageB64u: finalized.finalizedReport.clientOutputMessageB64u,
+    clientOutputMaskHandle,
+    expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    nearAccountId: args.materialBinding.nearAccountId,
+    signerSlot: args.materialBinding.signerSlot,
+    signingRootId: args.materialBinding.signingRootId,
+    signingRootVersion: args.materialBinding.signingRootVersion,
+    relayerKeyId: args.materialBinding.relayerKeyId,
+    keyVersion: args.materialBinding.keyVersion,
+    participantIds: args.materialBinding.participantIds,
+    createdAtMs: args.materialBinding.createdAtMs,
+    sealAuthorization: args.preparedSealAuthorization.sealAuthorization,
+    workerCtx: args.workerCtx,
+  });
+  if (!signingMaterial.ok) {
+    return {
+      ok: false,
+      contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+      code: 'complete_client_ceremony_failed',
+      message: signingMaterial.message,
+    };
+  }
+  if (signingMaterial.materialKeyId !== args.preparedSealAuthorization.materialKeyId) {
+    return {
+      ok: false,
+      contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+      code: 'complete_client_ceremony_failed',
+      message: 'HSS worker material key id mismatch after store',
+    };
+  }
   const completeMs = Date.now() - completeStartedAt;
   console.info('[threshold-ed25519][client] hss material-handle ceremony timings', {
     relayerKeyId: String(args.relayerKeyId || '').trim(),

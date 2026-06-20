@@ -21,7 +21,7 @@ const _freshProvisionWithSigningGrantId: FreshWarmEd25519CapabilityProvisionArgs
   kind: 'fresh_ed25519_provisioning',
   nearAccountId: 'alice.testnet',
   relayerKeyId: 'rk-ed25519',
-  // @ts-expect-error fresh Ed25519 provisioning cannot carry wallet signing-session identity
+  // @ts-expect-error fresh Ed25519 provisioning cannot carry signing grant identity
   signingGrantId: 'signing-grant',
 };
 

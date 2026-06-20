@@ -99,6 +99,10 @@ export async function requireNearStepUpAuth(args: {
                       },
                   challengeId: String(prompt.challengeId || '').trim(),
                   otpCode: String(confirmation.otpCode || '').trim(),
+                  ed25519MaterialRestoreAuthorization: {
+                    kind: 'ed25519_email_otp_material_unseal_authorization_unavailable',
+                    reason: 'no_recovery_code_material',
+                  },
                   ...(prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
                 }),
             },

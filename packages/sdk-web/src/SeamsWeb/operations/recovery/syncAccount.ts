@@ -280,6 +280,7 @@ export async function syncAccount(
         thresholdEd25519,
         'sync-account/verify',
       );
+      const thresholdKeyMaterialCreatedAtMs = Date.now();
 
       await storeThresholdEd25519KeyMaterial({
         nearAccountId: normalizedAccountId,
@@ -295,7 +296,7 @@ export async function syncAccount(
           ? Math.floor(Number(thresholdEd25519.relayerParticipantId))
           : null,
         relayerUrl: context.configs?.network.relayer?.url,
-        timestamp: Date.now(),
+        timestamp: thresholdKeyMaterialCreatedAtMs,
       });
 
       if (
@@ -314,6 +315,7 @@ export async function syncAccount(
           rpId,
           relayerKeyId,
           credential,
+          signerSlot,
           requestedPolicy: thresholdWarmPolicyDraft,
           session: thresholdSession,
           participantIdsHint: Array.isArray(thresholdEd25519.participantIds)
@@ -324,10 +326,13 @@ export async function syncAccount(
           context,
           credential,
           nearAccountId: normalizedAccountId,
+          rpId,
           relayerUrl,
           relayerKeyId,
           session: thresholdSession,
           keyVersion: thresholdKeyVersion,
+          signerSlot,
+          materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
           participantIdsHint: Array.isArray(thresholdEd25519.participantIds)
             ? thresholdEd25519.participantIds
             : undefined,

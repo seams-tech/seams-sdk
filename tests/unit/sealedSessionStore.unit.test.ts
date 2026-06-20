@@ -29,6 +29,7 @@ const PASSKEY_ED25519_RESTORE = {
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
   sessionKind: 'cookie',
+  signerSlot: 1,
 } as const;
 
 const EMAIL_OTP_ED25519_RESTORE = {
@@ -86,62 +87,65 @@ test.describe('signing session sealed store', () => {
   });
 
   test('normalizes legacy sealed-store id fields at the storage boundary', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths, legacySigningGrantField }) => {
-      const mod = await import(paths.sealedSessionStore);
-      const now = Date.now();
-      const classification = mod.classifyRawSealedSessionRecord({
-        v: 1,
-        alg: 'shamir3pass-v1',
-        storageScope: 'iframe_origin_indexeddb',
-        authMethod: 'passkey',
-        secretKind: 'signing_session_secret32',
-        [legacySigningGrantField]: 'legacy-signing-grant',
-        thresholdSessionId: 'legacy-threshold-session',
-        sealedSecretB64u: 'sealed-secret-b64u',
-        curve: 'ecdsa',
-        walletId: 'legacy-sealed-store.testnet',
-        relayerUrl: 'https://relay.example',
-        ecdsaRestore: {
-          chainTarget: {
-            kind: 'tempo',
-            chainId: 42431,
-            networkSlug: 'tempo-moderato',
+    const result = await page.evaluate(
+      async ({ paths, legacySigningGrantField }) => {
+        const mod = await import(paths.sealedSessionStore);
+        const now = Date.now();
+        const classification = mod.classifyRawSealedSessionRecord({
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          authMethod: 'passkey',
+          secretKind: 'signing_session_secret32',
+          [legacySigningGrantField]: 'legacy-signing-grant',
+          thresholdSessionId: 'legacy-threshold-session',
+          sealedSecretB64u: 'sealed-secret-b64u',
+          curve: 'ecdsa',
+          walletId: 'legacy-sealed-store.testnet',
+          relayerUrl: 'https://relay.example',
+          ecdsaRestore: {
+            chainTarget: {
+              kind: 'tempo',
+              chainId: 42431,
+              networkSlug: 'tempo-moderato',
+            },
+            rpId: 'wallet.example.localhost',
+            sessionKind: 'cookie',
+            keyHandle: 'key-handle-ecdsa',
+            ethereumAddress: `0x${'33'.repeat(20)}`,
+            relayerKeyId: 'relayer-key',
+            thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+            participantIds: [1, 2, 3],
           },
-          rpId: 'wallet.example.localhost',
-          sessionKind: 'cookie',
-          keyHandle: 'key-handle-ecdsa',
-          ethereumAddress: `0x${'33'.repeat(20)}`,
-          relayerKeyId: 'relayer-key',
-          thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-          participantIds: [1, 2, 3],
-        },
-        issuedAtMs: now - 1_000,
-        expiresAtMs: now + 60_000,
-        remainingUses: 3,
-        updatedAtMs: now,
-      });
-      if (classification.kind !== 'current') {
+          issuedAtMs: now - 1_000,
+          expiresAtMs: now + 60_000,
+          remainingUses: 3,
+          updatedAtMs: now,
+        });
+        if (classification.kind !== 'current') {
+          return {
+            kind: classification.kind,
+            reason: classification.reason,
+            safeSummary: classification.safeSummary,
+          };
+        }
+        const record = classification.record as Record<string, unknown>;
         return {
           kind: classification.kind,
-          reason: classification.reason,
-          safeSummary: classification.safeSummary,
+          signingGrantId: classification.record.signingGrantId,
+          thresholdSessionIds: classification.record.thresholdSessionIds,
+          hasLegacySigningGrantField: Object.prototype.hasOwnProperty.call(
+            record,
+            legacySigningGrantField,
+          ),
+          hasTopLevelThresholdSessionId: Object.prototype.hasOwnProperty.call(
+            record,
+            'thresholdSessionId',
+          ),
         };
-      }
-      const record = classification.record as Record<string, unknown>;
-      return {
-        kind: classification.kind,
-        signingGrantId: classification.record.signingGrantId,
-        thresholdSessionIds: classification.record.thresholdSessionIds,
-        hasLegacySigningGrantField: Object.prototype.hasOwnProperty.call(
-          record,
-          legacySigningGrantField,
-        ),
-        hasTopLevelThresholdSessionId: Object.prototype.hasOwnProperty.call(
-          record,
-          'thresholdSessionId',
-        ),
-      };
-    }, { paths: IMPORT_PATHS, legacySigningGrantField: legacySigningGrantFieldName() });
+      },
+      { paths: IMPORT_PATHS, legacySigningGrantField: legacySigningGrantFieldName() },
+    );
 
     expect(result).toEqual({
       kind: 'current',
@@ -1019,9 +1023,7 @@ test.describe('signing session sealed store', () => {
     expect(result.missingSigningRootRead?.signingGrantId).toBe(
       'legacy-missing-signing-root-wallet-session',
     );
-    expect(result.missingTokenRead?.signingGrantId).toBe(
-      'legacy-missing-token-wallet-session',
-    );
+    expect(result.missingTokenRead?.signingGrantId).toBe('legacy-missing-token-wallet-session');
     expect(result.missingOwnerRead).toBeNull();
     expect(result.missingKeyIdRead).toBeNull();
     expect(result.missingWalletSessionRead).toBeNull();
@@ -1450,9 +1452,7 @@ test.describe('signing session sealed store', () => {
         });
 
         return {
-          ed25519WalletSessionIds: ed25519Records.map(
-            (record: any) => record.signingGrantId,
-          ),
+          ed25519WalletSessionIds: ed25519Records.map((record: any) => record.signingGrantId),
           ecdsaWalletSessionIds: ecdsaRecords.map((record: any) => record.signingGrantId),
         };
       },
@@ -1463,7 +1463,7 @@ test.describe('signing session sealed store', () => {
     expect(result.ecdsaWalletSessionIds).toEqual(['new-email-otp-ecdsa-wallet-session']);
   });
 
-  test('keeps passkey and Email OTP sealed records with the same wallet signing session separate', async ({
+  test('keeps passkey and Email OTP sealed records with the same signing grant separate', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -1637,7 +1637,7 @@ test.describe('signing session sealed store', () => {
               thresholdSessionId,
               signingGrantId: 'wallet-sess-host-mode',
               curve: 'ecdsa',
-                authMethod: 'passkey',
+              authMethod: 'passkey',
               ecdsaRestore: ECDSA_RESTORE,
               walletId: 'alice.testnet',
               userId: 'alice.testnet',
@@ -1683,9 +1683,7 @@ test.describe('signing session sealed store', () => {
     expect(result.sessionKeys).toEqual([]);
   });
 
-  test('does not create seams_wallet when IndexedDB persistence is disabled', async ({
-    page,
-  }) => {
+  test('does not create seams_wallet when IndexedDB persistence is disabled', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         await new Promise<void>((resolve) => {
@@ -1794,7 +1792,7 @@ test.describe('signing session sealed store', () => {
     expect(result.readAfterMarkerRestored?.sealedSecretB64u).toBe('sealed-restart');
   });
 
-  test('leases restore attempts by wallet signing session', async ({ page }) => {
+  test('leases restore attempts by signing grant', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -2177,5 +2175,4 @@ test.describe('signing session sealed store', () => {
     expect(result.durableRecord).toBeNull();
     expect(result.recordAfterExplicitDelete).toBeNull();
   });
-
 });

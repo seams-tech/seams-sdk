@@ -34,7 +34,7 @@ const ed25519RouterAbNormalSigning = {
 void ed25519RouterAbNormalSigning;
 
 const ed25519SigningMaterial = buildRouterAbEd25519SigningMaterialRef({
-  materialHandle: 'ed25519-hss-material:threshold-session-1:binding',
+  materialHandle: 'ed25519-worker-material:threshold-session-1:binding',
   bindingDigest: 'binding-digest',
   clientVerifyingShareB64u: 'client-verifying-share',
 });
@@ -134,7 +134,7 @@ void ed25519MissingMaterialHandle;
 
 const ed25519MissingSigningGrant = {
   ...validEd25519SigningWalletSession,
-  // @ts-expect-error Signable Ed25519 Wallet Session state requires the wallet signing session id.
+  // @ts-expect-error Signable Ed25519 Wallet Session state requires the signing grant id.
   signingGrantId: undefined,
 } satisfies RouterAbEd25519SigningWalletSession;
 void ed25519MissingSigningGrant;

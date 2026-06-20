@@ -42,6 +42,7 @@ type RawEd25519RestoreMetadata = {
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: unknown;
   clientVerifyingShareB64u?: unknown;
+  signerSlot?: unknown;
   routerAbNormalSigning?: unknown;
 };
 
@@ -124,6 +125,7 @@ type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: readonly number[];
+  signerSlot: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
@@ -451,6 +453,7 @@ export function normalizeSealedRecoveryRecord(
       const companionClientVerifyingShareB64u = normalizeNonEmptyString(
         ed25519Restore.clientVerifyingShareB64u,
       );
+      const companionSignerSlot = Math.floor(Number(ed25519Restore.signerSlot) || 0);
       const companionRouterAbNormalSigning = parseRouterAbEd25519NormalSigningState(
         ed25519Restore.routerAbNormalSigning,
       );
@@ -471,6 +474,7 @@ export function normalizeSealedRecoveryRecord(
         companionRpId &&
         companionRelayerKeyId &&
         companionParticipantIds.length &&
+        companionSignerSlot > 0 &&
         !companionXClientBaseB64u &&
         !companionClientVerifyingShareB64u &&
         companionWalletSessionAuth
@@ -501,6 +505,7 @@ export function normalizeSealedRecoveryRecord(
           rpId: companionRpId,
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
+          signerSlot: companionSignerSlot,
           ...companionWalletSessionAuth,
           ...(companionRuntimePolicyScope
             ? { runtimePolicyScope: companionRuntimePolicyScope }
@@ -598,6 +603,7 @@ export function normalizeSealedRecoveryRecord(
   const participantIds = normalizeParticipantIds(restore?.participantIds);
   const xClientBaseB64u = normalizeNonEmptyString(restore?.xClientBaseB64u);
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
+  const signerSlot = Math.floor(Number(restore?.signerSlot) || 0);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     restore?.routerAbNormalSigning,
   );
@@ -609,6 +615,7 @@ export function normalizeSealedRecoveryRecord(
     !relayerUrl ||
     !relayerKeyId ||
     !participantIds.length ||
+    signerSlot <= 0 ||
     xClientBaseB64u ||
     clientVerifyingShareB64u
   ) {
@@ -734,6 +741,7 @@ export function normalizeSealedRecoveryRecord(
           rpId,
           relayerKeyId,
           participantIds,
+          signerSlot,
           ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
@@ -760,6 +768,7 @@ export function normalizeSealedRecoveryRecord(
           rpId,
           relayerKeyId,
           participantIds,
+          signerSlot,
           ...walletSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),

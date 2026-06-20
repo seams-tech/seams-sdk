@@ -385,8 +385,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
             let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
             if (ed25519Record?.source === SIGNER_AUTH_METHODS.emailOtp) {
               if (
-                String(ed25519Record.ed25519HssMaterialHandle || '').trim() &&
-                String(ed25519Record.ed25519HssMaterialBindingDigest || '').trim() &&
+                String(ed25519Record.ed25519WorkerMaterialHandle || '').trim() &&
+                String(ed25519Record.ed25519WorkerMaterialBindingDigest || '').trim() &&
                 String(ed25519Record.clientVerifyingShareB64u || '').trim()
               ) {
                 localClaim = runtimeRecordPolicyClaim({

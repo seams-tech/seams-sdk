@@ -18,7 +18,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     clearAllStoredThresholdEd25519SessionRecords();
   });
 
-  test('treats inline registration client material as ready without worker status', async () => {
+  test('treats persisted Email OTP worker material as ready without worker status', async () => {
     const thresholdSessionId = 'ed25519-registration-session';
     const signingGrantId = 'signing-grant-ed25519-registration';
     let emailOtpStatusReads = 0;
@@ -31,7 +31,13 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
       participantIds: [1, 2],
-      xClientBaseB64u: 'ed25519-registration-client-base',
+      clientVerifyingShareB64u: 'ed25519-registration-client-verifier',
+      ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
+      ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding',
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'signing-worker-email-otp-ed25519',
+      },
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       signingGrantId,
@@ -98,6 +104,10 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
       participantIds: [1, 2],
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'signing-worker-email-otp-ed25519',
+      },
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       signingGrantId,

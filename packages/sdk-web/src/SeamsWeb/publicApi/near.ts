@@ -15,8 +15,8 @@ import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import {
   executeAction,
   sendTransaction,
-  signAndSendTransactions,
-  signTransactionsWithActions,
+  signAndSendTransaction,
+  signTransactionWithActions,
 } from '@/SeamsWeb/operations/near/actions';
 import {
   sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore,
@@ -101,73 +101,53 @@ export function createNearSignerCapability(deps: {
         throw e;
       }
     },
-    signAndSendTransactions: async (args) => {
+    signAndSendTransaction: async (args) => {
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
-      const { transactions, options } = args;
+      const transaction = {
+        receiverId: args.receiverId,
+        actions: args.actions,
+      };
       if (!walletIframe.shouldUseWalletIframe()) {
         try {
-          return await signAndSendTransactions({
+          return await signAndSendTransaction({
             context: getContext(),
             nearAccountId,
-            transactionInputs: transactions,
-            options,
+            transactionInput: transaction,
+            options: args.options,
           });
         } catch (error: unknown) {
           const e = toError(error);
-          await options?.afterCall?.(false, undefined, e);
+          await args.options?.afterCall?.(false, undefined, e);
           throw e;
         }
       }
       try {
         const router = await walletIframe.requireRouter(nearAccountId);
-        const routerOptions = {
-          ...options,
-          executionWait: options?.executionWait ?? {
-            mode: 'sequential' as const,
-            waitUntil: options?.waitUntil,
-          },
-        };
-        const result = await router.signAndSendTransactions({
+        const result = await router.signAndSendTransaction({
           nearAccountId,
-          transactions: transactions.map((transaction) => ({
-            receiverId: transaction.receiverId,
-            actions: transaction.actions,
-          })),
-          options: routerOptions,
+          transaction,
+          options: args.options,
         });
-        await options?.afterCall?.(true, result);
+        await args.options?.afterCall?.(true, result);
         return result;
       } catch (error: unknown) {
         const e = toError(error);
-        await options?.onError?.(e);
-        await options?.afterCall?.(false, undefined, e);
+        await args.options?.onError?.(e);
+        await args.options?.afterCall?.(false, undefined, e);
         throw e;
       }
     },
-    signAndSendTransaction: async (args) => {
-      const results = await nearCapability.signAndSendTransactions({
-        nearAccount: args.nearAccount,
-        transactions: [
-          {
-            receiverId: args.receiverId,
-            actions: args.actions,
-          },
-        ],
-        options: args.options,
-      });
-      return results[0] as ActionResult;
-    },
-    signTransactionsWithActions: async (args) => {
+    signTransactionWithActions: async (args) => {
       const walletIframe = deps.getWalletIframe();
       const nearAccountId = args.nearAccount.accountId;
-      const { transactions, options } = args;
+      const { transaction, options } = args;
       if (!walletIframe.shouldUseWalletIframe()) {
         try {
-          return await signTransactionsWithActions({
+          return await signTransactionWithActions({
             context: getContext(),
             nearAccountId,
-            transactionInputs: transactions,
+            transactionInput: transaction,
             options,
           });
         } catch (error: unknown) {
@@ -178,12 +158,12 @@ export function createNearSignerCapability(deps: {
       }
       try {
         const router = await walletIframe.requireRouter(nearAccountId);
-        const result = await router.signTransactionsWithActions({
+        const result = await router.signTransactionWithActions({
           nearAccountId,
-          transactions: transactions.map((transaction) => ({
+          transaction: {
             receiverId: transaction.receiverId,
             actions: transaction.actions,
-          })),
+          },
           options: {
             signerSlot: options.signerSlot,
             onEvent: options.onEvent,
@@ -191,9 +171,8 @@ export function createNearSignerCapability(deps: {
             confirmerText: options.confirmerText,
           },
         });
-        const signedTransactions = Array.isArray(result) ? result : [];
-        await options?.afterCall?.(true, signedTransactions);
-        return signedTransactions;
+        await options?.afterCall?.(true, result);
+        return result;
       } catch (error: unknown) {
         const e = toError(error);
         await options?.onError?.(e);

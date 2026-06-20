@@ -255,7 +255,7 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
           rawTxHex: data.payload?.request?.chain === 'tempo' ? '0x76' : '0x02',
         });
       }
-      if (data.type === 'PM_SIGN_TXS_WITH_ACTIONS') {
+      if (data.type === 'PM_SIGN_TX_WITH_ACTIONS') {
         if (!warmCapabilityActive) {
           reject('threshold_ed25519_session_not_ready', 'Fresh Email OTP verification required');
           return;
@@ -431,14 +431,12 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           request: signRequest,
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
-        const nearSigned = await pm.near.signTransactionsWithActions({
+        const nearSigned = await pm.near.signTransactionWithActions({
           nearAccount: { accountId: nearAccountId, kind: 'near_account' },
-          transactions: [
-            {
-              receiverId: nearAccountId,
-              actions: [{ action_type: 'Transfer', deposit: '1' }],
-            },
-          ],
+          transaction: {
+            receiverId: nearAccountId,
+            actions: [{ action_type: 'Transfer', deposit: '1' }],
+          },
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const walletSession = await pm.auth.getWalletSession(nearAccountId);
@@ -753,17 +751,15 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
       ),
     ).toEqual(['evm:eip1559', 'evm:eip1559', 'tempo:tempoTransaction']);
     const nearSignMessages = messages.filter(
-      (message: { type: string }) => message.type === 'PM_SIGN_TXS_WITH_ACTIONS',
+      (message: { type: string }) => message.type === 'PM_SIGN_TX_WITH_ACTIONS',
     );
     expect(nearSignMessages).toHaveLength(1);
     expect(nearSignMessages[0]?.payload).toMatchObject({
       nearAccountId: 'alice.testnet',
-      transactions: [
-        {
-          receiverId: 'alice.testnet',
-          actions: [{ action_type: 'Transfer', deposit: '1' }],
-        },
-      ],
+      transaction: {
+        receiverId: 'alice.testnet',
+        actions: [{ action_type: 'Transfer', deposit: '1' }],
+      },
     });
   });
 

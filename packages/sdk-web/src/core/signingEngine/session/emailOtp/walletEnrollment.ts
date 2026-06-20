@@ -31,7 +31,7 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
   ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
 }): Promise<
   EmailOtpEnrollmentResult & {
-    thresholdEd25519PrfFirstB64u: string;
+    thresholdEd25519RecoveryCodeSecret32B64u: string;
     clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   }
 > {

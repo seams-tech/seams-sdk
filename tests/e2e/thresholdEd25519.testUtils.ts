@@ -52,11 +52,15 @@ import {
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
 
-export async function setupThresholdE2ePage(page: Page): Promise<void> {
+export async function setupThresholdE2ePage(
+  page: Page,
+  options: { injectWalletServiceImportMap?: boolean } = {},
+): Promise<void> {
   const blankPageUrl = new URL('/__test_blank.html', DEFAULT_TEST_CONFIG.frontendUrl).toString();
   await setupBasicPasskeyTest(page, {
     frontendUrl: blankPageUrl,
     skipSeamsWebInit: true,
+    injectWalletServiceImportMap: options.injectWalletServiceImportMap,
   });
 
   await page.evaluate(async (base64Path) => {
@@ -74,7 +78,8 @@ export const TEST_RELAYER_ACCOUNT_ID = 'relayer.testnet';
 export const TEST_RELAYER_PUBLIC_KEY = 'ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB';
 export const TEST_RELAYER_PRIVATE_KEY =
   'ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM';
-const TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'test-router-ab-internal-service-auth';
+export const TEST_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET =
+  'test-router-ab-internal-service-auth';
 const TEST_ROUTER_AB_ECDSA_HSS_SIGNING_WORKER_PRIVATE_KEY_32 = new Uint8Array(32).fill(0x41);
 const TEST_ROUTER_AB_ECDSA_HSS_RERANDOMIZATION_ENTROPY_32 = new Uint8Array(32).fill(0x29);
 const TEST_ROUTER_AB_SIGNING_WORKER_ID = 'local-signing-worker';
@@ -369,6 +374,15 @@ function makeRouterAbEcdsaHssPoolFillReceipt(
   };
 }
 
+function isEd25519PrivateSigningWorkerPath(path: string): boolean {
+  return (
+    path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare ||
+    path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.presignPoolPrepare ||
+    path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.presignPoolFinalize ||
+    path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize
+  );
+}
+
 export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
   baseUrl: string;
   close: () => Promise<void>;
@@ -410,10 +424,7 @@ export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
         return;
       }
 
-      if (
-        path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.prepare ||
-        path === ROUTER_AB_ED25519_PRIVATE_SIGNING_PATHS.finalize
-      ) {
+      if (isEd25519PrivateSigningWorkerPath(path)) {
         await proxyEd25519PrivateSigningWorkerJson({
           workerBaseUrl: ed25519SigningWorker.baseUrl,
           path,

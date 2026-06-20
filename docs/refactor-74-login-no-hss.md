@@ -103,13 +103,11 @@ Verified transaction-signing callchain:
 signTransactions()
   -> resolveNearSigningSessionAuthContext()
   -> deriveEd25519CapabilityState()
-  -> material_pending is treated as ready for passkey warm-session planning
   -> requireNearStepUpAuth()
   -> buildNearEd25519StepUpAuthorization()
-  -> classifyRouterAbEd25519PersistedSigningRecord()
-  -> pending_material branch
-  -> claimPrfFirstByThresholdSessionId()
-  -> ensureThresholdEd25519HssSigningMaterial()
+  -> resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp()
+  -> requireOrRestoreRouterAbEd25519WalletSessionState()
+  -> RestoreThresholdEd25519WorkerMaterial when the record is restore_available
   -> persistStoredThresholdEd25519SessionMaterialHandle()
   -> resolveRouterAbEd25519WalletSessionStateFromRecord()
   -> requireRouterAbEd25519NormalSigningReadyState()
@@ -1818,7 +1816,7 @@ Immediate implementation order:
       session-binding digest mismatch, and expiry fail closed before presign or
       sign-presign.
 
-Implementation note, June 20, 2026:
+Implementation note:
 
 - The near-signer Rust worker now constructs generated material bindings when
   storing HSS output, stores those bindings with loaded material handles, and
@@ -2329,7 +2327,7 @@ authorization and binding helpers.
       from `prfFirstB64u` to `recoveryCodeSecret32B64u`, and add a source
       guard preventing the old field from returning to
       `session_ed25519_reconstruction` inputs.
-- [x] Replace `claimPrfFirstByThresholdSessionId()` and passkey PRF cache
+- [x] Replace the old direct warm-session PRF claim path and passkey PRF cache
       callers used by normal Ed25519 restore with issuer calls that return
       `Ed25519PreparedWorkerMaterialUnsealAuthorization`.
 - [x] Isolate the transitional PRF claim in a single passkey unseal-issuer
@@ -2436,7 +2434,7 @@ authorization and binding helpers.
       transaction, NEP-413, and delegate signing when the current Ed25519 record
       is `restore_available` and the signing step-up already produced a passkey
       credential.
-- [x] Remove `claimPrfFirstByThresholdSessionId()` from the direct
+- [x] Remove the old direct PRF claim call from the direct
       material-resolver / Ed25519 HSS reconstruction branch.
 - [x] Remove daily-signing calls to `ensureThresholdEd25519HssSigningMaterial()`.
 - [x] Reuse an already loaded worker handle when the near-signer worker material
@@ -2765,12 +2763,13 @@ worker-owned model look like it was always the only implementation.
       - Remaining `material_restore_required` branches are the typed
         fail-closed behavior for missing sealed material, unavailable restore
         authorization, or worker-material validation failure before signing.
-- [x] Delete `claimPrfFirstByThresholdSessionId()` call paths from normal
+- [x] Delete the old direct PRF claim call paths from normal
       Ed25519 signing. Keep PRF/recovery-code secret handling only at the
       credential-boundary unseal authorization handle creation path.
-- [ ] Delete tests, fixtures, mocks, and source guards that preserve obsolete
-      raw-client-base cache behavior.
-- [ ] Add final source guards proving active SDK TypeScript cannot read, write,
+- [x] Delete or convert tests, fixtures, mocks, and source guards that preserve
+      obsolete raw-client-base cache behavior. Remaining raw-client-base tests
+      assert boundary rejection or pruning.
+- [x] Add final source guards proving active SDK TypeScript cannot read, write,
       log, compare, or route raw Ed25519 client MPC material.
 - [x] Add final source guards proving normal Ed25519 unlock/signing cannot call
       Ed25519 HSS routes, reconstruction helpers, or HSS material-handle
@@ -2805,12 +2804,35 @@ pnpm -C tests exec playwright test \
 
 Add or replace test targets as the implementation creates focused coverage.
 
-Release gate: final browser evidence remains separate from this spec. After
-Refactor 70 lands, run the combined local/browser harness that proves
+Release gate: final browser evidence is required in addition to this spec.
+After Refactor 70 lands, run the combined local/browser harness that proves
 server-authoritative budget exhaustion UX, no-HSS unlock, lazy worker-material
 restore, NEAR transaction signing, NEP-413 signing, and delegate signing all
 work together. The Refactor 74 spec and source guards do not replace that
 evidence harness.
+
+Implementation note, June 20, 2026:
+
+- Refactor 70 has landed, and the combined browser evidence now passes locally.
+- The browser harness reads server-authoritative budget state for the shared
+  wallet signing grant instead of relying on aggregate UI session selection,
+  because exhausted Ed25519 lanes can be hidden by still-active ECDSA lanes.
+- Wallet-iframe evidence reads the durable sealed Ed25519 session artifact from
+  the wallet origin and uses the relayer status route as the budget authority.
+  Diagnostic `ed25519State` reports a persisted material handle as
+  `material_handle_hint`; only worker validation can prove runtime readiness.
+- The lazy-restore browser path forces a cold Ed25519 material setup before the
+  first sign by removing the durable worker-material handle hint, resetting the
+  near-signer worker transport, and clearing runtime-validation state while
+  preserving `sealedWorkerMaterialRef`.
+- The lazy-restore browser path asserts setup is `material_pending`, the first
+  NEAR transaction runs exactly one `RestoreThresholdEd25519WorkerMaterial`
+  command, NEAR/NEP-413/delegate signing make zero Ed25519 HSS route calls, and
+  the first three Ed25519 signs share the same server-authoritative budget until
+  exhaustion.
+- Cold material restore requires one passkey/WebAuthn prompt on the first sign
+  to authorize unsealing. After that restore, NEAR transaction, NEP-413, and
+  delegate signing proceed without another prompt before budget exhaustion.
 
 ## Refactor 74 Done Gate
 
@@ -2825,31 +2847,45 @@ explicitly evidenced:
 - Add-signer/device-sync sealed artifact evidence: implementation routes flows
   that create or refresh Ed25519 signing material through the same sealed
   worker-material artifact/reference, `materialKeyId`, material binding digest,
-  AAD format, and material facts as registration/repair. Source guards exist;
-  final evidence still needs focused add-signer/device-sync coverage or a code
-  audit that ties those flows to the shared write path.
-- Email OTP recovery-code boundary: Email OTP account control can authorize the
-  flow, but direct Ed25519 restore requires an opaque recovery-code `unseal`
-  capability. Recovery-code bytes must stay in the email/recovery credential
-  boundary, and normal signing must receive only the prepared unseal
-  authorization branch or fail with `material_unseal_authorization_required`.
+  AAD format, and material facts as registration/repair. Evidence:
+  `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` audits registration
+  add-signer, link-device, sync-account, and email-recovery sync call paths; the
+  add-wallet-signer unit coverage checks the later-Ed25519 path uses worker
+  material handle/binding fields.
+- Email OTP recovery-code boundary evidence: Email OTP account control can
+  authorize the flow, but direct Ed25519 restore requires an opaque recovery-code
+  `unseal` capability. Evidence:
+  `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` rejects raw
+  recovery-code bytes in the signing restore resolver, and
+  `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts` covers the
+  opaque Email OTP unseal authorization branch.
 - Transaction-flow material restore evidence:
   `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts` covers a
   `material_pending`/restore-available Ed25519 record reaching
   `persistStoredThresholdEd25519SessionMaterialHandle()` before Router A/B
   normal signing, without HSS or raw-material fallback. Keep this as release
   evidence; additional browser evidence remains separate.
-- Raw PRF, HSS-name, and deterministic-handle cleanup: classify remaining
-  `prfFirstB64u`, `claimPrfFirstByThresholdSessionId()`,
-  `ed25519-hss-material:*`, and old HSS handler
-  markers as allowed setup/test/boundary code or delete/rename them. The dead
-  HSS-client Ed25519 material store/validate/sign-from-handle API and the
-  deterministic TypeScript handle builder are now deleted; remaining work is
-  final marker classification for test fixtures, HSS setup/export, and docs.
-- Browser evidence: after Refactor 70 lands, run the combined browser path that
-  proves no-HSS unlock, lazy worker-material restore, NEAR transaction signing,
-  NEP-413 signing, delegate signing, and server-authoritative budget exhaustion
-  behavior together.
+- Raw PRF, HSS-name, and deterministic-handle cleanup evidence: remaining
+  `prfFirstB64u` and HSS names are classified as setup/export/credential
+  boundary markers. Active source and fixtures no longer contain the deleted
+  direct PRF claim method, old Ed25519 HSS material field names, the old
+  HSS-shaped material-ref discriminant, or deterministic HSS material-handle
+  fixture strings. Evidence:
+  `tests/unit/refactor74LoginNoHss.guard.unit.test.ts`.
+- Browser evidence: complete after Refactor 70 landed. The combined browser
+  path proves no-HSS unlock, lazy worker-material restore, NEAR transaction
+  signing, NEP-413 signing, delegate signing, and server-authoritative budget
+  exhaustion behavior together.
+  - Harness coverage now lives in
+    `tests/e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`: one path
+    covers shared NEAR/Tempo/EVM budget exhaustion, and one path covers NEAR
+    transaction, NEP-413, delegate signing, lazy Ed25519 restore, and exhaustion.
+  - Current local rerun status: complete. Command:
+    `RUN_ROUTER_AB_BUDGET_EVIDENCE=1 pnpm -C tests exec playwright test --reporter=line e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`.
+    Latest local result: `2 passed`.
+  - Focused Ed25519 evidence command:
+    `RUN_ROUTER_AB_BUDGET_EVIDENCE=1 pnpm -C tests exec playwright test --reporter=line e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts -g "one unlock lazily restores Ed25519 material"`.
+    Latest local result: `1 passed`.
 
 ## Migration Notes
 

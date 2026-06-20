@@ -4,7 +4,6 @@ import {
   type WorkerResponseDiagnostics,
   type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult,
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
-  type WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult,
   type WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult,
   type WasmDeriveThresholdEd25519HssClientOutputMaskResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
@@ -31,13 +30,9 @@ import {
   type HssWorkerOperationResult,
   type HssWorkerOperationType,
   type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResult,
-  type StoreRouterAbEd25519HssMaterialFromClientOutputResult,
   type StoreThresholdEcdsaRoleLocalSigningMaterialResult,
-  type StoreThresholdEd25519HssMaterialResult,
   type ThresholdEcdsaPresignAbortResult,
   type ThresholdEcdsaPresignProgressResult,
-  type ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleResult,
-  type ValidateThresholdEd25519HssMaterialResult,
 } from '../../workerManager/workerTypes';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
@@ -228,19 +223,6 @@ function requireBase64UrlBytes(input: {
   return normalized;
 }
 
-function requireNonEmptyBase64UrlBytes(input: { fieldName: string; value: string }): string {
-  const normalized = String(input.value || '').trim();
-  if (!normalized) {
-    throw new Error(`${input.fieldName} is required`);
-  }
-  const decoded = base64UrlDecode(normalized);
-  if (decoded.length === 0) {
-    throw new Error(`${input.fieldName} must decode to non-empty bytes`);
-  }
-  decoded.fill(0);
-  return normalized;
-}
-
 export type ThresholdEd25519HssClientInputs = {
   contextBindingB64u: string;
   yClientB64u: string;
@@ -382,17 +364,6 @@ export type ThresholdEd25519SeedExportArtifact = {
   seedB64u: string;
   publicKey: string;
   privateKey: string;
-};
-
-export type ThresholdEd25519RoleSeparatedNormalSigningCommitments = {
-  hidingB64u: string;
-  bindingB64u: string;
-};
-
-export type ThresholdEd25519RoleSeparatedNormalSigningClientShare = {
-  clientCommitments: ThresholdEd25519RoleSeparatedNormalSigningCommitments;
-  clientVerifyingShareB64u: string;
-  clientSignatureShareB64u: string;
 };
 
 export type ThresholdEd25519RoleSeparatedClientVerifyingShare = {
@@ -695,7 +666,10 @@ export async function deriveThresholdEd25519HssClientOutputMaskWasm(input: {
 export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-  serverInputDelivery: Pick<ThresholdEd25519HssServerInputDeliveryEnvelope, 'serverInputDeliveryB64u'>;
+  serverInputDelivery: Pick<
+    ThresholdEd25519HssServerInputDeliveryEnvelope,
+    'serverInputDeliveryB64u'
+  >;
   clientOutputMaskB64u: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
@@ -769,58 +743,6 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
   };
 }
 
-export async function storeRouterAbEd25519HssMaterialFromClientOutputWasm(input: {
-  preparedSession: Pick<
-    ThresholdEd25519HssPreparedSessionEnvelope,
-    'contextBindingB64u' | 'evaluatorDriverStateB64u'
-  >;
-  finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'clientOutputMessageB64u'>;
-  clientOutputMaskB64u: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  expiresAtMs: number;
-  nearAccountId: string;
-  relayerKeyId: string;
-  participantIds: number[];
-  signingWorkerId: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<StoreRouterAbEd25519HssMaterialFromClientOutputResult> {
-  const clientOutputMaskB64u = requireClientOutputMask32B64u(input.clientOutputMaskB64u);
-  const response = await requestHssEd25519ProtocolOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: HssClientCustomRequestType.StoreRouterAbEd25519HssMaterialFromClientOutput,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
-        clientOutputMessageB64u: input.finalizedReport.clientOutputMessageB64u,
-        clientOutputMaskB64u,
-        expectedContextBindingB64u: input.preparedSession.contextBindingB64u,
-        thresholdSessionId: String(input.thresholdSessionId || '').trim(),
-        signingGrantId: String(input.signingGrantId || '').trim(),
-        signingRootId: String(input.signingRootId || '').trim(),
-        signingRootVersion: String(input.signingRootVersion || '').trim(),
-        expiresAtMs: Math.floor(Number(input.expiresAtMs)),
-        nearAccountId: String(input.nearAccountId || '').trim(),
-        relayerKeyId: String(input.relayerKeyId || '').trim(),
-        participantIds: Array.isArray(input.participantIds)
-          ? input.participantIds.map((value) => Number(value))
-          : [],
-        signingWorkerId: String(input.signingWorkerId || '').trim(),
-      },
-    },
-  });
-  if (
-    response.type !==
-    HssClientCustomResponseType.StoreRouterAbEd25519HssMaterialFromClientOutputSuccess
-  ) {
-    throw new Error('StoreRouterAbEd25519HssMaterialFromClientOutput failed');
-  }
-  return response.payload as StoreRouterAbEd25519HssMaterialFromClientOutputResult;
-}
-
 export async function openThresholdEd25519HssSeedOutputWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   finalizedReport: { seedOutputMessageB64u: string };
@@ -879,96 +801,6 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
   };
 }
 
-export async function createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm(input: {
-  xClientBaseB64u: string;
-  groupPublicKeyB64u: string;
-  serverVerifyingShareB64u: string;
-  serverCommitments: ThresholdEd25519RoleSeparatedNormalSigningCommitments;
-  signingPayloadB64u: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519RoleSeparatedNormalSigningClientShare> {
-  const xClientBaseB64u = requireBase64UrlBytes({
-    fieldName: 'xClientBaseB64u',
-    value: input.xClientBaseB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const groupPublicKeyB64u = requireBase64UrlBytes({
-    fieldName: 'groupPublicKeyB64u',
-    value: input.groupPublicKeyB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const serverVerifyingShareB64u = requireBase64UrlBytes({
-    fieldName: 'serverVerifyingShareB64u',
-    value: input.serverVerifyingShareB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const serverCommitments = {
-    hidingB64u: requireBase64UrlBytes({
-      fieldName: 'serverCommitments.hidingB64u',
-      value: input.serverCommitments.hidingB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-    bindingB64u: requireBase64UrlBytes({
-      fieldName: 'serverCommitments.bindingB64u',
-      value: input.serverCommitments.bindingB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-  };
-  const signingPayloadB64u = requireNonEmptyBase64UrlBytes({
-    fieldName: 'signingPayloadB64u',
-    value: input.signingPayloadB64u,
-  });
-
-  const response = await requestHssEd25519ProtocolOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        xClientBaseB64u,
-        groupPublicKeyB64u,
-        serverVerifyingShareB64u,
-        serverCommitments,
-        signingPayloadB64u,
-      },
-    },
-  });
-
-  if (
-    response.type !==
-    WorkerResponseType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess
-  ) {
-    throw new Error('CreateThresholdEd25519RoleSeparatedNormalSigningClientShare failed');
-  }
-
-  const result =
-    response.payload as WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult;
-  return {
-    clientCommitments: {
-      hidingB64u: requireBase64UrlBytes({
-        fieldName: 'clientCommitments.hidingB64u',
-        value: result.clientCommitments.hidingB64u,
-        byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-      }),
-      bindingB64u: requireBase64UrlBytes({
-        fieldName: 'clientCommitments.bindingB64u',
-        value: result.clientCommitments.bindingB64u,
-        byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-      }),
-    },
-    clientVerifyingShareB64u: requireBase64UrlBytes({
-      fieldName: 'clientVerifyingShareB64u',
-      value: result.clientVerifyingShareB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-    clientSignatureShareB64u: requireBase64UrlBytes({
-      fieldName: 'clientSignatureShareB64u',
-      value: result.clientSignatureShareB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-  };
-}
-
 export async function deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm(input: {
   xClientBaseB64u: string;
   workerCtx: WorkerOperationContext;
@@ -1000,172 +832,6 @@ export async function deriveThresholdEd25519RoleSeparatedClientVerifyingShareWas
   return { clientVerifyingShareB64u };
 }
 
-export async function storeThresholdEd25519HssMaterialHandleWasm(input: {
-  materialHandle: string;
-  xClientBaseB64u: string;
-  expectedClientVerifyingShareB64u: string;
-  bindingDigest: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<StoreThresholdEd25519HssMaterialResult> {
-  const materialHandle = String(input.materialHandle || '').trim();
-  if (!materialHandle) throw new Error('materialHandle is required');
-  const bindingDigest = String(input.bindingDigest || '').trim();
-  if (!bindingDigest) throw new Error('bindingDigest is required');
-  const xClientBaseB64u = requireBase64UrlBytes({
-    fieldName: 'xClientBaseB64u',
-    value: input.xClientBaseB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const expectedClientVerifyingShareB64u = requireBase64UrlBytes({
-    fieldName: 'expectedClientVerifyingShareB64u',
-    value: input.expectedClientVerifyingShareB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const response = await requestHssEd25519ProtocolOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: HssClientCustomRequestType.StoreThresholdEd25519HssMaterial,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        materialHandle,
-        xClientBaseB64u,
-        expectedClientVerifyingShareB64u,
-        bindingDigest,
-      },
-    },
-  });
-  if (response.type !== HssClientCustomResponseType.StoreThresholdEd25519HssMaterialSuccess) {
-    throw new Error('StoreThresholdEd25519HssMaterial failed');
-  }
-  return response.payload as StoreThresholdEd25519HssMaterialResult;
-}
-
-export async function validateThresholdEd25519HssMaterialHandleWasm(input: {
-  materialHandle: string;
-  expectedClientVerifyingShareB64u: string;
-  expectedBindingDigest: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ValidateThresholdEd25519HssMaterialResult> {
-  const materialHandle = String(input.materialHandle || '').trim();
-  if (!materialHandle) throw new Error('materialHandle is required');
-  const expectedClientVerifyingShareB64u = requireBase64UrlBytes({
-    fieldName: 'expectedClientVerifyingShareB64u',
-    value: input.expectedClientVerifyingShareB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const expectedBindingDigest = String(input.expectedBindingDigest || '').trim();
-  if (!expectedBindingDigest) throw new Error('expectedBindingDigest is required');
-  const response = await requestHssEd25519ProtocolOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: HssClientCustomRequestType.ValidateThresholdEd25519HssMaterial,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        materialHandle,
-        expectedClientVerifyingShareB64u,
-        expectedBindingDigest,
-      },
-    },
-  });
-  if (response.type !== HssClientCustomResponseType.ValidateThresholdEd25519HssMaterialSuccess) {
-    throw new Error('ValidateThresholdEd25519HssMaterial failed');
-  }
-  return response.payload as ValidateThresholdEd25519HssMaterialResult;
-}
-
-export async function createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleWasm(input: {
-  materialHandle: string;
-  expectedClientVerifyingShareB64u: string;
-  groupPublicKeyB64u: string;
-  serverVerifyingShareB64u: string;
-  serverCommitments: ThresholdEd25519RoleSeparatedNormalSigningCommitments;
-  signingPayloadB64u: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519RoleSeparatedNormalSigningClientShare> {
-  const materialHandle = String(input.materialHandle || '').trim();
-  if (!materialHandle) throw new Error('materialHandle is required');
-  const expectedClientVerifyingShareB64u = requireBase64UrlBytes({
-    fieldName: 'expectedClientVerifyingShareB64u',
-    value: input.expectedClientVerifyingShareB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const groupPublicKeyB64u = requireBase64UrlBytes({
-    fieldName: 'groupPublicKeyB64u',
-    value: input.groupPublicKeyB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const serverVerifyingShareB64u = requireBase64UrlBytes({
-    fieldName: 'serverVerifyingShareB64u',
-    value: input.serverVerifyingShareB64u,
-    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-  });
-  const serverCommitments = {
-    hidingB64u: requireBase64UrlBytes({
-      fieldName: 'serverCommitments.hidingB64u',
-      value: input.serverCommitments.hidingB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-    bindingB64u: requireBase64UrlBytes({
-      fieldName: 'serverCommitments.bindingB64u',
-      value: input.serverCommitments.bindingB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-  };
-  const signingPayloadB64u = requireNonEmptyBase64UrlBytes({
-    fieldName: 'signingPayloadB64u',
-    value: input.signingPayloadB64u,
-  });
-  const response = await requestHssEd25519ProtocolOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: HssClientCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        materialHandle,
-        expectedClientVerifyingShareB64u,
-        groupPublicKeyB64u,
-        serverVerifyingShareB64u,
-        serverCommitments,
-        signingPayloadB64u,
-      },
-    },
-  });
-  if (
-    response.type !==
-    HssClientCustomResponseType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleSuccess
-  ) {
-    throw new Error(
-      'CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle failed',
-    );
-  }
-  const result =
-    response.payload as ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleResult;
-  return {
-    clientCommitments: {
-      hidingB64u: requireBase64UrlBytes({
-        fieldName: 'clientCommitments.hidingB64u',
-        value: result.clientCommitments.hidingB64u,
-        byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-      }),
-      bindingB64u: requireBase64UrlBytes({
-        fieldName: 'clientCommitments.bindingB64u',
-        value: result.clientCommitments.bindingB64u,
-        byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-      }),
-    },
-    clientVerifyingShareB64u: requireBase64UrlBytes({
-      fieldName: 'clientVerifyingShareB64u',
-      value: result.clientVerifyingShareB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-    clientSignatureShareB64u: requireBase64UrlBytes({
-      fieldName: 'clientSignatureShareB64u',
-      value: result.clientSignatureShareB64u,
-      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
-    }),
-  };
-}
-
 export async function prepareEcdsaClientBootstrapCommandWasm(input: {
   command: GeneratedPrepareEcdsaClientBootstrapCommand;
   workerCtx: WorkerOperationContext;
@@ -1179,7 +845,9 @@ export async function prepareEcdsaClientBootstrapCommandWasm(input: {
     },
   });
 
-  if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess) {
+  if (
+    response.type !== WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess
+  ) {
     throw new Error('PrepareThresholdEcdsaHssRoleLocalClientBootstrap failed');
   }
 
@@ -1275,7 +943,9 @@ export async function storeEcdsaRoleLocalSigningMaterialWasm(input: {
     },
   });
 
-  if (response.type !== HssClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess) {
+  if (
+    response.type !== HssClientCustomResponseType.StoreThresholdEcdsaRoleLocalSigningMaterialSuccess
+  ) {
     throw new Error('StoreThresholdEcdsaRoleLocalSigningMaterial failed');
   }
 
@@ -1311,7 +981,9 @@ export async function openEcdsaRoleLocalSigningShareFromMaterialHandleWasm(input
   const signingShare32 = base64UrlDecode(String(result.signingShare32B64u || '').trim());
   if (signingShare32.length !== 32) {
     signingShare32.fill(0);
-    throw new Error('OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle must return 32 bytes');
+    throw new Error(
+      'OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle must return 32 bytes',
+    );
   }
   return signingShare32;
 }

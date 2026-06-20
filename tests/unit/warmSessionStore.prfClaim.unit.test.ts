@@ -23,8 +23,8 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       nearAccountId: 'missing-status.testnet',
       thresholdSessionId: 'missing-status-session',
       walletSessionJwt: 'jwt:missing-status-session',
-      ed25519HssMaterialHandle: '',
-      ed25519HssMaterialBindingDigest: '',
+      ed25519WorkerMaterialHandle: '',
+      ed25519WorkerMaterialBindingDigest: '',
       clientVerifyingShareB64u: '',
     });
     const expiredRecord = seedEd25519WarmSessionRecord({
@@ -112,7 +112,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       nearAccountId: 'cookie-status.testnet',
       thresholdSessionId: 'cookie-status-session',
       thresholdSessionKind: 'cookie',
-      xClientBaseB64u: 'cookie-status-client-base',
       remainingUses: 4,
       expiresAtMs,
     });
@@ -127,14 +126,14 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       }).touchConfirm,
     });
 
-    await expect(
-      store.getEd25519SigningSessionStatus(record.nearAccountId),
-    ).resolves.toMatchObject({
-      sessionId: 'cookie-status-session',
-      status: 'unavailable',
-      statusCode: 'auth_missing',
-      authMethod: 'passkey',
-    });
+    await expect(store.getEd25519SigningSessionStatus(record.nearAccountId)).resolves.toMatchObject(
+      {
+        sessionId: 'cookie-status-session',
+        status: 'unavailable',
+        statusCode: 'auth_missing',
+        authMethod: 'passkey',
+      },
+    );
   });
 
   test('claims warm PRF material and returns it', async () => {
@@ -169,7 +168,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     });
 
     await expect(
-      store.claimPrfFirstByThresholdSessionId({
+      store.claimWarmSessionPrfFirstMaterial({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -214,7 +213,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     });
 
     await expect(
-      store.claimPrfFirstByThresholdSessionId({
+      store.claimWarmSessionPrfFirstMaterial({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -250,7 +249,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       const store = createWarmSessionTestServices({ touchConfirm });
 
       await expect(
-        store.claimPrfFirstByThresholdSessionId({
+        store.claimWarmSessionPrfFirstMaterial({
           thresholdSessionId: record.thresholdSessionId,
           errorContext: 'threshold-ecdsa explicit export',
         }),
@@ -289,7 +288,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     });
 
     await expect(
-      store.claimPrfFirstByThresholdSessionId({
+      store.claimWarmSessionPrfFirstMaterial({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa explicit export',
       }),
@@ -337,7 +336,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     });
 
     await expect(
-      store.claimPrfFirstByThresholdSessionId({
+      store.claimWarmSessionPrfFirstMaterial({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),

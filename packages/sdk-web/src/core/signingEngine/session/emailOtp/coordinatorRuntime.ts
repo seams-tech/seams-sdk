@@ -66,6 +66,9 @@ import {
   createEmailOtpWarmSessionWorkerClient,
   EmailOtpWarmSessionRuntime,
 } from './warmSessionRuntime';
+import {
+  createEmailOtpEd25519RecoveryCodeWarmSessionHydration,
+} from './recoveryCodeWarmSessionHydration';
 
 export type {
   EmailOtpThresholdEcdsaLoginResult,
@@ -183,7 +186,10 @@ export class EmailOtpWalletSessionRuntime {
       persistEmailOtpThresholdEd25519LocalMetadata:
         deps.persistEmailOtpThresholdEd25519LocalMetadata,
       persistWarmSessionEd25519Capability: deps.persistWarmSessionEd25519Capability,
-      hydrateSigningSession: deps.hydrateSigningSession,
+      recoveryCodeSigningSessionHydration:
+        createEmailOtpEd25519RecoveryCodeWarmSessionHydration({
+          hydrateSigningSession: deps.hydrateSigningSession,
+        }),
       readExactSealedSession: deps.readExactSealedSession,
       getThresholdEcdsaSessionRecordByThresholdSessionId:
         deps.getThresholdEcdsaSessionRecordByThresholdSessionId,

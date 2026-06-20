@@ -13,9 +13,9 @@ use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss_client;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::protocol::PreparedSession;
+use ed25519_hss::role_signing::role_separated_ed25519_client_verifying_share_v1;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::runtime::EvaluateTiming;
-use ed25519_hss::role_signing::role_separated_ed25519_client_verifying_share_v1;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerDriverState;
 #[cfg(feature = "hss-server-exports")]
@@ -106,23 +106,23 @@ pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssDeriveClientOutputMaskArgs {
     #[serde(rename = "signingRootId")]
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
-    participant_ids: Vec<u16>,
-    derivation_version: u32,
-    context_binding_b64u: String,
-    operation: String,
-    relayer_key_id: String,
-    client_recoverable_secret_b64u: String,
+    pub(crate) org_id: String,
+    pub(crate) near_account_id: String,
+    pub(crate) key_purpose: String,
+    pub(crate) key_version: String,
+    pub(crate) participant_ids: Vec<u16>,
+    pub(crate) derivation_version: u32,
+    pub(crate) context_binding_b64u: String,
+    pub(crate) operation: String,
+    pub(crate) relayer_key_id: String,
+    pub(crate) client_recoverable_secret_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssDeriveClientOutputMaskOutput {
-    client_output_mask_b64u: String,
+    pub(crate) client_output_mask_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -365,17 +365,17 @@ struct ThresholdEd25519HssFinalizeReportOutput {
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssOpenClientOutputArgs {
-    evaluator_driver_state_b64u: String,
-    client_output_message_b64u: String,
-    client_output_mask_b64u: String,
+    pub(crate) evaluator_driver_state_b64u: String,
+    pub(crate) client_output_message_b64u: String,
+    pub(crate) client_output_mask_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssOpenClientOutputOutput {
-    context_binding_b64u: String,
-    x_client_base_b64u: String,
+    pub(crate) context_binding_b64u: String,
+    pub(crate) x_client_base_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1199,7 +1199,7 @@ pub(crate) fn derive_threshold_ed25519_hss_client_output_mask(
             canonical_context,
             context_binding,
             operation,
-            relayer_key_id: args.relayer_key_id.trim().to_string(),
+            server_key_id: args.relayer_key_id.trim().to_string(),
         },
     )
     .map_err(|e| e.to_string())?;

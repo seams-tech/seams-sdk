@@ -43,6 +43,7 @@ export type RouterAbEd25519PresignPoolRefillPayload = {
   signerPublicKey: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
+  materialBindingDigest: string;
   policy: RouterAbEd25519PresignPoolPolicy;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
   generation: number;
@@ -440,7 +441,7 @@ export function createRouterAbEd25519PresignScopeKey(input: {
   signerPublicKey: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  clientVerifyingShareB64u: string;
+  materialBindingDigest: string;
 }): Ed25519PresignScopeKey {
   const participantIds = normalizeThresholdEd25519ParticipantIds([...input.participantIds]);
   if (!participantIds || participantIds.length < 2) {
@@ -460,7 +461,7 @@ export function createRouterAbEd25519PresignScopeKey(input: {
     scopeKeyPart(runtimePolicyScope.projectId, 'projectId'),
     scopeKeyPart(runtimePolicyScope.envId, 'envId'),
     scopeKeyPart(runtimePolicyScope.signingRootVersion, 'signingRootVersion'),
-    scopeKeyPart(input.clientVerifyingShareB64u, 'clientVerifyingShareB64u'),
+    scopeKeyPart(input.materialBindingDigest, 'materialBindingDigest'),
   ].join('|') as Ed25519PresignScopeKey;
 }
 
@@ -543,7 +544,7 @@ export function scheduleRouterAbEd25519ClientPresignPoolRefill(
         signerPublicKey: payload.signerPublicKey,
         participantIds: payload.participantIds,
         runtimePolicyScope: payload.runtimePolicyScope,
-        clientVerifyingShareB64u: payload.clientPresigns[0]?.clientVerifyingShareB64u,
+        materialBindingDigest: payload.materialBindingDigest,
       }),
       'scopeKey',
     );
@@ -665,7 +666,7 @@ export function applyRouterAbEd25519PresignPoolRefillResult(input: {
     signerPublicKey: input.payload.signerPublicKey,
     participantIds: input.payload.participantIds,
     runtimePolicyScope: input.payload.runtimePolicyScope,
-    clientVerifyingShareB64u: input.payload.clientPresigns[0]?.clientVerifyingShareB64u,
+    materialBindingDigest: input.payload.materialBindingDigest,
   });
   const pool = poolByScopeKey.get(scopeKey);
   if (!pool || input.payload.generation !== pool.generation) {
@@ -783,7 +784,7 @@ export function reserveRouterAbEd25519ReadyPresignForScope(input: {
   signerPublicKey: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  clientVerifyingShareB64u: string;
+  materialBindingDigest: string;
   operation: Ed25519PresignOperationIdentity;
   nowMs?: number;
 }): RouterAbEd25519PresignScopedReservationResult {
@@ -817,13 +818,13 @@ export function reserveRouterAbEd25519ReadyPresignForScope(input: {
       signerPublicKey: input.signerPublicKey,
       participantIds,
       runtimePolicyScope,
-      clientVerifyingShareB64u: input.clientVerifyingShareB64u,
+      materialBindingDigest: input.materialBindingDigest,
     });
   } catch {
     return {
       ok: false,
       code: 'pool_not_ready',
-      message: 'Router A/B Ed25519 pool scope has invalid client verifying share',
+      message: 'Router A/B Ed25519 pool scope has invalid material binding digest',
     };
   }
 

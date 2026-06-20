@@ -7,9 +7,10 @@ import type {
   NearIntentResult,
   NearSigningRequest,
 } from '@/core/signingEngine/interfaces/near';
-import { runNearTransactionsWithActionsSigning } from './signTransactions';
+import { runNearTransactionWithActionsSigning } from './signTransactions';
 import { runNearDelegateActionSigning } from './signDelegate';
 import { signNep413Message } from './signNep413';
+import { rejectNearMultiTransactionSigning } from './signatureUses';
 
 export async function signNearWithUiConfirm<TRequest extends NearSigningRequest>(
   request: TRequest,
@@ -18,9 +19,9 @@ export async function signNearWithUiConfirm<TRequest extends NearSigningRequest>
     throw new Error('[NearSigningFlow] invalid chain');
   }
 
-  if (request.kind === 'transactionsWithActions') {
-    validateTransactionsWithActionsRequest(request.payload);
-    return (await runNearTransactionsWithActionsSigning(request.payload)) as NearIntentResult<TRequest>;
+  if (request.kind === 'transactionWithActions') {
+    validateTransactionWithActionsRequest(request.payload);
+    return (await runNearTransactionWithActionsSigning(request.payload)) as NearIntentResult<TRequest>;
   }
 
   if (request.kind === 'delegateAction') {
@@ -37,8 +38,8 @@ export async function signNearWithUiConfirm<TRequest extends NearSigningRequest>
   return _exhaustive;
 }
 
-function validateTransactionsWithActionsRequest(
-  payload: Extract<NearSigningRequest, { kind: 'transactionsWithActions' }>['payload'],
+function validateTransactionWithActionsRequest(
+  payload: Extract<NearSigningRequest, { kind: 'transactionWithActions' }>['payload'],
 ): void {
   const nearAccountId = String(payload.nearAccount?.accountId || '').trim();
   if (!nearAccountId) {
@@ -47,11 +48,11 @@ function validateTransactionsWithActionsRequest(
   if (String(payload.rpcCall?.nearAccountId || '').trim() !== nearAccountId) {
     throw new Error('[NearSigningFlow] rpcCall.nearAccountId must match nearAccount.accountId');
   }
-  const transactions = Array.isArray(payload.transactions) ? payload.transactions : [];
-  if (transactions.length === 0) {
-    throw new Error('[NearSigningFlow] transactions must be non-empty');
+  const legacyTransactions = (payload as { transactions?: unknown }).transactions;
+  if (Array.isArray(legacyTransactions)) {
+    rejectNearMultiTransactionSigning(legacyTransactions as TransactionInputWasm[]);
   }
-  transactions.forEach(validateNearTransactionInput);
+  validateNearTransactionInput(payload.transaction, 0);
 }
 
 function validateNearTransactionInput(tx: TransactionInputWasm, txIndex: number): void {

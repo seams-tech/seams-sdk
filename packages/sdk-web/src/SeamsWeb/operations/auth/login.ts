@@ -40,7 +40,10 @@ import {
   resolveNearAccountProfileContinuity,
 } from '@/core/accountData/near/accountProjection';
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
-import type { ClientAuthenticatorData, ClientUserData } from '@/core/accountData/near/nearAccountData.types';
+import type {
+  ClientAuthenticatorData,
+  ClientUserData,
+} from '@/core/accountData/near/nearAccountData.types';
 import { exchangeSession, type SessionExchangeInput } from '@/core/rpcClients/near/rpcCalls';
 import {
   fetchWalletEcdsaKeyFactsInventoryWithAppSession,
@@ -73,7 +76,10 @@ import {
   type Ed25519WalletSessionMintAuthorization,
 } from '@/core/signingEngine/threshold/ed25519/walletSession';
 import { shouldRequireThresholdWarmSession } from '@/SeamsWeb/operations/session/thresholdWarmSessionDefaults';
-import { createRouterAbNormalSigningPolicy } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import {
+  createRouterAbNormalSigningPolicy,
+  restoreThresholdEd25519WorkerMaterialFromCredential,
+} from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { listConfiguredThresholdEcdsaPublicationTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import type {
   AvailableSigningLanes,
@@ -881,7 +887,7 @@ export async function unlock(
               : {}),
             routerAbNormalSigning,
             participantIds,
-            sessionId: plannedEd25519SessionId,
+            thresholdSessionId: plannedEd25519SessionId,
             ttlMs: signingSessionPolicy.ttlMs,
             remainingUses: resolveSigningBudgetPolicyRemainingUses(
               signingSessionPolicy.unlockBudgetPolicy ||
@@ -955,6 +961,7 @@ export async function unlock(
         context,
         signingEngine,
         nearAccountId,
+        signerSlot: warmupInput.signerSlot,
         relayerUrl: warmupInput.relayerUrl,
         relayerKeyId: thresholdKeyMaterial?.relayerKeyId || '',
         participantIds,
@@ -1726,6 +1733,7 @@ async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
   signingEngine: LoginWarmSigningSurface;
   nearAccountId: AccountId;
+  signerSlot: number;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
@@ -1824,6 +1832,7 @@ async function primeThresholdLoginWarmSigners(args: {
           ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
           participantIds: args.participantIds,
           sessionKind: 'jwt',
+          signerSlot: args.signerSlot,
           ttlMs: args.ttlMs,
           remainingUses: unlockRemainingUses,
         });
@@ -1844,13 +1853,9 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
         }
 
-        const connectedSigningGrantId = String(
-          connected.signingGrantId || '',
-        ).trim();
+        const connectedSigningGrantId = String(connected.signingGrantId || '').trim();
         if (!connectedSigningGrantId) {
-          throw new Error(
-            '[login] threshold Ed25519 warm-up did not return a signingGrantId',
-          );
+          throw new Error('[login] threshold Ed25519 warm-up did not return a signingGrantId');
         }
 
         const connectedEcdsaHssPasskeyPrfFirstB64u = String(
@@ -1866,6 +1871,20 @@ async function primeThresholdLoginWarmSigners(args: {
         warmState.signingGrantId = connectedSigningGrantId;
         warmState.jwt = connectedJwt;
         warmState.ecdsaHssPasskeyPrfFirstB64u = connectedEcdsaHssPasskeyPrfFirstB64u;
+        if (!credential) {
+          throw new Error(
+            '[login] threshold Ed25519 warm-up requires the wallet unlock passkey credential to restore signing material',
+          );
+        }
+        await restoreThresholdEd25519WorkerMaterialFromCredential({
+          context: {
+            signingEngine: args.signingEngine,
+          },
+          credential,
+          nearAccountId: args.nearAccountId,
+          signerSlot: args.signerSlot,
+          thresholdSessionId: connectedSessionId,
+        });
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
           activeCanonicalEcdsaContext =
             await args.ecdsaContextResolution.resolveAfterEd25519(warmState);

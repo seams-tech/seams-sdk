@@ -2,7 +2,10 @@ pub mod error;
 pub mod operation;
 
 pub mod codec;
-#[cfg(all(feature = "threshold-ecdsa", feature = "typescript-bindings"))]
+#[cfg(all(
+    feature = "typescript-bindings",
+    any(feature = "threshold-ecdsa", feature = "near-threshold-ed25519")
+))]
 pub mod commands;
 #[cfg(feature = "tx-finalization")]
 pub mod eip1559;

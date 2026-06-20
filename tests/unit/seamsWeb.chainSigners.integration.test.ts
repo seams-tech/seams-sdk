@@ -145,40 +145,36 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(afterCalls).toEqual([{ ok: false, result: undefined }]);
   });
 
-  test('NEAR capability.signAndSendTransactions emits completion event and defaults executionWait', async () => {
+  test('NEAR capability.signAndSendTransaction emits completion event', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const progressEvents: any[] = [];
     const routerArgs: any[] = [];
     const signer = createSeamsWebNearWithRouter({
-      signAndSendTransactions: async (args: any) => {
+      signAndSendTransaction: async (args: any) => {
         routerArgs.push(args);
         args.options?.onEvent?.({
           phase: SigningEventPhase.STEP_15_COMPLETED,
-          message: 'Transaction complete: tx-a, tx-b',
+          message: 'Transaction complete: tx-a',
         });
-        return [
-          { success: true, transactionId: 'tx-a' },
-          { success: true, transactionId: 'tx-b' },
-        ];
+        return { success: true, transactionId: 'tx-a' };
       },
     });
 
-    const result = await signer.signAndSendTransactions({
+    const result = await signer.signAndSendTransaction({
       nearAccount: TEST_NEAR_ACCOUNT,
-      transactions: [{ receiverId: 'contract.testnet', actions: [] }] as any,
+      receiverId: 'contract.testnet',
+      actions: [] as any,
       options: {
         onEvent: (event: any) => progressEvents.push(event),
         afterCall: async (ok: boolean, out?: unknown) => afterCalls.push({ ok, result: out }),
       } as any,
     });
 
-    expect(result).toHaveLength(2);
+    expect(result).toEqual({ success: true, transactionId: 'tx-a' });
     expect(routerArgs).toHaveLength(1);
-    expect(routerArgs[0]?.options?.executionWait?.mode).toBe('sequential');
     expect(afterCalls).toEqual([{ ok: true, result }]);
     expect(progressEvents.at(-1)?.phase).toBe(SigningEventPhase.STEP_15_COMPLETED);
     expect(progressEvents.at(-1)?.message).toContain('tx-a');
-    expect(progressEvents.at(-1)?.message).toContain('tx-b');
   });
 
   test('NEAR capability.signAndSendDelegateAction reports afterCall(false) when relay returns ok=false', async () => {

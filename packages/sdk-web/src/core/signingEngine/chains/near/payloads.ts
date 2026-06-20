@@ -7,32 +7,26 @@ import {
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { TransactionPayload } from '@/core/types/signer-worker';
 
-export type NearTransactionSigningPayloads = {
-  txSigningRequests: TransactionPayload[];
-  confirmationTransactions: TransactionInputWasm[];
+export type NearTransactionSigningPayload = {
+  txSigningRequest: TransactionPayload;
+  confirmationTransaction: TransactionInputWasm;
 };
 
-export function buildNearTransactionSigningPayloads(args: {
+export function buildNearTransactionSigningPayload(args: {
   nearAccountId: string;
-  transactions: readonly TransactionInputWasm[];
-}): NearTransactionSigningPayloads {
-  const transactions = Array.isArray(args.transactions) ? args.transactions : [];
-  if (transactions.length === 0) {
-    throw new Error('[SigningEngine] transactions must be non-empty');
-  }
-  const txSigningRequests = transactions.map((tx, txIndex) =>
-    normalizeNearTransactionSigningRequest({
-      nearAccountId: args.nearAccountId,
-      tx,
-      txIndex,
-    }),
-  );
+  transaction: TransactionInputWasm;
+}): NearTransactionSigningPayload {
+  const txSigningRequest = normalizeNearTransactionSigningRequest({
+    nearAccountId: args.nearAccountId,
+    tx: args.transaction,
+    txIndex: 0,
+  });
   return {
-    txSigningRequests,
-    confirmationTransactions: txSigningRequests.map((tx) => ({
-      receiverId: tx.receiverId,
-      actions: tx.actions,
-    })),
+    txSigningRequest,
+    confirmationTransaction: {
+      receiverId: txSigningRequest.receiverId,
+      actions: txSigningRequest.actions,
+    },
   };
 }
 

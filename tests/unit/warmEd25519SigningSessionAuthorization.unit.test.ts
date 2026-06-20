@@ -82,8 +82,8 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('accepts ready material records without exposing material fields as unlock authorization', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({
-        ed25519HssMaterialHandle: 'ed25519-material-handle',
-        ed25519HssMaterialBindingDigest: 'binding-digest',
+        ed25519WorkerMaterialHandle: 'ed25519-material-handle',
+        ed25519WorkerMaterialBindingDigest: 'binding-digest',
         clientVerifyingShareB64u: 'client-verifier',
       }),
       nearAccountId: ACCOUNT_ID,
@@ -98,7 +98,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
         materialState: 'material_ready',
       },
     });
-    expect(result.ok && 'ed25519HssMaterialHandle' in result.value).toBe(false);
+    expect(result.ok && 'ed25519WorkerMaterialHandle' in result.value).toBe(false);
     expect(result.ok && 'clientVerifyingShareB64u' in result.value).toBe(false);
     expect(result.ok && 'xClientBaseB64u' in result.value).toBe(false);
   });

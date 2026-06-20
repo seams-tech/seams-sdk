@@ -273,8 +273,8 @@ function persistReadyEd25519WarmRecord(args: {
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
     clientVerifyingShareB64u: 'ed25519-client-verifying-share',
-    ed25519HssMaterialHandle: `ed25519-hss-material:${args.sessionId}:fixture-binding`,
-    ed25519HssMaterialBindingDigest: `fixture-binding:${args.sessionId}`,
+    ed25519WorkerMaterialHandle: `ed25519-worker-material:${args.sessionId}:fixture-binding`,
+    ed25519WorkerMaterialBindingDigest: `fixture-binding:${args.sessionId}`,
     source: 'login',
   });
 }

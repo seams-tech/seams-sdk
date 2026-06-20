@@ -109,7 +109,7 @@ const invalidAuthLane = {
 void (invalidAuthLane satisfies EmailOtpSigningSessionAuthLane);
 
 assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
-  // @ts-expect-error per-operation minting requires a minted wallet signing-session id
+  // @ts-expect-error per-operation minting requires a minted signing grant id
   mintedSigningGrantId: authorizingSigningGrantId,
   authorizingSigningGrantId,
 });

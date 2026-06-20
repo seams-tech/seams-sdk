@@ -414,6 +414,51 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 ));
             }
         }
+        WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput => {
+            return Err(JsValue::from_str(
+                "StoreThresholdEd25519WorkerMaterialFromHssOutput is not wired in the near signer runtime; use the worker-material store boundary",
+            ));
+        }
+        WorkerRequestType::RestoreThresholdEd25519WorkerMaterial => {
+            return Err(JsValue::from_str(
+                "RestoreThresholdEd25519WorkerMaterial is not wired in the near signer runtime",
+            ));
+        }
+        WorkerRequestType::ValidateThresholdEd25519WorkerMaterial => {
+            return Err(JsValue::from_str(
+                "ValidateThresholdEd25519WorkerMaterial is not wired in the near signer runtime; use the near signer material-handle API",
+            ));
+        }
+        WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial => {
+            return Err(JsValue::from_str(
+                "CreateThresholdEd25519ClientPresignFromWorkerMaterial is not wired in the near signer runtime; use the near signer material-handle API",
+            ));
+        }
+        WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial => {
+            return Err(JsValue::from_str(
+                "SignThresholdEd25519ClientPresignFromWorkerMaterial is not wired in the near signer runtime; use the near signer material-handle API",
+            ));
+        }
+        WorkerRequestType::BurnThresholdEd25519WorkerMaterial => {
+            return Err(JsValue::from_str(
+                "BurnThresholdEd25519WorkerMaterial is not wired in the near signer runtime",
+            ));
+        }
+        WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial => {
+            return Err(JsValue::from_str(
+                "PutThresholdEd25519SealedWorkerMaterial is not wired in the near signer runtime",
+            ));
+        }
+        WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial => {
+            return Err(JsValue::from_str(
+                "ReadThresholdEd25519SealedWorkerMaterial is not wired in the near signer runtime",
+            ));
+        }
+        WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial => {
+            return Err(JsValue::from_str(
+                "DeleteThresholdEd25519SealedWorkerMaterial is not wired in the near signer runtime",
+            ));
+        }
     };
 
     // At this point, response_payload is the successful JsValue result.
@@ -474,6 +519,33 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
             WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess
+        }
+        WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput => {
+            WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess
+        }
+        WorkerRequestType::RestoreThresholdEd25519WorkerMaterial => {
+            WorkerResponseType::RestoreThresholdEd25519WorkerMaterialSuccess
+        }
+        WorkerRequestType::ValidateThresholdEd25519WorkerMaterial => {
+            WorkerResponseType::ValidateThresholdEd25519WorkerMaterialSuccess
+        }
+        WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial => {
+            WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess
+        }
+        WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial => {
+            WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess
+        }
+        WorkerRequestType::BurnThresholdEd25519WorkerMaterial => {
+            WorkerResponseType::BurnThresholdEd25519WorkerMaterialSuccess
+        }
+        WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial => {
+            WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialSuccess
+        }
+        WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial => {
+            WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialSuccess
+        }
+        WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial => {
+            WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialSuccess
         }
     };
 
