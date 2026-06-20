@@ -1230,7 +1230,7 @@ async function signEvmFamilyAttempt(
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return;
     const prepared = requireBudgetAdmittedPreparedEcdsaSession(
       expectedPrepared,
-      'successful wallet signing-session spend',
+      'successful signing grant spend',
     );
     const budgetDiagnostics = buildBudgetFailureDiagnostics(prepared);
     emitSigningSessionFlowTrace('evm-family', {
@@ -1249,7 +1249,6 @@ async function signEvmFamilyAttempt(
         operation: createTransactionSigningOperation(),
         admittedTransaction: prepared.budget.operation,
         finalizedSigningLane: prepared.signingLane,
-        reserved: signingGrantBudgetReserved,
         ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
       });
       emitSigningSessionFlowTrace('evm-family', {
@@ -1282,7 +1281,7 @@ async function signEvmFamilyAttempt(
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
     const prepared = requireBudgetAdmittedPreparedEcdsaSession(
       undefined,
-      'wallet signing-session reservation',
+      'signing grant reservation',
     );
     if (
       String(operation.lane.signingGrantId) !==

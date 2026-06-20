@@ -28,7 +28,6 @@ type EvmFamilySigningGrantBudgetArgs = {
   admittedTransaction: BudgetAdmittedOperation<SelectedEcdsaLane>;
   finalizedSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  reserved?: boolean;
   error?: unknown;
 };
 
@@ -65,28 +64,11 @@ function buildEvmFamilyBudgetFinalization(
     uses: 1,
     reason: args.operation.intent,
   };
-  if (args.finalizedSigningLane.authMethod === 'email_otp') {
-    return {
-      kind: 'externally_consumed_success',
-      spend,
-      ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-      alreadyConsumedThresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
-    };
-  }
-  if (args.reserved) {
-    return {
-      kind: 'reserved_success',
-      spend,
-      expectedBudgetProjectionVersion: args.admittedTransaction.budgetAdmission.budgetIdentity.projectionVersion,
-      ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-    };
-  }
   return {
-    kind: 'unreserved_success',
+    kind: 'externally_consumed_success',
     spend,
-    expectedBudgetProjectionVersion:
-      args.admittedTransaction.budgetAdmission.budgetIdentity.projectionVersion,
     ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+    alreadyConsumedThresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
   };
 }
 
@@ -100,7 +82,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilySigningGrantBu
       budgetIdentity: args.admittedTransaction.budgetAdmission.budgetIdentity,
       finalization: buildEvmFamilyBudgetFinalization(args),
       onRecordSuccessError: (error) => {
-        console.warn('[SigningEngine][ecdsa] failed to update wallet signing-session budget', {
+        console.warn('[SigningEngine][ecdsa] failed to update signing grant budget', {
           walletId: toWalletId(args.walletSession.walletId),
           chainTarget: selectedTransactionLane.chainTarget,
           signingGrantId: resolvedIdentity.signingGrantId,
@@ -109,7 +91,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilySigningGrantBu
         });
       },
       onRecordZeroSpendError: (error) => {
-        console.warn('[SigningEngine][ecdsa] failed to record wallet signing-session zero spend', {
+        console.warn('[SigningEngine][ecdsa] failed to record signing grant zero spend', {
           walletId: toWalletId(args.walletSession.walletId),
           chainTarget: selectedTransactionLane.chainTarget,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),

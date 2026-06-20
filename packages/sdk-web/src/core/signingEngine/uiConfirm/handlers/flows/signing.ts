@@ -1,4 +1,4 @@
-import type { UiConfirmContext } from '../../types';
+import type { UiConfirmContext } from '../../uiConfirm.types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { ThemeName } from '@/core/types/seams';

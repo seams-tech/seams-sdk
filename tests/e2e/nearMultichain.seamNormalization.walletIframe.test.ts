@@ -121,9 +121,9 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
 
             const rawReceiverId = `  ${receiverId}  `;
             const transferAction = { type: ActionType.Transfer, amount: '1' };
-            const signed = await seams.near.signTransactionsWithActions({
+            const signed = await seams.near.signTransactionWithActions({
               nearAccount: { accountId },
-              transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
+              transaction: { receiverId: rawReceiverId, actions: [transferAction] },
               options: {
                 signerSlot: 1,
                 confirmationConfig: confirmationConfig as any,

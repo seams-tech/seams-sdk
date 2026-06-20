@@ -457,18 +457,12 @@ export function walletScopedClaimsForLanes(args: {
     const firstLane = group[0];
     if (!firstLane) continue;
     const signingGrantId = firstLane.signingGrantId;
-    const owner = resolveRecordWalletOwnerId(firstLane.record);
-    const override = args.statusOverrides?.get(
-      walletOwnerSigningSessionStatusOverrideKey(owner, signingGrantId),
-    );
-    const applicableOverride = override
-      ? resolveApplicableSigningGrantStatusOverride({
-          override,
-          lanes: group,
-          claimsByThresholdSessionId: args.claimsByThresholdSessionId,
-          statusOverrides: args.statusOverrides,
-        })
-      : null;
+    const applicableOverride = resolveApplicableSigningGrantStatusOverrideForGroup({
+      signingGrantId,
+      lanes: group,
+      claimsByThresholdSessionId: args.claimsByThresholdSessionId,
+      statusOverrides: args.statusOverrides,
+    });
     const entries = group.map((lane) => ({
       lane,
       claim: args.claimsByThresholdSessionId.get(lane.thresholdSessionId) || null,
@@ -550,6 +544,41 @@ export function walletScopedClaimsForLanes(args: {
     applyRawScopedClaims(entries);
   }
   return scoped;
+}
+
+function resolveApplicableSigningGrantStatusOverrideForGroup(args: {
+  signingGrantId: string;
+  lanes: DiscoveredSigningSessionLane[];
+  claimsByThresholdSessionId: Map<string, WarmSessionPrfClaim | null>;
+  statusOverrides?: Map<string, SigningGrantStatusOverride>;
+}): SigningGrantStatusOverride | null {
+  const statusOverrides = args.statusOverrides;
+  if (!statusOverrides) return null;
+  for (const owner of signingGrantStatusOverrideOwnersForLanes(args.lanes)) {
+    const override = statusOverrides.get(
+      walletOwnerSigningSessionStatusOverrideKey(owner, args.signingGrantId),
+    );
+    if (!override) continue;
+    const applicable = resolveApplicableSigningGrantStatusOverride({
+      override,
+      lanes: args.lanes,
+      claimsByThresholdSessionId: args.claimsByThresholdSessionId,
+      statusOverrides,
+    });
+    if (applicable) return applicable;
+  }
+  return null;
+}
+
+function signingGrantStatusOverrideOwnersForLanes(
+  lanes: DiscoveredSigningSessionLane[],
+): WalletBudgetOwner[] {
+  const ownersByKey = new Map<string, WalletBudgetOwner>();
+  for (const lane of lanes) {
+    const owner = resolveRecordWalletOwnerId(lane.record);
+    ownersByKey.set(walletBudgetOwnerKey(owner), owner);
+  }
+  return [...ownersByKey.values()];
 }
 
 export function walletOwnerSigningSessionStatusOverrideKey(
@@ -903,6 +932,36 @@ export function statusFromConsumeResults(args: {
   });
 }
 
+function laneMatchesBudgetTargets(args: {
+  lane: DiscoveredSigningSessionLane;
+  hasExplicitTarget: boolean;
+  targetBacking: Set<string>;
+  targetThreshold: Set<string>;
+}): boolean {
+  if (!args.hasExplicitTarget) return true;
+  return (
+    args.targetBacking.has(args.lane.backingMaterialSessionId) ||
+    args.targetThreshold.has(args.lane.thresholdSessionId)
+  );
+}
+
+function lanesMatchingBudgetTargets(args: {
+  lanes: DiscoveredSigningSessionLane[];
+  hasExplicitTarget: boolean;
+  targetBacking: Set<string>;
+  targetThreshold: Set<string>;
+}): DiscoveredSigningSessionLane[] {
+  if (!args.hasExplicitTarget) return args.lanes;
+  return args.lanes.filter((lane) =>
+    laneMatchesBudgetTargets({
+      lane,
+      hasExplicitTarget: args.hasExplicitTarget,
+      targetBacking: args.targetBacking,
+      targetThreshold: args.targetThreshold,
+    }),
+  );
+}
+
 function consumeRecordPolicyLane(args: {
   lane: DiscoveredSigningSessionLane;
   uses: number;
@@ -1013,13 +1072,19 @@ export async function consumeSigningGrantUse(args: {
     signingGrantId,
   });
   const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+  const targetLanes = lanesMatchingBudgetTargets({
+    lanes,
+    hasExplicitTarget,
+    targetBacking,
+    targetThreshold,
+  });
   const alreadyConsumedCoversExplicitTarget =
     hasExplicitTarget &&
     Array.from(targetBacking).every((sessionId) => alreadyConsumedBacking.has(sessionId)) &&
     Array.from(targetThreshold).every((sessionId) => alreadyConsumedThreshold.has(sessionId));
   if (!lanes.length && !alreadyConsumedCoversExplicitTarget) {
     throw new Error(
-      '[SigningSessionCoordinator] wallet signing-session has no matching signing lanes for wallet',
+      '[SigningSessionCoordinator] signing grant has no matching signing lanes for wallet',
     );
   }
   const hasMatchingTarget =
@@ -1031,7 +1096,7 @@ export async function consumeSigningGrantUse(args: {
     );
   if (!hasMatchingTarget && !alreadyConsumedCoversExplicitTarget) {
     throw new Error(
-      '[SigningSessionCoordinator] wallet signing-session has no matching target signing lane for wallet',
+      '[SigningSessionCoordinator] signing grant has no matching target signing lane for wallet',
     );
   }
   const consumedBacking = new Set<string>();
@@ -1040,10 +1105,13 @@ export async function consumeSigningGrantUse(args: {
   let statusRead = false;
   const consumeResults: ConsumeResultEntry[] = [];
   for (const lane of lanes) {
-    const laneIsExplicitTarget =
-      !hasExplicitTarget ||
-      targetBacking.has(lane.backingMaterialSessionId) ||
-      targetThreshold.has(lane.thresholdSessionId);
+    const laneIsExplicitTarget = laneMatchesBudgetTargets({
+      lane,
+      hasExplicitTarget,
+      targetBacking,
+      targetThreshold,
+    });
+    if (hasExplicitTarget && !laneIsExplicitTarget) continue;
     const thresholdAlreadyConsumed = alreadyConsumedThreshold.has(lane.thresholdSessionId);
     const backingAlreadyConsumed =
       thresholdAlreadyConsumed || alreadyConsumedBacking.has(lane.backingMaterialSessionId);
@@ -1107,7 +1175,7 @@ export async function consumeSigningGrantUse(args: {
     consumedBacking.add(lane.backingMaterialSessionId);
   }
 
-  const consumedOrTargetedLanes = lanes;
+  const consumedOrTargetedLanes = hasExplicitTarget ? targetLanes : lanes;
   const ed25519EmailOtpLane = consumedOrTargetedLanes.find(
     (lane) =>
       lane.curve === 'ed25519' &&
@@ -1132,13 +1200,13 @@ export async function consumeSigningGrantUse(args: {
   };
   const consumedStatus = statusFromConsumeResults({
     signingGrantId,
-    lanes,
+    lanes: consumedOrTargetedLanes.length ? consumedOrTargetedLanes : lanes,
     results: consumeResults,
     hasExplicitTarget,
   });
   const resolvedStatus = resolveStatusAfterConsume({
     signingGrantId,
-    lanes,
+    lanes: consumedOrTargetedLanes.length ? consumedOrTargetedLanes : lanes,
     status: trustedStatus,
     consumedStatus,
     skippedAlreadyConsumedBacking,

@@ -1139,6 +1139,9 @@ async function main() {
     expectedWalletOrigin: config.expectedWalletOrigin,
     thresholdPostgresUrl,
   });
+  if (routerAbNormalSigningAdmission) {
+    console.log('[router-ab] normal-signing admission: enabled');
+  }
   if (localDevSigningRootResolver) {
     console.warn(
       '[threshold] using dynamic local-dev fixture signing-root shares; do not use this signer for real funds.',

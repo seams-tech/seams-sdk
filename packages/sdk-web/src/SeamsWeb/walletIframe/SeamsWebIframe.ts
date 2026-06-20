@@ -284,22 +284,16 @@ export class SeamsWebIframe {
         });
       },
       executeAction: async (args) => await this.executeActionDomain(args),
-      signAndSendTransactions: async (args) => await this.signAndSendTransactionsDomain(args),
       signAndSendTransaction: async (args) => {
-        const results = await this.signAndSendTransactionsDomain({
+        return await this.signAndSendTransactionDomain({
           nearAccount: args.nearAccount,
-          transactions: [
-            {
-              receiverId: args.receiverId,
-              actions: args.actions,
-            },
-          ],
+          receiverId: args.receiverId,
+          actions: args.actions,
           options: args.options,
         });
-        return results[0] as ActionResult;
       },
-      signTransactionsWithActions: async (args) =>
-        await this.signTransactionsWithActionsDomain(args),
+      signTransactionWithActions: async (args) =>
+        await this.signTransactionWithActionsDomain(args),
       sendTransaction: async (args) => await this.sendTransactionDomain(args),
       signDelegateAction: async (args) => await this.signDelegateActionDomain(args),
       sendDelegateActionViaRelayer: async (args) =>
@@ -648,21 +642,21 @@ export class SeamsWebIframe {
     });
   }
 
-  private async signTransactionsWithActionsDomain(args: {
+  private async signTransactionWithActionsDomain(args: {
     nearAccount: NearAccountRef;
-    transactions: TransactionInput[];
+    transaction: TransactionInput;
     options: SignTransactionHooksOptions;
-  }): Promise<SignTransactionResult[]> {
+  }): Promise<SignTransactionResult> {
     try {
       // Route transaction signing to iframe
       // This will:
-      // - Send PM_SIGN_TXS_WITH_ACTIONS message to iframe
+      // - Send PM_SIGN_TX_WITH_ACTIONS message to iframe
       // - Show overlay during user confirmation and WebAuthn phases
       // - Handle transaction signing in secure iframe context
       // - Bridge progress events back to parent
-      const res = await this.router.signTransactionsWithActions({
+      const res = await this.router.signTransactionWithActions({
         nearAccountId: args.nearAccount.accountId,
-        transactions: args.transactions,
+        transaction: args.transaction,
         options: {
           signerSlot: args.options?.signerSlot,
           confirmerText: args.options?.confirmerText,
@@ -1101,18 +1095,20 @@ export class SeamsWebIframe {
     return this.router.exportThresholdEd25519SeedFromHssReport(args);
   }
 
-  // Utility: sign and send in one call via wallet iframe (single before/after)
-  private async signAndSendTransactionsDomain(args: {
+  private async signAndSendTransactionDomain(args: {
     nearAccount: NearAccountRef;
-    transactions: TransactionInput[];
+    receiverId: string;
+    actions: ActionArgs[];
     options: SignAndSendTransactionHooksOptions;
-  }): Promise<ActionResult[]> {
+  }): Promise<ActionResult> {
     const options = args.options;
     try {
-      const res = await this.router.signAndSendTransactions({
+      const res = await this.router.signAndSendTransaction({
         nearAccountId: args.nearAccount.accountId,
-        transactions: args.transactions,
-        // Default to sequential execution when executionWait is not provided
+        transaction: {
+          receiverId: args.receiverId,
+          actions: args.actions,
+        },
         options,
       });
       await options?.afterCall?.(true, res);

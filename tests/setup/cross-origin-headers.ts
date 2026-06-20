@@ -2,6 +2,10 @@ import { Page } from '@playwright/test';
 import { buildPermissionsPolicy, buildWalletCsp } from '@/plugins/headers';
 import { buildWalletServiceHtml } from '@/plugins/plugin-utils';
 import { printLog, printStepLine } from './logging';
+import {
+  buildTestBrowserImportMapHtml,
+  TEST_BROWSER_IMPORT_MAP_MARKER,
+} from './importMap';
 
 export async function installRelayServerProxyShim(
   page: Page,
@@ -97,12 +101,14 @@ export async function installWalletSdkCorsShim(
     appOrigin?: string;
     logStyle?: 'intercept' | 'setup' | 'silent';
     mirror?: boolean;
+    injectWalletServiceImportMap?: boolean;
   } = {},
 ): Promise<void> {
   const walletOrigin = options.walletOrigin ?? 'https://wallet.example.localhost';
   const appOrigin = options.appOrigin ?? 'https://example.localhost';
   const logStyle = options.logStyle ?? 'silent';
   const mirror = options.mirror !== false; // default true to support NO_CADDY
+  const injectWalletServiceImportMap = options.injectWalletServiceImportMap === true;
 
   // Prefer BrowserContext glob patterns to ensure reliable matching across transports
   const walletHost = (() => {
@@ -221,7 +227,11 @@ export async function installWalletSdkCorsShim(
         'cross-origin-embedder-policy': 'require-corp',
         'cross-origin-resource-policy': 'cross-origin',
         'permissions-policy': buildPermissionsPolicy(walletOrigin),
-        'content-security-policy': buildWalletCsp({ mode: 'strict' }),
+        'content-security-policy': buildWalletCsp(
+          injectWalletServiceImportMap
+            ? { mode: 'compatible', scriptSrcAllowlist: ['https://esm.sh'] }
+            : { mode: 'strict' },
+        ),
       };
 
       // In NO_CADDY (mirror) mode, the app dev server might not have /wallet-service
@@ -231,6 +241,12 @@ export async function installWalletSdkCorsShim(
         body = Buffer.from(buildWalletServiceHtml('/sdk'), 'utf8');
         status = 200;
         headers['content-type'] = 'text/html; charset=utf-8';
+      }
+      if (injectWalletServiceImportMap && isHtmlResponse(headers, body)) {
+        body = injectImportMapIntoWalletServiceHtml(body);
+        headers['content-type'] = headers['content-type'] || 'text/html; charset=utf-8';
+        delete headers['content-length'];
+        delete headers['Content-Length'];
       }
 
       await route.fulfill({ status, headers, body });
@@ -283,4 +299,27 @@ export async function installWalletSdkCorsShim(
       );
     }
   } catch {}
+}
+
+function isHtmlResponse(headers: Record<string, string>, body: Buffer): boolean {
+  const contentType = String(headers['content-type'] || headers['Content-Type'] || '').toLowerCase();
+  const prefix = body.toString('utf8', 0, 256).toLowerCase();
+  return (
+    contentType.includes('text/html') ||
+    prefix.includes('<!doctype') ||
+    prefix.includes('<html') ||
+    prefix.includes('<head')
+  );
+}
+
+function injectImportMapIntoWalletServiceHtml(body: Buffer): Buffer {
+  const html = body.toString('utf8');
+  if (html.includes(TEST_BROWSER_IMPORT_MAP_MARKER)) return body;
+  const importMapHtml = buildTestBrowserImportMapHtml();
+  const patched = /<head[^>]*>/i.test(html)
+    ? html.replace(/<head[^>]*>/i, (head) => `${head}${importMapHtml}`)
+    : html.includes('</head>')
+      ? html.replace(/<\/head>/i, `${importMapHtml}</head>`)
+      : `${importMapHtml}${html}`;
+  return Buffer.from(patched, 'utf8');
 }

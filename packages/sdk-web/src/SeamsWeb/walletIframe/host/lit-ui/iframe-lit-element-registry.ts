@@ -6,7 +6,7 @@
  * be wired to SeamsWeb actions.
  */
 
-export type PmActionName = 'signAndSendTransactions';
+export type PmActionName = 'signAndSendTransaction';
 
 export type UIEventBinding = {
   event: string; // e.g. 'w3a-register-click'

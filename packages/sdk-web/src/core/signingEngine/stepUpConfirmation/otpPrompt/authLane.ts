@@ -60,7 +60,7 @@ export function toAuthorizingSigningGrantId(
 ): AuthorizingSigningGrantId {
   const normalized = nonEmptyString(value);
   if (!normalized) {
-    throw new Error('Email OTP auth lane requires authorizing wallet signing-session identity');
+    throw new Error('Email OTP auth lane requires authorizing signing grant identity');
   }
   return normalized as AuthorizingSigningGrantId;
 }
@@ -68,7 +68,7 @@ export function toAuthorizingSigningGrantId(
 export function toMintedSigningGrantId(value: unknown): MintedSigningGrantId {
   const normalized = nonEmptyString(value);
   if (!normalized) {
-    throw new Error('Email OTP minting requires wallet signing-session identity');
+    throw new Error('Email OTP minting requires signing grant identity');
   }
   return normalized as MintedSigningGrantId;
 }

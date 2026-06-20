@@ -95,9 +95,8 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
     ];
     const nearMethods = [
       'executeAction',
-      'signAndSendTransactions',
       'signAndSendTransaction',
-      'signTransactionsWithActions',
+      'signTransactionWithActions',
       'signDelegateAction',
       'signAndSendDelegateAction',
       'signNEP413Message',

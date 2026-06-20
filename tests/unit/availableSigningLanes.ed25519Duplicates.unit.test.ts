@@ -41,6 +41,7 @@ function sealedEd25519Record(args: {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ed25519',
+      signerSlot: 1,
       runtimePolicyScope: {
         orgId: 'org-test',
         projectId: 'sr-test',

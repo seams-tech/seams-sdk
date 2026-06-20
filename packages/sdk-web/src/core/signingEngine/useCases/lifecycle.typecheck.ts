@@ -46,7 +46,7 @@ import type {
 import type {
   NearDelegateActionResult,
   NearNep413Result,
-  NearTransactionsWithActionsResult,
+  NearTransactionWithActionsResult,
 } from '../interfaces/near';
 import type { EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
@@ -92,7 +92,7 @@ declare const evmRequest: EvmSigningRequest;
 declare const tempoRequest: TempoSigningRequest;
 declare const budgetSpend: WarmSessionBudgetSpend;
 declare const nearTransactionDigest: NearTransactionDigest;
-declare const nearTransactionsResult: NearTransactionsWithActionsResult;
+declare const nearTransactionResult: NearTransactionWithActionsResult;
 declare const nearNep413Result: NearNep413Result;
 declare const nearDelegateActionResult: NearDelegateActionResult;
 declare const hex: Hex;
@@ -313,7 +313,7 @@ const transactionSuccessWithNep413Result = {
   signerLane: readyEd25519Lane,
   signingPath: 'presign_pool',
   budgetSpend,
-  kind: 'transactions_with_actions',
+  kind: 'transaction_with_actions',
   transactionDigests: [nearTransactionDigest],
   result: {
     kind: 'nep413_message',
@@ -331,11 +331,11 @@ const validNearTransactionSuccess = {
   signerLane: readyEd25519Lane,
   signingPath: 'presign_pool',
   budgetSpend,
-  kind: 'transactions_with_actions',
+  kind: 'transaction_with_actions',
   transactionDigests: [nearTransactionDigest],
   result: {
-    kind: 'near_transactions_with_actions',
-    signed: nearTransactionsResult,
+    kind: 'near_transaction_with_actions',
+    signed: nearTransactionResult,
   },
 } satisfies SignNearSuccess;
 void validNearTransactionSuccess;

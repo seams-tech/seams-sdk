@@ -196,15 +196,11 @@ test.describe('docs frontend signing actions smoke', () => {
                 login: async () => ({ success: true }),
               },
               near: {
-                signAndSendTransactions: async (args: any) => {
+                signAndSendTransaction: async (args: any) => {
                   counters.nearActions += 1;
-                  args?.options?.afterCall?.(true, [
-                    {
-                      success: true,
-                      transactionId: 'mock-near-tx',
-                    },
-                  ]);
-                  return { success: true };
+                  const result = { success: true, transactionId: 'mock-near-tx' };
+                  args?.options?.afterCall?.(true, result);
+                  return result;
                 },
                 executeAction: async (args: any) => {
                   counters.nearActions += 1;
@@ -508,7 +504,7 @@ test.describe('docs frontend signing actions smoke', () => {
                 unlock: async () => ({ success: true }),
               },
               near: {
-                signAndSendTransactions: async () => ({ success: true }),
+                signAndSendTransaction: async () => ({ success: true }),
                 executeAction: async () => ({ success: true }),
                 signDelegateAction: async () => ({
                   hash: 'mock-hash',

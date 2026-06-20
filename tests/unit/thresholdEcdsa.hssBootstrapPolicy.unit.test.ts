@@ -7,9 +7,7 @@ import {
   type EcdsaHssClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
-import {
-  initSync as initHssClientSignerWasmSync,
-} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
@@ -62,7 +60,8 @@ function negateCompressedPublicKey33B64u(publicKey33B64u: string): string {
     throw new Error('secp256k1 point constructor is unavailable');
   }
   const negated = pointCtor.fromHex(bytesToHex(Buffer.from(publicKey33B64u, 'base64url'))).negate();
-  const raw = typeof negated.toRawBytes === 'function' ? negated.toRawBytes(true) : negated.toBytes(true);
+  const raw =
+    typeof negated.toRawBytes === 'function' ? negated.toRawBytes(true) : negated.toBytes(true);
   return Buffer.from(raw).toString('base64url');
 }
 
@@ -162,7 +161,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     expect(first.thresholdEcdsaPublicKeyB64u).toBe(second.thresholdEcdsaPublicKeyB64u);
     expect(first.ethereumAddress).toBe(second.ethereumAddress);
     expect(first.publicIdentity).toEqual(second.publicIdentity);
-    expect(first.sessionId).not.toBe(second.sessionId);
+    expect(first.thresholdSessionId).not.toBe(second.thresholdSessionId);
     expect(first.signingGrantId).not.toBe(second.signingGrantId);
     expectNoCanonicalExportMaterial(first as unknown as Record<string, unknown>);
   });
@@ -239,8 +238,9 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
         signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId,
-        hssClientSharePublicKey33B64u:
-          toHssClientSharePublicKey33B64uForTest(hssClientSharePublicKey33B64u),
+        hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
+          hssClientSharePublicKey33B64u,
+        ),
         clientShareRetryCounter: 0,
         contextBinding32B64u: fixedB64u(32, 1),
         requestId: `request:${name}`,
@@ -281,8 +281,9 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       signingRootVersion: first.signingRootVersion,
       keyScope: 'evm-family',
       relayerKeyId: first.relayerKeyId,
-      hssClientSharePublicKey33B64u:
-        toHssClientSharePublicKey33B64uForTest(negatedRelayerPublicKey33B64u),
+      hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
+        negatedRelayerPublicKey33B64u,
+      ),
       clientShareRetryCounter: 0,
       contextBinding32B64u: first.contextBinding32B64u,
       requestId: 'request:identity-sum-retry',

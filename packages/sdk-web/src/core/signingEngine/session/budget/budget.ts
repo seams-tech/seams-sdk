@@ -487,7 +487,7 @@ export type SigningSessionBudgetStatusAuth = {
   walletSessionJwt: string;
 };
 
-export type SigningSessionBudgetConsumer = (args: {
+export type SigningSessionBudgetStatusSync = (args: {
   owner: WalletBudgetOwner;
   walletId?: never;
   signingGrantId: string;
@@ -500,7 +500,7 @@ export type SigningSessionBudgetConsumer = (args: {
 
 export type SigningSessionBudgetDeps = {
   getStatus?: SigningSessionBudgetStatusReader;
-  consumeUse?: SigningSessionBudgetConsumer;
+  consumeUse?: SigningSessionBudgetStatusSync;
   onTrace?: (event: SigningSessionBudgetTraceEvent) => void;
 };
 
@@ -519,11 +519,11 @@ export type SigningSessionBudget = {
 };
 
 export const SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR =
-  '[SigningSessionBudget] wallet signing-session budget is exhausted';
+  '[SigningSessionBudget] signing grant budget is exhausted';
 export const SIGNING_SESSION_BUDGET_UNKNOWN_ERROR =
-  '[SigningSessionBudget] wallet signing-session budget is budget_unknown';
+  '[SigningSessionBudget] signing grant budget is budget_unknown';
 export const SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR =
-  '[SigningSessionBudget] wallet signing-session budget is reserved by in-flight operations';
+  '[SigningSessionBudget] signing grant budget is reserved by in-flight operations';
 
 export function isSigningSessionBudgetExhaustedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -595,13 +595,13 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
   if (status.status === 'not_found') {
     throw new Error(
       [
-        '[SigningSessionBudget] wallet signing-session budget is not_found',
+        '[SigningSessionBudget] signing grant budget is not_found',
         formatSpendIdentityForError(spend),
       ].join(' '),
     );
   }
   if (status.status !== 'active') {
-    throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
+    throw new Error(`[SigningSessionBudget] signing grant budget is ${status.status}`);
   }
   const projectionVersion = String(status.projectionVersion || '').trim();
   if (!projectionVersion) {

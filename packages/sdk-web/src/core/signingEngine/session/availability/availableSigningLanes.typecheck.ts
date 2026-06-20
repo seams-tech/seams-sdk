@@ -184,7 +184,7 @@ const readyEd25519LaneMissingAuthMethod: ConcreteAvailableEd25519SigningLane = {
 };
 void readyEd25519LaneMissingAuthMethod;
 
-// @ts-expect-error ready Ed25519 lanes require a wallet signing session id.
+// @ts-expect-error ready Ed25519 lanes require a signing grant id.
 const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
   authMethod: 'passkey',
   curve: 'ed25519',

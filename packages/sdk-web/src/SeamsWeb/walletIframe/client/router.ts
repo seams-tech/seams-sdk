@@ -297,8 +297,8 @@ function createTerminalProgressForRequest(args: {
     'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
   ]);
   const signingRequests = new Set<ParentToChildEnvelope['type']>([
-    'PM_SIGN_TXS_WITH_ACTIONS',
-    'PM_SIGN_AND_SEND_TXS',
+    'PM_SIGN_TX_WITH_ACTIONS',
+    'PM_SIGN_AND_SEND_TX',
     'PM_SEND_TRANSACTION',
     'PM_EXECUTE_ACTION',
     'PM_SIGN_DELEGATE_ACTION',
@@ -805,19 +805,19 @@ export class WalletIframeRouter {
 
   // ===== SeamsWeb RPCs =====
 
-  async signTransactionsWithActions(payload: {
+  async signTransactionWithActions(payload: {
     nearAccountId: string;
-    transactions: TransactionInput[];
+    transaction: TransactionInput;
     options: {
       signerSlot?: number;
       onEvent?: (ev: SigningFlowEvent) => void;
       onError?: (error: Error) => void;
-      afterCall?: AfterCall<SignTransactionResult[]>;
+      afterCall?: AfterCall<SignTransactionResult>;
       // Allow minimal overrides (e.g., { uiMode: 'drawer' })
       confirmationConfig?: Partial<ConfirmationConfig>;
       confirmerText?: { title?: string; body?: string };
     };
-  }): Promise<SignTransactionResult[]> {
+  }): Promise<SignTransactionResult> {
     // Do not forward non-cloneable functions in options; host emits its own PROGRESS messages
     const safeOptions = {
       ...(typeof payload.options.signerSlot === 'number'
@@ -829,15 +829,15 @@ export class WalletIframeRouter {
       ...(payload.options.confirmerText ? { confirmerText: payload.options.confirmerText } : {}),
     };
     const res = await this.post<SignTransactionResult>({
-      type: 'PM_SIGN_TXS_WITH_ACTIONS',
+      type: 'PM_SIGN_TX_WITH_ACTIONS',
       payload: {
         nearAccountId: payload.nearAccountId,
-        transactions: payload.transactions,
+        transaction: payload.transaction,
         options: safeOptions,
       },
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
-    return normalizeSignedTransactionObject(res.result);
+    return normalizeSignedTransactionResult(res.result);
   }
 
   async signDelegateAction(payload: {
@@ -2027,26 +2027,25 @@ export class WalletIframeRouter {
     };
   }
 
-  async signAndSendTransactions(payload: {
+  async signAndSendTransaction(payload: {
     nearAccountId: string;
-    transactions: TransactionInput[];
+    transaction: TransactionInput;
     options: SignAndSendTransactionHooksOptions;
-  }): Promise<ActionResult[]> {
+  }): Promise<ActionResult> {
     const { options } = payload;
     // cannot send objects/functions through postMessage(), clean options first
     const safeOptions = {
       waitUntil: options.waitUntil,
-      executionWait: options.executionWait,
       confirmationConfig: options.confirmationConfig,
       ...(typeof options.signerSlot === 'number' ? { signerSlot: options.signerSlot } : {}),
       ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
     };
 
-    const res = await this.post<ActionResult[]>({
-      type: 'PM_SIGN_AND_SEND_TXS',
+    const res = await this.post<ActionResult>({
+      type: 'PM_SIGN_AND_SEND_TX',
       payload: {
         nearAccountId: payload.nearAccountId,
-        transactions: payload.transactions,
+        transaction: payload.transaction,
         options: safeOptions,
       },
       options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
@@ -2421,10 +2420,10 @@ export class WalletIframeRouter {
       case 'PM_REGISTER':
       case 'PM_REGISTRATION_ACTIVATION_PREPARE':
       case 'PM_UNLOCK':
-      case 'PM_SIGN_AND_SEND_TXS':
+      case 'PM_SIGN_AND_SEND_TX':
       case 'PM_EXECUTE_ACTION':
       case 'PM_SEND_TRANSACTION':
-      case 'PM_SIGN_TXS_WITH_ACTIONS':
+      case 'PM_SIGN_TX_WITH_ACTIONS':
       case 'PM_SIGN_DELEGATE_ACTION':
       case 'PM_SIGN_NEP413':
       case 'PM_SIGN_TEMPO':
@@ -2560,22 +2559,19 @@ function isEmailRecoveryFlowEvent(p: ProgressPayload): p is EmailRecoveryFlowEve
 /**
  * Strips out class functions as they cannot be sent over postMessage to iframe
  */
-function normalizeSignedTransactionObject(result: SignTransactionResult) {
-  const arr = Array.isArray(result) ? result : [];
-  const normalized = arr.map((entry) => {
-    const st = entry?.signedTransaction;
-    if (st && isPlainSignedTransactionLike(st)) {
-      const nonceLease = (st as { nonceLease?: NonceLeaseRef }).nonceLease;
-      entry.signedTransaction = SignedTransaction.fromPlain({
-        transaction: st.transaction,
-        signature: st.signature,
-        borsh_bytes: extractBorshBytesFromPlainSignedTx(st),
-        ...(nonceLease ? { nonceLease } : {}),
-      });
-    }
-    return entry;
-  });
-  return normalized;
+function normalizeSignedTransactionResult(result: SignTransactionResult): SignTransactionResult {
+  const signedTransaction = result.signedTransaction;
+  if (!isPlainSignedTransactionLike(signedTransaction)) return result;
+  const nonceLease = (signedTransaction as { nonceLease?: NonceLeaseRef }).nonceLease;
+  return {
+    ...result,
+    signedTransaction: SignedTransaction.fromPlain({
+      transaction: signedTransaction.transaction,
+      signature: signedTransaction.signature,
+      borsh_bytes: extractBorshBytesFromPlainSignedTx(signedTransaction),
+      ...(nonceLease ? { nonceLease } : {}),
+    }),
+  };
 }
 
 /**

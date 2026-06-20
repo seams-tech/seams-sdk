@@ -1,4 +1,4 @@
-import type { UiConfirmContext } from '../../../types';
+import type { UiConfirmContext } from '../../../uiConfirm.types';
 import type { ConfirmationConfig, ConfirmationUIMode } from '@/core/types/signer-worker';
 import { TransactionContext } from '@/core/types';
 import type { BlockReference, AccessKeyView } from '@near-js/types';

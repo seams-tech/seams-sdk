@@ -161,17 +161,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       statusOverrides: new Map(),
     };
     this.operationIdBindings = new SigningOperationIdBindingRegistry();
-    const canConsumeWalletSessionUses = hasSigningGrantConsumeDeps(deps);
     this.walletBudgetStatusReader = deps.getStatus;
     this.walletBudgetStatusSource = 'provided';
-    const walletBudgetConsumer = Object.prototype.hasOwnProperty.call(deps, 'consumeUse')
-      ? deps.consumeUse
-      : canConsumeWalletSessionUses
-        ? (consumeArgs: SigningGrantConsumeUseArgs) => this.consumeUse(consumeArgs)
-        : undefined;
     this.walletBudget = new BudgetCoordinator({
       readStatus: (args) => this.readWalletBudgetStatus(args),
-      consumeUse: walletBudgetConsumer,
+      syncSuccessfulSpendStatus: deps.consumeUse || this.syncServerConsumedSpendStatus,
       onTrace: this.onWalletBudgetTrace,
     });
   }
@@ -303,6 +297,12 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     });
   }
 
+  private syncServerConsumedSpendStatus = async (
+    args: SigningGrantConsumeUseArgs,
+  ): Promise<SigningSessionStatus> => {
+    return await this.readWalletBudgetStatus(args.budgetStatusCheck);
+  };
+
   async clear(
     args: Parameters<SigningSessionStatusPort['clear']>[0],
   ): ReturnType<SigningSessionStatusPort['clear']> {
@@ -366,7 +366,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       throw new Error(SIGNING_SESSION_BUDGET_UNKNOWN_ERROR);
     }
     if (status.status !== 'active') {
-      throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
+      throw new Error(`[SigningSessionBudget] signing grant budget is ${status.status}`);
     }
     const usesNeeded = Math.max(1, Math.floor(Number(input.operationUsesNeeded) || 1));
     const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
@@ -517,15 +517,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       missingWhenExpiresAtMissing: input.missingWhenExpiresAtMissing,
     });
   }
-}
-
-function hasSigningGrantConsumeDeps(deps: SigningSessionCoordinatorDeps): boolean {
-  return Boolean(
-    deps.consumeUse ||
-    deps.touchConfirm?.consumeWarmSessionUses ||
-    deps.consumeEmailOtpWarmSessionUses ||
-    deps.markThresholdEd25519EmailOtpSessionConsumedForAccount,
-  );
 }
 
 function buildBudgetStatusCheckForLane(args: {

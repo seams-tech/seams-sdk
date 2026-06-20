@@ -167,7 +167,7 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
           .signingGrantId
     ) {
       throw new Error(
-        '[chains] threshold ECDSA reconnect admitted a different wallet signing-session id than the confirmed session policy',
+        '[chains] threshold ECDSA reconnect admitted a different signing grant id than the confirmed session policy',
       );
     }
     return { source: 'passkey', result };

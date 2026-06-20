@@ -62,14 +62,10 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     setTxLoading(true);
     let signingFailureMessage: string | null = null;
     try {
-      await seams.near.signAndSendTransactions({
+      await seams.near.signAndSendTransaction({
         nearAccount: nearAccountRefFromAccountId(nearAccountId!),
-        transactions: [
-          {
-            receiverId: DEMO_CONTRACT_ID,
-            actions: [actionToExecute],
-          },
-        ],
+        receiverId: DEMO_CONTRACT_ID,
+        actions: [actionToExecute],
         options: {
           onEvent: (event: SigningFlowEvent) => {
             const result = handleSigningToastEvent(event, {

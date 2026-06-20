@@ -318,8 +318,8 @@ function createContext(captures: Record<string, unknown>): any {
     if (transport?.curve !== 'ed25519') return;
     persistStoredThresholdEd25519SessionMaterialHandle({
       thresholdSessionId: String(input.sessionId || ''),
-      ed25519HssMaterialHandle: 'registration-ed25519-hss-material',
-      ed25519HssMaterialBindingDigest: 'registration-ed25519-hss-binding',
+      ed25519WorkerMaterialHandle: 'registration-ed25519-worker-material',
+      ed25519WorkerMaterialBindingDigest: 'registration-ed25519-worker-binding',
       clientVerifyingShareB64u: 'registration-ed25519-client-verifying-share',
     });
   };

@@ -71,7 +71,7 @@ import type {
   WarmSessionStatusResult,
   UiConfirmContext,
   UiConfirmManager,
-} from './types';
+} from './uiConfirm.types';
 import {
   restorePersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
@@ -994,15 +994,39 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : {}),
           }
         : undefined;
-    const ed25519Restore = ed25519Record
+    const ed25519SignerSlot = Math.floor(Number(ed25519Record?.signerSlot) || 0);
+    const ed25519Restore = ed25519Record && ed25519SignerSlot > 0
       ? {
           rpId: ed25519Record.rpId,
           relayerKeyId: ed25519Record.relayerKeyId,
           participantIds: ed25519Record.participantIds,
           ...persistedRestoreWalletSessionAuthFields(ed25519Record),
+          signerSlot: ed25519SignerSlot,
           ...(ed25519Record.runtimePolicyScope
             ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
             : {}),
+          ...(ed25519Record.clientVerifyingShareB64u
+            ? { clientVerifyingShareB64u: ed25519Record.clientVerifyingShareB64u }
+            : {}),
+          ...(ed25519Record.ed25519WorkerMaterialBindingDigest
+            ? { ed25519WorkerMaterialBindingDigest: ed25519Record.ed25519WorkerMaterialBindingDigest }
+            : {}),
+          ...(ed25519Record.sealedWorkerMaterialRef
+            ? { sealedWorkerMaterialRef: ed25519Record.sealedWorkerMaterialRef }
+            : {}),
+          ...(ed25519Record.sealedWorkerMaterialB64u
+            ? { sealedWorkerMaterialB64u: ed25519Record.sealedWorkerMaterialB64u }
+            : {}),
+          ...(ed25519Record.materialFormatVersion
+            ? { materialFormatVersion: ed25519Record.materialFormatVersion }
+            : {}),
+          ...(ed25519Record.materialKeyId
+            ? { materialKeyId: ed25519Record.materialKeyId }
+            : {}),
+          ...(ed25519Record.materialCreatedAtMs
+            ? { materialCreatedAtMs: ed25519Record.materialCreatedAtMs }
+            : {}),
+          ...(ed25519Record.keyVersion ? { keyVersion: ed25519Record.keyVersion } : {}),
           ...(ed25519Record.routerAbNormalSigning
             ? { routerAbNormalSigning: ed25519Record.routerAbNormalSigning }
             : {}),
@@ -1714,7 +1738,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         authMethod === 'email_otp' &&
         !String(
           getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId)
-            ?.ed25519HssMaterialHandle || '',
+            ?.ed25519WorkerMaterialHandle || '',
         ).trim()
       ) {
         return {

@@ -20,8 +20,8 @@ import {
 import type { AccountId } from '@/core/types/accountIds';
 import type { EvmAddress, EvmSigningRequest, Hex } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type {
-  NearTransactionsWithActionsPayload,
-  NearTransactionsWithActionsResult,
+  NearTransactionWithActionsPayload,
+  NearTransactionWithActionsResult,
 } from '@/core/signingEngine/interfaces/near';
 import {
   createRegisterWalletUseCase,
@@ -413,12 +413,12 @@ test('SignNearUseCase rejects request validation failures before budget and sign
   };
 
   const result = await createSignNearUseCase(deps).sign({
-    kind: 'transactions_with_actions',
+    kind: 'transaction_with_actions',
     operationId,
     walletId,
     rpId,
     accountId: asBrand<AccountId>('alice.testnet'),
-    request: {} as NearTransactionsWithActionsPayload,
+    request: {} as NearTransactionWithActionsPayload,
     transactionDigests: [asBrand<NearTransactionDigest>('digest')],
     requiredSignatureUses: asBrand(1),
     authPolicy: { kind: 'warm_session_only' },

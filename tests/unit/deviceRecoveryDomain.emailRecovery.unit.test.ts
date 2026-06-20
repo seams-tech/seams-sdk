@@ -235,6 +235,20 @@ function createLocalDomain(options?: {
           xClientBaseB64u: 'x-client-base',
         },
       }),
+      runThresholdEd25519HssCeremonyWithMaterialHandle: async () => ({
+        ok: true,
+        signingMaterial: {
+          materialHandle: 'ed25519-worker-material:sync-session-1',
+          materialBindingDigest: 'ed25519-worker-binding-digest',
+          sealedWorkerMaterialRef: 'ed25519-worker-sealed-ref',
+          sealedWorkerMaterialB64u: 'ed25519-worker-sealed-material',
+          clientVerifyingShareB64u: 'ed25519-client-verifying-share',
+          materialFormatVersion: 'ed25519_worker_material_v1',
+          materialKeyId: 'ed25519-worker-material-key',
+          signerSlot: 7,
+          keyVersion: 'threshold-ed25519-hss-v1',
+        },
+      }),
       extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
       storeUserData: async (input: any) => {
         storeUserDataCalls.push(input);
@@ -327,6 +341,10 @@ test.describe('EmailRecoveryDomain', () => {
                     envId: 'env-email-recovery',
                     signingRootVersion: 'root-email-recovery-v1',
                   },
+                  routerAbNormalSigning: {
+                    kind: 'router_ab_ed25519_normal_signing_v1',
+                    signingWorkerId: 'signing-worker-local',
+                  },
                   jwt: 'sync-jwt',
                 },
               },
@@ -347,7 +365,7 @@ test.describe('EmailRecoveryDomain', () => {
                   keyScope: 'evm-family',
                   relayerKeyId: 'ecdsa-relayer-key',
                   requestId: 'ABC123:ecdsa',
-                  sessionId: 'tehss_ABC123',
+                  thresholdSessionId: 'tehss_ABC123',
                   signingGrantId: 'wss_ABC123',
                   ttlMs: 60_000,
                   remainingUses: 1,
@@ -386,6 +404,10 @@ test.describe('EmailRecoveryDomain', () => {
                   projectId: 'proj-email-recovery',
                   envId: 'env-email-recovery',
                   signingRootVersion: 'root-email-recovery-v1',
+                },
+                routerAbNormalSigning: {
+                  kind: 'router_ab_ed25519_normal_signing_v1',
+                  signingWorkerId: 'signing-worker-local',
                 },
                 jwt: 'sync-jwt',
               },

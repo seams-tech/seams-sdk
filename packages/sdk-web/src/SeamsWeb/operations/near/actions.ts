@@ -34,9 +34,7 @@ async function yieldForUiPaint(): Promise<void> {
 }
 
 /**
- * executeAction signs a single transaction (with actions[]) to a single receiver.
- * If you want to sign multiple transactions to different receivers,
- * use signTransactionsWithActions() instead.
+ * executeAction signs one transaction with actions[] to one receiver.
  *
  * @param context - SeamsWeb context
  * @param nearAccountId - NEAR account ID to sign transactions with
@@ -67,16 +65,8 @@ export async function executeAction(args: {
   }
 }
 
-// Execution plan types for broadcasting multiple transactions
-// Helper: parse executionWait (only sequential for now)
-function parseExecutionWait(options?: SignAndSendTransactionHooksOptions): {
-  waitUntil?: TxExecutionStatus;
-} {
-  return { waitUntil: options?.waitUntil };
-}
-
 /**
- * Signs multiple transactions with actions, and broadcasts them
+ * Signs one transaction with actions, and broadcasts it.
  *
  * @param context - SeamsWeb context
  * @param nearAccountId - NEAR account ID to sign transactions with
@@ -84,23 +74,23 @@ function parseExecutionWait(options?: SignAndSendTransactionHooksOptions): {
  * @param options - Options for the action
  * @returns Promise resolving to the action result
  */
-export async function signAndSendTransactions(args: {
+export async function signAndSendTransaction(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
-  transactionInputs: TransactionInput[];
+  transactionInput: TransactionInput;
   options: SignAndSendTransactionHooksOptions;
-}): Promise<ActionResult[]> {
-  return signAndSendTransactionsInternal({
+}): Promise<ActionResult> {
+  return signAndSendTransactionInternal({
     context: args.context,
     nearAccountId: args.nearAccountId,
-    transactionInputs: args.transactionInputs,
+    transactionInput: args.transactionInput,
     options: args.options,
     confirmationConfigOverride: args.options.confirmationConfig,
   });
 }
 
 /**
- * Signs transactions with actions, without broadcasting them
+ * Signs one transaction with actions, without broadcasting it.
  *
  * @param context - SeamsWeb context
  * @param nearAccountId - NEAR account ID to sign transactions with
@@ -108,17 +98,17 @@ export async function signAndSendTransactions(args: {
  * @param options - Options for the action
  * @returns Promise resolving to the action result
  */
-export async function signTransactionsWithActions(args: {
+export async function signTransactionWithActions(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
-  transactionInputs: TransactionInput[];
+  transactionInput: TransactionInput;
   options: SignTransactionHooksOptions;
-}): Promise<SignTransactionResult[]> {
+}): Promise<SignTransactionResult> {
   try {
-    return signTransactionsWithActionsInternal({
+    return signTransactionWithActionsInternal({
       context: args.context,
       nearAccountId: args.nearAccountId,
-      transactionInputs: args.transactionInputs,
+      transactionInput: args.transactionInput,
       options: args.options,
       confirmationConfigOverride: args.options.confirmationConfig,
       // Public API always uses undefined override (respects user settings)
@@ -140,22 +130,20 @@ export async function signTransactionsWithActions(args: {
  * @example
  * ```typescript
  * // Sign a transaction first
- * const signedTransactions = await signTransactionsWithActions(context, 'alice.near', {
- *   transactions: [{
- *     nearAccountId: 'alice.near',
+ * const signedTransaction = await signTransactionWithActions(context, 'alice.near', {
+ *   transaction: {
  *     receiverId: 'bob.near',
  *     actions: [{
- *       action_type: ActionType.Transfer,
- *       deposit: '1000000000000000000000000'
+ *       type: ActionType.Transfer,
+ *       amount: '1000000000000000000000000'
  *     }],
- *     nonce: '123'
- *   }]
+ *   }
  * });
  *
  * // Then broadcast it
  * const result = await sendTransaction(
  *   context,
- *   signedTransactions[0].signedTransaction,
+ *   signedTransaction.signedTransaction,
  *   TxExecutionStatus.FINAL
  * );
  * ```
@@ -345,22 +333,20 @@ export async function executeActionInternal({
   const actions = Array.isArray(actionArgs) ? actionArgs : [actionArgs];
 
   try {
-    const signedTxs = await signTransactionsWithActionsInternal({
+    const signedTx = await signTransactionWithActionsInternal({
       context,
       nearAccountId,
-      transactionInputs: [
-        {
-          receiverId: receiverId,
-          actions: actions,
-        },
-      ],
+      transactionInput: {
+        receiverId,
+        actions,
+      },
       options: { onEvent, onError, waitUntil, confirmerText },
       confirmationConfigOverride,
     });
 
     const txResult = await sendTransaction({
       context,
-      signedTransaction: signedTxs[0].signedTransaction,
+      signedTransaction: signedTx.signedTransaction,
       options: { onEvent, onError, waitUntil },
     });
     afterCall?.(true, txResult);
@@ -390,43 +376,37 @@ export async function executeActionInternal({
   }
 }
 
-export async function signAndSendTransactionsInternal({
+export async function signAndSendTransactionInternal({
   context,
   nearAccountId,
-  transactionInputs,
+  transactionInput,
   options,
   confirmationConfigOverride,
 }: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
-  transactionInputs: TransactionInput[];
+  transactionInput: TransactionInput;
   options?: SignAndSendTransactionHooksOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
-}): Promise<ActionResult[]> {
+}): Promise<ActionResult> {
   try {
-    const signedTxs = await signTransactionsWithActionsInternal({
+    const signedTx = await signTransactionWithActionsInternal({
       context,
       nearAccountId,
-      transactionInputs,
+      transactionInput,
       options,
       confirmationConfigOverride,
     });
 
-    const plan = parseExecutionWait(options);
-    const txResults: ActionResult[] = [];
-    for (let i = 0; i < signedTxs.length; i++) {
-      const tx = signedTxs[i];
-      const txResult = await sendTransaction({
-        context,
-        signedTransaction: tx.signedTransaction,
-        options: {
-          onEvent: options?.onEvent,
-          waitUntil: plan.waitUntil ?? options?.waitUntil,
-        },
-      });
-      txResults.push(txResult);
-    }
-    return txResults;
+    const txResult = await sendTransaction({
+      context,
+      signedTransaction: signedTx.signedTransaction,
+      options: {
+        onEvent: options?.onEvent,
+        waitUntil: options?.waitUntil,
+      },
+    });
+    return txResult;
   } catch (error: unknown) {
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;
@@ -452,19 +432,19 @@ export async function signAndSendTransactionsInternal({
  * @param options - Options for the action
  * @returns Promise resolving to the action result
  */
-export async function signTransactionsWithActionsInternal({
+export async function signTransactionWithActionsInternal({
   context,
   nearAccountId,
-  transactionInputs,
+  transactionInput,
   options,
   confirmationConfigOverride,
 }: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
-  transactionInputs: TransactionInput[];
+  transactionInput: TransactionInput;
   options?: Omit<ActionHooksOptions, 'afterCall'>;
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
-}): Promise<SignTransactionResult[]> {
+}): Promise<SignTransactionResult> {
   const { onEvent, onError, waitUntil, confirmerText, signerSlot } = options || {};
 
   try {
@@ -472,35 +452,34 @@ export async function signTransactionsWithActionsInternal({
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_01_STARTED,
       status: 'started',
-      message:
-        transactionInputs.length > 1
-          ? `Starting batched transaction with ${transactionInputs.length} actions`
-          : `Starting ${transactionInputs[0].actions[0].type} action`,
+      message: `Starting ${transactionInput.actions[0].type} action`,
       interaction: { kind: 'none', overlay: 'none' },
     });
 
     // 1. Basic validation (NEAR data fetching moved to confirmation flow)
-    await validateInputsOnly(nearAccountId, transactionInputs, { onEvent, onError, waitUntil });
+    await validateInputsOnly(nearAccountId, [transactionInput], {
+      onEvent,
+      onError,
+      waitUntil,
+    });
 
     // 2. Transaction signing. The signing engine owns confirmation/auth events.
     await yieldForUiPaint();
 
-    const transactionInputsWasm: TransactionInputWasm[] = transactionInputs.map((tx) => {
-      return {
-        receiverId: tx.receiverId,
-        actions: tx.actions.map((action) => toActionArgsWasm(action)),
-      };
-    });
+    const transactionInputWasm: TransactionInputWasm = {
+      receiverId: transactionInput.receiverId,
+      actions: transactionInput.actions.map((action) => toActionArgsWasm(action)),
+    };
 
     // WebAuthn challenge digest and NEAR data are computed in the confirmation flow
     // - Nonce will be fetched within the confirmation flow
     // This eliminates the ~500ms blocking operations before modal display
-    return (await context.signingEngine.signNear({
+    const results = (await context.signingEngine.signNear({
       chain: 'near',
-      kind: 'transactionsWithActions',
+      kind: 'transactionWithActions',
       args: {
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
-        transactions: transactionInputsWasm,
+        transaction: transactionInputWasm,
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),
           nearAccountId: nearAccountId, // caller account
@@ -511,9 +490,13 @@ export async function signTransactionsWithActionsInternal({
         body: confirmerText?.body,
         onEvent,
       },
-    })) as SignTransactionResult[];
+    })) as SignTransactionResult;
+    if (!results?.signedTransaction) {
+      throw new Error('NEAR signing returned no signed transaction');
+    }
+    return results;
   } catch (error: unknown) {
-    console.error('[signTransactionsWithActions] Error during execution:', error);
+    console.error('[signTransactionWithActions] Error during execution:', error);
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;
     onError?.(e);
@@ -549,6 +532,11 @@ async function validateInputsOnly(
 
   if (transactionInputs.length === 0) {
     throw new Error('No payloads provided for signing');
+  }
+  if (transactionInputs.length !== 1) {
+    throw new Error(
+      `NEAR signing supports exactly one transaction per operation; received ${transactionInputs.length}`,
+    );
   }
 
   for (const transactionInput of transactionInputs) {

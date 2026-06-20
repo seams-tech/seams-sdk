@@ -40,4 +40,9 @@ export type PasskeyTestSetupOptions = PasskeyTestConfigOverrides & {
    * Useful for lightweight lit-component tests that only need the import map.
    */
   skipSeamsWebInit?: boolean;
+  /**
+   * When true, inject the test import map into wallet-service iframe documents.
+   * Use only for tests that evaluate /sdk/esm modules inside the wallet frame.
+   */
+  injectWalletServiceImportMap?: boolean;
 };

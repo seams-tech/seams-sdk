@@ -102,6 +102,8 @@ export function createNearSigningDeps(args: {
         signingGrantId,
         provisionThresholdEd25519Session: (provisionArgs) =>
           createArgs.provisionThresholdEd25519Session(provisionArgs),
+        restorePasskeyEd25519SigningMaterial: (restoreArgs) =>
+          createArgs.restorePasskeyEd25519SigningMaterial(restoreArgs),
         readStoredThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>
           getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
       }),

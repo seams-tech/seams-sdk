@@ -4,6 +4,11 @@ import { installRelayServerProxyShim, installWalletSdkCorsShim } from './cross-o
 import type { PasskeyTestConfig } from './types';
 import { DEFAULT_TEST_CONFIG } from './config';
 import { SDK_ESM_PATHS } from './sdkEsmPaths';
+import {
+  buildTestBrowserImportMapHtml,
+  TEST_BROWSER_IMPORT_MAP_ATTR,
+  TEST_BROWSER_IMPORT_MAP_MARKER,
+} from './importMap';
 
 async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
   const client = await page.context().newCDPSession(page);
@@ -37,54 +42,12 @@ export async function injectImportMap(
   page: Page,
   options?: { frontendUrl: string },
 ): Promise<void> {
-  const imports = {
-    // React: required to import SDK React components from /sdk/esm/*
-    react: 'https://esm.sh/react@19.1.1',
-    'react/jsx-runtime': 'https://esm.sh/react@19.1.1/jsx-runtime',
-    'react/jsx-dev-runtime': 'https://esm.sh/react@19.1.1/jsx-dev-runtime',
-    'react-dom': 'https://esm.sh/react-dom@19.1.1',
-    'react-dom/client': 'https://esm.sh/react-dom@19.1.1/client',
-    bs58: 'https://esm.sh/bs58@6.0.0',
-    idb: 'https://esm.sh/idb@8.0.0',
-    'js-sha256': 'https://esm.sh/js-sha256@0.11.1',
-    '@noble/ed25519': 'https://esm.sh/@noble/ed25519@3.0.0',
-    '@noble/curves/': 'https://esm.sh/@noble/curves@2.0.1/',
-    '@noble/hashes/': 'https://esm.sh/@noble/hashes@2.0.1/',
-    qrcode: 'https://esm.sh/qrcode@1.5.4',
-    jsqr: 'https://esm.sh/jsqr@1.4.0',
-    '@near-js/types': 'https://esm.sh/@near-js/types@2.0.1',
-    tslib: 'https://esm.sh/tslib@2.8.1',
-    buffer: 'https://esm.sh/buffer@6.0.3',
-    lit: 'https://esm.sh/lit@3.1.0',
-    'lit/decorators.js': 'https://esm.sh/lit@3.1.0/decorators.js',
-    'lit/directive.js': 'https://esm.sh/lit@3.1.0/directive.js',
-    'lit/directive-helpers.js': 'https://esm.sh/lit@3.1.0/directive-helpers.js',
-    'lit/async-directive.js': 'https://esm.sh/lit@3.1.0/async-directive.js',
-    'lit/directives/when.js': 'https://esm.sh/lit@3.1.0/directives/when.js',
-    'lit/directives/if-defined.js': 'https://esm.sh/lit@3.1.0/directives/if-defined.js',
-    'lit/directives/class-map.js': 'https://esm.sh/lit@3.1.0/directives/class-map.js',
-    'lit/directives/style-map.js': 'https://esm.sh/lit@3.1.0/directives/style-map.js',
-    'lit/directives/repeat.js': 'https://esm.sh/lit@3.1.0/directives/repeat.js',
-    'lit/directives/guard.js': 'https://esm.sh/lit@3.1.0/directives/guard.js',
-    'lit/directives/cache.js': 'https://esm.sh/lit@3.1.0/directives/cache.js',
-    'lit/directives/until.js': 'https://esm.sh/lit@3.1.0/directives/until.js',
-    'lit/directives/ref.js': 'https://esm.sh/lit@3.1.0/directives/ref.js',
-    'lit/directives/live.js': 'https://esm.sh/lit@3.1.0/directives/live.js',
-    'lit/directives/unsafe-html.js': 'https://esm.sh/lit@3.1.0/directives/unsafe-html.js',
-    'lit/directives/unsafe-svg.js': 'https://esm.sh/lit@3.1.0/directives/unsafe-svg.js',
-    'lit/static-html.js': 'https://esm.sh/lit@3.1.0/static-html.js',
-    'lit/html.js': 'https://esm.sh/lit@3.1.0/html.js',
-    'lit/css.js': 'https://esm.sh/lit@3.1.0/css.js',
-    'lit/lit-element.js': 'https://esm.sh/lit@3.1.0/lit-element.js',
-    'lit/reactive-element.js': 'https://esm.sh/lit@3.1.0/reactive-element.js',
-  } as const;
-
   // Import maps must be present in the HTML during parsing (before any module scripts run).
   // The Vite example app includes `<script type="module" src="/src/main.tsx">`, so we inject
   // the import map by rewriting the top-level document HTML during the initial navigation.
-  const importMapAttr = 'data-w3a-importmap';
-  const importMapMarker = `${importMapAttr}="1"`;
-  const importMapHtml = `<script type="importmap" ${importMapMarker}>${JSON.stringify({ imports })}</script>`;
+  const importMapAttr = TEST_BROWSER_IMPORT_MAP_ATTR;
+  const importMapMarker = TEST_BROWSER_IMPORT_MAP_MARKER;
+  const importMapHtml = buildTestBrowserImportMapHtml();
 
   const handler = async (route: Route) => {
     const req = route.request();
@@ -108,9 +71,11 @@ export async function injectImportMap(
       return route.fulfill({ status: fetched.status(), headers, body: html });
     }
 
-    const patched = html.includes('</head>')
-      ? html.replace(/<\/head>/i, `${importMapHtml}</head>`)
-      : `${importMapHtml}${html}`;
+    const patched = /<head[^>]*>/i.test(html)
+      ? html.replace(/<head[^>]*>/i, (head) => `${head}${importMapHtml}`)
+      : html.includes('</head>')
+        ? html.replace(/<\/head>/i, `${importMapHtml}</head>`)
+        : `${importMapHtml}${html}`;
 
     // Avoid stale content-length; Playwright will compute it.
     const nextHeaders = { ...headers };
@@ -383,7 +348,7 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
 export async function executeSequentialSetup(
   page: Page,
   configs: PasskeyTestConfig,
-  options: { skipSeamsWebInit?: boolean } = {},
+  options: { skipSeamsWebInit?: boolean; injectWalletServiceImportMap?: boolean } = {},
 ): Promise<string> {
   printStepLine('bootstrap', 'starting 6-step sequential bootstrap', 0);
 
@@ -401,6 +366,7 @@ export async function executeSequentialSetup(
     appOrigin,
     logStyle: 'setup',
     mirror: mirrorWalletOrigin,
+    injectWalletServiceImportMap: options.injectWalletServiceImportMap,
   });
   const useRelayServer =
     process.env.USE_RELAY_SERVER === '1' || process.env.USE_RELAY_SERVER === 'true';

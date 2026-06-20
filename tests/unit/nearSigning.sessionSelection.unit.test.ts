@@ -113,6 +113,7 @@ test.describe('near signing session selection', () => {
       signingGrantId,
       expiresAtMs,
       remainingUses: 2,
+      signerSlot: 1,
       jwt: 'router-ab-ed25519-pending-material-wallet-session-jwt',
       runtimePolicyScope: {
         orgId: 'org-pending-material',
@@ -159,101 +160,4 @@ test.describe('near signing session selection', () => {
     expect(plan.warmSessionReady).toBe(true);
   });
 
-  test('does not double-consume passkey Ed25519 material immediately after sealed restore', async () => {
-    const consumeFlags: Array<boolean | undefined> = [];
-    const restoreCalls: string[] = [];
-    let statusOk = false;
-    const coordinator = createNearSigningSessionCoordinator({
-      getWarmSessionStatus: async () =>
-        statusOk
-          ? { ok: true as const, remainingUses: 2, expiresAtMs: Date.now() + 60_000 }
-          : { ok: false as const, code: 'not_found', message: 'missing before restore' },
-      getWarmSessionStatuses: async ({ sessionIds }: { sessionIds: string[] }) => ({
-        results: sessionIds.map((sessionId) => ({
-          sessionId,
-          result: statusOk
-            ? { ok: true as const, remainingUses: 2, expiresAtMs: Date.now() + 60_000 }
-            : { ok: false as const, code: 'not_found', message: 'missing before restore' },
-        })),
-      }),
-      restorePersistedSessionForSigning: async ({ thresholdSessionId }: any) => {
-        restoreCalls.push(String(thresholdSessionId));
-        statusOk = true;
-      },
-      claimWarmSessionMaterial: async ({ consume }: { consume?: boolean }) => {
-        consumeFlags.push(consume);
-        return {
-          ok: true as const,
-          prfFirstB64u: 'AQ',
-          remainingUses: 2,
-          expiresAtMs: Date.now() + 60_000,
-        };
-      },
-    } as any);
-
-    await coordinator.claimPrfFirstByThresholdSessionId({
-      kind: 'wallet_scoped_ed25519_claim',
-      thresholdSessionId: 'restored-passkey-ed25519',
-      errorContext: 'test restored Ed25519 signing',
-      uses: 1,
-      walletId: 'alice.testnet',
-      authMethod: 'passkey',
-      curve: 'ed25519',
-      chain: 'near',
-      signingGrantId: 'wallet-session',
-    });
-    await coordinator.claimPrfFirstByThresholdSessionId({
-      kind: 'wallet_scoped_ed25519_claim',
-      thresholdSessionId: 'restored-passkey-ed25519',
-      errorContext: 'test hot Ed25519 signing',
-      uses: 1,
-      walletId: 'alice.testnet',
-      authMethod: 'passkey',
-      curve: 'ed25519',
-      chain: 'near',
-      signingGrantId: 'wallet-session',
-    });
-
-    expect(restoreCalls).toEqual(['restored-passkey-ed25519', 'restored-passkey-ed25519']);
-    expect(consumeFlags).toEqual([false, true]);
-  });
-
-  test('claims Email OTP Ed25519 warm material without passkey restore', async () => {
-    const restoreCalls: string[] = [];
-    const claimCurves: Array<string | undefined> = [];
-    const coordinator = createNearSigningSessionCoordinator({
-      getWarmSessionStatus: async () => ({
-        ok: true as const,
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-      }),
-      claimWarmSessionMaterial: async ({ curve }: { curve?: string }) => {
-        claimCurves.push(curve);
-        return {
-          ok: true as const,
-          prfFirstB64u: 'AQ',
-          remainingUses: 2,
-          expiresAtMs: Date.now() + 60_000,
-        };
-      },
-      restorePersistedSessionForSigning: async ({ thresholdSessionId }: any) => {
-        restoreCalls.push(String(thresholdSessionId));
-      },
-    } as any);
-
-    await coordinator.claimPrfFirstByThresholdSessionId({
-      kind: 'wallet_scoped_ed25519_claim',
-      thresholdSessionId: 'email-otp-ed25519-session',
-      errorContext: 'test Email OTP Ed25519 signing',
-      uses: 1,
-      walletId: 'alice.testnet',
-      authMethod: 'email_otp',
-      curve: 'ed25519',
-      chain: 'near',
-      signingGrantId: 'wallet-session',
-    });
-
-    expect(restoreCalls).toEqual([]);
-    expect(claimCurves).toEqual(['ed25519']);
-  });
 });

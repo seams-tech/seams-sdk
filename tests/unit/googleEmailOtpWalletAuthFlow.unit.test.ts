@@ -84,7 +84,7 @@ function makeEmailOtpRegistrationEnrollmentMaterial(args: {
 > {
   return {
     thresholdEcdsaClientVerifyingShareB64u: 'threshold-ecdsa-client-share',
-    thresholdEd25519PrfFirstB64u: 'threshold-ed25519-prf-first',
+    thresholdEd25519RecoveryCodeSecret32B64u: 'threshold-ed25519-prf-first',
     recoveryKeys: makeRecoveryCodeSet(),
     recoveryCodesIssuedAtMs: 1_700_000_000_000,
     otpChannel: 'email_otp',

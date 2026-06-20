@@ -502,10 +502,10 @@ export async function executeDeviceLinkingContractCalls({
 }): Promise<{
   addKeyTxResult: FinalExecutionOutcome;
 }> {
-  const signTransactions = () =>
+  const signTransaction = () =>
     deps.signNear({
       chain: 'near',
-      kind: 'transactionsWithActions',
+      kind: 'transactionWithActions',
       args: {
         nearAccount: nearAccountRefFromAccountId(device1AccountId),
         sessionId: secureRandomId('link-device', 32, 'link device signing session IDs'),
@@ -517,24 +517,21 @@ export async function executeDeviceLinkingContractCalls({
         sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod,
         title: confirmerText?.title,
         body: confirmerText?.body,
-        transactions: [
-          // Transaction 1: AddKey - Add Device2's key to Device1's account
-          {
-            receiverId: device1AccountId,
-            actions: [
-              {
-                action_type: ActionType.AddKey,
-                public_key: device2PublicKey,
-                access_key: JSON.stringify({
-                  // NEAR-style AccessKey JSON shape, matching near-api-js:
-                  // { nonce: number, permission: { FullAccess: {} } }
-                  nonce: 0,
-                  permission: { FullAccess: {} },
-                }),
-              },
-            ],
-          },
-        ],
+        transaction: {
+          receiverId: device1AccountId,
+          actions: [
+            {
+              action_type: ActionType.AddKey,
+              public_key: device2PublicKey,
+              access_key: JSON.stringify({
+                // NEAR-style AccessKey JSON shape, matching near-api-js:
+                // { nonce: number, permission: { FullAccess: {} } }
+                nonce: 0,
+                permission: { FullAccess: {} },
+              }),
+            },
+          ],
+        },
         onEvent: (progress) => {
           // Keep device-linking progress semantic and surface signing as a loading state.
           if (progress.phase === SigningEventPhase.STEP_11_TRANSACTION_SIGNED) {
@@ -556,17 +553,16 @@ export async function executeDeviceLinkingContractCalls({
       },
     });
 
-  // Sign both transactions with one PRF authentication
-  const signedTransactions = await signTransactions();
+  const signedTransaction = await signTransaction();
 
-  if (!signedTransactions[0]?.signedTransaction) {
+  if (!signedTransaction.signedTransaction) {
     throw new Error('AddKey transaction signing failed');
   }
 
   let addKeyTxResult: FinalExecutionOutcome;
   try {
     addKeyTxResult = await deps.nearClient.sendTransaction(
-      signedTransactions[0].signedTransaction,
+      signedTransaction.signedTransaction,
       DEFAULT_WAIT_STATUS.linkDeviceAddKey,
     );
   } catch (txError: unknown) {

@@ -314,31 +314,19 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
   }
 
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/tx-tree.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/tx-tree.css'),
     path.join(sdkDir, 'tx-tree.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/tx-confirmer.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/tx-confirmer.css'),
     path.join(sdkDir, 'tx-confirmer.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/drawer.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/drawer.css'),
     path.join(sdkDir, 'drawer.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/halo-border.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/halo-border.css'),
     path.join(sdkDir, 'halo-border.css'),
   );
   copyIfMissing(
@@ -349,24 +337,15 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkDir, 'passkey-halo-loading.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/padlock-icon.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/padlock-icon.css'),
     path.join(sdkDir, 'padlock-icon.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-viewer.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-viewer.css'),
     path.join(sdkDir, 'export-viewer.css'),
   );
   copyIfMissing(
-    path.join(
-      sdkRoot,
-      'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-iframe.css',
-    ),
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-iframe.css'),
     path.join(sdkDir, 'export-iframe.css'),
   );
   copyIfMissing(
@@ -639,8 +618,7 @@ const configs = [
   },
   // Export Private Key viewer bundle (Lit element rendered inside iframe)
   {
-    input:
-      'src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts',
+    input: 'src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts',
     output: {
       dir: BUILD_PATHS.BUILD.ESM,
       format: 'esm',
@@ -657,8 +635,7 @@ const configs = [
   // Standalone bundles for HaloBorder + PasskeyHaloLoading (for iframe/embedded usage)
   {
     input: {
-      'halo-border':
-        'src/core/signingEngine/uiConfirm/ui/lit-components/HaloBorder/index.ts',
+      'halo-border': 'src/core/signingEngine/uiConfirm/ui/lit-components/HaloBorder/index.ts',
       'passkey-halo-loading':
         'src/core/signingEngine/uiConfirm/ui/lit-components/PasskeyHaloLoading/index.ts',
     },

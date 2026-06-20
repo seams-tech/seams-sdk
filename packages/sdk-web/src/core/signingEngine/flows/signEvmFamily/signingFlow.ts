@@ -295,7 +295,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     const reservationResult =
       await input.reserveSigningGrantBudget(thresholdEcdsaOperation);
     if (reservationResult?.kind === 'reservation_identity_mismatch') {
-      throw new Error('[SigningSessionBudget] wallet signing-session reservation identity mismatch');
+      throw new Error('[SigningSessionBudget] signing grant reservation identity mismatch');
     }
     walletBudgetReservation = isSigningSessionBudgetReservation(reservationResult)
       ? reservationResult

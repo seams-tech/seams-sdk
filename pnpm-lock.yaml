@@ -62,6 +62,9 @@ importers:
       '@fontsource/hanken-grotesk':
         specifier: ^5.2.8
         version: 5.2.8
+      '@hot-labs/near-connect':
+        specifier: 0.11.4
+        version: 0.11.4
       '@radix-ui/react-select':
         specifier: ^2.0.0
         version: 2.2.6(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1025,6 +1028,9 @@ packages:
 
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
+
+  '@hot-labs/near-connect@0.11.4':
+    resolution: {integrity: sha512-exAL1gqysyCHewcMO334YJ3ddTPg3j9EyVM9novz5Jx4fLbG/YSYBlkYMjMNB8E9K/4I7BiemjOw9bQ+h80hEA==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -4698,6 +4704,8 @@ snapshots:
   '@fontsource/hanken-grotesk@5.2.8': {}
 
   '@hexagon/base64@1.1.28': {}
+
+  '@hot-labs/near-connect@0.11.4': {}
 
   '@humanfs/core@0.19.1': {}
 

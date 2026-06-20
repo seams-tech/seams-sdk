@@ -255,7 +255,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     ecdsaRecord?.signingGrantId &&
     ecdsaRecord.signingGrantId !== sealedRecord.signingGrantId
   ) {
-    throw new Error('Email OTP sealed refresh wallet signing-session id mismatch');
+    throw new Error('Email OTP sealed refresh signing grant id mismatch');
   }
   if (
     ecdsaRecord?.chainTarget &&

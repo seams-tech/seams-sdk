@@ -189,7 +189,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
   });
 
-  test('projects record-backed wallet session spend across Ed25519 and ECDSA lanes', async () => {
+  test('projects explicit record-backed wallet session spends only to the targeted lane', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     const walletId = 'shared-budget-record-policy.testnet';
@@ -216,9 +216,23 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
     const readModel = thresholdEcdsaSessionRecordReadModel(ecdsaRecord);
     const statusOverrides = new Map();
+    let ed25519ConsumeCalls = 0;
+    const deps = {
+      touchConfirm: {
+        getWarmSessionStatus: async () => ({
+          ok: true as const,
+          remainingUses: 3,
+          expiresAtMs: ed25519Record.expiresAtMs,
+        }),
+        consumeWarmSessionUses: async () => {
+          ed25519ConsumeCalls += 1;
+          throw new Error('non-target Ed25519 lane should not consume');
+        },
+      },
+    };
 
     const status = await consumeSigningGrantUse({
-      deps: {},
+      deps,
       statusOverrides,
       readStatus: async () => ({
         sessionId: signingGrantId,
@@ -246,16 +260,17 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       status: 'active',
       remainingUses: 2,
     });
+    expect(ed25519ConsumeCalls).toBe(0);
 
     const claims = await readWalletScopedLaneClaimsForWallet({
-      deps: {},
+      deps,
       walletId: toWalletId(walletId),
       statusOverrides,
     });
     expect(claims.get(ed25519Record.thresholdSessionId)).toMatchObject({
       state: 'warm',
       sessionId: ed25519Record.thresholdSessionId,
-      remainingUses: 2,
+      remainingUses: 3,
     });
     expect(claims.get(ecdsaRecord.thresholdSessionId)).toMatchObject({
       state: 'warm',

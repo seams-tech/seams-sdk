@@ -80,7 +80,7 @@ function makeSealedRecord(args: {
             participantIds: [1, 2],
             sessionKind: 'jwt' as const,
             walletSessionJwt: 'jwt-restore',
-            xClientBaseB64u: 'x-client-base-restore',
+            signerSlot: 1,
           },
         }),
     issuedAtMs: 1,
@@ -146,11 +146,11 @@ function makeEcdsaRecordWithEd25519Companion(args: {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ed25519-companion',
+      signerSlot: 1,
       runtimePolicyScope: {
         mode: 'single_domain',
         parentOrigin: 'https://wallet.example.localhost',
       },
-      xClientBaseB64u: 'x-client-base-restore',
     },
   };
 }

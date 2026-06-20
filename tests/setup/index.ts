@@ -195,6 +195,7 @@ export async function setupBasicPasskeyTest(
   // Execute the 5-step sequential setup process
   const authenticatorId = await executeSequentialSetup(page, config, {
     skipSeamsWebInit: options.skipSeamsWebInit,
+    injectWalletServiceImportMap: options.injectWalletServiceImportMap,
   });
 
   // Continue with the rest of the setup (WebAuthn mocks, etc.)

@@ -5,5 +5,5 @@ export type EmailOtpBootstrapRecovery = {
   unlockChallengeB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockSignatureB64u: string;
-  thresholdEd25519PrfFirstB64u?: string;
+  thresholdEd25519RecoveryCodeSecret32B64u?: string;
 };

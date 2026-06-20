@@ -840,10 +840,6 @@ export interface ActionHooksOptions {
   confirmationConfig?: Partial<ConfirmationConfig>;
 }
 
-export type ExecutionWaitOption =
-  | { mode: 'sequential'; waitUntil?: TxExecutionStatus }
-  | { mode: 'parallelStaggered'; staggerMs: number };
-
 export interface SignAndSendTransactionHooksOptions {
   onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
@@ -853,17 +849,11 @@ export interface SignAndSendTransactionHooksOptions {
    */
   signerSlot?: number;
   /**
-   * Execution control for multi-transaction broadcasts:
-   * - { mode: 'sequential', waitUntil?: TxExecutionStatus }
-   * - { mode: 'parallelStaggered', staggerMs: number }
-   */
-  executionWait?: ExecutionWaitOption;
-  /**
    * Preferred grouping for per-call confirmer copy.
    */
   confirmerText?: { title?: string; body?: string };
 
-  afterCall?: AfterCall<ActionResult[]>;
+  afterCall?: AfterCall<ActionResult>;
   // Per-call confirmation configuration. When provided, overrides user preferences
   // for this request only (not persisted).
   // Accept partial config so callers can pass minimal overrides like { uiMode: 'drawer' }
@@ -874,7 +864,7 @@ export interface SignTransactionHooksOptions {
   onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
 
-  afterCall?: AfterCall<SignTransactionResult[]>;
+  afterCall?: AfterCall<SignTransactionResult>;
   waitUntil?: TxExecutionStatus;
   /**
    * Optional signer-slot override for this signing request.

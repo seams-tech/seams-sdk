@@ -1,5 +1,6 @@
 import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
@@ -163,6 +164,12 @@ export type CreateSigningEnginePortsArgs = {
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
+  restorePasskeyEd25519SigningMaterial: (args: {
+    nearAccountId: AccountId;
+    credential: WebAuthnAuthenticationCredential;
+    signerSlot: number;
+    thresholdSessionId: string;
+  }) => Promise<void>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
     subjectId?: never;

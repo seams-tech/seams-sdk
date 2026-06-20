@@ -18,8 +18,8 @@ import type {
   NearDelegateActionResult,
   NearNep413Payload,
   NearNep413Result,
-  NearTransactionsWithActionsPayload,
-  NearTransactionsWithActionsResult,
+  NearTransactionWithActionsPayload,
+  NearTransactionWithActionsResult,
 } from '../interfaces/near';
 import type { EvmAddress, EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
@@ -697,12 +697,12 @@ export type SignNearAuthPolicy =
 
 export type SignNearInput =
   | {
-      kind: 'transactions_with_actions';
+      kind: 'transaction_with_actions';
       operationId: SigningOperationId;
       walletId: WalletId;
       rpId: RpId;
       accountId: AccountId;
-      request: NearTransactionsWithActionsPayload;
+      request: NearTransactionWithActionsPayload;
       transactionDigests: NonEmptyReadonlyArray<NearTransactionDigest>;
       requiredSignatureUses: PositiveInt;
       authPolicy: SignNearAuthPolicy;
@@ -745,11 +745,11 @@ type SignNearSuccessBase = {
 
 export type SignNearSuccess =
   | (SignNearSuccessBase & {
-      kind: 'transactions_with_actions';
+      kind: 'transaction_with_actions';
       transactionDigests: NonEmptyReadonlyArray<NearTransactionDigest>;
       result: {
-        kind: 'near_transactions_with_actions';
-        signed: NearTransactionsWithActionsResult;
+        kind: 'near_transaction_with_actions';
+        signed: NearTransactionWithActionsResult;
       };
     })
   | (SignNearSuccessBase & {

@@ -3,9 +3,8 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const FLAT_ROOT_SIGNING_METHODS = [
   'executeAction',
-  'signAndSendTransactions',
   'signAndSendTransaction',
-  'signTransactionsWithActions',
+  'signTransactionWithActions',
   'sendTransaction',
   'signDelegateAction',
   'sendDelegateActionViaRelayer',
@@ -38,8 +37,8 @@ test.describe('SeamsWeb namespaced signing surface', () => {
         const hasNear =
           !!seams.near &&
           typeof seams.near.executeAction === 'function' &&
-          typeof seams.near.signAndSendTransactions === 'function' &&
-          typeof seams.near.signTransactionsWithActions === 'function' &&
+          typeof seams.near.signAndSendTransaction === 'function' &&
+          typeof seams.near.signTransactionWithActions === 'function' &&
           typeof seams.near.sendTransaction === 'function' &&
           typeof seams.near.signDelegateAction === 'function' &&
           typeof seams.near.sendDelegateActionViaRelayer === 'function' &&

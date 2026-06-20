@@ -26,10 +26,7 @@ type ThresholdPrfFixtureCorpus = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(
-  __dirname,
-  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
-);
+const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
 const ORG_ID = 'org-alpha';
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'dev';
@@ -106,9 +103,10 @@ function hostedResolverConfigFromFixture(input: {
 
 test('Ed25519 HSS prepare uses signing-root resolver when configured and preserves response shape', async () => {
   const decryptCalls: number[] = [];
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose('ecdsa-hss/y_server');
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
     signingRootShareResolverAdapters: hostedResolverConfigFromFixture({
       vector,
       decryptCalls,

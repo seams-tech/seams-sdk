@@ -102,7 +102,7 @@ export function createSigningSessionBudgetFinalizer(
         args.onRecordSuccessError?.(error, spend);
         // Do not fail open here. A previous regression logged spend failures and
         // still reported signing success, leaving the next operation to hit
-        // wallet signing-session not_found/exhausted errors unpredictably.
+        // signing grant not_found/exhausted errors unpredictably.
         throw error;
       });
     },

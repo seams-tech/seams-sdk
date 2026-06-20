@@ -243,7 +243,7 @@ test.describe('signing-engine state architecture guardrails', () => {
 
   test('Ed25519 HSS client-base reconstruction receives resolved protocol material', () => {
     const source = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssClientBase.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
     );
 
     expect(source).not.toContain('session/records');

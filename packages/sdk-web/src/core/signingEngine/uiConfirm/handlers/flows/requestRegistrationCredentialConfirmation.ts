@@ -11,7 +11,7 @@ import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
   type RegistrationCredentialConfirmationPayload,
 } from '@/core/signingEngine/workerManager/validation';
-import type { UiConfirmContext, UiConfirmSecureConfirmationPort } from '../../types';
+import type { UiConfirmContext, UiConfirmSecureConfirmationPort } from '../../uiConfirm.types';
 import { determineConfirmationConfig } from '../determineConfirmationConfig';
 import { handleRegistrationFlow } from './registration';
 import {

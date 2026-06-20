@@ -15,9 +15,7 @@ import {
   buildTempoTransactionSigningLane,
   type EcdsaTransactionSigningLane,
 } from '../../session/operationState/lanes';
-import type {
-  ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import { thresholdEcdsaSessionRecordReadModel } from '../../session/persistence/records';
 import {
   toAuthorizingSigningGrantId,
@@ -42,9 +40,7 @@ import {
   buildEcdsaSessionIdentity,
   tryBuildEcdsaSessionIdentity,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
-import {
-  resolveRouterAbEcdsaWalletSessionAuthFromRecord,
-} from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
 import {
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEvmFamilyEcdsaMaterial,
@@ -55,15 +51,15 @@ export type EvmFamilyEcdsaAuthMethod =
   | typeof SIGNER_AUTH_METHODS.passkey;
 
 export type ResolvedEvmFamilyEcdsaSigningLane = EcdsaTransactionSigningLane & {
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    curve: 'ecdsa';
-    keyKind: 'threshold_ecdsa_secp256k1';
-    chainFamily: EvmFamilyChain;
-    key: EvmFamilyEcdsaKeyIdentity;
-    chainTarget: ThresholdEcdsaChainTarget;
-    signingGrantId: SigningGrantId;
-    thresholdSessionId: ThresholdEcdsaSessionId;
-  } & ResolvedEcdsaSigningSessionIdentity;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  curve: 'ecdsa';
+  keyKind: 'threshold_ecdsa_secp256k1';
+  chainFamily: EvmFamilyChain;
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+} & ResolvedEcdsaSigningSessionIdentity;
 
 export function summarizeEvmFamilyEcdsaSessionRecord(
   record: ThresholdEcdsaSessionRecord | undefined,
@@ -300,61 +296,50 @@ export function requireEvmFamilyEcdsaAuthMethod(
   return authMethod;
 }
 
-export function buildEvmFamilyEcdsaSigningLaneContext(
-  args: {
-    walletId: string;
-    chain: EvmFamilyChain;
-    chainTarget: ThresholdEcdsaChainTarget;
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    source: ThresholdEcdsaSessionStoreSource;
-    material: ReadyEvmFamilyEcdsaMaterial;
-  },
-): ResolvedEvmFamilyEcdsaSigningLane | undefined {
+export function buildEvmFamilyEcdsaSigningLaneContext(args: {
+  walletId: string;
+  chain: EvmFamilyChain;
+  chainTarget: ThresholdEcdsaChainTarget;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  source: ThresholdEcdsaSessionStoreSource;
+  material: ReadyEvmFamilyEcdsaMaterial;
+}): ResolvedEvmFamilyEcdsaSigningLane | undefined {
   const { key, lane: materialLane, record } = args.material;
   if (String(key.walletId) !== String(args.walletId)) {
-    logEvmFamilyEcdsaLaneDiagnostic(
-      'cannot build signing lane from mismatched wallet identity',
-      {
-        walletId: args.walletId,
-        materialWalletId: key.walletId,
-        chain: args.chain,
-        chainTarget: args.chainTarget,
-        authMethod: args.authMethod,
-        source: args.source,
-        record: summarizeEvmFamilyEcdsaSessionRecord(record),
-      },
-    );
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched wallet identity', {
+      walletId: args.walletId,
+      materialWalletId: key.walletId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(record),
+    });
     return undefined;
   }
   if (!thresholdEcdsaChainTargetsEqual(materialLane.chainTarget, args.chainTarget)) {
-    logEvmFamilyEcdsaLaneDiagnostic(
-      'cannot build signing lane from mismatched chain target',
-      {
-        walletId: args.walletId,
-        chain: args.chain,
-        chainTarget: args.chainTarget,
-        materialChainTarget: materialLane.chainTarget,
-        authMethod: args.authMethod,
-        source: args.source,
-        record: summarizeEvmFamilyEcdsaSessionRecord(record),
-      },
-    );
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched chain target', {
+      walletId: args.walletId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
+      materialChainTarget: materialLane.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(record),
+    });
     return undefined;
   }
   if (materialLane.authMethod !== args.authMethod || materialLane.source !== args.source) {
-    logEvmFamilyEcdsaLaneDiagnostic(
-      'cannot build signing lane from mismatched auth source',
-      {
-        walletId: args.walletId,
-        chain: args.chain,
-        chainTarget: args.chainTarget,
-        authMethod: args.authMethod,
-        source: args.source,
-        materialAuthMethod: materialLane.authMethod,
-        materialSource: materialLane.source,
-        record: summarizeEvmFamilyEcdsaSessionRecord(record),
-      },
-    );
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched auth source', {
+      walletId: args.walletId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      materialAuthMethod: materialLane.authMethod,
+      materialSource: materialLane.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(record),
+    });
     return undefined;
   }
 
@@ -371,8 +356,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
       : buildEvmTransactionSigningLane;
 
   if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
-    const emailOtpAuthContext =
-      record?.source === 'email_otp' ? record.emailOtpAuthContext : null;
+    const emailOtpAuthContext = record?.source === 'email_otp' ? record.emailOtpAuthContext : null;
     const lane = buildLane({
       ...base,
       chainTarget: args.chainTarget,
@@ -462,9 +446,10 @@ export function tryGetPasskeyThresholdEcdsaSessionRecordForSigning(args: {
     : undefined;
 }
 
-export function isEmailOtpThresholdEcdsaSigningContext(
-  args: { record: ThresholdEcdsaSessionRecord; keyRef?: never },
-): boolean {
+export function isEmailOtpThresholdEcdsaSigningContext(args: {
+  record: ThresholdEcdsaSessionRecord;
+  keyRef?: never;
+}): boolean {
   const record = args.record;
   return (
     record.source === SIGNER_AUTH_METHODS.emailOtp ||
@@ -476,9 +461,7 @@ export function emailOtpEcdsaAuthLaneFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
 ): EmailOtpAuthLane | undefined {
   const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
-  const walletSessionAuth = record
-    ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(record)
-    : null;
+  const walletSessionAuth = record ? resolveRouterAbEcdsaWalletSessionAuthFromRecord(record) : null;
   if (
     record?.source !== SIGNER_AUTH_METHODS.emailOtp ||
     walletSessionAuth?.kind !== 'ready' ||
@@ -490,9 +473,7 @@ export function emailOtpEcdsaAuthLaneFromRecord(
     kind: 'signing_session',
     jwt: walletSessionAuth.walletSessionJwt,
     thresholdSessionId: identity.thresholdSessionId,
-    authorizingSigningGrantId: toAuthorizingSigningGrantId(
-      identity.signingGrantId,
-    ),
+    authorizingSigningGrantId: toAuthorizingSigningGrantId(identity.signingGrantId),
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
   };
@@ -642,7 +623,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
     return 'threshold session id mismatch';
   }
   if (recordIdentity.signingGrantId !== laneIdentity.signingGrantId) {
-    return 'wallet signing session id mismatch';
+    return 'signing grant id mismatch';
   }
   if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)) {
     return 'chain mismatch';
@@ -652,9 +633,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   } catch {
     return 'record key identity mismatch';
   }
-  if (
-    String(record.keyHandle || '').trim() !== String(lane.keyHandle || '').trim()
-  ) {
+  if (String(record.keyHandle || '').trim() !== String(lane.keyHandle || '').trim()) {
     return 'key handle mismatch';
   }
   return null;

@@ -12,9 +12,7 @@ import {
   parseEcdsaHssClientBootstrapRequest,
   parseEcdsaHssExportShareRequest,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import {
-  initSync as initHssClientSignerWasmSync,
-} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
@@ -118,7 +116,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     sub: walletId,
     walletId: walletId,
     kind: 'router_ab_ecdsa_hss_wallet_session_v1',
-    thresholdSessionId: bootstrapValue.sessionId,
+    thresholdSessionId: bootstrapValue.thresholdSessionId,
     signingGrantId: bootstrapValue.signingGrantId,
     keyScope: 'evm-family',
     keyHandle: bootstrapValue.keyHandle,
@@ -155,7 +153,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
           key_epoch: 'signing-worker-output-epoch',
           recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
         },
-        activation_epoch: bootstrapValue.sessionId,
+        activation_epoch: bootstrapValue.thresholdSessionId,
       },
     },
   };
@@ -251,9 +249,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       signingRootVersion: 'default',
       keyScope: 'evm-family',
       relayerKeyId: 'relayer-key-1',
-      hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
-        publicKey33B64u(1),
-      ),
+      hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(publicKey33B64u(1)),
       clientShareRetryCounter: 0,
       contextBinding32B64u: bytesB64u(Buffer.alloc(32, 1)),
       requestId: 'bootstrap-request',
@@ -276,7 +272,9 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     expect(parseEcdsaHssClientBootstrapRequest(bootstrapRequest)).not.toBeNull();
     expect(parseEcdsaHssExportShareRequest(exportRequest)).not.toBeNull();
     for (const field of staleIdentityFields) {
-      expect(parseEcdsaHssClientBootstrapRequest({ ...bootstrapRequest, [field]: 'stale' })).toBeNull();
+      expect(
+        parseEcdsaHssClientBootstrapRequest({ ...bootstrapRequest, [field]: 'stale' }),
+      ).toBeNull();
       expect(parseEcdsaHssExportShareRequest({ ...exportRequest, [field]: 'stale' })).toBeNull();
     }
   });

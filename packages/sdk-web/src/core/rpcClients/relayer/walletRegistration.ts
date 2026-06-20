@@ -56,8 +56,7 @@ import {
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
 
-const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL =
-  '[Registration] wallet route payload summary';
+const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL = '[Registration] wallet route payload summary';
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH = 2;
 const ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS = 64;
 
@@ -173,7 +172,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function requireResponseString(args: { responseName: string; field: string; value: unknown }): string {
+function requireResponseString(args: {
+  responseName: string;
+  field: string;
+  value: unknown;
+}): string {
   const value = String(args.value || '').trim();
   if (!value) {
     throw new Error(`${args.responseName} response missing ${args.field}`);
@@ -337,7 +340,9 @@ function parseWalletRegistrationPrepareResponse(value: unknown): WalletRegistrat
       }),
     ),
     expiresAtMs,
-    ...(parsedRegistrationDiagnostics ? { registrationDiagnostics: parsedRegistrationDiagnostics } : {}),
+    ...(parsedRegistrationDiagnostics
+      ? { registrationDiagnostics: parsedRegistrationDiagnostics }
+      : {}),
     ed25519: {
       ceremonyHandle: requireResponseString({
         responseName,
@@ -388,46 +393,48 @@ export type WalletRegistrationHssRespondResponse = {
   };
 };
 
-export type WalletRegistrationFinalizeResponse = {
-  ok: true;
-  walletId: WalletId;
-  rpId: string;
-  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-  ed25519?: {
-    nearAccountId: string;
-    publicKey: string;
-    relayerKeyId: string;
-    keyVersion: string;
-    recoveryExportCapable: true;
-    clientParticipantId?: number;
-    relayerParticipantId?: number;
-    participantIds?: number[];
-    session?: {
-      sessionKind: 'jwt' | 'cookie';
-      sessionId: string;
-      signingGrantId: string;
-      expiresAtMs: number;
-      expiresAt?: string;
-      participantIds?: number[];
-      remainingUses?: number;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-      jwt?: string;
+export type WalletRegistrationFinalizeResponse =
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ed25519?: {
+        nearAccountId: string;
+        publicKey: string;
+        relayerKeyId: string;
+        keyVersion: string;
+        recoveryExportCapable: true;
+        clientParticipantId?: number;
+        relayerParticipantId?: number;
+        participantIds?: number[];
+        session?: {
+          sessionKind: 'jwt' | 'cookie';
+          thresholdSessionId: string;
+          signingGrantId: string;
+          expiresAtMs: number;
+          expiresAt?: string;
+          participantIds?: number[];
+          remainingUses?: number;
+          runtimePolicyScope?: ThresholdRuntimePolicyScope;
+          routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+          jwt?: string;
+        };
+      };
+      ecdsa?: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+    }
+  | {
+      ok: true;
+      kind: 'already_finalized_restore_required';
+      walletId: WalletId;
+      rpId: string;
+      reason: 'replay_without_session_material';
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ed25519?: never;
+      ecdsa?: never;
     };
-  };
-  ecdsa?: {
-    walletKeys: WalletRegistrationEcdsaWalletKey[];
-  };
-} | {
-  ok: true;
-  kind: 'already_finalized_restore_required';
-  walletId: WalletId;
-  rpId: string;
-  reason: 'replay_without_session_material';
-  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-  ed25519?: never;
-  ecdsa?: never;
-};
 
 export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   recoveryWrappedEnrollmentEscrows: unknown[];
@@ -607,7 +614,7 @@ export type WalletRegistrationEcdsaPrepareContext = {
   relayerKeyId: string;
   registrationPreparationId?: RegistrationPreparationId;
   requestId: string;
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
@@ -732,37 +739,38 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   });
 
   const walletSessionJwt = String(serverBootstrap.jwt || '').trim();
-  const routerAbEcdsaHssNormalSigning = parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1({
-    walletSessionJwt,
-    expected: {
-      walletId: String(serverBootstrap.walletId || '').trim(),
-      rpId: String(serverBootstrap.rpId || '').trim(),
-      keyHandle: String(serverBootstrap.keyHandle || '').trim(),
-      relayerKeyId: String(serverBootstrap.relayerKeyId || '').trim(),
-      ecdsaThresholdKeyId: String(serverBootstrap.ecdsaThresholdKeyId || '').trim(),
-      signingRootId: String(serverBootstrap.signingRootId || '').trim(),
-      signingRootVersion: String(serverBootstrap.signingRootVersion || '').trim(),
-      thresholdSessionId: String(serverBootstrap.thresholdSessionId || '').trim(),
-      signingGrantId: String(serverBootstrap.signingGrantId || '').trim(),
-      expiresAtMs: Number(serverBootstrap.expiresAtMs),
-      participantIds: serverBootstrap.participantIds.map((participantId) =>
-        Math.floor(Number(participantId)),
-      ),
-      contextBinding32B64u: String(serverBootstrap.contextBinding32B64u || '').trim(),
-      clientPublicKey33B64u: String(
-        serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u || '',
-      ).trim(),
-      serverPublicKey33B64u: String(
-        serverBootstrap.publicIdentity.relayerPublicKey33B64u || '',
-      ).trim(),
-      thresholdPublicKey33B64u: String(
-        serverBootstrap.publicIdentity.groupPublicKey33B64u || '',
-      ).trim(),
-      ethereumAddress: String(serverBootstrap.ethereumAddress || '').trim(),
-      clientShareRetryCounter: Math.floor(Number(serverBootstrap.clientShareRetryCounter)),
-      serverShareRetryCounter: Math.floor(Number(serverBootstrap.relayerShareRetryCounter)),
-    },
-  });
+  const routerAbEcdsaHssNormalSigning =
+    parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1({
+      walletSessionJwt,
+      expected: {
+        walletId: String(serverBootstrap.walletId || '').trim(),
+        rpId: String(serverBootstrap.rpId || '').trim(),
+        keyHandle: String(serverBootstrap.keyHandle || '').trim(),
+        relayerKeyId: String(serverBootstrap.relayerKeyId || '').trim(),
+        ecdsaThresholdKeyId: String(serverBootstrap.ecdsaThresholdKeyId || '').trim(),
+        signingRootId: String(serverBootstrap.signingRootId || '').trim(),
+        signingRootVersion: String(serverBootstrap.signingRootVersion || '').trim(),
+        thresholdSessionId: String(serverBootstrap.thresholdSessionId || '').trim(),
+        signingGrantId: String(serverBootstrap.signingGrantId || '').trim(),
+        expiresAtMs: Number(serverBootstrap.expiresAtMs),
+        participantIds: serverBootstrap.participantIds.map((participantId) =>
+          Math.floor(Number(participantId)),
+        ),
+        contextBinding32B64u: String(serverBootstrap.contextBinding32B64u || '').trim(),
+        clientPublicKey33B64u: String(
+          serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u || '',
+        ).trim(),
+        serverPublicKey33B64u: String(
+          serverBootstrap.publicIdentity.relayerPublicKey33B64u || '',
+        ).trim(),
+        thresholdPublicKey33B64u: String(
+          serverBootstrap.publicIdentity.groupPublicKey33B64u || '',
+        ).trim(),
+        ethereumAddress: String(serverBootstrap.ethereumAddress || '').trim(),
+        clientShareRetryCounter: Math.floor(Number(serverBootstrap.clientShareRetryCounter)),
+        serverShareRetryCounter: Math.floor(Number(serverBootstrap.relayerShareRetryCounter)),
+      },
+    });
   const walletId = String(serverBootstrap.walletId || '').trim();
   const rpId = String(serverBootstrap.rpId || '').trim();
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();

@@ -144,22 +144,20 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
               Array.from(value as ArrayLike<number>);
 
             const signOnce = async (accountId: string, receiverId: string) => {
-              const signed = await seams.near.signTransactionsWithActions({
+              const signed = await seams.near.signTransactionWithActions({
                 nearAccount: { accountId },
-                transactions: [{ receiverId, actions: [action] }],
+                transaction: { receiverId, actions: [action] },
                 options: {
                   signerSlot: 1,
                   confirmationConfig: confirmConfig as any,
                 },
               });
 
-              if (!Array.isArray(signed) || signed.length !== 1) {
-                throw new Error(
-                  `expected 1 signed tx for ${accountId}, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
-                );
+              if (!signed?.signedTransaction) {
+                throw new Error(`expected signed tx for ${accountId}`);
               }
 
-              const signedTx: any = signed[0]?.signedTransaction;
+              const signedTx: any = signed.signedTransaction;
               const signatureData = signedTx?.signature?.signatureData;
               const borshBytes = signedTx?.borsh_bytes ?? signedTx?.borshBytes;
               if (!signedTx || !signatureData || !borshBytes) {

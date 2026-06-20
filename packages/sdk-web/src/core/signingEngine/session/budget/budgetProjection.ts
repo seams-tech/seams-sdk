@@ -9,15 +9,16 @@ import type {
 export type TrustedWalletBudgetStatus =
   | {
       source: 'server_status' | 'server_consume';
-      sessionId: SigningGrantId | string;
+      signingGrantId: SigningGrantId | string;
       status: 'active';
       remainingUses: number;
+      availableUses: number;
       expiresAtMs?: number;
       projectionVersion?: string;
     }
   | {
       source: 'server_status' | 'server_consume';
-      sessionId: SigningGrantId | string;
+      signingGrantId: SigningGrantId | string;
       status: 'expired' | 'exhausted' | 'not_found';
       remainingUses?: number;
       expiresAtMs?: number;
@@ -31,20 +32,20 @@ export type WalletBudgetUnknownReason =
 
 export type WalletBudgetUnknown = {
   source: 'budget_unknown';
-  sessionId: SigningGrantId | string;
+  signingGrantId: SigningGrantId | string;
   status: 'budget_unknown';
   reason: WalletBudgetUnknownReason;
 };
 
 export type WalletBudgetPolicyHint = {
-  sessionId: SigningGrantId | string;
+  signingGrantId: SigningGrantId | string;
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
 };
 
 export type WalletBudgetMaterialStatus = {
-  sessionId: string;
+  signingGrantId: string;
   state: 'available' | 'missing' | 'exhausted' | 'unavailable';
   remainingUses?: number;
   expiresAtMs?: number;
@@ -183,14 +184,20 @@ export function trustedBudgetStatusFromSigningSessionStatus(args: {
   source: TrustedWalletBudgetStatus['source'];
   projectionVersion?: string;
 }): TrustedWalletBudgetStatus | null {
-  const sessionId = String(args.status.sessionId || '').trim();
-  if (!sessionId) return null;
+  const signingGrantId = String(args.status.sessionId || '').trim();
+  if (!signingGrantId) return null;
   if (args.status.status === 'active') {
+    const remainingUses = Math.max(0, Math.floor(Number(args.status.remainingUses) || 0));
+    const availableUses =
+      args.status.availableUses === undefined
+        ? remainingUses
+        : Math.min(remainingUses, Math.max(0, Math.floor(Number(args.status.availableUses) || 0)));
     return {
       source: args.source,
-      sessionId,
+      signingGrantId,
       status: 'active',
-      remainingUses: Math.max(0, Math.floor(Number(args.status.remainingUses) || 0)),
+      remainingUses,
+      availableUses,
       ...(args.status.expiresAtMs ? { expiresAtMs: Math.floor(args.status.expiresAtMs) } : {}),
       ...(args.projectionVersion ? { projectionVersion: args.projectionVersion } : {}),
     };
@@ -202,7 +209,7 @@ export function trustedBudgetStatusFromSigningSessionStatus(args: {
   ) {
     return {
       source: args.source,
-      sessionId,
+      signingGrantId,
       status: args.status.status,
       ...(args.status.remainingUses !== undefined
         ? { remainingUses: Math.max(0, Math.floor(Number(args.status.remainingUses) || 0)) }
@@ -242,7 +249,7 @@ export function projectionToSigningSessionStatus(
     case 'expired': {
       const trustedStatus = projection.state.trustedStatus;
       return {
-        sessionId: String(trustedStatus.sessionId),
+        sessionId: String(trustedStatus.signingGrantId),
         status: trustedStatus.status,
         ...(trustedStatus.remainingUses !== undefined
           ? { remainingUses: trustedStatus.remainingUses }
@@ -253,7 +260,7 @@ export function projectionToSigningSessionStatus(
     case 'known': {
       const trustedStatus = projection.state.trustedStatus;
       return {
-        sessionId: String(trustedStatus.sessionId),
+        sessionId: String(trustedStatus.signingGrantId),
         status: 'active',
         remainingUses: Math.max(0, Math.floor(Number(trustedStatus.remainingUses) || 0)),
         inFlightReservedUses: projection.localReservedUses,
@@ -283,7 +290,9 @@ function recalculate(projection: WalletBudgetProjection): WalletBudgetProjection
   const projectionVersion = state.kind === 'known' ? state.projectionVersion : '';
   const localReservedUses = projectionVersion
     ? Array.from(projection.reservationsByOperationId.values()).reduce((sum, reservation) => {
-        if (String(reservation.reservedAgainstProjectionVersion || '').trim() !== projectionVersion) {
+        if (
+          String(reservation.reservedAgainstProjectionVersion || '').trim() !== projectionVersion
+        ) {
           return sum;
         }
         return sum + Math.max(0, Math.floor(Number(reservation.uses) || 0));
@@ -319,7 +328,7 @@ function trustedStatusProjectionState(
         kind: 'unknown',
         unknown: {
           source: 'budget_unknown',
-          sessionId: status.sessionId,
+          signingGrantId: status.signingGrantId,
           status: 'budget_unknown',
           reason: 'status_unavailable',
         },
@@ -328,7 +337,7 @@ function trustedStatusProjectionState(
     return {
       kind: 'known',
       trustedStatus: status,
-      effectiveRemainingUses: Math.max(0, Math.floor(Number(status.remainingUses) || 0)),
+      effectiveRemainingUses: Math.max(0, Math.floor(Number(status.availableUses) || 0)),
       projectionVersion,
     };
   }

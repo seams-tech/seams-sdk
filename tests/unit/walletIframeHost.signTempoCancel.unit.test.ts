@@ -180,7 +180,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
 
   test('maps near threshold session failures to threshold_ed25519_session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_AND_SEND_TXS',
+      requestType: 'PM_SIGN_AND_SEND_TX',
       message: 'Missing threshold wrapKeySalt for account: alice.testnet',
     });
     expect(code).toBe('threshold_ed25519_session_not_ready');
@@ -188,7 +188,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
 
   test('maps NEAR RPC timeouts to rpc_request_failed', async () => {
     const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_AND_SEND_TXS',
+      requestType: 'PM_SIGN_AND_SEND_TX',
       message: 'RPC request failed: 408 Request Timeout',
     });
     expect(code).toBe('rpc_request_failed');
@@ -300,7 +300,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     ).toBe('fresh_email_otp_required');
     expect(
       resolveWalletBoundaryErrorCode({
-        requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+        requestType: 'PM_SIGN_TX_WITH_ACTIONS',
         rawCode: 'threshold_ed25519_session_not_ready',
         message: 'Fresh Email OTP verification required',
       }),
@@ -314,7 +314,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     ).toBe('fresh_email_otp_required');
     expect(
       resolveWalletBoundaryErrorCode({
-        requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+        requestType: 'PM_SIGN_TX_WITH_ACTIONS',
         rawCode: 'threshold_ed25519_session_not_ready',
         message: 'Email OTP /session/refresh HTTP 403 forbidden',
       }),
@@ -360,12 +360,12 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
 
   test('preserves unknown signer-boundary messages for debugging', async () => {
     const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+      requestType: 'PM_SIGN_TX_WITH_ACTIONS',
       message: '[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes',
       defaultCode: 'HOST_ERROR',
     });
     const message = resolveWalletBoundaryErrorMessage({
-      requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+      requestType: 'PM_SIGN_TX_WITH_ACTIONS',
       code,
       message: '[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes',
     });
@@ -384,14 +384,14 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     ];
     for (const message of messages) {
       const code = resolveWalletBoundaryErrorCode({
-        requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+        requestType: 'PM_SIGN_TX_WITH_ACTIONS',
         message,
         defaultCode: 'HOST_ERROR',
       });
       expect(code, message).toBe('HOST_ERROR');
       expect(
         resolveWalletBoundaryErrorMessage({
-          requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+          requestType: 'PM_SIGN_TX_WITH_ACTIONS',
           code,
           message,
         }),
@@ -411,7 +411,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     for (const message of messages) {
       expect(
         resolveWalletBoundaryErrorCode({
-          requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+          requestType: 'PM_SIGN_TX_WITH_ACTIONS',
           message,
         }),
         message,

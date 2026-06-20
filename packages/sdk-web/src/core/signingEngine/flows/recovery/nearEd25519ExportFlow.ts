@@ -423,7 +423,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     if (sessionRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
       const signingGrantId = String(sessionRecord.signingGrantId || '').trim();
       if (!signingGrantId) {
-        throw new Error('Email OTP Ed25519 export requires wallet signing-session identity');
+        throw new Error('Email OTP Ed25519 export requires signing grant identity');
       }
       const exportSigningSessionAuthLane = {
         kind: 'signing_session' as const,

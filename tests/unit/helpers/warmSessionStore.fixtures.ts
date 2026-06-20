@@ -278,17 +278,17 @@ export function seedEd25519WarmSessionRecord(
     ...(args.clientVerifyingShareB64u !== ''
       ? { clientVerifyingShareB64u: args.clientVerifyingShareB64u || 'fixture-client-verifier' }
       : {}),
-    ...(args.ed25519HssMaterialHandle !== ''
+    ...(args.ed25519WorkerMaterialHandle !== ''
       ? {
-          ed25519HssMaterialHandle:
-            args.ed25519HssMaterialHandle ||
-            `ed25519-hss-material:${args.thresholdSessionId}:fixture-binding`,
+          ed25519WorkerMaterialHandle:
+            args.ed25519WorkerMaterialHandle ||
+            `ed25519-worker-material:${args.thresholdSessionId}:fixture-binding`,
         }
       : {}),
-    ...(args.ed25519HssMaterialBindingDigest !== ''
+    ...(args.ed25519WorkerMaterialBindingDigest !== ''
       ? {
-          ed25519HssMaterialBindingDigest:
-            args.ed25519HssMaterialBindingDigest || 'fixture-binding',
+          ed25519WorkerMaterialBindingDigest:
+            args.ed25519WorkerMaterialBindingDigest || 'fixture-binding',
         }
       : {}),
     routerAbNormalSigning: args.routerAbNormalSigning || {
@@ -495,7 +495,6 @@ function toFixtureWalletSessionJwt(
       sub: args.nearAccountId,
       walletId: args.nearAccountId,
       kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-      sessionId: args.sessionId,
       thresholdSessionId: args.sessionId,
       signingGrantId: args.signingGrantId,
       subjectId: args.nearAccountId,
@@ -945,7 +944,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
   });
   const getWarmSession = (nearAccountId: AccountId | string) =>
     capabilityReader.getWarmSession(nearAccountId);
-  const claimPrfFirstByThresholdSessionId = (args: {
+  const claimWarmSessionPrfFirstMaterial = (args: {
     thresholdSessionId: string;
     errorContext: string;
     uses?: number;
@@ -1203,7 +1202,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
         walletId: toWalletId(args.walletId),
         chainTarget: args.chainTarget,
       }),
-    claimPrfFirstByThresholdSessionId,
+    claimWarmSessionPrfFirstMaterial,
     ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {
       chain?: ThresholdEcdsaActivationChain;
       thresholdSessionId: string;

@@ -8,6 +8,7 @@ import { CompanyPage } from '@/pages/company/page';
 import { ContactPage } from '@/pages/contact/page';
 import { DashboardPage } from '@/pages/dashboard/page';
 import { DashboardLoginPage } from '@/pages/dashboard/login/page';
+import { NearLoginPage } from '@/pages/near-login/page';
 import { NotFoundPage } from '@/pages/not-found/page';
 import { ToasterThemed } from '@/components/ToasterThemed';
 import { useSiteTheme } from '@/shared/hooks/useSiteTheme';
@@ -108,6 +109,15 @@ export const App: React.FC = () => {
         return <NotFoundPage />;
     }
   }, [pathname]);
+
+  if (pathname === '/near-login') {
+    return (
+      <>
+        <NearLoginPage />
+        <ToasterThemed />
+      </>
+    );
+  }
 
   return (
     <SeamsWebProvider

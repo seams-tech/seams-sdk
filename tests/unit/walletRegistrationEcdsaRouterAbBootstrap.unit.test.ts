@@ -45,7 +45,8 @@ const NOW_MS = 1_800_000_000_000;
 const CREDENTIAL_ID_B64U = 'credential-router-ab-registration';
 const ROLE_LOCAL_SIGNING_MATERIAL_HANDLE = {
   kind: 'role_local_worker_session',
-  materialHandle: 'router-ab-ecdsa-role-local:threshold-ecdsa-session-1:router-ab-ecdsa-key:session-1',
+  materialHandle:
+    'router-ab-ecdsa-role-local:threshold-ecdsa-session-1:router-ab-ecdsa-key:session-1',
   bindingDigest: b64u(15, 32),
 } satisfies ThresholdEcdsaRoleLocalWorkerShareHandle;
 
@@ -117,10 +118,12 @@ function routerAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStat
   return state;
 }
 
-function walletSessionJwt(args: {
-  state?: RouterAbEcdsaHssNormalSigningStateV1;
-  mode?: 'normal_signing' | 'missing_normal_signing' | 'issuer_binding_only';
-} = {}): string {
+function walletSessionJwt(
+  args: {
+    state?: RouterAbEcdsaHssNormalSigningStateV1;
+    mode?: 'normal_signing' | 'missing_normal_signing' | 'issuer_binding_only';
+  } = {},
+): string {
   const payload: Record<string, unknown> = {
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
@@ -171,7 +174,7 @@ function clientBootstrap(): WalletRegistrationEcdsaClientBootstrap {
     keyScope: 'evm-family',
     relayerKeyId: RELAYER_KEY_ID,
     requestId: 'registration-request-1',
-    sessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     ttlMs: 300_000,
     remainingUses: 3,
@@ -182,10 +185,12 @@ function clientBootstrap(): WalletRegistrationEcdsaClientBootstrap {
   };
 }
 
-function serverBootstrap(args: {
-  jwtMode?: 'normal_signing' | 'missing_normal_signing' | 'issuer_binding_only';
-  state?: RouterAbEcdsaHssNormalSigningStateV1;
-} = {}): ThresholdEcdsaHssRoleLocalBootstrapValue {
+function serverBootstrap(
+  args: {
+    jwtMode?: 'normal_signing' | 'missing_normal_signing' | 'issuer_binding_only';
+    state?: RouterAbEcdsaHssNormalSigningStateV1;
+  } = {},
+): ThresholdEcdsaHssRoleLocalBootstrapValue {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: toWalletId(WALLET_ID),
@@ -237,9 +242,11 @@ function walletKey(): WalletRegistrationEcdsaWalletKey {
   };
 }
 
-function buildRegistrationBootstrap(args: {
-  signingMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
-} = {}) {
+function buildRegistrationBootstrap(
+  args: {
+    signingMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
+  } = {},
+) {
   const parsed = parseWalletRegistrationEcdsaHssRespond({
     clientBootstrap: clientBootstrap(),
     serverBootstrap: serverBootstrap(),

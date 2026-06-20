@@ -37,6 +37,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'ed25519-only.testnet',
       thresholdSessionId: 'ed25519-session-1',
       walletSessionJwt: 'jwt:ed25519-session-1',
+      runtimeValidated: true,
       remainingUses: 9,
     });
 
@@ -52,9 +53,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
-    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBe(
-      'jwt:ed25519-session-1',
-    );
+    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBe('jwt:ed25519-session-1');
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
       state: 'warm',
       sessionId: 'ed25519-session-1',
@@ -64,7 +63,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     expect(warmSession.capabilities.ecdsa.tempo.state).toBe('missing');
   });
 
-  test('does not treat cookie passkey Ed25519 client-base records as ready signing auth', async () => {
+  test('does not treat cookie passkey Ed25519 records as ready signing auth', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -72,7 +71,6 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'cookie-ed25519.testnet',
       thresholdSessionId: 'cookie-ed25519-session',
       thresholdSessionKind: 'cookie',
-      xClientBaseB64u: 'cookie-ed25519-client-base',
       remainingUses: 5,
     });
 
@@ -102,7 +100,6 @@ test.describe('WarmSessionStore lifecycle', () => {
       thresholdSessionId: 'email-otp-exhausted-session',
       walletSessionJwt: 'jwt:email-otp-exhausted-session',
       source: 'email_otp',
-      xClientBaseB64u: 'email-otp-client-base',
       remainingUses: 3,
     });
     const store = createWarmSessionTestServices({
@@ -135,7 +132,6 @@ test.describe('WarmSessionStore lifecycle', () => {
       thresholdSessionId: 'email-otp-record-exhausted-session',
       walletSessionJwt: 'jwt:email-otp-record-exhausted-session',
       source: 'email_otp',
-      xClientBaseB64u: 'email-otp-client-base',
       remainingUses: 0,
     });
     const store = createWarmSessionTestServices({
@@ -168,6 +164,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'batch-status.testnet',
       thresholdSessionId: 'batch-ed25519-session',
       walletSessionJwt: 'jwt:batch-ed25519-session',
+      runtimeValidated: true,
       remainingUses: 9,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -212,12 +209,11 @@ test.describe('WarmSessionStore lifecycle', () => {
           return {
             results: sessionIds.map((sessionId) => ({
               sessionId,
-              result:
-                statusBySessionId[sessionId as keyof typeof statusBySessionId] || {
-                  ok: false as const,
-                  code: 'not_found',
-                  message: 'missing',
-                },
+              result: statusBySessionId[sessionId as keyof typeof statusBySessionId] || {
+                ok: false as const,
+                code: 'not_found',
+                message: 'missing',
+              },
             })),
           };
         },
@@ -278,6 +274,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'dual.testnet',
       thresholdSessionId: 'ed25519-dual-session',
       walletSessionJwt: 'jwt:ed25519-dual-session',
+      runtimeValidated: true,
       remainingUses: 6,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {

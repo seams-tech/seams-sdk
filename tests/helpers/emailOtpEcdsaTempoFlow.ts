@@ -986,13 +986,13 @@ export async function runEmailOtpEcdsaTempoFlow(
       }
 
       const shouldReconstructEd25519 = input.signNearAfterLogin === true;
-      const thresholdEd25519PrfFirstB64u = String(
-        enrolled?.thresholdEd25519PrfFirstB64u || '',
+      const thresholdEd25519RecoveryCodeSecret32B64u = String(
+        enrolled?.thresholdEd25519RecoveryCodeSecret32B64u || '',
       ).trim();
       const ed25519Registration = shouldReconstructEd25519
         ? await registerEmailOtpEd25519HssKey({
             signingEngine,
-            prfFirstB64u: thresholdEd25519PrfFirstB64u,
+            prfFirstB64u: thresholdEd25519RecoveryCodeSecret32B64u,
           })
         : null;
       if (ed25519Registration) {
@@ -1213,18 +1213,15 @@ export async function runEmailOtpEcdsaTempoFlow(
 
       const runNearSign = async () => {
         try {
-          const signed = await pm.near.signTransactionsWithActions({
+          const signed = await pm.near.signTransactionWithActions({
             nearAccount: { accountId },
-            transactions: [
-              {
-                receiverId: 'w3a-v1.testnet',
-                actions: [{ type: ActionType.Transfer, amount: '1' }],
-              },
-            ],
+            transaction: {
+              receiverId: 'w3a-v1.testnet',
+              actions: [{ type: ActionType.Transfer, amount: '1' }],
+            },
             options: { confirmationConfig },
           });
-          const first = Array.isArray(signed) ? signed[0] : null;
-          const tx = (first as any)?.signedTransaction?.transaction || {};
+          const tx = (signed as any)?.signedTransaction?.transaction || {};
           return {
             ok: Array.isArray(signed) && signed.length === 1,
             signedCount: Array.isArray(signed) ? signed.length : 0,
@@ -2029,19 +2026,17 @@ export async function runEmailOtpReloadPhase(
           };
           try {
             if (kind === 'near') {
-              const signed = await pm.near.signTransactionsWithActions({
+              const signed = await pm.near.signTransactionWithActions({
                 nearAccount: { accountId },
-                transactions: [
-                  {
-                    receiverId: 'w3a-v1.testnet',
-                    actions: [{ type: ActionType.Transfer, amount: '1' }],
-                  },
-                ],
+                transaction: {
+                  receiverId: 'w3a-v1.testnet',
+                  actions: [{ type: ActionType.Transfer, amount: '1' }],
+                },
                 options: { confirmationConfig },
               });
               pushResult({
                 kind,
-                ok: Array.isArray(signed) && signed.length === 1,
+                ok: Boolean(signed?.signedTransaction),
                 chain: 'near',
               });
               return;

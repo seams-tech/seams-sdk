@@ -179,7 +179,9 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
   };
 }
 
-function makePreparationBase(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrationHssPreparationBase {
+function makePreparationBase(
+  expiresAtMs = Date.now() + 60_000,
+): StoredWalletRegistrationHssPreparationBase {
   const registrationPreparationId = registrationPreparationIdFromString(
     'wrp_registration_store_test',
   );
@@ -212,7 +214,9 @@ function makePreparationBase(expiresAtMs = Date.now() + 60_000): StoredWalletReg
   };
 }
 
-function makePreparation(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrationHssPreparation {
+function makePreparation(
+  expiresAtMs = Date.now() + 60_000,
+): StoredWalletRegistrationHssPreparation {
   return buildStoredWalletRegistrationHssPreparationPrepared({
     ...makePreparationBase(expiresAtMs),
     prepared: {
@@ -251,7 +255,7 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
         keyScope: 'evm-family',
         relayerKeyId: 'rk_add_signer',
         requestId: 'request-add-signer',
-        sessionId: 'session-add-signer',
+        thresholdSessionId: 'session-add-signer',
         signingGrantId: 'wallet-session-add-signer',
         ttlMs: 300_000,
         remainingUses: 1,
@@ -289,10 +293,12 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
     registrationPreparationId: preparation.registrationPreparationId,
     prepared: { kind: 'ed25519_prepared', ceremonyHandle: 'prepared-handle' },
   });
-  await expect(store.takePreparation(preparation.registrationPreparationId)).resolves.toMatchObject({
-    kind: 'hss_prepare_prepared',
-    registrationPreparationId: preparation.registrationPreparationId,
-  });
+  await expect(store.takePreparation(preparation.registrationPreparationId)).resolves.toMatchObject(
+    {
+      kind: 'hss_prepare_prepared',
+      registrationPreparationId: preparation.registrationPreparationId,
+    },
+  );
   await expect(store.takePreparation(preparation.registrationPreparationId)).resolves.toBeNull();
 
   const ceremony = makeCeremony();
@@ -433,7 +439,7 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
           recoveryExportCapable: true,
           session: {
             sessionKind: 'jwt',
-            sessionId: 'session',
+            thresholdSessionId: 'session',
             signingGrantId: 'wallet-session',
             expiresAtMs: Date.now() + 60_000,
             jwt: 'secret-jwt',

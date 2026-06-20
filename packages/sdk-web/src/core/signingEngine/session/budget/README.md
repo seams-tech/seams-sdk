@@ -2,7 +2,7 @@
 
 ## Owns
 
-Wallet signing-session budget reads, projection helpers, reservations, spend
+Signing grant budget reads, projection helpers, reservations, spend
 finalization, and trusted budget status fetches.
 
 ## May Import

@@ -390,7 +390,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     }
     const signingGrantId = String(currentRecord.signingGrantId || '').trim();
     if (!signingGrantId) {
-      throw new Error('Email OTP ECDSA export requires wallet signing-session identity');
+      throw new Error('Email OTP ECDSA export requires signing grant identity');
     }
     const exportSigningSessionAuthLane = {
       kind: 'signing_session' as const,

@@ -26,10 +26,10 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
           'PM_EXPORT_KEYPAIR_UI',
           'PM_REGISTER',
           'PM_UNLOCK',
-          'PM_SIGN_AND_SEND_TXS',
+          'PM_SIGN_AND_SEND_TX',
           'PM_EXECUTE_ACTION',
           'PM_SEND_TRANSACTION',
-          'PM_SIGN_TXS_WITH_ACTIONS',
+          'PM_SIGN_TX_WITH_ACTIONS',
           'PM_SIGN_DELEGATE_ACTION',
           'PM_SIGN_NEP413',
           'PM_SIGN_TEMPO',
@@ -60,10 +60,10 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     expect(byType['PM_EXPORT_KEYPAIR_UI']).toBe('fullscreen');
     expect(byType['PM_REGISTER']).toBe('fullscreen');
     expect(byType['PM_UNLOCK']).toBe('fullscreen');
-    expect(byType['PM_SIGN_AND_SEND_TXS']).toBe('fullscreen');
+    expect(byType['PM_SIGN_AND_SEND_TX']).toBe('fullscreen');
     expect(byType['PM_EXECUTE_ACTION']).toBe('fullscreen');
     expect(byType['PM_SEND_TRANSACTION']).toBe('fullscreen');
-    expect(byType['PM_SIGN_TXS_WITH_ACTIONS']).toBe('fullscreen');
+    expect(byType['PM_SIGN_TX_WITH_ACTIONS']).toBe('fullscreen');
     expect(byType['PM_SIGN_DELEGATE_ACTION']).toBe('fullscreen');
     expect(byType['PM_SIGN_NEP413']).toBe('fullscreen');
     expect(byType['PM_SIGN_TEMPO']).toBe('fullscreen');

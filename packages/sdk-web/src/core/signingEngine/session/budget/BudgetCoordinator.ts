@@ -19,12 +19,12 @@ import {
   type SigningBudgetReservationKey,
   type SigningBudgetFinalizationResult,
   type SigningSessionBudget,
-  type SigningSessionBudgetConsumer,
   type SigningSessionBudgetReservation,
   type SigningSessionBudgetReservationConflict,
   type SigningSessionBudgetReservationRecord,
   type SigningSessionBudgetReserveInput,
   type SigningSessionBudgetSuccessInput,
+  type SigningSessionBudgetStatusSync,
   type SigningSessionBudgetTraceExtraForEvent,
   type SigningSessionBudgetTraceEvent,
   type SigningSessionBudgetZeroSpendReason,
@@ -43,7 +43,7 @@ export type BudgetCoordinatorDeps = {
   readStatus: (
     args: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ) => Promise<SigningSessionStatus>;
-  consumeUse?: SigningSessionBudgetConsumer;
+  syncSuccessfulSpendStatus?: SigningSessionBudgetStatusSync;
   onTrace?: (event: SigningSessionBudgetTraceEvent) => void;
 };
 
@@ -270,7 +270,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
       const externallyConsumedAlreadyReflected =
         normalizedInput.kind === 'externally_consumed_success' && status.status === 'exhausted';
       if (status.status !== 'active' && !externallyConsumedAlreadyReflected) {
-        throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
+        throw new Error(`[SigningSessionBudget] signing grant budget is ${status.status}`);
       }
       if (normalizedInput.kind !== 'externally_consumed_success') {
         const expected = normalizeRequired(
@@ -319,7 +319,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
     }
     const successIdentityKey = signingBudgetReservationKey(successIdentity);
 
-    const spendPromise = this.recordSpend(normalizedInput)
+    const spendPromise = this.syncSuccessfulSpendStatus(normalizedInput)
       .then((status) => {
         const result = finalizationResultFromStatus(successIdentity, status);
         this.emitFinalizationTrace(normalizedInput, result);
@@ -430,12 +430,12 @@ export class BudgetCoordinator implements SigningSessionBudget {
     );
   }
 
-  private async recordSpend(
+  private async syncSuccessfulSpendStatus(
     input: SigningSessionBudgetSuccessInput,
   ): Promise<SigningSessionStatus> {
-    if (!this.deps.consumeUse) {
+    if (!this.deps.syncSuccessfulSpendStatus) {
       throw new Error(
-        '[SigningSessionBudget] consumeUse is required to record wallet signing-session spend',
+        '[SigningSessionBudget] successful spend status sync is required',
       );
     }
     const spend = input.spend;
@@ -448,7 +448,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
       spend,
       trustedStatusAuth: input.trustedStatusAuth,
     });
-    const status = await this.deps.consumeUse({
+    const status = await this.deps.syncSuccessfulSpendStatus({
       owner: walletBudgetOwnerForLane(spend.lane),
       signingGrantId,
       uses: spend.uses,

@@ -248,7 +248,9 @@ export type SigningCapabilityReaderDeps = {
   readEd25519SessionRecordByThresholdSessionId?: (args: {
     thresholdSessionId: string;
   }) => ThresholdEd25519SessionRecord | null;
-  readEmailOtpEcdsaSessionRecord?: (args: EcdsaCapabilityLookupArgs) => ThresholdEcdsaSessionRecord | null;
+  readEmailOtpEcdsaSessionRecord?: (
+    args: EcdsaCapabilityLookupArgs,
+  ) => ThresholdEcdsaSessionRecord | null;
   readPasskeyEcdsaSessionRecord?: (
     args: EcdsaCapabilityLookupArgs & {
       storageSource: EcdsaPasskeyStorageSource;
@@ -384,7 +386,7 @@ function readEd25519CapabilityRecord(
   }
 
   const signableSession = classifyRouterAbEd25519PersistedSigningRecord(record);
-  if (signableSession.kind !== 'signable') {
+  if (signableSession.kind !== 'runtime_validated') {
     return readError(
       lane,
       'record_mismatch',
@@ -530,7 +532,7 @@ function validateLaneCandidateForSigningLane(
     return readError(
       lane,
       'record_mismatch',
-      'Session record wallet signing session does not match selected lane',
+      'Session record signing grant does not match selected lane',
     );
   }
   if (candidate.curve === 'ecdsa') {
@@ -578,7 +580,6 @@ function isEcdsaPasskeyStorageSource(
 ): source is EcdsaPasskeyStorageSource {
   return source === 'login' || source === 'registration' || source === 'manual-bootstrap';
 }
-
 
 function readError(
   lane: SelectedSigningSessionPlanningLane,

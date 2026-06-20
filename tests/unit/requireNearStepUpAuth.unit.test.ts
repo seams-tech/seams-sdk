@@ -6,6 +6,8 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
+import { ActionType } from '../../packages/sdk-web/src/core/types/actions';
+import { requiredNearTransactionSignatureUses } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/signatureUses';
 
 test.describe('requireNearStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {
@@ -39,6 +41,50 @@ test.describe('requireNearStepUpAuth', () => {
     });
   });
 
+  test('uses a one-remaining-use warm session for one multi-action transaction', async () => {
+    const requiredSignatureUses = requiredNearTransactionSignatureUses({
+      receiverId: 'contract.testnet',
+      actions: [
+        {
+          action_type: ActionType.FunctionCall,
+          method_name: 'setGreeting',
+          args: '{}',
+          gas: '30000000000000',
+          deposit: '0',
+        },
+        {
+          action_type: ActionType.Transfer,
+          deposit: '1',
+        },
+      ],
+    });
+    const signingAuthPlan = {
+      kind: SigningAuthPlanKind.WarmSession,
+      method: 'passkey' as const,
+      accountId: 'alice.testnet',
+      intent: 'transaction_sign' as const,
+      sessionId: 'threshold-session-warm-one',
+      expiresAtMs: 1_777_777_777_000,
+      remainingUses: 1,
+    };
+    const signingLane = buildEd25519PasskeySigningLane({
+      accountId: 'alice.testnet',
+      signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm-one'),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+        'threshold-session-warm-one',
+      ),
+      storageSource: 'login',
+    });
+
+    const prepared = await requireNearStepUpAuth({
+      signingAuthPlan,
+      signingLane,
+      requiredSignatureUses,
+    });
+
+    expect(prepared.kind).toBe('warm_session');
+  });
+
   test('returns an email-otp branch with the typed challenge prompt', async () => {
     const signingAuthPlan = {
       kind: SigningAuthPlanKind.EmailOtpReauth,
@@ -54,7 +100,7 @@ test.describe('requireNearStepUpAuth', () => {
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLane,
-      requiredSignatureUses: 2,
+      requiredSignatureUses: 1,
       emailOtpSigning: {
         prepare: async ({ requiredSignatureUses }) => {
           preparedUses.push(requiredSignatureUses);
@@ -64,7 +110,7 @@ test.describe('requireNearStepUpAuth', () => {
       },
     });
 
-    expect(preparedUses).toEqual([2]);
+    expect(preparedUses).toEqual([1]);
     expect(prepared.kind).toBe('email_otp');
     if (prepared.kind !== 'email_otp') throw new Error('expected email_otp branch');
     expect(prepared.emailOtpPrompt.challengeId).toBe('otp-1');
@@ -89,7 +135,7 @@ test.describe('requireNearStepUpAuth', () => {
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLane,
-      requiredSignatureUses: 2,
+      requiredSignatureUses: 1,
       passkeyEd25519Reconnect: {
         prepare: async ({ requiredSignatureUses }) => {
           preparedUses.push(requiredSignatureUses);
@@ -103,7 +149,7 @@ test.describe('requireNearStepUpAuth', () => {
       },
     });
 
-    expect(preparedUses).toEqual([2]);
+    expect(preparedUses).toEqual([1]);
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyReconnect).toEqual({

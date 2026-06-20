@@ -19,7 +19,7 @@ import {
 } from './helpers/warmSessionStore.fixtures';
 
 test.describe('WarmSessionStore transitions and persistence assertions', () => {
-  test('emits an Ed25519 provision transition after the persisted capability appears', async () => {
+  test('emits an Ed25519 provision transition after authorization appears', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -64,6 +64,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       relayerKeyId: 'rk-ed25519-transition',
       participantIds: [1, 2],
       sessionKind: 'jwt',
+      signerSlot: 1,
       source: 'login',
     });
 
@@ -83,7 +84,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       after: {
         capabilities: {
           ed25519: {
-            state: 'ready',
+            state: 'material_pending',
             thresholdSessionId: sessionId,
             prfClaimState: 'warm',
           },
@@ -124,8 +125,8 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
             kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
             signingWorkerId: 'signing-worker-transition',
           },
-          ed25519HssMaterialHandle: '',
-          ed25519HssMaterialBindingDigest: '',
+          ed25519WorkerMaterialHandle: '',
+          ed25519WorkerMaterialBindingDigest: '',
           remainingUses: 7,
           expiresAtMs,
           source: 'login',
@@ -147,6 +148,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       relayerKeyId: 'rk-ed25519-pending-material',
       participantIds: [1, 2],
       sessionKind: 'jwt',
+      signerSlot: 1,
       source: 'login',
     });
 
@@ -168,8 +170,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     });
     const signingCapability = readSigningCapabilityRecord(
       {
-        readEd25519SessionRecordByThresholdSessionId: () =>
-          warmSession.capabilities.ed25519.record,
+        readEd25519SessionRecordByThresholdSessionId: () => warmSession.capabilities.ed25519.record,
       },
       lane,
     );
@@ -212,6 +213,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         relayerKeyId: 'rk-ed25519-unpersisted',
         participantIds: [1, 2],
         sessionKind: 'jwt',
+        signerSlot: 1,
         source: 'login',
       }),
     ).rejects.toThrow(
@@ -251,9 +253,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       onTransition: (event) => {
         transitions.push(event);
       },
-      listThresholdEcdsaRecordsForWalletTarget: () => [
-        { source: 'login', record: staleRecord },
-      ],
+      listThresholdEcdsaRecordsForWalletTarget: () => [{ source: 'login', record: staleRecord }],
       provisionThresholdEcdsaSession: async (request) => {
         if (!('walletKey' in request) || !('lanePolicy' in request)) {
           throw new Error('expected exact ECDSA activation request');

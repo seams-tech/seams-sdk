@@ -27,7 +27,7 @@ flows or browser assembly.
   export recovery, and warm-session status coordination.
 - `session/planning/`: signing-operation planning, operation fingerprints, and
   operation-id binding.
-- `session/budget/`: wallet signing-session budget reads, projection,
+- `session/budget/`: signing grant budget reads, projection,
   reservation, and spend finalization.
 - `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts,
   wallet-auth policy resolution, intent digest preparation, and channel message

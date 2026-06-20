@@ -63,7 +63,7 @@ run_in_dir() {
 build_near_signer() {
   run_in_dir "$SOURCE_WASM_SIGNER" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
-    wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release
+    wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release --features hss-client-exports
 
   run_in_dir "$SOURCE_WASM_SIGNER" \
     with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \

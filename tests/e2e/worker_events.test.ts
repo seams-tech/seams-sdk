@@ -21,7 +21,7 @@ test.describe('Worker Communication Protocol', () => {
   });
 
   // exercises full signer-worker pipeline for function call, expecting progress events even on fetch failure
-  test('Progress Messages - SignTransactionsWithActions', async ({ page }) => {
+  test('Progress Messages - SignTransactionWithActions', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     let operationalNearPublicKey = '';

@@ -9,9 +9,7 @@ import {
   type SealedSigningRootShare,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
-import {
-  initSync as initHssClientSignerWasmSync,
-} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { initSync as initHssClientSignerWasmSync } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
@@ -35,10 +33,7 @@ type ThresholdPrfFixtureCorpus = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(
-  __dirname,
-  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
-);
+const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-t-of-n.json');
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
@@ -189,9 +184,10 @@ async function roleLocalBootstrapWithClientShare(args: {
 
 test('ECDSA role-local bootstrap uses signing-root resolver when configured and preserves response shape', async () => {
   const decryptCalls: number[] = [];
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose('ecdsa-hss/y_server');
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
     signingRootShareResolverAdapters: hostedResolverConfigFromFixture({
       vector,
       decryptCalls,
@@ -215,13 +211,13 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
   expect(bootstrapped.value.keyHandle).toBeTruthy();
   expect(bootstrapped.value.thresholdEcdsaPublicKeyB64u).toBeTruthy();
   expect(bootstrapped.value.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
-  expect(bootstrapped.value.sessionId).toBe('ecdsa-session-1');
+  expect(bootstrapped.value.thresholdSessionId).toBe('ecdsa-session-1');
   expect(bootstrapped.value.signingGrantId).toBe('signing-grant-1');
   expect(decryptCalls).toEqual([1, 2]);
 });
 
 test('ECDSA self-host signing-root resolver supplies fixed project scope when session policy has no runtime scope', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose('ecdsa-hss/y_server');
   const signingRootShareResolver = createSelfHostedSigningRootShareResolver({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
@@ -235,6 +231,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
       signingRootShareResolver,
     },
     isNode: true,
@@ -250,19 +247,20 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   if (!bootstrapped.ok) throw new Error(bootstrapped.message);
   expect(bootstrapped.value.ecdsaThresholdKeyId).toBeTruthy();
   expect(bootstrapped.value.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
-  expect(bootstrapped.value.sessionId).toBe('ecdsa-self-host-session-1');
+  expect(bootstrapped.value.thresholdSessionId).toBe('ecdsa-self-host-session-1');
   expect(bootstrapped.value.signingRootId).toBe(SIGNING_ROOT_ID);
   expect(bootstrapped.value.signingRootVersion).toBe(SIGNING_ROOT_VERSION);
 });
 
 test('ECDSA signing-root wallet verification derives the known address from imported root-versioned shares', async () => {
   const decryptCalls: number[] = [];
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose('ecdsa-hss/y_server');
 
   const service = createThresholdSigningService({
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
       signingRootShareResolverAdapters: hostedResolverConfigFromFixture({
         vector,
         decryptCalls,

@@ -969,7 +969,7 @@ export async function bootstrapEcdsaSession(
     }
     // Authorization bootstraps may still be driven by a fresh WebAuthn proof
     // during passkey reauth. Preserve that proof so the server can refresh the
-    // wallet signing-session budget for the newly minted threshold material.
+    // signing grant budget for the newly minted threshold material.
     const webauthnAuthentication =
       resolvedSecretSource.kind === 'passkey'
         ? resolvedSecretSource.authorizationCredential || undefined

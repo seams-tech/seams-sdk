@@ -66,6 +66,9 @@ export type BrowserSigningSurfaceEnginePortsArgs = {
   shouldPrewarmWorkers: (workerBaseOrigin: string) => boolean;
   getTheme: () => ThemeName;
   ensureSealedRefreshStartupParity: () => Promise<void>;
+  restorePasskeyEd25519SigningMaterial: Parameters<
+    typeof createSigningEnginePorts
+  >[0]['restorePasskeyEd25519SigningMaterial'];
   getEnginePorts: () => SigningEnginePorts;
   getRegistrationPublicDeps: () => registrationPublic.RegistrationPublicDeps;
 };
@@ -100,6 +103,7 @@ export function createBrowserSigningSurfaceEnginePorts(
     getTheme: args.getTheme,
     signTempo: (signArgs) =>
       signEvmFamilyOperation(args.getEnginePorts().tempoSigningDeps, signArgs),
+    restorePasskeyEd25519SigningMaterial: args.restorePasskeyEd25519SigningMaterial,
     extractCosePublicKey: (attestationObjectBase64url: string) =>
       registrationPublic.extractCosePublicKey(
         args.getRegistrationPublicDeps(),

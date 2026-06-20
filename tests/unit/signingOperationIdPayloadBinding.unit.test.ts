@@ -9,27 +9,23 @@ test.describe('SigningOperationIdPayloadBinding', () => {
       `op-near-fingerprint-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     );
     const firstFingerprint = await computeSigningOperationFingerprint({
-      kind: 'near:transactions_with_actions',
+      kind: 'near:transaction_with_actions',
       payload: {
         nearAccountId: 'alice.testnet',
-        transactions: [
-          {
-            receiverId: 'bob.testnet',
-            actions: [{ type: 'Transfer', params: { deposit: '1' } }],
-          },
-        ],
+        transaction: {
+          receiverId: 'bob.testnet',
+          actions: [{ type: 'Transfer', params: { deposit: '1' } }],
+        },
       },
     });
     const secondFingerprint = await computeSigningOperationFingerprint({
-      kind: 'near:transactions_with_actions',
+      kind: 'near:transaction_with_actions',
       payload: {
         nearAccountId: 'alice.testnet',
-        transactions: [
-          {
-            receiverId: 'carol.testnet',
-            actions: [{ type: 'Transfer', params: { deposit: '2' } }],
-          },
-        ],
+        transaction: {
+          receiverId: 'carol.testnet',
+          actions: [{ type: 'Transfer', params: { deposit: '2' } }],
+        },
       },
     });
     const signingSessionCoordinator = new SigningSessionCoordinator();
