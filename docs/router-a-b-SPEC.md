@@ -778,6 +778,13 @@ A signable Wallet Session state binds:
 - binding digest and public verifier facts
 - budget expiry and remaining-use information
 
+Durable Wallet Session records may contain material handles, binding digests, or
+sealed material references. Those fields are restore hints, not durable
+sign-ready truth. A lane is sign-ready only after the current browser worker
+validates the material handle against the current Wallet Session, signing grant,
+threshold session, signing root, runtime policy scope, SigningWorker id, public
+verifier facts, and curve-specific active state.
+
 Cookie-mode signing-capable sessions are rejected for Router A/B signing paths.
 Legacy threshold JWT kinds are rejected at active signing-capable boundaries.
 
@@ -1160,7 +1167,10 @@ POST /v2/router-ab/ed25519/sign/presign-pool/prepare
 Router admits the request, binds scope and request digest, reserves budget, and
 forwards only admitted private material to SigningWorker. SigningWorker owns
 server-side Ed25519 signing material and one-use pool/finalize state. The
-browser worker owns Ed25519 HSS client material and signing-share generation.
+browser worker owns Ed25519 client material and signing-share generation.
+Persisted Ed25519 worker-material handles are hints for restore or validation;
+they do not make a lane signable until the current worker validates the handle
+for the current binding.
 
 ### 7.2 Presign-Pool Semantics
 
@@ -1196,13 +1206,42 @@ Burn semantics:
 
 ### 7.3 Final Signing Boundary
 
-Final Ed25519 signing consumes only a validated signable runtime state. Final
-signing must not restore material, claim PRF, run HSS reconstruction, or fall
-back to non-Router signing.
+Final Ed25519 signing consumes only a validated runtime material state, current
+Wallet Session credential, and current server-budget admission. Restore,
+worker-material validation, PRF claims, and HSS setup happen before final
+signing. The final signing path must not restore material, claim PRF, run HSS
+reconstruction, read raw persistence optionals, or fall back to non-Router
+signing.
 
 If material is absent or invalid, readiness must classify the lane as
 `restore_available`, `material_pending`, or `material_restore_required` before
 final signing begins.
+
+### 7.4 Runtime Material Readiness
+
+Ed25519 readiness has three distinct layers:
+
+- auth-ready: Wallet Session bearer auth and budget identity are present
+- restore-ready: durable sealed worker material or a complete persisted material
+  hint exists
+- sign-ready: the current browser worker has validated worker-owned material for
+  the current binding
+
+The persisted record parser must classify raw records into strict branches such
+as `auth_ready_material_pending`, `restore_available`,
+`material_hint_unvalidated`, `non_signing`, or `invalid`. It must not produce a
+sign-ready branch from persisted fields alone.
+
+The runtime-validated material state should carry a material reference,
+material binding, session binding, Router A/B normal-signing state, expiry, and
+no raw client-base material. Flat identity values used by route builders should
+be derived from those bindings instead of duplicated into a broad object.
+
+Page reload, worker restart, Wallet Session remint, signing grant change,
+signing root change, SigningWorker change, verifier change, and material binding
+change all invalidate runtime validation. After invalidation, the lane returns
+to `restore_available` or `material_pending` until the worker validates or
+restores the material again.
 
 ## 8. ECDSA-HSS
 
@@ -1354,6 +1393,13 @@ request-digest drift fail closed.
 | Canonical `x` / `privateKeyHex` | Authorized client export runtime only |
 | ECDSA presign/triple/nonce material | SigningWorker/signing backend only |
 | Public `X_client`, `X_server`, `X`, address | Public transcript after validation |
+
+ECDSA-HSS follows the same persisted-hint versus runtime-validation boundary as
+Ed25519. Persisted role-local material, role-local blobs, presign handles, and
+activation facts are not sign-ready by themselves. Tempo/EVM signing may use
+them only after the current worker and SigningWorker active-state binding prove
+the material belongs to the current Wallet Session, signing grant, chain target,
+activation epoch, SigningWorker id, and ECDSA public identity.
 
 ### 8.7 Detailed ECDSA-HSS Protocol Spec
 
@@ -1675,6 +1721,10 @@ Source guards should reject:
 - old public threshold signing route reintroduction
 - client-visible Router normal-signing grants
 - TypeScript access to raw Ed25519 client-base material or ECDSA signing shares
+- final signing paths that read raw persistence material optionals or invoke
+  restore/HSS setup
+- persisted record classifiers that mark material handles as sign-ready without
+  worker validation
 - logs containing protocol payload plaintext
 - server export responses containing canonical private keys or raw root material
 
