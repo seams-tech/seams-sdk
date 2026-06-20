@@ -1,0 +1,10 @@
+flowchart TD
+  Owner["Owner lane<br/>fresh user authorization"] --> Mandate["Mandate policy<br/>typed intent, budget, expiry"]
+  Owner --> Reshare["Address-preserving lane creation<br/>new holder share and server share"]
+  Reshare --> LinkedDevice["Linked-device lane<br/>device holder share, lane epoch, permission policy"]
+  Reshare --> Agent["Delegated-agent lane<br/>agent holder share, mandate policy, revocation state"]
+  Mandate --> Admission["Delegated signing admission<br/>lane status, policy, intent digest, budget, replay"]
+  LinkedDevice --> Admission
+  Agent --> Admission
+  Admission --> Signing["Router A/B normal signing<br/>only for admitted intent"]
+  Revoke["Revocation<br/>disable lane and reject stale epoch"] --> Admission

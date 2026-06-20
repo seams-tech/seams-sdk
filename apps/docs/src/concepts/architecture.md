@@ -4,225 +4,154 @@ title: Architecture
 
 # Architecture
 
-- [Overview](#overview)
-- [Transaction Lifecycle](#transaction-lifecycle)
-  - [Registration Flow](#registration-flow)
-  - [Login Flow](#login-flow)
-  - [Transaction Flow](#transaction-flow)
-- [SecureConfirm WebAuthn](./secureconfirm-webauthn)
-- [Passkey Scope](./passkey-scope)
+Seams is key, credential, and policy infrastructure for digital authority. It
+lets an application prove who is acting, bind that proof to an approved intent,
+enforce policy, and execute through a wallet, payment rail, marketplace,
+merchant API, or agent tool.
 
-## Overview
+The architecture has three jobs:
 
-The wallet runs in an isolated iframe context, separate from application code. Think of it as a mini web app in an iframe that your app "dials into" for secure operations.
+1. keep signing authority split across holder-side and server-side material;
+2. keep policy decisions in front of execution;
+3. keep recovery, export, delegation, and rotation explicit.
 
-![Iframe Isolation Architecture](/diagrams/architecture.png)
-
-The wallet mounts a hidden iframe at its own origin. Inside that iframe, two WASM workers hold secrets:
-
-- **SecureConfirm worker** – owns WebAuthn/PRF handling, Shamir 3-pass with the relay, derives `WrapKeySeed`, enforces canonical digests.
-- **Signer worker** – receives only `WrapKeySeed + wrapKeySalt` over an internal `MessageChannel`, derives the KEK, unwraps `near_sk`, and signs.
-
-Normal sessions are **2-of-2** (device + relay via Shamir 3-pass) and always require fresh WebAuthn for `PRF.first`. A high-friction **PRF.second recovery** path exists only for registration, device linking, or explicit recovery.
-
-The transaction signing flow follows this lifecycle:
-
-1. **Mount**: SDK creates hidden iframe pointing at wallet origin.
-2. **Request**: App calls methods like `registerPasskey()` or `signTransactionsWithActions()` by sending typed messages.
-3. **User Confirmation**: Wallet routes requests to workers, triggers a TouchID/WebAuthn prompt, and shows intent UI from the wallet origin.
-4. **Execute**: SecureConfirm-WebAuthn completes, SecureConfirm worker runs Shamir 3-pass (or explicit recovery), derives `WrapKeySeed`, and signer worker signs.
-5. **Response**: Wallet streams progress events back to your app, then returns signed transaction payloads.
-
-<div style="margin-top: 6rem;"></div>
-
-# Transaction Lifecycle
-
-This section outlines the core stages of the transaction lifecycle for:
-
-1. registration flows,
-2. login flows, and
-3. transaction signing flows (WebAuthn authentication).
-
-Each section illustrates how the wallet handles SecureConfirm operations, onchain verification, transaction signing, and dispatch.
-
-## Registration Flow
-
-Registration creates the passkey, derives deterministic keys, and seals them with the dual-worker pipeline from a single TouchID prompt. PRF outputs stay SecureConfirm-side; the signer only receives `WrapKeySeed + wrapKeySalt` over the internal channel.
+## Component Map
 
 ```mermaid
-sequenceDiagram
-    box rgb(243, 244, 246) Iframe Wallet
-    participant UI as Wallet (iframe main)
-    participant SecureConfirm as SecureConfirm Worker
-    participant Signer as Signer Worker
-    end
-    participant Relay as Relay
-    participant Contract as Web3Authn Contract
+flowchart LR
+  App["App origin<br/>SDK facade, UI integration, public request data"]
+  Iframe["Wallet iframe origin<br/>wallet UI, encrypted IndexedDB, workers"]
+  ClientWorker["Browser signing workers<br/>holder-side material and crypto handles"]
+  Router["Router<br/>public API, auth, policy, replay, budget"]
+  DeriverA["Deriver A<br/>role-local server material"]
+  DeriverB["Deriver B<br/>role-local server material"]
+  SigningWorker["SigningWorker<br/>activated server signing material"]
 
-    Note over UI,SecureConfirm: Single WebAuthn prompt (PRF.first + PRF.second)
-    UI->>SecureConfirm: requestRegistrationCredentialConfirmation()
-    SecureConfirm->>UI: TouchID prompt + confirm UI
-    UI->>SecureConfirm: Credential with PRF outputs
-    SecureConfirm->>SecureConfirm: Derive deterministic SecureConfirm keypair<br/>Compute WrapKeySeed + wrapKeySalt<br/>Seal vault ciphertext
-    SecureConfirm-->>Signer: MessageChannel: WrapKeySeed + wrapKeySalt
-    Signer->>Signer: Derive KEK, wrap deterministic NEAR key, sign registration tx
-    Signer-->>UI: near_pk + encrypted NEAR key + signed tx
-    UI->>Relay: Submit /registration/bootstrap (or direct)
-    Relay->>Contract: Forward registration tx
-    Contract-->>UI: Registration receipt / txId
-    UI->>UI: Store encrypted SecureConfirm/NEAR keys + authenticator in IndexedDB
+  App --> Iframe
+  Iframe --> ClientWorker
+  App --> Router
+  ClientWorker --> Router
+  Router --> DeriverA
+  Router --> DeriverB
+  DeriverA <--> DeriverB
+  DeriverA --> SigningWorker
+  DeriverB --> SigningWorker
+  Router --> SigningWorker
+  SigningWorker --> Router
+  Router --> ClientWorker
 ```
 
-::: tip **Steps:**
+## Runtime Roles And Boundaries
 
-1. **WebAuthn registration** – SecureConfirm worker collects the credential (PRF.first + PRF.second) from the wallet-origin UI.
-2. **Derive deterministic keys** – SecureConfirm worker derives deterministic SecureConfirm/NEAR keys, `WrapKeySeed`, and `wrapKeySalt`; only the seed + salt cross to the signer via `MessageChannel`.
-3. **Sign and register** – Signer worker seals the deterministic NEAR key with the KEK and signs the registration tx.
-4. **Store vault** – Encrypted deterministic keys, salts, and authenticator metadata live in the wallet’s IndexedDB; plaintext never leaves workers.
-   :::
+| Role | Responsibility |
+| --- | --- |
+| App origin | Integration UI and public SDK calls. It receives request data and public results. |
+| Wallet iframe origin | Wallet UI, encrypted wallet-origin records, auth-method flows, workers, and session state. |
+| Browser signing workers | Holder-side material, HSS client handles, and operation-local signing state. |
+| Router | Public API boundary for admission, policy, Wallet Session verification, replay, quota, and signing budget. |
+| Deriver A | A-side derivation role with A-side sealed material and A-side protocol state. |
+| Deriver B | B-side derivation role with B-side sealed material and B-side protocol state. |
+| SigningWorker | Hot normal-signing role with activated server signing material for admitted sessions. |
 
-**Key cryptographic properties:**
+The app origin does not receive holder shares, PRF outputs, Email OTP secret
+material, VoiceID templates, server shares, root shares, or exported keys unless
+the user completes an explicit export flow.
 
-- **Origin-bound PRF** – WebAuthn PRF binds all derived keys to the wallet origin.
-- **Challenge binding** – Bootstrap SecureConfirm ties fresh NEAR block data to the WebAuthn challenge for replay resistance.
-- **Atomic verification** – Contract verifies SecureConfirm proof + WebAuthn registration together.
-- **Isolation** – Only `WrapKeySeed + wrapKeySalt` cross the worker boundary; PRF outputs and `secureconfirm_sk` stay SecureConfirm-side.
+## Product Layers
 
-## Login Flow
+| Layer | Responsibility |
+| --- | --- |
+| Proof layer | Passkeys, Email OTP, VoiceID, device proof, org proof, wallet proof, and configured external credentials. |
+| Policy and mandate layer | Signed mandates, typed intent digests, policy epochs, budgets, expiry, revocation, and audit state. |
+| Key infrastructure | Holder shares, server shares, Router A/B, SigningWorker, recovery, export, delegation, and rotation. |
+| Enforcement gateway | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
+| Execution adapters | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions. |
 
-Session unlock reconstructs `secureconfirm_sk` and derives a fresh `WrapKeySeed`. Primary mode is Shamir 3-pass (relay + device), always gated by fresh WebAuthn (`PRF.first_auth`). Backup mode uses `PRF.second` only in explicit Recovery Mode.
+## Router A/B Architecture
 
-### Path A: Primary Shamir 3-Pass (fresh TouchID)
+Router A/B is the split-server boundary behind key derivation and signing
+admission.
 
-```mermaid
-sequenceDiagram
-    box rgb(243, 244, 246) Iframe Wallet
-    participant Wallet as Wallet
-    participant Worker as SecureConfirm Worker
-    end
-    participant Relay as Relay Server (Optional)
+Registration, recovery, export, refresh, rotation, delegation, and
+SigningWorker activation use the split derivation path:
 
-    Note over Wallet,Worker: Phase 1: Fresh PRF.first_auth
-    Wallet->>Worker: WebAuthn authentication (TouchID) → PRF.first_auth
-
-    Note over Wallet,Relay: Phase 2: Shamir 3-pass (2-of-2)
-    Worker->>Relay: shareA derived from PRF.first_auth
-    Relay->>Worker: shareB response
-    Worker->>Worker: Reconstruct secureconfirm_sk, derive WrapKeySeed
-    Worker-->>Wallet: Session unlocked ✓ (WrapKeySeed retained SecureConfirm-side)
+```text
+Client worker -> Router -> Deriver A + Deriver B -> Client or SigningWorker
 ```
 
-::: tip **Steps**:
+Day-to-day signing uses the hot signing path:
 
-1. Trigger WebAuthn PRF for `PRF.first_auth` (TouchID).
-2. SecureConfirm worker derives shareA and runs Shamir 3-pass with the relay to reconstruct `secureconfirm_sk`.
-3. Derive `WrapKeySeed` from `PRF.first_auth || secureconfirm_sk`; keep it inside the SecureConfirm worker.
-4. Session is ready to derive KEKs for signing. No secrets leave workers; main thread never sees PRF/`secureconfirm_sk`.
-   :::
-
-### Path B: Explicit PRF.second Recovery
-
-```mermaid
-sequenceDiagram
-    box rgb(243, 244, 246) Iframe Wallet
-    participant Wallet as Wallet
-    participant Worker as SecureConfirm Worker
-    end
-    participant Relay as Relay Server (Optional)
-
-    Note over Wallet,Worker: Recovery Mode only
-    Wallet->>Worker: WebAuthn authentication (TouchID) requesting PRF.second
-    Worker->>Worker: Re-derive secureconfirm_sk deterministically from PRF.second
-    Worker->>Worker: Derive WrapKeySeed, zeroize PRF.second after use
-    Worker-->>Wallet: Session unlocked ✓ (relay not required)
+```text
+Client worker -> Router -> SigningWorker -> Router -> Client worker
 ```
 
-::: tip **Steps**:
+Router is secret-light. It sees public routing metadata, policy decisions,
+Wallet Session admission, replay state, quota state, and encrypted role
+envelopes. Deriver A and Deriver B receive role-specific material. SigningWorker
+receives activated server signing material for the selected signing root, key
+version, lane, and session.
 
-1. User opts into Recovery Mode; wallet requests `PRF.second` in addition to `PRF.first`.
-2. SecureConfirm worker re-derives `secureconfirm_sk` deterministically (no relay needed).
-3. Derive `WrapKeySeed` and proceed with signing/unwrapping.
-4. PRF.second is zeroized immediately; this path is high-friction and logged.
-   :::
+## HSS And Key Derivation
 
-### Optional: JWT Session Token
+HSS means homomorphic secret sharing. Seams uses HSS to split and derive wallet
+key material homomorphically: each side transforms its own secret contribution
+and the protocol produces compatible signing shares.
 
-After login, you can optionally mint a JWT session token for web2 authentication:
+HSS is used for key-derivation operations:
 
-```mermaid
-sequenceDiagram
-    box Iframe Wallet
-    participant Wallet as Wallet
-    participant Worker as SecureConfirm Worker
-    end
-    participant Relay as Relay Server (Optional)
+- registration;
+- key export;
+- key delegation;
+- key rotation;
+- recovery;
+- refresh;
+- SigningWorker activation.
 
-    Note over Wallet,Relay: Optional JWT Session (After SecureConfirm Unlock)
-    Wallet->>Worker: 1. Generate fresh SecureConfirm challenge
-    Worker->>Wallet: SecureConfirm challenge + proof
-    Wallet->>Wallet: 2. WebAuthn authentication (TouchID prompt)
-    Wallet->>Relay: 3. Verify authentication + SecureConfirm proof
-    Relay->>Wallet: 4. JWT token
-```
+Normal transaction signing consumes the resulting signing shares. HSS is not
+rerun for every signature, and the wallet key is not reconstructed for ordinary
+signing.
 
-::: info **Security properties:**
+## Custody Model
 
-- **SecureConfirm stays in worker**: Never exposed to main thread
-- **Session-scoped**: SecureConfirm keypair is reconstructed per session with fresh WebAuthn
-- **Primary 2-of-2**: Shamir 3-pass uses relay + device
-- **PRF.second backup**: Only in Recovery Mode; zeroized immediately
-  :::
+Seams is non-custodial because hosted infrastructure cannot sign or export a
+user wallet key by itself. Valid signing requires all of these conditions:
 
-## Transaction Flow
+1. the selected holder lane participates;
+2. Router admits the operation under Wallet Session, policy, replay, quota, and
+   budget checks;
+3. SigningWorker participates with the activated server-side material for that
+   lane and key version.
 
-```mermaid
-sequenceDiagram
-    box rgb(243, 244, 246) Iframe Wallet
-    participant UI as Wallet (iframe main)
-    participant SecureConfirm as SecureConfirm Worker
-    participant Signer as Signer Worker
-    end
-    participant NEAR as NEAR RPC
-    participant Contract as Web3Authn Contract
+Export requires a separate, freshly authorized flow. Key rotation and lane
+delegation create or transform bounded signing capabilities without handing the
+wallet private key to an app, agent, or hosted Router.
 
-    Note over UI,SecureConfirm: Phase 1: Preparation
-    UI->>UI: Validate action inputs
-    UI->>SecureConfirm: signTransactionsWithActions(request)
-    SecureConfirm->>NEAR: Fetch nonce + block hash
-    NEAR-->>SecureConfirm: Nonce + block hash
-    SecureConfirm->>SecureConfirm: Canonical intent digest (receiverId + normalized actions)
+## Rotation And Delegation
 
-    Note over UI,SecureConfirm: Phase 2: ConfirmTxFlow (single TouchID)
-    SecureConfirm->>UI: Render confirm UI with intent digest
-    UI->>SecureConfirm: WebAuthn authentication (TouchID) → PRF.first_auth
-    SecureConfirm->>SecureConfirm: Shamir 3-pass (primary) or Recovery Mode (PRF.second) → secureconfirm_sk
-    SecureConfirm->>SecureConfirm: Derive WrapKeySeed, generate SecureConfirm proof for contract
-    SecureConfirm-->>Signer: MessageChannel: WrapKeySeed + wrapKeySalt
+Rotation covers several operations with different security effects:
 
-    Note over SecureConfirm,Signer: Phase 3: Signing in signer worker
-    Signer->>Signer: Derive KEK, decrypt/derive deterministic NEAR key
-    Signer->>Signer: Sign NEAR transaction(s)
-    Signer-->>UI: Signed transaction(s)
+| Operation | Typical result |
+| --- | --- |
+| Envelope rewrap | The same plaintext share is protected under new encryption. |
+| Server custody rotation | The same effective server contribution moves to a new custody envelope or role configuration. |
+| Lane share refresh | Holder and server lane shares change while the wallet address stays stable. |
+| Delegated lane creation | A device, agent, or service receives a bounded lane under policy. |
+| Wallet rekey | The wallet key changes, usually changing the address. |
 
-    Note over UI,NEAR: Phase 4: Broadcast
-    UI->>NEAR: Broadcast signed transaction(s)
-    NEAR-->>UI: Transaction result(s)
-    UI->>UI: Reconcile nonce (async)
-```
+Delegated devices and agents receive lane-scoped signing authority. They do not
+receive the wallet private key, recovery authority, export authority, or broad
+account control. Revocation is enforced through lane status, policy epoch,
+budget, expiry, and replay checks.
 
-::: tip **Steps:**
+## Diagram Sources
 
-1. **Preparation** – Validate inputs and fetch nonce/block hash; compute canonical intent digest in the SecureConfirm worker.
-2. **ConfirmTxFlow** – Single TouchID prompt; SecureConfirm worker runs Shamir 3-pass (or explicit Recovery Mode), derives `WrapKeySeed`, and produces the SecureConfirm proof; only the seed + salt cross to the signer.
-3. **Signing** – Signer worker derives/decrypts the deterministic NEAR key with the KEK and signs the transaction(s).
-4. **Broadcasting** – Wallet broadcasts signed txs to NEAR RPC, receives results, and reconciles nonce.
+Architecture diagrams are rendered in docs with Mermaid code blocks. Source
+copies live under `/diagrams/` for reuse:
 
-**Single biometric prompt** per transaction.
-:::
+- `/diagrams/platform-layers.mmd`
+- `/diagrams/runtime-architecture.mmd`
+- `/diagrams/router-ab-flows.mmd`
+- `/diagrams/custody-boundaries.mmd`
+- `/diagrams/delegated-lanes.mmd`
 
-## Next Steps
-
-- [SecureConfirm WebAuthn](secureconfirm-webauthn) discusses how the SecureConfirm-WebAuthn system works
-- Read about the [Security Model](security-model)
-- Explore [Passkey Scope Strategy](passkey-scope) for deployment options
-- Review [Login Flow](#login-flow) for the primary 2-of-2 unlock path
+SVG exports can be added when a target surface cannot render Mermaid directly.

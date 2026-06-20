@@ -4,7 +4,7 @@ import { useSiteRouter } from '@/app/router/useSiteRouter';
 
 export function FinalCTA(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
-  const getStartedProps = linkProps('/docs/getting-started/installation');
+  const getStartedProps = linkProps('/docs/concepts/');
   const contactProps = linkProps('/contact/');
 
   return (
@@ -15,11 +15,11 @@ export function FinalCTA(): React.JSX.Element {
       <div className="final-cta__content">
         <p className="final-cta__eyebrow">Start your evaluation</p>
         <h2 id="final-cta-title" className="final-cta__title">
-          Ship embedded wallet UX with clear security boundaries
+          Ship policy-bound signing with clear custody boundaries
         </h2>
         <p className="final-cta__description">
-          Pick a self-serve path for integration or start a sales conversation for architecture and
-          rollout planning.
+          Pick a self-serve path for integration or start a sales conversation for architecture,
+          deployment, and rollout planning.
         </p>
       </div>
       <div className="final-cta__actions">

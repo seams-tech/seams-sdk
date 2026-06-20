@@ -20,10 +20,10 @@ const footerGroups: FooterGroup[] = [
   {
     heading: 'Products',
     links: [
-      { label: 'Embedded Wallets', to: '/products/' },
-      { label: 'Threshold Signing', to: '/docs/concepts/threshold-signing' },
-      { label: 'SecureConfirm WebAuthn', to: '/docs/concepts/secureconfirm-webauthn' },
-      { label: 'Developer Docs', to: '/docs/getting-started/overview' },
+      { label: 'Key Infrastructure', to: '/products/' },
+      { label: 'Threshold Signing', to: '/docs/concepts/threshold-signing/' },
+      { label: 'Auth Methods', to: '/docs/concepts/auth-methods/' },
+      { label: 'Developer Docs', to: '/docs/concepts/' },
     ],
   },
   {
@@ -37,10 +37,10 @@ const footerGroups: FooterGroup[] = [
   {
     heading: 'Support',
     links: [
-      { label: 'Help Center', to: '/docs/getting-started/overview' },
+      { label: 'Help Center', to: '/docs/concepts/' },
       { label: 'Contact Sales', to: '/contact/' },
-      { label: 'Security Model', to: '/docs/concepts/security-model' },
-      { label: 'Architecture', to: '/docs/concepts/threshold-signing' },
+      { label: 'Custody Model', to: '/docs/concepts/custody/' },
+      { label: 'Architecture', to: '/docs/concepts/architecture' },
     ],
   },
   {
@@ -48,7 +48,7 @@ const footerGroups: FooterGroup[] = [
     links: [
       { label: 'About', to: '/company/' },
       { label: 'Pricing', to: '/pricing/' },
-      { label: 'Documentation', to: '/docs/getting-started/overview' },
+      { label: 'Documentation', to: '/docs/concepts/' },
       { label: 'Get in Touch', to: '/contact/' },
     ],
   },

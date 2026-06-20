@@ -34,29 +34,29 @@ export function HomeHero(): React.JSX.Element {
 
   const installBlockCmd = getInstallCommand(packageManager);
   const highlightedInstall = highlightInstallCommand(installBlockCmd);
-  const getStartedProps = linkProps('/docs/getting-started/installation');
+  const getStartedProps = linkProps('/docs/concepts/');
   const contactSalesProps = linkProps('/contact/');
 
   return (
     <>
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
-          <span className="hero-title-text">Simple Embedded Wallets, Secured by Passkeys + MPC</span>
+          <span className="hero-title-text">Key and Credential Infrastructure for Policy-Bound Apps</span>
           <span className="hero-title-brand-mark" aria-hidden="true">
             <SeamsLogo variant="transparent-mark" size={148} />
           </span>
         </h1>
         <h2 className="hero-subtitle">
-          Use biometrics and passkeys for human verification, with embedded wallets that integrate
-          directly into your existing app.
+          Prove users, devices, and agents. Bind approvals to typed intents. Enforce policy before
+          signatures, payments, or API actions execute.
         </h2>
         <p className="hero-description">
-          Ship on web today and iOS soon, with threshold-signature (MPC) sessions for secure signing
-          across NEAR, Tempo, and EVM.
+          Ship embedded wallets first, then extend the same control model to credentials, mandates,
+          delegated agents, and Router A/B deployments.
         </p>
         <p className="hero-proof">
-          No lock-in by design: start hosted, then migrate to self-hosted wallet infrastructure when
-          you are ready.
+          Non-custodial by design: holder shares, server shares, export, rotation, and delegated
+          lanes stay behind explicit boundaries.
         </p>
         <div className="hero-ctas">
           <a

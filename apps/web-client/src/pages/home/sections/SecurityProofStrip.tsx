@@ -19,33 +19,33 @@ type SecurityCard = {
 const securityCards: SecurityCard[] = [
   {
     id: 'custody',
-    label: 'Hardware-isolated self custody',
+    label: 'Non-custodial custody boundary',
     detail:
-      'Keys are sharded, end-to-end encrypted, and distributed across isolated services. Wallets are only reconstructed in secure hardware environments.',
+      'Signing authority is split across holder-side material and admitted server-side participation. Export requires a fresh authorized flow.',
     diagramAlt: 'Wireframe cube over a perspective security grid',
     Diagram: SecurityCustodyDiagram,
   },
   {
     id: 'defense',
-    label: 'Defense in depth',
+    label: 'Policy before execution',
     detail:
-      'Secure enclaves protect keys, encrypted networks safeguard data, and RBAC with micro-segmentation enforces least privilege.',
+      'Typed intents, mandates, revocation state, budgets, and replay checks run before signatures, payments, or API actions execute.',
     diagramAlt: 'Wireframe terrain peaks over a mesh grid',
     Diagram: SecurityDefenseDiagram,
   },
   {
     id: 'scale',
-    label: 'Battle-tested at scale',
+    label: 'Router A/B separation',
     detail:
-      'Core cryptography libraries are widely used and audited, with resilient orchestration paths built for high-throughput transaction pipelines.',
+      'Router, Deriver A, Deriver B, and SigningWorker roles keep derivation-time custody separate from normal signing admission.',
     diagramAlt: 'System workflow boxes connected across a horizontal graph',
     Diagram: SecurityScaleDiagram,
   },
   {
     id: 'friction',
-    label: 'Friction where it matters',
+    label: 'Step-up where it matters',
     detail:
-      'Add defenses like passkey signing, wallet policies, and transaction MFA without breaking checkout and core product flows.',
+      'Passkeys, Email OTP, VoiceID, and linked devices can gate sensitive exports, rotations, new recipients, and delegated lanes.',
     diagramAlt: 'Stacked secure device panels connected by policy rails',
     Diagram: SecurityFrictionDiagram,
   },
@@ -80,7 +80,7 @@ const securityDiagramThemeColors: Record<SecurityCard['id'], SecurityDiagramProp
 
 export function SecurityProofStrip(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
-  const docsProps = linkProps('/docs/concepts/security-model');
+  const docsProps = linkProps('/docs/concepts/custody/');
 
   return (
     <section
@@ -89,11 +89,11 @@ export function SecurityProofStrip(): React.JSX.Element {
     >
       <header className="security-diagrams__header">
         <h2 id="security-diagrams-title" className="security-diagrams__title">
-          Enterprise-grade security.
+          Security boundaries built into the control plane.
         </h2>
         <p className="security-diagrams__subtitle">
-          Security is the backbone across architecture and workflows. All engineering is security
-          engineering.
+          Custody, policy, session, and delegation checks are separate so broad app access cannot
+          become signing authority.
         </p>
         <a
           className="security-diagrams__learn-more"

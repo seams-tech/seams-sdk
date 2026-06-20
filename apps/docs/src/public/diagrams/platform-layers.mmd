@@ -1,0 +1,7 @@
+flowchart TD
+  User["User, org, agent, or device"] --> Proof["Proof layer<br/>passkey, Email OTP, VoiceID, device proof, org proof"]
+  Proof --> Mandate["Policy and mandate layer<br/>signed mandate, typed intent, policy epoch"]
+  Mandate --> Enforcement["Enforcement gateway<br/>allow, deny, escalate, revoke"]
+  Enforcement --> KeyInfra["Key infrastructure<br/>holder shares, server shares, sessions, rotation"]
+  KeyInfra --> Execution["Execution adapters<br/>wallet signatures, payments, merchant APIs, marketplace APIs, agent tools"]
+  Execution --> Audit["Audit trail<br/>proof, policy decision, intent digest, execution result"]

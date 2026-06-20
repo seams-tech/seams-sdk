@@ -1,0 +1,21 @@
+flowchart LR
+  App["App origin<br/>SDK facade, UI integration, public request data"]
+  Iframe["Wallet iframe origin<br/>wallet UI, encrypted IndexedDB, workers"]
+  ClientWorker["Browser signing workers<br/>holder-side material and crypto handles"]
+  Router["Router<br/>public API, auth, policy, replay, budget"]
+  DeriverA["Deriver A<br/>role-local server material"]
+  DeriverB["Deriver B<br/>role-local server material"]
+  SigningWorker["SigningWorker<br/>activated server signing material"]
+
+  App --> Iframe
+  Iframe --> ClientWorker
+  App --> Router
+  ClientWorker --> Router
+  Router --> DeriverA
+  Router --> DeriverB
+  DeriverA <--> DeriverB
+  DeriverA --> SigningWorker
+  DeriverB --> SigningWorker
+  Router --> SigningWorker
+  SigningWorker --> Router
+  Router --> ClientWorker

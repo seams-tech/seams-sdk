@@ -4,51 +4,44 @@ title: Concepts
 
 # Concepts
 
-Web3Authn architecture, design goals, and security model are outlined here.
+Seams is key, credential, and policy infrastructure for digital authority. It
+helps applications prove who is acting, bind what they approved to a typed
+intent, enforce policy before execution, and preserve an audit trail afterward.
 
-- [Design Goals](#design-goals)
-- [Architecture](./architecture)
-- [Security Model](./security-model)
-- [Passkey Scope](./passkey-scope)
-- [SecureConfirm WebAuthn](./secureconfirm-webauthn)
-- [SecureConfirm Sessions](./secureconfirm-sessions)
-- [Threshold Signing](./threshold-signing)
-- [Nonce Manager](./nonce-manager)
+```text
+Prove who is acting.
+Prove what they approved.
+Enforce what they can do.
+```
 
-## Design Goals
+Wallet signing is the first execution surface. The same model extends to payment
+rails, merchant APIs, marketplace APIs, agent tools, and delegated device
+actions.
 
-### Minimal Reliance on Servers or Intermediaries
+## System Layers
 
-The Passkey authenticates with the onchain [Web3Authn contract](./secureconfirm-webauthn#webauthn-contract-verification), instead of requiring developers to host servers. If the app's server goes down, you still have access to the wallet.
+| Layer | Role |
+| --- | --- |
+| Proof layer | Passkeys, Email OTP, VoiceID, device proof, org proof, wallet proof, and configured external credentials. |
+| Policy and mandate layer | Signed mandates, typed intent digests, policy epochs, budgets, expiry, revocation, and audit state. |
+| Key infrastructure | Holder shares, server shares, Router A/B, SigningWorker, export, recovery, delegation, and rotation. |
+| Enforcement gateway | Allows, denies, escalates, or requires human approval before money, authority, inventory, or API state moves. |
+| Execution adapters | Wallet signatures, payments, merchant APIs, marketplaces, agent tools, and future device actions. |
 
-- **Trustless account recovery**: since wallet keys are deterministically derived from passkeys, and passkey authenticators are stored on chain, you can recover your account with just your passkey.
+## Reading Order
 
-- **No single point of failure**: Wallet SDK origins whitelisted and governed by the onchain web3authn contract. Multiple redundant origins can serve the SDK. If one origin goes down, users can switch to another (see [related origin requests](https://passkeys.dev/docs/advanced/related-origins/)) without losing access.
+1. [Architecture](/concepts/architecture) for the source-of-truth component map.
+2. [Policy](/concepts/policy/) for mandates, proofs, and authorization.
+3. [Custody](/concepts/custody/) for who can hold or open key material.
+4. [Threshold Signing](/concepts/threshold-signing/) for Router A/B and HSS.
+5. [Sessions](/concepts/sessions/) for signing lanes and bounded runtime authority.
+6. [Auth Methods](/concepts/auth-methods/) for passkeys, Email OTP, and VoiceID.
+7. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.
+8. [Advanced](/concepts/advanced/) for protocol, ceremony, and deployment details.
 
-### Simple Self-Custody and Account Recovery
+## Short Version
 
-Wallet keys are derived from passkeys using WebAuthn outputs, so there are no seed phrases to manage.
+Give agents permission to act without giving them unlimited authority.
 
-- **Onchain authenticator persistence**: WebAuthn authenticators and SecureConfirm public keys stored immutably onchain by the [Web3Authn contract](./secureconfirm-webauthn#webauthn-contract-verification). This lets you recover your wallet from any device with your passkey via Passkey sync (e.g iCloud, Google Password Manager, Bitwarden, 1Password).
-
-- **Multi-device linking**: if you dislike potential lockin with Apple/Google managing passkeys, you can link different passkeys from different devices to the same account. The passkeys are now disposable, and you can have multiple passkeys stored on different systems (iCloud, Yubikey, etc) all controlling the same wallet account.
-
-- **Offline key export**: Export encrypted keys via Service Worker. Access your wallet offline without network connectivity.
-
-### Clean, Embedded UX
-
-Applications onboarding non-crypto users should not require users to download two separate applications (the app itself, plus a wallet). Seams solves this by embedding the wallet directly in your application.
-
-- **No popups**: All interactions happen inline with your application UI. No browser popup windows or redirects. Users never leave your app or download separate wallet software.
-
-### Cross-App Passkey Wallet
-
-Passkey wallets work across integrated apps, without needing to download separate wallet extensions or applications, and without needing to create new accounts for each app.
-
-- **Wallet-scoped credentials**: One passkey works across all integrated apps. Users get single sign-on across your ecosystem. Users authenticate once with their passkey, and it controls their wallet across all apps that share the wallet origin.
-
-- **App-scoped option**: Apps can also use domain-specific credentials for maximum isolation. Choose the scoping strategy that fits your deployment.
-
-## Next: Architecture
-
-For detailed technical documentation on security architecture, cryptographic primitives, and smart contract integration, see the [Architecture](./architecture) section.
+Define what an agent may do. Bind it to signed intent. Enforce it before money,
+inventory, or authority moves.

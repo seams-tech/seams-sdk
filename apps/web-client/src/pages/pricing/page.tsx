@@ -24,7 +24,7 @@ export function PricingPage(): React.JSX.Element {
           <section className="pricing-hero">
             <p className="pricing-kicker">Pricing</p>
             <h1 id="pricing-page-title">
-              Simple wallet infrastructure pricing that scales with your app
+              Simple key and credential infrastructure pricing that scales with your app
             </h1>
             <p className="pricing-subtitle">
               Start in self-serve mode, then move to enterprise controls when you need stricter
@@ -54,7 +54,7 @@ export function PricingPage(): React.JSX.Element {
                 <div>
                   <p className="pricing-card-label">Self-serve</p>
                   <h2>Build and launch fast</h2>
-                  <p>Ideal for teams shipping embedded wallets for the first time.</p>
+                  <p>Ideal for teams shipping policy-bound keys for the first time.</p>
                 </div>
                 <div className="pricing-price-pill">
                   <strong>$0</strong>
@@ -62,9 +62,9 @@ export function PricingPage(): React.JSX.Element {
                 </div>
               </div>
               <ul className="pricing-feature-list">
-                <li>Passkey login and embedded wallet SDK</li>
+                <li>Passkey, Email OTP, and embedded wallet SDK</li>
                 <li>Wallet list + wallet search controls</li>
-                <li>Base policy presets and chain controls</li>
+                <li>Base policy presets, auth methods, and chain controls</li>
                 <li>Standard API keys and webhook endpoints</li>
               </ul>
               <div className="pricing-tier-list" role="list" aria-label="Usage tiers">
@@ -120,16 +120,16 @@ export function PricingPage(): React.JSX.Element {
             <h3>Included with every plan</h3>
             <div className="pricing-includes-grid">
               <article className="pricing-include-card">
-                <strong>Wallets</strong>
-                <p>User wallet list, search, and chain visibility.</p>
+                <strong>Wallets and keys</strong>
+                <p>User wallet list, key state, search, and chain visibility.</p>
               </article>
               <article className="pricing-include-card">
                 <strong>Policy controls</strong>
-                <p>Action-level controls for threshold wallet operations.</p>
+                <p>Action-level controls for signing and delegated execution.</p>
               </article>
               <article className="pricing-include-card">
                 <strong>Authentication</strong>
-                <p>Passkey-first auth and optional MFA enforcement.</p>
+                <p>Passkeys, Email OTP, VoiceID, and optional step-up enforcement.</p>
               </article>
               <article className="pricing-include-card">
                 <strong>Browser origin controls</strong>
@@ -158,7 +158,7 @@ export function PricingPage(): React.JSX.Element {
               </thead>
               <tbody>
                 <tr>
-                  <td>User wallets list + search</td>
+                  <td>User wallets and keys list + search</td>
                   <td>Yes</td>
                   <td>Yes + custom indexing</td>
                 </tr>
@@ -196,16 +196,16 @@ export function PricingPage(): React.JSX.Element {
               </p>
             </details>
             <details>
-              <summary>Do both plans support threshold wallets?</summary>
+              <summary>Do both plans support threshold signing?</summary>
               <p>
-                Yes. Both tiers support threshold wallet flows, with enterprise adding deeper policy
-                and governance controls.
+                Yes. Both tiers support threshold signing flows, with enterprise adding deeper
+                policy and governance controls.
               </p>
             </details>
             <details>
               <summary>Can I start in self-serve and migrate later?</summary>
               <p>
-                Yes. Configuration and wallet infrastructure can be migrated without rebuilding your
+                Yes. Configuration and key infrastructure can be migrated without rebuilding your
                 client integration.
               </p>
             </details>

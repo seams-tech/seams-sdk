@@ -120,22 +120,22 @@ const productDropdownTiles: ProductDropdownTile[] = [
   {
     id: 'guides',
     title: 'Guides',
-    description: 'Learn, create, and ship embedded wallet flows with focused implementation guides',
-    to: '/docs/getting-started/overview',
+    description: 'Learn the key, credential, policy, and signing architecture',
+    to: '/docs/concepts/',
     imageSrc: menuGuidesImage,
   },
   {
     id: 'tools',
     title: 'Tools',
-    description: 'SDK resources for passkeys, signing sessions, and secure wallet UI',
-    to: '/docs/getting-started/quickstart',
+    description: 'SDK resources for auth methods, signing sessions, wallet UI, and policy flows',
+    to: '/docs/concepts/auth-methods/',
     imageSrc: menuToolsImage,
   },
   {
     id: 'use-cases',
     title: 'Use cases',
-    description: 'Explore wallet, payment, recovery, and policy-controlled signing patterns',
-    to: '/docs/concepts/security-model',
+    description: 'Explore mandates, payments, recovery, rotation, and delegated-agent patterns',
+    to: '/docs/concepts/policy/mandates',
     imageSrc: menuUseCasesImage,
   },
 ];
@@ -144,21 +144,21 @@ const documentationDropdownTiles: DocumentationDropdownTile[] = [
   {
     id: 'embedded-wallets',
     title: 'Embedded Wallets',
-    description: 'Self-serve wallet infrastructure for apps launching passkey accounts',
+    description: 'Wallet infrastructure for apps launching policy-bound keys and sessions',
     to: '/pricing/',
     imageSrc: menuEmbeddedWalletsImage,
   },
   {
     id: 'access-passes',
     title: 'Access Passes with account recovery',
-    description: 'Recoverable user access for teams that need durable account continuity',
+    description: 'Recoverable credentials for teams that need durable account continuity',
     to: '/pricing/',
     imageSrc: menuAccessPassesImage,
   },
   {
     id: 'biometric-auth',
     title: 'Biometric Authentication',
-    description: 'Passkey-first authentication packages for higher assurance sign-in',
+    description: 'Passkey and VoiceID flows for higher-assurance owner presence',
     to: '/pricing/',
     imageSrc: menuBiometricAuthLightImage,
     imageDarkSrc: menuBiometricAuthDarkImage,
@@ -214,15 +214,15 @@ const pricingSections: DropdownSection[] = [
       {
         title: 'Starter',
         description:
-          'Build and launch fast for teams shipping embedded wallets for the first time.',
+          'Build and launch fast for teams shipping policy-bound keys for the first time.',
         to: '/pricing/#starter',
         visual: 'plan',
         price: 'Included',
         priceNote: 'Up to 5K MAW',
         details: [
-          'Passkey login and embedded wallet SDK',
+          'Passkey, Email OTP, and embedded wallet SDK',
           'Wallet list + wallet search controls',
-          'Base policy presets and chain controls',
+          'Base policy presets, auth methods, and chain controls',
         ],
       },
     ],
@@ -232,7 +232,7 @@ const pricingSections: DropdownSection[] = [
     items: [
       {
         title: 'Growth',
-        description: 'Usage-based pricing as wallet adoption grows past launch volume.',
+        description: 'Usage-based pricing as key and credential adoption grows past launch volume.',
         to: '/pricing/#growth',
         visual: 'plan',
         price: 'Usage-based',
@@ -240,7 +240,7 @@ const pricingSections: DropdownSection[] = [
         details: [
           'Standard API keys and webhook endpoints',
           'Wallet search and chain visibility controls',
-          'Designed for scaling embedded wallet apps',
+          'Designed for scaling policy-bound apps',
         ],
       },
     ],
@@ -273,9 +273,9 @@ const productsDropdownPane: DropdownPane = {
   cta: {
     icon: 'docs',
     title: 'Developer documentation',
-    description: 'Build embedded wallets and policy-controlled signing flows.',
+    description: 'Build key, credential, and policy-bound signing flows.',
     label: 'Read docs',
-    to: '/docs/getting-started/overview',
+    to: '/docs/concepts/',
   },
 };
 
@@ -287,7 +287,7 @@ const documentationDropdownPane: DropdownPane = {
   cta: {
     icon: 'pricing',
     title: 'Plan pricing',
-    description: 'Compare self-serve and enterprise wallet infrastructure packages.',
+    description: 'Compare self-serve and enterprise infrastructure packages.',
     label: 'Learn more',
     to: '/pricing/',
   },
@@ -301,7 +301,7 @@ const aboutDropdownPane: DropdownPane = {
   cta: {
     icon: 'contact',
     title: 'Talk to the Seams team',
-    description: 'Plan a wallet integration or review a security-sensitive flow.',
+    description: 'Plan an integration or review a security-sensitive flow.',
     label: 'Contact sales',
     to: '/contact/',
   },

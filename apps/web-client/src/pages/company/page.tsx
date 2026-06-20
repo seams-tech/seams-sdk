@@ -4,20 +4,20 @@ import { SitePageFrame } from '@/pages/shared/SitePageFrame';
 
 export function CompanyPage(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
-  const installationProps = linkProps('/docs/getting-started/installation');
-  const overviewProps = linkProps('/docs/getting-started/overview');
+  const architectureProps = linkProps('/docs/concepts/architecture');
+  const overviewProps = linkProps('/docs/concepts/');
 
   return (
     <SitePageFrame
       title="Company"
-      subtitle="Developer-first embedded wallet infrastructure with security defaults that scale."
+      subtitle="Developer-first key, credential, and policy infrastructure with explicit custody boundaries."
     >
       <article className="site-card">
         <h2>Focus Areas</h2>
         <ul className="site-bullets">
-          <li>Passkey-native embedded wallet UX</li>
-          <li>Threshold signing and session hardening</li>
-          <li>Practical integrations for React and web apps</li>
+          <li>Policy-bound embedded wallet UX</li>
+          <li>Threshold signing, Router A/B, and session hardening</li>
+          <li>Mandates, credentials, and delegated-agent flows</li>
         </ul>
       </article>
       <article className="site-card">
@@ -32,8 +32,8 @@ export function CompanyPage(): React.JSX.Element {
         <h2>Get Started</h2>
         <ul className="site-links-list">
           <li>
-            <a href={installationProps.href} onClick={installationProps.onClick}>
-              Installation
+            <a href={architectureProps.href} onClick={architectureProps.onClick}>
+              Architecture
             </a>
           </li>
           <li>

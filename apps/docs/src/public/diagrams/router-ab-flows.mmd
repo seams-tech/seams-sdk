@@ -1,0 +1,18 @@
+flowchart TD
+  subgraph Setup["Registration, recovery, export, refresh, activation"]
+    SetupClient["Client worker"] --> SetupRouter["Router admission"]
+    SetupRouter --> SetupA["Deriver A"]
+    SetupRouter --> SetupB["Deriver B"]
+    SetupA <--> SetupB
+    SetupA --> SetupOutput["Client output package or SigningWorker activation"]
+    SetupB --> SetupOutput
+  end
+
+  subgraph Normal["Day-to-day signing"]
+    SignClient["Client worker with derived holder share"] --> SignRouter["Router admission"]
+    SignRouter --> Hot["SigningWorker with activated server share"]
+    Hot --> SignRouter
+    SignRouter --> Signature["Signature for admitted intent"]
+  end
+
+  SetupOutput --> Hot

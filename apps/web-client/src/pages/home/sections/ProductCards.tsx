@@ -10,21 +10,21 @@ type MarketingCard = {
 
 const productModules: MarketingCard[] = [
   {
-    title: 'Passkey-native UX',
-    description: 'No extension installs or popup handoffs in core wallet flows.',
-    to: '/docs/concepts/passkey-scope',
+    title: 'Credential-aware auth',
+    description: 'Passkeys, Email OTP, and VoiceID feed the same policy and lane model.',
+    to: '/docs/concepts/auth-methods/passkeys',
     icon: Fingerprint,
   },
   {
-    title: 'Threshold Signing',
-    description: 'Distributed signing primitives with policy-focused authorization.',
-    to: '/docs/concepts/threshold-signing',
+    title: 'Router A/B signing',
+    description: 'Threshold signing with split derivation roles and admitted signing sessions.',
+    to: '/docs/concepts/threshold-signing/',
     icon: ShieldCheck,
   },
   {
-    title: 'Embedded Wallet SDK',
-    description: 'Developer-first integration path with quickstart docs and examples.',
-    to: '/docs/getting-started/quickstart',
+    title: 'Policy-bound execution',
+    description: 'Typed intents, mandates, budgets, revocation, and audit before execution.',
+    to: '/docs/concepts/architecture',
     icon: Wallet,
   },
 ];
@@ -32,18 +32,18 @@ const productModules: MarketingCard[] = [
 const solutionCards: MarketingCard[] = [
   {
     title: 'Consumer Apps',
-    description: 'Keep wallet flows in your app to reduce onboarding drop-off.',
-    to: '/docs/concepts/passkey-scope',
+    description: 'Keep wallet and credential flows inside your product experience.',
+    to: '/docs/concepts/custody/wallet-iframe',
   },
   {
     title: 'Stablecoin Payments',
-    description: 'Embed confirmation and signing directly in payment journeys.',
-    to: '/docs/concepts/secureconfirm-sessions',
+    description: 'Bind approvals, budgets, and signatures to exact payment intents.',
+    to: '/docs/concepts/sessions/wallet-sessions',
   },
   {
-    title: 'Treasury and Payouts',
-    description: 'Use policy-based approvals for internal transfers and disbursements.',
-    to: '/docs/concepts/security-model',
+    title: 'Agentic Commerce',
+    description: 'Delegate narrow authority to agents through signed mandates.',
+    to: '/docs/concepts/policy/mandates',
   },
 ];
 
@@ -59,7 +59,7 @@ export function ProductCards(): React.JSX.Element {
         <header className="product-cards__header">
           <p className="product-cards__eyebrow">Products</p>
           <h2 id="product-cards-title" className="product-cards__title">
-            Composable wallet and signing building blocks
+            Composable key, credential, and policy building blocks
           </h2>
         </header>
         <div className="product-cards__grid">

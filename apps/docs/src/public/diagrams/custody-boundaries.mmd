@@ -1,0 +1,34 @@
+flowchart LR
+  subgraph ClientBoundary["Client and wallet-origin boundary"]
+    AppOrigin["App origin<br/>public request data"]
+    WalletOrigin["Wallet iframe<br/>encrypted records and wallet UI"]
+    HolderWorker["Signing workers<br/>holder-side material"]
+    AppOrigin --> WalletOrigin
+    WalletOrigin --> HolderWorker
+  end
+
+  subgraph PublicBoundary["Public service boundary"]
+    Router["Router<br/>admission, policy, replay, budget"]
+  end
+
+  subgraph SplitBoundary["Split derivation boundary"]
+    A["Deriver A<br/>A-side material"]
+    B["Deriver B<br/>B-side material"]
+    A <--> B
+  end
+
+  subgraph HotBoundary["Normal signing boundary"]
+    SW["SigningWorker<br/>activated server material"]
+  end
+
+  HolderWorker --> Router
+  Router --> A
+  Router --> B
+  A --> SW
+  B --> SW
+  Router --> SW
+  SW --> Router
+
+  JoinedKey["Wallet private key is never reconstructed for ordinary signing"]
+  HolderWorker -.-> JoinedKey
+  SW -.-> JoinedKey
