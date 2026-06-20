@@ -16,7 +16,7 @@ import type {
 import type {
   RestorePersistedSessionsForWalletInput,
   RestorePersistedSessionsForWalletResult,
-} from './sealedRecovery/types';
+} from './sealedRecovery/sealedRecovery.types';
 import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
   clearThresholdEcdsaSessionRecordForWallet as clearThresholdEcdsaSessionRecordForWalletValue,
@@ -241,7 +241,7 @@ export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): v
 export type {
   RestorePersistedSessionsForWalletInput,
   RestorePersistedSessionsForWalletResult,
-} from './sealedRecovery/types';
+} from './sealedRecovery/sealedRecovery.types';
 export type {
   EmailOtpEcdsaSealedRecoveryRecord,
   EmailOtpEd25519SealedRecoveryRecord,

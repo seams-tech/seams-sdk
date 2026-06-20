@@ -38,7 +38,7 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from '@/core/signingEngine/assembly/ports/warmSigning';
 import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';

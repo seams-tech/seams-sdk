@@ -675,7 +675,7 @@ export type {
   FetchHandler,
   ScheduledHandler,
   EmailHandler,
-} from './cloudflare/types';
+} from './cloudflare/cloudflare.types';
 
 export type { CloudflareEmailHandlerOptions } from './cloudflare/email';
 export { createCloudflareEmailHandler } from './cloudflare/email';

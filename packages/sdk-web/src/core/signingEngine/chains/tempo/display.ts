@@ -1,7 +1,7 @@
 import type {
   TempoCall,
   TempoSigningRequest,
-} from '@/core/signingEngine/chains/tempo/types';
+} from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import {
   resolveFunctionDisplayName,
   selectorFromHexData,

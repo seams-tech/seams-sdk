@@ -9,7 +9,7 @@ import {
 import type {
   RestorePersistedEd25519SessionPurpose,
   RestoreSealedRecordResult,
-} from '@/core/signingEngine/session/sealedRecovery/types';
+} from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
   recordAndVerifyRestoredWarmSessions,
   type RestoredWarmSessionStatus,
@@ -19,7 +19,7 @@ import {
   sealedRecoveryWalletSessionJwt,
   type EmailOtpEd25519SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
   EmailOtpThresholdEcdsaRehydrateResult,

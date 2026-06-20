@@ -8,7 +8,7 @@ import type {
   DurableSealedSessionPort,
   VolatileWarmMaterialPort,
   WarmSessionStatusResult,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import { ensureWarmEcdsaCapabilityReady } from '../../useCases/provisionEcdsaSession';
 import {

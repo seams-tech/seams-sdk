@@ -11,14 +11,14 @@ import {
   THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
   THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
-import type { ThresholdAnySchemeModule } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/types';
+import type { ThresholdAnySchemeModule } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types';
 import {
   createSelfHostedCloudflareSigningRouter,
   createSelfHostedCloudflareSigningWorker,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/createSelfHostedCloudflareSigningWorker';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
-import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/types';
+import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
 import type { ThresholdSigningAdapter } from '../../packages/sdk-server-ts/src/router/relay';
 
 const fakeCtx = {} as CfExecutionContext;

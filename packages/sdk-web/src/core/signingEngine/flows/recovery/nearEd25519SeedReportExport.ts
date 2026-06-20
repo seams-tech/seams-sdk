@@ -2,7 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/types/seams';
 import { errorMessage, isUserCancellationError } from '@shared/utils/errors';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { buildThresholdEd25519SeedExportArtifactFromHssReport } from '../../threshold/ed25519/hssLifecycle';
 import {

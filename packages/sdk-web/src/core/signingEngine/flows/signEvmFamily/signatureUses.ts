@@ -1,5 +1,5 @@
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
-import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { SigningIntent } from '../../interfaces/signing';
 
 export function requiredEvmFamilyRequestSignatureUses(

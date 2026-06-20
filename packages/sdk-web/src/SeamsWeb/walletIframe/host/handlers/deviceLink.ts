@@ -1,6 +1,6 @@
 import type { ActionHooksOptions } from '@/core/types/sdkSentEvents';
 import { toAccountId } from '@/core/types/accountIds';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 
 export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): HandlerMap {

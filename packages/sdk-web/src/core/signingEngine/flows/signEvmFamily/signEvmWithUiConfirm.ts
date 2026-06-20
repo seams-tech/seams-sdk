@@ -2,7 +2,7 @@ import {
   EvmAdapter,
   type EvmSignedResult,
 } from '@/core/signingEngine/chains/evm/evmAdapter';
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import { buildEvmDisplayModel } from '@/core/signingEngine/chains/evm/display/evmTx';
 import {
   signEvmFamilyWithUiConfirm,

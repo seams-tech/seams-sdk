@@ -3,7 +3,7 @@ import { configuredThresholdEcdsaChainTargets } from '../../interfaces/ecdsaChai
 import { readTrustedWalletSigningBudgetStatus } from '../../session/budget/budgetStatusReader';
 import type { EmailOtpWalletSessionCoordinator } from '../../session/emailOtp/EmailOtpWalletSessionCoordinator';
 import type { SessionPublicDeps } from '../../session/public';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { WarmSigningPorts } from './warmSigning';
 
 export function createSessionPublicDeps(args: {

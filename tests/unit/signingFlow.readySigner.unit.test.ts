@@ -18,7 +18,7 @@ import type {
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { UiConfirmContext } from '../../packages/sdk-web/src/core/signingEngine/uiConfirm/types';
+import type { UiConfirmContext } from '../../packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,

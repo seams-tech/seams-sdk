@@ -20,7 +20,7 @@ import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/p
 import type {
   WarmSessionPersistedRestorer,
   WarmSessionStatusResult,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
   buildNearTransactionSigningLane,
   type NearTransactionSigningLane,

@@ -6,7 +6,7 @@ import {
 } from '@/core/types/signer-worker';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolveNearNetwork } from '@/core/config/chains';
-import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import {
   isSigningSessionAuthUnavailableError,
   isThresholdSignerRepairableMaterialError,

@@ -6,7 +6,7 @@ import { ActionArgs, TransactionInput } from '@/core/types';
 import { type DeviceLinkingQRData } from '@/core/types/linkDevice';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {

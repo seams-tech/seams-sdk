@@ -2,7 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
@@ -15,7 +15,7 @@ import type {
   RestorePersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
-} from '@/core/signingEngine/session/sealedRecovery/types';
+} from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,

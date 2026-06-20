@@ -3,15 +3,15 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import type { NonceCoordinator, PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
-import type { EvmSigningRequest } from '../../chains/evm/types';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
-import type { TempoSigningRequest } from '../../chains/tempo/types';
+import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
-import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
+import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import type {
   ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
@@ -23,7 +23,7 @@ import type {
   UiConfirmSecureConfirmationPort,
   WarmSessionStatusResult,
   WarmSessionStatusReader,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
 import {
   assertSameSigningLaneIdentity,

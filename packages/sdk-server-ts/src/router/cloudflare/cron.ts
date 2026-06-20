@@ -17,7 +17,7 @@ import {
   type PostgresConsoleWebhookRetryDispatchResult,
 } from '../../console/webhooks';
 import type { ConsoleObservabilityIngestionService } from '../../console/observability';
-import type { ScheduledHandler } from './types';
+import type { ScheduledHandler } from './cloudflare.types';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 

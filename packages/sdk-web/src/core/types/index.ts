@@ -31,4 +31,4 @@ export type * from './login.types';
 export * from './seams';
 export * from './delegate';
 
-export type { ClientUserData } from '../accountData/near/types';
+export type { ClientUserData } from '../accountData/near/nearAccountData.types';

@@ -22,7 +22,7 @@ import {
   type PlainSignedTransactionLike,
 } from '@shared/utils/validation';
 import type { ActionArgs } from '@/core/types';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 
 function normalizeSignedTransaction(

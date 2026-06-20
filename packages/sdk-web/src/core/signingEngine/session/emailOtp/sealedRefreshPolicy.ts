@@ -1,7 +1,7 @@
 import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   deleteDurableSealedSessionRecord,

@@ -5,7 +5,7 @@ import type {
   DurableSealedSessionRecordDeleter,
   VolatileWarmSessionMaterialClearAll,
   VolatileWarmSessionMaterialClearer,
-} from './types';
+} from './uiConfirm.types';
 import type {
   DeleteDurableSealedSessionCommand,
   DurableSealedSessionDeleteReason,

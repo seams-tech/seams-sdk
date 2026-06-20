@@ -10,7 +10,7 @@ import {
   signingSessionSealStatusCode,
   resolveSigningSessionSealBasePath,
 } from './shared';
-import type { SigningSessionSealRoutesOptions } from '../types';
+import type { SigningSessionSealRoutesOptions } from '../signingSessionSeal.types';
 
 type CloudflareSigningSessionSealContext = {
   request: Request;

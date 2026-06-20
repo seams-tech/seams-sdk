@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createEmailOtpWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/handlers/emailOtp';
-import type { HandlerDeps } from '@/SeamsWeb/walletIframe/host/handlers/types';
+import type { HandlerDeps } from '@/SeamsWeb/walletIframe/host/handlers/walletIframeHandler.types';
 import type {
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthLoginFlow,

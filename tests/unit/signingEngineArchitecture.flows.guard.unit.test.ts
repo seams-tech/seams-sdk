@@ -333,7 +333,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('operation flows use uiConfirm only through documented runtime ports', () => {
     const allowedUiConfirmImports = [
-      'packages/sdk-web/src/core/signingEngine/uiConfirm/types',
+      'packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types',
       'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/export-viewer-host',
     ] as const;
     const offenders: string[] = [];

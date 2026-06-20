@@ -36,7 +36,7 @@ import type {
   RestorePersistedSessionsForWalletInput,
   RestorePersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
-} from '../session/sealedRecovery/types';
+} from '../session/sealedRecovery/sealedRecovery.types';
 import type { WarmSessionMaterialWriter } from '../session/passkey/warmSessionMaterialWriter';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';

@@ -48,8 +48,8 @@ import type {
   NearNep413Result,
   NearTransactionsWithActionsResult,
 } from '../interfaces/near';
-import type { EvmSigningRequest, Hex } from '../chains/evm/types';
-import type { TempoSigningRequest } from '../chains/tempo/types';
+import type { EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpHssIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type {

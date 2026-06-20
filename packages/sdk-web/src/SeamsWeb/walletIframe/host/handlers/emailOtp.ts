@@ -1,4 +1,4 @@
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOkResult, withProgress } from './shared';
 import type {
   EmailOtpEnrollmentResult,

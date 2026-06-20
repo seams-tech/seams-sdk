@@ -6,7 +6,7 @@ import {
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { bytesToHex } from './bytes';
-import type { Eip1559UnsignedTx, EvmSigningRequest } from './types';
+import type { Eip1559UnsignedTx, EvmSigningRequest } from './evmSigning.types';
 
 export type EvmSignedResult = {
   chain: 'evm';

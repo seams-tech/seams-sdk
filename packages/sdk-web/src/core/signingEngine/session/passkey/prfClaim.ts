@@ -2,7 +2,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type {
   DurableSealedSessionPort,
   VolatileWarmMaterialPort,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 import {
   formatMissingWarmPrfMaterialError,
   formatWarmSessionClaimUnavailableError,

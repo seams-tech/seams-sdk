@@ -1,5 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { ThemeName, WalletAuthCurve, WalletAuthIntent } from '@/core/types/seams';
 import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import {

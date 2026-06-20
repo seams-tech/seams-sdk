@@ -1,4 +1,4 @@
-import type { ClientAuthenticatorData } from '@/core/accountData/near/types';
+import type { ClientAuthenticatorData } from '@/core/accountData/near/nearAccountData.types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 
 export type PasskeyLoginAssertionSurface = {

@@ -31,14 +31,14 @@ import type {
   RestoreSealedRecordResult,
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
-} from '@/core/signingEngine/session/sealedRecovery/types';
+} from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
   type EmailOtpEd25519SealedRecoveryRecord,
   type SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import {
   restoreEmailOtpEd25519SealedRecordForAccount,
   type EmailOtpEd25519RestorePurpose,

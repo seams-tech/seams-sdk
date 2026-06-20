@@ -1,5 +1,5 @@
 import { isTouchIdCancellationError } from '@shared/utils/errors';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk } from './shared';
 
 export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap {

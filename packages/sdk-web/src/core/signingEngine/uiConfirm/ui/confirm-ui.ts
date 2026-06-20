@@ -11,7 +11,7 @@ import { resolveExplorerUrlForChainFamily } from '@/core/config/chains';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 
-import type { UiConfirmContext } from '../types';
+import type { UiConfirmContext } from '../uiConfirm.types';
 import type { TransactionSummary } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { EmailOtpConfirmPrompt, SigningAuthMode } from '../../stepUpConfirmation/types';
 import type {

@@ -4,7 +4,7 @@ import type {
   UiConfirmSecureConfirmationPort,
   UiConfirmContext,
   WarmSessionStatusReader,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   KeyRef,
   SignRequest,

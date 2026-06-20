@@ -14,7 +14,7 @@ import {
   ensureSeamsWeb,
   type HostContext,
 } from './context';
-import type { HandlerDeps, HandlerMap } from './handlers/types';
+import type { HandlerDeps, HandlerMap } from './handlers/walletIframeHandler.types';
 
 export type WalletHostRuntimeState = {
   parentOrigin: string | null;

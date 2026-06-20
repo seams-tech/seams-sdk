@@ -5,7 +5,7 @@ import type {
   RouterAbEcdsaHssPoolFillStepResponse,
 } from '../../types';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from './schemeIds';
-import type { ThresholdSecp256k1Ecdsa2pSchemeModule } from './types';
+import type { ThresholdSecp256k1Ecdsa2pSchemeModule } from './thresholdServiceSchemes.types';
 import type { ThresholdEcdsaSessionClaims } from '../validation';
 
 export type ThresholdSecp256k1Ecdsa2pSchemeModuleDeps = {

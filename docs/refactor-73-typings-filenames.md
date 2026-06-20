@@ -2,7 +2,7 @@
 
 Date created: June 19, 2026
 
-Status: in progress.
+Status: complete.
 
 ## Goal
 
@@ -72,10 +72,12 @@ filename cleanup.
 - `import type ...`
 - `export type ...`
 - `export interface ...`
+- private `type` and `interface` helper declarations
 - comments
-- JSDoc on exported types/interfaces
+- JSDoc on type/interface declarations
 
-`*.types.ts` files must not contain runtime exports:
+`*.types.ts` files must not contain runtime declarations, runtime exports, or
+executable code:
 
 - `export const`
 - `export let`
@@ -108,8 +110,7 @@ Approved `types.ts` allowlist:
   external import path
 
 Every allowed `types.ts` file should be listed in the Phase 2 inventory with one
-of: `public-barrel`, `mixed-runtime`, `external-contract`, or
-`rename-later:<target>`.
+of: `public-barrel`, `mixed-runtime`, or `external-contract`.
 
 ## Current Baseline
 
@@ -135,9 +136,9 @@ Observed naming families before Phase 1:
 Status: complete.
 
 - [x] Rename `packages/sdk-web/src/core/types/login.typings.ts` to
-  `packages/sdk-web/src/core/types/login.types.ts`.
+      `packages/sdk-web/src/core/types/login.types.ts`.
 - [x] Rename `packages/sdk-web/src/core/types/login.typings.typecheck.ts` to
-  `packages/sdk-web/src/core/types/login.types.typecheck.ts`.
+      `packages/sdk-web/src/core/types/login.types.typecheck.ts`.
 - [x] Update imports and exports.
 - [x] Run SDK web type-check and focused tests:
   - `pnpm -C packages/sdk-web type-check`
@@ -166,56 +167,47 @@ rg --files packages/sdk-web/src packages/sdk-server-ts/src packages/shared-ts/sr
 
 Inventory captured on June 19, 2026:
 
-| File | Classification |
-| --- | --- |
-| `packages/sdk-server-ts/src/console/account/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/apiKeys/types.ts` | `mixed-runtime` |
-| `packages/sdk-server-ts/src/console/approvals/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/audit/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/auditExports/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/billing/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/billingPrepaidReservations/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/bootstrapTokens/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/enterpriseIsolation/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/gasSponsorship/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/keyExports/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/observability/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/onboarding/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/orgProjectEnv/types.ts` | `mixed-runtime` |
-| `packages/sdk-server-ts/src/console/policies/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/teamRbac/types.ts` | `mixed-runtime` |
-| `packages/sdk-server-ts/src/console/wallets/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/console/webhooks/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts` | `rename-later:thresholdServiceSchemes.types.ts` |
-| `packages/sdk-server-ts/src/core/types.ts` | `mixed-runtime` |
-| `packages/sdk-server-ts/src/email-recovery/types.ts` | `external-contract` |
-| `packages/sdk-server-ts/src/router/cloudflare/types.ts` | `rename-later:cloudflare.types.ts` |
-| `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` | `rename-later:signingSessionSeal.types.ts` |
-| `packages/sdk-web/src/SeamsWeb/publicApi/types.ts` | `public-barrel` |
-| `packages/sdk-web/src/SeamsWeb/signingSurface/types.ts` | `public-barrel` |
-| `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/types.ts` | `rename-later:walletIframeHandler.types.ts` |
-| `packages/sdk-web/src/core/accountData/near/types.ts` | `rename-later:nearAccountData.types.ts` |
-| `packages/sdk-web/src/core/platform/types.ts` | `rename-later:platform.types.ts` |
-| `packages/sdk-web/src/core/signingEngine/chains/evm/types.ts` | `rename-later:evmSigning.types.ts` |
-| `packages/sdk-web/src/core/signingEngine/chains/tempo/types.ts` | `rename-later:tempoSigning.types.ts` |
-| `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/core/signingEngine/session/operationState/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts` | `rename-later:sealedRecovery.types.ts` |
-| `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/core/signingEngine/uiConfirm/types.ts` | `rename-later:uiConfirm.types.ts` |
-| `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/react/components/AccountMenuButton/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/react/components/PasskeyAuthMenu/types.ts` | `mixed-runtime` |
-| `packages/sdk-web/src/react/types.ts` | `public-barrel` |
-| `tests/setup/types.ts` | `external-contract` |
+| File                                                                                            | Classification                              |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `packages/sdk-server-ts/src/console/account/types.ts`                                           | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/apiKeys/types.ts`                                           | `mixed-runtime`                             |
+| `packages/sdk-server-ts/src/console/approvals/types.ts`                                         | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/audit/types.ts`                                             | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/auditExports/types.ts`                                      | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/billing/types.ts`                                           | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/billingPrepaidReservations/types.ts`                        | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/bootstrapTokens/types.ts`                                   | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/enterpriseIsolation/types.ts`                               | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/gasSponsorship/types.ts`                                    | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/keyExports/types.ts`                                        | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/observability/types.ts`                                     | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/onboarding/types.ts`                                        | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/orgProjectEnv/types.ts`                                     | `mixed-runtime`                             |
+| `packages/sdk-server-ts/src/console/policies/types.ts`                                          | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts`                                  | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts`                                    | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/types.ts`                              | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/teamRbac/types.ts`                                          | `mixed-runtime`                             |
+| `packages/sdk-server-ts/src/console/wallets/types.ts`                                           | `external-contract`                         |
+| `packages/sdk-server-ts/src/console/webhooks/types.ts`                                          | `external-contract`                         |
+| `packages/sdk-server-ts/src/core/types.ts`                                                      | `mixed-runtime`                             |
+| `packages/sdk-server-ts/src/email-recovery/types.ts`                                            | `external-contract`                         |
+| `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`                                              | `public-barrel`                             |
+| `packages/sdk-web/src/SeamsWeb/signingSurface/types.ts`                                         | `public-barrel`                             |
+| `packages/sdk-web/src/core/platform/types.ts`                                                   | `mixed-runtime`                             |
+| `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts`                          | `mixed-runtime`                             |
+| `packages/sdk-web/src/core/signingEngine/session/operationState/types.ts`                       | `mixed-runtime`                             |
+| `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts`                     | `mixed-runtime`                             |
+| `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts`                           | `mixed-runtime`                             |
+| `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts` | `mixed-runtime`                             |
+| `packages/sdk-web/src/react/components/AccountMenuButton/types.ts`                              | `mixed-runtime`                             |
+| `packages/sdk-web/src/react/components/PasskeyAuthMenu/types.ts`                                | `mixed-runtime`                             |
+| `packages/sdk-web/src/react/types.ts`                                                           | `public-barrel`                             |
+| `tests/setup/types.ts`                                                                          | `external-contract`                         |
 
 ### Phase 3: Rename High-Value Shared Typing Surfaces
 
-Status: scoped to owner-specific follow-up slices.
+Status: complete.
 
 Start with files agents are most likely to miss:
 
@@ -228,16 +220,42 @@ Start with files agents are most likely to miss:
 Keep each PR or commit scoped to one ownership area.
 
 Current result: the active `.typings.ts` module was renamed in Phase 1. The
-remaining `types.ts` files are explicit public barrels, external contracts,
-mixed runtime/type modules, or `rename-later:<target>` rows in the Phase 2
-inventory. Each `rename-later` row should be handled by its owning area with
-imports and focused validation in the same commit.
+remaining `types.ts` files are explicit public barrels, external contracts, or
+mixed runtime/type modules.
 
-Agent D progress, June 19, 2026:
+`packages/sdk-web/src/core/platform/types.ts` is a runtime barrel today. Split
+its type-only exports into a dedicated `platform.types.ts` before any filename
+rename.
+
+Agent D progress, June 19-20, 2026:
 
 - [x] Renamed `packages/sdk-web/src/core/runtime/types.ts` to
-  `packages/sdk-web/src/core/runtime/runtime.types.ts` and updated import
-  specifiers without changing signing, material-restore, or budget semantics.
+      `packages/sdk-web/src/core/runtime/runtime.types.ts` and updated import
+      specifiers without changing signing, material-restore, or budget semantics.
+- [x] Renamed
+  `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts` to
+  `packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts`
+  and updated imports without changing scheme IDs or cryptographic threshold
+  protocol semantics.
+- [x] Renamed `packages/sdk-server-ts/src/router/cloudflare/types.ts` to
+  `packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts` and updated
+  Cloudflare adapter imports without changing runtime bindings or request
+  handling.
+- [x] Renamed
+  `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` to
+  `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
+  and updated imports without changing seal policy, auth, budget, or transport
+  semantics.
+- [x] Renamed the remaining SDK-owned type-only `types.ts` modules to
+  `*.types.ts`:
+  - `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/walletIframeHandler.types.ts`
+  - `packages/sdk-web/src/core/accountData/near/nearAccountData.types.ts`
+  - `packages/sdk-web/src/core/signingEngine/chains/evm/evmSigning.types.ts`
+  - `packages/sdk-web/src/core/signingEngine/chains/tempo/tempoSigning.types.ts`
+  - `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts`
+  - `packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts`
+  The changes are import-specifier-only and do not alter wallet iframe, NEAR,
+  EVM, Tempo, sealed recovery, or UI confirmation behavior.
 
 ### Phase 4: Add Source Guards
 

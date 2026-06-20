@@ -86,7 +86,7 @@ import type {
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
   RestoreSealedRecordResult,
-} from '../session/sealedRecovery/types';
+} from '../session/sealedRecovery/sealedRecovery.types';
 import type {
   SealedRecoveryRecord,
 } from '../session/sealedRecovery/recoveryRecord';

@@ -1,12 +1,12 @@
 import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   WarmSessionMaterialClaimer,
   VolatileWarmSessionMaterialClearer,
   WarmSessionSealPersister,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   ThresholdEcdsaSessionBootstrapResult,
   ThresholdEcdsaActivationChain,
@@ -34,7 +34,7 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
 } from '@/core/signingEngine/session/identity/laneIdentity';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
 import { createClearVolatileWarmSessionMaterialCommand } from '@/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '@/core/signingEngine/session/warmCapabilities/volatileWarmSessionId';

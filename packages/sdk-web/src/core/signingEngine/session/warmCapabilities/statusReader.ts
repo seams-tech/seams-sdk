@@ -1,7 +1,7 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
-import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,

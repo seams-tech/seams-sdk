@@ -1,4 +1,4 @@
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import {
   resolveFunctionDisplayName,
   resolveFunctionSignature,

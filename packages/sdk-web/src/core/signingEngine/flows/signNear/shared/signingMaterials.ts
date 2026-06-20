@@ -1,6 +1,6 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';

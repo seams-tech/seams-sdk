@@ -5,8 +5,8 @@ import {
   requiredEvmFamilyRequestSignatureUses,
   requiredEvmFamilySignatureUses,
 } from '@/core/signingEngine/flows/signEvmFamily/signatureUses';
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
-import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { SigningIntent } from '@/core/signingEngine/interfaces/signing';
 
 function nearTx(actions: TransactionInputWasm['actions']): TransactionInputWasm {

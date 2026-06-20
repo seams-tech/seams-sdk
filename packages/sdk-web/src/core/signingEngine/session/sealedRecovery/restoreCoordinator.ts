@@ -14,7 +14,7 @@ import type {
   RestorePersistedSessionsForWalletResult,
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
-} from './types';
+} from './sealedRecovery.types';
 import type { SealedRecoveryRecord } from './recoveryRecord';
 
 type RestorePersistedSessionCacheInput =

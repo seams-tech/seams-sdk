@@ -1,4 +1,4 @@
-import type { HandlerDeps, HandlerMap } from './handlers/types';
+import type { HandlerDeps, HandlerMap } from './handlers/walletIframeHandler.types';
 import { createAuthWalletIframeHandlers } from './handlers/auth';
 import { createDeviceLinkWalletIframeHandlers } from './handlers/deviceLink';
 import { createEcdsaTempoWalletIframeHandlers } from './handlers/ecdsaTempo';

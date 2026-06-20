@@ -11,7 +11,7 @@ import { createWarmSessionCapabilityReader } from '../../session/warmCapabilitie
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import { reconnectPasskeyEd25519CapabilityForSigning } from '../../session/passkey/ed25519Recovery';
-import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createNearSigningDeps(args: {

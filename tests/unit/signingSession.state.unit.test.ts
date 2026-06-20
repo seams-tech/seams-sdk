@@ -175,7 +175,7 @@ test.describe('signing session PRF cache utilities', () => {
       'utf8',
     );
     const uiConfirmTypesSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/types.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts'),
       'utf8',
     );
 

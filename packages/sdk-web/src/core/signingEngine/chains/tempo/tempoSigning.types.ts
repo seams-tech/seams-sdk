@@ -6,7 +6,7 @@ import type {
   Hex,
   EvmSecp256k1SigningRequest,
   EvmSigningRequest,
-} from '../evm/types';
+} from '../evm/evmSigning.types';
 
 export type TempoRlpValue = Uint8Array | TempoRlpValue[];
 

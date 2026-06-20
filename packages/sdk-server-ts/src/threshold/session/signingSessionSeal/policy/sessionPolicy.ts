@@ -9,7 +9,7 @@ import type {
   SigningSessionSealThresholdStatusLookup,
   SigningSessionSealWalletBudgetStatus,
   SigningSessionSealWalletBudgetStatusLookup,
-} from '../types';
+} from '../signingSessionSeal.types';
 
 function toNonNegativeInt(value: unknown): number | undefined {
   const parsed = Number(value);

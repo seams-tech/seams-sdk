@@ -1,5 +1,5 @@
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult } from './shared';
 
 export function createPreferencesWalletIframeHandlers(deps: HandlerDeps): HandlerMap {

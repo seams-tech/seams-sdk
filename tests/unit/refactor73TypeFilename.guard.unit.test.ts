@@ -7,8 +7,7 @@ import * as ts from 'typescript';
 type TypesTsClassification =
   | 'public-barrel'
   | 'mixed-runtime'
-  | 'external-contract'
-  | `rename-later:${string}`;
+  | 'external-contract';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sourceRoots = [
@@ -40,31 +39,15 @@ const allowedTypesTsFiles: Record<string, TypesTsClassification> = {
   'packages/sdk-server-ts/src/console/teamRbac/types.ts': 'mixed-runtime',
   'packages/sdk-server-ts/src/console/wallets/types.ts': 'external-contract',
   'packages/sdk-server-ts/src/console/webhooks/types.ts': 'external-contract',
-  'packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts':
-    'rename-later:thresholdServiceSchemes.types.ts',
   'packages/sdk-server-ts/src/core/types.ts': 'mixed-runtime',
   'packages/sdk-server-ts/src/email-recovery/types.ts': 'external-contract',
-  'packages/sdk-server-ts/src/router/cloudflare/types.ts': 'rename-later:cloudflare.types.ts',
-  'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts':
-    'rename-later:signingSessionSeal.types.ts',
   'packages/sdk-web/src/SeamsWeb/publicApi/types.ts': 'public-barrel',
   'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts': 'public-barrel',
-  'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/types.ts':
-    'rename-later:walletIframeHandler.types.ts',
-  'packages/sdk-web/src/core/accountData/near/types.ts': 'rename-later:nearAccountData.types.ts',
-  'packages/sdk-web/src/core/platform/types.ts': 'rename-later:platform.types.ts',
-  'packages/sdk-web/src/core/signingEngine/chains/evm/types.ts':
-    'rename-later:evmSigning.types.ts',
-  'packages/sdk-web/src/core/signingEngine/chains/tempo/types.ts':
-    'rename-later:tempoSigning.types.ts',
+  'packages/sdk-web/src/core/platform/types.ts': 'mixed-runtime',
   'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts': 'mixed-runtime',
   'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts': 'mixed-runtime',
-  'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts':
-    'rename-later:sealedRecovery.types.ts',
   'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts': 'mixed-runtime',
   'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts': 'mixed-runtime',
-  'packages/sdk-web/src/core/signingEngine/uiConfirm/types.ts':
-    'rename-later:uiConfirm.types.ts',
   'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts':
     'mixed-runtime',
   'packages/sdk-web/src/react/components/AccountMenuButton/types.ts': 'mixed-runtime',
@@ -142,14 +125,22 @@ function importDeclarationViolationMessage(statement: ts.ImportDeclaration): str
 }
 
 function exportDeclarationViolationMessage(statement: ts.ExportDeclaration): string | null {
-  if (statement.isTypeOnly) return null;
-  if (allNamedExportsAreTypeOnly(statement)) return null;
+  if (exportDeclarationIsTypeOnly(statement)) return null;
   return 'contains a value export';
+}
+
+function exportDeclarationIsTypeOnly(statement: ts.ExportDeclaration): boolean {
+  if (statement.isTypeOnly) return true;
+  if (allNamedExportsAreTypeOnly(statement)) return true;
+  return false;
 }
 
 function allNamedExportsAreTypeOnly(statement: ts.ExportDeclaration): boolean {
   if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return false;
-  return statement.exportClause.elements.every((element) => element.isTypeOnly);
+  for (const element of statement.exportClause.elements) {
+    if (!element.isTypeOnly) return false;
+  }
+  return true;
 }
 
 function lineNumber(sourceFile: ts.SourceFile, statement: ts.Statement): number {
@@ -165,29 +156,21 @@ function statementKindName(statement: ts.Statement): string {
 }
 
 function valueTypesReexportMessage(relativePath: string, source: string): string | null {
-  for (const statement of exportStatements(source)) {
-    if (!statement.includes('.types')) continue;
-    if (/^\s*export\s+type\b/.test(statement)) continue;
-    if (/^\s*export\s+(?:\*|\{)/.test(statement)) {
+  const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true);
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement)) continue;
+    if (!exportsTypesModule(statement)) continue;
+    if (!exportDeclarationIsTypeOnly(statement)) {
       return `${relativePath} value-reexports a .types module`;
     }
   }
   return null;
 }
 
-function exportStatements(source: string): string[] {
-  const statements: string[] = [];
-  let current = '';
-  for (const line of source.split('\n')) {
-    if (current.length === 0 && !/^\s*export\b/.test(line)) continue;
-    current = current.length === 0 ? line : `${current}\n${line}`;
-    if (line.includes(';')) {
-      statements.push(current);
-      current = '';
-    }
-  }
-  if (current.length > 0) statements.push(current);
-  return statements;
+function exportsTypesModule(statement: ts.ExportDeclaration): boolean {
+  const moduleSpecifier = statement.moduleSpecifier;
+  if (!moduleSpecifier || !ts.isStringLiteral(moduleSpecifier)) return false;
+  return moduleSpecifier.text.includes('.types');
 }
 
 test.describe('Refactor 73 type filename source guards', () => {
@@ -198,19 +181,47 @@ test.describe('Refactor 73 type filename source guards', () => {
       'fixture.types.ts:1 contains executable or runtime statement VariableStatement: const x = 1;',
     );
     expect(
-      typeOnlyModuleViolationMessage('fixture.types.ts', 'console.log("x");\nexport type X = string;'),
+      typeOnlyModuleViolationMessage(
+        'fixture.types.ts',
+        'console.log("x");\nexport type X = string;',
+      ),
     ).toBe(
       'fixture.types.ts:1 contains executable or runtime statement ExpressionStatement: console.log("x");',
     );
     expect(
       typeOnlyModuleViolationMessage('fixture.types.ts', 'if (true) {}\nexport type X = string;'),
     ).toBe('fixture.types.ts:1 contains executable or runtime statement IfStatement: if (true) {}');
+    expect(typeOnlyModuleViolationMessage('fixture.types.ts', 'import { Foo } from "./foo";')).toBe(
+      'fixture.types.ts:1 contains a value import',
+    );
     expect(
-      typeOnlyModuleViolationMessage('fixture.types.ts', 'import { Foo } from "./foo";'),
-    ).toBe('fixture.types.ts:1 contains a value import');
-    expect(
-      typeOnlyModuleViolationMessage('fixture.types.ts', 'export interface X {\n  value: string;\n}\n'),
+      typeOnlyModuleViolationMessage(
+        'fixture.types.ts',
+        'export interface X {\n  value: string;\n}\n',
+      ),
     ).toBeNull();
+    expect(
+      typeOnlyModuleViolationMessage('fixture.types.ts', 'interface X {\n  value: string;\n}\n'),
+    ).toBeNull();
+  });
+
+  test('the runtime barrel guard distinguishes type-only .types reexports', () => {
+    expect(
+      valueTypesReexportMessage('fixture.ts', "export type { Foo } from './foo.types';"),
+    ).toBeNull();
+    expect(valueTypesReexportMessage('fixture.ts', "export type * from './foo.types';")).toBeNull();
+    expect(
+      valueTypesReexportMessage('fixture.ts', "export { type Foo } from './foo.types';"),
+    ).toBeNull();
+    expect(valueTypesReexportMessage('fixture.ts', "export { Foo } from './foo.types';")).toBe(
+      'fixture.ts value-reexports a .types module',
+    );
+    expect(valueTypesReexportMessage('fixture.ts', "export * from './foo.types';")).toBe(
+      'fixture.ts value-reexports a .types module',
+    );
+    expect(
+      valueTypesReexportMessage('fixture.ts', "export { type Foo, Bar } from './foo.types';"),
+    ).toBe('fixture.ts value-reexports a .types module');
   });
 
   test('source files do not use the deprecated .typings.ts suffix', () => {

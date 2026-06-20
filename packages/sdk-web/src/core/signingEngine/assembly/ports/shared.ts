@@ -5,9 +5,9 @@ import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/co
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
-import type { EvmSigningRequest } from '../../chains/evm/types';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
-import type { TempoSigningRequest } from '../../chains/tempo/types';
+import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type {
   EmailOtpEcdsaSigningBootstrapResult,
@@ -33,7 +33,7 @@ import type {
   ThresholdEd25519SessionRecord,
   ThresholdEcdsaKeyRefLookupResult,
 } from '../../session/persistence/records';
-import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
+import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
 import {
@@ -55,7 +55,7 @@ import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssL
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../session/emailOtp/ed25519LocalMetadata';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
-import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import {

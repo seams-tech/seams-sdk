@@ -32,8 +32,8 @@ import {
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { type ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { EvmSigningRequest } from '../../chains/evm/types';
-import type { TempoSigningRequest } from '../../chains/tempo/types';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import {
   buildEcdsaSessionPolicy,
   type ThresholdRuntimePolicyScope,

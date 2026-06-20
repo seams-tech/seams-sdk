@@ -36,7 +36,7 @@ export type {
   SigningSessionSealStartupCapabilities,
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionRecord,
-} from './types';
+} from './signingSessionSeal.types';
 export type { CreateSigningSessionSealAuditLoggerOptions } from './observability/audit';
 export type { CreateSigningSessionSealRoutesOptionsInput } from './routesOptions';
 export type { CreateSigningSessionSealOptionsInput } from './options';

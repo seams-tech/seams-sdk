@@ -40,7 +40,7 @@ import {
   resolveNearAccountProfileContinuity,
 } from '@/core/accountData/near/accountProjection';
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
-import type { ClientAuthenticatorData, ClientUserData } from '@/core/accountData/near/types';
+import type { ClientAuthenticatorData, ClientUserData } from '@/core/accountData/near/nearAccountData.types';
 import { exchangeSession, type SessionExchangeInput } from '@/core/rpcClients/near/rpcCalls';
 import {
   fetchWalletEcdsaKeyFactsInventoryWithAppSession,

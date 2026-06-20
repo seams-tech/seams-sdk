@@ -18,7 +18,7 @@ import type {
   SigningSessionSealServiceIdempotencyOptions,
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealStartupCapabilities,
-} from './types';
+} from './signingSessionSeal.types';
 import type { CreateSigningSessionSealAuditLoggerOptions } from './observability/audit';
 import type { CreateSigningSessionSealRateLimitGuardOptions } from './guards';
 

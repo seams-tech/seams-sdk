@@ -13,7 +13,7 @@ import type {
 import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
-import type { ClientUserData } from '../core/accountData/near/types';
+import type { ClientUserData } from '../core/accountData/near/nearAccountData.types';
 import type { ActionArgs } from '../core/types/actions';
 import type {
   DelegateActionHooksOptions,

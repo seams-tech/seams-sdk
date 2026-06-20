@@ -1,5 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { SigningEngineStorePorts } from '@/core/signingEngine/assembly/ports/shared';

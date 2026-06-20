@@ -1,5 +1,5 @@
 import type { EvmAddress, EvmContractAbi, Hex } from '../evm/types';
-import type { TempoCall } from './types';
+import type { TempoCall } from './tempoSigning.types';
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const ABI_WORD_HEX_LENGTH = 64;

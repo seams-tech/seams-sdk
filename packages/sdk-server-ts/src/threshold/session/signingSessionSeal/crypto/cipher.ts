@@ -4,7 +4,7 @@ import type {
   SigningSessionSealCipherAdapter,
   SigningSessionSealCipherOperationInput,
   SigningSessionSealCipherOperationResult,
-} from '../types';
+} from '../signingSessionSeal.types';
 
 type HandlerInput = Omit<SigningSessionSealCipherOperationInput, 'operation'>;
 type HandlerResult = SigningSessionSealCipherOperationResult;

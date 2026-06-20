@@ -110,7 +110,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const enginePorts = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/assembly/createPorts.ts',
     );
-    const touchConfirmTypes = readRepoSource('packages/sdk-web/src/core/signingEngine/uiConfirm/types.ts');
+    const touchConfirmTypes = readRepoSource('packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts');
     const touchConfirmManager = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts',
     );

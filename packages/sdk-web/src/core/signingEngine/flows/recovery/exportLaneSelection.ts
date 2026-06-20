@@ -15,7 +15,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import {
   isConcreteEcdsaExportLane,
@@ -24,7 +24,7 @@ import {
 import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
-} from '../../session/sealedRecovery/types';
+} from '../../session/sealedRecovery/sealedRecovery.types';
 
 export type ExactNearEd25519ExportLane = {
   curve: 'ed25519';

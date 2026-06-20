@@ -1,6 +1,6 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
-import type { RestorePersistedEcdsaSessionPurpose } from '../sealedRecovery/types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type { RestorePersistedEcdsaSessionPurpose } from '../sealedRecovery/sealedRecovery.types';
 import type { RawSigningSessionSealedStoreRecord } from '../sealedRecovery/recoveryRecord';
 import { restorePasskeyEcdsaSealedRecordForWallet } from './ecdsaRecovery';
 

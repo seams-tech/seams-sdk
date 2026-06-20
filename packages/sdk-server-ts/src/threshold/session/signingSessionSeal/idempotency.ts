@@ -2,7 +2,7 @@ import type {
   SigningSessionSealIdempotencyGetInput,
   SigningSessionSealIdempotencySetInput,
   SigningSessionSealIdempotencyStore,
-} from './types';
+} from './signingSessionSeal.types';
 
 type InMemoryIdempotencyEntry = {
   result: SigningSessionSealIdempotencySetInput['result'];

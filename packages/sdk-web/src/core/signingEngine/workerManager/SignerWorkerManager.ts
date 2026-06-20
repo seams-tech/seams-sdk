@@ -1,5 +1,5 @@
 import { type NearClient } from '@/core/rpcClients/near/NearClient';
-import type { UiConfirmSigningSessionPort } from '../uiConfirm/types';
+import type { UiConfirmSigningSessionPort } from '../uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { NearSigningKeyMaterialStorePort, NearSigningRuntimeDeps } from '../interfaces/runtime';
 import type {

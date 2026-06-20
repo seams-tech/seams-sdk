@@ -46,7 +46,7 @@ export type {
   ThresholdEd25519AddSignerSpec,
   WalletId as RegistrationWalletId,
 } from '@shared/utils/registrationIntent';
-export type { StoreUserDataInput } from '../core/accountData/near/types';
+export type { StoreUserDataInput } from '../core/accountData/near/nearAccountData.types';
 
 // === RE-EXPORT ACTION TYPES ===
 // Value export for enum

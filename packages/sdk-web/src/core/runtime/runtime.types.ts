@@ -36,9 +36,9 @@ import type {
   TempoNonceLaneStatus,
   TempoSigningDeps,
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
-import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';

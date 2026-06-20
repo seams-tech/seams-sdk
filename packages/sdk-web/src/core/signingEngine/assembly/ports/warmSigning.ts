@@ -22,7 +22,7 @@ import {
   createWarmSessionStatusOnlyUiConfirm,
   type WarmSessionStatusOnlyReaderPort,
 } from '../../uiConfirm/warmSessionUiConfirm';
-import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import { persistThresholdEcdsaBootstrapForWalletTarget } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import {

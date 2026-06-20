@@ -16,7 +16,7 @@ import type {
   SigningSessionSealIdempotencyStore,
   SigningSessionSealRouteResult,
   SigningSessionSealServiceIdempotencyOptions,
-} from './types';
+} from './signingSessionSeal.types';
 
 const DEFAULT_KEY_PREFIX = 'threshold:signing-session-seal:idempotency:';
 const DEFAULT_POSTGRES_NAMESPACE = 'threshold:signing-session-seal:idempotency';

@@ -5,7 +5,7 @@ import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistenc
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
   buildEcdsaLaneBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,

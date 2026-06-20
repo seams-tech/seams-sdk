@@ -7,7 +7,7 @@ import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,
   WarmSessionStatusResult,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import type {
   WarmSessionEd25519AuthMaterial,

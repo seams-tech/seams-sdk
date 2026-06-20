@@ -1645,6 +1645,14 @@ Threshold-era naming cleanup closure criteria:
   ownership after shared core extraction.
 - Guard active Router A/B route-core ownership outside threshold-era adapters.
 
+Completed rename map:
+
+| Old path | New path | Reason |
+| --- | --- | --- |
+| `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts` | `packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts` | Mechanical Refactor 73 type-module rename for the server threshold scheme registry. Exported scheme IDs and real cryptographic threshold names remain unchanged. |
+| `packages/sdk-server-ts/src/router/cloudflare/types.ts` | `packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts` | Mechanical Refactor 73 type-module rename for Cloudflare adapter boundary types after Refactor 70 core budget work stabilized. Runtime bindings and route handling remain unchanged. |
+| `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` | `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts` | Mechanical Refactor 73 type-module rename for signing-session seal boundary types after Refactor 70 core budget work stabilized. Seal policy, auth, budget, and transport semantics remain unchanged. |
+
 Validation completed for the Phase 7 route-core ownership guard:
 
 ```sh

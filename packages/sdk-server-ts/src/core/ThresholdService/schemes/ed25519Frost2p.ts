@@ -7,7 +7,7 @@ import type {
   ThresholdEd25519Frost2pSchemeModule,
   ThresholdEd25519RegistrationKeygenRequest,
   ThresholdEd25519RegistrationKeygenResult,
-} from './types';
+} from './thresholdServiceSchemes.types';
 
 export type ThresholdEd25519Frost2pSchemeModuleDeps = {
   healthz?: () => Promise<{ ok: boolean; code?: string; message?: string }>;

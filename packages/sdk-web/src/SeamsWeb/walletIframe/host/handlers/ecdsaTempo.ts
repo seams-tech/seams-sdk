@@ -1,5 +1,5 @@
 import type { ProgressPayload } from '../../shared/messages';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult } from './shared';
 
 export function createEcdsaTempoWalletIframeHandlers(deps: HandlerDeps): HandlerMap {

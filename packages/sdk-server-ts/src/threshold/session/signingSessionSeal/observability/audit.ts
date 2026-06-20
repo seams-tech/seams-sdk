@@ -1,5 +1,5 @@
 import type { NormalizedLogger } from '../../../../core/logger';
-import type { SigningSessionSealAuditEvent, SigningSessionSealAuditSink } from '../types';
+import type { SigningSessionSealAuditEvent, SigningSessionSealAuditSink } from '../signingSessionSeal.types';
 
 export interface CreateSigningSessionSealAuditLoggerOptions {
   logger: NormalizedLogger;

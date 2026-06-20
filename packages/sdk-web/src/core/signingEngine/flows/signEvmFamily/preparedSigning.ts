@@ -20,7 +20,7 @@ import {
   exactSigningLaneIdentityKey,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
+import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
   selectTransactionLane,

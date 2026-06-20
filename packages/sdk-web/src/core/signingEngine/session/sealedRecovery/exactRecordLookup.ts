@@ -8,7 +8,7 @@ import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionPurpose,
   RestorePersistedSessionWorkItem,
-} from './types';
+} from './sealedRecovery.types';
 
 export type RestoreWorkItemLookupResult =
   | {

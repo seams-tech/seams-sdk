@@ -1,5 +1,5 @@
 import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
-import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager/SignerWorkerManager';
 import type { EmailOtpWalletSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator';

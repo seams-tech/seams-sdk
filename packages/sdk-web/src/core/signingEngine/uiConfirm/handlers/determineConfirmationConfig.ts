@@ -1,5 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { UiConfirmContext } from '../types';
+import type { UiConfirmContext } from '../uiConfirm.types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { needsExplicitActivation } from '@/react/deviceDetection';

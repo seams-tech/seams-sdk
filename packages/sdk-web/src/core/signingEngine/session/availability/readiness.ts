@@ -2,7 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
-import type { VolatileWarmMaterialPort, WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { VolatileWarmMaterialPort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
   clearStoredThresholdEd25519SessionRecordForAccount,
   listStoredThresholdEcdsaSessionRecordsForWallet,

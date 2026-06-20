@@ -21,8 +21,8 @@ import type {
   NearTransactionsWithActionsPayload,
   NearTransactionsWithActionsResult,
 } from '../interfaces/near';
-import type { EvmAddress, EvmSigningRequest, Hex } from '../chains/evm/types';
-import type { TempoSigningRequest } from '../chains/tempo/types';
+import type { EvmAddress, EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpHssIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type {

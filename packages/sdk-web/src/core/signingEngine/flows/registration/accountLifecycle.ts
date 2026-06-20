@@ -18,7 +18,7 @@ import type {
   ClientAuthenticatorData,
   ClientUserData,
   StoreUserDataInput,
-} from '@/core/accountData/near/types';
+} from '@/core/accountData/near/nearAccountData.types';
 import {
   resolveProfileAccountContextFromCandidates,
   resolveProfileAccountProjection,

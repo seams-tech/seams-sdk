@@ -6,7 +6,7 @@ import {
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
-import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type {
   SigningSessionCoordinator,
   SigningSessionReadiness,

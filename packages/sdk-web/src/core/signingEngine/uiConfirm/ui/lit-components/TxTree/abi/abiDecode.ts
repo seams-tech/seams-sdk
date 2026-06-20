@@ -1,4 +1,4 @@
-import type { EvmAbiParameter, EvmContractAbi } from '@/core/signingEngine/chains/evm/types';
+import type { EvmAbiParameter, EvmContractAbi } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chains/evm/bytes';
 import { keccak256Bytes } from '@shared/utils/keccak';
 import {

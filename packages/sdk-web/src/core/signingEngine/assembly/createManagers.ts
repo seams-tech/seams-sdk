@@ -11,8 +11,8 @@ import type {
   SeamsConfigsReadonly,
 } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
-import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/types';
-import type { UiConfirmContext } from '../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/uiConfirm.types';
+import type { UiConfirmContext } from '../uiConfirm/uiConfirm.types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager/SignerWorkerManager';
 import type { SignerWorkerManagerDeps } from '../workerManager/SignerWorkerManager';

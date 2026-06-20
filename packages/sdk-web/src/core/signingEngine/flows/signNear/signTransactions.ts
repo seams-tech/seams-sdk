@@ -29,7 +29,7 @@ import {
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolveNearNetwork, resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
-import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import {
   isSigningSessionAuthUnavailableError,
   isThresholdSignerRepairableMaterialError,

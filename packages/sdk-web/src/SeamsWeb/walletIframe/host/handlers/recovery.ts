@@ -1,5 +1,5 @@
 import type { ActionHooksOptions, SyncAccountHooksOptions } from '@/core/types/sdkSentEvents';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 
 export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMap {

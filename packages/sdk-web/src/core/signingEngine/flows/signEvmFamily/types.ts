@@ -1,7 +1,7 @@
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
-import type { EvmSigningRequest } from '../../chains/evm/types';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
-import type { TempoSigningRequest } from '../../chains/tempo/types';
+import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   CreateSigningFlowEventInput,

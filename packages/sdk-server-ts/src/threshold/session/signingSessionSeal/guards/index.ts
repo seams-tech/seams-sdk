@@ -2,7 +2,7 @@ import type {
   SigningSessionSealGuard,
   SigningSessionSealGuardInput,
   SigningSessionSealGuardResult,
-} from '../types';
+} from '../signingSessionSeal.types';
 
 export function composeSigningSessionSealGuards(
   ...guards: Array<SigningSessionSealGuard | null | undefined>

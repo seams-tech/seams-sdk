@@ -70,7 +70,7 @@ import type {
 import type { AccountId } from '@/core/types/accountIds';
 import type { ActionArgs, TransactionInput } from '@/core/types/actions';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
-import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near/signNEP413';
@@ -98,8 +98,8 @@ import type {
   ReportTempoFinalizedArgs as RuntimeReportTempoFinalizedArgs,
   TempoNonceLaneStatus as RuntimeTempoNonceLaneStatus,
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
-import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
 import type {
@@ -144,7 +144,7 @@ import type {
   ClientAuthenticatorData,
   ClientUserData,
   StoreUserDataInput,
-} from '@/core/accountData/near/types';
+} from '@/core/accountData/near/nearAccountData.types';
 import type {
   EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap,
   PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,

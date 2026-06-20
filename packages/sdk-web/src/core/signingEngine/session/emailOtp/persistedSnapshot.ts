@@ -24,7 +24,7 @@ import {
   type ReadAvailableSigningLanesInput,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { resolveEmailOtpEcdsaWorkerSessionId } from '@/core/signingEngine/session/availability/readiness';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 
 export type EmailOtpPersistedSessionSnapshotPorts = {

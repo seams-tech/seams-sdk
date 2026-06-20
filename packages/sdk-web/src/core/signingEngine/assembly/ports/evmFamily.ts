@@ -6,7 +6,7 @@ import {
 } from '../../session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '../../session/emailOtp/sealedSigningSessionAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
-import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import { thresholdEcdsaChainTargetsEqual } from '../../interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';

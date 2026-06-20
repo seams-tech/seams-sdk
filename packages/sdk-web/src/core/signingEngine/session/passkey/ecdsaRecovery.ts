@@ -1,12 +1,12 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
-import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/types';
+import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
   sealedRecoverySessionKind,
   sealedRecoveryWalletSessionJwt,
   type PasskeyEcdsaSealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { toAccountId } from '@/core/types/accountIds';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';

@@ -1,5 +1,5 @@
 import type { RouterLogger } from './logger';
-import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/types';
+import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/thresholdServiceSchemes.types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
 import type {
   ThresholdEd25519HssFinalizeWithSessionRequest,
@@ -12,7 +12,7 @@ import type {
 import type { RelayRouterRorOptions } from './ror/provider';
 import type { RelayRouterModule } from './modules';
 import type { RelayRouteExtension } from './routeExtensions';
-import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/types';
+import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import type { ConsoleApiKeyService } from '../console/apiKeys';

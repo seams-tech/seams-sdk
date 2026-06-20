@@ -2,7 +2,7 @@ import type {
   ClientAuthenticatorData,
   ClientUserData,
   StoreUserDataInput,
-} from '@/core/accountData/near/types';
+} from '@/core/accountData/near/nearAccountData.types';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';

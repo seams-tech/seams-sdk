@@ -146,7 +146,7 @@ import type {
   ThresholdAnySchemeModule,
   ThresholdEd25519RegistrationKeygenRequest,
   ThresholdEd25519RegistrationKeygenResult,
-} from './schemes/types';
+} from './schemes/thresholdServiceSchemes.types';
 import type { ThresholdSchemeId } from './schemes/schemeIds';
 import {
   THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,

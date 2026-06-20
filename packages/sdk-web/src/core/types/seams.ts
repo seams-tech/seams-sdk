@@ -7,7 +7,7 @@ import type {
 } from '../signingEngine/nonce/NonceCoordinator';
 import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { WalletHostVariant } from '../browser/walletIframe/hostVariant';
-import type { ClientUserData } from '../accountData/near/types';
+import type { ClientUserData } from '../accountData/near/nearAccountData.types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 import type {

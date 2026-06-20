@@ -16,7 +16,7 @@ import {
   type WorkerSuccessResponse,
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
-import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import {
   isSigningSessionAuthUnavailableError,
   isThresholdSignerRepairableMaterialError,

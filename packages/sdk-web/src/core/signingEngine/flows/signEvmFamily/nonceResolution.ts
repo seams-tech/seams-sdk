@@ -3,8 +3,8 @@ import {
   toIndexedDbChainTargetKey,
 } from '@/core/indexedDB/normalization';
 import type { SeamsChainConfig, SeamsConfigsReadonly } from '@/core/types/seams';
-import type { EvmSigningRequest } from '../../chains/evm/types';
-import type { TempoSigningRequest } from '../../chains/tempo/types';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EvmFamilyAccountMetadataDeps } from './accountAuth';
 import { toOptionalEvmAddress } from './addresses';

@@ -2,7 +2,7 @@ import type { AccountId } from '../../core/types/accountIds';
 import { toAccountId } from '../../core/types/accountIds';
 import { IndexedDBManager } from '../../core/indexedDB';
 import { resolveNearAccountProfileContinuity } from '../../core/accountData/near/accountProjection';
-import type { RecoveryEmailRecord } from '../../core/accountData/near/types';
+import type { RecoveryEmailRecord } from '../../core/accountData/near/nearAccountData.types';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { base64Decode } from '@shared/utils/base64';
 export { EmailRecoveryPendingStore, type PendingStore } from './emailRecoveryPendingStore';

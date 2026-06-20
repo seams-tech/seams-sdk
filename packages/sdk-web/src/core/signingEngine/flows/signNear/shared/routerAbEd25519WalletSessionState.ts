@@ -7,7 +7,7 @@ import {
   buildNearTransactionSigningLane,
 } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
-import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm/types';
+import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
 import {

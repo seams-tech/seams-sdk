@@ -13,7 +13,7 @@ import type {
   SigningSessionSealRouteResult,
   SigningSessionSealService,
   SigningSessionSealThresholdSessionRecord,
-} from './types';
+} from './signingSessionSeal.types';
 
 const SIGNING_SESSION_SEAL_LOG_LABEL = '[threshold-signing-session-seal]';
 const SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS_DEFAULT = 90_000;

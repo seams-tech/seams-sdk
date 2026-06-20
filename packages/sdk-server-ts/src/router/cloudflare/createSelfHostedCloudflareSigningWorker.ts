@@ -6,7 +6,7 @@ import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { coerceRouterLogger } from '../logger';
 import type { NormalizedRouterLogger } from '../logger';
-import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
+import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { json, withCors } from './http';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
 import { handleThresholdEcdsa } from './routes/thresholdEcdsa';

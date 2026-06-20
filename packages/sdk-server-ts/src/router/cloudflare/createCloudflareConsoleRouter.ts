@@ -192,7 +192,7 @@ import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consol
 import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
 import type { RouteDefinition } from '../routeDefinitions';
 import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
-import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
+import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { headersToRecord, json, readJson } from './http';
 
 export interface CloudflareConsoleContext {

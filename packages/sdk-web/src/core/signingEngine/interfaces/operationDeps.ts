@@ -27,7 +27,7 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
-import type { RestorePersistedSessionForSigningInput } from '../session/sealedRecovery/types';
+import type { RestorePersistedSessionForSigningInput } from '../session/sealedRecovery/sealedRecovery.types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -44,7 +44,7 @@ import type {
   UiConfirmSigningPort,
   VolatileWarmMaterialPort,
   WarmSessionStatusResult,
-} from '../uiConfirm/types';
+} from '../uiConfirm/uiConfirm.types';
 import type { SignerWorkerManagerContext } from '../workerManager/SignerWorkerManager';
 
 export type EvmFamilyChain = 'tempo' | 'evm';

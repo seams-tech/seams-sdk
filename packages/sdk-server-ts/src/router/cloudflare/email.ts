@@ -2,7 +2,7 @@ import type { AuthService } from '../../core/AuthService';
 import { parseRecoverEmailRequest } from '../../email-recovery/emailParsers';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
-import type { EmailHandler, CfEmailMessage } from './types';
+import type { EmailHandler, CfEmailMessage } from './cloudflare.types';
 import { toSingleLine } from '@shared/utils/validation';
 
 function toEmailAddress(input: string): string {

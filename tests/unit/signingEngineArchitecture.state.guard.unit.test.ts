@@ -46,7 +46,7 @@ test.describe('signing-engine state architecture guardrails', () => {
     );
     const planner = readRepoSource('packages/sdk-web/src/core/signingEngine/session/planning/planner.ts');
     const restoreTypes = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts',
+      'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts',
     );
     const restoreCoordinator = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',

@@ -110,7 +110,7 @@ import type {
   RegistrationActivationSurfaceState,
   WalletIframeRegistrationActivationSurface,
 } from '@/SeamsWeb/publicApi/types';
-import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';

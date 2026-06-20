@@ -1,4 +1,4 @@
-import type { TempoUnsignedTx } from './types';
+import type { TempoUnsignedTx } from './tempoSigning.types';
 import {
   executeWorkerOperation,
   type WorkerOperationContext,

@@ -1,5 +1,5 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import type { SigningSessionSealRouteResult } from './types';
+import type { SigningSessionSealRouteResult } from './signingSessionSeal.types';
 
 function toPositiveInt(value: unknown): number | null {
   const parsed = Number(value);

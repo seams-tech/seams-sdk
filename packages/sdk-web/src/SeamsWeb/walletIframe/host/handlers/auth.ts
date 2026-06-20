@@ -1,6 +1,6 @@
 import type { LoginHooksOptions } from '@/core/types/sdkSentEvents';
 import type { WalletSession } from '@/core/types/seams';
-import type { HandlerDeps, HandlerMap, Req } from './types';
+import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 import {
   pmUnlockPayloadToLoginHooksOptions,

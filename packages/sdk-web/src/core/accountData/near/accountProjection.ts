@@ -8,7 +8,7 @@ import {
 } from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
 import { DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
-import type { ClientUserData, StoreUserDataInput } from './types';
+import type { ClientUserData, StoreUserDataInput } from './nearAccountData.types';
 import {
   getLastSelectedProfileAccountByChain,
   getPrimaryProfileAccountByChain,

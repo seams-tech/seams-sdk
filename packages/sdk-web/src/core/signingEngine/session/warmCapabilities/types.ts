@@ -22,7 +22,7 @@ import type {
 } from '../../threshold/sessionPolicy';
 import type { Ed25519WalletSessionMintAuthorization } from '../../threshold/ed25519/walletSession';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
-import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { SigningOperationIntent } from '../operationState/types';
 import {
   thresholdEcdsaChainTargetsEqual,

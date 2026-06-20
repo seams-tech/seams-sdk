@@ -3,7 +3,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type {
   WarmSessionSealPersister,
   WarmSessionStatusReader,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 
 export type WarmSessionSealPersistPorts =
   | Partial<

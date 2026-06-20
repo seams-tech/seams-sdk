@@ -1,4 +1,4 @@
-import type { Eip1559UnsignedTx } from './types';
+import type { Eip1559UnsignedTx } from './evmSigning.types';
 import { bytesToHex } from './bytes';
 import {
   executeWorkerOperation,

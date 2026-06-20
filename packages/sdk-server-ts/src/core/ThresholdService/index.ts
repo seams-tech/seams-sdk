@@ -1,7 +1,7 @@
 export { ThresholdSigningService } from './ThresholdSigningService';
 export { createThresholdSigningService } from './createThresholdSigningService';
 export * from './schemes/schemeIds';
-export * from './schemes/types';
+export * from './schemes/thresholdServiceSchemes.types';
 export {
   createThresholdEd25519KeyStore,
   type ThresholdEd25519KeyStore,

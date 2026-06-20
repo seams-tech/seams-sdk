@@ -14,8 +14,8 @@ import {
   sealedRecoveryWalletSessionJwt,
   type PasskeyEd25519SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
-import type { RestorePersistedEd25519SessionPurpose } from '@/core/signingEngine/session/sealedRecovery/types';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import type { RestorePersistedEd25519SessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';

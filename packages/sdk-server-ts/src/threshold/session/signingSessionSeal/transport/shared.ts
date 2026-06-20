@@ -9,7 +9,7 @@ import type {
   SigningSessionSealRoutesOptions,
   SigningSessionSealSessionAdapter,
   SigningSessionSealSessionClaims,
-} from '../types';
+} from '../signingSessionSeal.types';
 
 const DEFAULT_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH_V2;
 const THRESHOLD_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;

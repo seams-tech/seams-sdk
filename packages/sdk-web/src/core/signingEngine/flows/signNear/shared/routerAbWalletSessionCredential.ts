@@ -1,5 +1,5 @@
 import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';

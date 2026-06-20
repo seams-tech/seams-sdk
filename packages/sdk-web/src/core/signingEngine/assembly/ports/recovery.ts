@@ -5,7 +5,7 @@ import {
   readPersistedAvailableSigningLanes,
   readPersistedAvailableSigningLanesForTargets,
 } from '../../session/availability/persistedAvailableSigningLanes';
-import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
 import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';

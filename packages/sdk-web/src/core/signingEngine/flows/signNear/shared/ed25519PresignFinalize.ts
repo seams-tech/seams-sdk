@@ -1,6 +1,6 @@
 import { resolveNearNetwork } from '@/core/config/chains';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
-import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
 import {
   WorkerRequestType,
   WorkerResponseType,

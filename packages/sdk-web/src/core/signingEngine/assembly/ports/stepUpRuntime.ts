@@ -11,7 +11,7 @@ import {
   listStoredThresholdEcdsaSessionRecordsForWallet,
 } from '../../session/persistence/records';
 import { createWarmSessionAwareUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
   EmailOtpWalletSessionCoordinator,
   type EmailOtpWalletSessionCoordinatorDeps,

@@ -14,7 +14,7 @@ import {
 import type {
   WarmSessionStatusResult,
   WarmSessionStatusReader,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { normalizeBoundedPositiveInteger } from '@shared/utils/normalize';
 export { THRESHOLD_SESSION_EXHAUSTED_ERROR, THRESHOLD_SESSION_MISSING_ERROR, requireThresholdSigningSessionId };
 

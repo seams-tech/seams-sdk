@@ -3,7 +3,7 @@ import type {
   ClearVolatileWarmSessionMaterialCommand,
   VolatileWarmSessionMaterialClearAll,
   VolatileWarmSessionMaterialClearer,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
   listThresholdEcdsaRuntimeLanesForWallet,

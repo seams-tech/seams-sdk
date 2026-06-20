@@ -2,7 +2,7 @@ import type { AuthService } from '../../core/AuthService';
 import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
-import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
+import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { json, withCors } from './http';
 import { handleApiWallets } from './routes/apiWallets';
 import { handleBootstrapGrant } from './routes/bootstrapGrants';

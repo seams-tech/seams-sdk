@@ -4,7 +4,7 @@ import type {
   ClearVolatileWarmSessionMaterialCommand,
   WarmSessionClaimResult,
   WarmSessionStatusResult,
-} from './types';
+} from './uiConfirm.types';
 
 type WarmSessionStatusOnlyUiConfirmPort = UiConfirmRuntimeBridgePort & {
   readWarmSessionStatusOnly?: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;

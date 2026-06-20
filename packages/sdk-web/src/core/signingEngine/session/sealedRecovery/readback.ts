@@ -1,4 +1,4 @@
-import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { RestoreSealedRecordResult } from './types';
 
 export type RestoredWarmSessionStatus = {

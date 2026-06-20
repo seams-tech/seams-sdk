@@ -3,7 +3,7 @@ import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { DurableSealedSessionPort, UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { DurableSealedSessionPort, UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import { SigningOperationIntent } from '../operationState/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {

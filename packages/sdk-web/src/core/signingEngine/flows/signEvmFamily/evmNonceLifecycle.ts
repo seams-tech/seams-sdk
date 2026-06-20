@@ -7,7 +7,7 @@ import {
   evmReserveNonceInputToLane,
   type PreparedNonceOperationContext,
 } from '../../nonce/NonceCoordinator';
-import type { EvmSigningRequest } from '../../chains/evm/types';
+import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import { mapToRetryableNonceStateError } from './errors';
 import type { EvmFamilyManagedNonceReservation } from './events';
 import type { EvmFamilyNonceLifecycleDeps } from './nonceLifecycleAdapter';

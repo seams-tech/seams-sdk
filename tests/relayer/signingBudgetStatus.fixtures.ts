@@ -1,7 +1,7 @@
 import type {
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
-} from '@server/threshold/session/signingSessionSeal/types';
+} from '@server/threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 

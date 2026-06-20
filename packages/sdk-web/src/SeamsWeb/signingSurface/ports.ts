@@ -31,8 +31,8 @@ import type {
   ReportTempoFinalizedArgs as RuntimeReportTempoFinalizedArgs,
   TempoNonceLaneStatus as RuntimeTempoNonceLaneStatus,
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
-import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
-import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/types';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
@@ -45,7 +45,7 @@ import type {
   ClientAuthenticatorData,
   ClientUserData,
   StoreUserDataInput,
-} from '@/core/accountData/near/types';
+} from '@/core/accountData/near/nearAccountData.types';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {

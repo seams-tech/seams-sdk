@@ -1,7 +1,7 @@
 import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
-} from '@/core/signingEngine/uiConfirm/types';
+} from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 
 export async function readEmailOtpWarmSessionStatusOnly(args: {
   sessionId: string;

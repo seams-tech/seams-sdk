@@ -1,5 +1,5 @@
 import type { ProgressPayload } from '../../shared/messages';
-import type { HandlerDeps } from './types';
+import type { HandlerDeps } from './walletIframeHandler.types';
 
 export function respondOk(deps: Pick<HandlerDeps, 'post'>, requestId: string | undefined): void {
   deps.post({ type: 'PM_RESULT', requestId, payload: { ok: true } });

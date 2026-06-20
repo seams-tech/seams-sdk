@@ -3,7 +3,7 @@ import type {
   ClearVolatileWarmMaterialCommand,
   ClearVolatileWarmSessionMaterialCommand,
   VolatileWarmSessionScope,
-} from '../../uiConfirm/types';
+} from '../../uiConfirm/uiConfirm.types';
 import {
   parseVolatileWarmSessionId,
   type VolatileWarmSessionId,
