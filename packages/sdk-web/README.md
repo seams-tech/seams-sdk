@@ -125,6 +125,14 @@ function AuthMenu() {
 }
 ```
 
+When the wallet runs in iframe mode, `PasskeyAuthMenu` renders the passkey
+registration CTA through the wallet iframe activation surface. The visible
+wrapper keeps the app's normal styling, while the wallet-origin iframe owns the
+actual click that opens WebAuthn. Direct SDK calls such as
+`seams.registerPasskey('alice.testnet')` keep the wallet-origin confirmation
+modal so the user can click inside the iframe before Touch ID or the platform
+authenticator prompt appears.
+
 The public flow only exposes UI-safe data: wallet id, email hint, prompt copy,
 delivery status, expiry, and `resend`/`reroll`/`submit`/`cancel` methods. It
 does not expose app-session JWTs, runtime policy scope, recovery codes, or

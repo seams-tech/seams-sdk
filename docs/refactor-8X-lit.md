@@ -57,6 +57,11 @@ The target state:
 - `docs/refactor-56-react-components.md` owns React auth flow simplification.
   This plan owns React wrappers around Lit custom elements and their dependency
   footprint.
+- `docs/refactor-8X-iframe-registration-button.md` owns the wallet-origin
+  `seams-passkey-registration-btn` activation component and the app-domain
+  `.seams-passkey-registration-btn` wrapper. That component intentionally lives
+  under `lit-components/passkey-registration-btn`, but it stays independent from
+  the transaction confirmer, export-key, modal, and drawer graphs.
 - `client/src/core/signingEngine/uiConfirm/ui/lit-components/README-lit-elements.md`
   should be updated after the component entrypoints and shared modules settle.
 
