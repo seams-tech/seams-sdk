@@ -34,6 +34,7 @@ import {
   emailOtpStatusCode,
   emailOtpFailureAuditPayload,
   emailOtpInternalErrorBody,
+  emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
@@ -391,6 +392,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       let oidcFamilyName: string | undefined;
       let oidcProvider: string | undefined;
       let oidcAccountMode: 'register' | 'login' | undefined;
+      let oidcRestartRegistrationOffer = false;
       let passkeyChallengeId: string | undefined;
       let walletId: string | undefined;
       let googleEmailOtpResolution:
@@ -484,6 +486,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           Object.prototype.hasOwnProperty.call(exchange as any, 'account_mode') ||
           Object.prototype.hasOwnProperty.call(exchange as any, 'accountMode');
         oidcAccountMode = parseOidcAccountMode(oidcAccountModeRaw);
+        oidcRestartRegistrationOffer = oidcAccountMode === 'register';
         isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
         if (oidcProvider === 'google' && hasOidcAccountMode && !oidcAccountMode) {
           await emitSessionExchangeFailed({
@@ -668,6 +671,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
                   providerSubject,
                   email: oidcEmail,
                   accountMode: oidcAccountMode,
+                  restartRegistrationOffer: oidcRestartRegistrationOffer,
                   runtimePolicyScope,
                   appSessionUserId: userId,
                   clientIp:
@@ -696,6 +700,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
               sub: oidcSub,
               email: oidcEmail,
               accountMode: oidcAccountMode,
+              restartRegistrationOffer: oidcRestartRegistrationOffer,
               ...(appSessionVersion ? { appSessionVersion } : {}),
               runtimePolicyScope,
             });
@@ -927,7 +932,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           orgId: runtimePolicyScope.orgId,
           email: oidcEmail,
           otpChannel: EMAIL_OTP_CHANNEL,
-          sessionHash: await hashEmailOtpAppSessionClaims(sessionClaims),
+          sessionHash: await hashEmailOtpAppSessionClaims(
+            emailOtpAppSessionClaimsForSubject({
+              userId,
+              claims: sessionClaims,
+            }),
+          ),
           appSessionVersion,
           reuseActiveChallenge: true,
           clientIp:

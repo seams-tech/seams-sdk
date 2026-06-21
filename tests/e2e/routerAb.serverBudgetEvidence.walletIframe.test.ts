@@ -40,6 +40,8 @@ type BudgetEvidenceStage = {
   ed25519SigningGrantId?: string;
   ed25519ThresholdSessionId?: string;
   ed25519RestoreWorkerMaterialCalls?: number;
+  ed25519UnsealAuthorizationPutCalls?: number;
+  ed25519UnsealAuthorizationClaimCalls?: number;
   ed25519HssRouteCalls?: number;
   ed25519WorkerRequestTypes?: Record<string, number>;
   ed25519WorkerTraceInstall?: string;
@@ -76,12 +78,10 @@ function installEd25519WorkerOperationTraceInRealm(): void {
       record: (requestType: string) => void;
       snapshot: () => Ed25519WorkerOperationTraceSnapshot;
     };
-    __w3aResetNearSignerWorkers?: () => void;
   };
   if (global.__w3aEd25519WorkerTrace) return;
 
   const requestTypes: Record<string, number> = {};
-  const nearSignerWorkers = new Set<Worker>();
   const recordRequestType = (requestTypeRaw: string): void => {
     const requestType = String(requestTypeRaw || '').trim();
     if (!requestType) return;
@@ -95,8 +95,21 @@ function installEd25519WorkerOperationTraceInRealm(): void {
         : '';
     return workerUrl.includes('near-signer.worker') || workerName.includes('signer-worker');
   };
+  const isSecureConfirmWorker = (url: unknown, options: unknown): boolean => {
+    const workerUrl = String(url || '').toLowerCase();
+    const workerName =
+      options && typeof options === 'object'
+        ? String((options as { name?: unknown }).name || '').toLowerCase()
+        : '';
+    return (
+      workerUrl.includes('passkey-confirm.worker') ||
+      workerName.includes('web3authnsecureconfirmworker')
+    );
+  };
+  const shouldTraceWorker = (url: unknown, options: unknown): boolean =>
+    isNearSignerWorker(url, options) || isSecureConfirmWorker(url, options);
   const OriginalWorker = window.Worker;
-  const patchNearSignerPostMessage = (worker: Worker): void => {
+  const patchPostMessage = (worker: Worker): void => {
     const originalPostMessage = worker.postMessage.bind(worker);
     worker.postMessage = ((message: unknown, transfer?: Transferable[]) => {
       if (message && typeof message === 'object') {
@@ -115,9 +128,8 @@ function installEd25519WorkerOperationTraceInRealm(): void {
     options?: WorkerOptions,
   ): Worker {
     const worker = new OriginalWorker(url, options);
-    if (isNearSignerWorker(url, options)) {
-      nearSignerWorkers.add(worker);
-      patchNearSignerPostMessage(worker);
+    if (shouldTraceWorker(url, options)) {
+      patchPostMessage(worker);
     }
     return worker;
   } as unknown as typeof Worker;
@@ -127,44 +139,15 @@ function installEd25519WorkerOperationTraceInRealm(): void {
   global.__w3aEd25519WorkerTrace = {
     record: recordRequestType,
     snapshot: () => ({
-      restoreWorkerMaterialCalls:
-        requestTypes.thresholdEd25519RestoreWorkerMaterial || 0,
+      restoreWorkerMaterialCalls: requestTypes.thresholdEd25519RestoreWorkerMaterial || 0,
       workerRequestTypes: { ...requestTypes },
     }),
-  };
-  global.__w3aResetNearSignerWorkers = () => {
-    for (const worker of nearSignerWorkers) {
-      try {
-        worker.terminate();
-      } catch {}
-    }
-    nearSignerWorkers.clear();
   };
 }
 
 async function installEd25519WorkerOperationTrace(page: Page): Promise<void> {
   await page.addInitScript(installEd25519WorkerOperationTraceInRealm);
   await page.evaluate(installEd25519WorkerOperationTraceInRealm);
-}
-
-async function resetNearSignerWorkerForColdEd25519Material(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const harness = (globalThis as any).__routerAbBudgetEvidence;
-    let resetByHarness = false;
-    if (typeof harness?.resetNearSignerWorker === 'function') {
-      harness.resetNearSignerWorker();
-      resetByHarness = true;
-    }
-    if (!resetByHarness) {
-      const workerTransportMod = await import(
-        '/sdk/esm/core/signingEngine/workerManager/workerTransport.js'
-      );
-      const workerTransport = workerTransportMod.getWorkerTransport?.();
-      if (typeof workerTransport?.resetWorker === 'function') {
-        workerTransport.resetWorker('nearSigner');
-      }
-    }
-  });
 }
 
 async function readEd25519WorkerOperationTrace(
@@ -210,10 +193,9 @@ test.describe('Router A/B shared server-budget local evidence', () => {
     'Set RUN_ROUTER_AB_BUDGET_EVIDENCE=1 to run local browser budget evidence.',
   );
 
-  test('one unlock provisions three shared uses across NEAR, Tempo, and EVM, then step-up resets budget', async (
-    { page },
-    testInfo,
-  ) => {
+  test('one unlock provisions three shared uses across NEAR, Tempo, and EVM, then step-up resets budget', async ({
+    page,
+  }, testInfo) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page, {
       injectWalletServiceImportMap: true,
     });
@@ -249,10 +231,9 @@ test.describe('Router A/B shared server-budget local evidence', () => {
     }
   });
 
-  test('one unlock lazily restores Ed25519 material across NEAR tx, NEP-413, and delegate signing', async (
-    { page },
-    testInfo,
-  ) => {
+  test('one unlock lazily restores Ed25519 material across NEAR tx, NEP-413, and delegate signing', async ({
+    page,
+  }, testInfo) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page, {
       injectWalletServiceImportMap: true,
     });
@@ -263,6 +244,7 @@ test.describe('Router A/B shared server-budget local evidence', () => {
         fourthLabels: ['near-2'],
         captureEd25519LaneEvidence: true,
         forceColdEd25519MaterialBeforeFirstSign: true,
+        expectUnlockInstalledEd25519UnsealHandle: true,
         validateSharedBudget: false,
       });
 
@@ -281,7 +263,7 @@ test.describe('Router A/B shared server-budget local evidence', () => {
       ]);
       expect(signingStages.slice(0, 3).every((stage) => stage.ok)).toBe(true);
       expect(result.webauthnGetCounts.afterFirstThreeSigns).toBe(
-        result.webauthnGetCounts.afterUnlock + 1,
+        result.webauthnGetCounts.afterUnlock,
       );
       expect(signingStages[3]?.ok, JSON.stringify(signingStages[3])).toBe(true);
       expect(result.webauthnGetCounts.afterFourthSign).toBe(
@@ -373,6 +355,10 @@ async function readEd25519NoHssTraceEvidence(
   return {
     ed25519RestoreWorkerMaterialCalls:
       current.restoreWorkerMaterialCalls - args.baseline.workerTrace.restoreWorkerMaterialCalls,
+    ed25519UnsealAuthorizationPutCalls:
+      workerRequestTypes.WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT || 0,
+    ed25519UnsealAuthorizationClaimCalls:
+      workerRequestTypes.WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM || 0,
     ed25519HssRouteCalls: args.ed25519HssRouteCalls - args.baseline.ed25519HssRouteCalls,
     ed25519WorkerRequestTypes: workerRequestTypes,
     ed25519WorkerTraceInstall: installDiagnostic,
@@ -381,11 +367,13 @@ async function readEd25519NoHssTraceEvidence(
 
 async function readEd25519WorkerTraceInstallDiagnostic(page: Page): Promise<string> {
   const diagnostics = await Promise.all(
-    page.frames().map((frame) =>
-      frame
-        .evaluate(() => String((globalThis as any).__w3aEd25519WorkerTraceInstall || ''))
-        .catch(() => ''),
-    ),
+    page
+      .frames()
+      .map((frame) =>
+        frame
+          .evaluate(() => String((globalThis as any).__w3aEd25519WorkerTraceInstall || ''))
+          .catch(() => ''),
+      ),
   );
   return diagnostics.filter(Boolean).join(' | ');
 }
@@ -604,7 +592,6 @@ const WALLET_IFRAME_ED25519_EVIDENCE_MODULE_SOURCE = `
   globalThis.__w3aReadEd25519EvidenceInstalling = true;
   (async () => {
     const storeMod = await import('/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js');
-    const workerTransportMod = await import('/sdk/esm/core/signingEngine/workerManager/workerTransport.js').catch(() => null);
     const latestEd25519Record = async (input) => {
       const visibleRecords = await storeMod.listExactSealedSessionsForWallet({
         walletId: input.accountId,
@@ -688,15 +675,6 @@ const WALLET_IFRAME_ED25519_EVIDENCE_MODULE_SOURCE = `
         updatedAtMs: Date.now(),
         ed25519Restore: coldRestore,
       });
-      try {
-        globalThis.__w3aResetNearSignerWorkers?.();
-      } catch {}
-      try {
-        const workerTransport = workerTransportMod?.getWorkerTransport?.();
-        if (typeof workerTransport?.resetWorker === 'function') {
-          workerTransport.resetWorker('nearSigner');
-        }
-      } catch {}
       return {
         ok: true,
         reason: 'material_handle_hint_removed',
@@ -793,11 +771,16 @@ async function runSharedBudgetEvidence(
     fourthLabels?: string[];
     captureEd25519LaneEvidence?: boolean;
     forceColdEd25519MaterialBeforeFirstSign?: boolean;
+    expectUnlockInstalledEd25519UnsealHandle?: boolean;
     validateSharedBudget?: boolean;
   },
 ): Promise<BudgetEvidenceResult> {
   const before = await readWebAuthnGetCallCount(page);
   await installEd25519WorkerOperationTrace(page);
+  const initialTraceBaseline: Ed25519NoHssTraceBaseline = {
+    workerTrace: await readEd25519WorkerOperationTrace(page),
+    ed25519HssRouteCalls: 0,
+  };
   const consoleMessages: string[] = [];
   let ed25519HssRouteCalls = 0;
   const onConsole = (message: ConsoleMessage): void => {
@@ -841,8 +824,15 @@ async function runSharedBudgetEvidence(
       accountId: args.accountId,
       budgetStatusBaseUrl: harness.baseUrl,
     });
-    setupStages = setupResult.stages.map((stage) => ({ ...stage, ...coldEvidence }));
-    await resetNearSignerWorkerForColdEd25519Material(page);
+    const setupTraceEvidence = await readEd25519NoHssTraceEvidence(page, {
+      baseline: initialTraceBaseline,
+      ed25519HssRouteCalls,
+    });
+    setupStages = setupResult.stages.map((stage) => ({
+      ...stage,
+      ...coldEvidence,
+      ...setupTraceEvidence,
+    }));
     traceBaseline = {
       workerTrace: await readEd25519WorkerOperationTrace(page),
       ed25519HssRouteCalls,
@@ -904,8 +894,11 @@ async function runSharedBudgetEvidence(
   );
   const afterFourthSign = await readWebAuthnGetCallCount(page);
   const stages = [...setupStages, ...firstThree.stages, ...fourth.stages];
-  const expectedAfterFirstThreeSigns =
-    afterUnlock + (args.forceColdEd25519MaterialBeforeFirstSign ? 1 : 0);
+  const expectedRestorePromptCount =
+    args.forceColdEd25519MaterialBeforeFirstSign && !args.expectUnlockInstalledEd25519UnsealHandle
+      ? 1
+      : 0;
+  const expectedAfterFirstThreeSigns = afterUnlock + expectedRestorePromptCount;
   const baseOk =
     setupResult.ok &&
     firstThree.ok &&
@@ -1029,6 +1022,13 @@ function validateEd25519RestoreEvidenceResult(
   if (setup?.ed25519State !== 'material_pending' || setup?.hasMaterialHandle) {
     failures.push('Ed25519 setup evidence did not start from cold material_pending state');
   }
+  if (setup?.ed25519UnsealAuthorizationPutCalls !== 1) {
+    failures.push(
+      `Unlock did not install exactly one warm-session Ed25519 unseal authorization; got ${String(
+        setup?.ed25519UnsealAuthorizationPutCalls,
+      )}; worker requests=${JSON.stringify(setup?.ed25519WorkerRequestTypes || {})}`,
+    );
+  }
   if (
     !near1?.hasSealedWorkerMaterial ||
     !near1?.hasMaterialBindingDigest ||
@@ -1043,6 +1043,30 @@ function validateEd25519RestoreEvidenceResult(
       )}; worker requests=${JSON.stringify(
         near1?.ed25519WorkerRequestTypes || {},
       )}; install=${String(near1?.ed25519WorkerTraceInstall || '')}`,
+    );
+  }
+  if (near1?.ed25519UnsealAuthorizationClaimCalls !== 1) {
+    failures.push(
+      `First Ed25519 sign did not claim exactly one warm-session unseal authorization; got ${String(
+        near1?.ed25519UnsealAuthorizationClaimCalls,
+      )}; worker requests=${JSON.stringify(near1?.ed25519WorkerRequestTypes || {})}`,
+    );
+  }
+  if (result.webauthnGetCounts.afterFirstThreeSigns !== result.webauthnGetCounts.afterUnlock) {
+    failures.push(
+      `First three Ed25519 signs prompted after unlock; counts=${JSON.stringify(
+        result.webauthnGetCounts,
+      )}`,
+    );
+  }
+  if (
+    result.webauthnGetCounts.afterFourthSign !==
+    result.webauthnGetCounts.afterFirstThreeSigns + 1
+  ) {
+    failures.push(
+      `Fourth Ed25519 sign did not prompt once after budget exhaustion; counts=${JSON.stringify(
+        result.webauthnGetCounts,
+      )}`,
     );
   }
   for (const stage of [near1, nep4131, delegate1]) {
@@ -1111,7 +1135,9 @@ function runSharedBudgetSetup(
           chain?: string,
           kind?: string,
         ): Promise<BudgetEvidenceResult['stages'][number]> => {
-          const session = await seamsForStage.auth.getWalletSession(stageAccountId).catch(() => null);
+          const session = await seamsForStage.auth
+            .getWalletSession(stageAccountId)
+            .catch(() => null);
           const remainingUses = Number(session?.signingSession?.remainingUses);
           return {
             label,
@@ -1286,7 +1312,8 @@ function runSharedBudgetSetup(
           },
         });
         seams.preferences.setConfirmationConfig(confirmationConfig());
-        const evidenceWorkerTransport = (seams as any).signingEngine?.signerWorkerManager?.workerTransport;
+        const evidenceWorkerTransport = (seams as any).signingEngine?.signerWorkerManager
+          ?.workerTransport;
         (globalThis as any).__w3aEd25519WorkerTraceInstall = JSON.stringify({
           hasSigningEngine: Boolean((seams as any).signingEngine),
           hasSignerWorkerManager: Boolean((seams as any).signingEngine?.signerWorkerManager),
@@ -1296,19 +1323,17 @@ function runSharedBudgetSetup(
           installed: true,
         });
         (globalThis as any).__routerAbBudgetEvidence = {
-          resetNearSignerWorker: (): void => {
-            const workerTransport = (seams as any).signingEngine?.signerWorkerManager?.workerTransport;
-            if (typeof workerTransport?.resetWorker === 'function') {
-              workerTransport.resetWorker('nearSigner');
-            }
-          },
-          sign: async (labels: string[]): Promise<{ ok: boolean; stages: BudgetEvidenceResult['stages']; error?: string }> => {
+          sign: async (
+            labels: string[],
+          ): Promise<{ ok: boolean; stages: BudgetEvidenceResult['stages']; error?: string }> => {
             const signStages: BudgetEvidenceResult['stages'] = [];
             try {
               for (const label of labels) {
                 if (label.startsWith('near')) {
                   await signNear(seams, label);
-                  signStages.push(await sessionStage(seams, accountId, label, 'near', 'nearAction'));
+                  signStages.push(
+                    await sessionStage(seams, accountId, label, 'near', 'nearAction'),
+                  );
                   continue;
                 }
                 if (label.startsWith('nep413')) {
@@ -1321,13 +1346,7 @@ function runSharedBudgetSetup(
                 if (label.startsWith('delegate')) {
                   await signDelegate(seams, label);
                   signStages.push(
-                    await sessionStage(
-                      seams,
-                      accountId,
-                      label,
-                      'near-delegate',
-                      'nearDelegate',
-                    ),
+                    await sessionStage(seams, accountId, label, 'near-delegate', 'nearDelegate'),
                   );
                   continue;
                 }

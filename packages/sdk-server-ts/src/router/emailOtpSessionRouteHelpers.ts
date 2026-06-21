@@ -289,6 +289,16 @@ export async function hashEmailOtpAppSessionClaims(
   return base64UrlEncode(await sha256BytesUtf8(json));
 }
 
+export function emailOtpAppSessionClaimsForSubject(input: {
+  userId: string;
+  claims: Record<string, unknown>;
+}): Record<string, unknown> {
+  return {
+    sub: input.userId,
+    ...input.claims,
+  };
+}
+
 export async function hashEmailOtpSigningSessionClaims(
   claims: Record<string, unknown>,
 ): Promise<string> {

@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
 import {
+  emailOtpAppSessionClaimsForSubject,
   emailOtpChallengeResponseBody,
   emailOtpEnrollmentFinalizeResponseBody,
   emailOtpEnrolledWebhookEventDescriptor,
   emailOtpFailureAuditPayload,
   emailOtpFailureWebhookEventDescriptors,
+  hashEmailOtpAppSessionClaims,
   emailOtpLoginVerifyResponseBody,
   emailOtpLoggedInWebhookEventDescriptor,
   emailOtpServerSealResponseBody,
@@ -84,6 +86,37 @@ test.describe('Email OTP route helpers', () => {
       status: 400,
       body: { ok: false, code: 'invalid_body', message: 'challengeId is required' },
     });
+  });
+
+  test('hashes exchange-created Email OTP challenges with the JWT subject binding', async () => {
+    const userId = 'wallet.testnet';
+    const sessionClaims = {
+      kind: 'app_session_v1',
+      appSessionVersion: 'app-session-v1',
+      provider: 'oidc',
+      walletId: 'wallet.testnet',
+      oidcProvider: 'google',
+      providerSubject: 'google:123',
+      runtimePolicyScope: {
+        orgId: 'org_1',
+        projectId: 'proj_1',
+        envId: 'dev',
+        signingRootVersion: '1',
+      },
+    };
+    const exchangeChallengeHash = await hashEmailOtpAppSessionClaims(
+      emailOtpAppSessionClaimsForSubject({
+        userId,
+        claims: sessionClaims,
+      }),
+    );
+    const verifyRouteHash = await hashEmailOtpAppSessionClaims({
+      sub: userId,
+      ...sessionClaims,
+    });
+
+    expect(exchangeChallengeHash).toBe(verifyRouteHash);
+    await expect(hashEmailOtpAppSessionClaims(sessionClaims)).resolves.not.toBe(verifyRouteHash);
   });
 
   test('shapes shared Email OTP response bodies', () => {

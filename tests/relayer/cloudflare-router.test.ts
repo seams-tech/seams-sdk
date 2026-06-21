@@ -1678,6 +1678,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       sub: 'user-cf-1',
       email: 'alice@example.com',
       accountMode: 'register',
+      restartRegistrationOffer: true,
       runtimePolicyScope: sessionExchangeRuntimePolicyScope,
     });
     expect(emailOtpChallengeCreated).toBe(false);

@@ -1766,6 +1766,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /session/exchange: Google register binds managed runtime scope to app session', async () => {
     let signedExtra: Record<string, unknown> | null = null;
+    let resolvedInput: Record<string, unknown> | null = null;
     let emailOtpChallengeCreated = false;
     const session = makeSessionAdapter({
       signJwt: async (_sub, extra) => {
@@ -1783,18 +1784,21 @@ test.describe('relayer router (express) – P0', () => {
         email: 'scoped@example.com',
         emailVerified: true,
       }),
-      resolveGoogleEmailOtpSession: async () => ({
-        ok: true,
-        mode: 'register_started',
-        walletId: 'scoped-example-com-1712345678901.testnet',
-        providerSubject: 'google:user-scoped-1',
-        email: 'scoped@example.com',
-        registrationAttemptId: 'attempt-google-scoped',
-        expiresAtMs: 1_893_456_000_000,
-        offer: makeGoogleEmailOtpRegistrationOffer({
+      resolveGoogleEmailOtpSession: async (input) => {
+        resolvedInput = input as Record<string, unknown>;
+        return {
+          ok: true,
+          mode: 'register_started',
           walletId: 'scoped-example-com-1712345678901.testnet',
-        }),
-      }),
+          providerSubject: 'google:user-scoped-1',
+          email: 'scoped@example.com',
+          registrationAttemptId: 'attempt-google-scoped',
+          expiresAtMs: 1_893_456_000_000,
+          offer: makeGoogleEmailOtpRegistrationOffer({
+            walletId: 'scoped-example-com-1712345678901.testnet',
+          }),
+        };
+      },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
       createEmailOtpChallenge: async () => {
         emailOtpChallengeCreated = true;
@@ -1864,6 +1868,10 @@ test.describe('relayer router (express) – P0', () => {
         projectId: 'proj_test_scoped',
         envId: 'dev',
         signingRootVersion: 'default',
+      });
+      expect(resolvedInput).toMatchObject({
+        accountMode: 'register',
+        restartRegistrationOffer: true,
       });
       expect(emailOtpChallengeCreated).toBe(false);
     } finally {

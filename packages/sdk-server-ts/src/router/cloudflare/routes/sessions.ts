@@ -33,6 +33,7 @@ import {
   emailOtpChallengeResponseBody,
   emailOtpStatusCode,
   emailOtpFailureAuditPayload,
+  emailOtpAppSessionClaimsForSubject,
   hashEmailOtpAppSessionClaims,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
@@ -396,6 +397,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
     let oidcFamilyName: string | undefined;
     let oidcProvider: string | undefined;
     let oidcAccountMode: 'register' | 'login' | undefined;
+    let oidcRestartRegistrationOffer = false;
     let passkeyChallengeId: string | undefined;
     let walletId: string | undefined;
     let googleEmailOtpResolution:
@@ -501,6 +503,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         Object.prototype.hasOwnProperty.call(exchange, 'account_mode') ||
         Object.prototype.hasOwnProperty.call(exchange, 'accountMode');
       oidcAccountMode = parseOidcAccountMode(oidcAccountModeRaw);
+      oidcRestartRegistrationOffer = oidcAccountMode === 'register';
       isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
       if (oidcProvider === 'google' && hasOidcAccountMode && !oidcAccountMode) {
         await emitSessionExchangeFailed(ctx, {
@@ -686,6 +689,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
               providerSubject,
               email: oidcEmail,
               accountMode: oidcAccountMode,
+              restartRegistrationOffer: oidcRestartRegistrationOffer,
               runtimePolicyScope,
               appSessionUserId: userId,
               clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
@@ -708,6 +712,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
             sub: oidcSub,
             email: oidcEmail,
             accountMode: oidcAccountMode,
+            restartRegistrationOffer: oidcRestartRegistrationOffer,
             ...(appSessionVersion ? { appSessionVersion } : {}),
             runtimePolicyScope,
           });
@@ -935,7 +940,12 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         orgId: runtimePolicyScope.orgId,
         email: oidcEmail,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash: await hashEmailOtpAppSessionClaims(sessionClaims),
+        sessionHash: await hashEmailOtpAppSessionClaims(
+          emailOtpAppSessionClaimsForSubject({
+            userId,
+            claims: sessionClaims,
+          }),
+        ),
         appSessionVersion,
         reuseActiveChallenge: true,
         clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
