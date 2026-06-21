@@ -9,40 +9,57 @@ import type {
 } from '@/core/types/signer-worker';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519HssKeyVersion,
+  parseEd25519RelayerKeyId,
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
+  type Ed25519ClientVerifyingShareB64u,
+  type Ed25519WorkerMaterialBindingDigest,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import {
   buildRouterAbEd25519WorkerMaterialBinding,
   buildRouterAbEd25519WorkerMaterialSessionBinding,
   buildRouterAbEd25519SigningMaterialRef,
   type Ed25519WorkerMaterialHandle,
-} from './hssMaterialBinding';
+  type RouterAbEd25519SigningMaterialRef,
+} from './workerMaterialBinding';
 
-export type { Ed25519WorkerMaterialHandle } from './hssMaterialBinding';
+export type { Ed25519WorkerMaterialHandle } from './workerMaterialBinding';
 
-export type RouterAbEd25519SigningMaterialReady = {
-  kind: 'router_ab_ed25519_signing_material_ready_v1';
-  materialHandle: Ed25519WorkerMaterialHandle;
-  bindingDigest: string;
-  thresholdSessionId: string;
-  signingGrantId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  expiresAtMs: number;
-  nearAccountId: string;
-  relayerKeyId: string;
-  participantIds: number[];
-  signingWorkerId: string;
-  clientVerifyingShareB64u: string;
+export type RouterAbEd25519RuntimeValidatedMaterial = {
+  kind: 'router_ab_ed25519_runtime_validated_material_v1';
+  materialRef: RouterAbEd25519SigningMaterialRef;
   materialBinding: ThresholdEd25519WorkerMaterialBinding;
   sessionBinding: ThresholdEd25519WorkerMaterialSessionBinding;
   xClientBaseB64u?: never;
 };
 
+export function ed25519RuntimeMaterialHandle(
+  material: RouterAbEd25519RuntimeValidatedMaterial,
+): Ed25519WorkerMaterialHandle {
+  return material.materialRef.materialHandle;
+}
+
+export function ed25519RuntimeMaterialBindingDigest(
+  material: RouterAbEd25519RuntimeValidatedMaterial,
+): Ed25519WorkerMaterialBindingDigest {
+  return material.materialRef.bindingDigest;
+}
+
+export function ed25519RuntimeMaterialClientVerifierB64u(
+  material: RouterAbEd25519RuntimeValidatedMaterial,
+): Ed25519ClientVerifyingShareB64u {
+  return material.materialRef.clientVerifierB64u;
+}
+
 export async function requireThresholdEd25519WorkerMaterialHandle(args: {
   ctx: WorkerOperationContext;
   thresholdSessionId: string;
   signingGrantId: string;
-  existingMaterialHandle: string;
-  existingMaterialBindingDigest: string;
-  existingMaterialClientVerifierB64u: string;
+  existingMaterialHandle: Ed25519WorkerMaterialHandle;
+  existingMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+  existingMaterialClientVerifierB64u: Ed25519ClientVerifyingShareB64u;
   signingRootId: string;
   signingRootVersion: string;
   expiresAtMs: number;
@@ -53,24 +70,27 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
   materialCreatedAtMs?: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-}): Promise<RouterAbEd25519SigningMaterialReady> {
+}): Promise<RouterAbEd25519RuntimeValidatedMaterial> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const signingGrantId = String(args.signingGrantId || '').trim();
   const signingRootId = String(args.signingRootId || '').trim();
   const signingRootVersion = String(args.signingRootVersion || '').trim();
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
   const nearAccountId = String(args.nearAccountId || '').trim();
-  const relayerKeyId = String(args.relayerKeyId || '').trim();
+  const relayerKeyId = parseEd25519RelayerKeyId(args.relayerKeyId);
   const signingWorkerId = String(args.signingWorkerId || '').trim();
   const keyMaterial = args.thresholdKeyMaterial;
+  const ed25519HssKeyVersion = parseEd25519HssKeyVersion(keyMaterial.keyVersion);
   const materialCreatedAtMs = Math.floor(
     Number(args.materialCreatedAtMs ?? keyMaterial.timestamp),
   );
-  const existingMaterialHandle = String(args.existingMaterialHandle || '').trim();
-  const existingMaterialBindingDigest = String(args.existingMaterialBindingDigest || '').trim();
-  const existingMaterialClientVerifierB64u = String(
-    args.existingMaterialClientVerifierB64u || '',
-  ).trim();
+  const existingMaterialHandle = parseEd25519WorkerMaterialHandle(args.existingMaterialHandle);
+  const existingMaterialBindingDigest = parseEd25519WorkerMaterialBindingDigest(
+    args.existingMaterialBindingDigest,
+  );
+  const existingMaterialClientVerifierB64u = parseEd25519ClientVerifyingShareB64u(
+    args.existingMaterialClientVerifierB64u,
+  );
   if (
     String(keyMaterial.nearAccountId) !== nearAccountId ||
     keyMaterial.relayerKeyId !== relayerKeyId
@@ -100,7 +120,7 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
     signingRootId,
     signingRootVersion,
     relayerKeyId,
-    keyVersion: keyMaterial.keyVersion,
+    ed25519HssKeyVersion,
     participantIds: args.participantIds,
     clientVerifyingShareB64u: existingMaterialClientVerifierB64u,
     createdAtMs: materialCreatedAtMs,
@@ -118,7 +138,7 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
     signingRootVersion,
     runtimePolicyScope: args.runtimePolicyScope,
     relayerKeyId,
-    keyVersion: keyMaterial.keyVersion,
+    ed25519HssKeyVersion,
     participantIds: args.participantIds,
     signingWorkerId,
     expiresAtMs,
@@ -142,19 +162,8 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
     clientVerifyingShareB64u: workerMaterial.clientVerifyingShareB64u,
   });
   return {
-    kind: 'router_ab_ed25519_signing_material_ready_v1',
-    materialHandle: signingMaterialRef.materialHandle,
-    bindingDigest: signingMaterialRef.bindingDigest,
-    thresholdSessionId,
-    signingGrantId,
-    signingRootId,
-    signingRootVersion,
-    expiresAtMs,
-    nearAccountId,
-    relayerKeyId,
-    participantIds: args.participantIds.map((id) => Number(id)),
-    signingWorkerId,
-    clientVerifyingShareB64u: signingMaterialRef.clientVerifierB64u,
+    kind: 'router_ab_ed25519_runtime_validated_material_v1',
+    materialRef: signingMaterialRef,
     materialBinding: material.materialBinding,
     sessionBinding,
   };

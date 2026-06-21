@@ -108,7 +108,7 @@ test.describe('Wallet iframe config propagation', () => {
           },
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           signingSessionSeal: {
-            keyVersion: 'kek-s-2026-02',
+            keyVersion: 'signing-session-seal-kek-2026-02-r1',
             shamirPrimeB64u: '_____________________________________v___C8',
           },
           routerAbEcdsaHssPresignaturePool: {
@@ -177,7 +177,7 @@ test.describe('Wallet iframe config propagation', () => {
       remainingUses: 67,
     });
     expect(capturedSigningSessionSeal).toEqual({
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: '_____________________________________v___C8',
     });
     expect(capturedRouterAbEcdsaHssPresignaturePool).toEqual({
@@ -303,7 +303,7 @@ test.describe('Wallet iframe config propagation', () => {
           relayer: { url: 'http://localhost:3000' },
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           signingSessionSeal: {
-            keyVersion: 'kek-s-2026-02',
+            keyVersion: 'signing-session-seal-kek-2026-02-r1',
           },
         });
         return { ok: true, error: '' };

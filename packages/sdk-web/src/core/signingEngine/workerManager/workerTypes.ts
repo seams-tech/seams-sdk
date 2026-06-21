@@ -51,6 +51,7 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
@@ -589,7 +590,7 @@ export interface EmailOtpWorkerOperationMap {
       transport: {
         relayerUrl: string;
         walletSessionJwt?: string;
-        keyVersion?: string;
+        signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         shamirPrimeB64u?: string;
       };
     };
@@ -611,7 +612,7 @@ export interface EmailOtpWorkerOperationMap {
       transport: {
         relayerUrl: string;
         walletSessionJwt?: string;
-        keyVersion?: string;
+        signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         shamirPrimeB64u?: string;
       };
       restore: {

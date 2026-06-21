@@ -51,7 +51,10 @@ import {
   createNearSigningSessionCoordinator,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
-import type { RouterAbEd25519SigningMaterialReady } from '../../threshold/ed25519/workerMaterialHandle';
+import {
+  ed25519RuntimeMaterialHandle,
+  type RouterAbEd25519RuntimeValidatedMaterial,
+} from '../../threshold/ed25519/workerMaterialHandle';
 import type { SelectedEd25519Lane } from '../../session/identity/laneIdentity';
 import {
   SigningOperationIntent,
@@ -154,7 +157,7 @@ function createNearTransactionSigningOperationId(): SigningOperationId {
 
 type RouterAbNearTransactionSigningPayload = {
   kind: 'router_ab_ed25519_near_transaction_signing_payload_v1';
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
 };
 
 /**
@@ -579,7 +582,7 @@ export async function runNearTransactionWithActionsSigning({
         nearAccountId,
         walletSessionState,
         thresholdSessionId: canonicalThresholdSessionId,
-        materialHandle: signingMaterial.materialHandle,
+        materialHandle: ed25519RuntimeMaterialHandle(signingMaterial),
       });
       if (
         refreshedWalletSessionState &&
@@ -786,7 +789,7 @@ export async function runNearTransactionWithActionsSigning({
     await recordFailedSigningGrantSpend(error);
   };
   const buildRequestPayload = (
-    materialOverride?: RouterAbEd25519SigningMaterialReady,
+    materialOverride?: RouterAbEd25519RuntimeValidatedMaterial,
   ): RouterAbNearTransactionSigningPayload => {
     return {
       kind: 'router_ab_ed25519_near_transaction_signing_payload_v1',

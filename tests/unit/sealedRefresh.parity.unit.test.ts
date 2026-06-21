@@ -12,7 +12,7 @@ type TestConfig = {
   signing: {
     sessionPersistenceMode: 'none' | 'sealed_refresh_v1';
     sessionSeal: {
-      keyVersion?: string;
+      signingSessionSealKeyVersion?: string;
       shamirPrimeB64u?: string;
     };
   };
@@ -37,7 +37,7 @@ function buildConfig(input: {
     signing: {
       sessionPersistenceMode: input.mode || 'sealed_refresh_v1',
       sessionSeal: {
-        ...(input.keyVersion ? { keyVersion: input.keyVersion } : {}),
+        ...(input.keyVersion ? { signingSessionSealKeyVersion: input.keyVersion } : {}),
         ...(input.shamirPrimeB64u ? { shamirPrimeB64u: input.shamirPrimeB64u } : {}),
       },
     },
@@ -55,7 +55,7 @@ test.describe('sealed refresh startup parity', () => {
   test('passes when relayer well-known capabilities match client config', async ({ page }) => {
     const config = buildConfig({
       relayerUrl: 'https://relay.example',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
     });
     const result = await page.evaluate(async ({ importPath, config }) => {
@@ -71,7 +71,7 @@ test.describe('sealed refresh startup parity', () => {
             capabilities: {
               signingSessionSeal: {
                 mode: 'sealed_refresh_v1',
-                keyVersion: 'kek-s-2026-02',
+                keyVersion: 'signing-session-seal-kek-2026-02-r1',
                 shamirPrimeB64u: 'AQAB',
               },
             },
@@ -105,7 +105,7 @@ test.describe('sealed refresh startup parity', () => {
   test('does not cache transient well-known failures', async ({ page }) => {
     const config = buildConfig({
       relayerUrl: 'https://relay-transient.example',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
     });
     const result = await page.evaluate(async ({ importPath, config }) => {
@@ -124,7 +124,7 @@ test.describe('sealed refresh startup parity', () => {
             capabilities: {
               signingSessionSeal: {
                 mode: 'sealed_refresh_v1',
-                keyVersion: 'kek-s-2026-02',
+                keyVersion: 'signing-session-seal-kek-2026-02-r1',
                 shamirPrimeB64u: 'AQAB',
               },
             },
@@ -216,7 +216,7 @@ test.describe('sealed refresh startup parity', () => {
   test('treats missing capabilities payload as mode mismatch and fails closed', async ({ page }) => {
     const config = buildConfig({
       relayerUrl: 'https://relay.example',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
     });
     const result = await page.evaluate(async ({ importPath, config }) => {
@@ -255,7 +255,7 @@ test.describe('sealed refresh startup parity', () => {
   test('skips relayer fetch in app-origin wallet iframe mode', async ({ page }) => {
     const config = buildConfig({
       relayerUrl: 'https://relay.example',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
       walletMode: 'iframe',
     });

@@ -5,13 +5,35 @@ import type {
 } from './persistence/records';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
-import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import {
+  routerAbEcdsaHssActiveStateSessionId,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { alphabetizeStringify } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/base64';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+  decodeJwtPayloadRecord,
+} from '@shared/utils/sessionTokens';
+import { sha256 } from '@noble/hashes/sha2';
 import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from './warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import { buildEcdsaRoleLocalSigningMaterialHandle } from './identity/ecdsaHssSigningMaterialHandle';
 import {
   buildRouterAbEd25519SigningMaterialRef,
+  buildRouterAbEd25519WorkerMaterialSessionBinding,
   type RouterAbEd25519SigningMaterialRef,
-} from '../threshold/ed25519/hssMaterialBinding';
+} from '../threshold/ed25519/workerMaterialBinding';
+import {
+  parseEd25519HssKeyVersion,
+  parseEd25519RelayerKeyId,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  type Ed25519ClientVerifyingShareB64u,
+  type Ed25519WorkerMaterialBindingDigest,
+  type Ed25519WorkerMaterialHandle,
+} from './keyMaterialBrands';
 import {
   buildRouterAbEcdsaHssSigningMaterialRef,
   type RouterAbEcdsaHssSigningMaterialRef,
@@ -79,6 +101,77 @@ export type RouterAbEd25519AuthReadyMaterialPendingReason =
 
 export type RouterAbEd25519MaterialHintUnvalidatedReason = 'worker_material_unvalidated';
 
+export type RouterAbEd25519WalletSessionCredentialFingerprint = {
+  kind: 'router_ab_ed25519_wallet_session_credential_fingerprint_v1';
+  payloadKind: typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
+  payloadDigestB64u: string;
+};
+
+export type RouterAbEcdsaHssWalletSessionCredentialFingerprint = {
+  kind: 'router_ab_ecdsa_hss_wallet_session_credential_fingerprint_v1';
+  payloadKind: typeof ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND;
+  payloadDigestB64u: string;
+};
+
+export type Ed25519WorkerMaterialValidationKey = {
+  kind: 'ed25519_worker_material_validation_key_v1';
+  materialHandle: Ed25519WorkerMaterialHandle;
+  materialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+  sessionBindingDigest: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  walletSessionCredentialFingerprint: RouterAbEd25519WalletSessionCredentialFingerprint;
+  clientVerifierB64u: Ed25519ClientVerifyingShareB64u;
+  signingRootId: string;
+  signingRootVersion: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  signingWorkerId: string;
+  expiresAtMs: number;
+};
+
+export type Ed25519WorkerMaterialRuntimeValidationFailureReason =
+  | 'worker_material_missing'
+  | 'binding_digest_mismatch'
+  | 'session_binding_mismatch'
+  | 'signing_root_mismatch'
+  | 'signing_worker_mismatch'
+  | 'verifier_mismatch'
+  | 'expired'
+  | 'credential_mismatch';
+
+export type Ed25519WorkerMaterialRuntimeValidationResult =
+  | {
+      ok: true;
+      key: Ed25519WorkerMaterialValidationKey;
+    }
+  | {
+      ok: false;
+      reason: Ed25519WorkerMaterialRuntimeValidationFailureReason;
+      parseReason?: RouterAbSigningWalletSessionParseFailureReason;
+    };
+
+export type EcdsaHssRuntimeMaterialValidationKey = {
+  kind: 'ecdsa_hss_runtime_material_validation_key_v1';
+  materialHandle: string;
+  materialBindingDigest: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  walletSessionCredentialFingerprint: RouterAbEcdsaHssWalletSessionCredentialFingerprint;
+  routerAbStateSessionId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  activationEpoch: string;
+  keyHandle: string;
+  chainTarget: ThresholdEcdsaSessionRecord['chainTarget'];
+  participantIds: readonly number[];
+  clientVerifier33B64u: string;
+  serverVerifier33B64u: string;
+  thresholdVerifier33B64u: string;
+  signingWorkerId: string;
+  expiresAtMs: number;
+};
+
 type RouterAbEd25519PersistedSigningRecordStateBase<TRecord, TSession> =
   | {
       kind: 'runtime_validated';
@@ -125,10 +218,22 @@ export type RouterAbEd25519PersistedSigningRecordState =
 
 export type RouterAbEcdsaHssPersistedSigningRecordState =
   | {
-      kind: 'signable';
+      kind: 'runtime_validated';
       record: ThresholdEcdsaSessionRecord;
       value: RouterAbEcdsaHssSigningWalletSession;
       reason?: never;
+    }
+  | {
+      kind: 'restore_available';
+      record: ThresholdEcdsaSessionRecord;
+      reason: 'loaded_material_missing';
+      value?: never;
+    }
+  | {
+      kind: 'material_hint_unvalidated';
+      record: ThresholdEcdsaSessionRecord;
+      reason: 'worker_material_unvalidated';
+      value?: never;
     }
   | {
       kind: 'non_signing';
@@ -152,6 +257,10 @@ function positiveInteger(value: unknown): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function sha256CanonicalB64uSync(input: unknown): string {
+  return base64UrlEncode(sha256(new TextEncoder().encode(alphabetizeStringify(input))));
+}
+
 function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessionAuth | null {
   const walletSessionJwt = nonEmptyString(jwtRaw);
   if (!walletSessionJwt) return null;
@@ -166,42 +275,298 @@ function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessio
 }
 
 const routerAbEd25519RuntimeValidatedMaterialKeys = new Set<string>();
+const routerAbEcdsaHssRuntimeValidatedMaterialKeys = new Set<string>();
 
-function routerAbEd25519RuntimeMaterialKey(session: RouterAbEd25519SigningWalletSession): string {
-  return [
-    session.thresholdSessionId,
-    session.signingGrantId,
-    session.auth.walletSessionJwt,
-    session.signingMaterial.materialHandle,
-    session.signingMaterial.bindingDigest,
-    session.signingMaterial.clientVerifierB64u,
-    session.signingRootId,
-    session.signingRootVersion,
-    session.routerAbNormalSigning.signingWorkerId,
-  ].join('\x1f');
+function buildRouterAbEd25519WalletSessionCredentialFingerprint(
+  walletSessionJwt: string,
+): RouterAbEd25519WalletSessionCredentialFingerprint | null {
+  const payload = decodeJwtPayloadRecord(walletSessionJwt);
+  if (payload?.kind !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND) {
+    return null;
+  }
+  return {
+    kind: 'router_ab_ed25519_wallet_session_credential_fingerprint_v1',
+    payloadKind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    payloadDigestB64u: sha256CanonicalB64uSync(payload),
+  };
+}
+
+function buildRouterAbEcdsaHssWalletSessionCredentialFingerprint(
+  walletSessionJwt: string,
+): RouterAbEcdsaHssWalletSessionCredentialFingerprint | null {
+  const payload = decodeJwtPayloadRecord(walletSessionJwt);
+  if (payload?.kind !== ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND) {
+    return null;
+  }
+  return {
+    kind: 'router_ab_ecdsa_hss_wallet_session_credential_fingerprint_v1',
+    payloadKind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    payloadDigestB64u: sha256CanonicalB64uSync(payload),
+  };
+}
+
+function buildRouterAbEd25519WorkerMaterialSessionBindingDigest(input: {
+  record: ThresholdEd25519SessionRecord;
+  session: RouterAbEd25519SigningWalletSession;
+}): string | null {
+  const nearAccountId = nonEmptyString(input.record.nearAccountId);
+  const signerSlot = positiveInteger(input.record.signerSlot);
+  const relayerKeyIdRaw = nonEmptyString(input.record.relayerKeyId);
+  const keyVersion = nonEmptyString(input.record.keyVersion);
+  const ed25519HssKeyVersion = parseEd25519HssKeyVersion(keyVersion);
+  const participantIds = Array.isArray(input.record.participantIds)
+    ? input.record.participantIds
+    : [];
+  if (
+    !nearAccountId ||
+    !signerSlot ||
+    !relayerKeyIdRaw ||
+    !keyVersion ||
+    participantIds.length === 0
+  ) {
+    return null;
+  }
+  const relayerKeyId = parseEd25519RelayerKeyId(relayerKeyIdRaw);
+  try {
+    return sha256CanonicalB64uSync(
+      buildRouterAbEd25519WorkerMaterialSessionBinding({
+        materialBindingDigest: input.session.signingMaterial.bindingDigest,
+        nearAccountId,
+        signerSlot,
+        thresholdSessionId: input.session.thresholdSessionId,
+        signingGrantId: input.session.signingGrantId,
+        signingRootId: input.session.signingRootId,
+        signingRootVersion: input.session.signingRootVersion,
+        runtimePolicyScope: input.session.runtimePolicyScope,
+        relayerKeyId,
+        ed25519HssKeyVersion,
+        participantIds,
+        signingWorkerId: input.session.routerAbNormalSigning.signingWorkerId,
+        expiresAtMs: input.session.expiresAtMs,
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function buildEd25519WorkerMaterialValidationKey(input: {
+  record: ThresholdEd25519SessionRecord;
+  session: RouterAbEd25519SigningWalletSession;
+}): Ed25519WorkerMaterialValidationKey | null {
+  const sessionBindingDigest = buildRouterAbEd25519WorkerMaterialSessionBindingDigest(input);
+  const walletSessionCredentialFingerprint =
+    buildRouterAbEd25519WalletSessionCredentialFingerprint(input.session.auth.walletSessionJwt);
+  if (!sessionBindingDigest || !walletSessionCredentialFingerprint) {
+    return null;
+  }
+  return {
+    kind: 'ed25519_worker_material_validation_key_v1',
+    materialHandle: input.session.signingMaterial.materialHandle,
+    materialBindingDigest: input.session.signingMaterial.bindingDigest,
+    sessionBindingDigest,
+    thresholdSessionId: input.session.thresholdSessionId,
+    signingGrantId: input.session.signingGrantId,
+    walletSessionCredentialFingerprint,
+    clientVerifierB64u: input.session.signingMaterial.clientVerifierB64u,
+    signingRootId: input.session.signingRootId,
+    signingRootVersion: input.session.signingRootVersion,
+    runtimePolicyScope: input.session.runtimePolicyScope,
+    signingWorkerId: input.session.routerAbNormalSigning.signingWorkerId,
+    expiresAtMs: input.session.expiresAtMs,
+  };
+}
+
+function serializeEd25519WorkerMaterialValidationKey(
+  key: Ed25519WorkerMaterialValidationKey,
+): string {
+  return alphabetizeStringify(key);
+}
+
+function ed25519WorkerMaterialValidationFailureFromParseReason(
+  reason: RouterAbSigningWalletSessionParseFailureReason,
+): Ed25519WorkerMaterialRuntimeValidationFailureReason {
+  switch (reason) {
+    case 'missing_material_handle':
+      return 'worker_material_missing';
+    case 'missing_material_binding_digest':
+      return 'binding_digest_mismatch';
+    case 'missing_client_verifying_share':
+    case 'material_identity_mismatch':
+      return 'verifier_mismatch';
+    case 'missing_signing_root':
+    case 'signing_root_mismatch':
+      return 'signing_root_mismatch';
+    case 'missing_router_ab_state':
+    case 'invalid_router_ab_state':
+      return 'signing_worker_mismatch';
+    case 'invalid_budget':
+      return 'expired';
+    case 'missing_record':
+    case 'cookie_session':
+    case 'missing_wallet_session_jwt':
+    case 'missing_signing_grant_id':
+    case 'missing_threshold_session_id':
+    case 'missing_runtime_policy_scope':
+      return 'credential_mismatch';
+  }
+}
+
+export function resolveRouterAbEd25519WorkerMaterialRuntimeValidation(
+  record: ThresholdEd25519SessionRecord | null | undefined,
+): Ed25519WorkerMaterialRuntimeValidationResult {
+  if (!record) {
+    return { ok: false, reason: 'credential_mismatch', parseReason: 'missing_record' };
+  }
+  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      reason: ed25519WorkerMaterialValidationFailureFromParseReason(parsed.reason),
+      parseReason: parsed.reason,
+    };
+  }
+  const key = buildEd25519WorkerMaterialValidationKey({
+    record,
+    session: parsed.value,
+  });
+  if (!key) {
+    return { ok: false, reason: 'session_binding_mismatch' };
+  }
+  return { ok: true, key };
+}
+
+function buildEcdsaHssRoleLocalMaterialHandleFromRecord(input: {
+  record: ThresholdEcdsaSessionRecord;
+  signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
+}): ReturnType<typeof buildEcdsaRoleLocalSigningMaterialHandle> | null {
+  const routerAbState = input.record.routerAbEcdsaHssNormalSigning;
+  if (!routerAbState) return null;
+  try {
+    return buildEcdsaRoleLocalSigningMaterialHandle({
+      thresholdSessionId: input.record.thresholdSessionId,
+      signingGrantId: input.record.signingGrantId,
+      keyHandle: parseEcdsaKeyHandle(input.record.keyHandle),
+      routerAbStateSessionId: input.signingMaterial.routerAbStateSessionId,
+      chainTarget: input.record.chainTarget,
+      clientVerifyingShareB64u: input.signingMaterial.clientVerifier33B64u,
+      ecdsaThresholdKeyId: input.signingMaterial.ecdsaThresholdKeyId,
+      participantIds: input.record.participantIds,
+      relayerKeyId: parseEcdsaRelayerKeyId(input.record.relayerKeyId),
+    });
+  } catch {
+    return null;
+  }
+}
+
+function buildEcdsaHssRuntimeMaterialValidationKey(input: {
+  record: ThresholdEcdsaSessionRecord;
+  session: RouterAbEcdsaHssSigningWalletSession;
+}): EcdsaHssRuntimeMaterialValidationKey | null {
+  const state = input.session.routerAbEcdsaHssNormalSigning;
+  const signingMaterial = input.session.signingMaterial;
+  const materialHandle = buildEcdsaHssRoleLocalMaterialHandleFromRecord({
+    record: input.record,
+    signingMaterial,
+  });
+  const walletSessionCredentialFingerprint =
+    buildRouterAbEcdsaHssWalletSessionCredentialFingerprint(input.session.auth.walletSessionJwt);
+  if (!materialHandle || !walletSessionCredentialFingerprint) return null;
+  const activationEpoch = nonEmptyString(state.scope.activation_epoch);
+  const keyHandle = nonEmptyString(input.record.keyHandle);
+  const signingWorkerId = signingMaterial.signingWorkerId;
+  if (!activationEpoch || !keyHandle || !signingWorkerId) return null;
+  return {
+    kind: 'ecdsa_hss_runtime_material_validation_key_v1',
+    materialHandle: materialHandle.materialHandle,
+    materialBindingDigest: materialHandle.bindingDigest,
+    thresholdSessionId: input.session.thresholdSessionId,
+    signingGrantId: input.session.signingGrantId,
+    walletSessionCredentialFingerprint,
+    routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(state),
+    ecdsaThresholdKeyId: signingMaterial.ecdsaThresholdKeyId,
+    signingRootId: signingMaterial.signingRootId,
+    signingRootVersion: signingMaterial.signingRootVersion,
+    activationEpoch,
+    keyHandle,
+    chainTarget: input.record.chainTarget,
+    participantIds: input.record.participantIds.map((participantId) => Number(participantId)),
+    clientVerifier33B64u: signingMaterial.clientVerifier33B64u,
+    serverVerifier33B64u: signingMaterial.serverVerifier33B64u,
+    thresholdVerifier33B64u: signingMaterial.thresholdVerifier33B64u,
+    signingWorkerId,
+    expiresAtMs: input.session.expiresAtMs,
+  };
+}
+
+function serializeEcdsaHssRuntimeMaterialValidationKey(
+  key: EcdsaHssRuntimeMaterialValidationKey,
+): string {
+  return alphabetizeStringify(key);
 }
 
 export function markRouterAbEd25519WorkerMaterialRuntimeValidated(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): boolean {
-  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
-  if (!parsed.ok) return false;
-  routerAbEd25519RuntimeValidatedMaterialKeys.add(routerAbEd25519RuntimeMaterialKey(parsed.value));
+  const validation = resolveRouterAbEd25519WorkerMaterialRuntimeValidation(record);
+  if (!validation.ok) return false;
+  routerAbEd25519RuntimeValidatedMaterialKeys.add(
+    serializeEd25519WorkerMaterialValidationKey(validation.key),
+  );
   return true;
 }
 
 export function isRouterAbEd25519WorkerMaterialRuntimeValidated(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): boolean {
-  const parsed = parseRouterAbEd25519SigningWalletSessionFromRecord(record);
-  if (!parsed.ok) return false;
-  return routerAbEd25519RuntimeValidatedMaterialKeys.has(
-    routerAbEd25519RuntimeMaterialKey(parsed.value),
-  );
+  const validation = resolveRouterAbEd25519WorkerMaterialRuntimeValidation(record);
+  return validation.ok
+    ? routerAbEd25519RuntimeValidatedMaterialKeys.has(
+        serializeEd25519WorkerMaterialValidationKey(validation.key),
+      )
+    : false;
 }
 
 export function clearRouterAbEd25519WorkerMaterialRuntimeValidation(): void {
   routerAbEd25519RuntimeValidatedMaterialKeys.clear();
+}
+
+export function markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+): boolean {
+  if (!record) return false;
+  const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
+  if (!parsed.ok) return false;
+  const key = buildEcdsaHssRuntimeMaterialValidationKey({
+    record,
+    session: parsed.value,
+  });
+  if (!key) return false;
+  routerAbEcdsaHssRuntimeValidatedMaterialKeys.add(
+    serializeEcdsaHssRuntimeMaterialValidationKey(key),
+  );
+  return true;
+}
+
+export function isRouterAbEcdsaHssWorkerMaterialRuntimeValidated(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+): boolean {
+  if (!record) return false;
+  const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
+  if (!parsed.ok) return false;
+  const key = buildEcdsaHssRuntimeMaterialValidationKey({
+    record,
+    session: parsed.value,
+  });
+  return key
+    ? routerAbEcdsaHssRuntimeValidatedMaterialKeys.has(
+        serializeEcdsaHssRuntimeMaterialValidationKey(key),
+      )
+    : false;
+}
+
+export function clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation(): void {
+  routerAbEcdsaHssRuntimeValidatedMaterialKeys.clear();
 }
 
 export function resolveRouterAbEd25519SigningRootFromRecord(
@@ -321,6 +686,9 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   const clientVerifyingShareB64u = nonEmptyString(record.clientVerifyingShareB64u);
   if (!clientVerifyingShareB64u) {
     return { ok: false, reason: 'missing_client_verifying_share' };
+  }
+  if (!positiveInteger(record.signerSlot) || !nonEmptyString(record.keyVersion)) {
+    return { ok: false, reason: 'material_identity_mismatch' };
   }
   const signingMaterial = buildRouterAbEd25519SigningMaterialRef({
     materialHandle: ed25519WorkerMaterialHandle,
@@ -513,10 +881,24 @@ export function classifyRouterAbEcdsaHssPersistedSigningRecord(
   }
   const parsed = parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record);
   if (parsed.ok) {
+    if (isRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+      return {
+        kind: 'runtime_validated',
+        record,
+        value: parsed.value,
+      };
+    }
+    if (!record.clientAdditiveShareHandle) {
+      return {
+        kind: 'restore_available',
+        record,
+        reason: 'loaded_material_missing',
+      };
+    }
     return {
-      kind: 'signable',
+      kind: 'material_hint_unvalidated',
       record,
-      value: parsed.value,
+      reason: 'worker_material_unvalidated',
     };
   }
   if (parsed.reason === 'cookie_session') {

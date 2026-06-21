@@ -18,6 +18,7 @@ import {
   type IntRange,
 } from './configHelpers';
 import { normalizeWalletHostVariant } from '../browser/walletIframe/hostVariant';
+import { parseSigningSessionSealKeyVersion } from '../signingEngine/session/keyMaterialBrands';
 
 const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   targetDepth: { min: 1, max: 64 } satisfies IntRange,
@@ -138,7 +139,7 @@ function resolveSigningSessionSeal(args: {
 
   const keyVersion =
     toTrimmedString(args.overrides.signingSessionSeal?.keyVersion) ||
-    toTrimmedString(args.defaults.signing.sessionSeal.keyVersion);
+    toTrimmedString(args.defaults.signing.sessionSeal.signingSessionSealKeyVersion);
   const shamirPrimeB64u =
     toTrimmedString(args.overrides.signingSessionSeal?.shamirPrimeB64u) ||
     toTrimmedString(args.defaults.signing.sessionSeal.shamirPrimeB64u);
@@ -155,7 +156,9 @@ function resolveSigningSessionSeal(args: {
   }
 
   return {
-    ...(keyVersion ? { keyVersion } : {}),
+    ...(keyVersion
+      ? { signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(keyVersion) }
+      : {}),
     shamirPrimeB64u,
   };
 }

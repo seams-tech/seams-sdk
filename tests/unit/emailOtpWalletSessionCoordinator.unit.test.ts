@@ -37,8 +37,12 @@ import {
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { EmailOtpEd25519SessionReconstructionPlan } from '@/core/signingEngine/session/emailOtp/provisioning';
 import { computeEcdsaHssRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
+const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
+  'signing-session-seal-kek-test-r1',
+);
 const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -311,7 +315,7 @@ function buildEcdsaSealedRecordFixture(
     walletId,
     userId: args.userId || 'alice.testnet',
     relayerUrl: args.relayerUrl || 'https://relay.example',
-    keyVersion: args.keyVersion || 'seal-v1',
+    keyVersion: args.keyVersion || 'signing-session-seal-kek-test-r1',
     shamirPrimeB64u: args.shamirPrimeB64u || 'prime-b64u',
     signingGrantId,
     thresholdSessionId,
@@ -434,7 +438,7 @@ function createCoordinator(overrides?: {
         return {
           ok: true,
           sealedSecretB64u: 'sealed-email-otp-session-secret',
-          keyVersion: 'seal-v1',
+          keyVersion: 'signing-session-seal-kek-test-r1',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
         };
@@ -1366,7 +1370,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call) => {
@@ -1435,7 +1442,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           return {
             ok: true,
             sealedSecretB64u: 'sealed-email-otp-session-secret',
-            keyVersion: 'seal-v1',
+            keyVersion: 'signing-session-seal-kek-test-r1',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 9,
           };
@@ -1485,7 +1492,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           transport: {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
-            keyVersion: 'seal-v1',
+            keyVersion: 'signing-session-seal-kek-test-r1',
             shamirPrimeB64u: 'prime-b64u',
           },
         },
@@ -1503,7 +1510,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         thresholdSessionIds: { ecdsa: 'ecdsa-session' },
         walletId: 'alice.testnet',
         relayerUrl: 'https://relay.example',
-        keyVersion: 'seal-v1',
+        keyVersion: 'signing-session-seal-kek-test-r1',
         shamirPrimeB64u: 'prime-b64u',
         remainingUses: 9,
       });
@@ -1516,7 +1523,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       readExactSealedSession: async () => null,
@@ -1560,7 +1570,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'per_operation' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
     });
@@ -1606,7 +1619,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'per_operation' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
     });
@@ -1712,7 +1728,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
     });
@@ -1840,7 +1859,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call: any) => {
@@ -1938,7 +1960,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           transport: {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
-            keyVersion: 'seal-v1',
+            keyVersion: 'signing-session-seal-kek-test-r1',
             shamirPrimeB64u: 'prime-b64u',
           },
           restore: {
@@ -1983,7 +2005,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call: any) => {
@@ -2056,7 +2081,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
               thresholdSessionId: 'ecdsa-session',
               signingGrantId: 'wallet-session-1',
               walletSessionJwt: 'threshold-session-jwt',
-              signingSessionSealKeyVersion: 'seal-v1',
+              signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
               signingSessionSealShamirPrimeB64u: 'prime-b64u',
               expiresAtMs,
               remainingUses: 2,
@@ -2143,7 +2168,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call: any) => {
@@ -2191,7 +2219,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call: any) => {
@@ -2260,7 +2291,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call: any) => {
@@ -2369,7 +2403,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call) => {
@@ -2446,7 +2483,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call: any) => {
@@ -2574,7 +2614,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call) => {
@@ -2676,7 +2719,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       thresholdSessionId: 'ecdsa-session',
       signingGrantId: 'wallet-session-1',
       walletSessionJwt: 'threshold-session-jwt',
-      signingSessionSealKeyVersion: 'seal-v1',
+      signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
       signingSessionSealShamirPrimeB64u: 'prime-b64u',
       expiresAtMs,
       remainingUses: 2,
@@ -2694,7 +2737,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       requestWorkerOperation: async (call) => {
@@ -2793,7 +2839,10 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signing: {
           emailOtp: { authPolicy: 'session' },
           sessionPersistenceMode: 'sealed_refresh_v1',
-          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+          sessionSeal: {
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: 'prime-b64u',
+          },
         },
       },
       readExactSealedSession: async (thresholdSessionId) => ({
@@ -2812,7 +2861,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
         relayerUrl: 'https://relay.example',
-        keyVersion: 'seal-v1',
+        keyVersion: 'signing-session-seal-kek-test-r1',
         shamirPrimeB64u: 'prime-b64u',
         ecdsaRestore: {
           chainTarget: ecdsaRecord.chainTarget,

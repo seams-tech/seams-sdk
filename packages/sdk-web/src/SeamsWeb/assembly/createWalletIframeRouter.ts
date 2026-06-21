@@ -1,6 +1,7 @@
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import type { ThemeName, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WalletIframeRouter } from '@/SeamsWeb/walletIframe/client/router';
+import { signingSessionSealInputFromReadonly } from '@/SeamsWeb/walletIframe/shared/signingSessionSealConfig';
 import { createWalletIframeOverlayState } from './createWalletIframeOverlayState';
 
 let warnedAboutSameOriginWallet = false;
@@ -29,7 +30,7 @@ export async function createWalletIframeRouter(args: {
   const signingSessionPersistenceMode = args.configs.signing.sessionPersistenceMode;
   const signingSessionSeal =
     signingSessionPersistenceMode === 'sealed_refresh_v1'
-      ? args.configs.signing.sessionSeal
+      ? signingSessionSealInputFromReadonly(args.configs.signing.sessionSeal)
       : undefined;
   return new WalletIframeRouter({
     walletOrigin: args.walletOrigin,

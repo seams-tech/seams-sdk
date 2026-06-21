@@ -25,7 +25,7 @@ import {
   type ThresholdEd25519WorkerMaterialSessionBinding,
 } from '../../packages/sdk-web/src/core/types/signer-worker';
 import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
-import { digestRouterAbEd25519WorkerMaterialSessionBinding } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssMaterialBinding';
+import { digestRouterAbEd25519WorkerMaterialSessionBinding } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding';
 
 function recordingWorkerCtx(result: unknown, calls: unknown[]): WorkerOperationContext {
   return {

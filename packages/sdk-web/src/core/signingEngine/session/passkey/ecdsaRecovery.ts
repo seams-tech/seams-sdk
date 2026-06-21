@@ -12,6 +12,10 @@ import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
+  parseSigningSessionSealKeyVersion,
+  type SigningSessionSealKeyVersion,
+} from '../keyMaterialBrands';
+import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   thresholdEcdsaRecordRpId,
   upsertRestoredThresholdEcdsaSessionRecord,
@@ -92,7 +96,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   rehydrateWarmSessionMaterial: (args: {
     sessionId: string;
     sealedSecretB64u: string;
-    keyVersion?: string;
+    signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     expiresAtMs: number;
     remainingUses: number;
     transport: WarmSessionSealTransportInput;
@@ -183,7 +187,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   const rehydrated = await args.rehydrateWarmSessionMaterial({
     sessionId: thresholdSessionId,
     sealedSecretB64u: args.record.sealedSecretB64u,
-    keyVersion: args.record.keyVersion,
+    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
     expiresAtMs: args.record.expiresAtMs,
     remainingUses: Math.max(1_000_000, Math.floor(Number(args.record.remainingUses) || 0)),
     transport: {

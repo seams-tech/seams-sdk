@@ -2228,8 +2228,8 @@ Rename map:
   `requireThresholdEd25519WorkerMaterialHandle`
 - `workerMaterialHandle.ts` owns loaded worker-material validation.
 - `hssClientBase.ts` contains only real HSS derivation constants.
-- `hssMaterialBinding.ts` remains as a deferred file rename because tests still
-  import package-output paths directly.
+- `hssMaterialBinding.ts` has been renamed to `workerMaterialBinding.ts`; tests
+  now import the worker-material package-output path directly.
 - `RouterAbEd25519SigningMaterialRef` keeps field names
   `materialHandle`, `bindingDigest`, and `clientVerifierB64u`.
 - `runThresholdEd25519HssCeremonyWithMaterialHandle` ->

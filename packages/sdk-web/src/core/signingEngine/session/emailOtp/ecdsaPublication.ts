@@ -23,6 +23,7 @@ import { SigningSessionIds } from '../operationState/types';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot';
 import { ecdsaBootstrapWithSigningGrantId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
+import { formatSigningSessionSealKeyVersionForWire } from '../keyMaterialBrands';
 
 function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
   const normalized = String(value || '')
@@ -205,7 +206,11 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   const walletSessionJwt = String(session?.jwt || keyRef.walletSessionJwt || '').trim();
   const runtimePolicyScope =
     args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt);
-  const keyVersion = String(ports.configs.signing.sessionSeal?.keyVersion || '').trim();
+  const keyVersion = ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
+    ? formatSigningSessionSealKeyVersionForWire(
+        ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
+      )
+    : '';
   const rpId = String(args.bootstrap.keygen.rpId || '').trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
@@ -241,7 +246,12 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     transport: {
       relayerUrl,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      ...(keyVersion ? { keyVersion } : {}),
+      ...(ports.configs.signing.sessionSeal?.signingSessionSealKeyVersion
+        ? {
+            signingSessionSealKeyVersion:
+              ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
+          }
+        : {}),
       shamirPrimeB64u,
     },
   }).catch((error) => {

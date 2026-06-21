@@ -100,6 +100,42 @@ function assertNeverEcdsaReadinessSource(value: never): never {
   throw new Error(`[SigningEngine][ecdsa] unsupported readiness source: ${String(value)}`);
 }
 
+type EvmFamilyPlannerReadiness = {
+  readiness: SigningSessionReadiness;
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
+function buildMissingEcdsaPlannerReadiness(thresholdSessionId: string): EvmFamilyPlannerReadiness {
+  return {
+    readiness: {
+      status: 'missing_session',
+      thresholdSessionId,
+    },
+    expiresAtMs: 0,
+    remainingUses: 0,
+  };
+}
+
+function buildReadyEcdsaBackingReadiness(input: {
+  thresholdSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+}): EvmFamilyPlannerReadiness {
+  const expiresAtMs = Math.floor(Number(input.expiresAtMs) || 0);
+  const remainingUses = Math.floor(Number(input.remainingUses) || 0);
+  return {
+    readiness: {
+      status: 'ready',
+      thresholdSessionId: input.thresholdSessionId,
+      expiresAtMs,
+      remainingUses,
+    },
+    expiresAtMs,
+    remainingUses,
+  };
+}
+
 export type ResolveEvmFamilyTransactionStepUpArgs =
   | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
@@ -120,37 +156,12 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   >;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
-}): Promise<{
-  readiness: SigningSessionReadiness;
-  expiresAtMs: number;
-  remainingUses: number;
-}> {
+}): Promise<EvmFamilyPlannerReadiness> {
   const thresholdSessionId = args.lane.thresholdSessionId;
-  const base = {
-    thresholdSessionId,
-  };
   const record = getEcdsaMaterialRecord(args.material);
   if (!record) {
-    return {
-      readiness: {
-        status: 'missing_session',
-        ...base,
-      },
-      expiresAtMs: 0,
-      remainingUses: 0,
-    };
+    return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
   }
-
-  const buildBackingReadiness = (input: { expiresAtMs: number; remainingUses: number }) => ({
-    readiness: {
-      status: 'ready' as const,
-      thresholdSessionId,
-      expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
-      remainingUses: Math.floor(Number(input.remainingUses) || 0),
-    },
-    expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
-    remainingUses: Math.floor(Number(input.remainingUses) || 0),
-  });
 
   const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
@@ -160,10 +171,7 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     });
     switch (readinessSource.kind) {
       case 'persisted_record_policy':
-        return buildBackingReadiness({
-          expiresAtMs: readinessSource.expiresAtMs,
-          remainingUses: readinessSource.remainingUses,
-        });
+        return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
       case 'worker_session_status': {
         const status =
           typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
@@ -173,13 +181,14 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
             : null;
         const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
         const statusRemainingUses = status?.ok ? status.remainingUses : 0;
-        return buildBackingReadiness({
+        return buildReadyEcdsaBackingReadiness({
+          thresholdSessionId,
           expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
           remainingUses: Math.floor(Number(statusRemainingUses) || 0),
         });
       }
       case 'unavailable':
-        return buildBackingReadiness({ expiresAtMs: 0, remainingUses: 0 });
+        return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
       default:
         return assertNeverEcdsaReadinessSource(readinessSource);
     }
@@ -194,7 +203,7 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const expiresAtMs = record.expiresAtMs;
   const remainingUses = record.remainingUses;
-  return buildBackingReadiness({ expiresAtMs, remainingUses });
+  return buildReadyEcdsaBackingReadiness({ thresholdSessionId, expiresAtMs, remainingUses });
 }
 
 async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {

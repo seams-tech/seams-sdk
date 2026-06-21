@@ -2262,8 +2262,8 @@ async function primeThresholdLoginWarmSigners(args: {
                 webauthnAuthentication: passkeyMaterial.webauthnAuthentication,
               });
             };
-          if (appSessionJwt) {
-            return await bootstrapWithSessionAuth({ kind: 'app_session', jwt: appSessionJwt });
+          if (passkeyMaterial.kind === 'webauthn_prf') {
+            return await bootstrapWithPasskeyAuthorization();
           }
           if (walletSessionJwt) {
             return await bootstrapWithSessionAuth({
@@ -2271,8 +2271,8 @@ async function primeThresholdLoginWarmSigners(args: {
               jwt: walletSessionJwt,
             });
           }
-          if (passkeyMaterial.kind === 'webauthn_prf') {
-            return await bootstrapWithPasskeyAuthorization();
+          if (appSessionJwt) {
+            return await bootstrapWithSessionAuth({ kind: 'app_session', jwt: appSessionJwt });
           }
           throw new Error(
             '[login] threshold ECDSA first bootstrap requires passkey authorization or an existing bootstrap session',

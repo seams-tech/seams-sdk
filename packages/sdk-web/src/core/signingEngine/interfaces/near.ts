@@ -30,7 +30,14 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSigningWalletSession';
-import type { RouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/hssMaterialBinding';
+import type { RouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/workerMaterialBinding';
+import type {
+  Ed25519ClientVerifyingShareB64u,
+  Ed25519SealedWorkerMaterialRef,
+  Ed25519WorkerMaterialBindingDigest,
+  Ed25519WorkerMaterialHandle,
+  Ed25519WorkerMaterialKeyId,
+} from '../session/keyMaterialBrands';
 export type NearResolvedEd25519WalletSessionAuth = {
   kind: 'wallet_session_jwt';
   walletSessionJwt: string;
@@ -95,13 +102,13 @@ export type NearResolvedEd25519SigningSessionState = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   relayerUrl: string;
   persistSigningMaterial: (material: {
-    materialHandle: string;
-    bindingDigest: string;
-    clientVerifyingShareB64u: string;
-    sealedWorkerMaterialRef?: string;
+    materialHandle: Ed25519WorkerMaterialHandle;
+    bindingDigest: Ed25519WorkerMaterialBindingDigest;
+    clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+    sealedWorkerMaterialRef?: Ed25519SealedWorkerMaterialRef;
     sealedWorkerMaterialB64u?: string;
     materialFormatVersion?: string;
-    materialKeyId?: string;
+    materialKeyId?: Ed25519WorkerMaterialKeyId;
     materialCreatedAtMs?: number;
     signerSlot?: number;
     keyVersion?: string;

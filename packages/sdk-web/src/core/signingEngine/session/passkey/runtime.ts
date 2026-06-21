@@ -61,7 +61,9 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.walletSessionJwt
               ? { walletSessionJwt: sealTransport.walletSessionJwt }
               : {}),
-            ...(sealTransport.keyVersion ? { keyVersion: sealTransport.keyVersion } : {}),
+            ...(sealTransport.signingSessionSealKeyVersion
+              ? { signingSessionSealKeyVersion: sealTransport.signingSessionSealKeyVersion }
+              : {}),
             ...(sealTransport.shamirPrimeB64u
               ? { shamirPrimeB64u: sealTransport.shamirPrimeB64u }
               : {}),
@@ -89,7 +91,9 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             ...(sealTransport.walletSessionJwt
               ? { walletSessionJwt: sealTransport.walletSessionJwt }
               : {}),
-            ...(sealTransport.keyVersion ? { keyVersion: sealTransport.keyVersion } : {}),
+            ...(sealTransport.signingSessionSealKeyVersion
+              ? { signingSessionSealKeyVersion: sealTransport.signingSessionSealKeyVersion }
+              : {}),
             ...(sealTransport.shamirPrimeB64u
               ? { shamirPrimeB64u: sealTransport.shamirPrimeB64u }
               : {}),

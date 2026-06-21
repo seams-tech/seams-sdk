@@ -65,7 +65,7 @@ function seedSharedEd25519WalletSessionGrant(args: {
   return {
     thresholdSessionId: record.thresholdSessionId,
     signingGrantId,
-    walletSessionJwt,
+    walletSessionJwt: record.walletSessionJwt || walletSessionJwt,
   };
 }
 
@@ -114,6 +114,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             chain: 'evm',
             source: 'login',
             bootstrap,
+            runtimeValidated: true,
           });
           fixture.claimsBySessionId[record.thresholdSessionId] = {
             state: 'warm',
@@ -205,6 +206,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             chain: 'tempo',
             source: 'login',
             bootstrap: restoredBootstrap,
+            runtimeValidated: true,
           });
           fixture.claimsBySessionId[record.thresholdSessionId] = {
             state: 'warm',
@@ -477,6 +479,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       source: 'login',
       bootstrap,
+      runtimeValidated: true,
     });
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
@@ -574,6 +577,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           chain: chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap: refreshedBootstrap,
+          runtimeValidated: true,
         });
         fixture.claimsBySessionId[refreshedRecord.thresholdSessionId] = {
           state: 'warm',
@@ -625,6 +629,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       source: 'login',
       bootstrap: restoredBootstrap,
+      runtimeValidated: true,
     });
     const restoredKeyRef = restoredBootstrap.thresholdEcdsaKeyRef;
     const fixture = createWarmSessionUiConfirmFixture({
@@ -662,6 +667,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           chain: chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap: refreshedBootstrap,
+          runtimeValidated: true,
         });
         fixture.claimsBySessionId[refreshedRecord.thresholdSessionId] = {
           state: 'warm',

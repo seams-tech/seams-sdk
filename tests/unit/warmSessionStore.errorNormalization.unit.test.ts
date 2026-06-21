@@ -70,6 +70,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         sessionId: 'record-backed-ecdsa-session',
         walletSessionJwt: 'jwt:record-backed-ecdsa-session',
       }),
+      runtimeValidated: true,
     });
     const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'record-backed-ecdsa.testnet',
@@ -82,6 +83,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         sessionId: 'record-backed-tempo-session',
         walletSessionJwt: 'jwt:record-backed-tempo-session',
       }),
+      runtimeValidated: true,
     });
 
     const store = createWarmSessionTestServices({
@@ -135,6 +137,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         sessionId: 'record-policy-spend-session',
         walletSessionJwt: 'jwt:record-policy-spend-session',
       }),
+      runtimeValidated: true,
     });
     const discoveredLane = buildDiscoveredLaneForRecord(record);
     expect(discoveredLane).toMatchObject({
@@ -213,6 +216,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         signingGrantId,
         walletSessionJwt: 'jwt:shared-budget-tempo-session',
       }),
+      runtimeValidated: true,
     });
     const readModel = thresholdEcdsaSessionRecordReadModel(ecdsaRecord);
     const statusOverrides = new Map();
@@ -277,6 +281,46 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       sessionId: ecdsaRecord.thresholdSessionId,
       remainingUses: 2,
     });
+  });
+
+  test('does not treat unvalidated passkey ECDSA record policy as signable', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'unvalidated-record-policy.testnet',
+      chain: 'evm',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'unvalidated-record-policy.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-unvalidated-record-policy',
+        sessionId: 'unvalidated-record-policy-session',
+        walletSessionJwt: 'jwt:unvalidated-record-policy-session',
+      }),
+    });
+
+    expect(buildDiscoveredLaneForRecord(record)).toBeNull();
+
+    const store = createWarmSessionTestServices({
+      touchConfirm: {
+        getWarmSessionStatus: async () => ({
+          ok: false,
+          code: 'not_found',
+          message: 'volatile status missing',
+        }),
+      },
+      getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
+        getThresholdEcdsaSessionRecordByThresholdSessionId(ecdsaStore, thresholdSessionId),
+    });
+
+    const warmSession = await store.getWarmSession(record.walletId);
+    expect(warmSession.capabilities.ecdsa.evm.state).not.toBe('ready');
+
+    const claims = await readWalletScopedLaneClaimsForWallet({
+      deps: {},
+      walletId: toWalletId(record.walletId),
+    });
+    expect(claims.has(record.thresholdSessionId)).toBe(false);
   });
 
   test('normalizes reconnect failure when the refreshed warm capability is still not ready', async () => {
@@ -397,6 +441,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         sessionId: 'signing-exhausted-session',
         walletSessionJwt: 'jwt:signing-exhausted-session',
       }),
+      runtimeValidated: true,
     });
 
     const store = createWarmSessionTestServices({
@@ -443,7 +488,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     ).rejects.toThrow(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
   });
 
-  test('fails closed when Ed25519 wallet signing budget is unavailable', async () => {
+  test('fails closed when Ed25519 warm-session status is unavailable', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     seedEd25519WarmSessionRecord({
@@ -470,7 +515,9 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
-    ).rejects.toThrow('[SigningEngine][near] signing session is not ready: budget_unknown');
+    ).rejects.toThrow(
+      '[chains] threshold signingSession status is unavailable; retry after refreshing the signer runtime (worker_error)',
+    );
   });
 
   test('plans passkey reauth when wallet signing budget is exhausted but Ed25519 material is warm', async () => {

@@ -8,7 +8,13 @@ import { requireThresholdEd25519WorkerMaterialHandle } from '@/core/signingEngin
 import {
   buildRouterAbEd25519WorkerMaterialBinding,
   buildRouterAbEd25519WorkerMaterialSessionBinding,
-} from '@/core/signingEngine/threshold/ed25519/hssMaterialBinding';
+} from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519HssKeyVersion,
+  parseEd25519RelayerKeyId,
+  parseEd25519WorkerMaterialHandle,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/base64';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
@@ -47,8 +53,13 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       ),
       'utf8',
     );
-    const materialHandle = 'ed25519-worker-material:tsess:test-binding';
-    const clientVerifyingShareB64u = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const materialHandle = parseEd25519WorkerMaterialHandle(
+      'ed25519-worker-material:tsess:test-binding',
+    );
+    const clientVerifyingShareB64u = parseEd25519ClientVerifyingShareB64u(
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    );
+    const relayerKeyId = parseEd25519RelayerKeyId('ed25519:relayer');
     const thresholdKeyMaterial = {
       nearAccountId: 'alice.testnet',
       signerSlot: 1,
@@ -67,8 +78,8 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       signerSlot: thresholdKeyMaterial.signerSlot,
       signingRootId: 'root',
       signingRootVersion: 'v1',
-      relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-      keyVersion: thresholdKeyMaterial.keyVersion,
+      relayerKeyId,
+      ed25519HssKeyVersion: parseEd25519HssKeyVersion(thresholdKeyMaterial.keyVersion),
       participantIds: [1, 2],
       clientVerifyingShareB64u,
       createdAtMs: thresholdKeyMaterial.timestamp,
@@ -101,7 +112,7 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       signingRootId: 'root',
       signingRootVersion: 'v1',
       expiresAtMs: Date.now() + 60_000,
-      relayerKeyId: 'ed25519:relayer',
+      relayerKeyId,
       nearAccountId: 'alice.testnet',
       participantIds: [1, 2],
       signingWorkerId: 'signing-worker',
@@ -117,12 +128,17 @@ test.describe('threshold Ed25519 HSS material handles', () => {
     expect(materialHandleSource).toContain('buildRouterAbEd25519SigningMaterialRef');
     expect(materialHandleSource).not.toContain('as Ed25519WorkerMaterialHandle');
     expect(result).toMatchObject({
-      materialHandle,
-      bindingDigest,
-      clientVerifyingShareB64u,
-      thresholdSessionId: 'tsess',
-      signingGrantId: 'wsess',
-      signingWorkerId: 'signing-worker',
+      kind: 'router_ab_ed25519_runtime_validated_material_v1',
+      materialRef: {
+        materialHandle,
+        bindingDigest,
+        clientVerifierB64u: clientVerifyingShareB64u,
+      },
+      sessionBinding: {
+        thresholdSessionId: 'tsess',
+        signingGrantId: 'wsess',
+        signingWorkerId: 'signing-worker',
+      },
     });
     expect(calls).toEqual([
       {
@@ -138,10 +154,10 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       signerSlot: 1,
       signingRootId: 'project:env',
       signingRootVersion: 'v1',
-      relayerKeyId: 'ed25519:relayer',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      relayerKeyId: parseEd25519RelayerKeyId('ed25519:relayer'),
+      ed25519HssKeyVersion: parseEd25519HssKeyVersion('threshold-ed25519-hss-v1'),
       participantIds: [1, 2],
-      clientVerifyingShareB64u: 'clientVerifier',
+      clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u('clientVerifier'),
       createdAtMs: 1_700_000_000_000,
     });
     const sessionBinding = buildRouterAbEd25519WorkerMaterialSessionBinding({
@@ -158,8 +174,8 @@ test.describe('threshold Ed25519 HSS material handles', () => {
         envId: 'env',
         signingRootVersion: 'v1',
       },
-      relayerKeyId: 'ed25519:relayer',
-      keyVersion: 'threshold-ed25519-hss-v1',
+      relayerKeyId: parseEd25519RelayerKeyId('ed25519:relayer'),
+      ed25519HssKeyVersion: parseEd25519HssKeyVersion('threshold-ed25519-hss-v1'),
       participantIds: [1, 2],
       signingWorkerId: 'signing-worker',
       expiresAtMs: 1_900_000_000_000,

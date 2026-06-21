@@ -51,7 +51,7 @@ import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
-import { digestRouterAbEd25519WorkerMaterialSessionBinding } from '../../threshold/ed25519/hssMaterialBinding';
+import { digestRouterAbEd25519WorkerMaterialSessionBinding } from '../../threshold/ed25519/workerMaterialBinding';
 
 const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 

@@ -96,11 +96,9 @@ import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
-import { resolveReadyEvmFamilyEcdsaMaterial } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
   listStoredThresholdEcdsaSessionRecordsForWallet,
-  thresholdEcdsaRecordRpId,
 } from '@/core/signingEngine/session/persistence/records';
 import {
   assertWalletRuntimePostconditions,
@@ -110,6 +108,7 @@ import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { parseEd25519HssKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
@@ -1581,18 +1580,20 @@ function registrationEcdsaStoreSource(
   }
 }
 
-function describeEcdsaMaterialPostconditionFailure(
-  result: ReturnType<typeof resolveReadyEvmFamilyEcdsaMaterial>,
-): string {
-  if (result.kind === 'ready') return 'ready';
-  const reason = result.reason;
-  if (reason.kind === 'stale_or_unrestorable_material') {
-    return `${result.kind}:${reason.kind}:${reason.reason}`;
-  }
-  return `${result.kind}:${reason.kind}:${reason.field}:${reason.expected}:${reason.actual}`;
-}
+type RegistrationPersistedSigningLane = {
+  signingGrantId: string;
+  thresholdSessionId: string;
+};
 
-function assertStrictRegistrationEd25519SigningRecord(args: { walletId: string }): void {
+type RegistrationPersistedSigningInventory = {
+  walletId: string;
+  ed25519?: RegistrationPersistedSigningLane;
+  ecdsaByTarget: ReadonlyMap<string, RegistrationPersistedSigningLane>;
+};
+
+function assertStrictRegistrationEd25519SigningRecord(args: {
+  walletId: string;
+}): RegistrationPersistedSigningLane {
   const record = getStoredThresholdEd25519SessionRecordForAccount(args.walletId);
   const parsed = classifyRouterAbEd25519PersistedSigningRecord(record);
   if (parsed.kind !== 'runtime_validated') {
@@ -1600,13 +1601,17 @@ function assertStrictRegistrationEd25519SigningRecord(args: { walletId: string }
       `[Registration][postcondition] Ed25519 Router A/B signable state missing: ${parsed.reason}`,
     );
   }
+  return {
+    signingGrantId: parsed.value.signingGrantId,
+    thresholdSessionId: parsed.value.thresholdSessionId,
+  };
 }
 
 function assertStrictRegistrationEcdsaSigningRecord(args: {
   walletId: string;
   authMethod: 'passkey' | 'email_otp';
   chainTarget: ThresholdEcdsaChainTarget;
-}): void {
+}): RegistrationPersistedSigningLane {
   const source = registrationEcdsaStoreSource(args.authMethod);
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
   const records = listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId, {
@@ -1626,23 +1631,10 @@ function assertStrictRegistrationEcdsaSigningRecord(args: {
       `[Registration][postcondition] ECDSA Router A/B signable state missing for ${targetKey}: ${parsed.reason}`,
     );
   }
-  const material = resolveReadyEvmFamilyEcdsaMaterial({
-    record,
-    rpId: thresholdEcdsaRecordRpId(record),
-    expected: {
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-      authMethod: args.authMethod,
-      source,
-      thresholdSessionId: parsed.value.thresholdSessionId,
-      signingGrantId: parsed.value.signingGrantId,
-    },
-  });
-  if (material.kind !== 'ready') {
-    throw new Error(
-      `[Registration][postcondition] ECDSA Router A/B material is not ready for ${targetKey}: ${describeEcdsaMaterialPostconditionFailure(material)}`,
-    );
-  }
+  return {
+    signingGrantId: parsed.value.signingGrantId,
+    thresholdSessionId: parsed.value.thresholdSessionId,
+  };
 }
 
 function assertStrictRegistrationSigningRecords(args: {
@@ -1650,17 +1642,25 @@ function assertStrictRegistrationSigningRecords(args: {
   authMethod: 'passkey' | 'email_otp';
   expectEd25519: boolean;
   expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
-}): void {
+}): RegistrationPersistedSigningInventory {
+  let ed25519: RegistrationPersistedSigningLane | undefined;
   if (args.expectEd25519) {
-    assertStrictRegistrationEd25519SigningRecord({ walletId: args.walletId });
+    ed25519 = assertStrictRegistrationEd25519SigningRecord({ walletId: args.walletId });
   }
+  const ecdsaByTarget = new Map<string, RegistrationPersistedSigningLane>();
   for (const chainTarget of args.expectedEcdsaChainTargets) {
-    assertStrictRegistrationEcdsaSigningRecord({
+    const lane = assertStrictRegistrationEcdsaSigningRecord({
       walletId: args.walletId,
       authMethod: args.authMethod,
       chainTarget,
     });
+    ecdsaByTarget.set(thresholdEcdsaChainTargetKey(chainTarget), lane);
   }
+  return {
+    walletId: args.walletId,
+    ...(ed25519 ? { ed25519 } : {}),
+    ecdsaByTarget,
+  };
 }
 
 function createRegistrationThresholdWarmSessionPolicyDraft(args: {
@@ -1675,7 +1675,10 @@ function createRegistrationThresholdWarmSessionPolicyDraft(args: {
 }): ThresholdWarmSessionPolicyDraft | null {
   const participantIds = [...args.participantIds];
   if (!args.ecdsaSession) {
-    return createThresholdWarmSessionPolicyDraft(args.context, { participantIds });
+    return createThresholdWarmSessionPolicyDraft(args.context, {
+      kind: 'generated_signing_grant',
+      participantIds,
+    });
   }
 
   const clientBootstrap = args.ecdsaSession.preparedClientBootstrap.clientBootstrap;
@@ -1709,25 +1712,26 @@ async function assertImmediateRegistrationSigningLanes(args: {
   expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   requireSharedSigningGrant: boolean;
 }): Promise<void> {
-  assertStrictRegistrationSigningRecords(args);
-  const inventory = await assertWalletRuntimePostconditions({
-    source: 'registration_finalize',
-    walletId: args.walletId,
-    authMethod: args.authMethod,
-    requiredTargets: [
-      ...(args.expectEd25519 ? [{ curve: 'ed25519' as const }] : []),
-      ...args.expectedEcdsaChainTargets.map((chainTarget) => ({
-        curve: 'ecdsa' as const,
-        chainTarget,
-      })),
-    ],
-    readPersistedAvailableSigningLanes: async (input) =>
-      await args.signingEngine.readPersistedAvailableSigningLanes(input),
-  });
+  const persistedInventory = assertStrictRegistrationSigningRecords(args);
+  const inventory = args.expectEd25519
+    ? await assertWalletRuntimePostconditions({
+        source: 'registration_finalize',
+        walletId: args.walletId,
+        authMethod: args.authMethod,
+        requiredTargets: [{ curve: 'ed25519' }],
+        readPersistedAvailableSigningLanes: async (input) =>
+          await args.signingEngine.readPersistedAvailableSigningLanes(input),
+      })
+    : {
+        walletId: args.walletId,
+        authMethod: args.authMethod,
+        ecdsaByTarget: new Map(),
+      };
   if (args.requireSharedSigningGrant) {
     assertCombinedRegistrationSharedSigningGrant({
       walletId: args.walletId,
       inventory,
+      persistedInventory,
       expectedEcdsaChainTargets: args.expectedEcdsaChainTargets,
     });
   }
@@ -1736,9 +1740,12 @@ async function assertImmediateRegistrationSigningLanes(args: {
 function assertCombinedRegistrationSharedSigningGrant(args: {
   walletId: string;
   inventory: WalletRuntimeInventory;
+  persistedInventory: RegistrationPersistedSigningInventory;
   expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
 }): void {
-  const ed25519GrantId = String(args.inventory.ed25519?.signingGrantId || '').trim();
+  const ed25519GrantId = String(
+    args.persistedInventory.ed25519?.signingGrantId || args.inventory.ed25519?.signingGrantId || '',
+  ).trim();
   if (!ed25519GrantId) {
     throw new Error(
       `[Registration][postcondition] combined registration missing Ed25519 signing grant for ${args.walletId}`,
@@ -1747,7 +1754,7 @@ function assertCombinedRegistrationSharedSigningGrant(args: {
   for (const chainTarget of args.expectedEcdsaChainTargets) {
     const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
     const ecdsaGrantId = String(
-      args.inventory.ecdsaByTarget.get(targetKey)?.signingGrantId || '',
+      args.persistedInventory.ecdsaByTarget.get(targetKey)?.signingGrantId || '',
     ).trim();
     if (ecdsaGrantId !== ed25519GrantId) {
       throw new Error(
@@ -2414,7 +2421,7 @@ async function registerWalletInternal(
               runtimePolicyScope: thresholdRuntimePolicyScope,
               nearAccountId,
               keyPurpose: ed25519Selection.keyPurpose,
-              keyVersion: ed25519Selection.keyVersion,
+              ed25519HssKeyVersion: parseEd25519HssKeyVersion(ed25519Selection.keyVersion),
               participantIds: ed25519Selection.participantIds,
               derivationVersion: ed25519Selection.derivationVersion,
             })
@@ -2424,7 +2431,7 @@ async function registerWalletInternal(
               runtimePolicyScope: thresholdRuntimePolicyScope,
               nearAccountId,
               keyPurpose: ed25519Selection.keyPurpose,
-              keyVersion: ed25519Selection.keyVersion,
+              ed25519HssKeyVersion: parseEd25519HssKeyVersion(ed25519Selection.keyVersion),
               participantIds: ed25519Selection.participantIds,
               derivationVersion: ed25519Selection.derivationVersion,
             }),
@@ -2744,7 +2751,7 @@ async function registerWalletInternal(
           relayerKeyId: finalizedEd25519.relayerKeyId,
           signerSlot,
           session: registrationWarmSession,
-          keyVersion: finalizedEd25519.keyVersion,
+          ed25519HssKeyVersion: parseEd25519HssKeyVersion(finalizedEd25519.keyVersion),
           materialCreatedAtMs: Date.now(),
           participantIdsHint: finalizedEd25519.participantIds,
         });
@@ -3020,7 +3027,7 @@ export async function addWalletSigner(args: {
         runtimePolicyScope: thresholdRuntimePolicyScope,
         nearAccountId,
         keyPurpose: signerSelection.ed25519.keyPurpose,
-        keyVersion: signerSelection.ed25519.keyVersion,
+        ed25519HssKeyVersion: parseEd25519HssKeyVersion(signerSelection.ed25519.keyVersion),
         participantIds: signerSelection.ed25519.participantIds,
         derivationVersion: signerSelection.ed25519.derivationVersion,
       });
@@ -3068,6 +3075,7 @@ export async function addWalletSigner(args: {
         clientOutputMaskB64u,
       });
       const requestedPolicy = createThresholdWarmSessionPolicyDraft(context, {
+        kind: 'generated_signing_grant',
         participantIds: hssClientMaterial.hssContext.participantIds,
       });
       if (!requestedPolicy) {

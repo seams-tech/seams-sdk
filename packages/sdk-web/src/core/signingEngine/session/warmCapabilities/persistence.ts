@@ -18,6 +18,18 @@ import {
 } from '../../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519SealedWorkerMaterialRef,
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
+  parseEd25519WorkerMaterialKeyId,
+  type Ed25519ClientVerifyingShareB64u,
+  type Ed25519SealedWorkerMaterialRef,
+  type Ed25519WorkerMaterialBindingDigest,
+  type Ed25519WorkerMaterialHandle,
+  type Ed25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
 
 type PersistWarmSessionEd25519CapabilityIdentity = {
   nearAccountId: AccountId;
@@ -50,9 +62,9 @@ type PersistWarmSessionEd25519NoWorkerMaterial = {
 };
 
 type PersistWarmSessionEd25519RuntimeWorkerMaterial = {
-  clientVerifyingShareB64u: string;
-  ed25519WorkerMaterialHandle: string;
-  ed25519WorkerMaterialBindingDigest: string;
+  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+  ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
+  ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
   sealedWorkerMaterialRef?: never;
   sealedWorkerMaterialB64u?: never;
   materialFormatVersion?: never;
@@ -62,13 +74,13 @@ type PersistWarmSessionEd25519RuntimeWorkerMaterial = {
 };
 
 type PersistWarmSessionEd25519SealedWorkerMaterial = {
-  clientVerifyingShareB64u: string;
-  ed25519WorkerMaterialHandle: string;
-  ed25519WorkerMaterialBindingDigest: string;
-  sealedWorkerMaterialRef: string;
+  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+  ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
+  ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+  sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
   sealedWorkerMaterialB64u: string;
   materialFormatVersion: string;
-  materialKeyId: string;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
   materialCreatedAtMs: number;
   keyVersion: string;
 };
@@ -119,9 +131,9 @@ type RetainedEd25519WorkerMaterialFacts =
     }
   | {
       kind: 'runtime_worker_material';
-      clientVerifyingShareB64u: string;
-      ed25519WorkerMaterialHandle: string;
-      ed25519WorkerMaterialBindingDigest: string;
+      clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+      ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
+      ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
       sealedWorkerMaterialRef?: never;
       sealedWorkerMaterialB64u?: never;
       materialFormatVersion?: never;
@@ -131,13 +143,13 @@ type RetainedEd25519WorkerMaterialFacts =
     }
   | {
       kind: 'sealed_worker_material';
-      clientVerifyingShareB64u: string;
-      ed25519WorkerMaterialHandle: string;
-      ed25519WorkerMaterialBindingDigest: string;
-      sealedWorkerMaterialRef: string;
+      clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+      ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
+      ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+      sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
       sealedWorkerMaterialB64u: string;
       materialFormatVersion: string;
-      materialKeyId: string;
+      materialKeyId: Ed25519WorkerMaterialKeyId;
       materialCreatedAtMs: number;
       keyVersion: string;
     };
@@ -201,13 +213,17 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
     if (sealedWorkerMaterialRef && sealedWorkerMaterialB64u && materialFormatVersion && materialKeyId) {
       return {
         kind: 'sealed_worker_material',
-        clientVerifyingShareB64u,
-        ed25519WorkerMaterialHandle,
-        ed25519WorkerMaterialBindingDigest,
-        sealedWorkerMaterialRef,
+        clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
+        ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+          ed25519WorkerMaterialHandle,
+        ),
+        ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+          ed25519WorkerMaterialBindingDigest,
+        ),
+        sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(sealedWorkerMaterialRef),
         sealedWorkerMaterialB64u,
         materialFormatVersion,
-        materialKeyId,
+        materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
         materialCreatedAtMs,
         keyVersion,
       };
@@ -215,9 +231,13 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
     if (ed25519WorkerMaterialHandle) {
       return {
         kind: 'runtime_worker_material',
-        clientVerifyingShareB64u,
-        ed25519WorkerMaterialHandle,
-        ed25519WorkerMaterialBindingDigest,
+        clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
+        ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+          ed25519WorkerMaterialHandle,
+        ),
+        ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+          ed25519WorkerMaterialBindingDigest,
+        ),
         materialCreatedAtMs,
         keyVersion,
       };

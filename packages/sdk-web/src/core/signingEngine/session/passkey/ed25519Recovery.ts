@@ -16,6 +16,20 @@ import {
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { RestorePersistedEd25519SessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519SealedWorkerMaterialRef,
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
+  parseEd25519WorkerMaterialKeyId,
+  parseSigningSessionSealKeyVersion,
+  type Ed25519ClientVerifyingShareB64u,
+  type Ed25519SealedWorkerMaterialRef,
+  type Ed25519WorkerMaterialBindingDigest,
+  type Ed25519WorkerMaterialHandle,
+  type Ed25519WorkerMaterialKeyId,
+  type SigningSessionSealKeyVersion,
+} from '../keyMaterialBrands';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
@@ -32,7 +46,7 @@ type PasskeyEd25519SessionRestoreIdentity = {
 type PasskeyEd25519ReconnectRuntimeHandle =
   | {
       kind: 'runtime_handle_available';
-      ed25519WorkerMaterialHandle: string;
+      ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
     }
   | {
       kind: 'runtime_handle_absent';
@@ -40,12 +54,12 @@ type PasskeyEd25519ReconnectRuntimeHandle =
     };
 
 type PasskeyEd25519ReconnectWorkerMaterialFacts = PasskeyEd25519ReconnectRuntimeHandle & {
-  clientVerifyingShareB64u: string;
-  ed25519WorkerMaterialBindingDigest: string;
-  sealedWorkerMaterialRef: string;
+  clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
+  ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+  sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
   sealedWorkerMaterialB64u: string;
   materialFormatVersion: string;
-  materialKeyId: string;
+  materialKeyId: Ed25519WorkerMaterialKeyId;
   materialCreatedAtMs: number;
   signerSlot: number;
   keyVersion: string;
@@ -146,12 +160,14 @@ function readPasskeyEd25519ReconnectWorkerMaterialFacts(
   }
   const ed25519WorkerMaterialHandle = nonEmptyString(record.ed25519WorkerMaterialHandle);
   const commonFacts = {
-    clientVerifyingShareB64u,
-    ed25519WorkerMaterialBindingDigest,
-    sealedWorkerMaterialRef,
+    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
+    ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      ed25519WorkerMaterialBindingDigest,
+    ),
+    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(sealedWorkerMaterialRef),
     sealedWorkerMaterialB64u,
     materialFormatVersion,
-    materialKeyId,
+    materialKeyId: parseEd25519WorkerMaterialKeyId(materialKeyId),
     materialCreatedAtMs,
     signerSlot,
     keyVersion,
@@ -159,7 +175,9 @@ function readPasskeyEd25519ReconnectWorkerMaterialFacts(
   if (ed25519WorkerMaterialHandle) {
     return {
       kind: 'runtime_handle_available',
-      ed25519WorkerMaterialHandle,
+      ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+        ed25519WorkerMaterialHandle,
+      ),
       ...commonFacts,
     };
   }
@@ -362,7 +380,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
   rehydrateWarmSessionMaterial: (args: {
     sessionId: string;
     sealedSecretB64u: string;
-    keyVersion?: string;
+    signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     expiresAtMs: number;
     remainingUses: number;
     transport: WarmSessionSealTransportInput;
@@ -419,7 +437,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
   const rehydrated = await args.rehydrateWarmSessionMaterial({
     sessionId: thresholdSessionId,
     sealedSecretB64u: args.record.sealedSecretB64u,
-    keyVersion: args.record.keyVersion,
+    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
     expiresAtMs: args.record.expiresAtMs,
     remainingUses: Math.max(1_000_000, Math.floor(Number(args.record.remainingUses) || 0)),
     transport: {

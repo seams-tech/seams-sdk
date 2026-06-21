@@ -455,13 +455,14 @@ function assertCapabilityStateInvariant(args: {
     if (prfClaim.state === 'unavailable') return 'prf_unavailable';
     if (prfClaim.state !== 'warm') return 'prf_missing';
     const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(capability.record);
-    if (persistedState.kind === 'signable') return 'ready';
+    if (persistedState.kind === 'runtime_validated') return 'ready';
     if (
       persistedState.kind === 'non_signing' ||
       persistedState.reason === 'missing_wallet_session_jwt'
     ) {
       return 'auth_missing';
     }
+    if (persistedState.kind === 'restore_available') return 'material_pending';
     if (prfClaim.state === 'warm') return 'material_pending';
     return 'prf_missing';
   })();

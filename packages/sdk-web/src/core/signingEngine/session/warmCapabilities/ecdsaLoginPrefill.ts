@@ -26,6 +26,10 @@ import {
   resolveRouterAbEcdsaWalletSessionAuthFromRecord,
 } from './routerAbEcdsaWalletSessionAuth';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaThresholdKeyId,
+} from '../keyMaterialBrands';
 
 export type RouterAbEcdsaHssLoginPresignaturePrefillSkippedReason =
   | 'pool_disabled'
@@ -242,8 +246,8 @@ export async function scheduleRouterAbEcdsaHssLoginPresignaturePrefill(
 
     const schedule = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
       relayerUrl,
-      ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId || '').trim(),
-      clientVerifyingShareB64u,
+      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
+      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(clientVerifyingShareB64u),
       participantIds,
       clientSigningMaterial,
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,

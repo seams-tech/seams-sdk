@@ -4,6 +4,7 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { SignerWorkerOperationResult } from '@/core/signingEngine/workerManager/workerTypes';
+import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
@@ -15,7 +16,7 @@ function zeroizeBytes(bytes?: Uint8Array | null): void {
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
   walletSessionJwt?: string;
-  keyVersion?: string;
+  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   shamirPrimeB64u?: string;
 };
 

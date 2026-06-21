@@ -33,6 +33,12 @@ import {
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalReadyRecord,
 } from '../../session/persistence/ecdsaRoleLocalRecords';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaThresholdKeyId,
+} from '../../session/keyMaterialBrands';
 import { buildEcdsaRoleLocalSigningMaterialHandle } from '../../session/identity/ecdsaHssSigningMaterialHandle';
 import { storeEcdsaRoleLocalSigningMaterialWasm } from '../crypto/hssClientSignerWasm';
 import { hexToBytes } from '../../chains/evm/bytes';
@@ -670,23 +676,29 @@ export async function activateEcdsaSession(
     });
   }
 
-  const ecdsaThresholdKeyId = String(
+  const ecdsaThresholdKeyIdRaw = String(
     exactActivation ? args.key.ecdsaThresholdKeyId : bootstrap.ecdsaThresholdKeyId || '',
   ).trim();
-  if (!ecdsaThresholdKeyId) {
+  if (!ecdsaThresholdKeyIdRaw) {
     throw new Error('threshold-ecdsa bootstrap returned empty ecdsaThresholdKeyId');
   }
-  const keyHandle = String(bootstrap.keyHandle || '').trim();
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
+  const keyHandleRaw = String(bootstrap.keyHandle || '').trim();
+  const keyHandle = parseEcdsaKeyHandle(keyHandleRaw);
 
-  const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
-  if (!relayerKeyId) {
+  const relayerKeyIdRaw = String(bootstrap.relayerKeyId || '').trim();
+  if (!relayerKeyIdRaw) {
     throw new Error('threshold-ecdsa bootstrap returned empty relayerKeyId');
   }
+  const relayerKeyId = parseEcdsaRelayerKeyId(relayerKeyIdRaw);
 
-  const clientVerifyingShareB64u = String(bootstrap.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
+  const clientVerifyingShareB64uRaw = String(bootstrap.clientVerifyingShareB64u || '').trim();
+  if (!clientVerifyingShareB64uRaw) {
     throw new Error('threshold-ecdsa bootstrap returned empty clientVerifyingShareB64u');
   }
+  const clientVerifyingShareB64u = parseEcdsaClientVerifyingShareB64u(
+    clientVerifyingShareB64uRaw,
+  );
 
   const sessionId = String(bootstrap.sessionId || '').trim();
   if (!sessionId) {

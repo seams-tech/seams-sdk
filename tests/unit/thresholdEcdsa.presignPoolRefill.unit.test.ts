@@ -26,10 +26,15 @@ import {
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaKeyHandle,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 const RELAYER_URL = 'https://relay.example';
-const ECDSA_KEY_HANDLE = 'ehss-key-presign-test';
-const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
+const ECDSA_KEY_HANDLE = parseEcdsaKeyHandle('ehss-key-presign-test');
+const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ecdsa-hss-test-key-1');
 const RP_ID = 'example.localhost';
 const PARTICIPANT_IDS = [1, 2];
 
@@ -58,7 +63,9 @@ const SIGNATURE_65 = (() => {
   return out;
 })();
 // Backend bridge field only. Public identity is ecdsaThresholdKeyId/group key/address.
-const BACKEND_CLIENT_VERIFYING_SHARE_B64U = base64UrlEncode(CLIENT_VERIFYING_SHARE_33);
+const BACKEND_CLIENT_VERIFYING_SHARE_B64U = parseEcdsaClientVerifyingShareB64u(
+  base64UrlEncode(CLIENT_VERIFYING_SHARE_33),
+);
 const GROUP_PUBLIC_KEY_B64U = base64UrlEncode(GROUP_PUBLIC_KEY_33);
 const PRESIGN_BIG_R_B64U = base64UrlEncode(PRESIGN_BIG_R_33);
 const SIGNATURE_65_B64U = base64UrlEncode(SIGNATURE_65);
@@ -290,6 +297,13 @@ function installThresholdEcdsaFetchMock(args?: {
         JSON.stringify({
           scope: body.scope,
           request_id: body.request_id,
+          budget_reservation_id: `ecdsa-sign-budget-reservation-${counters.routerPrepare}`,
+          budget_operation_id: `ecdsa-sign-budget-operation-${counters.routerPrepare}`,
+          budget_status: {
+            committed_remaining_uses: 3,
+            reserved_uses: 1,
+            available_uses: 2,
+          },
           request_digest: await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(body),
           signing_digest: { bytes: Array.from(DIGEST_32) },
           server_presignature_id: body.client_presignature_id,

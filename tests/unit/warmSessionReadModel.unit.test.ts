@@ -17,6 +17,7 @@ import {
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
 } from './helpers/warmSessionStore.fixtures';
+import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 test.describe('warmSessionReadModel', () => {
   test('maps warm-session status results into canonical claim states', () => {
@@ -129,7 +130,7 @@ test.describe('warmSessionReadModel', () => {
 
     expect(resolveEd25519AuthMaterial(ed25519Record)).toMatchObject({
       capability: 'ed25519',
-      walletSessionJwt: 'jwt:ed-wallet-session',
+      walletSessionJwt: ed25519Record.walletSessionJwt,
       walletSessionJwtSource: 'ed25519_record',
     });
     expect(resolveEcdsaAuthMaterial(ecdsaRecord)).toMatchObject({
@@ -344,7 +345,7 @@ test.describe('warmSessionReadModel', () => {
       nearAccountId: 'seal-read-model.testnet',
       chain: 'evm',
       signingSessionSeal: {
-        keyVersion: 'kek-s-2026-02',
+        keyVersion: 'signing-session-seal-kek-2026-02-r1',
         shamirPrimeB64u: 'AQAB',
       },
     });
@@ -353,7 +354,9 @@ test.describe('warmSessionReadModel', () => {
       resolveEcdsaSealTransport({
         record: ecdsaRecord,
         auth: resolveEcdsaAuthMaterial(ecdsaRecord),
-        keyVersion: 'kek-s-2026-02',
+        signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+          'signing-session-seal-kek-2026-02-r1',
+        ),
         shamirPrimeB64u: 'AQAB',
       }),
     ).toMatchObject({
@@ -361,7 +364,9 @@ test.describe('warmSessionReadModel', () => {
       relayerUrl: ecdsaRecord.relayerUrl,
       walletSessionJwt: ecdsaRecord.walletSessionJwt,
       walletSessionJwtSource: 'ecdsa',
-      keyVersion: 'kek-s-2026-02',
+      signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+        'signing-session-seal-kek-2026-02-r1',
+      ),
       shamirPrimeB64u: 'AQAB',
     });
   });

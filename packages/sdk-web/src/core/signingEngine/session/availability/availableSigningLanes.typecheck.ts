@@ -11,6 +11,7 @@ import type {
   ConcreteAvailableEd25519SigningLane,
   EcdsaAvailableLaneIdentityInput,
   ReadAvailableSigningLanesInput,
+  AvailableSigningLanesRuntimeClaim,
 } from './availableSigningLanes';
 
 const chainTarget = {
@@ -217,5 +218,33 @@ const sharedEcdsaLane: ConcreteAvailableEcdsaSigningLane = {
   sourceChainTarget: chainTarget,
 };
 void sharedEcdsaLane;
+
+const recordPolicyClaim: AvailableSigningLanesRuntimeClaim = {
+  state: 'record_policy',
+  thresholdSessionId: 'threshold-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+  laneState: 'restorable',
+};
+void recordPolicyClaim;
+
+const warmClaimWithLaneState: AvailableSigningLanesRuntimeClaim = {
+  state: 'warm',
+  thresholdSessionId: 'threshold-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+  // @ts-expect-error warm claims are already runtime-ready and cannot carry record-policy lane state.
+  laneState: 'restorable',
+};
+void warmClaimWithLaneState;
+
+// @ts-expect-error record-policy claims must state the non-ready lane they represent.
+const recordPolicyClaimMissingLaneState: AvailableSigningLanesRuntimeClaim = {
+  state: 'record_policy',
+  thresholdSessionId: 'threshold-session-1',
+  remainingUses: 1,
+  expiresAtMs: 1_900_000_000_000,
+};
+void recordPolicyClaimMissingLaneState;
 
 export {};

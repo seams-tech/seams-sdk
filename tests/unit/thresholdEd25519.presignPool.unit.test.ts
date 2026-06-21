@@ -22,6 +22,10 @@ import type {
   SigningOperationFingerprint,
   SigningOperationId,
 } from '@/core/signingEngine/session/operationState/types';
+import {
+  parseEd25519RelayerKeyId,
+  parseEd25519WorkerMaterialBindingDigest,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 const runtimePolicyScope = {
   orgId: 'org-presign-pool',
@@ -38,13 +42,15 @@ function payload(input?: {
   materialBindingDigest?: string;
 }): RouterAbEd25519PresignPoolRefillPayload {
   const offerCount = input?.offerCount ?? 2;
-  const materialBindingDigest = input?.materialBindingDigest || 'material-binding-digest';
+  const materialBindingDigest = parseEd25519WorkerMaterialBindingDigest(
+    input?.materialBindingDigest || 'material-binding-digest',
+  );
   return {
     kind: 'router_ab_ed25519_presign_pool_refill_v1',
     relayUrl: 'https://relay.example',
     thresholdSessionId: 'threshold-session-id',
     signingGrantId: 'signing-grant-id',
-    relayerKeyId: 'relayer-key',
+    relayerKeyId: parseEd25519RelayerKeyId('relayer-key'),
     nearAccountId: 'alice.testnet',
     nearNetworkId: 'testnet',
     signerPublicKey: 'ed25519-public-key',
@@ -288,7 +294,7 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
     const variants = [
       { ...request, thresholdSessionId: 'threshold-session-next' },
       { ...request, signingGrantId: 'signing-grant-next' },
-      { ...request, relayerKeyId: 'relayer-key-next' },
+      { ...request, relayerKeyId: parseEd25519RelayerKeyId('relayer-key-next') },
       { ...request, participantIds: [1, 3] },
       payload({ materialBindingDigest: 'material-binding-digest-next' }),
     ].map(scopeKeyForPayload);
@@ -513,7 +519,9 @@ test.describe('Router A/B Ed25519 client presign pool lifecycle', () => {
       signerPublicKey: request.signerPublicKey,
       participantIds: request.participantIds,
       runtimePolicyScope: request.runtimePolicyScope,
-      materialBindingDigest: 'different-material-binding-digest',
+      materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+        'different-material-binding-digest',
+      ),
       operation,
       nowMs: 1_200,
     });

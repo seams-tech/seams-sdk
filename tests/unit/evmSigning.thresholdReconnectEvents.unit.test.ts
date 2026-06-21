@@ -144,8 +144,9 @@ test.describe('EVM family threshold reconnect events', () => {
           const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
             nearAccountId: String(request.walletKey.walletId),
             chain,
-            source: 'manual-bootstrap',
+            source: 'login',
             bootstrap: freshBootstrap,
+            runtimeValidated: true,
           });
           fixture.claimsBySessionId[refreshedRecord.thresholdSessionId] = {
             state: 'warm',
@@ -173,6 +174,6 @@ test.describe('EVM family threshold reconnect events', () => {
     expect(events.map((event) => event.step)).toEqual([9, 9]);
     expect(events.map((event) => event.status)).toEqual(['running', 'succeeded']);
     expect(events.map((event) => event.data?.chain)).toEqual(['evm', 'evm']);
-    expect(provisionedChainIds).toEqual([]);
+    expect(provisionedChainIds).toEqual([11_155_111]);
   });
 });

@@ -57,7 +57,7 @@ function makeSealedRecord(args: {
       ? {
           signingRootId: 'root-restore',
           signingRootVersion: 'v1',
-          keyVersion: 'seal-v1',
+          keyVersion: 'signing-session-seal-kek-test-r1',
           shamirPrimeB64u: 'prime-b64u',
           ecdsaRestore: {
             chainTarget,

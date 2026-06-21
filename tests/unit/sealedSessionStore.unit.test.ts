@@ -190,7 +190,7 @@ test.describe('signing session sealed store', () => {
             signingSessionSecretB64u: 'plaintext-k-must-not-persist',
             emailOtpSecretS: 'plaintext-s-must-not-persist',
             enrollmentEscrowB64u: 'enrollment-escrow-must-not-persist',
-            keyVersion: 'kek-s-2026-02',
+            keyVersion: 'signing-session-seal-kek-2026-02-r1',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 7,
             updatedAtMs: Date.now(),
@@ -260,7 +260,7 @@ test.describe('signing session sealed store', () => {
     expect(result.record?.storageScope).toBe('iframe_origin_indexeddb');
     expect(result.record?.secretKind).toBe('signing_session_secret32');
     expect(result.record?.sealedSecretB64u).toBe('sealed-secret-b64u');
-    expect(result.record?.keyVersion).toBe('kek-s-2026-02');
+    expect(result.record?.keyVersion).toBe('signing-session-seal-kek-2026-02-r1');
     expect(result.record?.thresholdSessionIds.ecdsa).toBe('sess-sealed-1');
     expect(result.recordHasTopLevelSigningRoot).toBe(false);
     expect(result.rawHasTopLevelSigningRoot).toBe(false);
@@ -310,7 +310,7 @@ test.describe('signing session sealed store', () => {
           userId: walletId,
           relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-secret-b64u',
-          keyVersion: 'kek-s-2026-02',
+          keyVersion: 'signing-session-seal-kek-2026-02-r1',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           updatedAtMs: Date.now(),
@@ -634,7 +634,7 @@ test.describe('signing session sealed store', () => {
             signingRootId: 'signing-root',
             signingRootVersion: 'root-v1',
             relayerUrl: 'https://relay.example',
-            keyVersion: 'seal-v1',
+            keyVersion: 'signing-session-seal-kek-test-r1',
             shamirPrimeB64u: 'prime-b64u',
             sealedSecretB64u: 'sealed-email-otp-k',
             expiresAtMs: Date.now() + 60_000,

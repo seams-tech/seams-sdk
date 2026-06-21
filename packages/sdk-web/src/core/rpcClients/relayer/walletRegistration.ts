@@ -28,6 +28,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   ThresholdEcdsaRoleLocalWorkerShareHandle,
   ThresholdEcdsaSecp256k1KeyRef,
@@ -871,11 +872,11 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     expected: args.walletKey.keyHandle,
     actual: serverBootstrap.keyHandle,
   });
-  const ecdsaThresholdKeyId = requireMatchingString({
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(requireMatchingString({
     field: 'ecdsaThresholdKeyId',
     expected: args.walletKey.ecdsaThresholdKeyId,
     actual: serverBootstrap.ecdsaThresholdKeyId,
-  });
+  }));
   const signingRootId = requireMatchingString({
     field: 'signingRootId',
     expected: args.walletKey.signingRootId,

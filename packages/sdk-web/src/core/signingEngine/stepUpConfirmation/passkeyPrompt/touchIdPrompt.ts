@@ -45,6 +45,7 @@ interface RegisterCredentialsArgs {
   nearAccountId: string; // NEAR account ID for PRF salts and keypair derivation (always base account)
   challengeB64u: string;
   signerSlot?: number;
+  intendedUserName: string;
 }
 
 interface AuthenticateCredentialsForChallengeB64uArgs {
@@ -186,6 +187,7 @@ export class TouchIdPrompt {
     nearAccountId,
     challengeB64u,
     signerSlot,
+    intendedUserName,
   }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
     return await enqueueWebAuthnPrompt(async () => {
       // New controller per create() call
@@ -193,6 +195,10 @@ export class TouchIdPrompt {
       this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
       // Single source of truth for rpId: use getRpId().
       const rpId = this.getRpId();
+      const userName = normalizeCredentialDisplayName(
+        intendedUserName,
+        generateSignerSlotDisplayName(nearAccountId, signerSlot),
+      );
       const publicKey: PublicKeyCredentialCreationOptions = {
         challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
         rp: {
@@ -201,8 +207,8 @@ export class TouchIdPrompt {
         },
         user: {
           id: new TextEncoder().encode(generateSignerSlotUserId(nearAccountId, signerSlot)),
-          name: generateSignerSlotUserId(nearAccountId, signerSlot),
-          displayName: generateSignerSlotDisplayName(nearAccountId, signerSlot),
+          name: userName,
+          displayName: userName,
         },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' },
@@ -310,6 +316,11 @@ function assertSerializedAuthenticationCredentialChallenge(
       `Unexpected authentication response challenge "${actual}", expected "${expected}"`,
     );
   }
+}
+
+function normalizeCredentialDisplayName(value: string, fallback: string): string {
+  const normalized = String(value || '').trim();
+  return normalized || fallback;
 }
 
 /**

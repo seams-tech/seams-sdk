@@ -452,11 +452,11 @@ function readEcdsaCapabilityRecord(
   }
 
   const signableSession = classifyRouterAbEcdsaHssPersistedSigningRecord(record);
-  if (signableSession.kind !== 'signable') {
+  if (signableSession.kind !== 'runtime_validated') {
     return readError(
       lane,
       'record_mismatch',
-      `Selected ECDSA session record is not Router A/B signable: ${signableSession.reason}`,
+      `Selected ECDSA session record is not Router A/B runtime-validated: ${signableSession.reason}`,
     );
   }
 

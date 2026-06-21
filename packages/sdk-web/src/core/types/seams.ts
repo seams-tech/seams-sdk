@@ -10,6 +10,7 @@ import type { WalletHostVariant } from '../browser/walletIframe/hostVariant';
 import type { ClientUserData } from '../accountData/near/nearAccountData.types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
+import type { SigningSessionSealKeyVersion } from '../signingEngine/session/keyMaterialBrands';
 import type {
   AuthMethod,
   SensitiveOperationPolicy,
@@ -72,7 +73,7 @@ export interface SigningSessionSealConfigInput {
 }
 
 export interface SigningSessionSealConfig {
-  keyVersion?: string;
+  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   shamirPrimeB64u?: string;
 }
 
@@ -604,7 +605,11 @@ export interface SeamsEvmChainConfig {
 
 export type SeamsChainConfig = SeamsNearChainConfig | SeamsTempoChainConfig | SeamsEvmChainConfig;
 
-export type ReadonlyDeep<T> = T extends (...args: never[]) => unknown
+type ReadonlyDeepPrimitive = string | number | boolean | bigint | symbol | null | undefined;
+
+export type ReadonlyDeep<T> = T extends ReadonlyDeepPrimitive
+  ? T
+  : T extends (...args: never[]) => unknown
   ? T
   : T extends readonly (infer U)[]
     ? readonly ReadonlyDeep<U>[]

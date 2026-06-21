@@ -562,7 +562,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     }
     expect(finalSigningOffenders, finalSigningOffenders.join('\n')).toEqual([]);
     for (const { relativePath, source } of activeSigningSources) {
-      expect(source, relativePath).toContain('RouterAbEd25519SigningMaterialReady');
+      expect(source, relativePath).toContain('RouterAbEd25519RuntimeValidatedMaterial');
     }
     expect(
       readRepoSource(
@@ -640,6 +640,9 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(materialSource).toContain(
       'thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm',
     );
+    expect(materialSource).not.toContain('storeEcdsaRoleLocalSigningMaterialWasm');
+    expect(materialSource).not.toContain('roleLocalReadyRecordForWorkerRestore');
+    expect(materialSource).not.toContain('stateBlob');
     expect(secp256k1Source).toContain('loadRouterAbEcdsaHssSigningMaterialSource');
     expect(secp256k1Source).toContain('signRouterAbEcdsaHssDigestWithPool');
     expect(secp256k1Source).not.toContain('clientSigningShare32: req');

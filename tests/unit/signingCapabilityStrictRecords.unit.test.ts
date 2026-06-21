@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -22,8 +23,11 @@ import { SigningSessionIds } from '@/core/signingEngine/session/operationState/t
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
+  clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
   clearRouterAbEd25519WorkerMaterialRuntimeValidation,
+  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
+  resolveRouterAbEd25519WorkerMaterialRuntimeValidation,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   ThresholdEcdsaSessionRecord,
@@ -50,6 +54,14 @@ const ecdsaClientPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ecdsaRelayerPublicKeyB64u = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ecdsaContextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(7));
 const ecdsaStateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(8));
+
+function makeTestWalletSessionJwt(payload: Record<string, unknown>): string {
+  return [
+    base64UrlEncode(new TextEncoder().encode(JSON.stringify({ alg: 'none', typ: 'JWT' }))),
+    base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload))),
+    'test-signature',
+  ].join('.');
+}
 
 function makeLane() {
   return buildNearTransactionSigningLane({
@@ -81,6 +93,8 @@ function makeEd25519Record(
     ed25519WorkerMaterialHandle: 'hss-material-handle-strict',
     ed25519WorkerMaterialBindingDigest: 'sha256:strict-material-binding',
     clientVerifyingShareB64u: 'strict-client-verifier',
+    signerSlot: 1,
+    keyVersion: 'threshold-ed25519-hss-v1',
     routerAbNormalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
       signingWorkerId: 'signing-worker-strict',
@@ -88,7 +102,13 @@ function makeEd25519Record(
     thresholdSessionKind: 'jwt',
     thresholdSessionId,
     signingGrantId,
-    walletSessionJwt: 'router-ab-wallet-session-jwt',
+    walletSessionJwt: makeTestWalletSessionJwt({
+      kind: 'router_ab_ed25519_wallet_session_v1',
+      sub: accountId,
+      thresholdSessionId,
+      signingGrantId,
+      version: 1,
+    }),
     expiresAtMs: 2_000_000_000_000,
     remainingUses: 3,
     updatedAtMs: 1_900_000_000_000,
@@ -219,7 +239,13 @@ function makeEcdsaRecord(
     thresholdSessionKind: 'jwt',
     thresholdSessionId: ecdsaThresholdSessionId,
     signingGrantId: ecdsaSigningGrantId,
-    walletSessionJwt: 'router-ab-ecdsa-wallet-session-jwt',
+    walletSessionJwt: makeTestWalletSessionJwt({
+      kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+      sub: ecdsaWalletId,
+      thresholdSessionId: ecdsaThresholdSessionId,
+      signingGrantId: ecdsaSigningGrantId,
+      version: 1,
+    }),
     expiresAtMs: 2_000_000_000_000,
     remainingUses: 3,
     thresholdEcdsaPublicKeyB64u: ecdsaClientPublicKeyB64u,
@@ -240,12 +266,18 @@ function makeEcdsaRecord(
 test.describe('selected signing capability strict persisted records', () => {
   test.beforeEach(() => {
     clearRouterAbEd25519WorkerMaterialRuntimeValidation();
+    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
   });
 
   test('rejects selected Ed25519 records missing worker-owned material handles', () => {
     const lane = makeLane();
     const record = makeEd25519Record();
     delete record.ed25519WorkerMaterialHandle;
+    expect(resolveRouterAbEd25519WorkerMaterialRuntimeValidation(record)).toMatchObject({
+      ok: false,
+      reason: 'worker_material_missing',
+      parseReason: 'missing_material_handle',
+    });
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
       kind: 'auth_ready_material_pending',
       reason: 'missing_material_handle',
@@ -298,6 +330,56 @@ test.describe('selected signing capability strict persisted records', () => {
         curve: 'ed25519',
         record,
       },
+    });
+  });
+
+  test('invalidates selected Ed25519 runtime validation on worker restart', () => {
+    const record = makeEd25519Record();
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
+      kind: 'runtime_validated',
+    });
+
+    clearRouterAbEd25519WorkerMaterialRuntimeValidation();
+
+    expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
+      kind: 'material_hint_unvalidated',
+      reason: 'worker_material_unvalidated',
+      record,
+    });
+  });
+
+  test('invalidates selected Ed25519 runtime validation when Wallet Session auth changes', () => {
+    const record = makeEd25519Record();
+    const refreshedRecord = makeEd25519Record({
+      walletSessionJwt: makeTestWalletSessionJwt({
+        kind: 'router_ab_ed25519_wallet_session_v1',
+        sub: accountId,
+        thresholdSessionId,
+        signingGrantId,
+        version: 2,
+      }),
+    });
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEd25519PersistedSigningRecord(refreshedRecord)).toMatchObject({
+      kind: 'material_hint_unvalidated',
+      reason: 'worker_material_unvalidated',
+      record: refreshedRecord,
+    });
+  });
+
+  test('invalidates selected Ed25519 runtime validation when material handle changes', () => {
+    const record = makeEd25519Record();
+    const staleHandleRecord = makeEd25519Record({
+      ed25519WorkerMaterialHandle: 'hss-material-handle-stale',
+    });
+    expect(markRouterAbEd25519WorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEd25519PersistedSigningRecord(staleHandleRecord)).toMatchObject({
+      kind: 'material_hint_unvalidated',
+      reason: 'worker_material_unvalidated',
+      record: staleHandleRecord,
     });
   });
 
@@ -384,7 +466,8 @@ test.describe('selected signing capability strict persisted records', () => {
     expect(result).toMatchObject({
       ok: false,
       code: 'record_mismatch',
-      message: 'Selected ECDSA session record is not Router A/B signable: missing_router_ab_state',
+      message:
+        'Selected ECDSA session record is not Router A/B runtime-validated: missing_router_ab_state',
     });
   });
 
@@ -410,7 +493,7 @@ test.describe('selected signing capability strict persisted records', () => {
       ok: false,
       code: 'record_mismatch',
       message:
-        'Selected ECDSA session record is not Router A/B signable: missing_client_verifying_share',
+        'Selected ECDSA session record is not Router A/B runtime-validated: missing_client_verifying_share',
     });
   });
 
@@ -436,7 +519,7 @@ test.describe('selected signing capability strict persisted records', () => {
       ok: false,
       code: 'record_mismatch',
       message:
-        'Selected ECDSA session record is not Router A/B signable: material_identity_mismatch',
+        'Selected ECDSA session record is not Router A/B runtime-validated: material_identity_mismatch',
     });
   });
 
@@ -482,11 +565,37 @@ test.describe('selected signing capability strict persisted records', () => {
     });
   });
 
-  test('accepts selected ECDSA records only when Router A/B signing state is complete', () => {
+  test('keeps selected ECDSA role-local records restore-only until worker material is validated', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();
     expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
-      kind: 'signable',
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
+      record,
+    });
+
+    const result = readSigningCapabilityRecord(
+      {
+        readEmailOtpEcdsaSessionRecord: () => record,
+      },
+      lane,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'record_mismatch',
+      message:
+        'Selected ECDSA session record is not Router A/B runtime-validated: loaded_material_missing',
+    });
+  });
+
+  test('accepts selected ECDSA records only after runtime worker material validation', () => {
+    const lane = makeEcdsaLane();
+    const record = makeEcdsaRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'runtime_validated',
       record,
       value: {
         curve: 'ecdsa',
@@ -514,6 +623,83 @@ test.describe('selected signing capability strict persisted records', () => {
         curve: 'ecdsa',
         record,
       },
+    });
+  });
+
+  test('invalidates selected ECDSA runtime validation on worker restart', () => {
+    const record = makeEcdsaRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'runtime_validated',
+      record,
+    });
+
+    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
+      record,
+    });
+  });
+
+  test('invalidates selected ECDSA runtime validation when Wallet Session auth changes', () => {
+    const record = makeEcdsaRecord();
+    const refreshedRecord = makeEcdsaRecord({
+      walletSessionJwt: makeTestWalletSessionJwt({
+        kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+        sub: ecdsaWalletId,
+        thresholdSessionId: ecdsaThresholdSessionId,
+        signingGrantId: ecdsaSigningGrantId,
+        version: 2,
+      }),
+    });
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(refreshedRecord)).toMatchObject({
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
+      record: refreshedRecord,
+    });
+  });
+
+  test('invalidates selected ECDSA runtime validation when the signing grant changes', () => {
+    const record = makeEcdsaRecord();
+    const refreshedSigningGrantId = SigningSessionIds.signingGrant('wsess-strict-ecdsa-refreshed');
+    const refreshedRecord = makeEcdsaRecord({
+      signingGrantId: refreshedSigningGrantId,
+      walletSessionJwt: makeTestWalletSessionJwt({
+        kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+        sub: ecdsaWalletId,
+        thresholdSessionId: ecdsaThresholdSessionId,
+        signingGrantId: refreshedSigningGrantId,
+        version: 1,
+      }),
+    });
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(refreshedRecord)).toMatchObject({
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
+      record: refreshedRecord,
+    });
+  });
+
+  test('invalidates selected ECDSA runtime validation when Router A/B activation epoch changes', () => {
+    const record = makeEcdsaRecord();
+    const routerAbEcdsaHssNormalSigning = makeEcdsaRouterAbNormalSigning();
+    routerAbEcdsaHssNormalSigning.scope.activation_epoch = SigningSessionIds.thresholdEcdsaSession(
+      'tsess-strict-ecdsa-rotated',
+    );
+    const refreshedRecord = makeEcdsaRecord({
+      routerAbEcdsaHssNormalSigning,
+    });
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(refreshedRecord)).toMatchObject({
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
+      record: refreshedRecord,
     });
   });
 });

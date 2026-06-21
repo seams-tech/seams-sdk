@@ -9,11 +9,6 @@ import type {
   ReadyEcdsaSignerSession,
 } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession,
-} from '../../../session/identity/ecdsaHssSigningMaterialHandle';
-import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import {
-  storeEcdsaRoleLocalSigningMaterialWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
@@ -53,31 +48,6 @@ function readySignerSessionEmailOtpWorkerShareChain(
     case 'email_otp_worker_share':
       return signerSession.clientShare.handle.laneIdentity.chainTarget.kind;
   }
-}
-
-async function restoreRoleLocalWorkerMaterial(input: {
-  signerSession: ReadyEcdsaSignerSession;
-  roleLocalReadyRecordForWorkerRestore?: EcdsaRoleLocalReadyRecord;
-  workerCtx: WorkerOperationContext;
-}): Promise<void> {
-  if (input.signerSession.clientShare.kind !== 'role_local_worker_share') return;
-  if (!input.roleLocalReadyRecordForWorkerRestore) return;
-  const material = ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession(
-    input.signerSession,
-  );
-  const sessionHandle = input.signerSession.clientShare.handle;
-  if (
-    material.materialHandle !== sessionHandle.materialHandle ||
-    material.bindingDigest !== sessionHandle.bindingDigest
-  ) {
-    throw new Error('[multichain] ECDSA role-local worker material handle mismatch');
-  }
-  await storeEcdsaRoleLocalSigningMaterialWasm({
-    materialHandle: sessionHandle.materialHandle,
-    bindingDigest: sessionHandle.bindingDigest,
-    stateBlob: input.roleLocalReadyRecordForWorkerRestore.stateBlob,
-    workerCtx: input.workerCtx,
-  });
 }
 
 async function claimEmailOtpWorkerEcdsaSigningShare(args: {
@@ -177,10 +147,8 @@ async function clearEmailOtpWorkerSessionBestEffort(args: {
 
 export async function loadRouterAbEcdsaHssSigningMaterialSource(args: {
   signerSession: ReadyEcdsaSignerSession;
-  roleLocalReadyRecordForWorkerRestore?: EcdsaRoleLocalReadyRecord;
   workerCtx: WorkerOperationContext;
 }): Promise<LoadedRouterAbEcdsaHssSigningMaterialSource> {
-  await restoreRoleLocalWorkerMaterial(args);
   const signerSession: SignableReadyEcdsaSignerSession = args.signerSession;
   const emailOtpWorkerShareSessionId =
     signerSession.clientShare.kind === 'email_otp_worker_share'

@@ -5,7 +5,7 @@ import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/thr
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import { walletSessionJwtFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
-import type { RouterAbEd25519SigningMaterialRef } from '@/core/signingEngine/threshold/ed25519/hssMaterialBinding';
+import type { RouterAbEd25519SigningMaterialRef } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
 
 export type RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1';

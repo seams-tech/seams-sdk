@@ -6,10 +6,16 @@ import {
   scheduleRouterAbEcdsaHssClientPresignaturePoolRefill,
 } from '@/core/signingEngine/routerAb/ecdsaHss/presignaturePool';
 import type { RouterAbEcdsaHssPresignaturePoolFill } from '@/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
-  const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
-  const BACKEND_CLIENT_VERIFYING_SHARE_B64U = 'backend-client-share';
+  const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ecdsa-hss-test-key-1');
+  const BACKEND_CLIENT_VERIFYING_SHARE_B64U = parseEcdsaClientVerifyingShareB64u(
+    'backend-client-share',
+  );
   const WALLET_SESSION_CREDENTIAL = {
     kind: 'jwt' as const,
     walletSessionJwt: 'wallet-session-jwt',
@@ -176,8 +182,8 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
   test('scheduler enforces global in-flight refill limit', async () => {
     const first = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      ecdsaThresholdKeyId: 'ecdsa-hss-test-key-1',
-      clientVerifyingShareB64u: 'backend-client-share-1',
+      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-hss-test-key-1'),
+      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u('backend-client-share-1'),
       participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,
@@ -187,8 +193,8 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
     });
     const second = scheduleRouterAbEcdsaHssClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      ecdsaThresholdKeyId: 'ecdsa-hss-test-key-2',
-      clientVerifyingShareB64u: 'backend-client-share-2',
+      ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-hss-test-key-2'),
+      clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u('backend-client-share-2'),
       participantIds: [1, 2],
       clientSigningMaterial: clientSigningMaterial(),
       credential: WALLET_SESSION_CREDENTIAL,

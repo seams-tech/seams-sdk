@@ -6,11 +6,15 @@ import type {
 } from './capabilityReader';
 import type { WarmSessionCapabilityReaderSeal } from './capabilityReaderCore';
 import type { WarmSessionReadPorts } from './readModel';
+import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
 
 declare const touchConfirm: WarmSessionReadPorts;
 declare const getEmailOtpWarmSessionStatus: (
   sessionId: string,
 ) => Promise<WarmSessionStatusResult>;
+const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
+  'signing-session-seal-kek-test-r1',
+);
 
 const configuredPorts: WarmCapabilityReaderPortsConfigured = {
   runtimeStatus: 'configured',
@@ -44,7 +48,7 @@ void noRuntimeStatusPortsWithTouchConfirm;
 const factoryDeps: WarmSessionCapabilityReaderFactoryDeps = {
   touchConfirm,
   signingSessionSeal: {
-    keyVersion: 'seal-v1',
+    signingSessionSealKeyVersion,
     shamirPrimeB64u: 'prime-b64u',
   },
   getEmailOtpWarmSessionStatus,
@@ -74,22 +78,30 @@ void factoryDepsWithNullPorts;
 
 const configuredSeal: WarmSessionCapabilityReaderSeal = {
   seal: 'configured',
-  keyVersion: 'seal-v1',
+  signingSessionSealKeyVersion,
   shamirPrimeB64u: 'prime-b64u',
 };
 void configuredSeal;
 
+const configuredSealWithRawKeyVersion: WarmSessionCapabilityReaderSeal = {
+  seal: 'configured',
+  // @ts-expect-error configured seal fallback requires a branded seal key version.
+  signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
+  shamirPrimeB64u: 'prime-b64u',
+};
+void configuredSealWithRawKeyVersion;
+
 // @ts-expect-error configured seal fallback requires the Shamir prime.
 const configuredSealWithoutPrime: WarmSessionCapabilityReaderSeal = {
   seal: 'configured',
-  keyVersion: 'seal-v1',
+  signingSessionSealKeyVersion,
 };
 void configuredSealWithoutPrime;
 
 // @ts-expect-error unconfigured seal fallback rejects partial key material.
 const unconfiguredSealWithKey: WarmSessionCapabilityReaderSeal = {
   seal: 'unconfigured',
-  keyVersion: 'seal-v1',
+  signingSessionSealKeyVersion,
 };
 void unconfiguredSealWithKey;
 

@@ -16,7 +16,7 @@ const IMPORT_PATHS = {
   ed25519MaterialRestoreAuthorization:
     '/sdk/esm/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.js',
   emailOtpClientSecretSource: '/sdk/esm/core/signingEngine/session/emailOtp/clientSecretSource.js',
-  hssMaterialBinding: '/sdk/esm/core/signingEngine/threshold/ed25519/hssMaterialBinding.js',
+  workerMaterialBinding: '/sdk/esm/core/signingEngine/threshold/ed25519/workerMaterialBinding.js',
   indexedDB: '/sdk/esm/core/indexedDB/index.js',
   sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   signerWorkerTypes: '/sdk/esm/core/types/signer-worker.js',
@@ -178,6 +178,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           clientVerifyingShareB64u: 'client-verifying-share',
           ed25519WorkerMaterialHandle: 'ed25519-worker-material:canonical-threshold-session:binding',
           ed25519WorkerMaterialBindingDigest: 'binding',
+          signerSlot: 1,
+          keyVersion: 'threshold-ed25519-hss-v1',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'canonical-threshold-session',
           signingGrantId: 'canonical-wallet-session',
@@ -259,7 +261,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const readinessMod = await import(paths.ed25519SigningMaterialReadiness);
-        const bindingMod = await import(paths.hssMaterialBinding);
+        const bindingMod = await import(paths.workerMaterialBinding);
         const signerWorkerTypes = await import(paths.signerWorkerTypes);
         const storeMod = await import(paths.thresholdSessionStore);
         const materialCreatedAtMs = 1_700_000_000_123;
@@ -270,7 +272,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           signingRootId: 'proj-a:env-a',
           signingRootVersion: 'v1',
           relayerKeyId: 'rk-1',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          ed25519HssKeyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -289,6 +291,21 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           timestamp: materialCreatedAtMs - 1,
         };
         const calls: string[] = [];
+        const base64UrlEncodeString = (value: string) =>
+          btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+        const unsignedEd25519Jwt = (input: { sessionId: string; grantId: string }) =>
+          `${base64UrlEncodeString(JSON.stringify({ alg: 'none', typ: 'JWT' }))}.${base64UrlEncodeString(
+            JSON.stringify({
+              kind: 'router_ab_ed25519_wallet_session_v1',
+              sub: 'alice.testnet',
+              walletId: 'alice.testnet',
+              thresholdSessionId: input.sessionId,
+              signingGrantId: input.grantId,
+              relayerKeyId: 'rk-1',
+              rpId: 'example.localhost',
+              participantIds: [1, 2],
+            }),
+          )}.fixture`;
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
@@ -318,7 +335,10 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'restore-threshold-session',
             signingGrantId: 'restore-signing-grant',
-            walletSessionJwt: 'jwt-restore',
+            walletSessionJwt: unsignedEd25519Jwt({
+              sessionId: 'restore-threshold-session',
+              grantId: 'restore-signing-grant',
+            }),
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-restore',
@@ -397,8 +417,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           );
           return {
             calls,
-            materialHandle: ready.signingMaterial.materialHandle,
-            bindingDigest: ready.signingMaterial.bindingDigest,
+            materialHandle: ready.signingMaterial.materialRef.materialHandle,
+            bindingDigest: ready.signingMaterial.materialRef.bindingDigest,
             persistedHandle: persisted?.ed25519WorkerMaterialHandle,
             persistedMaterialCreatedAtMs: persisted?.materialCreatedAtMs,
           };
@@ -429,7 +449,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const warmBootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
         const indexedDbMod = await import(paths.indexedDB);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const bindingMod = await import(paths.hssMaterialBinding);
+        const bindingMod = await import(paths.workerMaterialBinding);
         const signerWorkerTypes = await import(paths.signerWorkerTypes);
         const storeMod = await import(paths.thresholdSessionStore);
         const thresholdSessionId = 'tsess-login-ed25519';
@@ -457,13 +477,23 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           thresholdSessionId: 'tsess-login-ecdsa',
           signingGrantId,
         });
+        const ed25519WalletSessionJwt = unsignedJwt({
+          kind: 'router_ab_ed25519_wallet_session_v1',
+          sub: 'alice.testnet',
+          walletId: 'alice.testnet',
+          thresholdSessionId,
+          signingGrantId,
+          relayerKeyId: 'rk-1',
+          rpId: 'example.localhost',
+          participantIds: [1, 2],
+        });
         const material = await bindingMod.buildRouterAbEd25519WorkerMaterialBinding({
           nearAccountId: 'alice.testnet',
           signerSlot: 1,
           signingRootId: 'proj_local:dev',
           signingRootVersion: 'default',
           relayerKeyId: 'rk-1',
-          keyVersion,
+          ed25519HssKeyVersion: keyVersion,
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -521,7 +551,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId,
             signingGrantId,
-            walletSessionJwt: 'jwt-ed25519',
+            walletSessionJwt: ed25519WalletSessionJwt,
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-local',
@@ -571,7 +601,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               participantIds: [1, 2],
-              walletSessionJwt: 'jwt-ed25519',
+              walletSessionJwt: ed25519WalletSessionJwt,
               sessionKind: 'jwt',
               runtimePolicyScope: {
                 orgId: 'org-local',
@@ -751,7 +781,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       async ({ paths }) => {
         const readinessMod = await import(paths.ed25519SigningMaterialReadiness);
         const signingSessionMod = await import(paths.routerAbSigningWalletSession);
-        const bindingMod = await import(paths.hssMaterialBinding);
+        const bindingMod = await import(paths.workerMaterialBinding);
         const signerWorkerTypes = await import(paths.signerWorkerTypes);
         const storeMod = await import(paths.thresholdSessionStore);
         const materialCreatedAtMs = 1_700_000_000_456;
@@ -762,7 +792,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           signingRootId: 'proj-a:env-a',
           signingRootVersion: 'v1',
           relayerKeyId: 'rk-1',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          ed25519HssKeyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -781,6 +811,21 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           timestamp: materialCreatedAtMs - 1,
         };
         const calls: string[] = [];
+        const base64UrlEncodeString = (value: string) =>
+          btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+        const unsignedEd25519Jwt = (input: { sessionId: string; grantId: string }) =>
+          `${base64UrlEncodeString(JSON.stringify({ alg: 'none', typ: 'JWT' }))}.${base64UrlEncodeString(
+            JSON.stringify({
+              kind: 'router_ab_ed25519_wallet_session_v1',
+              sub: 'alice.testnet',
+              walletId: 'alice.testnet',
+              thresholdSessionId: input.sessionId,
+              signingGrantId: input.grantId,
+              relayerKeyId: 'rk-1',
+              rpId: 'example.localhost',
+              participantIds: [1, 2],
+            }),
+          )}.fixture`;
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
@@ -811,7 +856,10 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'stale-threshold-session',
             signingGrantId: 'stale-signing-grant',
-            walletSessionJwt: 'jwt-stale',
+            walletSessionJwt: unsignedEd25519Jwt({
+              sessionId: 'stale-threshold-session',
+              grantId: 'stale-signing-grant',
+            }),
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-stale',
@@ -901,7 +949,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           return {
             stateBefore: { kind: stateBefore.kind, reason: stateBefore.reason || '' },
             calls,
-            materialHandle: ready.signingMaterial.materialHandle,
+            materialHandle: ready.signingMaterial.materialRef.materialHandle,
             persistedHandle: persisted?.ed25519WorkerMaterialHandle,
           };
         } finally {
@@ -930,7 +978,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       async ({ paths }) => {
         const readinessMod = await import(paths.ed25519SigningMaterialReadiness);
         const signingSessionMod = await import(paths.routerAbSigningWalletSession);
-        const bindingMod = await import(paths.hssMaterialBinding);
+        const bindingMod = await import(paths.workerMaterialBinding);
         const signerWorkerTypes = await import(paths.signerWorkerTypes);
         const storeMod = await import(paths.thresholdSessionStore);
         const materialCreatedAtMs = 1_700_000_000_321;
@@ -941,7 +989,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           signingRootId: 'proj-a:env-a',
           signingRootVersion: 'v1',
           relayerKeyId: 'rk-1',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          ed25519HssKeyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -1001,8 +1049,9 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           const stateBefore =
             signingSessionMod.classifyRouterAbEd25519PersistedSigningRecord(recordBefore);
 
-          let ready: { signingMaterial: { materialHandle: string; bindingDigest: string } } | null =
-            null;
+          let ready: {
+            signingMaterial: { materialRef: { materialHandle: string; bindingDigest: string } };
+          } | null = null;
           let errorMessage = '';
           try {
             ready = await readinessMod.requireOrRestoreRouterAbEd25519WalletSessionState({
@@ -1051,8 +1100,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 : { kind: stateBefore.kind, reason: stateBefore.reason || '' },
             calls,
             errorMessage,
-            materialHandle: ready?.signingMaterial.materialHandle || '',
-            bindingDigest: ready?.signingMaterial.bindingDigest || '',
+            materialHandle: ready?.signingMaterial.materialRef.materialHandle || '',
+            bindingDigest: ready?.signingMaterial.materialRef.bindingDigest || '',
           };
         } finally {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -1079,7 +1128,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const authorizationMod = await import(paths.ed25519MaterialRestoreAuthorization);
-        const bindingMod = await import(paths.hssMaterialBinding);
+        const bindingMod = await import(paths.workerMaterialBinding);
         const signerWorkerTypes = await import(paths.signerWorkerTypes);
         const storeMod = await import(paths.thresholdSessionStore);
         const materialCreatedAtMs = 1_700_000_000_123;
@@ -1090,7 +1139,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           signingRootId: 'proj-a:env-a',
           signingRootVersion: 'v1',
           relayerKeyId: 'rk-1',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          ed25519HssKeyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -1262,7 +1311,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       async ({ paths }) => {
         const authorizationMod = await import(paths.ed25519MaterialRestoreAuthorization);
         const clientSecretSourceMod = await import(paths.emailOtpClientSecretSource);
-        const bindingMod = await import(paths.hssMaterialBinding);
+        const bindingMod = await import(paths.workerMaterialBinding);
         const storeMod = await import(paths.thresholdSessionStore);
         const materialCreatedAtMs = 1_700_000_000_123;
         const clientVerifyingShareB64u = 'client-verifying-share';
@@ -1278,7 +1327,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           signingRootId: 'proj-a:env-a',
           signingRootVersion: 'v1',
           relayerKeyId: 'rk-1',
-          keyVersion: 'threshold-ed25519-hss-v1',
+          ed25519HssKeyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
           clientVerifyingShareB64u,
           createdAtMs: materialCreatedAtMs,
@@ -1462,6 +1511,72 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     });
   });
 
+  test('rejects runtime validation for material hints without Ed25519 material identity', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const helperMod = await import(paths.routerAbEd25519WalletSessionState);
+        const signingSessionMod = await import(paths.routerAbSigningWalletSession);
+        const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
+        const storeMod = await import(paths.thresholdSessionStore);
+
+        storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        try {
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId: 'alice.testnet',
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay.example',
+            relayerKeyId: 'rk-1',
+            participantIds: [1, 2],
+            runtimePolicyScope: {
+              orgId: 'org-a',
+              projectId: 'proj-a',
+              envId: 'env-a',
+              signingRootVersion: 'default',
+            },
+            clientVerifyingShareB64u: 'client-verifying-share',
+            ed25519WorkerMaterialHandle:
+              'ed25519-worker-material:missing-material-identity-session:binding',
+            ed25519WorkerMaterialBindingDigest: 'binding',
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId: 'missing-material-identity-session',
+            signingGrantId: 'missing-material-identity-grant',
+            walletSessionJwt: 'jwt-missing-material-identity',
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker-canonical',
+            },
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+            source: 'registration',
+          });
+
+          const signingSessionCoordinator = capabilityReaderMod.createWarmSessionCapabilityReader();
+          const record = signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
+            'missing-material-identity-session',
+          );
+          const marked = signingSessionMod.markRouterAbEd25519WorkerMaterialRuntimeValidated(record);
+          return {
+            marked,
+            resolved: Boolean(helperMod.resolveRouterAbEd25519WalletSessionStateFromRecord(record)),
+            classified: signingSessionMod.classifyRouterAbEd25519PersistedSigningRecord(record),
+          };
+        } finally {
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.marked).toBe(false);
+    expect(result.resolved).toBe(false);
+    expect(result.classified).toMatchObject({
+      kind: 'invalid',
+      reason: 'material_identity_mismatch',
+    });
+  });
+
   test('prefers the Ed25519 record when ECDSA shares the same threshold session id', async ({
     page,
   }) => {
@@ -1493,6 +1608,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           clientVerifyingShareB64u: 'client-verifying-share-ed25519',
           ed25519WorkerMaterialHandle: 'ed25519-worker-material:shared-session-id:binding',
           ed25519WorkerMaterialBindingDigest: 'binding',
+          signerSlot: 1,
+          keyVersion: 'threshold-ed25519-hss-v1',
           runtimePolicyScope: {
             orgId: 'org-a',
             projectId: 'proj-a',
@@ -1709,6 +1826,9 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionId: 'threshold-session',
             signingGrantId: 'wallet-session',
             walletSessionJwt: 'jwt-ed25519',
+            materialCreatedAtMs: 1_700_000_000_000,
+            signerSlot: 1,
+            keyVersion: 'threshold-ed25519-hss-v1',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-ed25519',
@@ -1760,6 +1880,21 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
         const storeMod = await import(paths.thresholdSessionStore);
         const nearAccountId = 'alice.testnet';
+        const base64UrlEncodeString = (value: string) =>
+          btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+        const unsignedEd25519Jwt = (input: { sessionId: string; grantId: string }) =>
+          `${base64UrlEncodeString(JSON.stringify({ alg: 'none', typ: 'JWT' }))}.${base64UrlEncodeString(
+            JSON.stringify({
+              kind: 'router_ab_ed25519_wallet_session_v1',
+              sub: nearAccountId,
+              walletId: nearAccountId,
+              thresholdSessionId: input.sessionId,
+              signingGrantId: input.grantId,
+              relayerKeyId: 'rk-ed25519',
+              rpId: 'example.localhost',
+              participantIds: [1, 2],
+            }),
+          )}.fixture`;
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
@@ -1777,7 +1912,12 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'pending-threshold-session',
             signingGrantId: 'pending-wallet-session',
-            walletSessionJwt: 'jwt-ed25519',
+            walletSessionJwt: unsignedEd25519Jwt({
+              sessionId: 'pending-threshold-session',
+              grantId: 'pending-wallet-session',
+            }),
+            signerSlot: 1,
+            keyVersion: 'threshold-ed25519-hss-v1',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-ed25519',

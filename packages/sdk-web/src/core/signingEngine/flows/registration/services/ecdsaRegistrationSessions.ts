@@ -1,4 +1,5 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
+import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   buildWalletRegistrationEcdsaSessionBootstrap,
   type WalletRegistrationEcdsaHssRespondBootstrap,
@@ -45,7 +46,7 @@ export function createEcdsaRegistrationSessionsService(deps: {
   sessionStore: ThresholdEcdsaSessionStoreDeps;
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
   signingSessionSeal: {
-    keyVersion?: string;
+    signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     shamirPrimeB64u?: string;
   };
 }): EcdsaRegistrationSessionsService {
@@ -65,7 +66,7 @@ export async function finalizeWalletRegistrationEcdsaSessions(
     sessionStore: ThresholdEcdsaSessionStoreDeps;
     warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
     signingSessionSeal: {
-      keyVersion?: string;
+      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
       shamirPrimeB64u?: string;
     };
   },
@@ -159,7 +160,7 @@ async function hydratePasskeyRegistrationSession(args: {
   bootstrap: ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>;
   preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
   signingSessionSeal: {
-    keyVersion?: string;
+    signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     shamirPrimeB64u?: string;
   };
   warmSessions: Pick<WarmSessionHydrationService, 'hydrateSigningSession'>;
@@ -188,9 +189,9 @@ async function hydratePasskeyRegistrationSession(args: {
   if (walletSessionJwt) {
     transport.walletSessionJwt = walletSessionJwt;
   }
-  const sealKeyVersion = String(args.signingSessionSeal.keyVersion || '').trim();
-  if (sealKeyVersion) {
-    transport.keyVersion = sealKeyVersion;
+  if (args.signingSessionSeal.signingSessionSealKeyVersion) {
+    transport.signingSessionSealKeyVersion =
+      args.signingSessionSeal.signingSessionSealKeyVersion;
   }
   const sealShamirPrimeB64u = String(args.signingSessionSeal.shamirPrimeB64u || '').trim();
   if (sealShamirPrimeB64u) {

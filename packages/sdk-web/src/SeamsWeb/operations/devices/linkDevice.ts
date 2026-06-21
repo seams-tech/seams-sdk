@@ -39,6 +39,7 @@ import {
   reconstructThresholdEd25519SigningMaterialFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import { formatEd25519HssKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -500,7 +501,9 @@ export class LinkDeviceFlow {
       signerSlotHint,
     );
 
-    const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(this.context);
+    const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(this.context, {
+      kind: 'generated_signing_grant',
+    });
     if (!thresholdWarmPolicy) {
       throw new Error('Threshold warm-session defaults are disabled for link-device');
     }
@@ -641,10 +644,11 @@ export class LinkDeviceFlow {
     // Store authenticator + user data first to ensure profile/account mapping exists.
     await this.storeDeviceAuthenticator({ nearPublicKey: thresholdPublicKey, credential });
 
-    const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
+    const { ed25519HssKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
       thresholdSection,
       'link-device/prepare',
     );
+    const thresholdKeyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
     const thresholdKeyMaterialCreatedAtMs = Date.now();
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
@@ -684,7 +688,7 @@ export class LinkDeviceFlow {
       relayerUrl,
       relayerKeyId,
       session: thresholdSession,
-      keyVersion: thresholdKeyVersion,
+      ed25519HssKeyVersion,
       signerSlot: resolvedSignerSlot,
       materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
       participantIdsHint: Array.isArray(thresholdSection.participantIds)

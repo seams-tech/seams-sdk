@@ -27,7 +27,7 @@ import {
 } from '../e2e/thresholdEd25519.testUtils';
 
 const SHAMIR_PRIME_B64U = '_____________________________________v___C8';
-const SIGNING_SESSION_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
+const SIGNING_SESSION_SEAL_KEY_VERSION = 'signing-session-seal-kek-email-otp-test-r1';
 const SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const SHAMIR_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
 const DEFAULT_EMAIL = 'alice@example.com';
@@ -674,7 +674,7 @@ export async function runEmailOtpEcdsaTempoFlow(
       },
       signingSessionPersistenceMode: 'sealed_refresh_v1',
       signingSessionSeal: {
-        keyVersion: 'kek-s-email-otp-test',
+        keyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
         shamirPrimeB64u,
       },
       iframeWallet: {

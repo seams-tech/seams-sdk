@@ -171,11 +171,13 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'batch-status.testnet',
       chain: 'evm',
       source: 'login',
+      runtimeValidated: true,
     });
     const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'batch-status.testnet',
       chain: 'tempo',
       source: 'login',
+      runtimeValidated: true,
     });
 
     let batchCalls = 0;
@@ -241,6 +243,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'ecdsa-only.testnet',
       chain: 'evm',
       source: 'login',
+      runtimeValidated: true,
     });
 
     const store = createWarmSessionTestServices({
@@ -281,11 +284,13 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'dual.testnet',
       chain: 'evm',
       source: 'login',
+      runtimeValidated: true,
     });
     const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'dual.testnet',
       chain: 'tempo',
       source: 'manual-bootstrap',
+      runtimeValidated: true,
     });
 
     const store = createWarmSessionTestServices({
@@ -325,7 +330,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'seal-hints.testnet',
       chain: 'evm',
       signingSessionSeal: {
-        keyVersion: 'kek-s-2026-02',
+        keyVersion: 'signing-session-seal-kek-2026-02-r1',
         shamirPrimeB64u: 'AQAB',
       },
     });
@@ -350,7 +355,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       relayerUrl: evmRecord.relayerUrl,
       walletSessionJwt: evmRecord.walletSessionJwt,
       walletSessionJwtSource: 'ecdsa',
-      keyVersion: 'kek-s-2026-02',
+      signingSessionSealKeyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
     });
   });
@@ -363,7 +368,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       nearAccountId: 'seal-persist.testnet',
       chain: 'evm',
       signingSessionSeal: {
-        keyVersion: 'kek-s-2026-02',
+        keyVersion: 'signing-session-seal-kek-2026-02-r1',
         shamirPrimeB64u: 'AQAB',
       },
     });
@@ -379,7 +384,7 @@ test.describe('WarmSessionStore lifecycle', () => {
         [evmRecord.thresholdSessionId]: {
           ok: true,
           sealedSecretB64u: 'sealed-prf-first',
-          keyVersion: 'kek-s-2026-02',
+          keyVersion: 'signing-session-seal-kek-2026-02-r1',
           remainingUses: evmRecord.remainingUses || 5,
           expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
         },
@@ -403,7 +408,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       transport: {
         relayerUrl: evmRecord.relayerUrl,
         walletSessionJwt: evmRecord.walletSessionJwt,
-        keyVersion: 'kek-s-2026-02',
+        signingSessionSealKeyVersion: 'signing-session-seal-kek-2026-02-r1',
         shamirPrimeB64u: 'AQAB',
       },
     });

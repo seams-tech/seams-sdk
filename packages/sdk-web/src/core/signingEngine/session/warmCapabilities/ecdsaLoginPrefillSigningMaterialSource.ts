@@ -17,7 +17,14 @@ import {
   stepRouterAbEcdsaHssClientPresignSession,
 } from '../../routerAb/ecdsaHss/clientSigningMaterialBoundary';
 import { buildEcdsaRoleLocalSigningMaterialHandle } from '../identity/ecdsaHssSigningMaterialHandle';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
 import { routerAbEcdsaHssActiveStateSessionId } from '@shared/utils/routerAbEcdsaHss';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaThresholdKeyId,
+} from '../keyMaterialBrands';
 
 function isEmailOtpWorkerRecord(record: ThresholdEcdsaSessionRecord): boolean {
   return record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
@@ -49,13 +56,13 @@ function buildRoleLocalWorkerShareHandleFromRecord(record: ThresholdEcdsaSession
   return buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: record.thresholdSessionId,
     signingGrantId: record.signingGrantId,
-    keyHandle: String(record.keyHandle),
+    keyHandle: parseEcdsaKeyHandle(record.keyHandle),
     routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(routerAbState),
     chainTarget: record.chainTarget,
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-    ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId),
+    clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(record.clientVerifyingShareB64u),
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(record.ecdsaThresholdKeyId),
     participantIds: record.participantIds,
-    relayerKeyId: record.relayerKeyId,
+    relayerKeyId: parseEcdsaRelayerKeyId(record.relayerKeyId),
   });
 }
 
@@ -75,6 +82,9 @@ export function createEcdsaLoginPrefillClientSigningMaterialSource(
           stateBlob: readyRecord.stateBlob,
           workerCtx: input.workerCtx,
         });
+        if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+          throw new Error('ECDSA login prefill could not validate runtime role-local material');
+        }
         return await thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm({
           materialHandle: handle.materialHandle,
           expectedBindingDigest: handle.bindingDigest,

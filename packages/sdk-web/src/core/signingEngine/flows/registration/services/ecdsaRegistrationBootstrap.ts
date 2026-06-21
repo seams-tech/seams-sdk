@@ -31,6 +31,12 @@ import {
 import {
   routerAbEcdsaHssActiveStateSessionId,
 } from '@shared/utils/routerAbEcdsaHss';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaThresholdKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 export type FinalizedWalletRegistrationEcdsaClientBootstrap =
   FinalizeEcdsaClientBootstrapOutput;
@@ -226,15 +232,17 @@ export async function storeWalletRegistrationEcdsaClientSigningMaterial(
   const signingMaterialHandle = buildEcdsaRoleLocalSigningMaterialHandle({
     thresholdSessionId: args.bootstrap.thresholdSessionId,
     signingGrantId: args.bootstrap.signingGrantId,
-    keyHandle: args.bootstrap.keyHandle,
+    keyHandle: parseEcdsaKeyHandle(args.bootstrap.keyHandle),
     routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(
       args.bootstrap.routerAbEcdsaHssNormalSigning,
     ),
     chainTarget: args.chainTarget,
-    clientVerifyingShareB64u: args.finalized.publicFacts.hssClientSharePublicKey33B64u,
-    ecdsaThresholdKeyId: args.bootstrap.ecdsaThresholdKeyId,
+    clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
+      args.finalized.publicFacts.hssClientSharePublicKey33B64u,
+    ),
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(args.bootstrap.ecdsaThresholdKeyId),
     participantIds: args.bootstrap.participantIds,
-    relayerKeyId: args.bootstrap.relayerKeyId,
+    relayerKeyId: parseEcdsaRelayerKeyId(args.bootstrap.relayerKeyId),
   });
   const stored = await deps.signerCrypto.storeEcdsaRoleLocalSigningMaterial({
     kind: 'store_ecdsa_role_local_signing_material_v1',

@@ -25,6 +25,7 @@ import {
   listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
+import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
@@ -59,8 +60,17 @@ function applyWalletBudgetStatusToRuntimeClaim(args: {
   const budgetStatus = args.walletBudgetStatus;
   if (!budgetStatus) return args.localClaim;
   if (budgetStatus.status === 'active') {
-    if (args.localClaim?.state !== 'warm') return args.localClaim;
     const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
+    if (args.localClaim?.state === 'record_policy') {
+      return {
+        state: 'record_policy',
+        thresholdSessionId: args.sessionId,
+        remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
+        expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localClaim.expiresAtMs,
+        laneState: args.localClaim.laneState,
+      };
+    }
+    if (args.localClaim?.state !== 'warm') return args.localClaim;
     return {
       state: 'warm',
       thresholdSessionId: args.sessionId,
@@ -338,17 +348,37 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   thresholdSessionId: sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
+                  laneState: 'restorable',
                 });
               } else {
                 localClaim = null;
               }
             } else {
-              const status = await deps.statusReader
-                .getWarmSessionStatus({ sessionId })
-                .catch(() => null);
-              localClaim = status
-                ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
-                : null;
+              const materialState = classifyRouterAbEcdsaHssPersistedSigningRecord(ecdsaRecord);
+              if (materialState.kind === 'runtime_validated') {
+                const status = await deps.statusReader
+                  .getWarmSessionStatus({ sessionId })
+                  .catch(() => null);
+                localClaim = status
+                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
+                  : null;
+              } else if (materialState.kind === 'restore_available') {
+                localClaim = runtimeRecordPolicyClaim({
+                  thresholdSessionId: sessionId,
+                  remainingUses: ecdsaRecord.remainingUses,
+                  expiresAtMs: ecdsaRecord.expiresAtMs,
+                  laneState: 'restorable',
+                });
+              } else if (materialState.kind === 'material_hint_unvalidated') {
+                localClaim = runtimeRecordPolicyClaim({
+                  thresholdSessionId: sessionId,
+                  remainingUses: ecdsaRecord.remainingUses,
+                  expiresAtMs: ecdsaRecord.expiresAtMs,
+                  laneState: 'deferred',
+                });
+              } else {
+                localClaim = null;
+              }
             }
             const walletBudgetStatus =
               ecdsaRecord && deps.getWalletSigningBudgetStatus
@@ -393,6 +423,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   thresholdSessionId: sessionId,
                   remainingUses: ed25519Record.remainingUses,
                   expiresAtMs: ed25519Record.expiresAtMs,
+                  laneState: 'deferred',
                 });
               } else {
                 const status = await deps.getEmailOtpWarmSessionStatus(sessionId).catch(() => null);

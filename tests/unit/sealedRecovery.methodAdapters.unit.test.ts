@@ -41,7 +41,7 @@ function makeEmailOtpEcdsaSealedRecord(
     signingRootVersion: 'v1',
     relayerUrl: 'https://relay.example',
     shamirPrimeB64u: 'prime-b64u',
-    keyVersion: 'seal-v1',
+    keyVersion: 'signing-session-seal-kek-test-r1',
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
       rpId: 'example.com',
@@ -194,7 +194,7 @@ test.describe('sealed recovery method adapters', () => {
       userId: 'alice.testnet',
       relayerUrl: 'https://relay.example',
       shamirPrimeB64u: 'prime-b64u',
-      keyVersion: 'seal-v1',
+      keyVersion: 'signing-session-seal-kek-test-r1',
       ed25519Restore: {
         rpId: 'example.com',
         relayerKeyId: 'relayer-key-ed25519',
@@ -363,7 +363,7 @@ test.describe('sealed recovery method adapters', () => {
       userId: 'alice.testnet',
       relayerUrl: 'https://relay.example',
       shamirPrimeB64u: 'prime-b64u',
-      keyVersion: 'seal-v1',
+      keyVersion: 'signing-session-seal-kek-test-r1',
       ed25519Restore: {
         rpId: 'example.com',
         relayerKeyId: 'relayer-key-ed25519',

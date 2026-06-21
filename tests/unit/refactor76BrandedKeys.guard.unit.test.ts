@@ -1,0 +1,386 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+function readRepoSource(relativePath: string): string {
+  return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
+}
+
+function sourceBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  expect(startIndex, `missing source marker ${start}`).toBeGreaterThanOrEqual(0);
+  expect(endIndex, `missing source marker ${end}`).toBeGreaterThan(startIndex);
+  return source.slice(startIndex, endIndex);
+}
+
+function findBalancedCallBlocks(source: string, callee: string): string[] {
+  const blocks: string[] = [];
+  let searchIndex = 0;
+  const marker = `${callee}(`;
+  while (searchIndex < source.length) {
+    const start = source.indexOf(marker, searchIndex);
+    if (start < 0) break;
+    let depth = 0;
+    let quote: '"' | "'" | '`' | null = null;
+    for (let index = start + callee.length; index < source.length; index += 1) {
+      const char = source[index];
+      const previous = source[index - 1];
+      if (quote) {
+        if (char === quote && previous !== '\\') quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === '`') {
+        quote = char;
+        continue;
+      }
+      if (char === '(') {
+        depth += 1;
+        continue;
+      }
+      if (char !== ')') continue;
+      depth -= 1;
+      if (depth === 0) {
+        blocks.push(source.slice(start, index + 1));
+        searchIndex = index + 1;
+        break;
+      }
+    }
+    if (source.indexOf(marker, searchIndex) === start) break;
+  }
+  return blocks;
+}
+
+test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
+  test('warm-session policy input requires explicit generated or shared grant lifecycle', () => {
+    const source = readRepoSource(
+      'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
+    );
+    const inputType = sourceBetween(
+      source,
+      'export type ThresholdWarmSessionPolicyDraftInput =',
+      'export type ThresholdWarmSessionRequestEnvelope =',
+    );
+    const draftType = sourceBetween(
+      source,
+      'export type ThresholdWarmSessionPolicyDraft =',
+      'export type ThresholdWarmSessionPolicyDraftInput =',
+    );
+    const envelopeType = sourceBetween(
+      source,
+      'export type ThresholdWarmSessionRequestEnvelope =',
+      'export type WalletRegistrationThresholdEd25519Response =',
+    );
+    const builder = sourceBetween(
+      source,
+      'export function createThresholdWarmSessionPolicyDraft',
+      'export function buildThresholdWarmSessionRequestEnvelope',
+    );
+    const envelopeBuilder = sourceBetween(
+      source,
+      'export function buildThresholdWarmSessionRequestEnvelope',
+      'export async function prepareThresholdEd25519RegistrationHssClientMaterial',
+    );
+
+    expect(draftType).toContain('signingGrantId: string');
+    expect(draftType).not.toContain('signingGrantId?: string');
+    expect(inputType).toContain("kind: 'generated_signing_grant'");
+    expect(inputType).not.toContain("kind?: 'generated_signing_grant'");
+    expect(envelopeType).toContain('signingGrantId: string');
+    expect(envelopeType).not.toContain('signingGrantId?: string');
+    expect(builder).toContain('input: ThresholdWarmSessionPolicyDraftInput');
+    expect(builder).not.toContain('input?: ThresholdWarmSessionPolicyDraftInput');
+    expect(builder).toContain("input.kind === 'generated_signing_grant'");
+    expect(builder).toContain("input.kind === 'shared_signing_grant'");
+    expect(envelopeBuilder).toContain('const signingGrantId =');
+    expect(envelopeBuilder).toContain('!rpId || !thresholdSessionId || !signingGrantId');
+    expect(envelopeBuilder).toContain('signingGrantId,');
+  });
+
+  test('all warm-session policy call sites choose a grant lifecycle branch', () => {
+    const callSiteFiles = [
+      'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+      'tests/unit/thresholdWarmSessionPolicyDraft.unit.test.ts',
+    ];
+    const offenders = callSiteFiles.flatMap((relativePath) =>
+      findBalancedCallBlocks(
+        readRepoSource(relativePath),
+        'createThresholdWarmSessionPolicyDraft',
+      )
+        .filter((block) => !block.includes('kind:'))
+        .map((block) => `${relativePath}: ${block.slice(0, 120)}`),
+    );
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('combined registration uses the shared signing-grant branch and postcondition', () => {
+    const source = readRepoSource(
+      'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+    );
+    const helper = sourceBetween(
+      source,
+      'function createRegistrationThresholdWarmSessionPolicyDraft',
+      'async function assertImmediateRegistrationSigningLanes',
+    );
+    const combinedCall = sourceBetween(
+      source,
+      'const requestedPolicy = createRegistrationThresholdWarmSessionPolicyDraft({',
+      'if (!requestedPolicy) {',
+    );
+    const postcondition = sourceBetween(
+      source,
+      'function assertCombinedRegistrationSharedSigningGrant',
+      'function expectedEcdsaChainTargetsFromRegistrationSpec',
+    );
+
+    expect(helper).toContain("kind: 'generated_signing_grant'");
+    expect(helper).toContain("kind: 'shared_signing_grant'");
+    expect(helper).toContain('clientSigningGrantId !== serverSigningGrantId');
+    expect(helper).toContain('clientBootstrap.remainingUses');
+    expect(combinedCall).toContain('ecdsaPreparedClientBootstrap && ecdsaBootstrap');
+    expect(postcondition).toContain('inventory.ed25519?.signingGrantId');
+    expect(postcondition).toContain('ecdsaGrantId !== ed25519GrantId');
+  });
+
+  test('key-version domains use branded parsers at high-risk boundaries', () => {
+    const sdkBrands = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
+    );
+    const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
+    const ed25519Binding = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts',
+    );
+    const warmSessionBootstrap = readRepoSource(
+      'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
+    );
+    const serverSealOptions = readRepoSource(
+      'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
+    );
+    const serverThresholdSigning = readRepoSource(
+      'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+    );
+    const serverEcdsaPoolFill = readRepoSource(
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+    );
+    const serverAuthService = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
+    const sdkSealTransportTypes = readRepoSource(
+      'packages/sdk-web/src/core/types/secure-confirm-worker.ts',
+    );
+    const sdkConfigBuilder = readRepoSource(
+      'packages/sdk-web/src/core/config/configBuilder.ts',
+    );
+    const sdkCapabilityReader = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReader.ts',
+    );
+    const sdkCapabilityReaderCore = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts',
+    );
+
+    for (const source of [sdkBrands, serverBrands]) {
+      expect(source).toContain("Ed25519HssKeyVersion");
+      expect(source).toContain("EcdsaHssKeyVersion");
+      expect(source).toContain("SigningSessionSealKeyVersion");
+      expect(source).toContain("parseEd25519HssKeyVersion");
+      expect(source).toContain("parseEcdsaHssKeyVersion");
+      expect(source).toContain("parseSigningSessionSealKeyVersion");
+    }
+    expect(ed25519Binding).toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
+    expect(ed25519Binding).not.toContain('keyVersion: string;');
+    expect(warmSessionBootstrap).toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
+    expect(warmSessionBootstrap).toContain('return { ed25519HssKeyVersion:');
+    expect(serverSealOptions).toContain('parseSigningSessionSealKeyVersion(input.keyVersion)');
+    expect(serverSealOptions).toContain('signingSessionSealKeyVersion: SigningSessionSealKeyVersion');
+    expect(serverAuthService).toContain('parseSigningSessionSealKeyVersion(keyVersionRaw)');
+    expect(serverAuthService).toContain('formatSigningSessionSealKeyVersionForWire');
+    expect(serverThresholdSigning).toContain(
+      "const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = parseEcdsaHssKeyVersion('v1')",
+    );
+    expect(serverThresholdSigning).toContain('keyVersion: EcdsaHssKeyVersion');
+    expect(serverThresholdSigning).toContain('parseEcdsaHssKeyVersionOrDefault');
+    expect(serverThresholdSigning).toContain('ecdsaHssKeyVersionWire');
+    expect(serverEcdsaPoolFill).toContain('parseEcdsaHssKeyVersion');
+    expect(serverEcdsaPoolFill).toContain('formatEcdsaHssKeyVersionForWire');
+
+    const sealTransportCommon = sourceBetween(
+      sdkSealTransportTypes,
+      'type WarmSessionSealTransportCommon =',
+      'export interface UiConfirmManagerConfig',
+    );
+    expect(sealTransportCommon).toContain(
+      'signingSessionSealKeyVersion?: SigningSessionSealKeyVersion',
+    );
+    expect(sealTransportCommon).not.toContain('keyVersion?: string');
+    expect(sdkConfigBuilder).toContain('parseSigningSessionSealKeyVersion(keyVersion)');
+    expect(sdkConfigBuilder).toContain('signingSessionSealKeyVersion:');
+    expect(sdkCapabilityReader).toContain(
+      'signingSessionSealKeyVersion: SigningSessionSealKeyVersion',
+    );
+    expect(sdkCapabilityReaderCore).toContain(
+      'signingSessionSealKeyVersion: SigningSessionSealKeyVersion',
+    );
+  });
+
+  test('ECDSA lifecycle identity helpers stay branch-specific', () => {
+    const planSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts',
+    );
+    const readinessSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts',
+    );
+    const evmReadinessSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts',
+    );
+
+    expect(planSource).not.toContain('getEcdsaSessionProvisionIdentity');
+    expect(planSource).toContain('getEcdsaReconnectSessionIdentity');
+    expect(planSource).toContain('getEcdsaFreshProvisionSessionIdentity');
+    expect(planSource).toContain('getEcdsaProvisionPlanLaneIdentity');
+    expect(readinessSource).not.toContain('recordMatchesPlannedIdentity');
+    expect(readinessSource).not.toContain('provisionPlanRequiresExistingRecordIdentity');
+    expect(readinessSource).not.toContain('getEcdsaSessionProvisionIdentity');
+    expect(readinessSource).toContain('function recordMatchesReconnectIdentity');
+    expect(readinessSource).toContain('plan: EcdsaReconnectProvisionPlan');
+    expect(evmReadinessSource).not.toContain('getEcdsaSessionProvisionIdentity');
+    expect(evmReadinessSource).toContain('getEcdsaProvisionPlanLaneIdentity');
+  });
+
+  test('second-tier material brands protect core restore and signing boundaries', () => {
+    const sdkBrands = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts',
+    );
+    const serverBrands = readRepoSource('packages/sdk-server-ts/src/core/keyMaterialBrands.ts');
+    const ed25519Binding = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts',
+    );
+    const ed25519Handle = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
+    );
+    const warmPersistence = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts',
+    );
+    const presignPool = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts',
+    );
+    const ecdsaPoolFill = readRepoSource(
+      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+    );
+    const ecdsaClientPresignPool = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
+    );
+    const serverSealOptions = readRepoSource(
+      'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts',
+    );
+    const serverAuthService = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
+
+    for (const source of [sdkBrands, serverBrands]) {
+      expect(source).toContain('Ed25519ClientVerifyingShareB64u');
+      expect(source).toContain('EcdsaClientVerifyingShareB64u');
+      expect(source).toContain('Ed25519RelayerKeyId');
+      expect(source).toContain('EcdsaRelayerKeyId');
+      expect(source).toContain('EcdsaThresholdKeyId');
+      expect(source).toContain('EcdsaKeyHandle');
+      expect(source).toContain('SigningSessionSealShamirPrimeB64u');
+      expect(source).toContain('parseSigningSessionSealShamirPrimeB64u');
+    }
+    expect(sdkBrands).toContain('Ed25519WorkerMaterialHandle');
+    expect(sdkBrands).toContain('Ed25519SealedWorkerMaterialRef');
+    expect(sdkBrands).toContain('Ed25519WorkerMaterialKeyId');
+    expect(sdkBrands).toContain('Ed25519WorkerMaterialBindingDigest');
+    expect(sdkBrands).toContain('EcdsaClientAdditiveShareHandle');
+
+    expect(ed25519Binding).toContain('materialHandle: Ed25519WorkerMaterialHandle');
+    expect(ed25519Binding).toContain(
+      'bindingDigest: Ed25519WorkerMaterialBindingDigest',
+    );
+    expect(ed25519Binding).toContain(
+      'clientVerifierB64u: Ed25519ClientVerifyingShareB64u',
+    );
+    expect(ed25519Binding).toContain('relayerKeyId: Ed25519RelayerKeyId');
+    expect(ed25519Binding).toContain(
+      'clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u',
+    );
+    expect(ed25519Handle).toContain(
+      'existingMaterialHandle: Ed25519WorkerMaterialHandle',
+    );
+    expect(ed25519Handle).toContain(
+      'existingMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest',
+    );
+    expect(ed25519Handle).toContain(
+      'existingMaterialClientVerifierB64u: Ed25519ClientVerifyingShareB64u',
+    );
+    expect(warmPersistence).toContain(
+      'sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef',
+    );
+    expect(warmPersistence).toContain('materialKeyId: Ed25519WorkerMaterialKeyId');
+    expect(presignPool).toContain('relayerKeyId: Ed25519RelayerKeyId');
+    expect(presignPool).toContain(
+      'materialBindingDigest: Ed25519WorkerMaterialBindingDigest',
+    );
+
+    expect(ecdsaPoolFill).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
+    expect(ecdsaPoolFill).toContain('keyHandle: EcdsaKeyHandle');
+    expect(ecdsaPoolFill).toContain('relayerKeyId: EcdsaRelayerKeyId');
+    expect(ecdsaPoolFill).toContain(
+      'clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u',
+    );
+    expect(ecdsaClientPresignPool).toContain('keyHandle?: EcdsaKeyHandle');
+    expect(ecdsaClientPresignPool).toContain('ecdsaThresholdKeyId: EcdsaThresholdKeyId');
+    expect(ecdsaClientPresignPool).toContain(
+      'clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u',
+    );
+    expect(serverSealOptions).toContain('parseSigningSessionSealShamirPrimeB64u');
+    expect(serverSealOptions).toContain(
+      'shamirPrimeB64u: SigningSessionSealShamirPrimeB64u',
+    );
+    expect(serverAuthService).toContain('parseSigningSessionSealShamirPrimeB64u');
+    expect(serverAuthService).toContain('formatSigningSessionSealShamirPrimeB64uForWire');
+  });
+
+  test('valid signing-session seal key ids use explicit domain names in active defaults', () => {
+    const serverIndex = readRepoSource('apps/web-server/src/index.ts');
+    const generateKeys = readRepoSource(
+      'apps/web-server/scripts/generate-signing-session-seal-keys.mjs',
+    );
+    const sealedRefreshHarness = readRepoSource(
+      'tests/helpers/thresholdEcdsaSealedRefreshHarness.ts',
+    );
+    const emailOtpHarness = readRepoSource('tests/helpers/emailOtpEcdsaTempoFlow.ts');
+    const currentSealFixtureFiles = [
+      'tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts',
+      'tests/relayer/health-wellknown.test.ts',
+      'tests/relayer/signing-session-seal-router.test.ts',
+      'tests/unit/warmSessionStore.lifecycle.unit.test.ts',
+      'tests/unit/sealedRefresh.parity.unit.test.ts',
+      'tests/unit/signingSessionSeal.postgresRecords.unit.test.ts',
+      'tests/unit/sealedSessionStore.unit.test.ts',
+      'tests/unit/warmSessionReadModel.unit.test.ts',
+      'tests/unit/warmSessionRuntime.unit.test.ts',
+      'tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts',
+      'tests/unit/sealedRecovery.methodAdapters.unit.test.ts',
+      'tests/unit/signingSessionSeal.shared.unit.test.ts',
+      'tests/unit/signingSessionRestoreCoordinator.unit.test.ts',
+    ];
+
+    expect(serverIndex).toContain('signing-session-seal-kek-2026-02-28-r1');
+    expect(generateKeys).toContain('signing-session-seal-kek-${today}-r1');
+    expect(sealedRefreshHarness).toContain('signing-session-seal-kek-test-r1');
+    expect(emailOtpHarness).toContain('signing-session-seal-kek-email-otp-test-r1');
+    expect(serverIndex).not.toContain('kek-s-2026-02');
+    expect(generateKeys).not.toContain('kek-s-${today}');
+    expect(sealedRefreshHarness).not.toContain('kek-s-2026-02');
+    expect(emailOtpHarness).not.toContain('kek-s-email-otp-test');
+    for (const relativePath of currentSealFixtureFiles) {
+      const source = readRepoSource(relativePath);
+      expect(source, relativePath).not.toContain('kek-s-2026-02');
+      expect(source, relativePath).not.toContain("keyVersion: 'seal-v1'");
+      expect(source, relativePath).not.toContain('keyVersion: "seal-v1"');
+    }
+  });
+});

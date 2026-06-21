@@ -17,6 +17,10 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfa
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WarmSessionSealAndPersistPayload } from '@/core/types/secure-confirm-worker';
 import {
+  parseEcdsaThresholdKeyId,
+  parseSigningSessionSealKeyVersion,
+} from '@/core/signingEngine/session/keyMaterialBrands';
+import {
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
   thresholdEcdsaSessionRecordReadModel,
@@ -29,7 +33,10 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+  markRouterAbEd25519WorkerMaterialRuntimeValidated,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -73,7 +80,10 @@ import type {
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { SensitiveOperationPolicy } from '@shared/utils';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
@@ -268,12 +278,26 @@ export function seedEd25519WarmSessionRecord(
       : undefined);
   const runtimePolicyScope =
     args.runtimePolicyScope || fixtureRuntimePolicyScopeFromSigningRoot('sr-test:dev', 'default');
+  const signingGrantId = args.signingGrantId || `wsess-${String(args.thresholdSessionId).trim()}`;
+  const relayerKeyId = args.relayerKeyId || 'rk-ed25519';
+  const participantIds = args.participantIds || [1, 2];
+  const walletSessionJwt =
+    args.walletSessionJwt === ''
+      ? ''
+      : toFixtureEd25519WalletSessionJwt(args.walletSessionJwt || '', {
+          nearAccountId: args.nearAccountId,
+          sessionId: args.thresholdSessionId,
+          signingGrantId,
+          relayerKeyId,
+          participantIds,
+          runtimePolicyScope,
+        });
   const record = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: args.nearAccountId,
     rpId: args.rpId || 'wallet.example.test',
     relayerUrl: args.relayerUrl || 'https://relay.example',
-    relayerKeyId: args.relayerKeyId || 'rk-ed25519',
-    participantIds: args.participantIds || [1, 2],
+    relayerKeyId,
+    participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(args.clientVerifyingShareB64u !== ''
       ? { clientVerifyingShareB64u: args.clientVerifyingShareB64u || 'fixture-client-verifier' }
@@ -291,14 +315,16 @@ export function seedEd25519WarmSessionRecord(
             args.ed25519WorkerMaterialBindingDigest || 'fixture-binding',
         }
       : {}),
+    ...(args.signerSlot !== 0 ? { signerSlot: args.signerSlot || 1 } : {}),
+    ...(args.keyVersion !== '' ? { keyVersion: args.keyVersion || 'threshold-ed25519-hss-v1' } : {}),
     routerAbNormalSigning: args.routerAbNormalSigning || {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
       signingWorkerId: 'signing-worker-warm-session-fixture',
     },
     thresholdSessionKind: args.thresholdSessionKind || 'jwt',
     thresholdSessionId: args.thresholdSessionId,
-    signingGrantId: args.signingGrantId || `wsess-${String(args.thresholdSessionId).trim()}`,
-    ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
+    signingGrantId,
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
@@ -312,6 +338,37 @@ export function seedEd25519WarmSessionRecord(
     markRouterAbEd25519WorkerMaterialRuntimeValidated(record);
   }
   return record;
+}
+
+function toFixtureEd25519WalletSessionJwt(
+  token: string,
+  args: {
+    nearAccountId: string;
+    sessionId: string;
+    signingGrantId: string;
+    relayerKeyId: string;
+    participantIds: number[];
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  },
+): string {
+  if (token.split('.').length === 3) return token;
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: args.nearAccountId,
+      walletId: args.nearAccountId,
+      kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+      thresholdSessionId: args.sessionId,
+      signingGrantId: args.signingGrantId,
+      subjectId: args.nearAccountId,
+      relayerKeyId: args.relayerKeyId,
+      rpId: 'wallet.example.test',
+      thresholdExpiresAtMs: Date.now() + 120_000,
+      participantIds: args.participantIds,
+      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    }),
+  ).toString('base64url');
+  return `${header}.${payload}.fixture`;
 }
 
 export function createThresholdEcdsaBootstrapFixture(args: {
@@ -339,7 +396,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   emailOtpAuthSubjectId?: string;
 }): ThresholdEcdsaSessionBootstrapResult {
   const chainLabel = args.chain;
-  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || 'ek-shared-1').trim();
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(
+    String(args.ecdsaThresholdKeyId || 'ek-shared-1').trim(),
+  );
   const keyHandle = String(args.keyHandle || `ehss-key-${ecdsaThresholdKeyId}`).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
   const sessionKind = args.sessionKind || 'jwt';
@@ -522,6 +581,7 @@ export function seedEcdsaWarmSessionRecord(
       keyVersion?: string;
       shamirPrimeB64u?: string;
     };
+    runtimeValidated?: boolean;
   },
 ) {
   const source = args.source || 'login';
@@ -552,9 +612,24 @@ export function seedEcdsaWarmSessionRecord(
     walletId: args.nearAccountId,
     chainTarget: bootstrap.thresholdEcdsaKeyRef.chainTarget || testEcdsaChainTarget(args.chain),
     bootstrap,
-    ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
+    ...(args.signingSessionSeal
+      ? {
+          signingSessionSeal: {
+            ...(args.signingSessionSeal.keyVersion
+              ? {
+                  signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+                    args.signingSessionSeal.keyVersion,
+                  ),
+                }
+              : {}),
+            ...(args.signingSessionSeal.shamirPrimeB64u
+              ? { shamirPrimeB64u: args.signingSessionSeal.shamirPrimeB64u }
+              : {}),
+          },
+        }
+      : {}),
   };
-  return source === 'email_otp'
+  const record = source === 'email_otp'
     ? upsertThresholdEcdsaSessionFromBootstrap(deps, {
         ...baseArgs,
         source: 'email_otp',
@@ -571,6 +646,10 @@ export function seedEcdsaWarmSessionRecord(
         ...baseArgs,
         source,
       });
+  if (args.runtimeValidated) {
+    markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
+  }
+  return record;
 }
 
 export function createWarmSessionStatusReader(
@@ -934,7 +1013,9 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     signingSessionSeal:
       deps.signingSessionSeal?.keyVersion && deps.signingSessionSeal.shamirPrimeB64u
         ? {
-            keyVersion: deps.signingSessionSeal.keyVersion,
+            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+              deps.signingSessionSeal.keyVersion,
+            ),
             shamirPrimeB64u: deps.signingSessionSeal.shamirPrimeB64u,
           }
         : null,

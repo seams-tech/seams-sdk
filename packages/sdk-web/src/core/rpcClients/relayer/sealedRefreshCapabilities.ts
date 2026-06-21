@@ -1,6 +1,7 @@
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { formatSigningSessionSealKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
 
 type SealedRefreshMode = 'none' | 'sealed_refresh_v1';
 
@@ -86,7 +87,11 @@ function shouldEnforceSealedRefreshParity(configs: SeamsConfigsReadonly): boolea
 function buildParityConfigKey(configs: SeamsConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer.url || '').trim();
   const mode = String(configs.signing.sessionPersistenceMode || '').trim().toLowerCase();
-  const keyVersion = normalizeOptionalNonEmptyString(configs.signing.sessionSeal.keyVersion) || '';
+  const keyVersion = configs.signing.sessionSeal.signingSessionSealKeyVersion
+    ? formatSigningSessionSealKeyVersionForWire(
+        configs.signing.sessionSeal.signingSessionSealKeyVersion,
+      )
+    : '';
   const shamirPrimeB64u =
     normalizeOptionalNonEmptyString(configs.signing.sessionSeal.shamirPrimeB64u) || '';
   const hostMode = __isWalletIframeHostMode() ? 'wallet-host' : 'app';
@@ -205,7 +210,11 @@ export async function verifySealedRefreshStartupParity(
   const task = (async () => {
     const relayerUrl = String(args.configs.network.relayer.url || '').trim();
     const clientMode = args.configs.signing.sessionPersistenceMode;
-    const clientKeyVersion = normalizeOptionalNonEmptyString(args.configs.signing.sessionSeal.keyVersion);
+    const clientKeyVersion = args.configs.signing.sessionSeal.signingSessionSealKeyVersion
+      ? formatSigningSessionSealKeyVersionForWire(
+          args.configs.signing.sessionSeal.signingSessionSealKeyVersion,
+        )
+      : '';
     const clientShamirPrimeB64u = normalizeOptionalNonEmptyString(
       args.configs.signing.sessionSeal.shamirPrimeB64u,
     );

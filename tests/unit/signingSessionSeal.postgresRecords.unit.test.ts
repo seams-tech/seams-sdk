@@ -9,7 +9,7 @@ test.describe('signing session seal postgres records', () => {
     const parsed = parseCurrentSigningSessionSealIdempotencyRouteResult({
       ok: true,
       ciphertext: 'sealed:ciphertext-b64u',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       expiresAtMs: 123_456,
       remainingUses: 0,
     });
@@ -17,7 +17,7 @@ test.describe('signing session seal postgres records', () => {
     expect(parsed).toEqual({
       ok: true,
       ciphertext: 'sealed:ciphertext-b64u',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       expiresAtMs: 123_456,
       remainingUses: 0,
     });

@@ -47,7 +47,10 @@ import {
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
 import { isWarmSessionSigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
-import type { RouterAbEd25519SigningMaterialReady } from '../../threshold/ed25519/workerMaterialHandle';
+import {
+  ed25519RuntimeMaterialHandle,
+  type RouterAbEd25519RuntimeValidatedMaterial,
+} from '../../threshold/ed25519/workerMaterialHandle';
 import { planSigningSession } from '../../session/planning/planner';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -79,7 +82,7 @@ import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRes
 
 type RouterAbNearDelegateSigningPayload = {
   kind: 'router_ab_ed25519_near_delegate_signing_payload_v1';
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
 };
 
 function emitNearSigningEvent(
@@ -326,7 +329,7 @@ export async function runNearDelegateActionSigning({
         nearAccountId,
         walletSessionState: readyMaterialState.walletSessionState,
         thresholdSessionId: canonicalThresholdSessionId,
-        materialHandle: readyMaterialState.signingMaterial.materialHandle,
+        materialHandle: ed25519RuntimeMaterialHandle(readyMaterialState.signingMaterial),
       });
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
@@ -356,7 +359,7 @@ export async function runNearDelegateActionSigning({
     preparedPayload;
 
   const buildRequestPayload = (
-    materialOverride?: RouterAbEd25519SigningMaterialReady,
+    materialOverride?: RouterAbEd25519RuntimeValidatedMaterial,
   ): RouterAbNearDelegateSigningPayload => {
     return {
       kind: 'router_ab_ed25519_near_delegate_signing_payload_v1',

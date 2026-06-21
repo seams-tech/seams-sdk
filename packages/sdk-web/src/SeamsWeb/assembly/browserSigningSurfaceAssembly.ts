@@ -12,10 +12,13 @@ import {
   listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetOperation,
   markThresholdEd25519EmailOtpSessionConsumedForAccount as markThresholdEd25519EmailOtpSessionConsumedForAccountOperation,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapOperation,
+  type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionOperation } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
+import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import { provisionThresholdEd25519Session as provisionThresholdEd25519SessionOperation } from '@/core/signingEngine/session/passkey/ed25519SessionProvision';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget as persistThresholdEcdsaBootstrapForWalletTargetOperation,
@@ -45,6 +48,19 @@ import type { AccountId } from '@/core/types/accountIds';
 import * as registrationPublic from '@/core/signingEngine/flows/registration/public';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
+
+function markEcdsaBootstrapWorkerMaterialRuntimeValidated(args: {
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  record: ThresholdEcdsaSessionRecord;
+}): void {
+  if (args.bootstrap.thresholdEcdsaKeyRef.backendBinding?.materialKind !== 'role_local_worker_handle') {
+    return;
+  }
+  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
+  throw new Error(
+    '[SigningEngine] ECDSA-HSS bootstrap returned worker material that could not be runtime-validated',
+  );
+}
 
 export type BrowserSigningSurfaceEnginePortsArgs = {
   runtimePorts: RuntimePorts;
@@ -124,20 +140,28 @@ export function createBrowserSigningSurfaceEnginePorts(
       }),
     upsertThresholdEcdsaSessionFromBootstrap: (upsertArgs) => {
       if (upsertArgs.hasEmailOtpAuthContext) {
-        upsertThresholdEcdsaSessionFromBootstrapOperation(args.warmSigning.ecdsaSessions, {
+        const record = upsertThresholdEcdsaSessionFromBootstrapOperation(args.warmSigning.ecdsaSessions, {
           walletId: upsertArgs.walletId,
           chainTarget: upsertArgs.chainTarget,
           bootstrap: upsertArgs.bootstrap,
           source: 'email_otp',
           emailOtpAuthContext: upsertArgs.emailOtpAuthContext,
         });
+        markEcdsaBootstrapWorkerMaterialRuntimeValidated({
+          bootstrap: upsertArgs.bootstrap,
+          record,
+        });
         return;
       }
-      upsertThresholdEcdsaSessionFromBootstrapOperation(args.warmSigning.ecdsaSessions, {
+      const record = upsertThresholdEcdsaSessionFromBootstrapOperation(args.warmSigning.ecdsaSessions, {
         walletId: upsertArgs.walletId,
         chainTarget: upsertArgs.chainTarget,
         bootstrap: upsertArgs.bootstrap,
         source: upsertArgs.source,
+      });
+      markEcdsaBootstrapWorkerMaterialRuntimeValidated({
+        bootstrap: upsertArgs.bootstrap,
+        record,
       });
     },
     listThresholdEcdsaKeyRefsForWalletTarget: (listArgs) =>

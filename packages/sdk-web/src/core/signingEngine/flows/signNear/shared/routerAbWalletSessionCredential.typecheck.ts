@@ -6,7 +6,7 @@ import { SigningSessionIds } from '../../../session/operationState/types';
 import type {
   ResolvedRouterAbEd25519WalletSessionState,
 } from './routerAbEd25519WalletSessionState';
-import { buildRouterAbEd25519SigningMaterialRef } from '../../../threshold/ed25519/hssMaterialBinding';
+import { buildRouterAbEd25519SigningMaterialRef } from '../../../threshold/ed25519/workerMaterialBinding';
 
 const validSigningMaterial = buildRouterAbEd25519SigningMaterialRef({
   materialHandle: 'ed25519-worker-material:threshold-session-1:binding',

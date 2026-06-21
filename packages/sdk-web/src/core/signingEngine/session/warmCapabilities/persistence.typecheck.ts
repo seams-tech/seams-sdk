@@ -4,6 +4,13 @@ import {
   persistWarmSessionEd25519Capability,
   type PersistWarmSessionEd25519CapabilityArgs,
 } from './persistence';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519SealedWorkerMaterialRef,
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
+  parseEd25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
 
 const commonArgs = {
   nearAccountId: toAccountId('alice.testnet'),
@@ -24,6 +31,20 @@ const emailOtpAuthContext = {
   reason: 'sign',
   authMethod: 'email_otp',
 } satisfies ThresholdEcdsaEmailOtpAuthContext;
+
+const clientVerifyingShareB64u = parseEd25519ClientVerifyingShareB64u(
+  'public-client-verifying-share',
+);
+const ed25519WorkerMaterialHandle = parseEd25519WorkerMaterialHandle(
+  'ed25519-worker-material-handle',
+);
+const ed25519WorkerMaterialBindingDigest = parseEd25519WorkerMaterialBindingDigest(
+  'ed25519-worker-material-binding',
+);
+const sealedWorkerMaterialRef = parseEd25519SealedWorkerMaterialRef(
+  'sealed-worker-material-ref',
+);
+const materialKeyId = parseEd25519WorkerMaterialKeyId('material-key-id');
 
 void persistWarmSessionEd25519Capability({
   kind: 'jwt_email_otp',
@@ -48,9 +69,9 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
-  clientVerifyingShareB64u: 'public-client-verifying-share',
-  ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
-  ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  ed25519WorkerMaterialBindingDigest,
   materialCreatedAtMs: 1_800_000_000_000,
   keyVersion: 'threshold-ed25519-hss-v1',
 });
@@ -62,12 +83,12 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
-  clientVerifyingShareB64u: 'public-client-verifying-share',
-  ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
-  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  sealedWorkerMaterialRef,
   sealedWorkerMaterialB64u: 'sealed-worker-material',
   materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId: 'material-key-id',
+  materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
   keyVersion: 'threshold-ed25519-hss-v1',
 });
@@ -87,13 +108,13 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
-  clientVerifyingShareB64u: 'public-client-verifying-share',
-  ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
-  ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding',
-  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  ed25519WorkerMaterialBindingDigest,
+  sealedWorkerMaterialRef,
   sealedWorkerMaterialB64u: 'sealed-worker-material',
   materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId: 'material-key-id',
+  materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
   keyVersion: 'threshold-ed25519-hss-v1',
 });
@@ -105,13 +126,13 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
-  clientVerifyingShareB64u: 'public-client-verifying-share',
-  ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
-  ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding',
-  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  ed25519WorkerMaterialBindingDigest,
+  sealedWorkerMaterialRef,
   sealedWorkerMaterialB64u: 'sealed-worker-material',
   materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId: 'material-key-id',
+  materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
 });
 
@@ -121,13 +142,13 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
-  clientVerifyingShareB64u: 'public-client-verifying-share',
-  ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
-  ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding',
-  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  ed25519WorkerMaterialBindingDigest,
+  sealedWorkerMaterialRef,
   sealedWorkerMaterialB64u: 'sealed-worker-material',
   materialFormatVersion: 'ed25519_worker_material_v1',
-  materialKeyId: 'material-key-id',
+  materialKeyId,
   materialCreatedAtMs: 1_800_000_000_000,
   keyVersion: 'threshold-ed25519-hss-v1',
 });
@@ -149,10 +170,10 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
-  clientVerifyingShareB64u: 'public-client-verifying-share',
-  ed25519WorkerMaterialHandle: 'ed25519-worker-material-handle',
-  ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding',
-  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  clientVerifyingShareB64u,
+  ed25519WorkerMaterialHandle,
+  ed25519WorkerMaterialBindingDigest,
+  sealedWorkerMaterialRef,
   sealedWorkerMaterialB64u: 'sealed-worker-material',
   materialFormatVersion: 'ed25519_worker_material_v1',
   materialCreatedAtMs: 1_800_000_000_000,

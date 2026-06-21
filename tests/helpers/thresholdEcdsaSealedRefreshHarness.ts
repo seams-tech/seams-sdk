@@ -47,7 +47,7 @@ import {
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
 
-export const TEST_KEY_VERSION = 'kek-s-2026-02';
+export const TEST_KEY_VERSION = 'signing-session-seal-kek-test-r1';
 export const TEST_SHAMIR_PRIME_B64U = '_____________________________________v___C8';
 const TEST_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const TEST_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';

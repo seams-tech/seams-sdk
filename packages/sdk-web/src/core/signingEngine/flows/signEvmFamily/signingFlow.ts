@@ -399,28 +399,12 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     thresholdEcdsaStepUp.kind === 'required_admitted'
       ? thresholdEcdsaStepUp.singleUseEmailOtpSession
       : false;
-  let thresholdEcdsaRoleLocalReadyRecordForWorkerRestore =
-    thresholdEcdsaStepUp.kind === 'required_admitted'
-      ? thresholdEcdsaStepUp.roleLocalReadyRecordForWorkerRestore
-      : null;
 
   const buildCurrentReadySecp256k1SigningMaterial = ():
     | ReadySecp256k1SigningMaterial
     | null => {
     const signerSession = thresholdEcdsaSignerSession;
     if (!signerSession) return null;
-    if (signerSession.clientShare.kind === 'role_local_worker_share') {
-      if (!thresholdEcdsaRoleLocalReadyRecordForWorkerRestore) {
-        throw new Error('[chains] threshold ECDSA role-local signing material is not restorable');
-      }
-      return buildReadySecp256k1SigningMaterial({
-        walletId: input.walletId,
-        signerSession,
-        singleUseEmailOtpSession: thresholdEcdsaSingleUseEmailOtpSession,
-        roleLocalReadyRecordForWorkerRestore:
-          thresholdEcdsaRoleLocalReadyRecordForWorkerRestore,
-      });
-    }
     return buildReadySecp256k1SigningMaterial({
       walletId: input.walletId,
       signerSession,
@@ -453,10 +437,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
             : 1,
         });
         thresholdEcdsaSignerSession = ensured.signerSession;
-        thresholdEcdsaRoleLocalReadyRecordForWorkerRestore =
-          ensured.signerSession.clientShare.kind === 'role_local_worker_share'
-            ? ensured.readyMaterial.record.ecdsaRoleLocalReadyRecord
-            : null;
         thresholdEcdsaSingleUseEmailOtpSession = false;
         activeThresholdEcdsaOperation = ensured.operation;
         const readyMaterial = buildCurrentReadySecp256k1SigningMaterial();
@@ -634,10 +614,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (admissionCompletion) {
       fallbackReadySecp256k1Material = null;
       thresholdEcdsaSignerSession = admissionCompletion.result.signerSession;
-      thresholdEcdsaRoleLocalReadyRecordForWorkerRestore =
-        admissionCompletion.result.signerSession.clientShare.kind === 'role_local_worker_share'
-          ? admissionCompletion.result.readyMaterial.record.ecdsaRoleLocalReadyRecord
-          : null;
       thresholdEcdsaSingleUseEmailOtpSession = admissionCompletion.source === 'email_otp';
       activeThresholdEcdsaOperation = admissionCompletion.result.operation;
     }

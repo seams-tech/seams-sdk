@@ -17,10 +17,15 @@ import type {
   ThresholdEd25519WorkerMaterialCredentialAuthorization,
   ThresholdEd25519WorkerMaterialFailure,
 } from '@/core/types/signer-worker';
-import { buildRouterAbEd25519WorkerMaterialBinding } from '@/core/signingEngine/threshold/ed25519/hssMaterialBinding';
+import { buildRouterAbEd25519WorkerMaterialBinding } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519HssKeyVersion,
+  parseEd25519RelayerKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   requireThresholdEd25519WorkerMaterialHandle,
-  type RouterAbEd25519SigningMaterialReady,
+  type RouterAbEd25519RuntimeValidatedMaterial,
 } from '@/core/signingEngine/threshold/ed25519/workerMaterialHandle';
 import {
   resolveRouterAbEd25519WalletSessionStateFromCurrentRecord,
@@ -51,7 +56,7 @@ export type RouterAbEd25519WorkerMaterialRestoreAuthorization =
 export type RouterAbEd25519ReadySigningMaterialState = {
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   routerAbReadyState: RouterAbEd25519NormalSigningReadyState;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
 };
 
 function assertNeverRouterAbEd25519PersistedSigningRecordState(value: never): never {
@@ -391,10 +396,12 @@ async function buildExpectedWorkerMaterialBindingForRestore(args: {
     signerSlot: Math.floor(Number(args.record.signerSlot) || 0),
     signingRootId: signingRoot.value.signingRootId,
     signingRootVersion: signingRoot.value.signingRootVersion,
-    relayerKeyId: String(args.record.relayerKeyId || '').trim(),
-    keyVersion: String(args.record.keyVersion || '').trim(),
+    relayerKeyId: parseEd25519RelayerKeyId(args.record.relayerKeyId),
+    ed25519HssKeyVersion: parseEd25519HssKeyVersion(args.record.keyVersion),
     participantIds: args.record.participantIds,
-    clientVerifyingShareB64u: String(args.record.clientVerifyingShareB64u || '').trim(),
+    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
+      args.record.clientVerifyingShareB64u,
+    ),
     createdAtMs: materialCreatedAtMs,
   });
   if (

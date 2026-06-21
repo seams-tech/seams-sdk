@@ -107,7 +107,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     });
   });
 
-  test('reports cookie passkey Ed25519 status as auth_missing without Wallet Session auth', async () => {
+  test('does not report cookie passkey Ed25519 records as Router A/B signing status', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -133,8 +133,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     await expect(store.getEd25519SigningSessionStatus(record.nearAccountId)).resolves.toMatchObject(
       {
         sessionId: 'cookie-status-session',
-        status: 'unavailable',
-        statusCode: 'auth_missing',
+        status: 'not_found',
         authMethod: 'passkey',
       },
     );

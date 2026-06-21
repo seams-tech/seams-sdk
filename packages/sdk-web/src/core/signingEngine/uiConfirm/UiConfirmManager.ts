@@ -18,6 +18,10 @@ import type {
   UserConfirmWorkerMessage,
   UserConfirmWorkerResponse,
 } from '../../types/secure-confirm-worker';
+import {
+  parseSigningSessionSealKeyVersion,
+  type SigningSessionSealKeyVersion,
+} from '../session/keyMaterialBrands';
 import { BUILD_PATHS } from '../../../../build-paths';
 import { toAccountId } from '../../types/accountIds';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
@@ -163,6 +167,23 @@ type SigningSessionSealedAuthMethod = SigningSessionSealAuthMethod;
 function positiveInteger(value: unknown): number {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseOptionalSigningSessionSealKeyVersion(
+  value: unknown,
+): SigningSessionSealKeyVersion | undefined {
+  const raw = String(value || '').trim();
+  return raw ? parseSigningSessionSealKeyVersion(raw) : undefined;
+}
+
+function firstSigningSessionSealKeyVersion(
+  values: readonly unknown[],
+): SigningSessionSealKeyVersion | undefined {
+  for (const value of values) {
+    const parsed = parseOptionalSigningSessionSealKeyVersion(value);
+    if (parsed) return parsed;
+  }
+  return undefined;
 }
 
 function ed25519SealedWorkerMaterialMissingFields(
@@ -886,7 +907,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       relayerUrl?: string;
       signingGrantId?: string;
       walletSessionJwt?: string;
-      keyVersion?: string;
+      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
       shamirPrimeB64u?: string;
     } | null,
     sealedRecordInput?: SigningSessionSealedStoreRecord | null,
@@ -949,13 +970,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ecdsaRecord?.walletId ||
         '',
     ).trim();
-    const keyVersion = String(
-      explicitTransport?.keyVersion ||
-        sealedRecord?.keyVersion ||
-        ecdsaRecord?.signingSessionSealKeyVersion ||
-        this.config.signingSessionSealKeyVersion ||
-        '',
-    ).trim();
+    const signingSessionSealKeyVersion = firstSigningSessionSealKeyVersion([
+      explicitTransport?.signingSessionSealKeyVersion,
+      sealedRecord?.keyVersion,
+      ecdsaRecord?.signingSessionSealKeyVersion,
+      this.config.signingSessionSealKeyVersion,
+    ]);
     const shamirPrimeB64u = String(
       explicitTransport?.shamirPrimeB64u ||
         sealedRecord?.shamirPrimeB64u ||
@@ -974,7 +994,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         relayerUrl,
         ...(signingGrantId ? { signingGrantId } : {}),
         ...(walletSessionJwt ? { walletSessionJwt } : {}),
-        ...(keyVersion ? { keyVersion } : {}),
+        ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
       };
     }
@@ -985,7 +1005,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       relayerUrl,
       ...(signingGrantId ? { signingGrantId } : {}),
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      ...(keyVersion ? { keyVersion } : {}),
+      ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
       ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     } as const;
     if (authMethod === 'email_otp') {
@@ -1208,7 +1228,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             ...(chainTarget ? { chainTarget } : {}),
             relayerUrl: args.record.relayerUrl,
             signingGrantId: args.purpose.signingGrantId,
-            keyVersion: args.record.keyVersion,
+            signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
+              args.record.keyVersion,
+            ),
             shamirPrimeB64u: args.record.shamirPrimeB64u,
             ...(walletSessionJwt ? { walletSessionJwt } : {}),
           },
@@ -1790,12 +1812,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       const walletSessionJwt = String(
         args?.transport?.walletSessionJwt || inferredTransport?.walletSessionJwt || '',
       ).trim();
-      const keyVersion = String(
-        args?.transport?.keyVersion ||
-          inferredTransport?.keyVersion ||
-          this.config.signingSessionSealKeyVersion ||
-          '',
-      ).trim();
+      const signingSessionSealKeyVersion = firstSigningSessionSealKeyVersion([
+        args?.transport?.signingSessionSealKeyVersion,
+        inferredTransport?.signingSessionSealKeyVersion,
+        this.config.signingSessionSealKeyVersion,
+      ]);
       const shamirPrimeB64u = String(
         args?.transport?.shamirPrimeB64u ||
           inferredTransport?.shamirPrimeB64u ||
@@ -1841,7 +1862,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               relayerUrl,
               signingGrantId,
               ...(walletSessionJwt ? { walletSessionJwt } : {}),
-              ...(keyVersion ? { keyVersion } : {}),
+              ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
               shamirPrimeB64u,
             }
           : {
@@ -1849,7 +1870,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               relayerUrl,
               signingGrantId,
               ...(walletSessionJwt ? { walletSessionJwt } : {}),
-              ...(keyVersion ? { keyVersion } : {}),
+              ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
               shamirPrimeB64u,
             };
       const sealed = await this.sealAndPersistWarmSessionMaterial({

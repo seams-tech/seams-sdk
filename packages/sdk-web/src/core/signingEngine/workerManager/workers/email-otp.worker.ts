@@ -646,7 +646,7 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
   if (!relayerUrl) return null;
   const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
-  const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
+  const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   return {
     relayerUrl,

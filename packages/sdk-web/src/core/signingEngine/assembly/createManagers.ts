@@ -73,7 +73,8 @@ export function createManagerAssembly(args: {
       signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
       ...(isSealedRefreshMode
         ? {
-            signingSessionSealKeyVersion: args.seamsWebConfigs.signing.sessionSeal.keyVersion,
+            signingSessionSealKeyVersion:
+              args.seamsWebConfigs.signing.sessionSeal.signingSessionSealKeyVersion,
             signingSessionSealShamirPrimeB64u:
               args.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
           }

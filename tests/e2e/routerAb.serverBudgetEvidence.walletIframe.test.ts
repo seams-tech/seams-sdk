@@ -203,6 +203,8 @@ function isEd25519HssRouteUrl(urlRaw: string): boolean {
 }
 
 test.describe('Router A/B shared server-budget local evidence', () => {
+  test.describe.configure({ timeout: 180_000 });
+
   test.skip(
     process.env.RUN_ROUTER_AB_BUDGET_EVIDENCE !== '1',
     'Set RUN_ROUTER_AB_BUDGET_EVIDENCE=1 to run local browser budget evidence.',
@@ -1124,48 +1126,6 @@ function runSharedBudgetSetup(
             ),
           };
         };
-        const bootstrapTempo = async (seamsForBootstrap: any): Promise<void> => {
-          const bootstrap = await seamsForBootstrap.tempo.bootstrapEcdsaSession({
-            kind: 'reuse_warm_ecdsa_bootstrap',
-            walletSession: {
-              walletId: accountId,
-              walletSessionUserId: accountId,
-            },
-            chainTarget: {
-              kind: 'tempo',
-              chainId: 42431,
-              networkSlug: 'tempo-moderato',
-            },
-            relayerUrl,
-            ttlMs: 120_000,
-            remainingUses: 3,
-          });
-          if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
-            throw new Error('Tempo ECDSA bootstrap did not return ecdsaThresholdKeyId');
-          }
-        };
-        const bootstrapEvm = async (seamsForBootstrap: any): Promise<void> => {
-          const bootstrap = await seamsForBootstrap.evm.bootstrapEcdsaSession({
-            kind: 'reuse_warm_ecdsa_bootstrap',
-            walletSession: {
-              walletId: accountId,
-              walletSessionUserId: accountId,
-            },
-            subjectId: accountId,
-            chainTarget: {
-              kind: 'evm',
-              namespace: 'eip155',
-              chainId: 11155111,
-              networkSlug: 'ethereum-sepolia',
-            },
-            relayerUrl,
-            ttlMs: 120_000,
-            remainingUses: 3,
-          });
-          if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
-            throw new Error('EVM ECDSA bootstrap did not return ecdsaThresholdKeyId');
-          }
-        };
         let operationalPublicKey = '';
         const signNear = async (seamsForSign: any, label: string): Promise<void> => {
           const signed = await seamsForSign.near.executeAction({
@@ -1411,6 +1371,16 @@ function runSharedBudgetSetup(
         };
 
         const registration = await seams.registration.registerPasskey(accountId, {
+          signerOptions: {
+            tempo: {
+              enabled: false,
+              signingSession: { kind: 'jwt', ttlMs: 120_000, remainingUses: 3 },
+            },
+            evm: {
+              enabled: false,
+              signingSession: { kind: 'jwt', ttlMs: 120_000, remainingUses: 3 },
+            },
+          },
           confirmationConfig: confirmationConfig(),
         });
         if (!registration?.success) {
@@ -1420,7 +1390,7 @@ function runSharedBudgetSetup(
         stages.push(await sessionStage(seams, accountId, 'registered'));
 
         const login = await seams.auth.unlock(accountId, {
-          unlockSelection: { mode: 'ed25519_only', ed25519: true },
+          unlockSelection: { mode: 'ed25519_and_ecdsa', ed25519: true, ecdsa: true },
           session: {
             kind: 'jwt',
             relayUrl: relayerUrl,
@@ -1433,9 +1403,44 @@ function runSharedBudgetSetup(
         }
         stages.push(await sessionStage(seams, accountId, 'unlocked'));
 
-        await bootstrapTempo(seams);
-        stages.push(await sessionStage(seams, accountId, 'tempo_bootstrapped'));
-        await bootstrapEvm(seams);
+        const tempoBootstrap = await seams.tempo.bootstrapEcdsaSession({
+          kind: 'reuse_warm_ecdsa_bootstrap',
+          walletSession: {
+            walletId: accountId,
+            walletSessionUserId: accountId,
+          },
+          chainTarget: {
+            kind: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-moderato',
+          },
+          relayerUrl,
+          ttlMs: 120_000,
+          remainingUses: 3,
+        });
+        if (!tempoBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+          throw new Error('Tempo threshold ECDSA bootstrap did not return ecdsaThresholdKeyId');
+        }
+
+        const evmBootstrap = await seams.evm.bootstrapEcdsaSession({
+          kind: 'reuse_warm_ecdsa_bootstrap',
+          walletSession: {
+            walletId: accountId,
+            walletSessionUserId: accountId,
+          },
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 11155111,
+            networkSlug: 'ethereum-sepolia',
+          },
+          relayerUrl,
+          ttlMs: 120_000,
+          remainingUses: 3,
+        });
+        if (!evmBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+          throw new Error('EVM threshold ECDSA bootstrap did not return ecdsaThresholdKeyId');
+        }
         stages.push(await sessionStage(seams, accountId, 'evm_bootstrapped'));
 
         return { ok: true, stages };

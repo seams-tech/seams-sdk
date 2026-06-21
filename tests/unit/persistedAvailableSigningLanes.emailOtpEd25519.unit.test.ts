@@ -18,7 +18,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     clearAllStoredThresholdEd25519SessionRecords();
   });
 
-  test('treats persisted Email OTP worker material as ready without worker status', async () => {
+  test('treats persisted Email OTP worker material as a deferred runtime hint without worker status', async () => {
     const thresholdSessionId = 'ed25519-registration-session';
     const signingGrantId = 'signing-grant-ed25519-registration';
     let emailOtpStatusReads = 0;
@@ -84,7 +84,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       authMethod: 'email_otp',
       curve: 'ed25519',
       chain: 'near',
-      state: 'ready',
+      state: 'deferred',
       source: 'runtime_session_record',
       signingGrantId,
       thresholdSessionId,

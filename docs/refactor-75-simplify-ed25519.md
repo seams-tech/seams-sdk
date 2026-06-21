@@ -2,7 +2,7 @@
 
 Date created: June 20, 2026
 
-Status: in progress
+Status: complete
 
 Primary source of truth:
 
@@ -100,8 +100,8 @@ The implementation already has partial versions of the target model:
   That marker must be replaced with a typed, non-secret validation key.
 - Active Ed25519 persistence fields already use `ed25519WorkerMaterialHandle`
   and `ed25519WorkerMaterialBindingDigest`.
-- Stale HSS naming remains in `RouterAbEd25519SigningMaterialRef.kind` and file
-  names such as `hssMaterialBinding.ts`.
+- Active Ed25519 worker-material naming now uses worker-material terminology in
+  the material-ref discriminator and module filenames.
 
 This refactor replaces and tightens the existing model. It should not add a
 parallel classifier or a second readiness system.
@@ -282,18 +282,20 @@ Validation:
       data.
 - [x] Keep `ThresholdEd25519SessionRecord` as the raw normalized persistence shape
       until all callers are migrated.
-- [ ] Add `.typecheck.ts` fixtures rejecting:
-      direct runtime-validated construction without `materialHandle`,
-      restore branch without sealed material,
-      material-hint branch with sealed material,
-      pending branch with material fields,
-      non-signing branch with Wallet Session signing material,
-      broad object-spread construction into runtime-validated state.
+- [x] Add `.typecheck.ts` fixtures rejecting current invalid branch
+      combinations:
+      runtime-validated state without parsed signing value, runtime-validated
+      state with a failure reason, restore/material-hint/pending/non-signing
+      branches carrying signable values, material-hint branch carrying sealed
+      material, and Ed25519 signing value construction without material handle.
+- [x] Add exact-type hardening for broad object-spread construction into
+      runtime-validated state. Plain `satisfies` checks do not reliably reject
+      spread extras.
 
 Validation:
 
 - [x] `pnpm -C packages/sdk-web type-check`
-- [ ] focused type fixtures for Ed25519 state branches
+- [x] focused type fixtures for Ed25519 state branches
 
 ## Phase 3: Isolate Raw Persistence Optionals
 
@@ -311,11 +313,12 @@ Validation:
       raw record fields by design.
 - [x] Add a source guard that active final signing and readiness files cannot
       read raw optional material fields directly.
-- [ ] Keep persistence writes branch-specific:
+- [x] Keep persistence writes branch-specific:
       auth-ready-material-pending writer, restore-available writer, and
       material-hint-unvalidated writer.
-- [ ] Remove any helper that accepts a partial bag of optional material fields
-      from core logic.
+- [x] Remove any helper that accepts a partial bag of optional material fields
+      from core logic. The broad `upsertStoredThresholdEd25519SessionRecord`
+      remains a persistence boundary normalizer only.
 
 Validation:
 
@@ -331,68 +334,68 @@ Validation:
       wording.
       Use `material_hint_unvalidated` for persisted material and
       `runtime_validated` for current worker material.
-- [ ] Replace the current worker-material validation marker set with a typed
+- [x] Replace the current worker-material validation marker set with a typed
       `Ed25519WorkerMaterialValidationKey` builder.
-- [ ] Bind worker-material validation to:
+- [x] Bind worker-material validation to:
       material handle, material binding digest, session binding digest, threshold
       session id, signing grant id, non-secret Wallet Session credential
       fingerprint, client verifier, signing root id/version, runtime policy
       scope, and SigningWorker id.
-- [ ] Add `RouterAbEd25519FinalSigningInput` so final signing receives
-      `material`, `credential`, and `budgetAdmission` as separate required
-      fields.
+- [x] Superseded: a separate `RouterAbEd25519FinalSigningInput` wrapper was not
+      added. Final signing now receives runtime-validated worker material, and
+      budget admission remains explicit in the signing state machine plus
+      server-authoritative Router A/B normal-signing routes.
 - [x] Make lane readiness return `auth_ready_material_pending` or
       `restore_available` when current worker validation is absent.
 - [x] Ensure final signing accepts only runtime-validated Ed25519 state.
-- [ ] Make worker validation return a typed result with explicit failure reasons:
+- [x] Make worker validation return a typed result with explicit failure reasons:
       `worker_material_missing`, `binding_digest_mismatch`,
       `session_binding_mismatch`, `signing_root_mismatch`,
       `signing_worker_mismatch`, `verifier_mismatch`, `expired`, and
       `credential_mismatch`.
-- [ ] Ensure validation state is held in a volatile runtime store keyed by the
+- [x] Ensure validation state is held in a volatile runtime store keyed by the
       typed validation key. Do not persist that store or include raw Wallet
       Session JWTs in its keys.
-- [ ] Add tests for:
+- [x] Add tests for:
       worker restart invalidates worker-material validation,
       stale handle with same threshold session id fails,
       restored handle becomes runtime validated,
       refreshed Wallet Session with old material hint classifies as
       `restore_available` or `auth_ready_material_pending`.
-      Current focused coverage includes restored-handle and remint
-      classification, but worker restart and stale-handle mismatch still need
-      explicit cases.
+      Focused coverage now includes worker restart, stale handle, restored
+      handle, remint, and material-pending classification.
 
 Validation:
 
 - [x] `pnpm -C packages/sdk-web type-check`
-- [ ] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`
 
 ## Phase 5: Shrink Active Ready State
 
-- [ ] Replace `RouterAbEd25519SigningMaterialReady` with
+- [x] Replace `RouterAbEd25519SigningMaterialReady` with
       `RouterAbEd25519RuntimeValidatedMaterial` or a narrower equivalent.
-- [ ] Remove flat fields that are derivable from `materialBinding` or
+- [x] Remove flat fields that are derivable from `materialBinding` or
       `sessionBinding`.
-- [ ] Keep flat fields only when they remove repeated parsing and are not
+- [x] Keep flat fields only when they remove repeated parsing and are not
       duplicated in binding structs.
-- [ ] Provide named accessors for route-builder and WASM-boundary needs:
+- [x] Provide named accessors for route-builder and WASM-boundary needs:
       `ed25519ReadyThresholdSessionId`,
       `ed25519ReadySigningGrantId`,
       `ed25519ReadySigningWorkerId`, material handle, material binding,
       session binding, and verifier checks only if call sites genuinely need
       them.
-- [ ] Update presign-pool scope to use material binding digest as the material
+- [x] Update presign-pool scope to use material binding digest as the material
       identity input.
-- [ ] Update final signing call sites in NEAR transaction, NEP-413, delegate, and
+- [x] Update final signing call sites in NEAR transaction, NEP-413, delegate, and
       presign-pool flows.
-- [ ] Add a source guard proving final signing payloads do not carry raw
+- [x] Add a source guard proving final signing payloads do not carry raw
       `xClientBaseB64u` or raw optional persistence fields.
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.presignPool.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`
-- [ ] Router A/B normal-signing SDK source guard
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.presignPool.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`
+- [x] Router A/B normal-signing SDK source guard
 
 ## Phase 6: Naming Cleanup
 
@@ -400,39 +403,47 @@ Validation:
       `ed25519WorkerMaterialHandle` and `ed25519WorkerMaterialBindingDigest`.
 - [x] Keep any HSS naming that still refers to the actual setup ceremony until
       Refactor 74 removes or isolates that ceremony surface.
-- [ ] Rename stale HSS references in active normal-signing names, including
-      `RouterAbEd25519SigningMaterialRef.kind` and file names such as
-      `hssMaterialBinding.ts`, after the HSS setup surface is isolated.
-- [ ] Delete stale helper aliases after callers move.
-- [ ] Add source guards preventing old HSS-named fields from returning to active
-      normal signing state.
+- [x] Rename stale active normal-signing material kind:
+      `RouterAbEd25519SigningMaterialRef.kind` now uses
+      `router_ab_ed25519_worker_material_ref_v1`.
+- [x] Rename stale HSS module/file references such as `hssMaterialBinding.ts`
+      after the HSS setup surface is isolated and Refactor 76 branded-key work
+      settles. The active module is now `workerMaterialBinding.ts`.
+- [x] Delete stale helper aliases after callers move. No compatibility import path
+      or alias for `hssMaterialBinding.ts` remains.
+- [x] Add source guards preventing old raw-HSS material fields and HSS
+      reconstruction helpers from returning to active normal signing state.
+      Covered by the Router A/B normal-signing and Refactor 74 source guards.
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] focused source guards
-- [ ] `git diff --check`
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] focused source guards
+- [x] `git diff --check`
 
 ## Phase 7: Evidence And Release Criteria
 
-- [ ] Refactor 70 budget evidence harness still proves:
+- [x] Refactor 70 budget evidence harness still proves:
       `remainingUses 3 -> 2 -> 1 -> 0`,
       no TouchID before exhaustion,
       exactly one step-up after exhaustion.
-- [ ] Fresh passkey registration produces Ed25519 state that classifies as either
+- [x] Fresh passkey registration produces Ed25519 state that classifies as either
       runtime validated or explicitly restorable before first signing.
-- [ ] Browser worker restart produces `restore_available` or
+- [x] Browser worker restart produces `restore_available` or
       `auth_ready_material_pending`, then restores before signature creation.
-- [ ] No normal signing flow invokes HSS reconstruction.
-- [ ] No normal signing flow reads raw `xClientBaseB64u`.
-- [ ] Source guards prove raw optional persistence fields are isolated to
+      Covered by the budget evidence harness cold Ed25519 material case, which
+      removes the material-handle hint, resets the signer worker, and verifies a
+      single worker-material restore before signing.
+- [x] No normal signing flow invokes HSS reconstruction.
+- [x] No normal signing flow reads raw `xClientBaseB64u`.
+- [x] Source guards prove raw optional persistence fields are isolated to
       parser/write boundaries.
 
 Validation:
 
-- [ ] `RUN_ROUTER_AB_BUDGET_EVIDENCE=1 pnpm -C tests exec playwright test --reporter=line e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] targeted Router A/B and Refactor 74 source guards
+- [x] `RUN_ROUTER_AB_BUDGET_EVIDENCE=1 pnpm -C tests exec playwright test --reporter=line e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] targeted Router A/B and Refactor 74 source guards
 
 ## Phase 8: ECDSA-HSS Worker Material Parity
 
@@ -441,7 +452,7 @@ Ed25519, with a narrower material surface. The active risk is
 `role_local_ready_state_blob` and record-backed policy being treated as
 sign-ready before the current worker proves the role-local material handle.
 
-- [ ] Inventory ECDSA-HSS material/session state types and constructors:
+- [x] Inventory ECDSA-HSS material/session state types and constructors:
       `RouterAbEcdsaHssSigningWalletSession`,
       `RouterAbEcdsaHssSigningMaterialRef`,
       `ThresholdEcdsaSessionRecord`,
@@ -449,50 +460,50 @@ sign-ready before the current worker proves the role-local material handle.
       `ReadyEcdsaSignerSession`,
       `ReadyEvmFamilyEcdsaMaterial`,
       `EvmFamilySharedEcdsaReadyState`, and role-local ready records.
-- [ ] Document which ECDSA fields belong to active Router A/B state, stable key
+- [x] Document which ECDSA fields belong to active Router A/B state, stable key
       identity, session/grant identity, chain target identity, worker material
       identity, and public verifier identity.
-- [ ] Define `EcdsaHssRuntimeMaterialValidationKey` with:
+- [x] Define `EcdsaHssRuntimeMaterialValidationKey` with:
       material handle, binding digest, threshold session id, signing grant id,
       non-secret Wallet Session credential fingerprint, Router A/B active-state
       session id, ECDSA threshold key id, signing root id/version, activation
       epoch, key handle, chain target, participant ids, client/server/threshold
       verifier keys, and SigningWorker id.
-- [ ] Split persisted ECDSA role-local state into strict branches:
+- [x] Split persisted ECDSA role-local state into strict branches:
       `auth_ready_material_pending`,
       `restore_available`,
       `material_hint_unvalidated`,
       `non_signing`, and `invalid`.
-- [ ] Keep ECDSA `record_policy` and budget status as auth/budget readiness only.
+- [x] Keep ECDSA `record_policy` and budget status as auth/budget readiness only.
       They must not imply worker material readiness.
-- [ ] Treat `role_local_ready_state_blob` as restore material only. It must not
+- [x] Treat `role_local_ready_state_blob` as restore material only. It must not
       classify a lane as sign-ready until the worker stores or validates the
       derived `role_local_worker_share` handle for the current binding.
-- [ ] Require runtime worker validation before
+- [x] Require runtime worker validation before
       `classifyRouterAbEcdsaHssPersistedSigningRecord` can return a signable
       state.
-- [ ] Move ECDSA role-local restore out of final signing and into an explicit
+- [x] Move ECDSA role-local restore out of final signing and into an explicit
       readiness/restore boundary that returns runtime-validated material.
-- [ ] Make ECDSA worker-material validation fail closed when the Wallet Session was
+- [x] Make ECDSA worker-material validation fail closed when the Wallet Session was
       reminted, the shared signing grant changed, the Router A/B activation epoch
       changed, or the persisted role-local blob does not match current public
       identity.
-- [ ] Ensure final Tempo/EVM signing accepts only runtime-validated ECDSA-HSS
+- [x] Ensure final Tempo/EVM signing accepts only runtime-validated ECDSA-HSS
       material and one-use presignature state.
-- [ ] Keep raw `clientSigningShare32` and additive-share bytes inside worker or
+- [x] Keep raw `clientSigningShare32` and additive-share bytes inside worker or
       worker-boundary code. Route orchestration and lane selection must consume
       handles, digests, public facts, and strict state only.
-- [ ] Update warm-session status and persisted lane readers so record-backed
+- [x] Update warm-session status and persisted lane readers so record-backed
       policy can report auth/budget readiness, while sign-ready lanes require
       validated worker material.
-- [ ] Keep Email OTP ECDSA worker-share claims as a worker-boundary exception:
+- [x] Keep Email OTP ECDSA worker-share claims as a worker-boundary exception:
       TypeScript may receive the one-use returned bytes only inside the existing
       worker bridge that immediately initializes the presign session and
       zeroizes the bytes.
-- [ ] Add source guards preventing active ECDSA final signing and readiness files
+- [x] Add source guards preventing active ECDSA final signing and readiness files
       from treating `role_local_ready_state_blob`, `stateBlob`, or
       `clientSigningShare32` as sign-ready material.
-- [ ] Add tests for:
+- [x] Add tests for:
       worker restart invalidates ECDSA sign-ready state,
       role-local blob classifies as `restore_available`,
       restore produces runtime-validated worker material,
@@ -501,10 +512,10 @@ sign-ready before the current worker proves the role-local material handle.
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts unit/warmSessionStore.reconnect.unit.test.ts --reporter=line`
-- [ ] focused ECDSA-HSS source guard
-- [ ] Refactor 70 budget evidence harness still passes after ECDSA changes
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts unit/warmSessionStore.reconnect.unit.test.ts --reporter=line`
+- [x] focused ECDSA-HSS source guard
+- [x] Refactor 70 budget evidence harness still passes after ECDSA changes
 
 ## Completion Criteria
 

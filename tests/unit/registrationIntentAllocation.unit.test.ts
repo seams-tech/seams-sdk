@@ -1597,7 +1597,12 @@ test.describe('registration intent allocation', () => {
         },
       },
     });
-    expect(bootstrapRequest).toMatchObject(clientBootstrap);
+    const { thresholdSessionId: ecdsaThresholdSessionId, ...ecdsaBootstrapServiceRequest } =
+      clientBootstrap;
+    expect(bootstrapRequest).toMatchObject({
+      ...ecdsaBootstrapServiceRequest,
+      sessionId: ecdsaThresholdSessionId,
+    });
 
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
@@ -3147,7 +3152,12 @@ test.describe('registration intent allocation', () => {
         },
       },
     });
-    expect(bootstrapRequest).toMatchObject(clientBootstrap);
+    const { thresholdSessionId: ecdsaThresholdSessionId, ...ecdsaBootstrapServiceRequest } =
+      clientBootstrap;
+    expect(bootstrapRequest).toMatchObject({
+      ...ecdsaBootstrapServiceRequest,
+      sessionId: ecdsaThresholdSessionId,
+    });
 
     const finalized = await service.finalizeWalletAddSigner({
       addSignerCeremonyId: started.addSignerCeremonyId,

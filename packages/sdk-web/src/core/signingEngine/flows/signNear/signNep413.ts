@@ -27,7 +27,10 @@ import {
   resolveNearSigningSessionAuthContext,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
-import type { RouterAbEd25519SigningMaterialReady } from '../../threshold/ed25519/workerMaterialHandle';
+import {
+  ed25519RuntimeMaterialHandle,
+  type RouterAbEd25519RuntimeValidatedMaterial,
+} from '../../threshold/ed25519/workerMaterialHandle';
 import { planSigningSession } from '../../session/planning/planner';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -54,7 +57,7 @@ import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRes
 
 type RouterAbNearNep413SigningPayload = {
   kind: 'router_ab_ed25519_nep413_signing_payload_v1';
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
 };
 
 /**
@@ -219,7 +222,7 @@ export async function signNep413Message({
           nearAccountId,
           walletSessionState: readyMaterialState.walletSessionState,
           thresholdSessionId: canonicalThresholdSessionId,
-          materialHandle: readyMaterialState.signingMaterial.materialHandle,
+          materialHandle: ed25519RuntimeMaterialHandle(readyMaterialState.signingMaterial),
         });
         return {
           canonicalThresholdSessionId,
@@ -231,7 +234,7 @@ export async function signNep413Message({
     const { canonicalThresholdSessionId, walletSessionState, signingMaterial } = preparedPayload;
 
     const buildRequestPayload = (
-      materialOverride?: RouterAbEd25519SigningMaterialReady,
+      materialOverride?: RouterAbEd25519RuntimeValidatedMaterial,
     ): RouterAbNearNep413SigningPayload => {
       return {
         kind: 'router_ab_ed25519_nep413_signing_payload_v1',

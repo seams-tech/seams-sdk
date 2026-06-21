@@ -1,13 +1,32 @@
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
-import { buildRouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/hssMaterialBinding';
+import { buildRouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/workerMaterialBinding';
 import { buildRouterAbEcdsaHssSigningMaterialRef } from '../routerAb/ecdsaHss/signingMaterialRef';
 import type {
   RouterAbEcdsaHssSigningWalletSession,
+  RouterAbEd25519PersistedSigningRecordState,
   RouterAbEd25519SigningWalletSession,
   RouterAbSigningWalletSessionAuth,
 } from './routerAbSigningWalletSession';
+import type { ThresholdEd25519SessionRecord } from './persistence/records';
+
+type ExactType<TValue, TShape> = TValue extends TShape
+  ? Exclude<keyof TValue, keyof TShape> extends never
+    ? TValue
+    : never
+  : never;
+
+type RouterAbEd25519RuntimeValidatedPersistedState = Extract<
+  RouterAbEd25519PersistedSigningRecordState,
+  { kind: 'runtime_validated' }
+>;
+
+function exactEd25519RuntimeValidatedState<TValue extends RouterAbEd25519RuntimeValidatedPersistedState>(
+  value: ExactType<TValue, RouterAbEd25519RuntimeValidatedPersistedState>,
+): TValue {
+  return value;
+}
 
 const walletSessionAuth = {
   kind: 'wallet_session_jwt',
@@ -159,6 +178,100 @@ const ed25519RawClientBase = {
   xClientBaseB64u: 'raw-client-base',
 } satisfies RouterAbEd25519SigningWalletSession;
 void ed25519RawClientBase;
+
+const validEd25519SessionRecord = {
+  nearAccountId: 'alice.testnet',
+  rpId: 'localhost',
+  relayerUrl: 'https://relay.example',
+  relayerKeyId: 'ed25519:relayer',
+  participantIds: [1, 2],
+  signingRootId: 'project-test:dev',
+  signingRootVersion: 'default',
+  runtimePolicyScope,
+  clientVerifyingShareB64u: 'client-verifying-share',
+  ed25519WorkerMaterialHandle: 'ed25519-worker-material:threshold-session-1:binding',
+  ed25519WorkerMaterialBindingDigest: 'binding-digest',
+  routerAbNormalSigning: ed25519RouterAbNormalSigning,
+  thresholdSessionKind: 'jwt',
+  thresholdSessionId: 'threshold-session-1',
+  signingGrantId: 'signing-grant-1',
+  walletSessionJwt: 'wallet-session-jwt',
+  expiresAtMs: 1_900_000_000_000,
+  remainingUses: 1,
+  updatedAtMs: 1_800_000_000_000,
+  source: 'registration',
+} satisfies ThresholdEd25519SessionRecord;
+void validEd25519SessionRecord;
+
+const validEd25519RuntimeValidatedState = {
+  kind: 'runtime_validated',
+  record: validEd25519SessionRecord,
+  value: validEd25519SigningWalletSession,
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void validEd25519RuntimeValidatedState;
+exactEd25519RuntimeValidatedState(validEd25519RuntimeValidatedState);
+
+const ed25519RuntimeValidatedSpreadExtra = {
+  ...validEd25519RuntimeValidatedState,
+  xClientBaseB64u: 'raw-client-base',
+};
+exactEd25519RuntimeValidatedState(
+  // @ts-expect-error Runtime-validated Ed25519 persisted state rejects broad-spread extras.
+  ed25519RuntimeValidatedSpreadExtra,
+);
+
+const ed25519RuntimeValidatedMissingValue = {
+  kind: 'runtime_validated',
+  record: validEd25519SessionRecord,
+  value: undefined,
+  // @ts-expect-error Runtime-validated Ed25519 persisted state requires parsed signing value.
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void ed25519RuntimeValidatedMissingValue;
+
+const ed25519RuntimeValidatedWithReason = {
+  kind: 'runtime_validated',
+  record: validEd25519SessionRecord,
+  value: validEd25519SigningWalletSession,
+  // @ts-expect-error Runtime-validated Ed25519 persisted state cannot carry failure reasons.
+  reason: 'worker_material_unvalidated',
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void ed25519RuntimeValidatedWithReason;
+
+const ed25519RestoreAvailableWithValue = {
+  kind: 'restore_available',
+  record: validEd25519SessionRecord,
+  reason: 'loaded_material_missing',
+  value: validEd25519SigningWalletSession,
+  // @ts-expect-error Restore-available Ed25519 persisted state cannot be signable.
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void ed25519RestoreAvailableWithValue;
+
+const ed25519MaterialHintWithSealedMaterial = {
+  kind: 'material_hint_unvalidated',
+  record: validEd25519SessionRecord,
+  reason: 'worker_material_unvalidated',
+  // @ts-expect-error Material-hint Ed25519 persisted state does not carry sealed restore material.
+  sealedMaterial: 'sealed-worker-material',
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void ed25519MaterialHintWithSealedMaterial;
+
+const ed25519PendingWithValue = {
+  kind: 'auth_ready_material_pending',
+  record: validEd25519SessionRecord,
+  reason: 'missing_material_handle',
+  value: validEd25519SigningWalletSession,
+  // @ts-expect-error Pending Ed25519 persisted state cannot be signable.
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void ed25519PendingWithValue;
+
+const ed25519NonSigningWithValue = {
+  kind: 'non_signing',
+  record: validEd25519SessionRecord,
+  reason: 'cookie_session',
+  value: validEd25519SigningWalletSession,
+  // @ts-expect-error Non-signing Ed25519 persisted state cannot carry signing value.
+} satisfies RouterAbEd25519PersistedSigningRecordState;
+void ed25519NonSigningWithValue;
 
 const ecdsaMissingRouterAbState = {
   ...validEcdsaSigningWalletSession,

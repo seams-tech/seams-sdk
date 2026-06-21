@@ -12,7 +12,12 @@ import {
   walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { buildRouterAbEd25519WorkerMaterialBinding } from '@/core/signingEngine/threshold/ed25519/hssMaterialBinding';
+import { buildRouterAbEd25519WorkerMaterialBinding } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519HssKeyVersion,
+  parseEd25519RelayerKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
 const TEMPO_ECDSA_THRESHOLD_KEY_ID = 'ehss-login-tempo';
@@ -72,7 +77,7 @@ function canonicalEcdsaRecord(overrides?: Record<string, unknown>): Record<strin
     relayerUrl: 'https://relay.example',
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
-    relayerKeyId: 'rk-1',
+    relayerKeyId: parseEd25519RelayerKeyId('rk-1'),
     clientVerifyingShareB64u: 'AQ',
     participantIds: [1, 2],
     ethereumAddress: `0x${'aa'.repeat(20)}`,
@@ -169,7 +174,7 @@ function ecdsaKeyIdentityTargetRecord(
     targetKey: thresholdEcdsaChainTargetKey(chainTarget),
     accountAddress: THRESHOLD_OWNER_ADDRESS,
     ownerAddress: THRESHOLD_OWNER_ADDRESS,
-    relayerKeyId: 'rk-1',
+    relayerKeyId: parseEd25519RelayerKeyId('rk-1'),
     thresholdEcdsaPublicKeyB64u: ECDSA_PUBLIC_KEY33_B64U,
     key: {
       walletId: String(ACCOUNT_ID),
@@ -263,10 +268,12 @@ async function persistReadyEd25519WarmRecord(args: {
     signerSlot: 1,
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
-    relayerKeyId: 'rk-1',
-    keyVersion: ED25519_KEY_VERSION,
+    relayerKeyId: parseEd25519RelayerKeyId('rk-1'),
+    ed25519HssKeyVersion: parseEd25519HssKeyVersion(ED25519_KEY_VERSION),
     participantIds: [1, 2],
-    clientVerifyingShareB64u: ED25519_CLIENT_VERIFYING_SHARE_B64U,
+    clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
+      ED25519_CLIENT_VERIFYING_SHARE_B64U,
+    ),
     createdAtMs: materialCreatedAtMs,
   });
   upsertStoredThresholdEd25519SessionRecord({

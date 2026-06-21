@@ -19,7 +19,7 @@ import {
   readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from '../warmCapabilities/store';
-import { parseRouterAbEcdsaHssSigningWalletSessionFromRecord } from '../routerAbSigningWalletSession';
+import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
@@ -370,7 +370,9 @@ export function buildDiscoveredLaneForRecord(
         signingGrantId,
       });
     }
-    if (!parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record).ok) return null;
+    if (classifyRouterAbEcdsaHssPersistedSigningRecord(record).kind !== 'runtime_validated') {
+      return null;
+    }
     return {
       curve: 'ecdsa',
       chain,

@@ -10,6 +10,14 @@ import {
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
+import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519SealedWorkerMaterialRef,
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
+  parseEd25519WorkerMaterialKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 const nearAccountId = toAccountId('ed25519-material-retention.testnet');
 const thresholdSessionId = 'threshold-ed25519-material-retention';
@@ -20,6 +28,52 @@ const runtimePolicyScope = {
   envId: 'dev',
   signingRootVersion: 'default',
 } as const;
+const materialWalletSessionJwt = fixtureEd25519WalletSessionJwt({
+  label: 'with-material',
+  sessionId: thresholdSessionId,
+  grantId: signingGrantId,
+});
+const runtimeHandleWalletSessionJwt = fixtureEd25519WalletSessionJwt({
+  label: 'with-runtime-handle',
+  sessionId: thresholdSessionId,
+  grantId: signingGrantId,
+});
+const remintedWalletSessionJwt = fixtureEd25519WalletSessionJwt({
+  label: 'reminted',
+  sessionId: thresholdSessionId,
+  grantId: signingGrantId,
+});
+const clientVerifyingShareB64u = parseEd25519ClientVerifyingShareB64u('client-verifier');
+const ed25519WorkerMaterialHandle = parseEd25519WorkerMaterialHandle(
+  'runtime-material-handle',
+);
+const ed25519WorkerMaterialBindingDigest =
+  parseEd25519WorkerMaterialBindingDigest('material-binding-digest');
+const sealedWorkerMaterialRef = parseEd25519SealedWorkerMaterialRef('sealed-material-ref');
+const materialKeyId = parseEd25519WorkerMaterialKeyId('material-key-id');
+
+function fixtureEd25519WalletSessionJwt(args: {
+  label: string;
+  sessionId: string;
+  grantId: string;
+}): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+      sub: nearAccountId,
+      walletId: nearAccountId,
+      thresholdSessionId: args.sessionId,
+      signingGrantId: args.grantId,
+      relayerKeyId: 'ed25519:material-retention-relayer',
+      rpId: 'localhost',
+      runtimePolicyScope,
+      participantIds: [1, 2],
+      label: args.label,
+    }),
+  ).toString('base64url');
+  return `${header}.${payload}.fixture`;
+}
 
 function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
@@ -35,19 +89,19 @@ function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
     signerSlot: 1,
-    jwt: 'wallet-session-jwt-with-material',
+    jwt: materialWalletSessionJwt,
     runtimePolicyScope,
     routerAbNormalSigning: {
       kind: 'router_ab_ed25519_normal_signing_v1',
       signingWorkerId: args.signingWorkerId,
     },
-    clientVerifyingShareB64u: 'client-verifier',
-    ed25519WorkerMaterialHandle: 'runtime-material-handle',
-    ed25519WorkerMaterialBindingDigest: 'material-binding-digest',
-    sealedWorkerMaterialRef: 'sealed-material-ref',
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle,
+    ed25519WorkerMaterialBindingDigest,
+    sealedWorkerMaterialRef,
     sealedWorkerMaterialB64u: 'sealed-material',
     materialFormatVersion: 'ed25519_sealed_worker_material_v1',
-    materialKeyId: 'material-key-id',
+    materialKeyId,
     materialCreatedAtMs: 1_800_000_000_000,
     keyVersion: 'threshold-ed25519-hss-v1',
     source: 'registration',
@@ -68,15 +122,15 @@ function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): voi
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
     signerSlot: 1,
-    jwt: 'wallet-session-jwt-with-runtime-handle',
+    jwt: runtimeHandleWalletSessionJwt,
     runtimePolicyScope,
     routerAbNormalSigning: {
       kind: 'router_ab_ed25519_normal_signing_v1',
       signingWorkerId: args.signingWorkerId,
     },
-    clientVerifyingShareB64u: 'client-verifier',
-    ed25519WorkerMaterialHandle: 'runtime-material-handle',
-    ed25519WorkerMaterialBindingDigest: 'material-binding-digest',
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle,
+    ed25519WorkerMaterialBindingDigest,
     materialCreatedAtMs: 1_800_000_000_000,
     keyVersion: 'threshold-ed25519-hss-v1',
     source: 'registration',
@@ -97,7 +151,7 @@ function remintSessionWithoutMaterial(args: { signingWorkerId: string }): void {
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
     signerSlot: 1,
-    jwt: 'wallet-session-jwt-reminted',
+    jwt: remintedWalletSessionJwt,
     runtimePolicyScope,
     routerAbNormalSigning: {
       kind: 'router_ab_ed25519_normal_signing_v1',
@@ -125,7 +179,11 @@ function remintNewSessionWithoutMaterial(args: {
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
     signerSlot: 1,
-    jwt: 'wallet-session-jwt-reminted-new-session',
+    jwt: fixtureEd25519WalletSessionJwt({
+      label: 'reminted-new-session',
+      sessionId: args.thresholdSessionId,
+      grantId: args.signingGrantId,
+    }),
     runtimePolicyScope,
     routerAbNormalSigning: {
       kind: 'router_ab_ed25519_normal_signing_v1',
@@ -151,7 +209,7 @@ test.describe('warm Ed25519 session persistence', () => {
     remintSessionWithoutMaterial({ signingWorkerId: 'signing-worker-a' });
 
     const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
-    expect(record?.walletSessionJwt).toBe('wallet-session-jwt-reminted');
+    expect(record?.walletSessionJwt).toBe(remintedWalletSessionJwt);
     expect(record?.clientVerifyingShareB64u).toBe('client-verifier');
     expect(record?.ed25519WorkerMaterialHandle).toBe('runtime-material-handle');
     expect(record?.ed25519WorkerMaterialBindingDigest).toBe('material-binding-digest');
@@ -180,7 +238,13 @@ test.describe('warm Ed25519 session persistence', () => {
     });
 
     const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(remintedSessionId);
-    expect(record?.walletSessionJwt).toBe('wallet-session-jwt-reminted-new-session');
+    expect(record?.walletSessionJwt).toBe(
+      fixtureEd25519WalletSessionJwt({
+        label: 'reminted-new-session',
+        sessionId: remintedSessionId,
+        grantId: 'signing-grant-ed25519-material-retention-new-session',
+      }),
+    );
     expect(record?.clientVerifyingShareB64u).toBe('client-verifier');
     expect(record?.ed25519WorkerMaterialHandle).toBe('runtime-material-handle');
     expect(record?.ed25519WorkerMaterialBindingDigest).toBe('material-binding-digest');
@@ -205,7 +269,13 @@ test.describe('warm Ed25519 session persistence', () => {
     });
 
     const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(remintedSessionId);
-    expect(record?.walletSessionJwt).toBe('wallet-session-jwt-reminted-new-session');
+    expect(record?.walletSessionJwt).toBe(
+      fixtureEd25519WalletSessionJwt({
+        label: 'reminted-new-session',
+        sessionId: remintedSessionId,
+        grantId: 'signing-grant-ed25519-runtime-retention-new-session',
+      }),
+    );
     expect(record?.clientVerifyingShareB64u).toBe('client-verifier');
     expect(record?.ed25519WorkerMaterialHandle).toBe('runtime-material-handle');
     expect(record?.ed25519WorkerMaterialBindingDigest).toBe('material-binding-digest');
@@ -224,7 +294,7 @@ test.describe('warm Ed25519 session persistence', () => {
     remintSessionWithoutMaterial({ signingWorkerId: 'signing-worker-b' });
 
     const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
-    expect(record?.walletSessionJwt).toBe('wallet-session-jwt-reminted');
+    expect(record?.walletSessionJwt).toBe(remintedWalletSessionJwt);
     expect(record?.clientVerifyingShareB64u).toBe('client-verifier');
     expect(record?.ed25519WorkerMaterialHandle).toBe('runtime-material-handle');
     expect(record?.ed25519WorkerMaterialBindingDigest).toBe('material-binding-digest');

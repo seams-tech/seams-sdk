@@ -323,13 +323,6 @@ async function resolvePlannerReadinessForEd25519(args: {
   if (capability.state === 'material_pending' && isEmailOtpSession) {
     return buildReadiness({ status: 'missing_session', remainingUses: 0 });
   }
-  if (capability.state === 'material_pending') {
-    const remainingUses = resolveRemainingUses();
-    if (remainingUses < normalizeRequiredSignatureUses(args.requiredSignatureUses)) {
-      return buildReadiness({ status: 'exhausted', remainingUses });
-    }
-    return buildReadiness({ status: 'ready', remainingUses });
-  }
   if (capability.state === 'invalid') {
     throw new Error('[SigningEngine] Ed25519 signing session record is invalid');
   }
@@ -366,6 +359,14 @@ async function resolvePlannerReadinessForEd25519(args: {
       capability = restoredCapability;
       isEmailOtpSession = capability.record.source === 'email_otp';
     }
+  }
+
+  if (capability.state === 'material_pending') {
+    const remainingUses = resolveRemainingUses();
+    if (remainingUses < normalizeRequiredSignatureUses(args.requiredSignatureUses)) {
+      return buildReadiness({ status: 'exhausted', remainingUses });
+    }
+    return buildReadiness({ status: 'missing_session', remainingUses: 0 });
   }
 
   const status = await args.warmSessionReader.getEd25519SigningSessionStatusForSession({
@@ -433,9 +434,12 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   >['capabilities']['ed25519'];
   sessionId: string;
 }): Promise<void> {
-  if (args.capability.prfClaim?.state === 'warm') return;
   const record = args.capability.record;
   if (!record || record.source === 'email_otp') return;
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
+  if (args.capability.prfClaim?.state === 'warm' && persistedState.kind === 'runtime_validated') {
+    return;
+  }
   if (typeof args.warmSessionReader.restorePersistedSessionForSigning !== 'function') return;
   const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();

@@ -31,6 +31,7 @@ import {
   buildEcdsaSessionIdentity,
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
+import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   toEvmFamilyEcdsaKeyHandle,
@@ -285,13 +286,14 @@ export type WalletSessionActivationDeps = {
 
 function requireCanonicalThresholdEcdsaKeyRefIdentity(
   keyRef: ThresholdEcdsaSecp256k1KeyRef,
-): ThresholdEcdsaSecp256k1KeyRef & { ecdsaThresholdKeyId: string } {
-  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
-  if (!ecdsaThresholdKeyId) {
+): ThresholdEcdsaSecp256k1KeyRef {
+  const ecdsaThresholdKeyIdRaw = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyIdRaw) {
     throw new Error(
       '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
     );
   }
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
   return {
     ...keyRef,
     ecdsaThresholdKeyId,

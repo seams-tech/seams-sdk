@@ -17,7 +17,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
-  getEcdsaSessionProvisionIdentity,
+  getEcdsaProvisionPlanLaneIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 
@@ -111,7 +111,7 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   const sessionBudgetUses = Math.max(1, Math.floor(Number(args.sessionBudgetUses) || 1));
   const selectedRecord = args.record;
   const reconnectPlan = args.reconnectPlan;
-  const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
+  const reconnectPlanIdentity = getEcdsaProvisionPlanLaneIdentity(reconnectPlan);
   if (
     reconnectPlanIdentity.thresholdSessionId !== reconnectSessionIdentity.thresholdSessionId ||
     reconnectPlanIdentity.signingGrantId !== reconnectSessionIdentity.signingGrantId

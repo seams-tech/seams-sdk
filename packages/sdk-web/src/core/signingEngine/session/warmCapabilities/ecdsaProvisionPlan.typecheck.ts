@@ -5,6 +5,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   toEvmFamilyEcdsaKeyHandle,
@@ -19,6 +20,9 @@ import {
   buildPasskeyEcdsaProvisionSecretSource,
   buildPasskeyEcdsaSessionProvision,
   buildWalletSessionEcdsaReconnect,
+  getEcdsaFreshProvisionSessionIdentity,
+  getEcdsaProvisionPlanLaneIdentity,
+  getEcdsaReconnectSessionIdentity,
   type EcdsaSigningKeyContext,
   type EcdsaSessionProvisionPlan,
   type PasskeyEcdsaProvisionSecretSource,
@@ -87,7 +91,7 @@ const reconnectKeyRef = {
   chainTarget,
   relayerUrl: 'https://relayer.test',
   keyHandle,
-  ecdsaThresholdKeyId: 'ecdsa-key-1',
+  ecdsaThresholdKeyId: parseEcdsaThresholdKeyId('ecdsa-key-1'),
   backendBinding: {
     materialKind: 'metadata_only',
     relayerKeyId: 'relayer-key-1',
@@ -267,7 +271,7 @@ void buildEcdsaSessionProvisionPlan({
   reconnectMaterial: {},
 });
 
-void buildEcdsaSessionProvisionPlan({
+const validReconnectPlan = buildEcdsaSessionProvisionPlan({
   kind: 'ecdsa_session_reconnect',
   chainTarget,
   sessionIdentity: identity,
@@ -276,6 +280,11 @@ void buildEcdsaSessionProvisionPlan({
     record: reconnectRecord,
   }),
 });
+if (validReconnectPlan.kind !== 'wallet_session_ecdsa_reconnect') {
+  throw new Error('expected wallet_session_ecdsa_reconnect');
+}
+getEcdsaReconnectSessionIdentity(validReconnectPlan);
+getEcdsaProvisionPlanLaneIdentity(validReconnectPlan);
 
 const invalidReconnectPlanWithSubjectId: EcdsaSessionProvisionPlan = buildEcdsaSessionProvisionPlan(
   {
@@ -293,7 +302,7 @@ const invalidReconnectPlanWithSubjectId: EcdsaSessionProvisionPlan = buildEcdsaS
 void invalidReconnectPlanWithSubjectId;
 
 // @ts-expect-error passkey planning must not accept reconnect material
-void buildEcdsaSessionProvisionPlan({
+const validPasskeyProvisionPlan = buildEcdsaSessionProvisionPlan({
   kind: 'passkey_ecdsa_session_provision',
   key: exactKey,
   chainTarget,
@@ -321,6 +330,13 @@ void buildEcdsaSessionProvisionPlan({
   provisionSecretSource: passkeyProvisionSecretSource,
   activationMaterial: recordBackedPasskeyActivationMaterial,
 });
+if (validPasskeyProvisionPlan.kind !== 'passkey_ecdsa_session_provision') {
+  throw new Error('expected passkey_ecdsa_session_provision');
+}
+getEcdsaFreshProvisionSessionIdentity(validPasskeyProvisionPlan);
+getEcdsaProvisionPlanLaneIdentity(validPasskeyProvisionPlan);
+// @ts-expect-error fresh provision plans must not enter reconnect identity validation.
+getEcdsaReconnectSessionIdentity(validPasskeyProvisionPlan);
 
 void buildEcdsaSessionProvisionPlan({
   kind: 'passkey_ecdsa_session_provision',

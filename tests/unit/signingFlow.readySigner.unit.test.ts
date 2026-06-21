@@ -39,11 +39,12 @@ import {
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import { parseEcdsaThresholdKeyId } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 
 const WALLET_ID = 'alice.testnet';
 const SUBJECT_ID = toWalletId(WALLET_ID);
 const RP_ID = 'localhost';
-const ECDSA_THRESHOLD_KEY_ID = 'ehss-shared-key';
+const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ehss-shared-key');
 const SIGNING_ROOT_ID = 'project:dev';
 const SIGNING_ROOT_VERSION = 'default';
 const THRESHOLD_SESSION_ID = 'threshold-session-1';
@@ -282,10 +283,6 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
         expect(req.algorithm).toBe('secp256k1');
         expect(material.signerSession).toBe(signerSession);
         expect(material.singleUseEmailOtpSession).toBe(false);
-        expect(material.roleLocalWorkerRestore).toEqual({
-          kind: 'role_local_ready_record',
-          readyRecord: ROLE_LOCAL_READY_RECORD,
-        });
         return signature;
       },
     };
@@ -362,7 +359,6 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
           operation,
           signerSession,
           singleUseEmailOtpSession: false,
-          roleLocalReadyRecordForWorkerRestore: ROLE_LOCAL_READY_RECORD,
           runtime: {},
         },
       },

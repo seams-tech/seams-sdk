@@ -13,6 +13,7 @@ import {
   clearAllThresholdEcdsaSessionRecords,
   persistStoredThresholdEd25519SessionMaterialHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
@@ -108,7 +109,7 @@ function ethereumAddress20B64u(address: string): string {
 
 function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): string {
   const publicIdentity = bootstrap.publicIdentity as Record<string, unknown>;
-  const sessionId = String(bootstrap.sessionId || '').trim();
+  const sessionId = String(bootstrap.sessionId || bootstrap.thresholdSessionId || '').trim();
   const signingGrantId = String(bootstrap.signingGrantId || '').trim();
   const walletId = String(bootstrap.walletId || '').trim();
   const rpId = String(bootstrap.rpId || '').trim();
@@ -316,12 +317,15 @@ function createContext(captures: Record<string, unknown>): any {
     captures.hydratedSession = input;
     const transport = input.transport as Record<string, unknown> | undefined;
     if (transport?.curve !== 'ed25519') return;
-    persistStoredThresholdEd25519SessionMaterialHandle({
+    const record = persistStoredThresholdEd25519SessionMaterialHandle({
       thresholdSessionId: String(input.sessionId || ''),
       ed25519WorkerMaterialHandle: 'registration-ed25519-worker-material',
       ed25519WorkerMaterialBindingDigest: 'registration-ed25519-worker-binding',
       clientVerifyingShareB64u: 'registration-ed25519-client-verifying-share',
     });
+    if (record) {
+      markRouterAbEd25519WorkerMaterialRuntimeValidated(record);
+    }
   };
   const finalizeWalletRegistrationEcdsaSessionsForTest = async (
     input: Record<string, unknown>,
@@ -509,6 +513,24 @@ function createContext(captures: Record<string, unknown>): any {
           tauClientB64u: 'tau-client',
         };
       },
+      prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: async (
+        input: Record<string, unknown>,
+      ) => {
+        captures.ed25519SealAuthorizationArgs = input;
+        return {
+          ok: true,
+          materialKeyId: 'registration-ed25519-material-key',
+          remainingUses: 1,
+          sealAuthorization: {
+            kind: 'passkey_prf_material_seal_authorization_handle_v1',
+            handle: 'registration-ed25519-seal-authorization',
+            rpId: RP_ID,
+            credentialIdB64u: 'registration-credential-id',
+            materialKeyId: 'registration-ed25519-material-key',
+            expiresAtMs: 0,
+          },
+        };
+      },
       deriveThresholdEd25519HssClientOutputMask: async (input: Record<string, unknown>) => {
         captures.ed25519MaskArgs = input;
         return { clientOutputMaskB64u: 'client-output-mask' };
@@ -516,6 +538,25 @@ function createContext(captures: Record<string, unknown>): any {
       prepareThresholdEd25519HssClientRequest: async (input: Record<string, unknown>) => {
         captures.ed25519RequestArgs = input;
         return { clientRequestMessageB64u: 'client-request' };
+      },
+      runThresholdEd25519HssCeremonyWithMaterialHandle: async (input: {
+        context: { keyVersion: string };
+      }) => {
+        captures.ed25519MaterialHandleCeremonyArgs = input;
+        return {
+          ok: true,
+          signingMaterial: {
+            materialHandle: 'registration-ed25519-worker-material',
+            materialBindingDigest: 'registration-ed25519-worker-binding',
+            sealedWorkerMaterialRef: 'registration-ed25519-sealed-worker-material',
+            sealedWorkerMaterialB64u: 'registration-ed25519-sealed-worker-material-b64u',
+            materialFormatVersion: 'ed25519_worker_material_v1',
+            materialKeyId: 'registration-ed25519-material-key',
+            keyVersion: input.context.keyVersion,
+            clientVerifyingShareB64u: 'registration-ed25519-client-verifying-share',
+            signerSlot: 1,
+          },
+        };
       },
       buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact: async (
         input: Record<string, unknown>,
@@ -531,6 +572,17 @@ function createContext(captures: Record<string, unknown>): any {
       readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) => {
         const authMethod = input.authMethod === 'email_otp' ? 'email_otp' : 'passkey';
         const walletId = String(input.walletId || WALLET_SUBJECT_ID);
+        const ecdsaSigningGrantId = String(
+          (captures.respondBody as any)?.ecdsa?.clientBootstrap?.signingGrantId ||
+            'wallet-session-ecdsa',
+        );
+        const ed25519SigningGrantId = captures.forceSplitSharedSigningGrant
+          ? 'wallet-session-ed25519'
+          : String(
+              (captures.finalizeBody as any)?.ed25519?.sessionPolicy?.signingGrantId ||
+                ecdsaSigningGrantId ||
+                'wallet-session-ed25519',
+            );
         const chainTargets =
           (captures.intent as any)?.signerSelection?.ecdsa?.chainTargets ||
           (captures.finalizeBody as any)?.ecdsa?.walletKeys?.map(
@@ -548,7 +600,7 @@ function createContext(captures: Record<string, unknown>): any {
             state: 'ready',
             authMethod,
             thresholdSessionId: 'session-ecdsa',
-            signingGrantId: 'wallet-session-ecdsa',
+            signingGrantId: ecdsaSigningGrantId,
             remainingUses: 1,
             expiresAtMs: Date.now() + 60_000,
             key: {
@@ -579,7 +631,7 @@ function createContext(captures: Record<string, unknown>): any {
           state: 'ready',
           authMethod,
           thresholdSessionId: 'threshold-session-id',
-          signingGrantId: 'wallet-session-ed25519',
+          signingGrantId: ed25519SigningGrantId,
           remainingUses: 1,
           expiresAtMs: Date.now() + 60_000,
         };
@@ -774,6 +826,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
             ethereumAddress: '0x3333333333333333333333333333333333333333',
             relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
+            thresholdSessionId: String(body.ecdsa.clientBootstrap.sessionId || ''),
             expiresAtMs: registrationEcdsaExpiresAtMs,
             expiresAt: new Date(registrationEcdsaExpiresAtMs).toISOString(),
           } as Record<string, unknown>)
@@ -819,6 +872,10 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       if (body.ed25519) {
         const nearAccountId =
           (captures.intent as any)?.signerSelection?.ed25519?.nearAccountId || 'combined.testnet';
+        const thresholdSessionId = String(
+          sessionPolicy.thresholdSessionId || sessionPolicy.sessionId || '',
+        );
+        const signingGrantId = String(sessionPolicy.signingGrantId || '');
         const ed25519SessionExpiresAtMs = Date.now() + 60_000;
         responseBody.ed25519 = {
           nearAccountId,
@@ -831,8 +888,8 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
           participantIds: [1, 2],
           session: {
             sessionKind: 'jwt',
-            sessionId: sessionPolicy.sessionId,
-            signingGrantId: sessionPolicy.signingGrantId,
+            thresholdSessionId,
+            signingGrantId,
             expiresAtMs: ed25519SessionExpiresAtMs,
             participantIds: [1, 2],
             remainingUses: 1,
@@ -840,8 +897,8 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
             jwt: ed25519WalletSessionJwt({
               walletId: nearAccountId,
-              sessionId: sessionPolicy.sessionId,
-              signingGrantId: sessionPolicy.signingGrantId,
+              sessionId: thresholdSessionId,
+              signingGrantId,
               relayerKeyId: 'relayer-ed25519',
               expiresAtMs: ed25519SessionExpiresAtMs,
               participantIds: [1, 2],
@@ -1440,6 +1497,58 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
   }
 });
 
+test('registerWallet rejects combined registration when persisted lanes split signing grant', async () => {
+  const captures: Record<string, unknown> = {
+    forceSplitSharedSigningGrant: true,
+  };
+  const fetchMock = installRegisterWalletFetch(captures);
+  const originalWindow = (globalThis as any).window;
+  (globalThis as any).window = { isSecureContext: true };
+  try {
+    const result = await withMockedIndexedDb(() =>
+      registerWallet({
+        context: createContext(captures),
+        authMethod: { kind: 'passkey' },
+        wallet: { kind: 'server_generated' },
+        rpId: RP_ID,
+        signerSelection: {
+          mode: 'ed25519_and_ecdsa',
+          ed25519: {
+            nearAccountId: 'split-budget.testnet',
+            signerSlot: 1,
+            participantIds: [1, 2],
+            keyPurpose: 'near_tx',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            derivationVersion: 1,
+            createNearAccount: true,
+          },
+          ecdsa: {
+            chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 1 }],
+            participantIds: [1, 2],
+          },
+        },
+        options: {},
+        authenticatorOptions: {
+          userVerification: UserVerificationPolicy.Preferred,
+          originPolicy: {
+            single: true,
+            all_subdomains: false,
+            multiple: [],
+          },
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({ success: false });
+    expect(String(result.error || '')).toContain('combined registration split signing budget');
+    expect(captures.finalizeBody).toBeDefined();
+    expect(captures.storedEd25519Registration).toBeDefined();
+  } finally {
+    (globalThis as any).window = originalWindow;
+    fetchMock.restore();
+  }
+});
+
 function installAddSignerFetch(captures: Record<string, unknown>) {
   const originalFetch = globalThis.fetch;
   const paths: string[] = [];
@@ -1545,6 +1654,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
           ethereumAddress: '0x1111111111111111111111111111111111111111',
           relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
+          thresholdSessionId: String(body.ecdsa.clientBootstrap.sessionId || ''),
           expiresAtMs: addSignerEcdsaExpiresAtMs,
           expiresAt: new Date(addSignerEcdsaExpiresAtMs).toISOString(),
         } as Record<string, unknown>;
@@ -1603,6 +1713,10 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         });
       }
       const sessionPolicy = body.ed25519.sessionPolicy;
+      const thresholdSessionId = String(
+        sessionPolicy.thresholdSessionId || sessionPolicy.sessionId || '',
+      );
+      const signingGrantId = String(sessionPolicy.signingGrantId || '');
       const ed25519SessionExpiresAtMs = Date.now() + 60_000;
       return jsonResponse({
         ok: true,
@@ -1619,8 +1733,8 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           participantIds: [1, 2],
           session: {
             sessionKind: 'jwt',
-            sessionId: sessionPolicy.sessionId,
-            signingGrantId: sessionPolicy.signingGrantId,
+            thresholdSessionId,
+            signingGrantId,
             expiresAtMs: ed25519SessionExpiresAtMs,
             participantIds: [1, 2],
             remainingUses: 1,
@@ -1628,8 +1742,8 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
             routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
             jwt: ed25519WalletSessionJwt({
               walletId: 'later.testnet',
-              sessionId: sessionPolicy.sessionId,
-              signingGrantId: sessionPolicy.signingGrantId,
+              sessionId: thresholdSessionId,
+              signingGrantId,
               relayerKeyId: 'relayer-ed25519',
               expiresAtMs: ed25519SessionExpiresAtMs,
               participantIds: [1, 2],
@@ -1824,7 +1938,7 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
       relayerKeyId: 'relayer-ed25519',
     });
     expect(captures.hydratedSession).toMatchObject({
-      sessionId: (captures.finalizeBody as any).ed25519.sessionPolicy.sessionId,
+      sessionId: (captures.finalizeBody as any).ed25519.sessionPolicy.thresholdSessionId,
       prfFirstB64u: AUTHENTICATION_PRF_FIRST_B64U,
       transport: {
         curve: 'ed25519',

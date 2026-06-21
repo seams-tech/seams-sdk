@@ -16,6 +16,10 @@ import type {
   SigningOperationId,
 } from '../../session/operationState/types';
 import type { ThresholdRuntimePolicyScope } from '../sessionPolicy';
+import type {
+  Ed25519RelayerKeyId,
+  Ed25519WorkerMaterialBindingDigest,
+} from '../../session/keyMaterialBrands';
 
 export type Ed25519ClientPresignNonceHandle = Brand<
   string,
@@ -37,13 +41,13 @@ export type RouterAbEd25519PresignPoolRefillPayload = {
   relayUrl: string;
   thresholdSessionId: string;
   signingGrantId: string;
-  relayerKeyId: string;
+  relayerKeyId: Ed25519RelayerKeyId;
   nearAccountId: string;
   nearNetworkId: string;
   signerPublicKey: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  materialBindingDigest: string;
+  materialBindingDigest: Ed25519WorkerMaterialBindingDigest;
   policy: RouterAbEd25519PresignPoolPolicy;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
   generation: number;
@@ -435,13 +439,13 @@ function saveReadyPool(pool: Ed25519ClientPresignPoolState & { state: 'ready' })
 export function createRouterAbEd25519PresignScopeKey(input: {
   thresholdSessionId: string;
   signingGrantId: string;
-  relayerKeyId: string;
+  relayerKeyId: Ed25519RelayerKeyId;
   nearAccountId: string;
   nearNetworkId: string;
   signerPublicKey: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  materialBindingDigest: string;
+  materialBindingDigest: Ed25519WorkerMaterialBindingDigest;
 }): Ed25519PresignScopeKey {
   const participantIds = normalizeThresholdEd25519ParticipantIds([...input.participantIds]);
   if (!participantIds || participantIds.length < 2) {
@@ -778,13 +782,13 @@ export function applyRouterAbEd25519PresignPoolRefillResult(input: {
 export function reserveRouterAbEd25519ReadyPresignForScope(input: {
   thresholdSessionId: string;
   signingGrantId: string;
-  relayerKeyId: string;
+  relayerKeyId: Ed25519RelayerKeyId;
   nearAccountId: string;
   nearNetworkId: string;
   signerPublicKey: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  materialBindingDigest: string;
+  materialBindingDigest: Ed25519WorkerMaterialBindingDigest;
   operation: Ed25519PresignOperationIdentity;
   nowMs?: number;
 }): RouterAbEd25519PresignScopedReservationResult {

@@ -30,12 +30,20 @@ import {
   prepareRouterAbEcdsaHssEvmDigestSigningV1,
   type RouterAbWalletSessionCredential,
 } from '../../../rpcClients/relayer/routerAbNormalSigning';
+import {
+  formatEcdsaKeyHandleForWire,
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaThresholdKeyId,
+  type EcdsaClientVerifyingShareB64u,
+  type EcdsaKeyHandle,
+  type EcdsaThresholdKeyId,
+} from '../../session/keyMaterialBrands';
 
 export type RouterAbEcdsaHssClientPresignatureRefillInput = {
   relayerUrl: string;
-  keyHandle?: string;
-  ecdsaThresholdKeyId: string;
-  clientVerifyingShareB64u: string;
+  keyHandle?: EcdsaKeyHandle;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u;
   participantIds: number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
@@ -761,26 +769,28 @@ async function runPresignHandshake(args: {
 }
 
 function routerAbEcdsaHssSigningIdentityFromScope(scope: RouterAbEcdsaHssNormalSigningScopeV1): {
-  ecdsaThresholdKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u;
   thresholdEcdsaPublicKeyB64u: string;
 } {
   const parsed = parseRouterAbEcdsaHssNormalSigningScopeV1(scope);
   return {
-    ecdsaThresholdKeyId: parsed.context.ecdsa_threshold_key_id,
-    clientVerifyingShareB64u: parsed.public_identity.client_public_key33_b64u,
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(parsed.context.ecdsa_threshold_key_id),
+    clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
+      parsed.public_identity.client_public_key33_b64u,
+    ),
     thresholdEcdsaPublicKeyB64u: parsed.public_identity.threshold_public_key33_b64u,
   };
 }
 
 function resolveRouterAbEcdsaHssPoolFillInitKeySelector(args: {
-  keyHandle?: string;
-  ecdsaThresholdKeyId: string;
+  keyHandle?: EcdsaKeyHandle;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 }):
   | { ok: true; value: RouterAbEcdsaHssPoolFillInitKeySelector }
   | { ok: false; code: 'invalid_args'; message: string } {
-  const keyHandle = String(args.keyHandle || '').trim();
-  if (keyHandle) {
+  if (args.keyHandle) {
+    const keyHandle = formatEcdsaKeyHandleForWire(args.keyHandle);
     return { ok: true, value: { keyHandle } };
   }
   return {
@@ -987,7 +997,7 @@ export async function signRouterAbEcdsaHssDigestWithPool(args: {
   relayerUrl: string;
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   credential: RouterAbWalletSessionCredential;
-  keyHandle?: string;
+  keyHandle?: EcdsaKeyHandle;
   signingDigest32: Uint8Array;
   clientSigningMaterial: RouterAbEcdsaHssClientSigningMaterialSource;
   participantIds: number[];

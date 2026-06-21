@@ -23,6 +23,7 @@ import {
   reconstructThresholdEd25519SigningMaterialFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import { formatEd25519HssKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
 import { IndexedDBManager } from '@/core/indexedDB';
 
 export type { SyncAccountResult };
@@ -164,7 +165,9 @@ export async function syncAccount(
       typeof buildThresholdWarmSessionRequestEnvelope
     > | null = null;
     if (normalizedRequestedAccountId) {
-      thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context);
+      thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context, {
+        kind: 'generated_signing_grant',
+      });
       if (!thresholdWarmPolicyDraft) {
         throw new Error('Threshold warm-session defaults are disabled for sync bootstrap');
       }
@@ -276,10 +279,11 @@ export async function syncAccount(
       (thresholdEd25519.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '',
     ).trim();
     if (relayerKeyId) {
-      const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
+      const { ed25519HssKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
         thresholdEd25519,
         'sync-account/verify',
       );
+      const thresholdKeyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
       const thresholdKeyMaterialCreatedAtMs = Date.now();
 
       await storeThresholdEd25519KeyMaterial({
@@ -330,7 +334,7 @@ export async function syncAccount(
           relayerUrl,
           relayerKeyId,
           session: thresholdSession,
-          keyVersion: thresholdKeyVersion,
+          ed25519HssKeyVersion,
           signerSlot,
           materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
           participantIdsHint: Array.isArray(thresholdEd25519.participantIds)

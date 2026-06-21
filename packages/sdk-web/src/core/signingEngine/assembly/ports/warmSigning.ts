@@ -91,9 +91,11 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
     signingSessionSeal:
-      args.signingSessionSeal.keyVersion && args.signingSessionSeal.shamirPrimeB64u
+      args.signingSessionSeal.signingSessionSealKeyVersion &&
+      args.signingSessionSeal.shamirPrimeB64u
         ? {
-            keyVersion: args.signingSessionSeal.keyVersion,
+            signingSessionSealKeyVersion:
+              args.signingSessionSeal.signingSessionSealKeyVersion,
             shamirPrimeB64u: args.signingSessionSeal.shamirPrimeB64u,
           }
         : null,

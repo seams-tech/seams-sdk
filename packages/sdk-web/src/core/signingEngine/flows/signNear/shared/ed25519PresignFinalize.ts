@@ -22,7 +22,12 @@ import {
   finalizeThresholdEd25519DelegateFromSignatureWasm,
   signThresholdEd25519ClientPresignFromMaterialHandleWasm,
 } from '@/core/signingEngine/chains/near/nearSignerWasm';
-import type { RouterAbEd25519SigningMaterialReady } from '@/core/signingEngine/threshold/ed25519/workerMaterialHandle';
+import {
+  ed25519RuntimeMaterialBindingDigest,
+  ed25519RuntimeMaterialClientVerifierB64u,
+  ed25519RuntimeMaterialHandle,
+  type RouterAbEd25519RuntimeValidatedMaterial,
+} from '@/core/signingEngine/threshold/ed25519/workerMaterialHandle';
 import type { TransactionContext } from '@/core/types/rpc';
 import { ActionType, fromActionArgsWasm, type ActionArgsWasm } from '@/core/types/actions';
 import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
@@ -90,6 +95,7 @@ import {
   thresholdEd25519NearTransactionOperationFingerprint,
   type ThresholdEd25519NearAction,
 } from '@shared/threshold/ed25519OperationFingerprint';
+import { parseEd25519RelayerKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
 
@@ -146,7 +152,7 @@ type RouterAbEd25519PresignPoolSigningInput = {
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
   nearNetworkId: 'testnet' | 'mainnet';
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   operation: Ed25519PresignOperationIdentity;
   signingDigestB64u: string;
   prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
@@ -323,7 +329,7 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
 }): Promise<RouterAbEd25519PresignRefillRunResult | null> {
   const scope = buildRouterAbPresignPoolRefillScope({
@@ -343,18 +349,19 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
   const participantIds = args.thresholdKeyMaterial.participants.map(
     (participant) => participant.id,
   );
+  const relayerKeyId = parseEd25519RelayerKeyId(args.thresholdKeyMaterial.relayerKeyId);
   const policy = resolveRouterAbEd25519PresignPoolPolicy(undefined);
   const firstOffer = await createRouterAbEd25519PresignOffer(args);
   const scopeKey = createRouterAbEd25519PresignScopeKey({
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.walletSessionState.signingGrantId,
-    relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
+    relayerKeyId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
     signerPublicKey: args.thresholdKeyMaterial.publicKey,
     participantIds,
     runtimePolicyScope,
-    materialBindingDigest: args.signingMaterial.bindingDigest,
+    materialBindingDigest: ed25519RuntimeMaterialBindingDigest(args.signingMaterial),
   });
   const status = getRouterAbEd25519ClientPresignPoolStatus({
     kind: 'get_router_ab_ed25519_presign_pool_status_v1',
@@ -373,13 +380,13 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
     relayUrl: args.walletSessionState.relayerUrl,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.walletSessionState.signingGrantId,
-    relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
+    relayerKeyId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
     signerPublicKey: args.thresholdKeyMaterial.publicKey,
     participantIds,
     runtimePolicyScope,
-    materialBindingDigest: args.signingMaterial.bindingDigest,
+    materialBindingDigest: ed25519RuntimeMaterialBindingDigest(args.signingMaterial),
     policy,
     requestTag: args.requestTag,
     generation: status.generation || 1,
@@ -472,7 +479,7 @@ function scheduleRouterAbEd25519ClientPresignPoolRefillInBackground(args: {
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
 }): void {
   void refillRouterAbEd25519ClientPresignPool(args).catch((error: unknown) => {
@@ -488,13 +495,13 @@ function reserveRouterAbEd25519PresignForNormalSigning(
   return reserveRouterAbEd25519ReadyPresignForScope({
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.walletSessionState.signingGrantId,
-    relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
+    relayerKeyId: parseEd25519RelayerKeyId(args.thresholdKeyMaterial.relayerKeyId),
     nearAccountId: args.nearAccountId,
     nearNetworkId: args.nearNetworkId,
     signerPublicKey: args.thresholdKeyMaterial.publicKey,
     participantIds: args.thresholdKeyMaterial.participants.map((participant) => participant.id),
     runtimePolicyScope: args.routerAbReadyState.runtimePolicyScope,
-    materialBindingDigest: args.signingMaterial.bindingDigest,
+    materialBindingDigest: ed25519RuntimeMaterialBindingDigest(args.signingMaterial),
     operation: args.operation,
   });
 }
@@ -517,7 +524,7 @@ async function signReservedRouterAbEd25519Presign(args: {
         thresholdKeyMaterial: input.thresholdKeyMaterial,
         role: 'relayer',
       }),
-      materialHandle: input.signingMaterial.materialHandle,
+      materialHandle: ed25519RuntimeMaterialHandle(input.signingMaterial),
       expectedMaterialBinding: input.signingMaterial.materialBinding,
       expectedSessionBinding: input.signingMaterial.sessionBinding,
       groupPublicKey: input.thresholdKeyMaterial.publicKey,
@@ -600,7 +607,7 @@ async function createRouterAbEd25519PresignOffers(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   count: number;
 }): Promise<ThresholdEd25519ClientPresignWorkerOffer[]> {
   const offers: ThresholdEd25519ClientPresignWorkerOffer[] = [];
@@ -614,7 +621,7 @@ async function createRouterAbEd25519PresignOffer(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
 }): Promise<ThresholdEd25519ClientPresignWorkerOffer> {
   const created = await createThresholdEd25519ClientPresignFromMaterialHandleWasm({
     sessionId: args.thresholdSessionId,
@@ -626,7 +633,7 @@ async function createRouterAbEd25519PresignOffer(args: {
       thresholdKeyMaterial: args.thresholdKeyMaterial,
       role: 'relayer',
     }),
-    materialHandle: args.signingMaterial.materialHandle,
+    materialHandle: ed25519RuntimeMaterialHandle(args.signingMaterial),
     expectedMaterialBinding: args.signingMaterial.materialBinding,
     expectedSessionBinding: args.signingMaterial.sessionBinding,
     groupPublicKey: args.thresholdKeyMaterial.publicKey,
@@ -696,7 +703,7 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
   nearNetworkId: 'testnet' | 'mainnet';
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   operation: Ed25519PresignOperationIdentity;
   signingDigestB64u: string;
   signingPayloadLabel: string;
@@ -717,7 +724,7 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     thresholdKeyMaterial: args.thresholdKeyMaterial,
   });
   if (
-    args.signingMaterial.clientVerifyingShareB64u !==
+    ed25519RuntimeMaterialClientVerifierB64u(args.signingMaterial) !==
     routerAbReadyState.signingMaterial.clientVerifierB64u
   ) {
     throw new Error('Router A/B Ed25519 signing material binding mismatch');
@@ -731,7 +738,7 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     await createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleNearSignerWasm(
       {
         sessionId: args.thresholdSessionId,
-        materialHandle: args.signingMaterial.materialHandle,
+        materialHandle: ed25519RuntimeMaterialHandle(args.signingMaterial),
         expectedMaterialBinding: args.signingMaterial.materialBinding,
         expectedSessionBinding: args.signingMaterial.sessionBinding,
         groupPublicKey: args.thresholdKeyMaterial.publicKey,
@@ -741,7 +748,7 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
         workerCtx: args.ctx,
       },
     );
-  if (clientShare.clientVerifyingShareB64u !== args.signingMaterial.clientVerifyingShareB64u) {
+  if (clientShare.clientVerifyingShareB64u !== ed25519RuntimeMaterialClientVerifierB64u(args.signingMaterial)) {
     throw new Error('Router A/B Ed25519 role-separated client verifier mismatch');
   }
   const signingResponse = await finalizeRouterAbNormalSigningV2({
@@ -778,7 +785,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   purpose: RouterAbEd25519SignatureOnlyPurpose;
@@ -1024,7 +1031,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   txSigningRequest: TransactionPayload;

@@ -37,8 +37,8 @@ import {
 import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
   isRouterAbEd25519WorkerMaterialRuntimeValidated,
-  parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '../routerAbSigningWalletSession';
 import type {
   ThresholdWarmSessionStatusReader,
@@ -142,7 +142,9 @@ export function createWarmSessionStatusReader(
     if (record.source === 'email_otp') return null;
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
-    if (!parseRouterAbEcdsaHssSigningWalletSessionFromRecord(record).ok) return null;
+    if (classifyRouterAbEcdsaHssPersistedSigningRecord(record).kind !== 'runtime_validated') {
+      return null;
+    }
     return warmClaimFromRecordPolicy({
       sessionId: identity.thresholdSessionId,
       remainingUses: record.remainingUses,

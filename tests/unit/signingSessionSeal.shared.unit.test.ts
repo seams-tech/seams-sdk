@@ -42,7 +42,7 @@ test.describe('shared signing-session seal specs', () => {
       signingRootId: 'root',
       signingRootVersion: 'root-v1',
       relayerUrl: 'https://relay.example',
-      keyVersion: 'seal-v1',
+      keyVersion: 'signing-session-seal-kek-test-r1',
       shamirPrimeB64u: 'prime',
       issuedAtMs: 1,
       expiresAtMs: 2,

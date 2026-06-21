@@ -28,6 +28,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '@/core/signingEngine/session/persistence/records';
 import { readPersistedAvailableSigningLanesForTargets } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
+import { clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 const WALLET_ID = 'router-ab-registration.testnet';
 const RP_ID = 'localhost';
@@ -285,9 +286,10 @@ function createEcdsaSessionStore(): ThresholdEcdsaSessionStoreDeps {
 test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
   test.afterEach(() => {
     clearAllThresholdEcdsaSessionRecords(createEcdsaSessionStore());
+    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
   });
 
-  test('persists Router A/B JWT state into a ready ECDSA lane', async () => {
+  test('persists Router A/B JWT state into a non-ready ECDSA lane until worker validation', async () => {
     const store = createEcdsaSessionStore();
     const bootstrap = buildRegistrationBootstrap();
     expect(bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaHssNormalSigning).toEqual(
@@ -327,7 +329,52 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(EVM_TARGET)]).toMatchObject({
       authMethod: 'passkey',
       curve: 'ecdsa',
-      state: 'ready',
+      state: 'deferred',
+      source: 'runtime_session_record',
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+      signingGrantId: WALLET_SIGNING_SESSION_ID,
+      remainingUses: 3,
+    });
+  });
+
+  test('keeps unvalidated Router A/B ECDSA bootstrap material restore-only in available lanes', async () => {
+    const store = createEcdsaSessionStore();
+    const bootstrap = buildRegistrationBootstrap();
+
+    upsertThresholdEcdsaSessionFromBootstrap(store, {
+      walletId: toWalletId(WALLET_ID),
+      chainTarget: EVM_TARGET,
+      bootstrap,
+      source: 'registration',
+    });
+
+    const lanes = await readPersistedAvailableSigningLanesForTargets(
+      {
+        ecdsaSessions: store,
+        statusReader: {
+          getWarmSessionStatus: async () => ({
+            ok: true,
+            remainingUses: 3,
+            expiresAtMs: EXPIRES_AT_MS,
+          }),
+        },
+        getEmailOtpWarmSessionStatus: async () => ({
+          ok: false,
+          code: 'not_found',
+          message: 'missing',
+        }),
+      },
+      {
+        walletId: WALLET_ID,
+        authMethod: 'passkey',
+        ecdsaChainTargets: [EVM_TARGET],
+      },
+    );
+
+    expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(EVM_TARGET)]).toMatchObject({
+      authMethod: 'passkey',
+      curve: 'ecdsa',
+      state: 'deferred',
       source: 'runtime_session_record',
       thresholdSessionId: THRESHOLD_SESSION_ID,
       signingGrantId: WALLET_SIGNING_SESSION_ID,

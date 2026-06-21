@@ -17,6 +17,7 @@ import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapStorePort,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
+import { parseEcdsaThresholdKeyId } from '../keyMaterialBrands';
 import {
   assertWarmThresholdEcdsaCapabilityReady,
   type EcdsaWarmCapabilityReader,
@@ -83,14 +84,15 @@ type CommitEvmFamilyThresholdEcdsaSessionsArgs =
 function canonicalizeWorkerProvisionedBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult,
 ): ThresholdEcdsaSessionBootstrapResult {
-  const ecdsaThresholdKeyId = String(
+  const ecdsaThresholdKeyIdRaw = String(
     bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId || '',
   ).trim();
-  if (!ecdsaThresholdKeyId) {
+  if (!ecdsaThresholdKeyIdRaw) {
     throw new Error(
       '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
     );
   }
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
   const signingGrantId = String(
     bootstrap.session.signingGrantId ||
       bootstrap.thresholdEcdsaKeyRef.signingGrantId ||

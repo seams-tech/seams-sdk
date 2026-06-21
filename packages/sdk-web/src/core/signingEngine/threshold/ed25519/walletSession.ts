@@ -237,7 +237,6 @@ export async function mintEd25519WalletSession(args: {
 
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2}`;
-    const runtimeEnvironmentId = String(args.runtimeEnvironmentId || '').trim() || undefined;
     const appSessionJwt =
       args.auth.kind === 'app_session_jwt'
         ? String(args.auth.appSessionJwt || '').trim() || undefined
@@ -249,6 +248,12 @@ export async function mintEd25519WalletSession(args: {
     const useAppSessionCookie = args.auth.kind === 'app_session_cookie';
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
     const bearerToken = appSessionJwt || thresholdEcdsaSessionJwt || publishableKey;
+    const usesPublishableKeyBearer = Boolean(
+      publishableKey && !appSessionJwt && !thresholdEcdsaSessionJwt,
+    );
+    const runtimeEnvironmentId = usesPublishableKeyBearer
+      ? String(args.runtimeEnvironmentId || '').trim() || undefined
+      : undefined;
     const response = await fetch(url, {
       method: 'POST',
       headers: {

@@ -977,7 +977,7 @@ function hssClientWorkerDoesNotOwnEd25519SigningMaterialHandles(): void {
     'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
   );
   const materialBindingSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssMaterialBinding.ts',
+    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts',
   );
   const forbiddenMarkers = [
     'StoredEd25519HssMaterial',
@@ -999,7 +999,7 @@ function hssClientWorkerDoesNotOwnEd25519SigningMaterialHandles(): void {
     ['hss-client.worker.ts', hssClientWorker],
     ['hssClientSignerWasm.ts', hssClientWasm],
     ['workerTypes.ts', hssWorkerTypes],
-    ['hssMaterialBinding.ts', materialBindingSource],
+    ['workerMaterialBinding.ts', materialBindingSource],
   ] as const) {
     for (const marker of forbiddenMarkers) {
       if (source.includes(marker)) offenders.push(`${label} contains ${marker}`);

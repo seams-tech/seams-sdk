@@ -271,7 +271,7 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
   const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
-  const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
+  const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   if (!relayerUrl) return null;
   return {
@@ -1314,7 +1314,7 @@ self.onmessage = (event: MessageEvent) => {
       const sealedSecretB64u = normalizeOptionalTrimmedString(payload?.sealedSecretB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
-      const keyVersion = normalizeOptionalNonEmptyString(payload?.keyVersion);
+      const keyVersion = normalizeOptionalNonEmptyString(payload?.signingSessionSealKeyVersion);
       const transport = parseSigningSessionSealTransport(payload?.transport);
       if (!sessionId || !sealedSecretB64u || !transport || expiresAtMs <= 0 || remainingUses <= 0) {
         postUserConfirmWorkerResponse(id, {

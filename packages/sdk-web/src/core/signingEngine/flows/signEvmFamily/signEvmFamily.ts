@@ -1406,10 +1406,6 @@ async function signEvmFamilyAttempt(
           },
           signerSession: preparedExecutorSignerSession,
           singleUseEmailOtpSession: preparedExecutorSingleUseEmailOtpSession,
-          roleLocalReadyRecordForWorkerRestore:
-            preparedExecutorSignerSession.clientShare.kind === 'role_local_worker_share'
-              ? preparedExecutorReadyMaterial?.record.ecdsaRoleLocalReadyRecord ?? null
-              : null,
           runtime: requireThresholdEcdsaStepUpRuntime(),
         }
       : {

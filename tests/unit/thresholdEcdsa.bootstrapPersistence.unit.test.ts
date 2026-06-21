@@ -14,6 +14,7 @@ import {
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 
 type UpsertProfileCall = Parameters<ThresholdEcdsaBootstrapStorePort['upsertProfile']>[0];
 
@@ -50,7 +51,9 @@ function bootstrap(args: {
   ecdsaThresholdKeyId?: string;
 }): ThresholdEcdsaSessionBootstrapResult {
   const keyHandle = args.keyHandle || 'key-handle-1';
-  const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'threshold-key-1';
+  const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(
+    args.ecdsaThresholdKeyId || 'threshold-key-1',
+  );
   const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
     stateBlob: {
       kind: 'ecdsa_role_local_state_blob_v1',

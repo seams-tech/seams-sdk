@@ -26,6 +26,10 @@ import {
 import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import { assertWarmSessionEnvelopeInvariant } from './types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  parseSigningSessionSealKeyVersion,
+  type SigningSessionSealKeyVersion,
+} from '../keyMaterialBrands';
 import type {
   WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
@@ -37,13 +41,13 @@ import type { WarmSigningStatusReader } from './statusReader';
 
 export type WarmSessionCapabilityReaderSealConfigured = {
   seal: 'configured';
-  keyVersion: string;
+  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
   shamirPrimeB64u: string;
 };
 
 export type WarmSessionCapabilityReaderSealUnavailable = {
   seal: 'unconfigured';
-  keyVersion?: never;
+  signingSessionSealKeyVersion?: never;
   shamirPrimeB64u?: never;
 };
 
@@ -420,8 +424,10 @@ export function createWarmSessionCapabilityReaderCore(
     const record = readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args);
     if (!record) return null;
     const auth = resolveEcdsaAuthMaterial(record);
-    const fallbackKeyVersion =
-      deps.signingSessionSeal.seal === 'configured' ? deps.signingSessionSeal.keyVersion : '';
+    const fallbackSigningSessionSealKeyVersion =
+      deps.signingSessionSeal.seal === 'configured'
+        ? deps.signingSessionSeal.signingSessionSealKeyVersion
+        : undefined;
     const fallbackShamirPrimeB64u =
       deps.signingSessionSeal.seal === 'configured'
         ? deps.signingSessionSeal.shamirPrimeB64u
@@ -429,7 +435,9 @@ export function createWarmSessionCapabilityReaderCore(
     return resolveEcdsaSealTransport({
       record,
       auth,
-      keyVersion: String(record.signingSessionSealKeyVersion || fallbackKeyVersion).trim(),
+      signingSessionSealKeyVersion: record.signingSessionSealKeyVersion
+        ? parseSigningSessionSealKeyVersion(record.signingSessionSealKeyVersion)
+        : fallbackSigningSessionSealKeyVersion,
       shamirPrimeB64u: String(
         record.signingSessionSealShamirPrimeB64u || fallbackShamirPrimeB64u,
       ).trim(),

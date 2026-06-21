@@ -180,6 +180,15 @@ export type AvailableSigningLanesRuntimeClaim =
       thresholdSessionId: string;
       remainingUses: number;
       expiresAtMs: number;
+      laneState?: never;
+      code?: never;
+    }
+  | {
+      state: 'record_policy';
+      thresholdSessionId: string;
+      remainingUses: number;
+      expiresAtMs: number;
+      laneState: 'restorable' | 'deferred';
       code?: never;
     }
   | {
@@ -187,6 +196,7 @@ export type AvailableSigningLanesRuntimeClaim =
       thresholdSessionId: string;
       remainingUses: 0;
       expiresAtMs?: never;
+      laneState?: never;
       code?: never;
     }
   | {
@@ -194,6 +204,7 @@ export type AvailableSigningLanesRuntimeClaim =
       thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
+      laneState?: never;
       code?: never;
     }
   | {
@@ -201,6 +212,7 @@ export type AvailableSigningLanesRuntimeClaim =
       thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
+      laneState?: never;
       code?: string;
     }
   | {
@@ -208,6 +220,7 @@ export type AvailableSigningLanesRuntimeClaim =
       thresholdSessionId: string;
       remainingUses?: never;
       expiresAtMs?: never;
+      laneState?: never;
       code: string;
     };
 
@@ -215,6 +228,7 @@ export function runtimeRecordPolicyClaim(args: {
   thresholdSessionId: string;
   remainingUses: unknown;
   expiresAtMs: unknown;
+  laneState: 'restorable' | 'deferred';
 }): AvailableSigningLanesRuntimeClaim | null {
   const remainingUses = Math.floor(Number(args.remainingUses));
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
@@ -228,10 +242,11 @@ export function runtimeRecordPolicyClaim(args: {
     return { state: 'expired', thresholdSessionId: args.thresholdSessionId };
   }
   return {
-    state: 'warm',
+    state: 'record_policy',
     thresholdSessionId: args.thresholdSessionId,
     remainingUses,
     expiresAtMs,
+    laneState: args.laneState,
   };
 }
 
@@ -1130,6 +1145,7 @@ function runtimeClaimToLaneState(
     durableLane && durableLane.state !== 'missing' ? durableLane.state : undefined;
   if (!claim) return recordPolicyState || durableConcreteState || 'deferred';
   if (claim.state === 'warm') return 'ready';
+  if (claim.state === 'record_policy') return recordPolicyState || claim.laneState;
   if (claim.state === 'expired') return 'expired';
   if (claim.state === 'exhausted') return 'exhausted';
   if (claim.state === 'missing') return recordPolicyState || durableConcreteState || 'deferred';

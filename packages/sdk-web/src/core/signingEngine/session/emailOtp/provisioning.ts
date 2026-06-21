@@ -42,6 +42,13 @@ import {
 import type {
   EmailOtpEd25519RecoveryCodeSigningSessionHydration,
 } from './recoveryCodeWarmSessionHydration';
+import {
+  parseEd25519ClientVerifyingShareB64u,
+  parseEd25519SealedWorkerMaterialRef,
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialHandle,
+  parseEd25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
 
 export const EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION = 'threshold-ed25519-hss-v1' as const;
 
@@ -309,10 +316,14 @@ export async function reconstructEmailOtpEd25519Session(args: {
     );
   }
   const signingMaterial = completed.signingMaterial;
-  const clientVerifyingShareB64u = String(signingMaterial.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
+  const clientVerifyingShareB64uRaw = String(
+    signingMaterial.clientVerifyingShareB64u || '',
+  ).trim();
+  if (!clientVerifyingShareB64uRaw) {
     throw new Error('Email OTP threshold-ed25519 material handle is missing verifying share');
   }
+  const clientVerifyingShareB64u =
+    parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
   await args.persistWarmSessionEd25519Capability({
     kind: 'jwt_email_otp',
     nearAccountId,
@@ -328,12 +339,16 @@ export async function reconstructEmailOtpEd25519Session(args: {
     remainingUses,
     jwt,
     clientVerifyingShareB64u,
-    ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
-    ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
-    sealedWorkerMaterialRef: signingMaterial.sealedWorkerMaterialRef,
+    ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(signingMaterial.materialHandle),
+    ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      signingMaterial.materialBindingDigest,
+    ),
+    sealedWorkerMaterialRef: parseEd25519SealedWorkerMaterialRef(
+      signingMaterial.sealedWorkerMaterialRef,
+    ),
     sealedWorkerMaterialB64u: signingMaterial.sealedWorkerMaterialB64u,
     materialFormatVersion: signingMaterial.materialFormatVersion,
-    materialKeyId: signingMaterial.materialKeyId,
+    materialKeyId: parseEd25519WorkerMaterialKeyId(signingMaterial.materialKeyId),
     materialCreatedAtMs,
     signerSlot: signingMaterial.signerSlot,
     keyVersion: signingMaterial.keyVersion,

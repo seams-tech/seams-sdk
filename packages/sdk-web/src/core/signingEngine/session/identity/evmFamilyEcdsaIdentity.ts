@@ -37,6 +37,7 @@ import {
   thresholdEcdsaRecordHasRoleLocalSigningMaterial,
 } from '../persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigningWalletSession';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
@@ -51,6 +52,12 @@ import {
   type ThresholdEcdsaSessionId,
   type SigningGrantId,
 } from '../operationState/types';
+import {
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaThresholdKeyId,
+} from '../keyMaterialBrands';
 import type {
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
@@ -1057,17 +1064,19 @@ function buildThresholdEcdsaSignerClientShare(args: {
         handle: buildEcdsaRoleLocalSigningMaterialHandle({
           thresholdSessionId: String(args.session.thresholdSessionId),
           signingGrantId: String(args.session.signingGrantId),
-          keyHandle: String(args.publicFacts.keyHandle),
+          keyHandle: parseEcdsaKeyHandle(args.publicFacts.keyHandle),
           routerAbStateSessionId: args.routerAbStateSessionId,
           chainTarget: args.chainTarget,
-          clientVerifyingShareB64u: args.backendBinding.clientVerifyingShareB64u,
-          ecdsaThresholdKeyId: String(
+          clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
+            args.backendBinding.clientVerifyingShareB64u,
+          ),
+          ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
             args.backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.ecdsaThresholdKeyId,
           ),
           participantIds: args.publicFacts.participantIds.map((participantId) =>
             Number(participantId),
           ),
-          relayerKeyId: args.backendBinding.relayerKeyId,
+          relayerKeyId: parseEcdsaRelayerKeyId(args.backendBinding.relayerKeyId),
         }),
       };
     case 'metadata_only':
@@ -1578,6 +1587,10 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
     return { kind: 'stale', reason: staleReason('expired') };
   }
   if (!hasReadyThresholdEcdsaRecordClientShare(input.record)) {
+    return { kind: 'stale', reason: staleReason('auth_missing') };
+  }
+  const workerMaterial = classifyRouterAbEcdsaHssPersistedSigningRecord(input.record);
+  if (workerMaterial.kind !== 'runtime_validated') {
     return { kind: 'stale', reason: staleReason('auth_missing') };
   }
 

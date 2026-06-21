@@ -1,5 +1,5 @@
-import type { RouterAbEd25519SigningMaterialReady } from '../../threshold/ed25519/workerMaterialHandle';
-import { buildRouterAbEd25519SigningMaterialRef } from '../../threshold/ed25519/hssMaterialBinding';
+import type { RouterAbEd25519RuntimeValidatedMaterial } from '../../threshold/ed25519/workerMaterialHandle';
+import { buildRouterAbEd25519SigningMaterialRef } from '../../threshold/ed25519/workerMaterialBinding';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type { WarmEd25519SigningSessionAuthorization } from './ed25519Authorization';
@@ -119,48 +119,43 @@ const sessionBinding = {
 void sessionBinding;
 
 const signingMaterialReady = {
-  kind: 'router_ab_ed25519_signing_material_ready_v1',
-  materialHandle: signingMaterialRef.materialHandle,
-  bindingDigest: signingMaterialRef.bindingDigest,
-  thresholdSessionId: 'threshold-session-1',
-  signingGrantId: 'signing-grant-1',
-  signingRootId: 'project-test:dev',
-  signingRootVersion: 'default',
-  expiresAtMs: 1_900_000_000_000,
-  nearAccountId: 'alice.testnet',
-  relayerKeyId: 'near-key-1',
-  participantIds: [1, 2, 3],
-  signingWorkerId: 'signing-worker-a',
-  clientVerifyingShareB64u: signingMaterialRef.clientVerifierB64u,
+  kind: 'router_ab_ed25519_runtime_validated_material_v1',
+  materialRef: signingMaterialRef,
   materialBinding,
   sessionBinding,
-} satisfies RouterAbEd25519SigningMaterialReady;
+} satisfies RouterAbEd25519RuntimeValidatedMaterial;
 void signingMaterialReady;
 
-const signingMaterialMissingHandle = {
+const signingMaterialMissingRef = {
   ...signingMaterialReady,
-  // @ts-expect-error Sign-ready Ed25519 material requires a worker material handle.
-  materialHandle: undefined,
-} satisfies RouterAbEd25519SigningMaterialReady;
-void signingMaterialMissingHandle;
+  // @ts-expect-error Runtime-validated Ed25519 material requires a parsed material ref.
+  materialRef: undefined,
+} satisfies RouterAbEd25519RuntimeValidatedMaterial;
+void signingMaterialMissingRef;
 
 const signingMaterialMissingBinding = {
   ...signingMaterialReady,
-  // @ts-expect-error Sign-ready Ed25519 material requires a binding digest.
-  bindingDigest: undefined,
-} satisfies RouterAbEd25519SigningMaterialReady;
+  materialRef: {
+    ...signingMaterialRef,
+    // @ts-expect-error Runtime-validated Ed25519 material ref requires a binding digest.
+    bindingDigest: undefined,
+  },
+} satisfies RouterAbEd25519RuntimeValidatedMaterial;
 void signingMaterialMissingBinding;
 
 const signingMaterialMissingVerifier = {
   ...signingMaterialReady,
-  // @ts-expect-error Sign-ready Ed25519 material requires the public client verifier.
-  clientVerifyingShareB64u: undefined,
-} satisfies RouterAbEd25519SigningMaterialReady;
+  materialRef: {
+    ...signingMaterialRef,
+    // @ts-expect-error Runtime-validated Ed25519 material ref requires the public client verifier.
+    clientVerifierB64u: undefined,
+  },
+} satisfies RouterAbEd25519RuntimeValidatedMaterial;
 void signingMaterialMissingVerifier;
 
 const signingMaterialWithRawClientBase = {
   ...signingMaterialReady,
   // @ts-expect-error Sign-ready Ed25519 material cannot carry raw client base material.
   xClientBaseB64u: 'raw-client-base',
-} satisfies RouterAbEd25519SigningMaterialReady;
+} satisfies RouterAbEd25519RuntimeValidatedMaterial;
 void signingMaterialWithRawClientBase;

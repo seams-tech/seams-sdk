@@ -9,6 +9,10 @@ import type {
   WarmSessionStatusResult,
 } from '../../uiConfirm/uiConfirm.types';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import {
+  parseSigningSessionSealKeyVersion,
+  type SigningSessionSealKeyVersion,
+} from '../keyMaterialBrands';
 import type {
   WarmSessionEd25519AuthMaterial,
   WarmSessionEcdsaAuthMaterial,
@@ -314,13 +318,14 @@ export function deriveEcdsaCapabilityState(args: {
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
   if (args.prfClaim.state !== 'warm') return 'prf_missing';
   const persistedState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
-  if (persistedState.kind === 'signable') return 'ready';
+  if (persistedState.kind === 'runtime_validated') return 'ready';
   if (
     persistedState.kind === 'non_signing' ||
     persistedState.reason === 'missing_wallet_session_jwt'
   ) {
     return 'auth_missing';
   }
+  if (persistedState.kind === 'restore_available') return 'material_pending';
   return 'material_pending';
 }
 
@@ -397,13 +402,17 @@ export function toSigningSessionStatus(args: {
 export function resolveEcdsaSealTransport(args: {
   record: WarmSessionEcdsaCapabilityState['record'];
   auth: WarmSessionEcdsaAuthMaterial | null;
-  keyVersion?: string;
+  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   shamirPrimeB64u?: string;
 }): ThresholdSessionSealTransportAuthMaterial | null {
   if (!args.record) return null;
   const relayerUrl = String(args.record.relayerUrl || '').trim();
   if (!relayerUrl) return null;
-  const keyVersion = String(args.keyVersion || '').trim();
+  const signingSessionSealKeyVersion =
+    args.signingSessionSealKeyVersion ||
+    (args.record.signingSessionSealKeyVersion
+      ? parseSigningSessionSealKeyVersion(args.record.signingSessionSealKeyVersion)
+      : undefined);
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
   const signingGrantId = args.record.signingGrantId;
   const walletSessionJwt = String(args.auth?.walletSessionJwt || '').trim();
@@ -419,7 +428,7 @@ export function resolveEcdsaSealTransport(args: {
       ? { walletSessionJwt: walletSessionJwt }
       : {}),
     walletSessionJwtSource,
-    ...(keyVersion ? { keyVersion } : {}),
+    ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };
 }

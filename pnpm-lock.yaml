@@ -232,6 +232,9 @@ importers:
       '@lit/react':
         specifier: ^1.0.8
         version: 1.0.8(@types/react@19.1.12)
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
       bs58:
         specifier: ^6.0.0
         version: 6.0.0
@@ -281,9 +284,6 @@ importers:
       express:
         specifier: ^4.21.2
         version: 4.21.2
-      js-sha256:
-        specifier: ^0.11.1
-        version: 0.11.1
       pg:
         specifier: ^8.17.2
         version: 8.17.2
@@ -3026,9 +3026,6 @@ packages:
   jiti@2.6.1:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
-
-  js-sha256@0.11.1:
-    resolution: {integrity: sha512-o6WSo/LUvY2uC4j7mO50a2ms7E/EAdbP0swigLV+nzHKTTaYnaLIWJ02VdXrsJX0vGedDESQnLsOekr94ryfjg==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -6781,8 +6778,6 @@ snapshots:
 
   jiti@2.6.1:
     optional: true
-
-  js-sha256@0.11.1: {}
 
   js-tokens@4.0.0: {}
 

@@ -23,6 +23,10 @@ import {
 import { walletSessionAuthFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
+import {
+  formatSigningSessionSealKeyVersionForWire,
+  parseSigningSessionSealKeyVersion,
+} from '../keyMaterialBrands';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -233,7 +237,11 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   const keyVersion = String(
     sealedRecord.keyVersion ||
       ecdsaRecord?.signingSessionSealKeyVersion ||
-      args.configs.signing.sessionSeal?.keyVersion ||
+      (args.configs.signing.sessionSeal?.signingSessionSealKeyVersion
+        ? formatSigningSessionSealKeyVersionForWire(
+            args.configs.signing.sessionSeal.signingSessionSealKeyVersion,
+          )
+        : '') ||
       '',
   ).trim();
   if (sealedRecord.expiresAtMs <= Date.now()) {
@@ -316,7 +324,9 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     transport: {
       relayerUrl,
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
-      ...(keyVersion ? { keyVersion } : {}),
+      ...(keyVersion
+        ? { signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(keyVersion) }
+        : {}),
       shamirPrimeB64u,
     },
     restore: {

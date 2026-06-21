@@ -3,6 +3,8 @@ import {
   createWarmSessionCapabilityReaderCore,
   type WarmSessionCapabilityReaderSeal,
 } from './capabilityReaderCore';
+import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
+import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
 import {
   createWarmSessionStatusReader,
   type WarmSessionStatusReaderDeps,
@@ -15,7 +17,7 @@ import {
 import type { WarmSessionCapabilityReader } from './types';
 
 export type WarmSessionCapabilityReaderSealInput = {
-  keyVersion: string;
+  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
   shamirPrimeB64u: string;
 } | null;
 
@@ -100,14 +102,14 @@ export function normalizeWarmCapabilityReaderPorts(
 export function normalizeWarmSessionCapabilityReaderSeal(
   sealInput: WarmSessionCapabilityReaderSealInput,
 ): WarmSessionCapabilityReaderSeal {
-  const keyVersion = String(sealInput?.keyVersion || '').trim();
+  const keyVersion = String(sealInput?.signingSessionSealKeyVersion || '').trim();
   const shamirPrimeB64u = String(sealInput?.shamirPrimeB64u || '').trim();
   if (!keyVersion || !shamirPrimeB64u) {
     return { seal: 'unconfigured' };
   }
   return {
     seal: 'configured',
-    keyVersion,
+    signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(keyVersion),
     shamirPrimeB64u,
   };
 }

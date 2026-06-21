@@ -9,6 +9,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
   requireRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '../../session/routerAbSigningWalletSession';
 import {
@@ -55,6 +56,13 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
     );
   }
 
+  const workerMaterial = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+  if (workerMaterial.kind !== 'runtime_validated') {
+    throw new Error(
+      `[multichain] threshold-ecdsa role-local worker material is not runtime-validated: ${workerMaterial.reason}`,
+    );
+  }
+
   const signingWalletSession = requireRouterAbEcdsaHssSigningWalletSessionFromRecord(args.record);
   const walletSessionJwt = signingWalletSession.auth.walletSessionJwt;
 
@@ -71,17 +79,6 @@ export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
     }),
     walletSessionJwt,
   });
-
-  if (signerSession.clientShare.kind === 'role_local_worker_share') {
-    return buildReadySecp256k1SigningMaterial({
-      walletId: args.record.walletId,
-      signerSession,
-      singleUseEmailOtpSession:
-        args.record.source === 'email_otp' &&
-        args.record.emailOtpAuthContext?.retention === 'single_use',
-      roleLocalReadyRecordForWorkerRestore: args.record.ecdsaRoleLocalReadyRecord,
-    });
-  }
 
   return buildReadySecp256k1SigningMaterial({
     walletId: args.record.walletId,

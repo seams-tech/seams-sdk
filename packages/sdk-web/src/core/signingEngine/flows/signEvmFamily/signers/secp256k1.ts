@@ -4,20 +4,10 @@ import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsa
 import { signRouterAbEcdsaHssDigestWithPool } from '../../../routerAb/ecdsaHss/presignaturePool';
 import type { ReadyEcdsaSignerSession } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import { loadRouterAbEcdsaHssSigningMaterialSource } from './ecdsaHssClientSigningMaterialSource';
-import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
+import { parseEcdsaKeyHandle } from '../../../session/keyMaterialBrands';
 
 type Secp256k1DigestSignRequest = Extract<SignRequest, { kind: 'digest' }> & {
   algorithm: 'secp256k1';
-};
-
-type RoleLocalWorkerRestore = {
-  kind: 'role_local_ready_record';
-  readyRecord: EcdsaRoleLocalReadyRecord;
-};
-
-type NoRoleLocalWorkerRestore = {
-  kind: 'none';
-  readyRecord?: never;
 };
 
 export type ReadySecp256k1SigningMaterial = {
@@ -25,7 +15,6 @@ export type ReadySecp256k1SigningMaterial = {
   walletId: string;
   signerSession: ReadyEcdsaSignerSession;
   singleUseEmailOtpSession: boolean;
-  roleLocalWorkerRestore: RoleLocalWorkerRestore | NoRoleLocalWorkerRestore;
 };
 
 export type ReadySecp256k1Signer = {
@@ -41,7 +30,6 @@ type BuildReadySecp256k1SigningMaterialInputBase = {
 export type BuildReadySecp256k1SigningMaterialInput =
   BuildReadySecp256k1SigningMaterialInputBase & {
     signerSession: ReadyEcdsaSignerSession;
-    roleLocalReadyRecordForWorkerRestore?: EcdsaRoleLocalReadyRecord;
   };
 
 export function buildReadySecp256k1SigningMaterial(
@@ -52,28 +40,11 @@ export function buildReadySecp256k1SigningMaterial(
     throw new Error('[multichain] Missing wallet id for ready secp256k1 signing material');
   }
   const signerSession = args.signerSession;
-  if (signerSession.clientShare.kind === 'role_local_worker_share') {
-    const readyRecord = args.roleLocalReadyRecordForWorkerRestore;
-    if (!readyRecord) {
-      throw new Error('[multichain] Missing ECDSA role-local worker restore record');
-    }
-    return {
-      kind: 'ready_secp256k1_signing_material',
-      walletId,
-      signerSession,
-      singleUseEmailOtpSession: args.singleUseEmailOtpSession,
-      roleLocalWorkerRestore: {
-        kind: 'role_local_ready_record',
-        readyRecord,
-      },
-    };
-  }
   return {
     kind: 'ready_secp256k1_signing_material',
     walletId,
     signerSession,
     singleUseEmailOtpSession: args.singleUseEmailOtpSession,
-    roleLocalWorkerRestore: { kind: 'none' },
   };
 }
 
@@ -114,11 +85,6 @@ export class Secp256k1Engine {
   ): Promise<SignatureBytes> {
     const loadedMaterial = await loadRouterAbEcdsaHssSigningMaterialSource({
       signerSession: material.signerSession,
-      ...(material.roleLocalWorkerRestore.kind === 'role_local_ready_record'
-        ? {
-            roleLocalReadyRecordForWorkerRestore: material.roleLocalWorkerRestore.readyRecord,
-          }
-        : {}),
       workerCtx: this.workerCtx,
     });
     const signerSession = loadedMaterial.signerSession;
@@ -131,7 +97,7 @@ export class Secp256k1Engine {
         relayerUrl: signerTransport.relayerUrl,
         scope: signerSession.routerAbEcdsaHssNormalSigning.state.scope,
         credential: signerSession.routerAbEcdsaHssNormalSigning.credential,
-        keyHandle: String(publicFacts.keyHandle),
+        keyHandle: parseEcdsaKeyHandle(publicFacts.keyHandle),
         signingDigest32: req.digest32,
         clientSigningMaterial: loadedMaterial.clientSigningMaterial,
         participantIds,

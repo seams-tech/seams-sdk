@@ -38,6 +38,7 @@ import {
   reconstructThresholdEd25519SigningMaterialFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import { formatEd25519HssKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -418,7 +419,9 @@ export class EmailRecoveryDomain {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialSignerSlot;
       })();
 
-      const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(context);
+      const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(context, {
+        kind: 'generated_signing_grant',
+      });
       if (!thresholdWarmPolicy) {
         throw new Error('Threshold warm-session defaults are disabled for email recovery');
       }
@@ -583,10 +586,11 @@ export class EmailRecoveryDomain {
         signerSlot,
       });
 
-      const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
+      const { ed25519HssKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
         thresholdSection,
         'email-recovery bootstrap',
       );
+      const thresholdKeyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
       const thresholdKeyMaterialCreatedAtMs = Date.now();
       await storeThresholdEd25519KeyMaterial({
         nearAccountId,
@@ -626,7 +630,7 @@ export class EmailRecoveryDomain {
         relayerUrl,
         relayerKeyId,
         session: thresholdSession,
-        keyVersion: thresholdKeyVersion,
+        ed25519HssKeyVersion,
         signerSlot,
         materialCreatedAtMs: thresholdKeyMaterialCreatedAtMs,
         participantIdsHint: Array.isArray(thresholdSection.participantIds)

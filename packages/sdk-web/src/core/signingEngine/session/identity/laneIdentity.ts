@@ -18,9 +18,10 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
   type ResolvedEvmFamilyEcdsaKey,
 } from './evmFamilyEcdsaIdentity';
+import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 
 export type { SigningAuthMethod, SigningCurve };
-export type EcdsaThresholdKeyId = string & { readonly __brand?: 'EcdsaThresholdKeyId' };
+export type { EcdsaThresholdKeyId };
 export type SigningRootId = string & { readonly __brand?: 'SigningRootId' };
 export type SigningRootVersion = string & { readonly __brand?: 'SigningRootVersion' };
 

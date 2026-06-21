@@ -131,6 +131,10 @@ export type EcdsaSessionProvisionPlan =
   | WalletSessionEcdsaReconnect
   | EmailOtpEcdsaSessionProvision;
 
+export type FreshEcdsaSessionProvisionPlan =
+  | PasskeyEcdsaSessionProvision
+  | EmailOtpEcdsaSessionProvision;
+
 export type EcdsaReconnectMaterial = {
   kind: 'ecdsa_session_record';
   record: ThresholdEcdsaSessionRecord;
@@ -190,10 +194,38 @@ export type BuildEcdsaSessionProvisionPlanArgs =
   | BuildEmailOtpEcdsaSessionProvisionPlanArgs
   | BuildReconnectEcdsaSessionProvisionPlanArgs;
 
-export function getEcdsaSessionProvisionIdentity(
+function assertNeverEcdsaProvisionPlan(plan: never): never {
+  throw new Error(`[SigningEngine][ecdsa] unsupported ECDSA provision plan: ${String(plan)}`);
+}
+
+export function getEcdsaReconnectSessionIdentity(
+  plan: WalletSessionEcdsaReconnect,
+): EcdsaSessionIdentity {
+  return plan.existingSessionIdentity;
+}
+
+export function getEcdsaFreshProvisionSessionIdentity(
+  plan: FreshEcdsaSessionProvisionPlan,
+): EcdsaSessionIdentity {
+  switch (plan.kind) {
+    case 'passkey_ecdsa_session_provision':
+    case 'email_otp_ecdsa_session_provision':
+      return plan.newSessionIdentity;
+  }
+  return assertNeverEcdsaProvisionPlan(plan);
+}
+
+export function getEcdsaProvisionPlanLaneIdentity(
   plan: EcdsaSessionProvisionPlan,
 ): EcdsaSessionIdentity {
-  return 'newSessionIdentity' in plan ? plan.newSessionIdentity : plan.existingSessionIdentity;
+  switch (plan.kind) {
+    case 'wallet_session_ecdsa_reconnect':
+      return getEcdsaReconnectSessionIdentity(plan);
+    case 'passkey_ecdsa_session_provision':
+    case 'email_otp_ecdsa_session_provision':
+      return getEcdsaFreshProvisionSessionIdentity(plan);
+  }
+  return assertNeverEcdsaProvisionPlan(plan);
 }
 
 function requireNonEmptyString(value: unknown, field: string): string {

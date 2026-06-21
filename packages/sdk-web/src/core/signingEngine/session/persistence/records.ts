@@ -19,7 +19,6 @@ import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { THRESHOLD_ECDSA_SESSION_STORE_SOURCES } from '../identity/laneIdentity';
 import type {
   ThresholdEcdsaClientAdditiveShareHandle,
-  EcdsaThresholdKeyId,
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
@@ -32,6 +31,10 @@ import {
   parseRouterAbEcdsaHssNormalSigningStateV1,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
+import {
+  formatSigningSessionSealKeyVersionForWire,
+  type SigningSessionSealKeyVersion,
+} from '../keyMaterialBrands';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -88,7 +91,7 @@ type ThresholdEcdsaSessionRecordCore = {
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   keyHandle: EvmFamilyEcdsaKeyHandle;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion?: string;
   relayerKeyId: string;
@@ -279,7 +282,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       signingGrantId?: string;
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
-      keyVersion?: string;
+      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
       shamirPrimeB64u?: string;
     }
   | {
@@ -290,7 +293,7 @@ export type ThresholdSessionSealTransportAuthMaterial =
       signingGrantId?: string;
       walletSessionJwt?: string;
       walletSessionJwtSource: WalletSessionJwtAuthSource;
-      keyVersion?: string;
+      signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
       shamirPrimeB64u?: string;
     };
 
@@ -1799,7 +1802,7 @@ type EcdsaRecordFromBootstrapArgsBase = {
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   signingSessionSeal?: {
-    keyVersion?: string;
+    signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
     shamirPrimeB64u?: string;
   };
 };
@@ -1867,9 +1870,9 @@ function buildEcdsaRecordFromBootstrap(
   const ecdsaRoleLocalReadyRecord = normalizeEcdsaRoleLocalReadyRecord(
     keyRef.backendBinding?.ecdsaRoleLocalReadyRecord,
   );
-  const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
-    args.signingSessionSeal?.keyVersion,
-  );
+  const signingSessionSealKeyVersion = args.signingSessionSeal?.signingSessionSealKeyVersion
+    ? formatSigningSessionSealKeyVersionForWire(args.signingSessionSeal.signingSessionSealKeyVersion)
+    : undefined;
   const signingSessionSealShamirPrimeB64u = normalizeOptionalNonEmptyString(
     args.signingSessionSeal?.shamirPrimeB64u,
   );
@@ -2691,16 +2694,24 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
     ed25519WorkerMaterialBindingDigest,
     ...(String(args.sealedWorkerMaterialRef || '').trim()
       ? { sealedWorkerMaterialRef: String(args.sealedWorkerMaterialRef || '').trim() }
-      : {}),
+      : existing.sealedWorkerMaterialRef
+        ? { sealedWorkerMaterialRef: existing.sealedWorkerMaterialRef }
+        : {}),
     ...(String(args.sealedWorkerMaterialB64u || '').trim()
       ? { sealedWorkerMaterialB64u: String(args.sealedWorkerMaterialB64u || '').trim() }
-      : {}),
+      : existing.sealedWorkerMaterialB64u
+        ? { sealedWorkerMaterialB64u: existing.sealedWorkerMaterialB64u }
+        : {}),
     ...(String(args.materialFormatVersion || '').trim()
       ? { materialFormatVersion: String(args.materialFormatVersion || '').trim() }
-      : {}),
+      : existing.materialFormatVersion
+        ? { materialFormatVersion: existing.materialFormatVersion }
+        : {}),
     ...(String(args.materialKeyId || '').trim()
       ? { materialKeyId: String(args.materialKeyId || '').trim() }
-      : {}),
+      : existing.materialKeyId
+        ? { materialKeyId: existing.materialKeyId }
+        : {}),
     ...(Math.floor(Number(args.materialCreatedAtMs) || 0) > 0
       ? { materialCreatedAtMs: Math.floor(Number(args.materialCreatedAtMs) || 0) }
       : existing.materialCreatedAtMs
@@ -2708,10 +2719,14 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
         : {}),
     ...(Math.floor(Number(args.signerSlot) || 0) > 0
       ? { signerSlot: Math.floor(Number(args.signerSlot) || 0) }
-      : {}),
+      : existing.signerSlot
+        ? { signerSlot: existing.signerSlot }
+        : {}),
     ...(String(args.keyVersion || '').trim()
       ? { keyVersion: String(args.keyVersion || '').trim() }
-      : {}),
+      : existing.keyVersion
+        ? { keyVersion: existing.keyVersion }
+        : {}),
     ...(existing.routerAbNormalSigning
       ? { routerAbNormalSigning: existing.routerAbNormalSigning }
       : {}),

@@ -81,6 +81,11 @@ import {
   type RouterAbEd25519WorkerMaterialRestoreAuthorization,
 } from '@/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential } from '@/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization';
+import {
+  formatEd25519HssKeyVersionForWire,
+  parseEd25519HssKeyVersion,
+  type Ed25519HssKeyVersion,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
@@ -109,7 +114,7 @@ export type RegisteredThresholdEd25519SessionAuth =
 
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
-  signingGrantId?: string;
+  signingGrantId: string;
   ttlMs: number;
   remainingUses: number;
   participantIds?: number[];
@@ -118,7 +123,7 @@ export type ThresholdWarmSessionPolicyDraft = {
 
 export type ThresholdWarmSessionPolicyDraftInput =
   | {
-      kind?: 'generated_signing_grant';
+      kind: 'generated_signing_grant';
       sessionId?: string;
       participantIds?: number[];
       signingGrantId?: never;
@@ -141,7 +146,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     rpId: string;
     relayerKeyId?: string;
     thresholdSessionId: string;
-    signingGrantId?: string;
+    signingGrantId: string;
     participantIds?: number[];
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     routerAbNormalSigning: RouterAbEd25519NormalSigningState;
@@ -904,6 +909,18 @@ function assertNeverRouterAbNormalSigningConfig(value: never): never {
   throw new Error(`Unexpected Router A/B normal-signing config branch: ${String(value)}`);
 }
 
+function assertNeverThresholdWarmSessionPolicyDraftInput(value: never): never {
+  throw new Error(`Unexpected threshold warm-session policy input: ${String(value)}`);
+}
+
+function parseSharedSigningGrantId(value: unknown): string {
+  const signingGrantId = String(value || '').trim();
+  if (!signingGrantId) {
+    throw new Error('Threshold warm-session shared signing grant is missing signingGrantId');
+  }
+  return signingGrantId;
+}
+
 export function createRouterAbNormalSigningPolicy(
   configs: SeamsConfigsReadonly,
 ): RouterAbEd25519NormalSigningState {
@@ -925,32 +942,35 @@ export function createRouterAbNormalSigningPolicy(
 
 export function createThresholdWarmSessionPolicyDraft(
   context: ThresholdWarmSessionContext,
-  input?: ThresholdWarmSessionPolicyDraftInput,
+  input: ThresholdWarmSessionPolicyDraftInput,
 ): ThresholdWarmSessionPolicyDraft | null {
   const defaults = resolveThresholdWarmSessionDefaults(context);
   if (!defaults) return null;
-  const sessionId = String(input?.sessionId || '').trim() || generateThresholdSessionId();
-  const sharedGrant = input?.kind === 'shared_signing_grant' ? input : null;
-  const signingGrantId = sharedGrant
-    ? String(sharedGrant.signingGrantId || '').trim()
-    : generateSigningGrantId();
-  if (!signingGrantId) {
-    throw new Error('Threshold warm-session shared signing grant is missing signingGrantId');
-  }
-  const ttlMs = sharedGrant ? parsePositiveInt(sharedGrant.ttlMs) : defaults.ttlMs;
-  const remainingUses = sharedGrant
-    ? parsePositiveInt(sharedGrant.remainingUses)
-    : defaults.remainingUses;
-  if (sharedGrant && (!ttlMs || !remainingUses)) {
+  const sessionId = String(input.sessionId || '').trim() || generateThresholdSessionId();
+  const budget =
+    input.kind === 'generated_signing_grant'
+      ? {
+          signingGrantId: generateSigningGrantId(),
+          ttlMs: defaults.ttlMs,
+          remainingUses: defaults.remainingUses,
+        }
+      : input.kind === 'shared_signing_grant'
+        ? {
+            signingGrantId: parseSharedSigningGrantId(input.signingGrantId),
+            ttlMs: parsePositiveInt(input.ttlMs),
+            remainingUses: parsePositiveInt(input.remainingUses),
+          }
+        : assertNeverThresholdWarmSessionPolicyDraftInput(input);
+  if (input.kind === 'shared_signing_grant' && (!budget.ttlMs || !budget.remainingUses)) {
     throw new Error('Threshold warm-session shared signing grant has invalid policy limits');
   }
-  const participantIds = normalizeThresholdEd25519ParticipantIds(input?.participantIds);
+  const participantIds = normalizeThresholdEd25519ParticipantIds(input.participantIds);
   const routerAbNormalSigning = createRouterAbNormalSigningPolicy(context.configs);
   return {
     sessionId,
-    signingGrantId,
-    ttlMs,
-    remainingUses,
+    signingGrantId: budget.signingGrantId,
+    ttlMs: budget.ttlMs,
+    remainingUses: budget.remainingUses,
     ...(participantIds ? { participantIds } : {}),
     routerAbNormalSigning,
   };
@@ -964,8 +984,11 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
 }): ThresholdWarmSessionRequestEnvelope {
   const rpId = String(args.rpId || '').trim();
   const thresholdSessionId = String(args.requestedPolicy.sessionId || '').trim();
-  if (!rpId || !thresholdSessionId) {
-    throw new Error('Threshold warm-session request is missing rpId or thresholdSessionId');
+  const signingGrantId = String(args.requestedPolicy.signingGrantId || '').trim();
+  if (!rpId || !thresholdSessionId || !signingGrantId) {
+    throw new Error(
+      'Threshold warm-session request is missing rpId, thresholdSessionId, or signingGrantId',
+    );
   }
   return {
     session_policy: {
@@ -974,9 +997,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       rpId,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       thresholdSessionId,
-      ...(args.requestedPolicy.signingGrantId
-        ? { signingGrantId: args.requestedPolicy.signingGrantId }
-        : {}),
+      signingGrantId,
       ...(Array.isArray(args.requestedPolicy.participantIds)
         ? { participantIds: args.requestedPolicy.participantIds }
         : {}),
@@ -994,7 +1015,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   nearAccountId: AccountId;
   keyPurpose: string;
-  keyVersion: string;
+  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   participantIds: number[];
   derivationVersion: number;
   onProgress?: (message: string) => void;
@@ -1009,7 +1030,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
       signingRootId,
       nearAccountId: String(args.nearAccountId),
       keyPurpose: args.keyPurpose,
-      keyVersion: args.keyVersion,
+      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
       participantIds: args.participantIds,
       derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
@@ -1027,7 +1048,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
       signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: args.keyPurpose,
-      keyVersion: args.keyVersion,
+      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
       participantIds: prepared.participantIds,
       derivationVersion: args.derivationVersion,
     },
@@ -1046,7 +1067,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   nearAccountId: AccountId;
   keyPurpose: string;
-  keyVersion: string;
+  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   participantIds: number[];
   derivationVersion: number;
   onProgress?: (message: string) => void;
@@ -1065,7 +1086,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
       signingRootId,
       nearAccountId: String(args.nearAccountId),
       keyPurpose: args.keyPurpose,
-      keyVersion: args.keyVersion,
+      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
       participantIds: args.participantIds,
       derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
@@ -1079,7 +1100,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
       signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: args.keyPurpose,
-      keyVersion: args.keyVersion,
+      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
       participantIds: prepared.participantIds,
       derivationVersion: args.derivationVersion,
     },
@@ -1143,7 +1164,7 @@ export function requireThresholdEd25519WarmSessionKeyVersion(
   raw: unknown,
   errorContext: string,
 ): {
-  keyVersion: string;
+  ed25519HssKeyVersion: Ed25519HssKeyVersion;
 } {
   const section = isObject(raw) ? raw : {};
   const keyVersion = String(section.keyVersion || '').trim();
@@ -1157,7 +1178,7 @@ export function requireThresholdEd25519WarmSessionKeyVersion(
   ) {
     throw new Error(`${errorContext} returned incomplete threshold-ed25519 key metadata`);
   }
-  return { keyVersion };
+  return { ed25519HssKeyVersion: parseEd25519HssKeyVersion(keyVersion) };
 }
 
 export function completeRegisteredThresholdEd25519Registration(args: {
@@ -1502,7 +1523,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   relayerKeyId: string;
   signerSlot: number;
   session: ThresholdWarmSessionRelayResult;
-  keyVersion: string;
+  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   materialCreatedAtMs: number;
   participantIdsHint?: number[];
 }): Promise<{
@@ -1532,7 +1553,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
     ];
   const relayerUrl = String(args.relayerUrl || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
-  const keyVersion = String(args.keyVersion || '').trim();
+  const keyVersion = formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion);
   if (!relayerUrl || !relayerKeyId || !keyVersion) {
     throw new Error('Threshold Ed25519 warm-session reconstruction is missing relay metadata');
   }

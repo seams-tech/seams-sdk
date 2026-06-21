@@ -6,6 +6,7 @@ const IMPORT_PATHS = {
     '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
   login: '/sdk/esm/SeamsWeb/operations/auth/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
+  keyMaterialBrands: '/sdk/esm/core/signingEngine/session/keyMaterialBrands.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
@@ -21,6 +22,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const bootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDb);
+        const keyMaterialBrandsMod = await import(paths.keyMaterialBrands);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
         const nearAccountId = 'registration-alice.testnet';
@@ -199,6 +201,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const bootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
+        const keyMaterialBrandsMod = await import(paths.keyMaterialBrands);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
         const now = Date.now();
@@ -320,7 +323,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               runtimePolicyScope,
               routerAbNormalSigning,
             },
-            keyVersion: 'threshold-ed25519-hss-v1',
+            ed25519HssKeyVersion: keyMaterialBrandsMod.parseEd25519HssKeyVersion(
+              'threshold-ed25519-hss-v1',
+            ),
             materialCreatedAtMs: now,
             participantIdsHint: [1, 2],
           });
