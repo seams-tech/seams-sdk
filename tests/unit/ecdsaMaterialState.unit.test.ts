@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { buildEcdsaMaterialStateForCandidate } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
 import { resolveEvmFamilyEcdsaPlannerReadiness } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
@@ -21,9 +22,13 @@ import {
   clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
   markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
-import { buildEcdsaEmailOtpSigningLane } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
+import {
+  buildEcdsaEmailOtpSigningLane,
+  buildEvmTransactionSigningLane,
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { requireResolvedEvmFamilyEcdsaSigningLane } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
 
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -37,6 +42,8 @@ const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const CONTEXT_BINDING_32_B64U = base64UrlEncode(new Uint8Array(32).fill(8));
 const STATE_BLOB_B64U = base64UrlEncode(new Uint8Array(64).fill(9));
 const OWNER_ADDRESS = `0x${'aa'.repeat(20)}`;
+const SIGNING_ROOT_ID = 'project:env';
+const SIGNING_ROOT_VERSION = 'v1';
 
 const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -50,6 +57,28 @@ function ethereumAddress20B64u(address: string): string {
   return base64UrlEncode(bytes);
 }
 
+function makeWalletSessionJwt(args: {
+  thresholdSessionId: string;
+  signingGrantId: string;
+}): string {
+  const encode = (value: object): string =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    exp: 1_900_000_000,
+  })}.signature`;
+}
+
+async function readyWarmSessionStatus() {
+  return {
+    ok: true,
+    remainingUses: 3,
+    expiresAtMs: 1_900_000_000_000,
+  } as const;
+}
+
 function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStateV1 {
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
@@ -59,8 +88,8 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
         rp_id: 'example.localhost',
         key_scope: 'evm-family',
         ecdsa_threshold_key_id: 'ecdsa-key-1',
-        signing_root_id: 'root-1',
-        signing_root_version: 'v1',
+        signing_root_id: SIGNING_ROOT_ID,
+        signing_root_version: SIGNING_ROOT_VERSION,
         key_purpose: 'evm-signing',
         key_version: 'v1',
       },
@@ -93,8 +122,8 @@ function makeCandidate(): EcdsaLaneCandidate {
       walletId,
       rpId: 'example.localhost',
       ecdsaThresholdKeyId: 'ecdsa-key-1',
-      signingRootId: 'root-1',
-      signingRootVersion: 'v1',
+      signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       participantIds: [1, 2],
       thresholdOwnerAddress: OWNER_ADDRESS,
     }),
@@ -111,6 +140,24 @@ function makeCandidate(): EcdsaLaneCandidate {
     source: 'runtime_session_record',
     chainTarget: EVM_CHAIN_TARGET,
   };
+}
+
+function makeResolvedLane() {
+  const candidate = makeCandidate();
+  return requireResolvedEvmFamilyEcdsaSigningLane({
+    lane: buildEvmTransactionSigningLane({
+      authMethod: 'passkey',
+      key: candidate.key,
+      keyHandle: candidate.keyHandle,
+      walletId: candidate.walletId,
+      chainTarget: candidate.chainTarget,
+      signingGrantId: SigningSessionIds.signingGrant(candidate.signingGrantId),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(candidate.thresholdSessionId),
+      storageSource: 'login',
+    }),
+    chain: 'evm',
+    context: 'ecdsaMaterialState.unit',
+  });
 }
 
 function makeEmailOtpCandidate(): EcdsaLaneCandidate {
@@ -136,8 +183,8 @@ function makeRoleLocalReadyRecord() {
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
-      signingRootId: 'root-1',
-      signingRootVersion: 'v1',
+      signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -169,8 +216,8 @@ function makeEmailOtpRoleLocalReadyRecord() {
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
-      signingRootId: 'root-1',
-      signingRootVersion: 'v1',
+      signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -194,16 +241,25 @@ function makeRecord(
     chainTarget: EVM_CHAIN_TARGET,
     relayerUrl: 'https://relay.localhost',
     ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
     ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord(),
     participantIds: [1, 2],
+    runtimePolicyScope: {
+      orgId: 'org',
+      projectId: 'project',
+      envId: 'env',
+      signingRootVersion: SIGNING_ROOT_VERSION,
+    },
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'wallet-session-1',
-    walletSessionJwt: 'threshold-auth-token',
+    walletSessionJwt: makeWalletSessionJwt({
+      thresholdSessionId: 'threshold-session-1',
+      signingGrantId: 'wallet-session-1',
+    }),
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
     routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
@@ -223,16 +279,25 @@ function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'e
     chainTarget: EVM_CHAIN_TARGET,
     relayerUrl: 'https://relay.localhost',
     ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
     ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord(),
     participantIds: [1, 2],
+    runtimePolicyScope: {
+      orgId: 'org',
+      projectId: 'project',
+      envId: 'env',
+      signingRootVersion: SIGNING_ROOT_VERSION,
+    },
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'wallet-session-1',
-    walletSessionJwt: 'threshold-auth-token',
+    walletSessionJwt: makeWalletSessionJwt({
+      thresholdSessionId: 'threshold-session-1',
+      signingGrantId: 'wallet-session-1',
+    }),
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 3,
     routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
@@ -272,7 +337,7 @@ test.describe('ecdsa material state', () => {
     );
   });
 
-  test('keeps unvalidated ready-state blob records out of ready signer material', () => {
+  test('keeps unvalidated ready-state blob records out of ready signer material', async () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record: makeRecord(),
@@ -282,9 +347,23 @@ test.describe('ecdsa material state', () => {
       materialChainTarget: EVM_CHAIN_TARGET,
     });
 
-    expect(state.kind).toBe('public_identity_available');
-    if (state.kind !== 'public_identity_available') return;
+    expect(state.kind).toBe('reauth_required');
+    if (state.kind !== 'reauth_required') return;
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
+
+    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
+      deps: {
+        touchConfirm: {
+          getWarmSessionStatus: readyWarmSessionStatus,
+        },
+        signingSessionCoordinator: new SigningSessionCoordinator(),
+      },
+      lane: makeResolvedLane(),
+      material: state,
+    });
+
+    expect(readiness.readiness.status).toBe('missing_session');
+    expect(readiness.remainingUses).toBe(0);
   });
 
   test('runtime-validated ready material carries a signer session', () => {

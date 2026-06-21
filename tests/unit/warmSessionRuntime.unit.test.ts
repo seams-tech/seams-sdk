@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
+import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
@@ -11,6 +12,9 @@ import {
 } from './helpers/warmSessionStore.fixtures';
 
 const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
+const SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
+  'signing-session-seal-kek-2026-02-r1',
+);
 
 test.describe('warmSessionRuntime', () => {
   test('claims warm PRF material without a preparatory status read', async () => {
@@ -128,7 +132,7 @@ test.describe('warmSessionRuntime', () => {
         [evmRecord.thresholdSessionId]: {
           ok: true,
           sealedSecretB64u: 'sealed-prf-first',
-          keyVersion: 'signing-session-seal-kek-2026-02-r1',
+          keyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
           remainingUses: evmRecord.remainingUses || 5,
           expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
         },
@@ -148,7 +152,7 @@ test.describe('warmSessionRuntime', () => {
         relayerUrl: evmRecord.relayerUrl,
         walletSessionJwt: evmRecord.walletSessionJwt,
         walletSessionJwtSource: 'ecdsa',
-        signingSessionSealKeyVersion: 'signing-session-seal-kek-2026-02-r1',
+        signingSessionSealKeyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
         shamirPrimeB64u: 'AQAB',
       }),
     });
