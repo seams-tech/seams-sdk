@@ -249,8 +249,8 @@ function recordMatchesPlannedIdentity(args: {
 function provisionPlanRequiresExistingRecordIdentity(plan: EcdsaSessionProvisionPlan): boolean {
   switch (plan.kind) {
     case 'wallet_session_ecdsa_reconnect':
-    case 'passkey_ecdsa_session_provision':
       return true;
+    case 'passkey_ecdsa_session_provision':
     case 'email_otp_ecdsa_session_provision':
       return false;
   }
