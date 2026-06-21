@@ -422,6 +422,37 @@ function setRegistrationActivationBooleanAttribute(
   }
 }
 
+function isRegistrationActivationButtonInteractionState(
+  value: unknown,
+): value is RegistrationActivationButtonInteractionState {
+  if (!isObject(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === 'registration_activation_button_interaction_state_v1' &&
+    typeof record.hovered === 'boolean' &&
+    typeof record.focused === 'boolean' &&
+    typeof record.pressed === 'boolean' &&
+    typeof record.busy === 'boolean' &&
+    typeof record.disabled === 'boolean'
+  );
+}
+
+function canApplyRegistrationActivationButtonState(
+  state: RegistrationActivationSurfaceState,
+): boolean {
+  switch (state.kind) {
+    case 'ready':
+    case 'starting':
+      return true;
+    case 'idle':
+    case 'mounting':
+    case 'completed':
+    case 'cancelled':
+    case 'failed':
+      return false;
+  }
+}
+
 function applyRegistrationActivationButtonState(args: {
   target: HTMLElement | null;
   state: RegistrationActivationButtonInteractionState;
@@ -1284,12 +1315,14 @@ export class WalletIframeRouter {
         return;
       }
       if (event.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
+        if (currentState.kind !== 'ready') return;
         setState({ kind: 'starting', activationId });
         return;
       }
       if (event.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
         const state = event.payload?.state;
-        if (!state) return;
+        if (!canApplyRegistrationActivationButtonState(currentState)) return;
+        if (!isRegistrationActivationButtonInteractionState(state)) return;
         applyRegistrationActivationButtonState({ target, state });
       }
     };
