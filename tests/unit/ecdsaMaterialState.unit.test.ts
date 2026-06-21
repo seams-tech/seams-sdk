@@ -2,11 +2,13 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { buildEcdsaMaterialStateForCandidate } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
+import { resolveEvmFamilyEcdsaPlannerReadiness } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
 import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
 import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
@@ -15,6 +17,13 @@ import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
+  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+} from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildEcdsaEmailOtpSigningLane } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
+import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -104,6 +113,14 @@ function makeCandidate(): EcdsaLaneCandidate {
   };
 }
 
+function makeEmailOtpCandidate(): EcdsaLaneCandidate {
+  const passkeyCandidate = makeCandidate();
+  return {
+    ...passkeyCandidate,
+    authMethod: 'email_otp',
+  };
+}
+
 function makeRoleLocalReadyRecord() {
   return buildEcdsaRoleLocalReadyRecord({
     stateBlob: {
@@ -133,6 +150,38 @@ function makeRoleLocalReadyRecord() {
     authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
       credentialIdB64u: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       rpId: 'example.localhost',
+    }),
+  });
+}
+
+function makeEmailOtpRoleLocalReadyRecord() {
+  return buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: STATE_BLOB_B64U,
+    },
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: toAccountId('alice.testnet'),
+      rpId: 'example.localhost',
+      chainTarget: EVM_CHAIN_TARGET,
+      keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      signingRootId: 'root-1',
+      signingRootVersion: 'v1',
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      contextBinding32B64u: CONTEXT_BINDING_32_B64U,
+      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      ethereumAddress: OWNER_ADDRESS,
+    }),
+    authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+      authSubjectId: 'email:alice',
     }),
   });
 }
@@ -168,7 +217,46 @@ function makeRecord(
   };
 }
 
+function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }> {
+  return {
+    walletId: toAccountId('alice.testnet'),
+    chainTarget: EVM_CHAIN_TARGET,
+    relayerUrl: 'https://relay.localhost',
+    ecdsaThresholdKeyId: 'ecdsa-key-1',
+    signingRootId: 'root-1',
+    signingRootVersion: 'v1',
+    relayerKeyId: 'relayer-key-1',
+    clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+    ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord(),
+    participantIds: [1, 2],
+    thresholdSessionKind: 'jwt',
+    thresholdSessionId: 'threshold-session-1',
+    signingGrantId: 'wallet-session-1',
+    walletSessionJwt: 'threshold-auth-token',
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 3,
+    routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(),
+    thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+    ethereumAddress: OWNER_ADDRESS,
+    updatedAtMs: 1_800_000_000_000,
+    source: 'email_otp',
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
+    authMetadata: { rpId: 'example.localhost' },
+    emailOtpAuthContext: {
+      authMethod: 'email_otp',
+      policy: 'per_operation',
+      reason: 'sign',
+      retention: 'session',
+      authSubjectId: 'email:alice',
+    },
+  };
+}
+
 test.describe('ecdsa material state', () => {
+  test.afterEach(() => {
+    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+  });
+
   test('rejects an explicit chainTarget that does not match the candidate', () => {
     expect(() =>
       buildEcdsaMaterialStateForCandidate({
@@ -184,10 +272,27 @@ test.describe('ecdsa material state', () => {
     );
   });
 
-  test('treats ready-state blob records as ready worker-handle signer material', () => {
+  test('keeps unvalidated ready-state blob records out of ready signer material', () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record: makeRecord(),
+      authMethod: 'passkey',
+      source: 'login',
+      chainTarget: EVM_CHAIN_TARGET,
+      materialChainTarget: EVM_CHAIN_TARGET,
+    });
+
+    expect(state.kind).toBe('public_identity_available');
+    if (state.kind !== 'public_identity_available') return;
+    expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
+  });
+
+  test('runtime-validated ready material carries a signer session', () => {
+    const record = makeRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    const state = buildEcdsaMaterialStateForCandidate({
+      candidate: makeCandidate(),
+      record,
       authMethod: 'passkey',
       source: 'login',
       chainTarget: EVM_CHAIN_TARGET,
@@ -200,19 +305,41 @@ test.describe('ecdsa material state', () => {
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
   });
 
-  test('ready material carries a signer session', () => {
-    const state = buildEcdsaMaterialStateForCandidate({
-      candidate: makeCandidate(),
-      record: makeRecord(),
-      authMethod: 'passkey',
-      source: 'login',
+  test('treats Email OTP record policy as reauth readiness until worker material is live', async () => {
+    const record = makeEmailOtpRecord();
+    const material = buildEcdsaMaterialStateForCandidate({
+      candidate: makeEmailOtpCandidate(),
+      record,
+      authMethod: 'email_otp',
+      source: 'email_otp',
       chainTarget: EVM_CHAIN_TARGET,
       materialChainTarget: EVM_CHAIN_TARGET,
     });
+    const lane = buildEcdsaEmailOtpSigningLane({
+      key: makeEmailOtpCandidate().key,
+      keyHandle: record.keyHandle,
+      walletId: record.walletId,
+      chainTarget: EVM_CHAIN_TARGET,
+      signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
+    });
 
-    expect(state.kind).toBe('ready_to_sign');
-    if (state.kind !== 'ready_to_sign') return;
-    expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
-    expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
+    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
+      deps: {
+        touchConfirm: {
+          getWarmSessionStatus: async () => ({
+            ok: true,
+            remainingUses: 1,
+            expiresAtMs: 1_900_000_000_000,
+          }),
+        },
+        signingSessionCoordinator: new SigningSessionCoordinator(),
+      },
+      lane,
+      material,
+    });
+
+    expect(readiness.readiness.status).toBe('missing_session');
+    expect(readiness.remainingUses).toBe(0);
   });
 });

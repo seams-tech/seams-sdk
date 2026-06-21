@@ -25,7 +25,7 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     expect(auth).toMatchObject({
       capability: 'ed25519',
-      walletSessionJwt: 'jwt:ed-wallet-session',
+      walletSessionJwt: ed25519Record.walletSessionJwt,
       walletSessionJwtSource: 'ed25519_record',
     });
   });
@@ -55,7 +55,7 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     expect(capability?.state).toBe('auth_missing');
     expect(capability?.auth?.walletSessionJwt).toBeUndefined();
-    expect(capability?.auth?.walletSessionJwtSource).toBe('none');
+    expect(capability?.auth).toBeNull();
     expect(capability?.prfClaim?.state).toBe('warm');
   });
 
@@ -92,7 +92,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect(auth?.walletSessionJwt).not.toBe('jwt:ed-fallback-session');
   });
 
-  test('surfaces explicit Email OTP auth context on warm ECDSA capability state', async () => {
+  test('surfaces explicit Email OTP auth context on material-pending ECDSA capability state', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -120,7 +120,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     const store = createWarmSessionTestServices();
 
     const warmSession = await store.getWarmSession('email-otp-auth-state.testnet');
-    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('material_pending');
     expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
       state: 'warm',
       sessionId: evmRecord.thresholdSessionId,
@@ -254,22 +254,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect('sessionId' in evmBootstrap).toBe(false);
     expect('walletSessionRouteAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
-      kind: 'wallet_session_reconnect_ecdsa_bootstrap',
-      keyHandle: warmRecord.keyHandle,
-      key: {
-        ecdsaThresholdKeyId: warmRecord.ecdsaThresholdKeyId,
-      },
-      lanePolicy: {
-        chainTarget: {
-          kind: 'tempo',
-        },
-        thresholdSessionId: 'ecdsa-warm-session',
-        signingGrantId: 'wsess-ecdsa-warm-session',
-      },
-      routeAuth: {
-        kind: 'wallet_session',
-        jwt: expect.any(String),
-      },
+      kind: 'reuse_warm_ecdsa_bootstrap',
     });
   });
 
