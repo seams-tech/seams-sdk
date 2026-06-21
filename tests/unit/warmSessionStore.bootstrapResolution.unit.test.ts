@@ -79,23 +79,10 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
     expect('walletSessionRouteAuth' in fallbackBootstrap).toBe(false);
 
     expect(primaryBootstrap).toMatchObject({
-      kind: 'wallet_session_reconnect_ecdsa_bootstrap',
-      keyHandle: primaryEcdsaRecord.keyHandle,
-      key: {
-        walletId: 'primary.testnet',
-        ecdsaThresholdKeyId: primaryEcdsaRecord.ecdsaThresholdKeyId,
-        participantIds: [1, 2],
-      },
-      lanePolicy: {
-        chainTarget: primaryEcdsaRecord.chainTarget,
-        thresholdSessionId: 'sess-ecdsa-jwt',
-        signingGrantId: 'wsess-sess-ecdsa-jwt',
-        thresholdSessionKind: 'jwt',
-      },
-      routeAuth: {
-        kind: 'wallet_session',
-        jwt: expect.any(String),
-      },
+      kind: 'reuse_warm_ecdsa_bootstrap',
+      walletId: 'primary.testnet',
+      chainTarget: primaryEcdsaRecord.chainTarget,
     });
+    expect('walletSessionRouteAuth' in primaryBootstrap).toBe(false);
   });
 });
