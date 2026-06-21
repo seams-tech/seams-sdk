@@ -277,6 +277,7 @@ test.describe('demo threshold action hooks', () => {
 
       const counters = {
         executeEvmFamilyTransactionCalls: 0,
+        signTempoCalls: 0,
         fetchTempoGreetingCalls: 0,
         refreshFundingAddressCalls: 0,
         refreshBalanceCalls: 0,
@@ -386,6 +387,10 @@ test.describe('demo threshold action hooks', () => {
                   payloadVerification: { verified: true, reason: 'matched' as const },
                 };
               },
+              signTempo: async () => {
+                counters.signTempoCalls += 1;
+                throw new Error('Tempo drip must not call the low-level signing API');
+              },
             },
           },
           canSignTempo: true,
@@ -430,7 +435,11 @@ test.describe('demo threshold action hooks', () => {
       });
 
       await hookApi.handleTempoDripToken();
+      const signingCallsAfterFirstDrip =
+        counters.executeEvmFamilyTransactionCalls + counters.signTempoCalls;
       await hookApi.handleTempoDripToken();
+      const signingCallsAfterSecondDrip =
+        counters.executeEvmFamilyTransactionCalls + counters.signTempoCalls;
       await hookApi.handleSignTempoThresholdTx();
       await new Promise((resolve) => window.setTimeout(resolve, 0));
       const stateAfter = {
@@ -438,10 +447,13 @@ test.describe('demo threshold action hooks', () => {
         tempoThresholdSignLoading: Boolean(hookApi.tempoThresholdSignLoading),
       };
       root.unmount();
-      return { counters, stateAfter };
+      return { counters, signingCallsAfterFirstDrip, signingCallsAfterSecondDrip, stateAfter };
     }, { paths: IMPORT_PATHS, tempoRpcHost: TEMPO_RPC });
 
+    expect(result.signingCallsAfterFirstDrip).toBe(0);
+    expect(result.signingCallsAfterSecondDrip).toBe(0);
     expect(result.counters.executeEvmFamilyTransactionCalls).toBe(1);
+    expect(result.counters.signTempoCalls).toBe(0);
     expect(result.counters.fetchTempoGreetingCalls).toBe(1);
     expect(result.counters.refreshFundingAddressCalls).toBe(1);
     expect(result.counters.requestChainIds).toEqual([42431]);

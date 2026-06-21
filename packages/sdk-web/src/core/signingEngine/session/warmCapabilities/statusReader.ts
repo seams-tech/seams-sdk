@@ -37,8 +37,8 @@ import {
 import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import {
+  classifyRouterAbEd25519PersistedSigningRecord,
   classifyRouterAbEcdsaHssPersistedSigningRecord,
-  isRouterAbEd25519WorkerMaterialRuntimeValidated,
 } from '../routerAbSigningWalletSession';
 import type {
   ThresholdWarmSessionStatusReader,
@@ -305,31 +305,29 @@ export function createWarmSessionStatusReader(
     return null;
   }
 
-  function hasRecordBackedEd25519MaterialFacts(
-    record: ThresholdEd25519SessionRecord | null | undefined,
-  ): record is ThresholdEd25519SessionRecord {
-    if (!record || !String(record.ed25519WorkerMaterialHandle || '').trim()) return false;
-    if (!String(record.ed25519WorkerMaterialBindingDigest || '').trim()) return false;
-    if (!String(record.clientVerifyingShareB64u || '').trim()) return false;
-    if (record.source === 'email_otp') return record.emailOtpAuthContext?.retention === 'session';
-    return true;
-  }
-
   function toRecordBackedEd25519StatusIfRuntimeValid(
     record: ThresholdEd25519SessionRecord,
     thresholdSessionId: string,
   ): SigningSessionStatus | null {
-    const remainingUses = Math.floor(Number(record.remainingUses) || 0);
-    const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+    const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
+    switch (persistedState.kind) {
+      case 'runtime_validated':
+        break;
+      case 'restore_available':
+      case 'material_hint_unvalidated':
+      case 'auth_ready_material_pending':
+      case 'non_signing':
+      case 'invalid':
+        return null;
+    }
+    const remainingUses = Math.floor(Number(persistedState.value.remainingUses) || 0);
+    const expiresAtMs = Math.floor(Number(persistedState.value.expiresAtMs) || 0);
     const status =
       expiresAtMs > 0 && Date.now() >= expiresAtMs
         ? 'expired'
         : remainingUses <= 0
           ? 'exhausted'
           : 'active';
-    if (status === 'active' && !isRouterAbEd25519WorkerMaterialRuntimeValidated(record)) {
-      return null;
-    }
     return {
       sessionId: thresholdSessionId,
       status,
@@ -406,7 +404,7 @@ export function createWarmSessionStatusReader(
       authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
       retention: record?.emailOtpAuthContext?.retention || null,
     });
-    if (status.status === 'not_found' && hasRecordBackedEd25519MaterialFacts(record)) {
+    if (status.status === 'not_found' && record) {
       return (
         toRecordBackedEd25519StatusIfRuntimeValid(record, normalizedThresholdSessionId) || status
       );

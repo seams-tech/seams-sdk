@@ -193,6 +193,46 @@ export interface PMRegistrationActivationStartedPayload {
   activationId: string;
 }
 
+function recordPayload(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function nonEmptyPayloadString(record: Record<string, unknown>, field: string): string | null {
+  if (typeof record[field] !== 'string') return null;
+  const value = record[field].trim();
+  return value || null;
+}
+
+function positiveSafeIntegerPayloadNumber(
+  record: Record<string, unknown>,
+  field: string,
+): number | null {
+  if (typeof record[field] !== 'number') return null;
+  const value = record[field];
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+export function parseRegistrationActivationReadyPayload(
+  value: unknown,
+): PMRegistrationActivationReadyPayload | null {
+  const record = recordPayload(value);
+  if (!record) return null;
+  const activationId = nonEmptyPayloadString(record, 'activationId');
+  const expiresAtMs = positiveSafeIntegerPayloadNumber(record, 'expiresAtMs');
+  if (!activationId || !expiresAtMs) return null;
+  return { activationId, expiresAtMs };
+}
+
+export function parseRegistrationActivationStartedPayload(
+  value: unknown,
+): PMRegistrationActivationStartedPayload | null {
+  const record = recordPayload(value);
+  if (!record) return null;
+  const activationId = nonEmptyPayloadString(record, 'activationId');
+  return activationId ? { activationId } : null;
+}
+
 export type RegistrationActivationButtonInteractionState = {
   kind: 'registration_activation_button_interaction_state_v1';
   hovered: boolean;
@@ -220,6 +260,16 @@ export function isRegistrationActivationButtonInteractionState(
 export interface PMRegistrationActivationButtonStatePayload {
   activationId: string;
   state: RegistrationActivationButtonInteractionState;
+}
+
+export function parseRegistrationActivationButtonStatePayload(
+  value: unknown,
+): PMRegistrationActivationButtonStatePayload | null {
+  const record = recordPayload(value);
+  if (!record) return null;
+  const activationId = nonEmptyPayloadString(record, 'activationId');
+  if (!activationId || !isRegistrationActivationButtonInteractionState(record.state)) return null;
+  return { activationId, state: record.state };
 }
 
 export interface PMRegisterWalletPayload {

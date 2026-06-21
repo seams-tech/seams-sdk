@@ -31,7 +31,9 @@ import {
   toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from '../warmCapabilities/readModel';
+import { budgetUnknownSigningSessionStatus } from '../budget/budgetProjection';
 import {
+  availableUsesForBudgetAdmission,
   ecdsaWalletBudgetOwner,
   ed25519WalletBudgetOwner,
   isEcdsaLaneBudgetStatusCheck,
@@ -907,6 +909,12 @@ export function statusFromConsumeResults(args: {
       lanes: statusLanes,
     });
   }
+  if (relevantResults.some((result) => !result.ok && result.code === 'budget_status_required')) {
+    return budgetUnknownSigningSessionStatus({
+      signingGrantId: args.signingGrantId,
+      reason: 'missing_trusted_status',
+    });
+  }
   const okResults = relevantResults.filter(
     (result): result is Extract<WarmSessionStatusResult, { ok: true }> => result.ok,
   );
@@ -964,33 +972,57 @@ function lanesMatchingBudgetTargets(args: {
   );
 }
 
-function consumeRecordPolicyLane(args: {
-  lane: DiscoveredSigningSessionLane;
+function invalidRecordPolicyBudgetStatus(message: string): WarmSessionStatusResult {
+  return {
+    ok: false,
+    code: 'budget_status_required',
+    message,
+  };
+}
+
+function parseRecordPolicyBudgetInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function assertNeverSigningSessionStatus(value: never): never {
+  throw new Error(`Unhandled signing session status: ${String(value)}`);
+}
+
+function admitActiveRecordPolicyLaneFromTrustedStatus(args: {
+  status: SigningSessionStatus & { status: 'active' };
   uses: number;
   nowMs: number;
-  basisStatus: SigningSessionStatus | null;
 }): WarmSessionStatusResult {
-  if (args.basisStatus?.status === 'exhausted') {
-    return {
-      ok: false,
-      code: 'exhausted',
-      message: 'record-policy signing session exhausted',
-    };
+  const expiresAtMs = parseRecordPolicyBudgetInteger(args.status.expiresAtMs);
+  if (expiresAtMs === null || expiresAtMs <= 0) {
+    return invalidRecordPolicyBudgetStatus(
+      'active server budget status is missing expiresAtMs',
+    );
   }
-  if (args.basisStatus?.status === 'expired') {
-    return {
-      ok: false,
-      code: 'expired',
-      message: 'record-policy signing session expired',
-    };
+  const remainingUses = parseRecordPolicyBudgetInteger(args.status.remainingUses);
+  if (remainingUses === null || remainingUses < 0) {
+    return invalidRecordPolicyBudgetStatus(
+      'active server budget status is missing remainingUses',
+    );
   }
-  const remainingUses = Math.max(
-    0,
-    Math.floor(Number(args.basisStatus?.remainingUses ?? args.lane.record.remainingUses) || 0),
-  );
-  const expiresAtMs = Math.floor(
-    Number(args.basisStatus?.expiresAtMs ?? args.lane.record.expiresAtMs) || 0,
-  );
+  const availableUsesValue =
+    args.status.availableUses === undefined
+      ? undefined
+      : parseRecordPolicyBudgetInteger(args.status.availableUses);
+  if (availableUsesValue !== undefined && (availableUsesValue === null || availableUsesValue < 0)) {
+    return invalidRecordPolicyBudgetStatus(
+      'active server budget status has invalid availableUses',
+    );
+  }
+  const activeStatus: SigningSessionStatus & { status: 'active' } = {
+    sessionId: args.status.sessionId,
+    status: 'active',
+    remainingUses,
+    expiresAtMs,
+    ...(availableUsesValue !== undefined ? { availableUses: availableUsesValue } : {}),
+  };
+  const availableUses = availableUsesForBudgetAdmission(activeStatus);
   if (expiresAtMs <= args.nowMs) {
     return {
       ok: false,
@@ -998,7 +1030,7 @@ function consumeRecordPolicyLane(args: {
       message: 'record-policy signing session expired',
     };
   }
-  if (remainingUses < args.uses) {
+  if (availableUses < args.uses) {
     return {
       ok: false,
       code: 'exhausted',
@@ -1007,9 +1039,50 @@ function consumeRecordPolicyLane(args: {
   }
   return {
     ok: true,
-    remainingUses: remainingUses - args.uses,
+    remainingUses: availableUses - args.uses,
     expiresAtMs,
   };
+}
+
+function admitRecordPolicyLaneFromTrustedStatus(args: {
+  uses: number;
+  nowMs: number;
+  trustedBudgetStatus: SigningSessionStatus | null;
+}): WarmSessionStatusResult {
+  const status = args.trustedBudgetStatus;
+  if (!status) {
+    return invalidRecordPolicyBudgetStatus(
+      'server budget status is required for record-policy signing session',
+    );
+  }
+  switch (status.status) {
+    case 'active':
+      return admitActiveRecordPolicyLaneFromTrustedStatus({
+        status: status as SigningSessionStatus & { status: 'active' },
+        uses: args.uses,
+        nowMs: args.nowMs,
+      });
+    case 'expired':
+      return {
+        ok: false,
+        code: 'expired',
+        message: 'record-policy signing session expired',
+      };
+    case 'exhausted':
+      return {
+        ok: false,
+        code: 'exhausted',
+        message: 'record-policy signing session exhausted',
+      };
+    case 'not_found':
+    case 'unavailable':
+    case 'budget_unknown':
+      return invalidRecordPolicyBudgetStatus(
+        'current server budget status is required for record-policy signing session',
+      );
+    default:
+      return assertNeverSigningSessionStatus(status.status);
+  }
 }
 
 export function resolveStatusAfterConsume(args: {
@@ -1020,6 +1093,8 @@ export function resolveStatusAfterConsume(args: {
   skippedAlreadyConsumedBacking: boolean;
 }): SigningSessionStatus {
   if (args.consumedStatus?.status === 'exhausted') return args.consumedStatus;
+  if (args.consumedStatus?.status === 'budget_unknown') return args.consumedStatus;
+  if (args.consumedStatus?.status === 'unavailable') return args.consumedStatus;
   if (args.status.status === 'not_found' && args.skippedAlreadyConsumedBacking) {
     return statusFromConsumedLanes(args);
   }
@@ -1164,11 +1239,10 @@ export async function consumeSigningGrantUse(args: {
         }
         consumeResults.push({
           lane,
-          result: consumeRecordPolicyLane({
-            lane,
+          result: admitRecordPolicyLaneFromTrustedStatus({
             uses,
             nowMs: Date.now(),
-            basisStatus: status,
+            trustedBudgetStatus: status,
           }),
           laneIsExplicitTarget,
         });

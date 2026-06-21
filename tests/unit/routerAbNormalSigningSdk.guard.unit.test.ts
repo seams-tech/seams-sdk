@@ -437,6 +437,54 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     );
   });
 
+  test('Router A/B signing readiness has no implicit persistence fallback paths', () => {
+    const activeFallbackBoundaryPaths = [
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
+      'packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts',
+      'packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts',
+      'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts',
+    ];
+    const forbiddenMarkers = [
+      'fallbackReadySecp256k1Material',
+      'buildFallbackReadySecp256k1SigningMaterial',
+      'fallbackThresholdEcdsaRecord',
+      'fallbackAuth',
+      'material_fallback',
+      'basisStatus?.remainingUses',
+      'basisStatus?.expiresAtMs',
+      'candidates[0] || null',
+    ] as const;
+    const offenders = activeFallbackBoundaryPaths.flatMap((relativePath) => {
+      const source = readRepoSource(relativePath);
+      return forbiddenMarkers
+        .filter((marker) => source.includes(marker))
+        .map((marker) => `${relativePath} contains implicit fallback marker ${marker}`);
+    });
+
+    const statusReaderSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts',
+    );
+    for (const marker of [
+      'record.ed25519WorkerMaterialHandle',
+      'record.ed25519WorkerMaterialBindingDigest',
+      'record.clientVerifyingShareB64u',
+    ] as const) {
+      if (statusReaderSource.includes(marker)) {
+        offenders.push(`warmCapabilities/statusReader.ts reads raw Ed25519 material field ${marker}`);
+      }
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+    expect(statusReaderSource).toContain('classifyRouterAbEd25519PersistedSigningRecord(record)');
+    expect(
+      readRepoSource(
+        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+      ),
+    ).toContain('resolveEcdsaSigningMaterialPlan');
+  });
+
   test('Ed25519 active signing reads Wallet Session auth from Router A/B ready state only', () => {
     const activeEd25519SigningPaths = [
       'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',

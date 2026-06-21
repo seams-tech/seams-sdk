@@ -50,12 +50,17 @@
  */
 
 import {
-  isRegistrationActivationButtonInteractionState,
+  parseRegistrationActivationButtonStatePayload,
+  parseRegistrationActivationReadyPayload,
+  parseRegistrationActivationStartedPayload,
   type ParentToChildEnvelope,
   type ChildToParentEnvelope,
   type ProgressPayload,
   type PreferencesChangedPayload,
   type RegistrationActivationButtonInteractionState,
+  type PMRegistrationActivationButtonStatePayload,
+  type PMRegistrationActivationReadyPayload,
+  type PMRegistrationActivationStartedPayload,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import {
@@ -469,6 +474,41 @@ function applyRegistrationActivationButtonState(args: {
     REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.disabled,
     args.state.disabled,
   );
+}
+
+type ParsedRegistrationActivationChildMessage =
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_READY';
+      payload: PMRegistrationActivationReadyPayload;
+    }
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_STARTED';
+      payload: PMRegistrationActivationStartedPayload;
+    }
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE';
+      payload: PMRegistrationActivationButtonStatePayload;
+    };
+
+function parseRegistrationActivationChildMessage(
+  msg: ChildToParentEnvelope,
+): ParsedRegistrationActivationChildMessage | null {
+  switch (msg.type) {
+    case 'PM_REGISTRATION_ACTIVATION_READY': {
+      const payload = parseRegistrationActivationReadyPayload(msg.payload);
+      return payload ? { type: msg.type, payload } : null;
+    }
+    case 'PM_REGISTRATION_ACTIVATION_STARTED': {
+      const payload = parseRegistrationActivationStartedPayload(msg.payload);
+      return payload ? { type: msg.type, payload } : null;
+    }
+    case 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE': {
+      const payload = parseRegistrationActivationButtonStatePayload(msg.payload);
+      return payload ? { type: msg.type, payload } : null;
+    }
+    default:
+      return null;
+  }
 }
 
 function clearRegistrationActivationButtonState(target: HTMLElement | null): void {
@@ -1292,25 +1332,25 @@ export class WalletIframeRouter {
       releaseActivationOverlay();
     };
     const activationEventListener = (event: ChildToParentEnvelope): void => {
-      if (event.type === 'PM_REGISTRATION_ACTIVATION_READY') {
+      const parsed = parseRegistrationActivationChildMessage(event);
+      if (!parsed || parsed.payload.activationId !== activationId) return;
+      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_READY') {
         setState({
           kind: 'ready',
           activationId,
-          expiresAtMs: event.payload?.expiresAtMs ?? expiresAtMs,
+          expiresAtMs: parsed.payload.expiresAtMs,
         });
         return;
       }
-      if (event.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
+      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
         if (currentState.kind !== 'ready') return;
         setState({ kind: 'starting', activationId });
         releaseActivationOverlay();
         return;
       }
-      if (event.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
-        const state = event.payload?.state;
+      if (parsed.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
         if (!canApplyRegistrationActivationButtonState(currentState)) return;
-        if (!isRegistrationActivationButtonInteractionState(state)) return;
-        applyRegistrationActivationButtonState({ target, state });
+        applyRegistrationActivationButtonState({ target, state: parsed.payload.state });
       }
     };
 
@@ -2569,15 +2609,14 @@ export class WalletIframeRouter {
       msg.type === 'PM_REGISTRATION_ACTIVATION_STARTED' ||
       msg.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE'
     ) {
-      const activationId = msg.payload?.activationId;
-      if (activationId) {
-        const listeners = this.registrationActivationListeners.get(activationId);
-        if (listeners) {
-          for (const listener of listeners) {
-            try {
-              listener(msg);
-            } catch {}
-          }
+      const parsed = parseRegistrationActivationChildMessage(msg);
+      if (parsed) {
+        const listeners = this.registrationActivationListeners.get(parsed.payload.activationId);
+        if (!listeners) return;
+        for (const listener of listeners) {
+          try {
+            listener(msg);
+          } catch {}
         }
       }
       return;

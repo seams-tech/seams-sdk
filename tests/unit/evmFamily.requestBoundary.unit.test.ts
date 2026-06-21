@@ -5,10 +5,15 @@ import { expect, test } from '@playwright/test';
 import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/flows/signEvmFamily/types';
 import {
   buildEcdsaLaneBudgetStatusCheck,
+  buildThresholdBudgetStatusCheck,
+  ecdsaWalletBudgetOwner,
   type AuthenticatedEcdsaLaneBudgetStatusCheck,
 } from '@/core/signingEngine/session/budget/budget';
 import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/budget/budgetStatusReader';
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
@@ -255,31 +260,29 @@ test.describe('Trusted wallet signing budget status', () => {
     }
   });
 
-  test('does not fetch trusted budget status with cookie-only ECDSA records', async () => {
+  test('does not derive threshold-scoped budget auth from a record owned by another wallet', async () => {
     const ecdsaSessions = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaSessions);
-    const walletId = 'budget-cookie-only.testnet';
-    const thresholdSessionId = 'threshold-session-cookie-only';
-    const signingGrantId = 'wallet-session-cookie-only';
-    const record = seedEcdsaWarmSessionRecord(ecdsaSessions, {
-      nearAccountId: walletId,
-      chain: 'evm',
-      source: 'login',
+    const thresholdSessionId = 'threshold-session-owner-mismatch';
+    const signingGrantId = 'wallet-session-owner-mismatch';
+    seedEcdsaWarmSessionRecord(ecdsaSessions, {
+      nearAccountId: 'budget-owner-a.testnet',
+      chain: 'tempo',
+      source: 'registration',
       bootstrap: createThresholdEcdsaBootstrapFixture({
-        nearAccountId: walletId,
-        chain: 'evm',
+        nearAccountId: 'budget-owner-a.testnet',
+        chain: 'tempo',
         sessionId: thresholdSessionId,
         signingGrantId,
-        sessionKind: 'cookie',
+        walletSessionJwt: 'owner-a-token',
       }),
     });
-    if (!record) throw new Error('failed to seed cookie-only ECDSA record');
 
     const originalFetch = globalThis.fetch;
     let fetchCount = 0;
     globalThis.fetch = (async (): Promise<Response> => {
       fetchCount += 1;
-      return new Response(JSON.stringify({ ok: false, code: 'unexpected_cookie_fallback' }), {
+      return new Response(JSON.stringify({ ok: false, code: 'unexpected_fetch' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -288,12 +291,10 @@ test.describe('Trusted wallet signing budget status', () => {
     try {
       const status = await readTrustedWalletSigningBudgetStatus(
         { ecdsaSessions },
-        buildEcdsaLaneBudgetStatusCheck({
-          key: thresholdEcdsaSessionRecordReadModel(record).key,
-          keyHandle: record.keyHandle,
-          chainTarget: testEcdsaChainTarget('evm'),
+        buildThresholdBudgetStatusCheck({
+          owner: ecdsaWalletBudgetOwner(toWalletId('budget-owner-b.testnet')),
           signingGrantId,
-          thresholdSessionId,
+          targetThresholdSessionIds: [thresholdSessionId],
         }),
       );
 
@@ -339,6 +340,61 @@ test.describe('Trusted wallet signing budget status', () => {
         status: 'budget_unknown',
         statusCode: 'status_unavailable',
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('does not retry authenticated budget status with persisted record auth after rejection', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const walletId = 'budget-no-auth-fallback.testnet';
+    const signingGrantId = 'wallet-session-no-auth-fallback';
+    const thresholdSessionId = 'threshold-session-no-auth-fallback';
+    const persistedRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
+      nearAccountId: walletId,
+      chain: 'tempo',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'tempo',
+        sessionId: thresholdSessionId,
+        signingGrantId,
+        walletSessionJwt: 'fresh-persisted-jwt',
+      }),
+    });
+    if (!persistedRecord) throw new Error('failed to seed no-auth-fallback ECDSA record');
+
+    const originalFetch = globalThis.fetch;
+    const authorizations: string[] = [];
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      authorizations.push(String(new Headers(init?.headers).get('Authorization') || ''));
+      return new Response(JSON.stringify({ ok: false, code: 'wallet_budget_forbidden' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const status = await readTrustedWalletSigningBudgetStatus(
+        { ecdsaSessions },
+        authenticatedEcdsaBudgetCheck({
+          walletId,
+          signingGrantId,
+          thresholdSessionId,
+          walletSessionJwt: 'stale-provided-jwt',
+        }),
+      );
+
+      expect(status).toEqual({
+        sessionId: signingGrantId,
+        status: 'budget_unknown',
+        statusCode: 'status_unavailable',
+      });
+      expect(authorizations).toEqual(['Bearer stale-provided-jwt']);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -615,6 +671,44 @@ test.describe('Trusted wallet signing budget status', () => {
           walletId: 'budget-projection-missing.testnet',
           signingGrantId: 'wallet-session-fresh',
           thresholdSessionId: 'threshold-session-fresh',
+          walletSessionJwt: 'fresh-jwt',
+        }),
+      );
+
+      expect(status).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('rejects trusted active budget status with fractional projection fields', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          signingGrantId: 'wallet-session-fractional',
+          thresholdSessionId: 'threshold-session-fractional',
+          status: 'active',
+          remainingUses: 1.5,
+          expiresAtMs: 1_777_777_777_000,
+          projectionVersion: 'projection-v1',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )) as typeof fetch;
+
+    try {
+      const status = await readTrustedWalletSigningBudgetStatus(
+        { ecdsaSessions },
+        authenticatedEcdsaBudgetCheck({
+          walletId: 'budget-fractional.testnet',
+          signingGrantId: 'wallet-session-fractional',
+          thresholdSessionId: 'threshold-session-fractional',
           walletSessionJwt: 'fresh-jwt',
         }),
       );

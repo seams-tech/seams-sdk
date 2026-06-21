@@ -192,6 +192,208 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
   });
 
+  test('record-policy spend fails closed without trusted server budget status', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'record-policy-missing-budget.testnet',
+      chain: 'tempo',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'record-policy-missing-budget.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-record-policy-missing-budget',
+        sessionId: 'record-policy-missing-budget-session',
+        walletSessionJwt: 'jwt:record-policy-missing-budget-session',
+      }),
+      runtimeValidated: true,
+    });
+    const readModel = thresholdEcdsaSessionRecordReadModel(record);
+    const status = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => null,
+      input: {
+        owner: ecdsaWalletBudgetOwner(toWalletId(record.walletId)),
+        signingGrantId: record.signingGrantId,
+        uses: 1,
+        budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
+          key: readModel.key,
+          keyHandle: record.keyHandle,
+          chainTarget: record.chainTarget,
+          signingGrantId: record.signingGrantId,
+          thresholdSessionId: record.thresholdSessionId,
+        }),
+      },
+    });
+
+    expect(status).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'budget_unknown',
+      statusCode: 'missing_trusted_status',
+    });
+  });
+
+  test('record-policy spend rejects terminal and malformed trusted budget status', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'record-policy-terminal-budget.testnet',
+      chain: 'tempo',
+      source: 'registration',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'record-policy-terminal-budget.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-record-policy-terminal-budget',
+        sessionId: 'record-policy-terminal-budget-session',
+        walletSessionJwt: 'jwt:record-policy-terminal-budget-session',
+      }),
+      runtimeValidated: true,
+    });
+    const readModel = thresholdEcdsaSessionRecordReadModel(record);
+    const baseInput = {
+      owner: ecdsaWalletBudgetOwner(toWalletId(record.walletId)),
+      signingGrantId: record.signingGrantId,
+      uses: 1,
+      budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
+        key: readModel.key,
+        keyHandle: record.keyHandle,
+        chainTarget: record.chainTarget,
+        signingGrantId: record.signingGrantId,
+        thresholdSessionId: record.thresholdSessionId,
+      }),
+    };
+
+    const notFound = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'not_found',
+      }),
+      input: baseInput,
+    });
+    expect(notFound).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'budget_unknown',
+    });
+
+    const expired = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'expired',
+        expiresAtMs: Date.now() - 1,
+      }),
+      input: baseInput,
+    });
+    expect(expired).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'expired',
+    });
+
+    const exhausted = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'exhausted',
+        remainingUses: 0,
+        expiresAtMs: record.expiresAtMs,
+      }),
+      input: baseInput,
+    });
+    expect(exhausted).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'exhausted',
+      remainingUses: 0,
+    });
+
+    const unavailable = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'unavailable',
+        statusCode: 'status_unavailable',
+      }),
+      input: baseInput,
+    });
+    expect(unavailable).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'budget_unknown',
+    });
+
+    const budgetUnknown = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'budget_unknown',
+        statusCode: 'status_unavailable',
+      }),
+      input: baseInput,
+    });
+    expect(budgetUnknown).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'budget_unknown',
+    });
+
+    const malformedActive = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () =>
+        ({
+          sessionId: record.signingGrantId,
+          status: 'active',
+          expiresAtMs: record.expiresAtMs,
+          projectionVersion: 'projection-malformed-active',
+        }) as any,
+      input: baseInput,
+    });
+    expect(malformedActive).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'budget_unknown',
+    });
+
+    const fractionalActive = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'active',
+        remainingUses: 1.5,
+        expiresAtMs: record.expiresAtMs,
+        projectionVersion: 'projection-fractional-active',
+      }),
+      input: baseInput,
+    });
+    expect(fractionalActive).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'budget_unknown',
+    });
+
+    const unavailableUses = await consumeSigningGrantUse({
+      deps: {},
+      statusOverrides: new Map(),
+      readStatus: async () => ({
+        sessionId: record.signingGrantId,
+        status: 'active',
+        remainingUses: 3,
+        availableUses: 0,
+        expiresAtMs: record.expiresAtMs,
+        projectionVersion: 'projection-available-uses-zero',
+      }),
+      input: baseInput,
+    });
+    expect(unavailableUses).toMatchObject({
+      sessionId: record.signingGrantId,
+      status: 'exhausted',
+      remainingUses: 0,
+    });
+  });
+
   test('projects explicit record-backed wallet session spends only to the targeted lane', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

@@ -142,7 +142,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   private readonly onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
   private readonly walletBudgetStatusReader?: SigningSessionBudgetStatusReader;
-  private readonly walletBudgetStatusSource: 'provided' | 'material_fallback' | 'none';
   private readonly walletSessionDeps: SigningSessionStatusDeps;
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudget: BudgetCoordinator;
@@ -162,7 +161,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     };
     this.operationIdBindings = new SigningOperationIdBindingRegistry();
     this.walletBudgetStatusReader = deps.getStatus;
-    this.walletBudgetStatusSource = 'provided';
     this.walletBudget = new BudgetCoordinator({
       readStatus: (args) => this.readWalletBudgetStatus(args),
       syncSuccessfulSpendStatus: deps.consumeUse || this.syncServerConsumedSpendStatus,
@@ -407,15 +405,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       return budgetUnknownSigningSessionStatus({
         signingGrantId,
         reason: 'missing_trusted_status',
-      });
-    }
-    if (
-      this.walletBudgetStatusSource !== 'provided' &&
-      (status.status === 'not_found' || status.status === 'unavailable')
-    ) {
-      return budgetUnknownSigningSessionStatus({
-        signingGrantId,
-        reason: status.status === 'unavailable' ? 'status_unavailable' : 'missing_trusted_status',
       });
     }
     const projectionVersion = String(status.projectionVersion || '').trim();

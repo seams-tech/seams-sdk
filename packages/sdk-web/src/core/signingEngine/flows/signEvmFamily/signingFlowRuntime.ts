@@ -24,6 +24,7 @@ import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { EvmFamilyLifecycleEventCallback, EvmFamilySenderSignatureAlgorithm } from './types';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoader';
+import type { EcdsaSigningMaterialPlan } from './signingFlow';
 import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
 import { ensureEvmFamilyThresholdEcdsaRecordReady } from './ecdsaReadiness';
 import {
@@ -63,6 +64,10 @@ import {
 import {
   resolveRouterAbEcdsaWalletSessionAuthFromRecord,
 } from '../../session/warmCapabilities/routerAbEcdsaWalletSessionAuth';
+import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  type RouterAbEcdsaHssPersistedSigningRecordState,
+} from '../../session/routerAbSigningWalletSession';
 import {
   normalizeStepUpOperationId,
   resolvePostExhaustionStepUpBudgetPolicy,
@@ -149,6 +154,59 @@ function requirePlannedReconnectSessionIdentity(args: {
 
 function generateEvmFamilyEcdsaBootstrapRequestId(): string {
   return secureRandomId('tecdsa-keygen', 32, 'EVM family ECDSA bootstrap request IDs');
+}
+
+function unavailableEcdsaSigningMaterialPlanForRecordState(
+  state: RouterAbEcdsaHssPersistedSigningRecordState,
+): EcdsaSigningMaterialPlan {
+  switch (state.kind) {
+    case 'runtime_validated':
+      throw new Error('runtime-validated ECDSA material state is not unavailable');
+    case 'invalid':
+      return {
+        kind: 'unavailable',
+        reason: state.reason === 'missing_record' ? 'missing_record' : 'not_runtime_validated',
+      };
+    case 'restore_available':
+    case 'material_hint_unvalidated':
+    case 'non_signing':
+      return { kind: 'unavailable', reason: 'not_runtime_validated' };
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+}
+
+async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
+  record: ThresholdEcdsaSessionRecord | undefined;
+  requestLabel: unknown;
+  rpId: unknown;
+}): Promise<EcdsaSigningMaterialPlan> {
+  const recordState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
+  if (recordState.kind !== 'runtime_validated') {
+    return unavailableEcdsaSigningMaterialPlanForRecordState(recordState);
+  }
+  try {
+    const material = await buildReadySecp256k1SigningMaterialFromRecord({
+      record: recordState.record,
+      requestLabel: args.requestLabel,
+      rpId: args.rpId,
+    });
+    return { kind: 'material_from_runtime_validated_record', material };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('rpId mismatch')) {
+      return { kind: 'unavailable', reason: 'rp_id_mismatch' };
+    }
+    if (message.includes('chain mismatch')) {
+      return { kind: 'unavailable', reason: 'chain_mismatch' };
+    }
+    if (message.includes('fresh Email OTP verification')) {
+      return { kind: 'unavailable', reason: 'single_use_email_otp_consumed' };
+    }
+    throw error;
+  }
 }
 
 export async function createEvmFamilySigningFlowRuntime(args: {
@@ -455,7 +513,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           onAuthSideEffectStarted: emitConfirmedAuthSideEffectStarted,
         }
       : undefined;
-  const fallbackThresholdEcdsaRecord = args.getThresholdEcdsaRecord();
+  const runtimeValidatedThresholdEcdsaRecord = args.getThresholdEcdsaRecord();
   const flowArgs = {
     ctx,
     touchConfirm: args.deps.touchConfirm,
@@ -513,15 +571,15 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },
-    ...(fallbackThresholdEcdsaRecord
+    ...(runtimeValidatedThresholdEcdsaRecord
       ? {
-          buildFallbackReadySecp256k1SigningMaterial: async ({
+          resolveEcdsaSigningMaterialPlan: async ({
             requestLabel,
           }: {
             requestLabel: unknown;
           }) =>
-            await buildReadySecp256k1SigningMaterialFromRecord({
-              record: fallbackThresholdEcdsaRecord,
+            await resolveRuntimeValidatedEcdsaSigningMaterialPlan({
+              record: runtimeValidatedThresholdEcdsaRecord,
               requestLabel,
               rpId: ctx.touchIdPrompt.getRpId?.(),
             }),

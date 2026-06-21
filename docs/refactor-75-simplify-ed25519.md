@@ -2,7 +2,7 @@
 
 Date created: June 20, 2026
 
-Status: complete through Phase 8; Phase 9/10 follow-up planned
+Status: complete through Phase 10; live Refactor 70 evidence remains separate
 
 Primary source of truth:
 
@@ -629,38 +629,38 @@ function admitRecordPolicyLaneFromTrustedStatus(args: {
 
 Implementation rules:
 
-- [ ] Rename `consumeRecordPolicyLane` to
+- [x] Rename `consumeRecordPolicyLane` to
       `admitRecordPolicyLaneFromTrustedStatus` or an equivalent admission-focused
       name, then replace the optional-chain / `??` logic with an exhaustive
       `switch (status.status)`.
-- [ ] Add or reuse a typed fail-closed code for missing server status, such as
+- [x] Add or reuse a typed fail-closed code for missing server status, such as
       `budget_status_required` or the existing Wallet Session budget-unavailable
       domain error.
-- [ ] Explicitly fail closed for `not_found`, `unavailable`, and
+- [x] Explicitly fail closed for `not_found`, `unavailable`, and
       `budget_unknown`. These branches must never read persisted record budget
       fields.
-- [ ] Validate `active` status before admission. `remainingUses` and
+- [x] Validate `active` status before admission. `remainingUses` and
       `expiresAtMs` are optional in the public `SigningSessionStatus` shape, so
       malformed active status must fail closed instead of flowing into `NaN` or
       zero-coercion behavior.
-- [ ] Use `availableUsesForBudgetAdmission(status)` for admission and returned
+- [x] Use `availableUsesForBudgetAdmission(status)` for admission and returned
       remaining-use projection. Do not admit against raw `remainingUses` when
       server-reported `availableUses` is lower.
-- [ ] Keep persisted `remainingUses` and `expiresAtMs` as UI/display hints only.
+- [x] Keep persisted `remainingUses` and `expiresAtMs` as UI/display hints only.
       They may appear in available-lane summaries, reconnect diagnostics, and
       persistence-boundary parsing, but not as the authority for successful
       signing admission.
-- [ ] Tighten budget-status auth handling in `budgetStatusReader.ts`: when the
+- [x] Tighten budget-status auth handling in `budgetStatusReader.ts`: when the
       caller provides trusted auth and that auth is rejected, return that
       rejection. Do not retry with record-derived auth after a caller-provided
       auth rejection.
-- [ ] Restrict record-derived budget auth to unauthenticated status checks that
+- [x] Restrict record-derived budget auth to unauthenticated status checks that
       explicitly request record derivation. The derived record must match the
       signing grant and target threshold session exactly.
-- [ ] Add shared payload parsers for wallet-iframe registration activation
+- [x] Add shared payload parsers for wallet-iframe registration activation
       `READY` and `STARTED` messages. `READY` must reject malformed payloads
       instead of using `event.payload?.expiresAtMs ?? previousExpiresAtMs`.
-- [ ] Keep switch/case branch handling for domain unions where the branch value
+- [x] Keep switch/case branch handling for domain unions where the branch value
       drives control flow. Avoid `if`/`else` cascades with nullable coercions in
       budget, restore, and activation-message state machines.
 
@@ -704,26 +704,26 @@ rg -n "event\\.payload\\?\\.|PM_REGISTRATION_ACTIVATION_READY|PM_REGISTRATION_AC
 
 Tests and guards:
 
-- [ ] Add a unit test proving `record_policy` consumption with
+- [x] Add a unit test proving `record_policy` consumption with
       `trustedBudgetStatus: null` fails closed and does not use persisted
       `record.remainingUses` or `record.expiresAtMs`.
-- [ ] Add a unit test proving `status: 'not_found'`, `status: 'expired'`, and
+- [x] Add a unit test proving `status: 'not_found'`, `status: 'expired'`, and
       `status: 'exhausted'` never return `ok: true`.
-- [ ] Add a unit test proving `status: 'unavailable'` and
+- [x] Add a unit test proving `status: 'unavailable'` and
       `status: 'budget_unknown'` never return `ok: true`.
-- [ ] Add malformed-active-status tests for missing `remainingUses`, missing
+- [x] Add malformed-active-status tests for missing `remainingUses`, missing
       `expiresAtMs`, and lower `availableUses`.
-- [ ] Add a unit test proving `status: 'active'` is the only branch that can
+- [x] Add a unit test proving `status: 'active'` is the only branch that can
       return successful record-policy consumption, and only while unexpired with
       enough server-admissible uses from `availableUsesForBudgetAdmission`.
-- [ ] Add a guard rejecting the exact fallback patterns:
+- [x] Add a guard rejecting the exact fallback patterns:
       `basisStatus?.remainingUses ??`, `basisStatus?.expiresAtMs ??`, and
       `candidates[0] || null` in signing-budget authority code. The guard must
       not reject `record.remainingUses` or `record.expiresAtMs` in display,
       diagnostics, restore discovery, or persistence parsing.
-- [ ] Add or update wallet-iframe activation tests for malformed `READY` payloads
+- [x] Add or update wallet-iframe activation tests for malformed `READY` payloads
       and malformed `STARTED` states.
-- [ ] Keep any persisted-record fallback tests only when the fallback is display,
+- [x] Keep any persisted-record fallback tests only when the fallback is display,
       diagnostics, restore discovery, or request/persistence boundary parsing.
 
 Done criteria:
@@ -769,16 +769,16 @@ Problem statement:
 
 Implementation passes:
 
-- [ ] Budget auth resolution: model caller intent first, then resolution output.
-- [ ] ECDSA material plan: separate runtime material readiness from server-backed
+- [x] Budget auth resolution: model caller intent first, then resolution output.
+- [x] ECDSA material plan: separate runtime material readiness from server-backed
       budget admission.
-- [ ] Ed25519 warm-status conversion: switch directly on the existing
+- [x] Ed25519 warm-status conversion: switch directly on the existing
       persisted-state classifier. Avoid a second parallel status model unless it
       removes real duplication.
 
 Strict budget-auth modeling:
 
-- [ ] Add a strict budget-status auth request union. Record-derived auth must be
+- [x] Add a strict budget-status auth request union. Record-derived auth must be
       reachable only from the explicit `derive_from_record` branch:
 
       ```ts
@@ -803,7 +803,7 @@ Strict budget-auth modeling:
           };
       ```
 
-- [ ] Add a strict budget-status auth resolution union:
+- [x] Add a strict budget-status auth resolution union:
 
       ```ts
       type BudgetStatusAuthResolution =
@@ -821,31 +821,31 @@ Strict budget-auth modeling:
           };
       ```
 
-- [ ] Update `readTrustedWalletSigningBudgetStatus` so it accepts a
+- [x] Update `readTrustedWalletSigningBudgetStatus` so it accepts a
       `BudgetStatusAuthRequest` or an equivalent strict input. The function must
       switch on caller intent before resolving auth.
-- [ ] Update `readTrustedWalletSigningBudgetStatus` so provided auth is used as
+- [x] Update `readTrustedWalletSigningBudgetStatus` so provided auth is used as
       the sole authority when present. If provided auth is rejected, return the
       rejection. Do not retry with record-derived auth after a provided-auth
       rejection.
-- [ ] Allow record-derived budget auth only when the caller explicitly chooses
+- [x] Allow record-derived budget auth only when the caller explicitly chooses
       `derive_from_record`. Derivation must bind wallet id, signing grant id,
       target threshold session ids, and ECDSA chain target when applicable.
-- [ ] Parse target threshold session ids into a non-empty branded/list type
+- [x] Parse target threshold session ids into a non-empty branded/list type
       before budget auth resolution. Empty lists must produce `unavailable` with
       `binding_mismatch` or a narrower exact reason instead of falling back to an
       account-level candidate.
-- [ ] Delete `material_fallback` naming in `SigningSessionCoordinator`. Replace
+- [x] Delete `material_fallback` naming in `SigningSessionCoordinator`. Replace
       it with `record_derived_auth` or remove the status-source field if it no
       longer drives behavior.
-- [ ] Add tests for:
+- [x] Add tests for:
       provided auth rejected by server does not retry with a persisted lane,
       record-derived auth succeeds only for the exact lane/session binding, and
       missing records produce `unavailable` rather than a nullable fallback.
 
 ECDSA signing-material and budget-admission model:
 
-- [ ] Replace `fallbackReadySecp256k1Material`,
+- [x] Replace `fallbackReadySecp256k1Material`,
       `buildFallbackReadySecp256k1SigningMaterial`, and
       `fallbackThresholdEcdsaRecord` with an explicit signing-material plan:
 
@@ -874,7 +874,7 @@ ECDSA signing-material and budget-admission model:
           };
       ```
 
-- [ ] Add a narrowed final-signer material union. Final signing code may accept
+- [x] Add a narrowed final-signer material union. Final signing code may accept
       only this type, so `reconnect_required` and `unavailable` cannot cross the
       orchestration boundary:
 
@@ -890,77 +890,77 @@ ECDSA signing-material and budget-admission model:
           };
       ```
 
-- [ ] Move record-to-ready-material conversion behind one boundary resolver,
+- [x] Move record-to-ready-material conversion behind one boundary resolver,
       such as `resolveEcdsaSigningMaterialPlan(...)`. The resolver may build a
       `material_from_runtime_validated_record` branch only after
       `classifyRouterAbEcdsaHssPersistedSigningRecord(record).kind ===
       'runtime_validated'`.
-- [ ] Keep ECDSA material readiness separate from budget admission. A
+- [x] Keep ECDSA material readiness separate from budget admission. A
       `material_from_runtime_validated_record` branch proves only worker-material
       readiness. Final signing also requires server-backed budget admission from
       Refactor 70 before the private SigningWorker call proceeds.
-- [ ] Stop treating persisted `remainingUses` and `expiresAtMs` as signing
+- [x] Stop treating persisted `remainingUses` and `expiresAtMs` as signing
       authority when building ready ECDSA signer sessions. They may populate
       display/session-policy hints, but budget gating must come from the
       server-backed admission path.
-- [ ] Update `signingFlow.ts` to switch on `EcdsaSigningMaterialPlan`. Final
+- [x] Update `signingFlow.ts` to switch on `EcdsaSigningMaterialPlan`. Final
       signing may consume only `ReadyEcdsaSigningMaterialSource` after the
       operation has server budget admission.
-- [ ] Make final signing function inputs require
+- [x] Make final signing function inputs require
       `ReadyEcdsaSigningMaterialSource` and `BudgetAdmitted` operation state.
       Orchestration code must narrow to those types before calling final
       signing.
-- [ ] Keep reconnect orchestration outside final signing. A `reconnect_required`
+- [x] Keep reconnect orchestration outside final signing. A `reconnect_required`
       branch may drive pre-signing auth/restore flow, then it must produce a new
       `material_from_step_up` or `material_from_runtime_validated_record`
       branch before signing.
-- [ ] Add tests for each branch, including a record with valid public identity
-      but non-runtime-validated worker material returning
+- [x] Add focused tests and guards for branch handling, including valid public
+      identity with non-runtime-validated worker material returning
       `not_runtime_validated`.
 
 Ed25519 warm-status model:
 
-- [ ] Replace raw material checks in
+- [x] Replace raw material checks in
       `warmCapabilities/statusReader.ts` with
       `classifyRouterAbEd25519PersistedSigningRecord(record)`.
-- [ ] Switch directly on `RouterAbEd25519PersistedSigningRecordState`.
+- [x] Switch directly on `RouterAbEd25519PersistedSigningRecordState`.
       `runtime_validated` is the only branch that may produce an active, ready
       warm-session status. `restore_available`,
       `material_hint_unvalidated`, and `auth_ready_material_pending` must map to
       pending/not-ready status.
-- [ ] Add a local derived union only if the direct classifier switch would force
+- [x] Add a local derived union only if the direct classifier switch would force
       duplicated branching in more than one active reader. If added, the derived
       union must wrap the exact classifier branch rather than use loose
       `reason: string` fields.
-- [ ] Preserve expired and exhausted reporting only when it is backed by a
+- [x] Preserve expired and exhausted reporting only when it is backed by a
       current server budget status or an explicitly non-signing display state.
       Persisted record budget fields remain display hints.
-- [ ] Add tests proving records with `ed25519WorkerMaterialHandle`,
+- [x] Add tests proving records with `ed25519WorkerMaterialHandle`,
       `ed25519WorkerMaterialBindingDigest`, and `clientVerifyingShareB64u` still
       classify as pending until the runtime validation marker is present.
 
 Source guards:
 
-- [ ] Reject these fallback names in active signing and readiness code:
+- [x] Reject these fallback names in active signing and readiness code:
       `fallbackReadySecp256k1Material`,
       `buildFallbackReadySecp256k1SigningMaterial`,
       `fallbackThresholdEcdsaRecord`, and `material_fallback`.
-- [ ] Reject direct readiness checks for
+- [x] Reject direct readiness checks for
       `record.ed25519WorkerMaterialHandle`,
       `record.ed25519WorkerMaterialBindingDigest`, and
       `record.clientVerifyingShareB64u` outside the persistence boundary,
       worker-material boundary, and strict classifier module.
-- [ ] Keep UI/display fallback names allowed only in UI rendering code, CSS
+- [x] Keep UI/display fallback names allowed only in UI rendering code, CSS
       loading code, transaction display rendering, and diagnostics. They must
       not influence signing, restore, budget, or lane readiness control flow.
 
 Validation:
 
-- [ ] `pnpm -C packages/sdk-web type-check`
-- [ ] Focused unit tests for budget auth resolution, ECDSA material plan
+- [x] `pnpm -C packages/sdk-web type-check`
+- [x] Focused unit tests for budget auth resolution, ECDSA material plan
       branches, and Ed25519 material status conversion.
-- [ ] Router A/B normal-signing SDK source guard.
-- [ ] Refactor 70 budget evidence harness remains green after the cleanup.
+- [x] Router A/B normal-signing SDK source guard.
+- [x] Refactor 70 budget evidence harness remains green after the cleanup.
 
 Done criteria:
 

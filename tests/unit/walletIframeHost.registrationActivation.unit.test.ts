@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
-import type { ChildToParentEnvelope } from '@/SeamsWeb/walletIframe/shared/messages';
+import {
+  parseRegistrationActivationReadyPayload,
+  parseRegistrationActivationStartedPayload,
+  type ChildToParentEnvelope,
+} from '@/SeamsWeb/walletIframe/shared/messages';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -157,6 +161,43 @@ function makeActivationPrepareReq(override?: Partial<any>): any {
 test.describe('wallet iframe host registration activation', () => {
   test.beforeEach(() => {
     installDomShim();
+  });
+
+  test('registration activation push payload parsers reject malformed states', () => {
+    expect(
+      parseRegistrationActivationReadyPayload({
+        activationId: 'activation-1',
+        expiresAtMs: 1_777_777_777_000,
+      }),
+    ).toEqual({
+      activationId: 'activation-1',
+      expiresAtMs: 1_777_777_777_000,
+    });
+    expect(parseRegistrationActivationReadyPayload({ activationId: 'activation-1' })).toBeNull();
+    expect(
+      parseRegistrationActivationReadyPayload({
+        activationId: 'activation-1',
+        expiresAtMs: 'not-a-number',
+      }),
+    ).toBeNull();
+    expect(
+      parseRegistrationActivationReadyPayload({
+        activationId: 'activation-1',
+        expiresAtMs: 1_777_777_777_000.5,
+      }),
+    ).toBeNull();
+    expect(
+      parseRegistrationActivationReadyPayload({
+        activationId: 123,
+        expiresAtMs: 1_777_777_777_000,
+      }),
+    ).toBeNull();
+    expect(
+      parseRegistrationActivationStartedPayload({ activationId: 'activation-1' }),
+    ).toEqual({ activationId: 'activation-1' });
+    expect(parseRegistrationActivationStartedPayload({ activationId: 123 })).toBeNull();
+    expect(parseRegistrationActivationStartedPayload({ activationId: '' })).toBeNull();
+    expect(parseRegistrationActivationStartedPayload({})).toBeNull();
   });
 
   test('PM_REGISTER strips caller-supplied walletIframeActivation proofs', async () => {
