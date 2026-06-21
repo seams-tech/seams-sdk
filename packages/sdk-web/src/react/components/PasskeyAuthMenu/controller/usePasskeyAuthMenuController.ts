@@ -1225,13 +1225,21 @@ export function usePasskeyAuthMenuController(
         case 'idle':
         case 'mounting':
         case 'ready':
+          setMethodError('');
+          return;
         case 'starting':
           setMethodError('');
+          setWaiting(true);
+          setWaitingReason('passkey');
+          setPostRecoveryRotationPromptState(null);
+          setPostRecoveryRotationError('');
           return;
         case 'completed': {
           const result = state.result;
           if (!result.success) {
             setMethodError(result.error || 'Wallet registration failed.');
+            setWaiting(false);
+            setWaitingReason(null);
             return;
           }
           const accountId = String(
@@ -1249,6 +1257,8 @@ export function usePasskeyAuthMenuController(
         }
         case 'cancelled':
           if (state.reason === 'disposed') return;
+          setWaiting(false);
+          setWaitingReason(null);
           if (state.reason === 'target_unavailable') {
             setMethodError('Passkey registration button is no longer available. Try again.');
             return;

@@ -20,6 +20,58 @@ function cssPropertyName(property: string): string {
   return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
 }
 
+function applyRegistrationButtonDocumentLayout(doc: Document | null): void {
+  if (!doc) return;
+  const html = doc.documentElement;
+  const body = doc.body;
+  if (html) {
+    html.style.inlineSize = '100%';
+    html.style.blockSize = '100%';
+    html.style.minInlineSize = '100%';
+    html.style.minBlockSize = '100%';
+    html.style.margin = '0';
+    html.style.padding = '0';
+    html.style.overflow = 'hidden';
+    html.style.background = 'transparent';
+  }
+  if (body) {
+    body.style.inlineSize = '100%';
+    body.style.blockSize = '100%';
+    body.style.minInlineSize = '100%';
+    body.style.minBlockSize = '100%';
+    body.style.margin = '0';
+    body.style.padding = '0';
+    body.style.overflow = 'hidden';
+    body.style.background = 'transparent';
+  }
+}
+
+function applyRegistrationButtonElementLayout(element: HTMLElement): void {
+  element.style.display = 'block';
+  element.style.inlineSize = '100%';
+  element.style.blockSize = '100%';
+  element.style.background = 'transparent';
+}
+
+function applyRegistrationButtonBaseStyle(button: HTMLButtonElement): void {
+  const style = button.style;
+  style.appearance = 'none';
+  style.display = 'block';
+  style.inlineSize = '100%';
+  style.blockSize = '100%';
+  style.minInlineSize = '0';
+  style.minBlockSize = '0';
+  style.boxSizing = 'border-box';
+  style.border = '0';
+  style.margin = '0';
+  style.padding = '0';
+  style.background = 'transparent';
+  style.color = 'transparent';
+  style.font = 'inherit';
+  style.cursor = 'pointer';
+  style.setProperty('-webkit-tap-highlight-color', 'transparent');
+}
+
 export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
   static properties = {
     activationId: { type: String, attribute: 'activation-id' },
@@ -62,6 +114,8 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
 
   connectedCallback(): void {
     super.connectedCallback();
+    applyRegistrationButtonDocumentLayout(this.ownerDocument);
+    applyRegistrationButtonElementLayout(this);
     void ensureExternalStyles(
       this,
       'seams-passkey-registration-btn.css',
@@ -71,13 +125,7 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
 
   protected updated(changedProperties: PropertyValues<this>): void {
     super.updated(changedProperties);
-    if (
-      changedProperties.has('buttonStyle') ||
-      changedProperties.has('mode') ||
-      changedProperties.has('shadowPaddingPx')
-    ) {
-      this.applyButtonStyle();
-    }
+    this.applyButtonStyle();
   }
 
   focusButton(): void {
@@ -118,6 +166,7 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
   private applyButtonStyle(): void {
     const button = this.findButton();
     if (!button) return;
+    applyRegistrationButtonBaseStyle(button);
     if (this.buttonStyle) {
       for (const [property, value] of Object.entries(this.buttonStyle)) {
         if (typeof value !== 'string') continue;
@@ -135,8 +184,7 @@ export class SeamsPasskeyRegistrationButtonElement extends LitElementWithProps {
     button.style.margin = `${shadowPaddingPx}px`;
     button.style.inlineSize =
       shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
-    button.style.blockSize =
-      shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
+    button.style.blockSize = shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
   }
 
   private isPointerInsideButton(event: PointerEvent | DragEvent): boolean {

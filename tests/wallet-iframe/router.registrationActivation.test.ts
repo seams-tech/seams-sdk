@@ -109,6 +109,62 @@ const REGISTRATION_ACTIVATION_STATE_FILTER_SCRIPT = String.raw`
       };
 `;
 
+const REGISTRATION_ACTIVATION_STARTED_RELEASE_SCRIPT = String.raw`
+      const activationRequestIds = new Map();
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+
+        const respondOk = (requestId, result) => {
+          if (!requestId) return;
+          pendingRequests.delete(requestId);
+          adoptedPort.postMessage({
+            type: 'PM_RESULT',
+            requestId,
+            payload: { ok: true, result }
+          });
+        };
+
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object') return;
+          const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+
+          if (data.type === 'PM_REGISTRATION_ACTIVATION_PREPARE') {
+            const payload = data.payload || {};
+            const activationId = payload.activationId;
+            activationRequestIds.set(activationId, requestId);
+            adoptedPort.postMessage({
+              type: 'PM_REGISTRATION_ACTIVATION_READY',
+              requestId,
+              payload: {
+                activationId,
+                expiresAtMs: payload.expiresAtMs
+              }
+            });
+            setTimeout(() => {
+              adoptedPort.postMessage({
+                type: 'PM_REGISTRATION_ACTIVATION_STARTED',
+                requestId,
+                payload: { activationId }
+              });
+            }, 20);
+            return;
+          }
+
+          if (data.type === 'PM_REGISTRATION_ACTIVATION_CANCEL') {
+            const activationId = data.payload && data.payload.activationId;
+            activationRequestIds.delete(activationId);
+            respondOk(requestId, undefined);
+            return;
+          }
+        };
+      };
+`;
+
 test.describe('WalletIframeRouter registration activation surface', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -302,5 +358,105 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     expect(result.states).toEqual(expect.arrayContaining(['mounting', 'ready']));
     expect(result.cleared).toBe(true);
     expect(result.overlayReleased).toBe(true);
+  });
+
+  test('releases the anchored hit target after iframe registration starts', async ({ page }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ extraScript: REGISTRATION_ACTIVATION_STARTED_RELEASE_SCRIPT }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const result = await page.evaluate(
+      async ({ routerPath, walletOrigin, waitForSource }) => {
+        try {
+          const waitForBrowser = eval(waitForSource) as typeof waitFor;
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } =
+            mod as typeof import('@/SeamsWeb/walletIframe/client/router');
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 5000,
+            sdkBasePath: '/sdk',
+            testOptions: { ownerTag: 'tests' },
+          });
+          await router.init();
+
+          const target = document.createElement('div');
+          target.className = 'seams-passkey-registration-btn';
+          target.style.cssText =
+            'position:absolute;left:40px;top:80px;width:240px;height:60px;border-radius:30px;';
+          document.body.appendChild(target);
+
+          const states: string[] = [];
+          const surface = router.createPasskeyRegistrationActivationSurface({
+            nearAccountId: 'alice.testnet',
+            presentation: {
+              kind: 'outline_overlay',
+              label: 'Create with Passkey',
+              busyLabel: 'Creating passkey...',
+              accessibleLabel: 'Create passkey account',
+            },
+          });
+          const unsubscribe = surface.onStateChange((state) => states.push(state.kind));
+          surface.mount(target);
+
+          const started = await waitForBrowser(() => states.includes('starting'), 3000);
+          const clearedAfterStart =
+            !target.hasAttribute('data-seams-registration-button-active') &&
+            !target.hasAttribute('data-seams-registration-button-hovered') &&
+            !target.hasAttribute('data-seams-registration-button-focused') &&
+            !target.hasAttribute('data-seams-registration-button-pressed') &&
+            !target.hasAttribute('data-seams-registration-button-busy') &&
+            !target.hasAttribute('data-seams-registration-button-disabled');
+          const overlayReleased = await waitForBrowser(() => {
+            const iframe = document.querySelector(
+              'iframe[data-w3a-owner="tests"]',
+            ) as HTMLIFrameElement | null;
+            if (!iframe) return true;
+            const style = getComputedStyle(iframe);
+            return iframe.getAttribute('aria-hidden') === 'true' || style.pointerEvents === 'none';
+          }, 1000);
+
+          target.remove();
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          const cancelledBeforeDispose = states.includes('cancelled');
+
+          unsubscribe();
+          surface.dispose();
+
+          return {
+            success: true,
+            started,
+            states,
+            clearedAfterStart,
+            overlayReleased,
+            cancelledBeforeDispose,
+          };
+        } catch (error) {
+          return { success: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+      },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.started).toBe(true);
+    expect(result.states).toEqual(expect.arrayContaining(['mounting', 'ready', 'starting']));
+    expect(result.clearedAfterStart).toBe(true);
+    expect(result.overlayReleased).toBe(true);
+    expect(result.cancelledBeforeDispose).toBe(false);
   });
 });

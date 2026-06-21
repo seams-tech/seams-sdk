@@ -1423,6 +1423,86 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe(0);
   });
 
+  test('iframe passkey registration activation starting shows waiting screen state', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-registration-activation-waiting-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const { AuthMenuMode } = typesMod;
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('alice');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              inputUsername,
+              targetAccountId: `${inputUsername}.testnet`,
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            { defaultMode: AuthMenuMode.Register },
+            runtime,
+          );
+
+          const status = controller.waiting
+            ? `waiting:${controller.waitingReason}`
+            : 'not-waiting';
+
+          return React.createElement(
+            'div',
+            null,
+            React.createElement('div', { id: 'activation-waiting-state' }, status),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () =>
+                  controller.onRegistrationActivationSurfaceStateChange({
+                    kind: 'starting',
+                    activationId: 'activation-1',
+                  }),
+              },
+              'Start activation',
+            ),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-registration-activation-waiting-mount');
+    await expect(mount.locator('#activation-waiting-state')).toHaveText('not-waiting');
+    await mount.getByRole('button', { name: 'Start activation' }).click();
+    await expect(mount.locator('#activation-waiting-state')).toHaveText('waiting:passkey');
+  });
+
   test('Google SSO errors render inline without unhandled promise rejection', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {

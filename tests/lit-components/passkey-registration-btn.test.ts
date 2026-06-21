@@ -214,6 +214,94 @@ test.describe('seams-passkey-registration-btn', () => {
     expect(result).toEqual([{ activationId: 'activation-keyboard' }]);
   });
 
+  test('fills the wallet iframe viewport so the whole CTA is clickable', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ modulePath, tagName }) => {
+        const frame = document.createElement('iframe');
+        frame.style.cssText =
+          'position:absolute;left:0;top:0;width:320px;height:72px;border:0;visibility:hidden;';
+        document.body.appendChild(frame);
+        const doc = frame.contentDocument;
+        if (!doc) throw new Error('missing iframe document');
+
+        const resultPromise = new Promise<{
+          bodyHeight: number;
+          elementHeight: number;
+          buttonHeight: number;
+          buttonWidth: number;
+          error?: string;
+        }>((resolve) => {
+          const onMessage = (event: MessageEvent) => {
+            if (event.source !== frame.contentWindow) return;
+            const data = event.data as { type?: string };
+            if (data?.type !== 'seams-passkey-registration-btn-rects') return;
+            window.removeEventListener('message', onMessage);
+            resolve(event.data);
+          };
+          window.addEventListener('message', onMessage);
+        });
+
+        doc.open();
+        doc.write(`
+          <!doctype html>
+          <html>
+            <head><meta charset="utf-8" /></head>
+            <body>
+              <script>
+                window.__W3A_WALLET_SDK_BASE__ = '/sdk/esm/sdk/';
+              </script>
+              <script type="module">
+                const modulePath = ${JSON.stringify(modulePath)};
+                const tagName = ${JSON.stringify(tagName)};
+                const post = (payload) => parent.postMessage({
+                  type: 'seams-passkey-registration-btn-rects',
+                  ...payload,
+                }, '*');
+                try {
+                  await import(modulePath);
+                  await customElements.whenDefined(tagName);
+                  const host = document.createElement('section');
+                  host.style.cssText = 'inline-size:100%;block-size:100%;background:transparent;';
+                  const element = document.createElement(tagName);
+                  element.activationId = 'activation-iframe-fill';
+                  element.label = 'Create with passkey';
+                  element.busyLabel = 'Creating passkey...';
+                  element.accessibleLabel = 'Create passkey account';
+                  host.appendChild(element);
+                  document.body.appendChild(host);
+                  await element.updateComplete;
+                  await new Promise((resolve) => requestAnimationFrame(resolve));
+                  const button = element.querySelector('button');
+                  if (!button) throw new Error('missing internal button');
+                  post({
+                    bodyHeight: document.body.getBoundingClientRect().height,
+                    elementHeight: element.getBoundingClientRect().height,
+                    buttonHeight: button.getBoundingClientRect().height,
+                    buttonWidth: button.getBoundingClientRect().width,
+                  });
+                } catch (error) {
+                  post({ bodyHeight: 0, elementHeight: 0, buttonHeight: 0, buttonWidth: 0, error: String(error?.message || error) });
+                }
+              </script>
+            </body>
+          </html>
+        `);
+        doc.close();
+
+        const rects = await resultPromise;
+        frame.remove();
+        return rects;
+      },
+      { modulePath: MODULE_PATH, tagName: TAG_NAME },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.bodyHeight).toBeGreaterThanOrEqual(71);
+    expect(result.elementHeight).toBeGreaterThanOrEqual(71);
+    expect(result.buttonHeight).toBeGreaterThanOrEqual(71);
+    expect(result.buttonWidth).toBeGreaterThanOrEqual(319);
+  });
+
   test('uses the same rpID source for WebAuthn registration options', async ({ page }) => {
     const result = await page.evaluate(async ({ touchIdPromptPath }) => {
       const mod = await import(touchIdPromptPath);

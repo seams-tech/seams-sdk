@@ -50,6 +50,7 @@
  */
 
 import {
+  isRegistrationActivationButtonInteractionState,
   type ParentToChildEnvelope,
   type ChildToParentEnvelope,
   type ProgressPayload,
@@ -420,21 +421,6 @@ function setRegistrationActivationBooleanAttribute(
   } else {
     target.setAttribute(name, 'false');
   }
-}
-
-function isRegistrationActivationButtonInteractionState(
-  value: unknown,
-): value is RegistrationActivationButtonInteractionState {
-  if (!isObject(value)) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record.kind === 'registration_activation_button_interaction_state_v1' &&
-    typeof record.hovered === 'boolean' &&
-    typeof record.focused === 'boolean' &&
-    typeof record.pressed === 'boolean' &&
-    typeof record.busy === 'boolean' &&
-    typeof record.disabled === 'boolean'
-  );
 }
 
 function canApplyRegistrationActivationButtonState(
@@ -1317,6 +1303,7 @@ export class WalletIframeRouter {
       if (event.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
         if (currentState.kind !== 'ready') return;
         setState({ kind: 'starting', activationId });
+        releaseActivationOverlay();
         return;
       }
       if (event.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {

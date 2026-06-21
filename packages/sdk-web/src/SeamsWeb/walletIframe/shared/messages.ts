@@ -202,6 +202,21 @@ export type RegistrationActivationButtonInteractionState = {
   disabled: boolean;
 };
 
+export function isRegistrationActivationButtonInteractionState(
+  value: unknown,
+): value is RegistrationActivationButtonInteractionState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === 'registration_activation_button_interaction_state_v1' &&
+    typeof record.hovered === 'boolean' &&
+    typeof record.focused === 'boolean' &&
+    typeof record.pressed === 'boolean' &&
+    typeof record.busy === 'boolean' &&
+    typeof record.disabled === 'boolean'
+  );
+}
+
 export interface PMRegistrationActivationButtonStatePayload {
   activationId: string;
   state: RegistrationActivationButtonInteractionState;

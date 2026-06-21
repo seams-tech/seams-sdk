@@ -1,3 +1,15 @@
+html,
+body {
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 100%;
+  min-block-size: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
 seams-passkey-registration-btn {
   display: block;
   inline-size: 100%;

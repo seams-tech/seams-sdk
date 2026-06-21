@@ -8,10 +8,11 @@ import type {
   SignTransactionHooksOptions,
 } from '@/core/types/sdkSentEvents';
 import type { RegistrationResult } from '@/core/types/seams';
-import type {
-  PMExecuteActionPayload,
-  RegistrationActivationButtonInteractionState,
-  PMRegistrationActivationPreparePayload,
+import {
+  isRegistrationActivationButtonInteractionState,
+  type PMExecuteActionPayload,
+  type RegistrationActivationButtonInteractionState,
+  type PMRegistrationActivationPreparePayload,
 } from '../../shared/messages';
 import type {
   RegistrationActivationButtonCss,
@@ -284,25 +285,8 @@ function applyFallbackRegistrationButtonInset(args: {
   const shadowPaddingPx =
     args.presentation.kind === 'iframe_button' ? args.presentation.shadowPaddingPx : 0;
   args.button.style.margin = `${shadowPaddingPx}px`;
-  args.button.style.width =
-    shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
-  args.button.style.height =
-    shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
-}
-
-function isRegistrationActivationButtonState(
-  value: unknown,
-): value is RegistrationActivationButtonInteractionState {
-  if (!isObject(value)) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record.kind === 'registration_activation_button_interaction_state_v1' &&
-    typeof record.hovered === 'boolean' &&
-    typeof record.focused === 'boolean' &&
-    typeof record.pressed === 'boolean' &&
-    typeof record.busy === 'boolean' &&
-    typeof record.disabled === 'boolean'
-  );
+  args.button.style.width = shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
+  args.button.style.height = shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
 }
 
 async function ensureRegistrationActivationButtonElementDefined(): Promise<void> {
@@ -347,7 +331,7 @@ function configureRegistrationActivationElement(args: {
   args.element.addEventListener(REGISTRATION_ACTIVATION_START_EVENT, args.onStart, { once: true });
   args.element.addEventListener(REGISTRATION_ACTIVATION_STATE_EVENT, (event) => {
     const state = (event as CustomEvent<unknown>).detail;
-    if (!isRegistrationActivationButtonState(state)) return;
+    if (!isRegistrationActivationButtonInteractionState(state)) return;
     args.onState(state);
   });
 }
