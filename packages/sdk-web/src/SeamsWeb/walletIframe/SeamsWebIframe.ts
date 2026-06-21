@@ -19,6 +19,7 @@
  */
 
 import { WalletIframeRouter } from './client/router';
+import { signingSessionSealInputFromReadonly } from './shared/signingSessionSealConfig';
 import { walletIframeUnlockRequestFromLoginHooks } from './shared/unlockOptions';
 import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
@@ -176,7 +177,7 @@ export class SeamsWebIframe {
     const signingSessionPersistenceMode = this.configs.signing.sessionPersistenceMode;
     const signingSessionSeal =
       signingSessionPersistenceMode === 'sealed_refresh_v1'
-        ? this.configs.signing.sessionSeal
+        ? signingSessionSealInputFromReadonly(this.configs.signing.sessionSeal)
         : undefined;
     const signingSessionDefaults = this.configs.signing.sessionDefaults;
     const routerAb = this.configs.signing.routerAb;

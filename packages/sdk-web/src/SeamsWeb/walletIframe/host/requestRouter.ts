@@ -1,10 +1,13 @@
 import type { ParentToChildEnvelope, ParentToChildType } from '../shared/messages';
 
+type WalletHostRequest<T extends ParentToChildType> = ParentToChildEnvelope & { type: T };
+
 export type BootWalletRequestType = 'PING' | 'PM_SET_CONFIG' | 'PM_CANCEL';
 export type NearWalletRequestType =
   | 'PM_REGISTER'
   | 'PM_REGISTRATION_ACTIVATION_PREPARE'
   | 'PM_REGISTRATION_ACTIVATION_CANCEL'
+  | 'PM_REGISTRATION_ACTIVATION_FOCUS'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
   | 'PM_PREFETCH_BLOCKHEIGHT'
@@ -76,47 +79,47 @@ export type WalletHostRoute =
   | {
       kind: 'boot';
       type: BootWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: BootWalletRequestType }>;
+      request: WalletHostRequest<BootWalletRequestType>;
     }
   | {
       kind: 'near';
       type: NearWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: NearWalletRequestType }>;
+      request: WalletHostRequest<NearWalletRequestType>;
     }
   | {
       kind: 'auth';
       type: AuthWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: AuthWalletRequestType }>;
+      request: WalletHostRequest<AuthWalletRequestType>;
     }
   | {
       kind: 'ecdsa';
       type: EcdsaWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: EcdsaWalletRequestType }>;
+      request: WalletHostRequest<EcdsaWalletRequestType>;
     }
   | {
       kind: 'email_otp';
       type: EmailOtpWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: EmailOtpWalletRequestType }>;
+      request: WalletHostRequest<EmailOtpWalletRequestType>;
     }
   | {
       kind: 'recovery';
       type: RecoveryWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: RecoveryWalletRequestType }>;
+      request: WalletHostRequest<RecoveryWalletRequestType>;
     }
   | {
       kind: 'export';
       type: ExportWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: ExportWalletRequestType }>;
+      request: WalletHostRequest<ExportWalletRequestType>;
     }
   | {
       kind: 'device_link';
       type: DeviceLinkWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: DeviceLinkWalletRequestType }>;
+      request: WalletHostRequest<DeviceLinkWalletRequestType>;
     }
   | {
       kind: 'preferences';
       type: PreferencesWalletRequestType;
-      request: Extract<ParentToChildEnvelope, { type: PreferencesWalletRequestType }>;
+      request: WalletHostRequest<PreferencesWalletRequestType>;
     };
 
 function assertNever(value: never): never {
@@ -133,6 +136,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_REGISTER':
     case 'PM_REGISTRATION_ACTIVATION_PREPARE':
     case 'PM_REGISTRATION_ACTIVATION_CANCEL':
+    case 'PM_REGISTRATION_ACTIVATION_FOCUS':
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
     case 'PM_PREFETCH_BLOCKHEIGHT':

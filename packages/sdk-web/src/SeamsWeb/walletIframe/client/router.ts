@@ -54,6 +54,7 @@ import {
   type ChildToParentEnvelope,
   type ProgressPayload,
   type PreferencesChangedPayload,
+  type RegistrationActivationButtonInteractionState,
 } from '../shared/messages';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import {
@@ -107,6 +108,7 @@ import type {
 } from '@/core/types/seams';
 import type {
   CreatePasskeyRegistrationActivationSurfaceArgs,
+  RegistrationActivationButtonPresentation,
   RegistrationActivationSurfaceState,
   WalletIframeRegistrationActivationSurface,
 } from '@/SeamsWeb/publicApi/types';
@@ -248,6 +250,7 @@ type Pending = {
 };
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
+const WALLET_IFRAME_REGISTRATION_TIMEOUT_MS = 180_000;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
 const WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
 const EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS = new Set([
@@ -271,6 +274,19 @@ type PostResult<T> = {
   ok: boolean;
   result: T;
 };
+
+type RegistrationActivationMountCleanup = {
+  dispose(): void;
+};
+
+const REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE = 'data-seams-registration-button-active';
+const REGISTRATION_ACTIVATION_STATE_ATTRIBUTES = {
+  hovered: 'data-seams-registration-button-hovered',
+  focused: 'data-seams-registration-button-focused',
+  pressed: 'data-seams-registration-button-pressed',
+  busy: 'data-seams-registration-button-busy',
+  disabled: 'data-seams-registration-button-disabled',
+} as const;
 
 function createTerminalProgressForRequest(args: {
   requestType: ParentToChildEnvelope['type'];
@@ -392,6 +408,276 @@ function sanitizeEmailOtpIframeResult<T>(value: T): T {
     out[key] = sanitizeEmailOtpIframeResult(entry);
   }
   return out as T;
+}
+
+function setRegistrationActivationBooleanAttribute(
+  target: HTMLElement,
+  name: string,
+  active: boolean,
+): void {
+  if (active) {
+    target.setAttribute(name, 'true');
+  } else {
+    target.setAttribute(name, 'false');
+  }
+}
+
+function applyRegistrationActivationButtonState(args: {
+  target: HTMLElement | null;
+  state: RegistrationActivationButtonInteractionState;
+}): void {
+  if (!args.target) return;
+  setRegistrationActivationBooleanAttribute(
+    args.target,
+    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.hovered,
+    args.state.hovered,
+  );
+  setRegistrationActivationBooleanAttribute(
+    args.target,
+    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.focused,
+    args.state.focused,
+  );
+  setRegistrationActivationBooleanAttribute(
+    args.target,
+    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.pressed,
+    args.state.pressed,
+  );
+  setRegistrationActivationBooleanAttribute(
+    args.target,
+    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.busy,
+    args.state.busy,
+  );
+  setRegistrationActivationBooleanAttribute(
+    args.target,
+    REGISTRATION_ACTIVATION_STATE_ATTRIBUTES.disabled,
+    args.state.disabled,
+  );
+}
+
+function clearRegistrationActivationButtonState(target: HTMLElement | null): void {
+  if (!target) return;
+  target.removeAttribute(REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE);
+  for (const attributeName of Object.values(REGISTRATION_ACTIVATION_STATE_ATTRIBUTES)) {
+    target.removeAttribute(attributeName);
+  }
+}
+
+function readRegistrationActivationTargetRect(target: HTMLElement): DOMRectLike | null {
+  if (target.isConnected === false) return null;
+  const rect = target.getBoundingClientRect();
+  const top = Number(rect.top);
+  const left = Number(rect.left);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (
+    !Number.isFinite(top) ||
+    !Number.isFinite(left) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { top, left, width, height };
+}
+
+function installRegistrationActivationTargetProxy(args: {
+  target: HTMLElement;
+  accessibleLabel: string;
+  onFocusRequest(): void;
+}): RegistrationActivationMountCleanup {
+  const role = args.target.getAttribute('role');
+  const tabindex = args.target.getAttribute('tabindex');
+  const ariaLabel = args.target.getAttribute('aria-label');
+  const active = args.target.getAttribute(REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE);
+  args.target.setAttribute(REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE, 'true');
+  if (role === null) args.target.setAttribute('role', 'button');
+  if (tabindex === null) args.target.setAttribute('tabindex', '0');
+  if (ariaLabel === null) args.target.setAttribute('aria-label', args.accessibleLabel);
+  const onFocus = (): void => {
+    args.onFocusRequest();
+  };
+  const consumeActivationEvent = (event: Event): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  };
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    consumeActivationEvent(event);
+    args.onFocusRequest();
+  };
+  const onKeyUp = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    consumeActivationEvent(event);
+  };
+  const onClick = (event: MouseEvent): void => {
+    consumeActivationEvent(event);
+    args.onFocusRequest();
+  };
+  args.target.addEventListener('focus', onFocus);
+  args.target.addEventListener('keydown', onKeyDown, true);
+  args.target.addEventListener('keyup', onKeyUp, true);
+  args.target.addEventListener('click', onClick, true);
+  return {
+    dispose: (): void => {
+      args.target.removeEventListener('focus', onFocus);
+      args.target.removeEventListener('keydown', onKeyDown, true);
+      args.target.removeEventListener('keyup', onKeyUp, true);
+      args.target.removeEventListener('click', onClick, true);
+      clearRegistrationActivationButtonState(args.target);
+      restoreNullableAttribute(args.target, 'role', role);
+      restoreNullableAttribute(args.target, 'tabindex', tabindex);
+      restoreNullableAttribute(args.target, 'aria-label', ariaLabel);
+      restoreNullableAttribute(args.target, REGISTRATION_ACTIVATION_ACTIVE_ATTRIBUTE, active);
+    },
+  };
+}
+
+function restoreNullableAttribute(target: HTMLElement, name: string, value: string | null): void {
+  if (value === null) {
+    target.removeAttribute(name);
+    return;
+  }
+  target.setAttribute(name, value);
+}
+
+function installRegistrationActivationIframeAccessibility(args: {
+  iframe: HTMLIFrameElement;
+  accessibleLabel: string;
+}): RegistrationActivationMountCleanup {
+  const title = args.iframe.getAttribute('title');
+  args.iframe.setAttribute('title', args.accessibleLabel);
+  return {
+    dispose: (): void => {
+      restoreNullableAttribute(args.iframe, 'title', title);
+    },
+  };
+}
+
+function visibleRegistrationActivationTargetRect(target: HTMLElement): DOMRectLike | null {
+  const rect = readRegistrationActivationTargetRect(target);
+  if (!rect) return null;
+  const viewportWidth = Number(globalThis.innerWidth || document.documentElement.clientWidth || 0);
+  const viewportHeight = Number(
+    globalThis.innerHeight || document.documentElement.clientHeight || 0,
+  );
+  if (viewportWidth <= 0 || viewportHeight <= 0) return rect;
+  if (rect.left + rect.width <= 0 || rect.top + rect.height <= 0) return null;
+  if (rect.left >= viewportWidth || rect.top >= viewportHeight) return null;
+  return rect;
+}
+
+function collectRegistrationActivationGeometryTargets(target: HTMLElement): EventTarget[] {
+  const events: EventTarget[] = [];
+  if (typeof window !== 'undefined') {
+    events.push(window);
+  }
+  if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') {
+    return events;
+  }
+  let current = target.parentElement;
+  while (current) {
+    const styles = window.getComputedStyle(current);
+    const overflow = `${styles.overflow} ${styles.overflowX} ${styles.overflowY}`;
+    if (/\b(auto|scroll|overlay)\b/.test(overflow)) {
+      events.push(current);
+    }
+    current = current.parentElement;
+  }
+  return events;
+}
+
+function registrationActivationShadowPaddingPx(
+  presentation: RegistrationActivationButtonPresentation,
+): number {
+  if (presentation.kind !== 'iframe_button') return 0;
+  return Number.isFinite(presentation.shadowPaddingPx)
+    ? Math.max(0, presentation.shadowPaddingPx)
+    : 0;
+}
+
+function registrationActivationOverlayRectForPresentation(args: {
+  rect: DOMRectLike;
+  presentation: RegistrationActivationButtonPresentation;
+}): DOMRectLike {
+  const shadowPaddingPx = registrationActivationShadowPaddingPx(args.presentation);
+  if (shadowPaddingPx <= 0) return args.rect;
+  return {
+    top: args.rect.top - shadowPaddingPx,
+    left: args.rect.left - shadowPaddingPx,
+    width: args.rect.width + shadowPaddingPx * 2,
+    height: args.rect.height + shadowPaddingPx * 2,
+  };
+}
+
+function installRegistrationActivationOverlayGeometry(args: {
+  target: HTMLElement;
+  overlayState: WalletIframeOverlayState;
+  presentation: RegistrationActivationButtonPresentation;
+  onTargetUnavailable(): void;
+}): RegistrationActivationMountCleanup | null {
+  const applyRect = (): boolean => {
+    const rect = visibleRegistrationActivationTargetRect(args.target);
+    if (!rect) return false;
+    const overlayRect = registrationActivationOverlayRectForPresentation({
+      rect,
+      presentation: args.presentation,
+    });
+    args.overlayState.forceFullscreen = false;
+    args.overlayState.controller.setSticky(true);
+    args.overlayState.controller.showAnchored(overlayRect);
+    return true;
+  };
+  if (!applyRect()) return null;
+  let disposed = false;
+  const onGeometryChanged = (): void => {
+    if (disposed) return;
+    if (applyRect()) return;
+    args.onTargetUnavailable();
+  };
+  const resizeObserver =
+    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onGeometryChanged) : null;
+  resizeObserver?.observe(args.target);
+  const eventTargets = collectRegistrationActivationGeometryTargets(args.target);
+  if (typeof window !== 'undefined' && window.visualViewport) {
+    eventTargets.push(window.visualViewport);
+  }
+  for (const eventTarget of eventTargets) {
+    eventTarget.addEventListener('scroll', onGeometryChanged, true);
+    eventTarget.addEventListener('resize', onGeometryChanged);
+  }
+  let animationFrameId: number | null = null;
+  let alignmentFrameCount = 0;
+  const scheduleAlignmentFrame = (): void => {
+    if (typeof requestAnimationFrame !== 'function') return;
+    if (animationFrameId !== null || disposed) return;
+    animationFrameId = requestAnimationFrame(() => {
+      animationFrameId = null;
+      if (disposed) return;
+      alignmentFrameCount += 1;
+      onGeometryChanged();
+      if (alignmentFrameCount < 12) {
+        scheduleAlignmentFrame();
+      }
+    });
+  };
+  scheduleAlignmentFrame();
+  return {
+    dispose: (): void => {
+      disposed = true;
+      if (animationFrameId !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(animationFrameId);
+      }
+      resizeObserver?.disconnect();
+      for (const eventTarget of eventTargets) {
+        eventTarget.removeEventListener('scroll', onGeometryChanged, true);
+        eventTarget.removeEventListener('resize', onGeometryChanged);
+      }
+      args.overlayState.controller.clearAnchoredRect();
+    },
+  };
 }
 
 const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
@@ -900,18 +1186,23 @@ export class WalletIframeRouter {
       const safeOptions = removeFunctionsFromOptions(payload.options);
 
       // Step 3: Send PM_REGISTER message to iframe and wait for response
-      const res = await this.post<RegistrationResult>({
-        type: 'PM_REGISTER',
-        payload: {
-          nearAccountId: payload.nearAccountId,
-          options: safeOptions,
-          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
+      const res = await this.post<RegistrationResult>(
+        {
+          type: 'PM_REGISTER',
+          payload: {
+            nearAccountId: payload.nearAccountId,
+            options: safeOptions,
+            ...(payload.confirmationConfig
+              ? { confirmationConfig: payload.confirmationConfig }
+              : {}),
+          },
+          // Bridge progress events from iframe back to parent callback
+          options: {
+            onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+          },
         },
-        // Bridge progress events from iframe back to parent callback
-        options: {
-          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
-        },
-      });
+        { timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS },
+      );
 
       // Step 4: Update login status after successful registration
       const { login: st } = await this.getWalletSession(payload.nearAccountId);
@@ -934,6 +1225,10 @@ export class WalletIframeRouter {
     let currentState: RegistrationActivationSurfaceState = { kind: 'idle' };
     let mounted = false;
     let disposed = false;
+    let target: HTMLElement | null = null;
+    let targetCleanup: RegistrationActivationMountCleanup | null = null;
+    let geometryCleanup: RegistrationActivationMountCleanup | null = null;
+    let iframeTitleCleanup: RegistrationActivationMountCleanup | null = null;
     const listeners = new Set<(state: RegistrationActivationSurfaceState) => void>();
     const setState = (next: RegistrationActivationSurfaceState): void => {
       currentState = next;
@@ -942,6 +1237,42 @@ export class WalletIframeRouter {
           listener(next);
         } catch {}
       }
+    };
+    const cleanupActivationMount = (): void => {
+      geometryCleanup?.dispose();
+      geometryCleanup = null;
+      iframeTitleCleanup?.dispose();
+      iframeTitleCleanup = null;
+      targetCleanup?.dispose();
+      targetCleanup = null;
+      clearRegistrationActivationButtonState(target);
+      target = null;
+    };
+    const releaseActivationOverlay = (): void => {
+      cleanupActivationMount();
+      this.overlayState.forceFullscreen = false;
+      this.overlayState.controller.setSticky(false);
+      if (!this.progressBus.wantsVisible()) {
+        this.hideFrameForActivation();
+      }
+    };
+    const postActivationCancel = (
+      reason: Extract<RegistrationActivationSurfaceState, { kind: 'cancelled' }>['reason'],
+    ): void => {
+      void this.post({
+        type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
+        payload: { activationId, reason },
+      }).catch(() => {});
+    };
+    const cancelActivation = (
+      reason: Extract<RegistrationActivationSurfaceState, { kind: 'cancelled' }>['reason'],
+    ): void => {
+      if (disposed) return;
+      disposed = true;
+      this.registrationActivationListeners.delete(activationId);
+      postActivationCancel(reason);
+      setState({ kind: 'cancelled', activationId, reason });
+      releaseActivationOverlay();
     };
     const activationEventListener = (event: ChildToParentEnvelope): void => {
       if (event.type === 'PM_REGISTRATION_ACTIVATION_READY') {
@@ -954,26 +1285,53 @@ export class WalletIframeRouter {
       }
       if (event.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
         setState({ kind: 'starting', activationId });
+        return;
       }
-    };
-
-    const releaseActivationOverlay = (): void => {
-      this.overlayState.forceFullscreen = false;
-      this.overlayState.controller.setSticky(false);
-      if (!this.progressBus.wantsVisible()) {
-        this.hideFrameForActivation();
+      if (event.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE') {
+        const state = event.payload?.state;
+        if (!state) return;
+        applyRegistrationActivationButtonState({ target, state });
       }
     };
 
     return {
       kind: 'wallet_iframe_registration_activation_surface_v1',
-      mount: (_target: HTMLElement): void => {
+      mount: (mountTarget: HTMLElement): void => {
         if (mounted || disposed) return;
+        target = mountTarget;
+        iframeTitleCleanup = installRegistrationActivationIframeAccessibility({
+          iframe: this.transport.ensureIframeMounted(),
+          accessibleLabel: payload.presentation.accessibleLabel,
+        });
+        targetCleanup = installRegistrationActivationTargetProxy({
+          target: mountTarget,
+          accessibleLabel: payload.presentation.accessibleLabel,
+          onFocusRequest: () => {
+            void this.post({
+              type: 'PM_REGISTRATION_ACTIVATION_FOCUS',
+              payload: { activationId },
+            }).catch(() => {});
+          },
+        });
+        geometryCleanup = installRegistrationActivationOverlayGeometry({
+          target: mountTarget,
+          overlayState: this.overlayState,
+          presentation: payload.presentation,
+          onTargetUnavailable: () => cancelActivation('target_unavailable'),
+        });
+        if (!geometryCleanup) {
+          iframeTitleCleanup?.dispose();
+          iframeTitleCleanup = null;
+          targetCleanup?.dispose();
+          targetCleanup = null;
+          clearRegistrationActivationButtonState(mountTarget);
+          target = null;
+          setState({ kind: 'cancelled', activationId, reason: 'target_unavailable' });
+          return;
+        }
         mounted = true;
+        setState({ kind: 'mounting', activationId });
         this.registrationActivationListeners.set(activationId, new Set([activationEventListener]));
-        this.overlayState.forceFullscreen = true;
-        this.overlayState.controller.setSticky(true);
-        this.overlayState.controller.showFullscreen();
         void (async () => {
           try {
             const safeOptions = removeFunctionsFromOptions(payload.options);
@@ -988,7 +1346,7 @@ export class WalletIframeRouter {
                   ...(payload.options?.confirmationConfig
                     ? { confirmationConfig: payload.options.confirmationConfig }
                     : {}),
-                  ...(payload.button ? { button: payload.button } : {}),
+                  presentation: payload.presentation,
                 },
                 options: {
                   onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
@@ -1025,10 +1383,7 @@ export class WalletIframeRouter {
         if (disposed) return;
         disposed = true;
         this.registrationActivationListeners.delete(activationId);
-        void this.post({
-          type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
-          payload: { activationId, reason: 'disposed' },
-        }).catch(() => {});
+        postActivationCancel('disposed');
         if (currentState.kind !== 'completed' && currentState.kind !== 'failed') {
           setState({ kind: 'cancelled', activationId, reason: 'disposed' });
         }
@@ -1060,20 +1415,23 @@ export class WalletIframeRouter {
         await this.setConfirmationConfig({ ...base, ...confirmationConfig });
       }
       const safeOptions = removeFunctionsFromOptions(payload.options);
-      const res = await this.post<RegistrationResult>({
-        type: 'PM_REGISTER_WALLET',
-        payload: {
-          authMethod: payload.authMethod,
-          wallet: payload.wallet,
-          rpId: payload.rpId,
-          signerSelection: payload.signerSelection,
-          options: safeOptions,
-          ...(confirmationConfig ? { confirmationConfig } : {}),
+      const res = await this.post<RegistrationResult>(
+        {
+          type: 'PM_REGISTER_WALLET',
+          payload: {
+            authMethod: payload.authMethod,
+            wallet: payload.wallet,
+            rpId: payload.rpId,
+            signerSelection: payload.signerSelection,
+            options: safeOptions,
+            ...(confirmationConfig ? { confirmationConfig } : {}),
+          },
+          options: {
+            onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+          },
         },
-        options: {
-          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
-        },
-      });
+        { timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS },
+      );
       const nearAccountId =
         payload.signerSelection.mode === 'ed25519_only' ||
         payload.signerSelection.mode === 'ed25519_and_ecdsa'
@@ -2188,12 +2546,10 @@ export class WalletIframeRouter {
     }
     if (
       msg.type === 'PM_REGISTRATION_ACTIVATION_READY' ||
-      msg.type === 'PM_REGISTRATION_ACTIVATION_STARTED'
+      msg.type === 'PM_REGISTRATION_ACTIVATION_STARTED' ||
+      msg.type === 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE'
     ) {
-      const activationId =
-        msg.type === 'PM_REGISTRATION_ACTIVATION_READY'
-          ? msg.payload?.activationId
-          : msg.payload?.activationId;
+      const activationId = msg.payload?.activationId;
       if (activationId) {
         const listeners = this.registrationActivationListeners.get(activationId);
         if (listeners) {
@@ -2418,7 +2774,6 @@ export class WalletIframeRouter {
       case 'PM_EXPORT_KEYPAIR_UI':
       case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
       case 'PM_REGISTER':
-      case 'PM_REGISTRATION_ACTIVATION_PREPARE':
       case 'PM_UNLOCK':
       case 'PM_SIGN_AND_SEND_TX':
       case 'PM_EXECUTE_ACTION':

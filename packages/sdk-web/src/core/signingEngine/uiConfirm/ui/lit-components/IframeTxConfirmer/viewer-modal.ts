@@ -1,7 +1,7 @@
 import { html, type PropertyValues } from 'lit';
 import { LitElementWithProps } from '../LitElementWithProps';
 
-import type { UserConfirmSecurityContext } from '@/core/types';
+import type { PasskeyRegistrationConfirmDisplay, UserConfirmSecurityContext } from '@/core/types';
 import type { TransactionInputWasm } from '@/core/types';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 
@@ -201,11 +201,116 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   }
 
   private _authHeadingFallback(): string {
+    if (this._passkeyRegistrationDisplay()) return 'Create your passkey';
     if (this._isEmailOtpMode()) return 'Enter email code to sign';
     if (this._isWarmSessionMode()) return 'Review transaction';
     const operationCount = Array.isArray(this.model?.operations) ? this.model.operations.length : 0;
     const isRegistration = operationCount === 0;
     return isRegistration ? 'Register with Passkey' : 'Confirm with Passkey';
+  }
+
+  private _passkeyRegistrationDisplay(): PasskeyRegistrationConfirmDisplay | undefined {
+    const display = this.securityContext?.passkeyRegistration;
+    if (display?.kind !== 'passkey_registration_confirm_display_v1') return undefined;
+    return display;
+  }
+
+  private _passkeyRegistrationBody(): string {
+    return (
+      (this.body || '').trim() ||
+      'Use Touch ID or your device passkey to create credentials for this account.'
+    );
+  }
+
+  private _passkeyRegistrationConfirmText(): string {
+    return this.loading ? 'Creating passkey...' : 'Create passkey';
+  }
+
+  private _renderPasskeyRegistrationDetails(display: PasskeyRegistrationConfirmDisplay) {
+    return html`
+      <div class="passkey-registration-confirm__identity" aria-label="Passkey registration details">
+        <div class="passkey-registration-confirm__row">
+          <span class="passkey-registration-confirm__label">Account</span>
+          <span class="passkey-registration-confirm__value" title=${display.intendedUserName}
+            >${display.intendedUserName}</span
+          >
+        </div>
+        <div class="passkey-registration-confirm__row">
+          <span class="passkey-registration-confirm__label">Relying party</span>
+          <span class="passkey-registration-confirm__value" title=${display.rpId}
+            >${display.rpId}</span
+          >
+        </div>
+      </div>
+    `;
+  }
+
+  private _renderPasskeyRegistrationActions() {
+    return html`
+      <div class="passkey-registration-confirm__actions">
+        <button
+          type="button"
+          class="btn btn-cancel"
+          ?disabled=${this.loading}
+          @click=${this._handleCancel}
+        >
+          ${this.cancelText || 'Cancel'}
+        </button>
+        <button
+          type="button"
+          class="btn btn-confirm"
+          ?disabled=${this.loading}
+          @click=${this._onPasskeyRegistrationConfirm}
+        >
+          ${this.loading
+            ? html`<span
+                  class="loading-indicator passkey-registration-confirm__spinner"
+                  role="progressbar"
+                  aria-label="Creating passkey"
+                ></span>
+                <span>${this._passkeyRegistrationConfirmText()}</span>`
+            : this._passkeyRegistrationConfirmText()}
+        </button>
+      </div>
+    `;
+  }
+
+  private _onPasskeyRegistrationConfirm = (): void => {
+    this._finishConfirm();
+  };
+
+  private _renderPasskeyRegistrationModal(display: PasskeyRegistrationConfirmDisplay) {
+    return html`
+      <div class="modal-backdrop-blur" @click=${this._handleBackdropClick}></div>
+      <div class="modal-backdrop" @click=${this._handleContentClick}>
+        <div class="modal-container-root passkey-registration-confirm">
+          <div class="responsive-card">
+            <div class="hero passkey-registration-confirm__hero">
+              <w3a-passkey-halo-loading
+                .theme=${this.theme}
+                .animated=${!this.errorMessage}
+                .ringGap=${4}
+                .ringWidth=${4}
+                .ringBorderRadius=${'1.125rem'}
+                .ringBackground=${'var(--w3a-modal__passkey-halo-loading__ring-background)'}
+                .innerPadding=${'0px'}
+                .innerBackground=${'var(--w3a-modal__passkey-halo-loading__inner-background)'}
+                .iconVariant=${'fingerprint'}
+                .height=${44}
+                .width=${44}
+              ></w3a-passkey-halo-loading>
+              <div class="hero-container passkey-registration-confirm__hero-copy">
+                <h2 class="hero-heading">${(this.title || '').trim() || 'Create your passkey'}</h2>
+                <p class="passkey-registration-confirm__body">${this._passkeyRegistrationBody()}</p>
+              </div>
+            </div>
+            ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage}</div>` : ''}
+            ${this._renderPasskeyRegistrationDetails(display)}
+            ${this._renderPasskeyRegistrationActions()}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private _onOtpInput = (event: Event): void => {
@@ -476,6 +581,11 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   }
 
   render() {
+    const passkeyRegistration = this._passkeyRegistrationDisplay();
+    if (passkeyRegistration) {
+      return this._renderPasskeyRegistrationModal(passkeyRegistration);
+    }
+
     const securityDetailsText = this._securityDetailsText();
     const securityDetailsLoading = this._isSecurityDetailsLoading();
     return html`

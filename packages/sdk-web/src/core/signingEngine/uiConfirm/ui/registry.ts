@@ -14,6 +14,7 @@ export const W3A_DRAWER_ID = 'w3a-drawer';
 export const W3A_TX_TREE_ID = 'w3a-tx-tree';
 export const W3A_HALO_BORDER_ID = 'w3a-halo-border';
 export const W3A_PASSKEY_HALO_LOADING_ID = 'w3a-passkey-halo-loading';
+export const SEAMS_PASSKEY_REGISTRATION_BTN_ID = 'seams-passkey-registration-btn';
 
 // Unified list of confirmer hosts the wallet may need to target for lifecycle events.
 export const CONFIRM_UI_ELEMENT_SELECTORS = [

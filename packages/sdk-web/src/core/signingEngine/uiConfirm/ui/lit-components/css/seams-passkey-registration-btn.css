@@ -1,0 +1,28 @@
+seams-passkey-registration-btn {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  background: transparent;
+}
+
+seams-passkey-registration-btn button {
+  appearance: none;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
+  box-sizing: border-box;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: transparent;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+seams-passkey-registration-btn button:disabled {
+  cursor: progress;
+}

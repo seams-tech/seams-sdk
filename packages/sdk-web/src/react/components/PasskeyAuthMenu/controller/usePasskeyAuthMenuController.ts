@@ -22,6 +22,7 @@ import type {
   GoogleEmailOtpWalletAuthLoginFlow,
   GoogleEmailOtpWalletAuthRegistrationFlow,
 } from '@/SeamsWeb';
+import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
@@ -115,6 +116,7 @@ export interface PasskeyAuthMenuController {
   onResetToStart: () => void;
   openScanDevice: () => void;
   onSocialLogin: (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => void;
+  onRegistrationActivationSurfaceStateChange: (state: RegistrationActivationSurfaceState) => void;
   closeLinkDeviceView: (reason: 'user' | 'flow') => void;
   linkDevice: PasskeyAuthMenuLinkDeviceController;
 }
@@ -380,6 +382,10 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function assertNeverRegistrationActivationSurfaceState(state: never): never {
+  throw new Error(`Unhandled registration activation surface state: ${JSON.stringify(state)}`);
+}
+
 function formatEmailOtpResendError(error: unknown): string {
   const code =
     error && typeof error === 'object' && 'code' in error
@@ -520,25 +526,20 @@ export function usePasskeyAuthMenuController(
     secure,
   });
 
-  const passkeyAccountOptions = React.useMemo(
-    () => {
-      const byAccountId = new Map<string, StoredAccountOption>();
-      for (const option of runtime.accountOptions ?? []) {
-        const nearAccountId = String(option.nearAccountId || '').trim();
-        if (!nearAccountId) continue;
-        const authMethodKey = option.authMethod || 'passkey';
-        byAccountId.set(`${nearAccountId}:${authMethodKey}`, {
-          nearAccountId,
-          ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
-          ...(option.authMethod ? { authMethod: option.authMethod } : {}),
-        });
-      }
-      return [...byAccountId.values()].sort((a, b) =>
-        a.nearAccountId.localeCompare(b.nearAccountId),
-      );
-    },
-    [runtime.accountOptions],
-  );
+  const passkeyAccountOptions = React.useMemo(() => {
+    const byAccountId = new Map<string, StoredAccountOption>();
+    for (const option of runtime.accountOptions ?? []) {
+      const nearAccountId = String(option.nearAccountId || '').trim();
+      if (!nearAccountId) continue;
+      const authMethodKey = option.authMethod || 'passkey';
+      byAccountId.set(`${nearAccountId}:${authMethodKey}`, {
+        nearAccountId,
+        ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
+        ...(option.authMethod ? { authMethod: option.authMethod } : {}),
+      });
+    }
+    return [...byAccountId.values()].sort((a, b) => a.nearAccountId.localeCompare(b.nearAccountId));
+  }, [runtime.accountOptions]);
 
   // If the user is attempting to register but we discover the account already exists,
   // automatically switch them to the Login tab.
@@ -754,15 +755,17 @@ export function usePasskeyAuthMenuController(
             );
             return;
           }
-          const mappedFlowResult: { username?: string; otpPrompt?: PasskeyAuthMenuOtpPrompt } | null =
-            isHeadlessOtpFlow
-              ? otpPromptFromGoogleEmailOtpFlow({
-                  flow: flowResult.flow,
-                  ...(flowResult.onComplete ? { onComplete: flowResult.onComplete } : {}),
-                })
-              : flowResult && 'otpPrompt' in flowResult
-                ? flowResult
-                : null;
+          const mappedFlowResult: {
+            username?: string;
+            otpPrompt?: PasskeyAuthMenuOtpPrompt;
+          } | null = isHeadlessOtpFlow
+            ? otpPromptFromGoogleEmailOtpFlow({
+                flow: flowResult.flow,
+                ...(flowResult.onComplete ? { onComplete: flowResult.onComplete } : {}),
+              })
+            : flowResult && 'otpPrompt' in flowResult
+              ? flowResult
+              : null;
           const username = String(mappedFlowResult?.username || '').trim();
           if (username) {
             setCurrentValue(username);
@@ -1214,6 +1217,60 @@ export function usePasskeyAuthMenuController(
     [showScanDevice, closeLinkDeviceView, handleLinkDeviceEvent, handleLinkDeviceError],
   );
 
+  const activationRefreshLoginState = runtime.refreshLoginState;
+  const activationTargetAccountId = runtime.targetAccountId;
+  const onRegistrationActivationSurfaceStateChange = React.useCallback(
+    (state: RegistrationActivationSurfaceState) => {
+      switch (state.kind) {
+        case 'idle':
+        case 'mounting':
+        case 'ready':
+        case 'starting':
+          setMethodError('');
+          return;
+        case 'completed': {
+          const result = state.result;
+          if (!result.success) {
+            setMethodError(result.error || 'Wallet registration failed.');
+            return;
+          }
+          const accountId = String(
+            result.nearAccountId || latestValueRef.current || activationTargetAccountId || '',
+          ).trim();
+          setMethodError('');
+          setWaiting(false);
+          setWaitingReason(null);
+          closeLinkDeviceView('flow');
+          setMode(AuthMenuMode.Login);
+          if (accountId) {
+            void activationRefreshLoginState(accountId).catch(() => {});
+          }
+          return;
+        }
+        case 'cancelled':
+          if (state.reason === 'disposed') return;
+          if (state.reason === 'target_unavailable') {
+            setMethodError('Passkey registration button is no longer available. Try again.');
+            return;
+          }
+          if (state.reason === 'expired') {
+            setMethodError('Passkey registration expired. Try again.');
+            return;
+          }
+          setMethodError('Passkey registration was cancelled.');
+          return;
+        case 'failed':
+          setMethodError(state.error || 'Wallet registration failed.');
+          setWaiting(false);
+          setWaitingReason(null);
+          return;
+        default:
+          return assertNeverRegistrationActivationSurfaceState(state);
+      }
+    },
+    [activationRefreshLoginState, activationTargetAccountId, closeLinkDeviceView, setMode],
+  );
+
   return {
     mode,
     title,
@@ -1238,6 +1295,7 @@ export function usePasskeyAuthMenuController(
     onResetToStart,
     openScanDevice,
     onSocialLogin,
+    onRegistrationActivationSurfaceStateChange,
     closeLinkDeviceView,
     linkDevice,
   };

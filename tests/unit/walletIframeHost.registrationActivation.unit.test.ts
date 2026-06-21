@@ -78,16 +78,18 @@ class FakeDocument {
   }
 
   querySelectorAll(selector: string): FakeElement[] {
-    return this.elements.filter((element) => !element.removed && matchesSelector(element, selector));
+    return this.elements.filter(
+      (element) => !element.removed && matchesSelector(element, selector),
+    );
   }
 }
 
 function matchesSelector(element: FakeElement, selector: string): boolean {
-  if (selector === '[data-w3a-registration-activation-id]') {
-    return element.getAttribute('data-w3a-registration-activation-id') !== null;
+  if (selector === '[data-seams-registration-activation-id]') {
+    return element.getAttribute('data-seams-registration-activation-id') !== null;
   }
-  if (selector === '[data-w3a-registration-activation-start="true"]') {
-    return element.getAttribute('data-w3a-registration-activation-start') === 'true';
+  if (selector === '[data-seams-registration-activation-start="true"]') {
+    return element.getAttribute('data-seams-registration-activation-start') === 'true';
   }
   return false;
 }
@@ -111,6 +113,13 @@ function createDeferred<T>(): Deferred<T> {
   });
   return { promise, resolve, reject };
 }
+
+const DEFAULT_ACTIVATION_PRESENTATION = {
+  kind: 'outline_overlay',
+  label: 'Create passkey',
+  busyLabel: 'Creating passkey...',
+  accessibleLabel: 'Create passkey account',
+} as const;
 
 function makeDeps(args: {
   posts: ChildToParentEnvelope[];
@@ -139,6 +148,7 @@ function makeActivationPrepareReq(override?: Partial<any>): any {
       nearAccountId: 'alice.testnet',
       expiresAtMs: Date.now() + 60_000,
       options: {},
+      presentation: DEFAULT_ACTIVATION_PRESENTATION,
       ...override,
     },
   };
@@ -208,12 +218,20 @@ test.describe('wallet iframe host registration activation', () => {
     const preparePromise = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
       makeActivationPrepareReq({
         confirmationConfig: { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 5 },
+        presentation: {
+          ...DEFAULT_ACTIVATION_PRESENTATION,
+          iframeButtonStyle: {
+            width: '100%',
+            borderRadius: '999px',
+            boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18)',
+          },
+        },
       }),
     );
     await Promise.resolve();
 
     const button = document.querySelector<FakeElement>(
-      '[data-w3a-registration-activation-start="true"]',
+      '[data-seams-registration-activation-start="true"]',
     );
     expect(button).not.toBeNull();
     button!.click();
@@ -252,7 +270,7 @@ test.describe('wallet iframe host registration activation', () => {
         }),
       ]),
     );
-    expect(document.querySelector('[data-w3a-registration-activation-id]')).toBeNull();
+    expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
   });
 
   test('activation cancel rejects pending prepare and removes the button', async () => {
@@ -265,11 +283,9 @@ test.describe('wallet iframe host registration activation', () => {
       }),
     );
 
-    const preparePromise = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
-      makeActivationPrepareReq(),
-    );
+    const preparePromise = handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(makeActivationPrepareReq());
     await Promise.resolve();
-    expect(document.querySelector('[data-w3a-registration-activation-id]')).not.toBeNull();
+    expect(document.querySelector('[data-seams-registration-activation-id]')).not.toBeNull();
 
     await handlers.PM_REGISTRATION_ACTIVATION_CANCEL!({
       type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
@@ -281,7 +297,7 @@ test.describe('wallet iframe host registration activation', () => {
     } as any);
 
     await expect(preparePromise).rejects.toThrow('Registration activation cancelled');
-    expect(document.querySelector('[data-w3a-registration-activation-id]')).toBeNull();
+    expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
     expect(posts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -315,6 +331,146 @@ test.describe('wallet iframe host registration activation', () => {
 
     expect(registerCalls).toBe(0);
     expect(posts).toEqual([]);
-    expect(document.querySelector('[data-w3a-registration-activation-id]')).toBeNull();
+    expect(document.querySelector('[data-seams-registration-activation-id]')).toBeNull();
+  });
+
+  test('activation presentation rejects unsupported CSS properties', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        registerPasskey: async () => ({ success: true }),
+      }),
+    );
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            ...DEFAULT_ACTIVATION_PRESENTATION,
+            iframeButtonStyle: {
+              position: 'fixed',
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('unsupported CSS property position');
+  });
+
+  test('activation presentation rejects CSS URL values', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        registerPasskey: async () => ({ success: true }),
+      }),
+    );
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            ...DEFAULT_ACTIVATION_PRESENTATION,
+            iframeButtonStyle: {
+              background: 'url(https://example.com/button.png)',
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('cannot use url(...)');
+  });
+
+  test('activation presentation rejects mixed branch fields at runtime boundary', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        registerPasskey: async () => ({ success: true }),
+      }),
+    );
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            ...DEFAULT_ACTIVATION_PRESENTATION,
+            iframeVisualStyle: {
+              borderRadius: '999px',
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('iframeVisualStyle is not allowed for outline_overlay');
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            ...DEFAULT_ACTIVATION_PRESENTATION,
+            shadowPaddingPx: 12,
+          },
+        }),
+      ),
+    ).rejects.toThrow('shadowPaddingPx is not allowed for outline_overlay');
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            kind: 'iframe_button',
+            label: 'Create passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+            iframeVisualStyle: {
+              borderRadius: '999px',
+            },
+            shadowPaddingPx: 12,
+            iframeButtonStyle: {
+              borderRadius: '999px',
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('iframeButtonStyle is not allowed for iframe_button');
+  });
+
+  test('iframe button presentation requires visual style and shadow padding', async () => {
+    const posts: ChildToParentEnvelope[] = [];
+    const handlers = createWalletIframeHandlers(
+      makeDeps({
+        posts,
+        registerPasskey: async () => ({ success: true }),
+      }),
+    );
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            kind: 'iframe_button',
+            label: 'Create passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+            shadowPaddingPx: 12,
+          },
+        }),
+      ),
+    ).rejects.toThrow('iframeVisualStyle is required');
+
+    await expect(
+      handlers.PM_REGISTRATION_ACTIVATION_PREPARE!(
+        makeActivationPrepareReq({
+          presentation: {
+            kind: 'iframe_button',
+            label: 'Create passkey',
+            busyLabel: 'Creating passkey...',
+            accessibleLabel: 'Create passkey account',
+            iframeVisualStyle: {
+              borderRadius: '999px',
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow('shadowPaddingPx must be a non-negative number');
   });
 });

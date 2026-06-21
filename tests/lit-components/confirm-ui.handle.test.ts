@@ -1209,6 +1209,82 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.afterClose.childCount).toBe(0);
   });
 
+  test('host modal: passkey registration renders identity details without transaction tree', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.confirmUi);
+        const { mountConfirmUI } =
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
+
+        const ctx: any = {
+          userPreferencesManager: {
+            getCurrentWalletId: () => 'alice.testnet',
+          },
+        };
+
+        const handle = await mountConfirmUI({
+          ctx,
+          summary: { intentDigest: 'register:alice.testnet:1' } as any,
+          txSigningRequests: [],
+          securityContext: {
+            passkeyRegistration: {
+              kind: 'passkey_registration_confirm_display_v1',
+              intendedUserName: 'alice',
+              accountId: 'alice.testnet',
+              rpId: 'wallet.example.test',
+              signerSlot: 1,
+            },
+          } as any,
+          loading: false,
+          theme: 'dark',
+          uiMode: 'modal',
+          nearAccountIdOverride: 'alice.testnet',
+        });
+
+        (globalThis as any).__passkeyRegistrationHandle = handle;
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    await page.waitForSelector('.passkey-registration-confirm__identity');
+
+    const identity = page.locator('.passkey-registration-confirm__identity');
+    await expect(page.locator('.passkey-registration-confirm .hero-heading')).toHaveText(
+      'Create your passkey',
+    );
+    await expect(identity).toContainText('Account');
+    await expect(identity).toContainText('alice');
+    await expect(identity).toContainText('Relying party');
+    await expect(identity).toContainText('wallet.example.test');
+    await expect(page.locator('.passkey-registration-confirm__value').first()).toHaveAttribute(
+      'title',
+      'alice',
+    );
+    await expect(page.locator('.passkey-registration-confirm__value').nth(1)).toHaveAttribute(
+      'title',
+      'wallet.example.test',
+    );
+    expect(await page.locator('w3a-tx-tree').count()).toBe(0);
+
+    await page.evaluate(() => {
+      (globalThis as any).__passkeyRegistrationHandle?.update({ loading: true });
+    });
+
+    await expect(page.locator('.passkey-registration-confirm .btn-confirm')).toContainText(
+      'Creating passkey...',
+    );
+    await expect(page.locator('.passkey-registration-confirm [role="progressbar"]')).toHaveCount(
+      1,
+    );
+
+    await page.evaluate(() => {
+      (globalThis as any).__passkeyRegistrationHandle?.close(true);
+      delete (globalThis as any).__passkeyRegistrationHandle;
+    });
+  });
+
   test('host drawer: mount + update theme and loading', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {

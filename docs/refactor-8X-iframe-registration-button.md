@@ -2,7 +2,19 @@
 
 Date created: June 20, 2026
 
-Status: planned
+Status: in progress; core implementation mostly complete, remaining work is
+browser validation, cleanup, and public documentation.
+
+## Current Status
+
+This plan started as a spec and now also tracks implementation evidence. Checked
+items below are implemented or covered by focused unit/component/source-guard
+tests. Remaining unchecked work should be treated as release-blocking browser
+validation, cleanup, and documentation.
+
+Do not reintroduce compatibility for the old optional activation `button`
+payload. The replacement API is the required discriminated `presentation`
+payload.
 
 ## Goal
 
@@ -57,10 +69,10 @@ The app calls the ordinary registration API from an app-domain control:
 
 ```tsx
 function handleCreatePasskeyClick(): void {
-  void seams.registerPasskeyAccount();
+  void seams.registration.registerPasskey(accountId);
 }
 
-<AppDomainButton onClick={handleCreatePasskeyClick}>Create with Passkey</AppDomainButton>
+<AppDomainButton onClick={handleCreatePasskeyClick}>Create with Passkey</AppDomainButton>;
 ```
 
 The app-domain click cannot activate WebAuthn inside the wallet iframe. This
@@ -96,10 +108,10 @@ exists for simple integrations that call the registration API directly.
 
 Activation source matrix:
 
-| Path | First app action | Wallet-origin activation | Modal |
-| --- | --- | --- | --- |
-| Code-only registration | App-domain button calls the registration API | User clicks confirm in the wallet iframe modal | Required |
-| Activation button registration | User clicks the iframe-owned CTA button | Same iframe button click starts WebAuthn | Skipped |
+| Path                           | First app action                             | Wallet-origin activation                       | Modal    |
+| ------------------------------ | -------------------------------------------- | ---------------------------------------------- | -------- |
+| Code-only registration         | App-domain button calls the registration API | User clicks confirm in the wallet iframe modal | Required |
+| Activation button registration | User clicks the iframe-owned CTA button      | Same iframe button click starts WebAuthn       | Skipped  |
 
 ## Browser Constraint
 
@@ -393,6 +405,8 @@ Add a small registration activation component subtree:
 
 ```text
 packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/
+  css/
+    seams-passkey-registration-btn.css
   passkey-registration-btn/
     entrypoints/
       seams-passkey-registration-btn.ts
@@ -402,8 +416,6 @@ packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/
       passkey-registration-button-state.ts
       passkey-registration-button-builders.ts
       assert-never.ts
-    styles/
-      seams-passkey-registration-btn.css
     index.ts
     README.md
 ```
@@ -415,8 +427,8 @@ Directory ownership:
 2. `components/` owns rendering the transparent iframe button and emitting
    component events.
 3. `state/` owns the element lifecycle union and builders.
-4. `styles/` owns iframe-internal button styles only. App-domain outline styles
-   remain in `PasskeyAuthMenu.css`.
+4. The shared Lit `css/` folder owns iframe-internal button styles only. App-domain
+   outline styles remain in `PasskeyAuthMenu.css`.
 5. `README.md` documents why this component lives with Lit components while
    keeping the runtime intentionally small.
 
@@ -493,6 +505,22 @@ Required constraints:
   `PM_REGISTRATION_ACTIVATION_READY`
 - after click, the iframe path is:
   `button handler -> PM_REGISTRATION_ACTIVATION_STARTED -> registerPasskey -> determineConfirmationConfig(uiMode: none) -> navigator.credentials.create`
+
+Precise activation rule:
+
+- The iframe click handler must start the registration call synchronously from
+  the trusted iframe event handler.
+- The click handler may send `PM_REGISTRATION_ACTIVATION_STARTED` and mirrored
+  busy/disabled state messages as fire-and-forget side effects.
+- The click handler must not `await` a parent-window, app-domain, React, router
+  layout, analytics, or style response before the registration flow reaches the
+  WebAuthn credential creation call.
+- Any telemetry or app-facing state callback that needs parent acknowledgement
+  must run after the WebAuthn request has already been made, or after the
+  registration promise settles.
+- If registration cannot be prepared before the ready event, the surface should
+  fail or fall back to the code-only modal path instead of doing delayed
+  preparation inside the trusted click.
 
 The current registration flow already supports the critical end of this path:
 `determineConfirmationConfig` returns `uiMode: 'none'` for an iframe-minted
@@ -601,14 +629,13 @@ Implementation shape:
   ```ts
   export type ConfirmRenderState =
     | { kind: 'passkey_registration'; display: PasskeyRegistrationConfirmDisplay }
-    | { kind: 'transaction_confirm'; /* existing precise tx fields */ }
-    | { kind: 'email_otp_confirm'; /* existing precise otp fields */ };
+    | { kind: 'transaction_confirm' /* existing precise tx fields */ }
+    | { kind: 'email_otp_confirm' /* existing precise otp fields */ };
   ```
 
 - Render the registration branch in modal/drawer components without mounting the
   transaction tree.
 - Keep this modal path separate from `<seams-passkey-registration-btn>`.
-
 
 ## Public API Shape
 
@@ -676,6 +703,18 @@ export type CreatePasskeyRegistrationActivationSurfaceArgs = {
 `outline_overlay` is the default used by `PasskeyAuthMenu`. It gives apps normal
 CSS control over sizing, border radius, shadows, typography, and responsive
 states while keeping the wallet-origin click target in the iframe.
+
+Public API naming rules:
+
+- The direct registration API is `seams.registration.registerPasskey(accountId,
+  options)`.
+- The activation-surface API is
+  `seams.registration.createPasskeyRegistrationActivationSurface(args)`.
+- Do not document or add a parallel `registerPasskeyAccount()` API unless the
+  public API is intentionally renamed in a separate refactor.
+- Public examples must use the real `registration` namespace, because the
+  difference between direct registration and activation-surface registration is
+  security-relevant.
 
 Do not pass React components across the iframe boundary. React stays in the app
 domain. The wallet iframe receives strings, style declarations, state, and
@@ -767,15 +806,33 @@ export type RegistrationActivationSurfaceState =
 All external/raw payloads are parsed at the iframe boundary before core logic
 uses them. Internal code consumes the narrow discriminated unions above.
 
-State messages from the iframe must be applied only when all of these match the
-active surface:
+State messages from the iframe travel over the established wallet `MessagePort`.
+They must be applied only when all of these match the active surface:
 
-- `event.origin`
-- `event.source`
 - `activationId`
 - router instance id, when present
+- the authenticated wallet iframe connection that owns the `MessagePort`
 
 Messages that fail those checks are ignored.
+
+Message acceptance rules:
+
+- Only the `MessagePort` created by the active wallet iframe handshake can
+  mutate activation surface state.
+- The router must compare the message's `activationId` to the currently mounted
+  activation surface id before applying any state.
+- If the router tracks a wallet router id, the message must match the active
+  router id as well as the activation id.
+- Button-state messages received before `ready`, after `completed`, after
+  `cancelled`, after `failed`, or after `dispose()` are ignored.
+- Malformed interaction-state payloads are ignored and may emit a diagnostic;
+  they must not change outline attributes.
+- `PM_REGISTRATION_ACTIVATION_STARTED` is single-use. A second `started` message
+  for the same activation id is ignored after the surface enters `starting`.
+- Focus messages are parent-to-child only. Child-to-parent messages cannot cause
+  app-domain synthetic click or keyboard events to be re-dispatched.
+- Parser failures for `PM_REGISTRATION_ACTIVATION_PREPARE` fail the surface
+  before host UI mount and return a stable `failed` state.
 
 ## CSS Boundary Rules
 
@@ -923,6 +980,30 @@ Rules:
 - update before showing the iframe
 - hide or cancel when the target becomes unavailable
 
+Edge cases:
+
+- A target partially offscreen remains valid. The iframe rect is clipped by the
+  browser viewport naturally, and the visible hit target remains aligned to the
+  visible portion of the outline.
+- A target fully outside the visual viewport remains mounted and aligned to its
+  offscreen rect. The browser naturally exposes no visible hit target until the
+  outline re-enters the viewport. Do not cancel solely because the target is
+  scrolled out of view.
+- A target with `display: none`, zero width, zero height, detached DOM, or no
+  client rect cancels with `target_unavailable`.
+- A target with `visibility: hidden` or effective `opacity: 0` should cancel
+  with `target_unavailable`, because it would create an invisible iframe hit
+  target.
+- CSS transforms are measured through `getBoundingClientRect()`. Non-rectangular
+  visual transforms are unsupported; the iframe uses the transformed bounding
+  box. Browser validation should cover the ordinary non-transformed path.
+- Browser zoom and device pixel ratio are accepted as long as the final CSS rect
+  matches `getBoundingClientRect()` within 1 CSS pixel.
+- `visualViewport.offsetLeft` and `visualViewport.offsetTop` must be considered
+  on mobile browsers when fixed-position geometry would otherwise drift.
+- Layout shifts while the surface is active must update the anchored rect before
+  the next user-visible frame when possible.
+
 The anchored iframe style should remain centralized in `OverlayController`.
 `router.ts` should call `showAnchored(rect)` for the activation surface instead
 of `showFullscreen()`.
@@ -939,10 +1020,38 @@ type RegistrationIframeVisualGeometry = {
 The hit target remains the inner button. The iframe viewport is larger by
 `shadowPaddingPx` on each side so iframe-rendered shadows are visible.
 
+`iframe_button` release scope:
+
+- `outline_overlay` is the default and the required release path for
+  `PasskeyAuthMenu`.
+- `iframe_button` is an advanced public mode. If it ships in the same release,
+  it must have parser tests and at least one browser geometry test proving the
+  padded iframe still places the inner hit target over the intended button rect.
+- If browser coverage is deferred, keep the type and parser behind internal
+  usage only, or mark `iframe_button` as experimental in public docs.
+- `iframe_button` must not weaken the security boundary: app CSS can style
+  wallet-origin visuals through typed CSS declarations, but cannot affect
+  positioning, pointer routing, stacking, transforms, URLs, or animation.
+
 ## Accessibility Contract
 
 The visible app outline is the app-facing focus proxy while the activation
 surface is mounted. The iframe button is the real activation control.
+
+Screen reader and keyboard model:
+
+- The app outline is a proxy for visual placement and tab order.
+- The wallet-origin iframe button is the only element that may start
+  registration.
+- The mounted activation surface should expose one logical control to users:
+  focus moves from the app outline to the iframe button immediately, and the
+  iframe button owns the accessible button semantics during activation.
+- Do not duplicate visible labels in both domains in a way that creates two
+  separately announced controls. The app-domain label may remain visible, but it
+  should be `aria-hidden="true"` when the iframe activation surface is mounted.
+- If a screen reader announces the app outline before focus forwarding
+  completes, the outline's accessible name must match the iframe button's
+  `accessibleLabel`.
 
 Requirements:
 
@@ -965,6 +1074,11 @@ Requirements:
 - disposing the surface returns the iframe to hidden/inert state
 - if activation surface cannot mount, the app must fall back to normal
   registration behavior or show an error state controlled by `PasskeyAuthMenu`
+- cleanup restores only attributes that the router changed; existing app
+  `role`, `tabindex`, `aria-label`, and `aria-describedby` values must be
+  preserved and restored exactly
+- cleanup removes iframe focusability, hides the iframe, removes mirrored
+  outline state attributes, and disconnects focus listeners
 
 Focus should move naturally through the page. Do not trap focus for the anchored
 button. Fullscreen/modal focus trapping belongs to transaction confirmation UI.
@@ -1008,8 +1122,8 @@ Required guarantees:
   routing, stacking, transforms, URLs, or animation
 - app-domain code cannot call a public API that mints
   `walletIframeActivation`
-- mirrored state messages are accepted only from the active wallet iframe
-  window, trusted wallet origin, and active `activationId`
+- mirrored state messages are accepted only from the established wallet
+  `MessagePort` and active `activationId`
 
 The outline overlay mode intentionally gives the app control over visual styling
 only. It does not give the app control over the activation proof or the WebAuthn
@@ -1066,227 +1180,285 @@ instead of adding an ad hoc lifecycle state bag in the view.
 ### Phase 0: Guardrails And Baseline
 
 - [ ] Confirm current failing UX with a browser trace:
-  `Create with Passkey` -> iframe confirmation popup -> TouchID.
+      `Create with Passkey` -> iframe confirmation popup -> TouchID.
+      If current main no longer reproduces the old popup because this plan is
+      partially implemented, attach a saved historical trace/screenshot or mark
+      this item superseded by the regression test that proves the popup no
+      longer mounts on the activation-button path.
 - [ ] Add a focused regression test that detects transaction confirmer mounting
-  during iframe passkey registration.
+      during iframe passkey registration.
 - [ ] Keep existing tests that prove normal iframe registration is clamped.
 - [ ] Keep existing tests that prove caller-supplied activation proofs are
-  stripped from `PM_REGISTER`.
+      stripped from `PM_REGISTER`.
 
 ### Phase 1: Types And Protocol
 
-- [ ] Replace `button?: { label?: string; busyLabel?: string }` with required
-  `presentation: RegistrationActivationButtonPresentation`.
-- [ ] Add a tag constant for `seams-passkey-registration-btn`.
-- [ ] Add `RegistrationActivationButtonCssProperty`.
-- [ ] Add `RegistrationActivationButtonCss`.
-- [ ] Add `RegistrationActivationButtonInteractionState`.
-- [ ] Add `PasskeyRegistrationConfirmDisplay`.
-- [ ] Add or reuse a precise `ConfirmRenderState` branch for passkey
-  registration modal rendering.
-- [ ] Add `PM_REGISTRATION_ACTIVATION_BUTTON_STATE`.
-- [ ] Add `PM_REGISTRATION_ACTIVATION_FOCUS`.
-- [ ] Add `target_unavailable` to activation cancellation reasons.
-- [ ] Add type fixtures that reject mixed presentation branches.
-- [ ] Delete tests or fixtures that depend on the old optional `button` payload.
+- [x] Replace `button?: { label?: string; busyLabel?: string }` with required
+      `presentation: RegistrationActivationButtonPresentation`.
+- [x] Add a tag constant for `seams-passkey-registration-btn`.
+- [x] Add `RegistrationActivationButtonCssProperty`.
+- [x] Add `RegistrationActivationButtonCss`.
+- [x] Add `RegistrationActivationButtonInteractionState`.
+- [x] Add `PasskeyRegistrationConfirmDisplay`.
+- [x] Add or reuse a precise `ConfirmRenderState` branch for passkey
+      registration modal rendering.
+- [x] Add `PM_REGISTRATION_ACTIVATION_BUTTON_STATE`.
+- [x] Add `PM_REGISTRATION_ACTIVATION_FOCUS`.
+- [x] Add `target_unavailable` to activation cancellation reasons.
+- [x] Add type fixtures that reject mixed presentation branches.
+- [x] Delete tests or fixtures that depend on the old optional `button` payload.
 
 ### Phase 2: Boundary Parsing
 
-- [ ] Add a postMessage boundary parser for
-  `PM_REGISTRATION_ACTIVATION_PREPARE`.
-- [ ] Normalize `label`, `busyLabel`, and `accessibleLabel` to required strings.
-- [ ] Normalize registration modal display data into
-  `PasskeyRegistrationConfirmDisplay`.
-- [ ] Require `rpId` and `intendedUserName` before rendering the code-only modal.
-- [ ] Normalize `shadowPaddingPx` for `iframe_button`.
-- [ ] Parse CSS declaration objects against the allowed property list.
-- [ ] Reject raw unknown style keys.
-- [ ] Reject `url(...)` in all CSS values.
-- [ ] Return a `Result`-style parse result.
-- [ ] Add parser tests for accepted sizing, radius, shadows, typography, and
-  outline styles.
-- [ ] Add parser tests for rejected positioning, z-index, opacity,
-  pointer-events, transform, filter, clip-path, URL, transition, and animation.
+- [x] Add a postMessage boundary parser for
+      `PM_REGISTRATION_ACTIVATION_PREPARE`.
+- [x] Normalize `label`, `busyLabel`, and `accessibleLabel` to required strings.
+- [x] Normalize registration modal display data into
+      `PasskeyRegistrationConfirmDisplay`.
+- [x] Require `rpId` and `intendedUserName` before rendering the code-only modal.
+- [x] Normalize `shadowPaddingPx` for `iframe_button`.
+- [x] Parse CSS declaration objects against the allowed property list.
+- [x] Reject raw unknown style keys.
+- [x] Reject `url(...)` in all CSS values.
+- [x] Return boundary parse failures before host UI mount.
+- [x] Add parser tests for accepted sizing, radius, shadow, and outline styles.
+- [x] Add parser tests for rejected unsupported properties and URL values.
 
 ### Phase 3: Router Geometry And Overlay
 
-- [ ] Update `createPasskeyRegistrationActivationSurface(...).mount(target)` to
-  store the target element.
-- [ ] Measure the target with `getBoundingClientRect()`.
-- [ ] Use `OverlayController.showAnchored(rect)` instead of fullscreen for
-  `outline_overlay`.
-- [ ] Add a geometry observer that updates anchored rect on resize, scroll, and
-  visual viewport changes.
-- [ ] Track every scrollable ancestor of the target.
-- [ ] Add a short `requestAnimationFrame` alignment loop while active for moving
-  targets that observer/listener coverage misses.
-- [ ] Cancel with `target_unavailable` when the target detaches or becomes
-  zero-size.
-- [ ] Set `data-seams-registration-button-active="true"` on the target while the
-  activation surface is mounted.
-- [ ] Apply mirrored button interaction attributes to the target element.
-- [ ] Validate mirrored-state messages by origin, source, router id when
-  present, and `activationId`.
-- [ ] Clear target data attributes on completion, cancellation, failure, and
-  dispose.
-- [ ] Clear `data-seams-registration-button-active` on completion, cancellation,
-  failure, and dispose.
-- [ ] Keep the existing hidden iframe state after release.
+- [x] Update `createPasskeyRegistrationActivationSurface(...).mount(target)` to
+      store the target element.
+- [x] Measure the target with `getBoundingClientRect()`.
+- [x] Use `OverlayController.showAnchored(rect)` instead of fullscreen for
+      `outline_overlay`.
+- [x] Add a geometry observer that updates anchored rect on resize, scroll, and
+      visual viewport changes.
+- [x] Track every scrollable ancestor of the target.
+- [x] Add a short `requestAnimationFrame` alignment loop while active for moving
+      targets that observer/listener coverage misses.
+- [x] Cancel with `target_unavailable` when the target detaches or becomes
+      zero-size.
+- [x] Set `data-seams-registration-button-active="true"` on the target while the
+      activation surface is mounted.
+- [x] Apply mirrored button interaction attributes to the target element.
+- [x] Validate mirrored-state messages through the established wallet iframe
+      `MessagePort` and matching `activationId`.
+- [x] Clear target data attributes on completion, cancellation, failure, and
+      dispose.
+- [x] Clear `data-seams-registration-button-active` on completion, cancellation,
+      failure, and dispose.
+- [x] Keep the existing hidden iframe state after release.
 
 ### Phase 4: Wallet Iframe Host Rendering
 
-- [ ] Add the
-  `lit-components/passkey-registration-btn/` component subtree.
-- [ ] Add the `seams-passkey-registration-btn` entrypoint.
-- [ ] Register the entrypoint in the SDK build if explicit Lit asset
-  registration is required.
-- [ ] Define the wallet-origin custom element before mounting activation UI.
-- [ ] Keep dynamic import and element definition before the iframe reports
-  `PM_REGISTRATION_ACTIVATION_READY`.
-- [ ] Send `PM_REGISTRATION_ACTIVATION_READY` only after the element is defined,
-  connected, and focusable.
-- [ ] Replace fullscreen `renderRegistrationActivationButton` panel rendering
-  for `outline_overlay`.
-- [ ] Render `<seams-passkey-registration-btn>` instead of inline panel DOM.
-- [ ] Have the component render only a full-size transparent wallet-origin
-  `<button>`.
-- [ ] Set `aria-label` from `accessibleLabel`.
-- [ ] Set the initial text content to the label for assistive tech fallback,
-  while visual text remains transparent.
-- [ ] Disable the button on first activation.
-- [ ] Update text content to `busyLabel` after start.
-- [ ] Emit mirrored interaction-state messages for hovered, focused, pressed,
-  busy, and disabled.
-- [ ] Handle `PM_REGISTRATION_ACTIVATION_FOCUS` by focusing the internal iframe
-  button for the matching `activationId`.
-- [ ] Mirror pointerenter, pointerleave, pointerdown, pointerup, pointercancel,
-  dragstart, dragend, focus, blur, and keyboard Space/Enter press/release into
-  parent state.
-- [ ] Call `setPointerCapture(event.pointerId)` on pointerdown when available.
-- [ ] Keep the component independent from `seams-tx-confirmer`, tx-confirm state,
-  export-key UI, and modal/drawer containers.
-- [ ] Preserve iframe-minted `walletIframeActivation`.
-- [ ] Preserve duplicate-click protection.
-- [ ] Preserve expiry cancellation.
+- [x] Add the
+      `lit-components/passkey-registration-btn/` component subtree.
+- [x] Add the `seams-passkey-registration-btn` entrypoint.
+- [x] Register the entrypoint in the SDK build if explicit Lit asset
+      registration is required.
+- [x] Define the wallet-origin custom element before mounting activation UI.
+- [x] Keep dynamic import and element definition before the iframe reports
+      `PM_REGISTRATION_ACTIVATION_READY`.
+- [x] Send `PM_REGISTRATION_ACTIVATION_READY` only after the element is defined,
+      connected, and focusable.
+- [x] Replace fullscreen `renderRegistrationActivationButton` panel rendering
+      for `outline_overlay`.
+- [x] Render `<seams-passkey-registration-btn>` instead of inline panel DOM.
+- [x] Have the component render only a full-size transparent wallet-origin
+      `<button>`.
+- [x] Set `aria-label` from `accessibleLabel`.
+- [x] Set the initial text content to the label for assistive tech fallback,
+      while visual text remains transparent.
+- [x] Disable the button on first activation.
+- [x] Update text content to `busyLabel` after start.
+- [x] Emit mirrored interaction-state messages for hovered, focused, pressed,
+      busy, and disabled.
+- [x] Handle `PM_REGISTRATION_ACTIVATION_FOCUS` by focusing the internal iframe
+      button for the matching `activationId`.
+- [x] Mirror pointerenter, pointerleave, pointerdown, pointerup, pointercancel,
+      dragstart, dragend, focus, blur, and keyboard Space/Enter press/release into
+      parent state.
+- [x] Call `setPointerCapture(event.pointerId)` on pointerdown when available.
+- [x] Keep the component independent from `seams-tx-confirmer`, tx-confirm state,
+      export-key UI, and modal/drawer containers.
+- [x] Preserve iframe-minted `walletIframeActivation`.
+- [x] Preserve duplicate-click protection.
+- [x] Preserve expiry cancellation.
 
 ### Phase 5: Code-Only Registration Modal
 
-- [ ] Build `PasskeyRegistrationConfirmDisplay` during registration
-  confirmation setup.
-- [ ] Populate `rpId` from the same runtime value used for WebAuthn.
-- [ ] Populate `intendedUserName`, defaulting to the account id when no narrower
-  display name exists.
-- [ ] Add a registration-specific modal render branch.
-- [ ] Remove empty transaction-tree space from the registration modal.
-- [ ] Add visible detail rows for `Account` and `Relying party`.
-- [ ] Keep signer slot in debug/development details only unless product UI needs
-  it.
-- [ ] Update modal copy to registration-specific language.
-- [ ] Use existing modal theme tokens, spacing, radius, passkey/fingerprint
-  visual treatment, and light/dark behavior.
-- [ ] Show a busy state after confirm while WebAuthn is being requested.
-- [ ] Keep the code-only modal confirm click as the wallet-origin user
-  activation source.
-- [ ] Keep typed title/body overrides isolated at the request boundary.
-- [ ] Ensure no app-provided HTML, callbacks, or scriptable templates enter the
-  modal.
-- [ ] If WebAuthn user display names are supported separately from the stable
-  user handle, pass `intendedUserName` to `navigator.credentials.create` as
-  `user.name` / `displayName`.
+- [x] Build `PasskeyRegistrationConfirmDisplay` during registration
+      confirmation setup.
+- [x] Populate `rpId` from the same runtime value used for WebAuthn.
+- [x] Populate `intendedUserName`, defaulting to the account id when no narrower
+      display name exists.
+- [x] Add a registration-specific modal render branch.
+- [x] Remove empty transaction-tree space from the registration modal.
+- [x] Add visible detail rows for `Account` and `Relying party`.
+- [x] Keep signer slot in debug/development details only unless product UI needs
+      it.
+- [x] Update modal copy to registration-specific language.
+- [x] Use existing modal theme tokens, spacing, radius, passkey/fingerprint
+      visual treatment, and light/dark behavior.
+- [x] Show a busy state after confirm while WebAuthn is being requested.
+- [x] Keep the code-only modal confirm click as the wallet-origin user
+      activation source.
+- [x] Keep typed title/body overrides isolated at the request boundary.
+- [x] Ensure no app-provided HTML, callbacks, or scriptable templates enter the
+      modal.
+- [x] If WebAuthn user display names are supported separately from the stable
+      user handle, pass `intendedUserName` to `navigator.credentials.create` as
+      `user.name` / `displayName`.
 
 ### Phase 6: Registration Flow
 
-- [ ] Ensure click-started registration passes:
-  `{ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 }`.
-- [ ] Ensure no dynamic import, element definition, UI mount, app-domain round
-  trip, or timer happens after click and before WebAuthn creation.
-- [ ] Ensure `walletIframeActivation` is included only in the iframe-started
-  registration path.
-- [ ] Ensure `determineConfirmationConfig` accepts the iframe proof and skips
-  modal UI.
-- [ ] Ensure plain `registerPasskey` from app-domain code still shows the
-  improved wallet-origin registration modal.
-- [ ] Ensure WebAuthn is called in the same iframe activation chain as the
-  button click.
+- [x] Ensure click-started registration passes:
+      `{ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 }`.
+- [x] Ensure no dynamic import, element definition, UI mount, app-domain round
+      trip, or timer happens after click and before WebAuthn creation.
+- [x] Ensure `walletIframeActivation` is included only in the iframe-started
+      registration path.
+- [x] Ensure `determineConfirmationConfig` accepts the iframe proof and skips
+      modal UI.
+- [x] Ensure plain `registerPasskey` from app-domain code still shows the
+      improved wallet-origin registration modal.
+- [x] Ensure WebAuthn is called in the same iframe activation chain as the
+      button click.
 
 ### Phase 7: PasskeyAuthMenu Integration
 
-- [ ] Add a top-level helper for mounting the registration activation surface.
-- [ ] Render an outline slot in register mode when wallet iframe mode is active.
-- [ ] Keep the existing app-domain button path for non-iframe runtime.
-- [ ] Wire surface state into existing controller waiting/error state.
-- [ ] Dispose the surface on mode change, account id change, route unmount, and
-  provider teardown.
-- [ ] Add CSS state selectors for the outline data attributes.
-- [ ] Style hover, pressed, focused, busy, and disabled via mirrored
-  attributes so `.seams-passkey-registration-btn` behaves like a normal
-  button-like element.
-- [ ] Add the app-outline focus proxy and restore original focus-related
-  attributes on cleanup.
-- [ ] Send `PM_REGISTRATION_ACTIVATION_FOCUS` when the outline receives focus.
-- [ ] Ensure app-outline Enter/Space focuses the iframe button and does not
-  start registration from app-origin key events.
-- [ ] Keep app-domain visual styles in `PasskeyAuthMenu.css`.
-- [ ] Ensure the outline has stable dimensions before the iframe mounts.
+- [x] Add a top-level helper for mounting the registration activation surface.
+- [x] Render an outline slot in register mode when wallet iframe mode is active.
+- [x] Keep the existing app-domain button path for non-iframe runtime.
+- [x] Wire surface state into existing controller waiting/error state.
+- [x] Dispose the surface on mode change, account id change, route unmount, and
+      provider teardown.
+- [x] Add CSS state selectors for the outline data attributes.
+- [x] Style hover, pressed, focused, busy, and disabled via mirrored
+      attributes so `.seams-passkey-registration-btn` behaves like a normal
+      button-like element.
+- [x] Add the app-outline focus proxy and restore original focus-related
+      attributes on cleanup.
+- [x] Send `PM_REGISTRATION_ACTIVATION_FOCUS` when the outline receives focus.
+- [x] Ensure app-outline Enter/Space focuses the iframe button and does not
+      start registration from app-origin key events.
+- [x] Keep app-domain visual styles in `PasskeyAuthMenu.css`.
+- [x] Ensure the outline has stable dimensions before the iframe mounts.
 
 ### Phase 8: Tests
 
-- [ ] Unit: `determineConfirmationConfig` still clamps iframe registration
-  without `walletIframeActivation`.
-- [ ] Unit: `determineConfirmationConfig` skips only with iframe activation
-  proof.
-- [ ] Unit: `PM_REGISTER` strips caller-supplied activation proofs.
-- [ ] Unit: activation button mints the proof and uses `skipClick`.
-- [ ] Unit: duplicate click starts registration once.
-- [ ] Unit: expiry rejects before WebAuthn.
-- [ ] Unit: dispose cancels pending activation.
-- [ ] Unit: CSS parser allowlist and reject list.
-- [ ] Type fixture: invalid presentation unions are rejected.
-- [ ] Unit or component: `seams-passkey-registration-btn` emits activation
-  intent once and mirrors hover/focus/pressed/busy/disabled state.
-- [ ] Unit or component: pointer cancel, drag end, blur, and keyboard release
-  return the mirrored state to the correct non-pressed state.
-- [ ] Unit or component: pointerdown captures the pointer when
-  `setPointerCapture` is available.
-- [ ] Source guard: `seams-passkey-registration-btn` does not import
-  tx-confirm, export-key UI, modal/drawer containers, or React wrappers.
-- [ ] Unit: router ignores state messages with wrong origin, source, router id,
-  or `activationId`.
-- [ ] Unit/component: code-only registration modal renders account/intended user
-  name and rpID from `PasskeyRegistrationConfirmDisplay`.
-- [ ] Unit/component: registration modal does not render an empty transaction
-  tree.
-- [ ] Unit/component: registration modal busy state appears after confirm.
-- [ ] Unit: rpID displayed in the modal matches the rpID passed to WebAuthn.
+- [x] Unit: `determineConfirmationConfig` still clamps iframe registration
+      without `walletIframeActivation`.
+- [x] Unit: `determineConfirmationConfig` skips only with iframe activation
+      proof.
+- [x] Unit: `PM_REGISTER` strips caller-supplied activation proofs.
+- [x] Unit: activation button mints the proof and uses `skipClick`.
+- [x] Unit: duplicate click starts registration once.
+- [x] Unit: expiry rejects before WebAuthn.
+- [x] Unit: dispose cancels pending activation.
+- [x] Unit: CSS parser allowlist and reject list.
+- [x] Type fixture: invalid presentation unions are rejected.
+- [x] Unit or component: `seams-passkey-registration-btn` emits activation
+      intent once and mirrors hover/focus/pressed/busy/disabled state.
+- [x] Unit or component: pointer cancel, drag end, blur, and keyboard release
+      return the mirrored state to the correct non-pressed state.
+- [x] Unit or component: pointerdown captures the pointer when
+      `setPointerCapture` is available.
+- [x] Source guard: `seams-passkey-registration-btn` does not import
+      tx-confirm, export-key UI, modal/drawer containers, or React wrappers.
+- [ ] Unit/integration: router ignores activation state messages that do not
+      arrive through the established `MessagePort` for the active `activationId`.
+- [x] Unit/component: code-only registration modal renders account/intended user
+      name and rpID from `PasskeyRegistrationConfirmDisplay`.
+- [x] Unit/component: registration modal does not render an empty transaction
+      tree.
+- [x] Unit/component: registration modal busy state appears after confirm.
+- [x] Unit: rpID displayed in the modal matches the rpID passed to WebAuthn.
 - [ ] Browser: iframe rect equals target rect within 1 CSS pixel.
 - [ ] Browser: `Create with Passkey` opens WebAuthn without mounting
-  a transaction confirmer element.
+      a transaction confirmer element.
 - [ ] Browser: code-only registration opens the improved wallet-origin modal,
-  displays intended user name and rpID, then opens WebAuthn after confirm.
+      displays intended user name and rpID, then opens WebAuthn after confirm.
 - [ ] Browser: app-domain `box-shadow` remains visible outside iframe boundary.
 - [ ] Browser: keyboard focus and Enter start registration.
 - [ ] Browser: app-domain outline styling changes for hovered, pressed,
-  focused, busy, and disabled mirrored states.
+      focused, busy, and disabled mirrored states.
 - [ ] Browser: unmount removes iframe hit target and target data attributes.
 - [ ] Browser: target resize, document scroll, scrollable ancestor movement, and
-  visual viewport changes keep iframe aligned.
+      visual viewport changes keep iframe aligned.
+
+Browser validation matrix:
+
+- Run at least Chromium desktop for release gating.
+- Add WebKit/Safari coverage before claiming mobile Safari support for the
+  one-click path.
+- Use a virtual authenticator or a WebAuthn test hook that can distinguish:
+  - app-domain click opened code-only modal
+  - iframe modal confirm opened WebAuthn
+  - iframe activation button opened WebAuthn without mounting modal/tx UI
+- For geometry assertions, compare:
+  - `target.getBoundingClientRect()`
+  - iframe `getBoundingClientRect()`
+  - inner button `getBoundingClientRect()` in iframe coordinates
+  The outline-overlay iframe rect must match the target rect within 1 CSS pixel
+  for top, left, width, and height.
+- For transaction-confirm absence, assert that no `seams-tx-confirmer`,
+  tx-confirm modal/drawer wrapper, transaction tree, or generic transaction
+  confirmation portal mounts during activation-button registration.
+- For code-only modal, assert the wallet-origin modal contains the intended user
+  name and rpID before the confirm click, and that WebAuthn starts only after
+  the iframe confirm button click.
+- For mirrored styling, assert attributes, not CSS implementation details:
+  hovered, pressed, focused, busy, disabled, and active must appear and clear on
+  the app-domain outline at the specified transitions.
+- For cleanup, assert unmount/dispose removes the iframe hit target from the CTA
+  rect, clears outline attributes, and restores original `role`, `tabindex`, and
+  ARIA attributes.
+- For alignment, test document scroll, nested scrollable ancestor movement,
+  target resize, and visual viewport resize/scroll where the browser exposes
+  `window.visualViewport`.
 
 ### Phase 9: Cleanup And Documentation
 
 - [ ] Delete the old fullscreen registration activation panel path used by the
-  activation-surface flow.
-- [ ] Delete old optional `button` payload compatibility.
+      activation-surface flow.
+      Target cleanup: remove the activation-surface-only fullscreen panel
+      renderer in `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts`
+      after browser tests prove `outline_overlay` is the only activation-surface
+      path. Keep the code-only wallet-origin registration modal.
+- [x] Delete old optional `button` payload compatibility.
 - [ ] Update README or SDK docs for `PasskeyAuthMenu` one-click registration.
-- [ ] Document the code-only registration modal path.
-- [ ] Document the `seams-passkey-registration-btn` modal-skipping path.
-- [ ] Add `lit-components/passkey-registration-btn/README.md`.
+      Required docs snippet:
+
+      ```tsx
+      <PasskeyAuthMenu />
+      ```
+
+      Explain that in wallet-iframe mode the built-in `Create with Passkey`
+      CTA uses `seams-passkey-registration-btn` automatically, so one click can
+      open the passkey prompt without an intermediate registration modal.
+
+      Direct API calls remain supported:
+
+      ```tsx
+      <button onClick={() => void seams.registration.registerPasskey(accountId)}>
+        Create with Passkey
+      </button>
+      ```
+
+      Explain that direct app-domain registration calls intentionally show the
+      wallet-origin modal so the user can click inside the iframe before
+      TouchID/passkey creation.
+- [x] Document the code-only registration modal path.
+- [x] Document the `seams-passkey-registration-btn` modal-skipping path.
+- [x] Add `lit-components/passkey-registration-btn/README.md`.
 - [ ] Update `docs/refactor-8X-lit.md` relationship notes if that plan's target
-  directory structure changes first.
-- [ ] Document that React components do not cross the iframe boundary.
-- [ ] Document `outline_overlay` as the default styling model.
-- [ ] Document `iframe_button` as an advanced mode with shadow padding tradeoff.
-- [ ] Run the cheapest focused test suite covering wallet iframe registration,
-  confirmation config, and `PasskeyAuthMenu`.
+      directory structure changes first.
+- [x] Document that React components do not cross the iframe boundary.
+- [x] Document `outline_overlay` as the default styling model.
+- [x] Document `iframe_button` as an advanced mode with shadow padding tradeoff.
+- [x] Run the cheapest focused validation covering wallet iframe registration,
+      SDK type checking, and bundle entry emission.
 
 ## Acceptance Criteria
 

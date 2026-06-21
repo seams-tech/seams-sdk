@@ -11,6 +11,8 @@ import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 import { usePasskeyAuthMenuRuntime } from './adapters/seams';
 import { usePasskeyAuthMenuController } from './controller/usePasskeyAuthMenuController';
 import { useSDKEvents } from './controller/useSDKEvents';
+import type { SeamsWeb } from '@/SeamsWeb';
+import type { RegistrationActivationSurfaceState } from '@/SeamsWeb/publicApi/types';
 
 type CSSVarStyle = React.CSSProperties & {
   [key: `--${string}`]: string | number | undefined;
@@ -23,6 +25,33 @@ const LazyShowQRCode = React.lazy(() =>
 const preloadShowQRCode = () => import('../ShowQRCode').then(() => undefined);
 
 const OTP_CODE_LENGTH = 6;
+
+type MountPasskeyRegistrationActivationSurfaceArgs = {
+  seamsWeb: SeamsWeb;
+  nearAccountId: string;
+  target: HTMLElement;
+  onStateChange(state: RegistrationActivationSurfaceState): void;
+};
+
+function mountPasskeyRegistrationActivationSurface(
+  args: MountPasskeyRegistrationActivationSurfaceArgs,
+): () => void {
+  const surface = args.seamsWeb.registration.createPasskeyRegistrationActivationSurface({
+    nearAccountId: args.nearAccountId,
+    presentation: {
+      kind: 'outline_overlay',
+      label: 'Create with Passkey',
+      busyLabel: 'Creating passkey...',
+      accessibleLabel: 'Create passkey account',
+    },
+  });
+  const unsubscribe = surface.onStateChange(args.onStateChange);
+  surface.mount(args.target);
+  return function disposePasskeyRegistrationActivationSurface(): void {
+    unsubscribe();
+    surface.dispose();
+  };
+}
 
 export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   onLogin,
@@ -73,6 +102,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     void preloadShowQRCode().catch(() => {});
   }, []);
   const otpInputRef = React.useRef<HTMLInputElement | null>(null);
+  const registrationActivationTargetRef = React.useRef<HTMLDivElement | null>(null);
   const lastAutoOtpSubmitRef = React.useRef('');
 
   const segActiveBg = 'var(--w3a-passkey-auth-menu2-seg-active-bg)';
@@ -137,6 +167,33 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     prompt.onSubmit();
   }, [controller.otpPrompt]);
 
+  const iframeRegistrationButtonEnabled =
+    runtime.seamsWeb.configs.wallet.mode === 'iframe' &&
+    controller.mode === AuthMenuMode.Register &&
+    controller.canSubmit &&
+    !controller.registrationPrompt &&
+    !controller.otpPrompt &&
+    !controller.postRecoveryRotationPrompt;
+
+  React.useEffect(() => {
+    if (!iframeRegistrationButtonEnabled) return;
+    const target = registrationActivationTargetRef.current;
+    if (!target) return;
+    const nearAccountId = String(runtime.targetAccountId || '').trim();
+    if (!nearAccountId) return;
+    return mountPasskeyRegistrationActivationSurface({
+      seamsWeb: runtime.seamsWeb,
+      nearAccountId,
+      target,
+      onStateChange: controller.onRegistrationActivationSurfaceStateChange,
+    });
+  }, [
+    controller.onRegistrationActivationSurfaceStateChange,
+    iframeRegistrationButtonEnabled,
+    runtime.seamsWeb,
+    runtime.targetAccountId,
+  ]);
+
   return (
     <div
       className={`w3a-signup-menu-root${className ? ` ${className}` : ''}`}
@@ -145,9 +202,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       data-scan-device={controller.showScanDevice}
       data-otp-prompt={controller.otpPrompt ? 'true' : 'false'}
       data-registration-prompt={controller.registrationPrompt ? 'true' : 'false'}
-      data-post-recovery-rotation-prompt={
-        controller.postRecoveryRotationPrompt ? 'true' : 'false'
-      }
+      data-post-recovery-rotation-prompt={controller.postRecoveryRotationPrompt ? 'true' : 'false'}
       style={rootStyle}
     >
       <ContentSwitcher
@@ -375,8 +430,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                       className="w3a-recovery-key-scan"
                       onClick={controller.otpPrompt.onRecoveryKeyScan}
                       disabled={
-                        controller.otpPrompt.submitting ||
-                        controller.otpPrompt.recoveryKeyScanBusy
+                        controller.otpPrompt.submitting || controller.otpPrompt.recoveryKeyScanBusy
                       }
                     >
                       {controller.otpPrompt.recoveryKeyScanLabel || 'Scan recovery key'}
@@ -418,8 +472,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               disabled={
                 controller.otpPrompt.submitting ||
                 controller.otpPrompt.code.length !== 6 ||
-                (controller.otpPrompt.recoveryKeyRequired &&
-                  !controller.otpPrompt.recoveryKeyReady)
+                (controller.otpPrompt.recoveryKeyRequired && !controller.otpPrompt.recoveryKeyReady)
               }
             >
               {controller.otpPrompt.submitting ? 'Unlocking…' : controller.otpPrompt.submitLabel}
@@ -515,17 +568,26 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 
                   {controller.mode === AuthMenuMode.Register && (
                     <>
-                      {/* Register starts the username entry flow; it must not be gated by
-                          passkey submit eligibility yet. Gating it on canSubmit disabled
-                          first-load passkey registration. */}
-                      <button
-                        type="button"
-                        onClick={controller.onProceed}
-                        className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-                        disabled={controller.waiting}
-                      >
-                        Create with Passkey
-                      </button>
+                      {iframeRegistrationButtonEnabled ? (
+                        <div
+                          ref={registrationActivationTargetRef}
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Create passkey account"
+                          className="w3a-auth-method-btn w3a-auth-method-btn-primary seams-passkey-registration-btn"
+                        >
+                          <span>Create with Passkey</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={controller.onProceed}
+                          className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                          disabled={controller.waiting}
+                        >
+                          Create with Passkey
+                        </button>
+                      )}
                       <SocialProviders
                         socialLogin={socialLogin}
                         providers={['google']}

@@ -45,38 +45,28 @@ export async function clickWalletIframeConfirm(
       .then(() => true)
       .catch(() => false);
     if (!attached) return false;
-    recordAutoConfirmMark(
-      opts?.diagnostics,
-      opts?.diagnosticsStartedAtMs,
-      'firstIframeAttachedMs',
-    );
+    recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstIframeAttachedMs');
     const frame = await iframeEl.contentFrame();
     if (!frame) return false;
-    recordAutoConfirmMark(
-      opts?.diagnostics,
-      opts?.diagnosticsStartedAtMs,
-      'firstFrameResolvedMs',
-    );
+    recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstFrameResolvedMs');
 
     const confirmBtn = frame
-      .locator('[data-w3a-registration-activation-start="true"], #w3a-confirm-portal button.confirm')
+      .locator(
+        [
+          '[data-seams-registration-activation-start="true"]',
+          '#w3a-confirm-portal button.btn-confirm',
+          '#w3a-confirm-portal button.confirm',
+        ].join(', '),
+      )
       .first();
     await confirmBtn.waitFor({ state: 'visible', timeout: timeoutMs });
-    recordAutoConfirmMark(
-      opts?.diagnostics,
-      opts?.diagnosticsStartedAtMs,
-      'firstButtonVisibleMs',
-    );
+    recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstButtonVisibleMs');
     const clickStartedAtMs = Date.now();
     await confirmBtn.click({ timeout: timeoutMs });
     if (opts?.diagnostics) {
       opts.diagnostics.clicked = true;
     }
-    recordAutoConfirmMark(
-      opts?.diagnostics,
-      opts?.diagnosticsStartedAtMs,
-      'firstClickDispatchMs',
-    );
+    recordAutoConfirmMark(opts?.diagnostics, opts?.diagnosticsStartedAtMs, 'firstClickDispatchMs');
     recordAutoConfirmMark(
       opts?.diagnostics,
       opts?.diagnosticsStartedAtMs,
@@ -186,8 +176,8 @@ export async function registerPasskey(
 
       try {
         console.log(`[flow:register] invoking registerPasskey for ${args.accountId}`);
-        return utils.seams
-          .registration.registerPasskey(toAccountId(args.accountId), {
+        return utils.seams.registration
+          .registerPasskey(toAccountId(args.accountId), {
             signerOptions: {
               tempo: {
                 enabled: false,
@@ -299,8 +289,8 @@ export async function unlock(
 
       try {
         console.log(`[flow:login] invoking unlock for ${args.accountId}`);
-        return utils.seams
-          .auth.unlock(toAccountId(args.accountId), {
+        return utils.seams.auth
+          .unlock(toAccountId(args.accountId), {
             onEvent: (event: any) => {
               events.push(event);
               console.log(`[flow:login]   -> ${event.phase} | ${event.message}`);

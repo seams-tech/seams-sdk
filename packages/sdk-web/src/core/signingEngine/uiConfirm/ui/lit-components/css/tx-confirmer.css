@@ -404,6 +404,75 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   text-align: start;
 }
 
+.passkey-registration-confirm {
+  gap: 0.75rem;
+}
+
+.passkey-registration-confirm__hero {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.passkey-registration-confirm__hero-copy {
+  min-height: 0;
+  gap: 0.25rem;
+}
+
+.passkey-registration-confirm__body {
+  margin: 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.86rem;
+  line-height: 1.42;
+}
+
+.passkey-registration-confirm__identity {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 1.125rem;
+  background: color-mix(in srgb, var(--w3a-colors-surface), var(--w3a-colors-colorBackground) 44%);
+}
+
+.passkey-registration-confirm__row {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.passkey-registration-confirm__label {
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.passkey-registration-confirm__value {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.passkey-registration-confirm__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.passkey-registration-confirm__spinner {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0;
+  border-width: 2px;
+}
+
 /* Transactions section */
 
 .action-item {
@@ -770,6 +839,15 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   box-shadow: var(--w3a-modal__btn__focus-box-shadow, 0 0 0 3px oklch(0.55 0.18 240 / 0.12));
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.btn-confirm:disabled {
+  cursor: progress;
+}
+
 /* Single-button alignment (place single button in right column) */
 .buttons.single .btn {
   grid-column: 2 / 3;
@@ -814,6 +892,16 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
 
   .buttons {
     display: flex;
+  }
+
+  .passkey-registration-confirm__actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .passkey-registration-confirm__row {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
   }
 
   .btn {

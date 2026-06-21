@@ -7,6 +7,7 @@
  */
 import type { SigningSessionPersistenceMode } from './seams';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { SigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 
@@ -15,7 +16,7 @@ type WarmSessionSealTransportCommon = {
   relayerUrl: string;
   signingGrantId?: string;
   walletSessionJwt?: string;
-  keyVersion?: string;
+  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   shamirPrimeB64u?: string;
 };
 
@@ -24,7 +25,7 @@ export interface UiConfirmManagerConfig {
   workerTimeout?: number;
   debug?: boolean;
   signingSessionPersistenceMode?: SigningSessionPersistenceMode;
-  signingSessionSealKeyVersion?: string;
+  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   signingSessionSealShamirPrimeB64u?: string;
 }
 
@@ -70,7 +71,7 @@ export interface WarmSessionRehydratePayload {
   sealedSecretB64u: string;
   expiresAtMs: number;
   remainingUses: number;
-  keyVersion?: string;
+  signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   transport: WarmSessionSealTransportInput;
 }
 

@@ -115,7 +115,8 @@ const external = [
   'bs58',
   'qrcode',
   'jsqr',
-  'js-sha256',
+  '@noble/hashes',
+  /@noble\/hashes\/.*/,
   'idb',
   'near-api-js',
 
@@ -335,6 +336,13 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
       'src/core/signingEngine/uiConfirm/ui/lit-components/css/passkey-halo-loading.css',
     ),
     path.join(sdkDir, 'passkey-halo-loading.css'),
+  );
+  copyIfMissing(
+    path.join(
+      sdkRoot,
+      'src/core/signingEngine/uiConfirm/ui/lit-components/css/seams-passkey-registration-btn.css',
+    ),
+    path.join(sdkDir, 'seams-passkey-registration-btn.css'),
   );
   copyIfMissing(
     path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/padlock-icon.css'),
@@ -594,6 +602,8 @@ const configs = [
       // Tx Confirmer component
       'w3a-tx-confirmer':
         'src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts',
+      'seams-passkey-registration-btn':
+        'src/core/signingEngine/uiConfirm/ui/lit-components/passkey-registration-btn/entrypoints/seams-passkey-registration-btn.ts',
       // Wallet service host (headless)
       'wallet-iframe-host-runtime': 'src/SeamsWeb/walletIframe/host/index.ts',
       'wallet-iframe-host-near': 'src/SeamsWeb/walletIframe/host/entry-near.ts',

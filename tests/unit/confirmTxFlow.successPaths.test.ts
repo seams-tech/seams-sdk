@@ -390,6 +390,7 @@ test.describe('confirmTxFlow – success paths', () => {
 
         let nonceReserved: string[] = [];
         let capturedChallengeB64u: string | null = null;
+        let capturedIntendedUserName: string | null = null;
         const ctx: any = {
           userPreferencesManager: {
             getConfirmationConfig: () => ({
@@ -425,6 +426,8 @@ test.describe('confirmTxFlow – success paths', () => {
             generateRegistrationCredentialsInternal: async (args: any) => {
               capturedChallengeB64u =
                 typeof args?.challengeB64u === 'string' ? args.challengeB64u : null;
+              capturedIntendedUserName =
+                typeof args?.intendedUserName === 'string' ? args.intendedUserName : null;
               return {
                 id: 'reg-cred',
                 type: 'public-key',
@@ -492,6 +495,7 @@ test.describe('confirmTxFlow – success paths', () => {
           tx: resp?.transactionContext,
           reserved: nonceReserved,
           capturedChallengeB64u,
+          capturedIntendedUserName,
         };
       },
       { paths: IMPORT_PATHS },
@@ -503,6 +507,7 @@ test.describe('confirmTxFlow – success paths', () => {
       .digest()
       .toString('base64url');
     expect(result.capturedChallengeB64u).toBe(expectedChallengeB64u);
+    expect(result.capturedIntendedUserName).toBe('bob');
     expect(result.tx).toBeUndefined();
     expect(result.reserved).toEqual([]);
     // Registration responses should not contain PRF output in UserConfirm-driven design.

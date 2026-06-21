@@ -1,10 +1,16 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import { TransactionSummary, RegistrationUserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { UserConfirmSecurityContext } from '@/core/types';
+import {
+  TransactionSummary,
+  RegistrationUserConfirmRequest,
+} from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { PasskeyRegistrationConfirmDisplay, UserConfirmSecurityContext } from '@/core/types';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { sha256Base64UrlUtf8 } from '@/utils/intentDigest';
-import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
+import {
+  isUserCancelledUserConfirm,
+  ERROR_MESSAGES,
+} from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 import { getNearAccountId, getIntentDigest, getRegisterAccountPayload } from './adapters/request';
 import {
   isSerializedRegistrationCredential,
@@ -18,6 +24,43 @@ import type { UserConfirmResponsePort } from '@/core/signingEngine/stepUpConfirm
 
 function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
+function derivePasskeyRegistrationIntendedUserName(nearAccountId: string): string {
+  const baseUsername = nearAccountId.split('.')[0]?.trim() || nearAccountId;
+  return baseUsername;
+}
+
+function buildPasskeyRegistrationConfirmDisplay(args: {
+  nearAccountId: string;
+  rpId: string;
+  signerSlot: number;
+}): PasskeyRegistrationConfirmDisplay {
+  return {
+    kind: 'passkey_registration_confirm_display_v1',
+    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.nearAccountId),
+    accountId: args.nearAccountId,
+    rpId: args.rpId,
+    signerSlot: args.signerSlot,
+  };
+}
+
+function buildPasskeyRegistrationCredentialArgs(args: {
+  nearAccountId: string;
+  challengeB64u: string;
+  signerSlot?: number;
+}): {
+  nearAccountId: string;
+  challengeB64u: string;
+  signerSlot?: number;
+  intendedUserName: string;
+} {
+  return {
+    nearAccountId: args.nearAccountId,
+    challengeB64u: args.challengeB64u,
+    signerSlot: args.signerSlot,
+    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.nearAccountId),
+  };
 }
 
 export async function handleRegistrationFlow(
@@ -97,16 +140,25 @@ export async function handleRegistrationFlow(
     const rpId = adapters.security.getRpId();
     if (!rpId) throw new Error('Missing rpId for registration challenge');
 
+    const initialSignerSlot = request.payload?.signerSlot ?? 1;
     let challengeB64u = await computeBoundIntentDigestB64u();
     const securityContext: UserConfirmSecurityContext = {
       rpId,
+      passkeyRegistration: buildPasskeyRegistrationConfirmDisplay({
+        nearAccountId,
+        rpId,
+        signerSlot: initialSignerSlot,
+      }),
     };
     requestSetupMs = roundDurationMs(requestSetupStartedAt);
 
     // 3) UI confirm
     const promptUserStartedAt = performance.now();
-    const { confirmed, error: uiError, diagnostics: promptDiagnostics } =
-      await session.promptUser({ securityContext });
+    const {
+      confirmed,
+      error: uiError,
+      diagnostics: promptDiagnostics,
+    } = await session.promptUser({ securityContext });
     promptUserMs = roundDurationMs(promptUserStartedAt);
     promptElementDefineMs = promptDiagnostics.elementDefineMs;
     promptMountMs = promptDiagnostics.mountMs;
@@ -128,19 +180,17 @@ export async function handleRegistrationFlow(
     let credential: PublicKeyCredential | undefined;
     let signerSlot = request.payload?.signerSlot ?? 1;
 
-    const tryCreate = async (slot?: number): Promise<PublicKeyCredential> => {
-      return await adapters.webauthn.createRegistrationCredential({
-        nearAccountId,
-        challengeB64u,
-        signerSlot: slot,
-      });
-    };
-
     credentialCreateStartMs = roundDurationMs(flowStartedAt);
     const credentialCreateStartedAt = performance.now();
     try {
       try {
-        credential = await tryCreate(signerSlot);
+        credential = await adapters.webauthn.createRegistrationCredential(
+          buildPasskeyRegistrationCredentialArgs({
+            nearAccountId,
+            challengeB64u,
+            signerSlot,
+          }),
+        );
       } catch (e: unknown) {
         const err = toError(e);
         const name = String(err?.name || '');
@@ -167,7 +217,13 @@ export async function handleRegistrationFlow(
 
           challengeB64u = await computeBoundIntentDigestB64u();
 
-          credential = await tryCreate(nextSignerSlot);
+          credential = await adapters.webauthn.createRegistrationCredential(
+            buildPasskeyRegistrationCredentialArgs({
+              nearAccountId,
+              challengeB64u,
+              signerSlot: nextSignerSlot,
+            }),
+          );
         } else {
           console.error('[RegistrationFlow] credentials.create failed (non-duplicate)', {
             name,

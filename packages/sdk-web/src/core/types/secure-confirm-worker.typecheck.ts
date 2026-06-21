@@ -1,7 +1,11 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionSealTransportInput } from './secure-confirm-worker';
+import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
+const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
+  'signing-session-seal-kek-test-r1',
+);
 
 const validWarmSessionSealTransportWithWalletSessionJwt = {
   curve: 'ecdsa',
@@ -47,3 +51,26 @@ const invalidWarmSessionSealTransportWithOldTokenField = {
   thresholdSessionAuthToken: 'wallet-session-jwt',
 } satisfies WarmSessionSealTransportInput;
 void invalidWarmSessionSealTransportWithOldTokenField;
+
+const validWarmSessionSealTransportWithBrandedSealVersion = {
+  curve: 'ed25519',
+  relayerUrl: 'https://relay.example',
+  signingSessionSealKeyVersion,
+} satisfies WarmSessionSealTransportInput;
+void validWarmSessionSealTransportWithBrandedSealVersion;
+
+const invalidWarmSessionSealTransportWithRawSealVersion = {
+  curve: 'ed25519',
+  relayerUrl: 'https://relay.example',
+  // @ts-expect-error warm-session worker transports require branded seal key versions.
+  signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
+} satisfies WarmSessionSealTransportInput;
+void invalidWarmSessionSealTransportWithRawSealVersion;
+
+const invalidWarmSessionSealTransportWithGenericKeyVersion = {
+  curve: 'ed25519',
+  relayerUrl: 'https://relay.example',
+  // @ts-expect-error warm-session worker transports use signingSessionSealKeyVersion.
+  keyVersion: 'signing-session-seal-kek-test-r1',
+} satisfies WarmSessionSealTransportInput;
+void invalidWarmSessionSealTransportWithGenericKeyVersion;

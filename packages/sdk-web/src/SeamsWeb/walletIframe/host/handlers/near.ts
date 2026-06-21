@@ -10,10 +10,17 @@ import type {
 import type { RegistrationResult } from '@/core/types/seams';
 import type {
   PMExecuteActionPayload,
+  RegistrationActivationButtonInteractionState,
   PMRegistrationActivationPreparePayload,
 } from '../../shared/messages';
+import type {
+  RegistrationActivationButtonCss,
+  RegistrationActivationButtonCssProperty,
+  RegistrationActivationButtonPresentation,
+} from '@/SeamsWeb/publicApi/types';
 import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
+import { SEAMS_PASSKEY_REGISTRATION_BTN_ID } from '@/core/signingEngine/uiConfirm/ui/registry';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   extractBorshBytesFromPlainSignedTx,
@@ -55,6 +62,37 @@ type RegistrationActivationRecord = {
 };
 
 const registrationActivationRecords = new Map<string, RegistrationActivationRecord>();
+const REGISTRATION_ACTIVATION_START_EVENT = 'seams-registration-activation-start';
+const REGISTRATION_ACTIVATION_STATE_EVENT = 'seams-registration-activation-state';
+const ALLOWED_REGISTRATION_BUTTON_CSS_PROPERTIES = new Set<RegistrationActivationButtonCssProperty>(
+  [
+    'width',
+    'height',
+    'minWidth',
+    'minHeight',
+    'maxWidth',
+    'maxHeight',
+    'padding',
+    'border',
+    'borderColor',
+    'borderRadius',
+    'background',
+    'backgroundColor',
+    'color',
+    'boxShadow',
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'lineHeight',
+    'letterSpacing',
+    'textAlign',
+    'cursor',
+    'outline',
+    'outlineColor',
+    'outlineOffset',
+    'outlineWidth',
+  ],
+);
 
 function registrationOptionsWithoutActivation(options: unknown): Record<string, unknown> {
   const out = isObject(options) ? { ...(options as Record<string, unknown>) } : {};
@@ -76,85 +114,329 @@ function registrationActivationCancelledError(): Error & { code: string } {
   return error;
 }
 
-function renderRegistrationActivationButton(args: {
+type RegistrationActivationButtonElement = HTMLElement & {
+  activationId?: string;
+  label?: string;
+  busyLabel?: string;
+  accessibleLabel?: string;
+  mode?: RegistrationActivationButtonPresentation['kind'];
+  buttonStyle?: RegistrationActivationButtonCss;
+  shadowPaddingPx?: number;
+  focusButton?(): void;
+};
+
+function normalizeRequiredPresentationString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`Invalid registration activation presentation: ${field} is required`);
+  }
+  return value.trim();
+}
+
+function rejectRegistrationActivationPresentationFields(
+  record: Record<string, unknown>,
+  kind: RegistrationActivationButtonPresentation['kind'],
+  fields: readonly string[],
+): void {
+  for (const field of fields) {
+    if (record[field] === undefined) continue;
+    throw new Error(
+      `Invalid registration activation presentation: ${field} is not allowed for ${kind}`,
+    );
+  }
+}
+
+function normalizeRegistrationButtonCss(
+  input: unknown,
+  field: string,
+): RegistrationActivationButtonCss {
+  if (input === undefined) return {};
+  if (!isObject(input)) {
+    throw new Error(`Invalid registration activation presentation: ${field} must be an object`);
+  }
+  const normalized: RegistrationActivationButtonCss = {};
+  for (const [property, value] of Object.entries(input)) {
+    if (
+      !ALLOWED_REGISTRATION_BUTTON_CSS_PROPERTIES.has(
+        property as RegistrationActivationButtonCssProperty,
+      )
+    ) {
+      throw new Error(
+        `Invalid registration activation presentation: unsupported CSS property ${property}`,
+      );
+    }
+    if (typeof value !== 'string') {
+      throw new Error(
+        `Invalid registration activation presentation: CSS property ${property} must be a string`,
+      );
+    }
+    if (/\burl\s*\(/i.test(value)) {
+      throw new Error(
+        `Invalid registration activation presentation: CSS property ${property} cannot use url(...)`,
+      );
+    }
+    normalized[property as RegistrationActivationButtonCssProperty] = value;
+  }
+  return normalized;
+}
+
+function normalizeRequiredRegistrationButtonCss(
+  input: unknown,
+  field: string,
+): RegistrationActivationButtonCss {
+  if (input === undefined) {
+    throw new Error(`Invalid registration activation presentation: ${field} is required`);
+  }
+  return normalizeRegistrationButtonCss(input, field);
+}
+
+function normalizeRegistrationActivationShadowPaddingPx(input: unknown): number {
+  if (typeof input !== 'number' || !Number.isFinite(input) || input < 0) {
+    throw new Error(
+      'Invalid registration activation presentation: shadowPaddingPx must be a non-negative number',
+    );
+  }
+  return input;
+}
+
+function normalizeRegistrationActivationPresentation(
+  input: unknown,
+): RegistrationActivationButtonPresentation {
+  if (!isObject(input)) {
+    throw new Error('Invalid registration activation presentation');
+  }
+  const record = input as Record<string, unknown>;
+  const label = normalizeRequiredPresentationString(record.label, 'label');
+  const busyLabel = normalizeRequiredPresentationString(record.busyLabel, 'busyLabel');
+  const accessibleLabel = normalizeRequiredPresentationString(
+    record.accessibleLabel,
+    'accessibleLabel',
+  );
+  switch (record.kind) {
+    case 'outline_overlay':
+      rejectRegistrationActivationPresentationFields(record, 'outline_overlay', [
+        'iframeVisualStyle',
+        'shadowPaddingPx',
+      ]);
+      return {
+        kind: 'outline_overlay',
+        label,
+        busyLabel,
+        accessibleLabel,
+        iframeButtonStyle: normalizeRegistrationButtonCss(
+          record.iframeButtonStyle,
+          'iframeButtonStyle',
+        ),
+      };
+    case 'iframe_button':
+      rejectRegistrationActivationPresentationFields(record, 'iframe_button', [
+        'iframeButtonStyle',
+      ]);
+      return {
+        kind: 'iframe_button',
+        label,
+        busyLabel,
+        accessibleLabel,
+        iframeVisualStyle: normalizeRequiredRegistrationButtonCss(
+          record.iframeVisualStyle,
+          'iframeVisualStyle',
+        ),
+        shadowPaddingPx: normalizeRegistrationActivationShadowPaddingPx(record.shadowPaddingPx),
+      };
+    default:
+      throw new Error('Invalid registration activation presentation kind');
+  }
+}
+
+function registrationButtonStyleForPresentation(
+  presentation: RegistrationActivationButtonPresentation,
+): RegistrationActivationButtonCss {
+  switch (presentation.kind) {
+    case 'outline_overlay':
+      return presentation.iframeButtonStyle ?? {};
+    case 'iframe_button':
+      return presentation.iframeVisualStyle;
+  }
+}
+
+function cssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function applyRegistrationButtonStyle(args: {
+  button: HTMLElement;
+  style: RegistrationActivationButtonCss;
+}): void {
+  for (const [property, value] of Object.entries(args.style)) {
+    if (typeof value !== 'string') continue;
+    const styleDeclaration = args.button.style as CSSStyleDeclaration & Record<string, string>;
+    if (typeof styleDeclaration.setProperty === 'function') {
+      styleDeclaration.setProperty(cssPropertyName(property), value);
+    } else {
+      styleDeclaration[property] = value;
+    }
+  }
+}
+
+function applyFallbackRegistrationButtonInset(args: {
+  button: HTMLElement;
+  presentation: RegistrationActivationButtonPresentation;
+}): void {
+  const shadowPaddingPx =
+    args.presentation.kind === 'iframe_button' ? args.presentation.shadowPaddingPx : 0;
+  args.button.style.margin = `${shadowPaddingPx}px`;
+  args.button.style.width =
+    shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
+  args.button.style.height =
+    shadowPaddingPx > 0 ? `calc(100% - ${shadowPaddingPx * 2}px)` : '100%';
+}
+
+function isRegistrationActivationButtonState(
+  value: unknown,
+): value is RegistrationActivationButtonInteractionState {
+  if (!isObject(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === 'registration_activation_button_interaction_state_v1' &&
+    typeof record.hovered === 'boolean' &&
+    typeof record.focused === 'boolean' &&
+    typeof record.pressed === 'boolean' &&
+    typeof record.busy === 'boolean' &&
+    typeof record.disabled === 'boolean'
+  );
+}
+
+async function ensureRegistrationActivationButtonElementDefined(): Promise<void> {
+  if (typeof customElements === 'undefined') return;
+  if (!customElements.get(SEAMS_PASSKEY_REGISTRATION_BTN_ID)) {
+    await import('@/core/signingEngine/uiConfirm/ui/lit-components/passkey-registration-btn/entrypoints/seams-passkey-registration-btn');
+  }
+  await customElements.whenDefined(SEAMS_PASSKEY_REGISTRATION_BTN_ID);
+}
+
+function postRegistrationActivationButtonState(args: {
+  deps: HandlerDeps;
+  requestId: string | undefined;
+  activationId: string;
+  state: RegistrationActivationButtonInteractionState;
+}): void {
+  args.deps.post({
+    type: 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
+    requestId: args.requestId,
+    payload: {
+      activationId: args.activationId,
+      state: args.state,
+    },
+  });
+}
+
+function configureRegistrationActivationElement(args: {
+  element: RegistrationActivationButtonElement;
   payload: PMRegistrationActivationPreparePayload;
+  presentation: RegistrationActivationButtonPresentation;
   onStart(): void;
-  onCancel(): void;
+  onState(state: RegistrationActivationButtonInteractionState): void;
+}): void {
+  args.element.activationId = args.payload.activationId;
+  args.element.label = args.presentation.label;
+  args.element.busyLabel = args.presentation.busyLabel;
+  args.element.accessibleLabel = args.presentation.accessibleLabel;
+  args.element.mode = args.presentation.kind;
+  args.element.buttonStyle = registrationButtonStyleForPresentation(args.presentation);
+  args.element.shadowPaddingPx =
+    args.presentation.kind === 'iframe_button' ? args.presentation.shadowPaddingPx : 0;
+  args.element.addEventListener(REGISTRATION_ACTIVATION_START_EVENT, args.onStart, { once: true });
+  args.element.addEventListener(REGISTRATION_ACTIVATION_STATE_EVENT, (event) => {
+    const state = (event as CustomEvent<unknown>).detail;
+    if (!isRegistrationActivationButtonState(state)) return;
+    args.onState(state);
+  });
+}
+
+function renderFallbackRegistrationActivationButton(args: {
+  payload: PMRegistrationActivationPreparePayload;
+  presentation: RegistrationActivationButtonPresentation;
+  onStart(): void;
 }): HTMLElement {
   const container = document.createElement('section');
-  container.setAttribute('data-w3a-registration-activation-id', args.payload.activationId);
+  container.setAttribute('data-seams-registration-activation-id', args.payload.activationId);
   Object.assign(container.style, {
-    minHeight: '100vh',
-    display: 'grid',
-    placeItems: 'center',
-    padding: '24px',
+    width: '100%',
+    height: '100%',
     boxSizing: 'border-box',
-    background: 'var(--w3a-colors-surface, #111318)',
-    color: 'var(--w3a-colors-text, #fff)',
+    background: 'transparent',
     fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  });
-
-  const panel = document.createElement('div');
-  Object.assign(panel.style, {
-    width: 'min(420px, 100%)',
-    display: 'grid',
-    gap: '16px',
-  });
-
-  const title = document.createElement('div');
-  title.textContent = args.payload.nearAccountId;
-  Object.assign(title.style, {
-    fontSize: '16px',
-    fontWeight: '700',
-    lineHeight: '1.35',
-    wordBreak: 'break-word',
-    color: 'var(--w3a-colors-text, #fff)',
   });
 
   const button = document.createElement('button');
   button.type = 'button';
-  button.setAttribute('data-w3a-registration-activation-start', 'true');
-  button.textContent = args.payload.button?.label || 'Create passkey';
+  button.setAttribute('data-seams-registration-activation-start', 'true');
+  button.setAttribute('aria-label', args.presentation.accessibleLabel);
+  button.textContent = args.presentation.label;
   Object.assign(button.style, {
     width: '100%',
-    minHeight: '52px',
+    height: '100%',
+    minHeight: '0',
     border: '0',
-    borderRadius: '8px',
-    padding: '0 18px',
-    background: 'var(--w3a-colors-buttonBackground, #4daffe)',
-    color: 'var(--w3a-colors-buttonText, #fff)',
-    fontSize: '16px',
-    fontWeight: '700',
+    padding: '0',
+    background: 'transparent',
+    color: 'transparent',
     cursor: 'pointer',
   });
+  applyRegistrationButtonStyle({
+    button,
+    style: registrationButtonStyleForPresentation(args.presentation),
+  });
+  applyFallbackRegistrationButtonInset({ button, presentation: args.presentation });
   button.addEventListener('click', () => {
     button.disabled = true;
-    button.textContent = args.payload.button?.busyLabel || 'Creating passkey...';
+    button.textContent = args.presentation.busyLabel;
     button.style.cursor = 'default';
     args.onStart();
   });
-
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.textContent = 'Cancel';
-  Object.assign(cancel.style, {
-    width: '100%',
-    minHeight: '44px',
-    border: '1px solid var(--w3a-colors-border, rgba(255,255,255,0.22))',
-    borderRadius: '8px',
-    padding: '0 18px',
-    background: 'transparent',
-    color: 'var(--w3a-colors-textMuted, rgba(255,255,255,0.75))',
-    fontSize: '15px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  });
-  cancel.addEventListener('click', args.onCancel);
-
-  panel.append(title, button, cancel);
-  container.appendChild(panel);
+  container.appendChild(button);
   document.body.appendChild(container);
   return container;
+}
+
+async function renderRegistrationActivationButton(args: {
+  payload: PMRegistrationActivationPreparePayload;
+  presentation: RegistrationActivationButtonPresentation;
+  onStart(): void;
+  onState(state: RegistrationActivationButtonInteractionState): void;
+}): Promise<HTMLElement> {
+  if (typeof customElements === 'undefined') {
+    return renderFallbackRegistrationActivationButton(args);
+  }
+  await ensureRegistrationActivationButtonElementDefined();
+  const container = document.createElement('section');
+  container.setAttribute('data-seams-registration-activation-id', args.payload.activationId);
+  Object.assign(container.style, {
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    background: 'transparent',
+  });
+  const element = document.createElement(
+    SEAMS_PASSKEY_REGISTRATION_BTN_ID,
+  ) as RegistrationActivationButtonElement;
+  configureRegistrationActivationElement({ ...args, element });
+  container.appendChild(element);
+  document.body.appendChild(container);
+  return container;
+}
+
+function focusRegistrationActivationButton(container: HTMLElement): void {
+  const element = container.querySelector(
+    SEAMS_PASSKEY_REGISTRATION_BTN_ID,
+  ) as RegistrationActivationButtonElement | null;
+  if (element?.focusButton) {
+    element.focusButton();
+    return;
+  }
+  const fallback = container.querySelector(
+    '[data-seams-registration-activation-start="true"]',
+  ) as HTMLElement | null;
+  fallback?.focus?.({ preventScroll: true });
 }
 
 export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
@@ -178,15 +460,14 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(deps, req.requestId, result);
     },
 
-    PM_REGISTRATION_ACTIVATION_PREPARE: async (
-      req: Req<'PM_REGISTRATION_ACTIVATION_PREPARE'>,
-    ) => {
+    PM_REGISTRATION_ACTIVATION_PREPARE: async (req: Req<'PM_REGISTRATION_ACTIVATION_PREPARE'>) => {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       if (Date.now() >= payload.expiresAtMs) {
         throw new Error('Registration activation expired');
       }
+      const presentation = normalizeRegistrationActivationPresentation(payload.presentation);
 
       removeRegistrationActivationRecord(payload.activationId);
       let startRegistration!: () => void;
@@ -239,22 +520,27 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         };
       });
 
-      const expiryTimer = window.setTimeout(() => {
-        const record = registrationActivationRecords.get(payload.activationId);
-        if (!record || record.started) return;
-        record.reject(new Error('Registration activation expired'));
-        removeRegistrationActivationRecord(payload.activationId);
-      }, Math.max(1, payload.expiresAtMs - Date.now()));
-
-      const container = renderRegistrationActivationButton({
-        payload,
-        onStart: () => startRegistration(),
-        onCancel: () => {
+      const expiryTimer = window.setTimeout(
+        () => {
           const record = registrationActivationRecords.get(payload.activationId);
-          if (record) record.cancelled = true;
-          rejectRegistration(registrationActivationCancelledError());
+          if (!record || record.started) return;
+          record.reject(new Error('Registration activation expired'));
           removeRegistrationActivationRecord(payload.activationId);
         },
+        Math.max(1, payload.expiresAtMs - Date.now()),
+      );
+
+      const container = await renderRegistrationActivationButton({
+        payload,
+        presentation,
+        onStart: () => startRegistration(),
+        onState: (state) =>
+          postRegistrationActivationButtonState({
+            deps,
+            requestId: req.requestId,
+            activationId: payload.activationId,
+            state,
+          }),
       });
       registrationActivationRecords.set(payload.activationId, {
         activationId: payload.activationId,
@@ -280,15 +566,22 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       }
     },
 
-    PM_REGISTRATION_ACTIVATION_CANCEL: async (
-      req: Req<'PM_REGISTRATION_ACTIVATION_CANCEL'>,
-    ) => {
+    PM_REGISTRATION_ACTIVATION_CANCEL: async (req: Req<'PM_REGISTRATION_ACTIVATION_CANCEL'>) => {
       const payload = req.payload!;
       const record = registrationActivationRecords.get(payload.activationId);
       if (record) {
         record.cancelled = true;
         record.reject(registrationActivationCancelledError());
         removeRegistrationActivationRecord(payload.activationId);
+      }
+      respondOk(deps, req.requestId);
+    },
+
+    PM_REGISTRATION_ACTIVATION_FOCUS: async (req: Req<'PM_REGISTRATION_ACTIVATION_FOCUS'>) => {
+      const payload = req.payload!;
+      const record = registrationActivationRecords.get(payload.activationId);
+      if (record) {
+        focusRegistrationActivationButton(record.container);
       }
       respondOk(deps, req.requestId);
     },

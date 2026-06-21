@@ -6,7 +6,6 @@ export const TEST_BROWSER_IMPORTS = {
   'react-dom/client': 'https://esm.sh/react-dom@19.1.1/client',
   bs58: 'https://esm.sh/bs58@6.0.0',
   idb: 'https://esm.sh/idb@8.0.0',
-  'js-sha256': 'https://esm.sh/js-sha256@0.11.1',
   '@noble/ed25519': 'https://esm.sh/@noble/ed25519@3.0.0',
   '@noble/curves/': 'https://esm.sh/@noble/curves@2.0.1/',
   '@noble/hashes/': 'https://esm.sh/@noble/hashes@2.0.1/',

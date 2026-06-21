@@ -73,7 +73,10 @@ import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate'
 import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
-import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near/signNEP413';
+import type {
+  SignNEP413MessageParams,
+  SignNEP413MessageResult,
+} from '@/SeamsWeb/operations/near/signNEP413';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
 import type { EmailRecoveryFlowOptions } from '@/core/types/emailRecovery';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -518,7 +521,9 @@ export type GoogleEmailOtpWalletAuthRegistrationFlow = GoogleEmailOtpWalletAuthB
   completeRegistration(): Promise<
     GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationCompleted>
   >;
-  rerollWalletId(): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationFlow>>;
+  rerollWalletId(): Promise<
+    GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationFlow>
+  >;
   delivery?: never;
   resend?: never;
   submit?: never;
@@ -651,13 +656,14 @@ export interface RegistrationCapability {
 
 export type RegistrationActivationSurfaceState =
   | { kind: 'idle' }
+  | { kind: 'mounting'; activationId: string }
   | { kind: 'ready'; activationId: string; expiresAtMs: number }
   | { kind: 'starting'; activationId: string }
   | { kind: 'completed'; activationId: string; result: RegistrationResult }
   | {
       kind: 'cancelled';
       activationId: string;
-      reason: 'user_cancelled' | 'expired' | 'disposed';
+      reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
     }
   | { kind: 'failed'; activationId: string; error: string };
 
@@ -672,11 +678,59 @@ export type WalletIframeRegistrationActivationSurface = {
 export type CreatePasskeyRegistrationActivationSurfaceArgs = {
   nearAccountId: string;
   options?: RegistrationHooksOptions;
-  button?: {
-    label?: string;
-    busyLabel?: string;
-  };
+  presentation: RegistrationActivationButtonPresentation;
 };
+
+export type RegistrationActivationButtonCssProperty =
+  | 'width'
+  | 'height'
+  | 'minWidth'
+  | 'minHeight'
+  | 'maxWidth'
+  | 'maxHeight'
+  | 'padding'
+  | 'border'
+  | 'borderColor'
+  | 'borderRadius'
+  | 'background'
+  | 'backgroundColor'
+  | 'color'
+  | 'boxShadow'
+  | 'fontFamily'
+  | 'fontSize'
+  | 'fontWeight'
+  | 'lineHeight'
+  | 'letterSpacing'
+  | 'textAlign'
+  | 'cursor'
+  | 'outline'
+  | 'outlineColor'
+  | 'outlineOffset'
+  | 'outlineWidth';
+
+export type RegistrationActivationButtonCss = Partial<
+  Record<RegistrationActivationButtonCssProperty, string>
+>;
+
+export type RegistrationActivationButtonPresentation =
+  | {
+      kind: 'outline_overlay';
+      label: string;
+      busyLabel: string;
+      accessibleLabel: string;
+      iframeButtonStyle?: RegistrationActivationButtonCss;
+      iframeVisualStyle?: never;
+      shadowPaddingPx?: never;
+    }
+  | {
+      kind: 'iframe_button';
+      label: string;
+      busyLabel: string;
+      accessibleLabel: string;
+      iframeVisualStyle: RegistrationActivationButtonCss;
+      shadowPaddingPx: number;
+      iframeButtonStyle?: never;
+    };
 
 export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;

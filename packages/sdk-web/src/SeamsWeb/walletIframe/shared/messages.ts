@@ -27,6 +27,7 @@ import type {
   GoogleEmailOtpWalletAuthFailure,
   GoogleEmailOtpWalletAuthPromptCopy,
   GoogleEmailOtpWalletAuthRegistrationCompleted,
+  RegistrationActivationButtonPresentation,
   GoogleEmailOtpWalletAuthResolvedMode,
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
@@ -55,6 +56,7 @@ export type ParentToChildType =
   | 'PM_REGISTER'
   | 'PM_REGISTRATION_ACTIVATION_PREPARE'
   | 'PM_REGISTRATION_ACTIVATION_CANCEL'
+  | 'PM_REGISTRATION_ACTIVATION_FOCUS'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
@@ -119,6 +121,7 @@ export type ChildToParentType =
   | 'PREFERENCES_CHANGED'
   | 'PM_REGISTRATION_ACTIVATION_READY'
   | 'PM_REGISTRATION_ACTIVATION_STARTED'
+  | 'PM_REGISTRATION_ACTIVATION_BUTTON_STATE'
   | 'PM_RESULT'
   | 'ERROR';
 
@@ -169,15 +172,16 @@ export interface PMRegistrationActivationPreparePayload {
   expiresAtMs: number;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
-  button?: {
-    label?: string;
-    busyLabel?: string;
-  };
+  presentation: RegistrationActivationButtonPresentation;
 }
 
 export interface PMRegistrationActivationCancelPayload {
   activationId: string;
-  reason: 'user_cancelled' | 'expired' | 'disposed';
+  reason: 'user_cancelled' | 'expired' | 'disposed' | 'target_unavailable';
+}
+
+export interface PMRegistrationActivationFocusPayload {
+  activationId: string;
 }
 
 export interface PMRegistrationActivationReadyPayload {
@@ -187,6 +191,20 @@ export interface PMRegistrationActivationReadyPayload {
 
 export interface PMRegistrationActivationStartedPayload {
   activationId: string;
+}
+
+export type RegistrationActivationButtonInteractionState = {
+  kind: 'registration_activation_button_interaction_state_v1';
+  hovered: boolean;
+  focused: boolean;
+  pressed: boolean;
+  busy: boolean;
+  disabled: boolean;
+};
+
+export interface PMRegistrationActivationButtonStatePayload {
+  activationId: string;
+  state: RegistrationActivationButtonInteractionState;
 }
 
 export interface PMRegisterWalletPayload {
@@ -577,6 +595,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REGISTER', PMRegisterPayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_PREPARE', PMRegistrationActivationPreparePayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_CANCEL', PMRegistrationActivationCancelPayload>
+  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_FOCUS', PMRegistrationActivationFocusPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
@@ -681,5 +700,9 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_READY', PMRegistrationActivationReadyPayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_STARTED', PMRegistrationActivationStartedPayload>
+  | RpcEnvelope<
+      'PM_REGISTRATION_ACTIVATION_BUTTON_STATE',
+      PMRegistrationActivationButtonStatePayload
+    >
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

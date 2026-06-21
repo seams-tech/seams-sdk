@@ -4,9 +4,10 @@ import DrawerElement from '../Drawer';
 import { W3A_DRAWER_ID } from '../../registry';
 import TxConfirmContentElement from './tx-confirm-content';
 import PadlockIconElement from '../common/PadlockIcon';
+import PasskeyHaloLoadingElement from '../PasskeyHaloLoading';
 import { ensureExternalStyles } from '../css/css-loader';
 import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
-import type { UserConfirmSecurityContext } from '@/core/types';
+import type { PasskeyRegistrationConfirmDisplay, UserConfirmSecurityContext } from '@/core/types';
 import type { TransactionInputWasm } from '@/core/types';
 import type { ThemeName } from '../../confirm-ui-types';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
@@ -44,7 +45,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   static requiredChildTags = ['w3a-tx-confirm-content', 'w3a-drawer'];
   static strictChildDefinitions = true;
   // Prevent bundlers from dropping nested custom element definitions used via templates
-  static keepDefinitions = [TxConfirmContentElement, PadlockIconElement];
+  static keepDefinitions = [TxConfirmContentElement, PadlockIconElement, PasskeyHaloLoadingElement];
   static properties = {
     nearAccountId: { type: String, attribute: 'near-account-id' },
     txSigningRequests: { attribute: false },
@@ -183,6 +184,76 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   private _isWarmSessionMode(): boolean {
     return this.signingAuthMode === 'warmSession';
   }
+
+  private passkeyRegistrationDisplay(): PasskeyRegistrationConfirmDisplay | undefined {
+    const display = this.securityContext?.passkeyRegistration;
+    if (display?.kind !== 'passkey_registration_confirm_display_v1') return undefined;
+    return display;
+  }
+
+  private passkeyRegistrationBody(): string {
+    return (
+      (this.body || '').trim() ||
+      'Use Touch ID or your device passkey to create credentials for this account.'
+    );
+  }
+
+  private passkeyRegistrationConfirmText(): string {
+    return this.loading ? 'Creating passkey...' : 'Create passkey';
+  }
+
+  private renderPasskeyRegistrationDetails(display: PasskeyRegistrationConfirmDisplay) {
+    return html`
+      <div class="passkey-registration-confirm__identity" aria-label="Passkey registration details">
+        <div class="passkey-registration-confirm__row">
+          <span class="passkey-registration-confirm__label">Account</span>
+          <span class="passkey-registration-confirm__value" title=${display.intendedUserName}
+            >${display.intendedUserName}</span
+          >
+        </div>
+        <div class="passkey-registration-confirm__row">
+          <span class="passkey-registration-confirm__label">Relying party</span>
+          <span class="passkey-registration-confirm__value" title=${display.rpId}
+            >${display.rpId}</span
+          >
+        </div>
+      </div>
+    `;
+  }
+
+  private renderPasskeyRegistrationActions() {
+    return html`
+      <div class="passkey-registration-confirm__actions">
+        <button
+          type="button"
+          class="btn btn-cancel"
+          ?disabled=${this.loading}
+          @click=${this.onContentCancel}
+        >
+          ${this.cancelText || 'Cancel'}
+        </button>
+        <button
+          type="button"
+          class="btn btn-confirm"
+          ?disabled=${this.loading}
+          @click=${this.onPasskeyRegistrationConfirm}
+        >
+          ${this.loading
+            ? html`<span
+                  class="loading-indicator passkey-registration-confirm__spinner"
+                  role="progressbar"
+                  aria-label="Creating passkey"
+                ></span>
+                <span>${this.passkeyRegistrationConfirmText()}</span>`
+            : this.passkeyRegistrationConfirmText()}
+        </button>
+      </div>
+    `;
+  }
+
+  private onPasskeyRegistrationConfirm = (): void => {
+    this.finishContentConfirm();
+  };
 
   private _onOtpInput = (event: Event): void => {
     const input = event.currentTarget as HTMLInputElement | null;
@@ -517,6 +588,56 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   }
 
   render() {
+    const passkeyRegistration = this.passkeyRegistrationDisplay();
+    if (passkeyRegistration) {
+      return html`
+        <w3a-drawer
+          .open=${this._open}
+          theme=${this.theme}
+          .loading=${this.loading}
+          .errorMessage=${this.errorMessage || ''}
+          .height=${'auto'}
+          .overpullPx=${160}
+          .dragToClose=${true}
+          .showCloseButton=${true}
+          @lit-cancel=${this.onDrawerCancel}
+        >
+          <div class="drawer-tx-confirmer-root passkey-registration-confirm">
+            <div class="section responsive-card margin-left1">
+              <div class="hero passkey-registration-confirm__hero">
+                <w3a-passkey-halo-loading
+                  .theme=${this.theme}
+                  .animated=${!this.errorMessage}
+                  .ringGap=${4}
+                  .ringWidth=${4}
+                  .ringBorderRadius=${'1.125rem'}
+                  .ringBackground=${'var(--w3a-modal__passkey-halo-loading__ring-background)'}
+                  .innerPadding=${'0px'}
+                  .innerBackground=${'var(--w3a-modal__passkey-halo-loading__inner-background)'}
+                  .iconVariant=${'fingerprint'}
+                  .height=${44}
+                  .width=${44}
+                ></w3a-passkey-halo-loading>
+                <div class="hero-container passkey-registration-confirm__hero-copy">
+                  <h2 class="hero-heading">
+                    ${(this.title || '').trim() || 'Create your passkey'}
+                  </h2>
+                  <p class="passkey-registration-confirm__body">
+                    ${this.passkeyRegistrationBody()}
+                  </p>
+                </div>
+              </div>
+              ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage}</div>` : ''}
+            </div>
+            <div class="section responsive-card margin-left1">
+              ${this.renderPasskeyRegistrationDetails(passkeyRegistration)}
+              ${this.renderPasskeyRegistrationActions()}
+            </div>
+          </div>
+        </w3a-drawer>
+      `;
+    }
+
     const securityDetailsText = this._securityDetailsText();
     const securityDetailsLoading = this._isSecurityDetailsLoading();
     return html`
