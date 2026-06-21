@@ -19,13 +19,18 @@ import {
   listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionStoreDeps,
+  type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
 import {
   listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
-import { classifyRouterAbEcdsaHssPersistedSigningRecord } from '../routerAbSigningWalletSession';
+import {
+  classifyRouterAbEcdsaHssPersistedSigningRecord,
+  classifyRouterAbEd25519PersistedSigningRecord,
+  type RouterAbEd25519PersistedSigningRecordState,
+} from '../routerAbSigningWalletSession';
 import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
@@ -90,6 +95,75 @@ function applyWalletBudgetStatusToRuntimeClaim(args: {
     thresholdSessionId: args.sessionId,
     code: budgetStatus.status,
   };
+}
+
+async function readValidatedEd25519WarmClaim(args: {
+  deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
+  record: ThresholdEd25519SessionRecord;
+  sessionId: string;
+}): Promise<AvailableSigningLanesRuntimeClaim | null> {
+  const status =
+    args.record.source === SIGNER_AUTH_METHODS.emailOtp
+      ? await args.deps.getEmailOtpWarmSessionStatus(args.sessionId).catch(() => null)
+      : await args.deps.statusReader
+          .getWarmSessionStatus({ sessionId: args.sessionId })
+          .catch(() => null);
+  return status
+    ? warmStatusToAvailableSigningLanesRuntimeClaim({
+        thresholdSessionId: args.sessionId,
+        status,
+      })
+    : null;
+}
+
+function policyClaimForEd25519PersistedState(args: {
+  state: RouterAbEd25519PersistedSigningRecordState;
+  sessionId: string;
+}): AvailableSigningLanesRuntimeClaim | null {
+  switch (args.state.kind) {
+    case 'restore_available':
+      return runtimeRecordPolicyClaim({
+        thresholdSessionId: args.sessionId,
+        remainingUses: args.state.record.remainingUses,
+        expiresAtMs: args.state.record.expiresAtMs,
+        laneState: 'restorable',
+      });
+    case 'material_hint_unvalidated':
+    case 'auth_ready_material_pending':
+      return runtimeRecordPolicyClaim({
+        thresholdSessionId: args.sessionId,
+        remainingUses: args.state.record.remainingUses,
+        expiresAtMs: args.state.record.expiresAtMs,
+        laneState: 'deferred',
+      });
+    case 'runtime_validated':
+    case 'non_signing':
+    case 'invalid':
+      return null;
+    default: {
+      const exhaustive: never = args.state;
+      return exhaustive;
+    }
+  }
+}
+
+async function readEd25519RuntimeClaimForRecord(args: {
+  deps: Pick<PersistedAvailableSigningLanesDeps, 'statusReader' | 'getEmailOtpWarmSessionStatus'>;
+  record: ThresholdEd25519SessionRecord | null | undefined;
+  sessionId: string;
+}): Promise<AvailableSigningLanesRuntimeClaim | null> {
+  const state = classifyRouterAbEd25519PersistedSigningRecord(args.record);
+  if (state.kind === 'runtime_validated') {
+    return await readValidatedEd25519WarmClaim({
+      deps: args.deps,
+      record: state.record,
+      sessionId: args.sessionId,
+    });
+  }
+  return policyClaimForEd25519PersistedState({
+    state,
+    sessionId: args.sessionId,
+  });
 }
 
 export async function readPersistedAvailableSigningLanes(
@@ -412,33 +486,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
           sessionIds.map(async (sessionId) => {
             const ed25519Record =
               getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-            let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
-            if (ed25519Record?.source === SIGNER_AUTH_METHODS.emailOtp) {
-              if (
-                String(ed25519Record.ed25519WorkerMaterialHandle || '').trim() &&
-                String(ed25519Record.ed25519WorkerMaterialBindingDigest || '').trim() &&
-                String(ed25519Record.clientVerifyingShareB64u || '').trim()
-              ) {
-                localClaim = runtimeRecordPolicyClaim({
-                  thresholdSessionId: sessionId,
-                  remainingUses: ed25519Record.remainingUses,
-                  expiresAtMs: ed25519Record.expiresAtMs,
-                  laneState: 'deferred',
-                });
-              } else {
-                const status = await deps.getEmailOtpWarmSessionStatus(sessionId).catch(() => null);
-                localClaim = status
-                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
-                  : null;
-              }
-            } else {
-              const status = await deps.statusReader
-                .getWarmSessionStatus({ sessionId })
-                .catch(() => null);
-              localClaim = status
-                ? warmStatusToAvailableSigningLanesRuntimeClaim({ thresholdSessionId: sessionId, status })
-                : null;
-            }
+            const localClaim = await readEd25519RuntimeClaimForRecord({
+              deps,
+              record: ed25519Record,
+              sessionId,
+            });
             const signingGrantId = String(
               ed25519Record?.signingGrantId || '',
             ).trim();

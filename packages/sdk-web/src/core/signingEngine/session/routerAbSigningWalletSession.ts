@@ -809,6 +809,26 @@ function hasEd25519SealedWorkerMaterial(record: ThresholdEd25519SessionRecord): 
   );
 }
 
+export function hasRouterAbEd25519LoadedMaterialHint(
+  state: RouterAbEd25519PersistedSigningRecordState,
+): boolean {
+  switch (state.kind) {
+    case 'runtime_validated':
+    case 'material_hint_unvalidated':
+      return true;
+    case 'restore_available':
+      return Boolean(nonEmptyString(state.record.ed25519WorkerMaterialHandle));
+    case 'auth_ready_material_pending':
+    case 'non_signing':
+    case 'invalid':
+      return false;
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+}
+
 export function classifyRouterAbEd25519PersistedSigningRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): RouterAbEd25519PersistedSigningRecordState {

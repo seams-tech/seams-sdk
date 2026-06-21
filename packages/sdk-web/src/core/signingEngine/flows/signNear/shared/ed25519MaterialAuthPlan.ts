@@ -3,13 +3,12 @@ import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  classifyRouterAbEd25519PersistedSigningRecord,
+  hasRouterAbEd25519LoadedMaterialHint,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearPasskeyEd25519ReconnectHook } from '@/core/signingEngine/interfaces/near';
-
-function hasMaterialHandle(record: { ed25519WorkerMaterialHandle?: string } | null): boolean {
-  return Boolean(String(record?.ed25519WorkerMaterialHandle || '').trim());
-}
 
 export function signingAuthPlanForEd25519MaterialReadiness(args: {
   signingSessionCoordinator: WarmSessionCapabilityReader;
@@ -31,7 +30,7 @@ export function signingAuthPlanForEd25519MaterialReadiness(args: {
     case 'invalid':
       return args.signingAuthPlan;
     case 'restore_available':
-      return hasMaterialHandle(state.record)
+      return hasRouterAbEd25519LoadedMaterialHint(state)
         ? args.signingAuthPlan
         : {
             kind: SigningAuthPlanKind.PasskeyReauth,
