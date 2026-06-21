@@ -5,6 +5,7 @@ import type {
 } from '../identity/laneIdentity';
 import {
   upsertThresholdEcdsaSessionFromBootstrap,
+  type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
@@ -24,6 +25,7 @@ import {
 } from '../warmCapabilities/ecdsaCapabilityReadiness';
 import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/sealedRefreshParity';
 import type { WarmSessionEcdsaCapabilityState } from '../warmCapabilities/types';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -81,6 +83,32 @@ type CommitEvmFamilyThresholdEcdsaSessionsArgs =
   | CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs
   | CommitPasskeyEvmFamilyThresholdEcdsaSessionsArgs;
 
+function assertNeverThresholdEcdsaBootstrapBackendBinding(
+  value: never,
+): never {
+  throw new Error(
+    `[SigningEngine] unsupported threshold ECDSA bootstrap backend binding: ${JSON.stringify(value)}`,
+  );
+}
+
+function isRuntimeValidatedWorkerBootstrapBinding(
+  binding: ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef']['backendBinding'],
+): boolean {
+  if (!binding) return false;
+  switch (binding.materialKind) {
+    case 'email_otp_worker_handle':
+    case 'role_local_worker_handle':
+      return true;
+    case 'role_local_ready_state_blob':
+    case 'metadata_only':
+      return false;
+    default:
+      return assertNeverThresholdEcdsaBootstrapBackendBinding(
+        binding satisfies never,
+      );
+  }
+}
+
 function canonicalizeWorkerProvisionedBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult,
 ): ThresholdEcdsaSessionBootstrapResult {
@@ -110,6 +138,21 @@ function canonicalizeWorkerProvisionedBootstrap(
       ...(signingGrantId ? { signingGrantId } : {}),
     },
   };
+}
+
+function markWorkerProvisionedEcdsaSessionRuntimeValidated(args: {
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  record: ThresholdEcdsaSessionRecord;
+}): void {
+  if (
+    !isRuntimeValidatedWorkerBootstrapBinding(args.bootstrap.thresholdEcdsaKeyRef.backendBinding)
+  ) {
+    return;
+  }
+  if (markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(args.record)) return;
+  throw new Error(
+    '[SigningEngine] ECDSA-HSS bootstrap returned worker material that could not be runtime-validated',
+  );
 }
 
 export async function commitWorkerProvisionedThresholdEcdsaSession(
@@ -150,19 +193,27 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
             },
     });
     if (args.source === 'email_otp') {
-      upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
+      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
         walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: 'email_otp',
         emailOtpAuthContext: args.emailOtpAuthContext,
       });
+      markWorkerProvisionedEcdsaSessionRuntimeValidated({
+        bootstrap: canonicalBootstrap,
+        record,
+      });
     } else {
-      upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
+      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
         walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: args.source,
+      });
+      markWorkerProvisionedEcdsaSessionRuntimeValidated({
+        bootstrap: canonicalBootstrap,
+        record,
       });
     }
     return canonicalBootstrap;

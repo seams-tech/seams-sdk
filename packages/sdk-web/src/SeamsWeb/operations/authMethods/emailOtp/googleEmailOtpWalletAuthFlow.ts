@@ -174,7 +174,42 @@ function fail<T>(
   return { ok: false, error: failure };
 }
 
+function failWithMessage<T>(
+  code: GoogleEmailOtpWalletAuthFailureCode,
+  message: string,
+  error: unknown,
+): GoogleEmailOtpWalletAuthResult<T> {
+  const base = fail<T>(code, error);
+  if (base.ok) return base;
+  return {
+    ok: false,
+    error: {
+      ...base.error,
+      message,
+    },
+  };
+}
+
+function isEmailOtpDeviceRecoveryRequired(error: unknown): boolean {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '').toLowerCase()
+      : '';
+  if (code === 'email_otp_device_recovery_required') return true;
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
+  return (
+    message.includes('email otp device-local enc_s(s) is missing') ||
+    message.includes('email otp device-local enc_s(s) metadata mismatch')
+  );
+}
+
+function emailOtpDeviceRecoveryRequiredMessage(): string {
+  return 'This Email OTP wallet needs recovery on this device. Restore it with your recovery code to unlock.';
+}
+
 function classifyEmailOtpSubmitError(error: unknown): GoogleEmailOtpWalletAuthFailureCode {
+  if (isEmailOtpDeviceRecoveryRequired(error)) return 'email_otp_device_recovery_required';
   const code =
     error && typeof error === 'object' && 'code' in error
       ? String((error as { code?: unknown }).code || '')
@@ -264,6 +299,20 @@ function buildPrompt(input: {
   };
 }
 
+function resolveGoogleEmailOtpAuthMode(input: {
+  requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
+  resolutionMode: 'existing_wallet' | 'register_started' | undefined;
+}): GoogleEmailOtpWalletAuthResolvedMode {
+  if (input.requestedMode === 'register') {
+    if (input.resolutionMode === 'register_started') return 'register';
+    throw new Error('Google Email OTP registration did not return a registration offer');
+  }
+  if (input.resolutionMode === 'register_started') {
+    throw new Error('Google Email OTP login returned a registration offer');
+  }
+  return 'login';
+}
+
 function resolveSessionState(input: {
   idToken: string;
   requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
@@ -272,10 +321,10 @@ function resolveSessionState(input: {
   const walletId = requireWalletId(input.exchange);
   const emailHint = requireEmail(input.exchange);
   const resolution = input.exchange.session.googleEmailOtpResolution;
-  const mode: GoogleEmailOtpWalletAuthResolvedMode =
-    input.requestedMode === 'register' && resolution?.mode !== 'existing_wallet'
-      ? 'register'
-      : 'login';
+  const mode = resolveGoogleEmailOtpAuthMode({
+    requestedMode: input.requestedMode,
+    resolutionMode: resolution?.mode,
+  });
   const offer =
     mode === 'register'
       ? parseGoogleEmailOtpRegistrationOffer({
@@ -815,6 +864,13 @@ function createGoogleEmailOtpWalletLoginFlow(
         const session = await assertLoggedIn(deps, args.state.walletId);
         return ok({ walletId: args.state.walletId, mode: 'login', session });
       } catch (error: unknown) {
+        if (isEmailOtpDeviceRecoveryRequired(error)) {
+          return failWithMessage(
+            'email_otp_device_recovery_required',
+            emailOtpDeviceRecoveryRequiredMessage(),
+            error,
+          );
+        }
         return fail(classifyEmailOtpSubmitError(error), error);
       }
     },

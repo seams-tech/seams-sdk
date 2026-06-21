@@ -13,10 +13,12 @@ import {
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
 } from './ecdsaProvisionPlan';
-import type { WarmSessionEcdsaCapabilityState, WarmSessionEnvelope } from './types';
+import type { WarmSessionEcdsaCapabilityState } from './types';
 
 export type EcdsaWarmCapabilityReader = {
-  getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
+  getEcdsaCapabilityByThresholdSessionId: (
+    thresholdSessionId: string,
+  ) => Promise<WarmSessionEcdsaCapabilityState | null>;
 };
 
 function requireExactBootstrapCapability(args: {
@@ -66,6 +68,12 @@ function requireExactBootstrapCapability(args: {
   return capability;
 }
 
+function bootstrapThresholdSessionId(bootstrap: ThresholdEcdsaSessionBootstrapResult): string {
+  return String(
+    bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || bootstrap.session.thresholdSessionId || '',
+  ).trim();
+}
+
 export async function assertWarmThresholdEcdsaCapabilityReady(
   reader: EcdsaWarmCapabilityReader,
   args: {
@@ -74,12 +82,28 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
   },
 ): Promise<WarmSessionEcdsaCapabilityState> {
-  const warmSession = await reader.getWarmSession(args.walletId);
-  const capability = warmSession.capabilities.ecdsa[args.chainTarget.kind];
+  const thresholdSessionId = bootstrapThresholdSessionId(args.bootstrap);
+  if (!thresholdSessionId) {
+    throw new Error(
+      `[SigningEngine] Email OTP bootstrap did not provide thresholdSessionId for ${String(
+        args.walletId,
+      )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
+    );
+  }
+  const capability = await reader.getEcdsaCapabilityByThresholdSessionId(thresholdSessionId);
   return requireExactBootstrapCapability({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
-    capability,
+    capability:
+      capability || {
+        capability: 'ecdsa',
+        state: 'missing',
+        record: null,
+        key: null,
+        lane: null,
+        auth: null,
+        prfClaim: null,
+      },
   });
 }

@@ -787,7 +787,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
   });
 
-  test('register request resolving to existing wallet uses login flow', async () => {
+  test('register request resolving to existing wallet fails closed', async () => {
     const { deps, calls } = makeDeps({
       exchangeGoogleEmailOtpSession: async (args) => {
         calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
@@ -818,10 +818,65 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
     });
 
-    expect(started.ok).toBe(true);
-    if (!started.ok) throw new Error(started.error.message);
-    expect(started.value.mode).toBe('login');
+    expect(started.ok).toBe(false);
+    if (started.ok) throw new Error('expected registration exchange failure');
+    expect(started.error).toMatchObject({
+      code: 'google_exchange_failed',
+      message: 'Google Email OTP registration did not return a registration offer',
+    });
     expect(calls.map((call) => call.type)).toEqual(['exchangeGoogleEmailOtpSession']);
+  });
+
+  test('login request resolving to existing wallet surfaces missing device escrow as recovery required', async () => {
+    const { deps, calls } = makeDeps({
+      exchangeGoogleEmailOtpSession: async (args) => {
+        calls.push({ type: 'exchangeGoogleEmailOtpSession', args });
+        return {
+          session: {
+            userId: 'google-subject-1',
+            walletId: 'alice.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: {
+              mode: 'existing_wallet',
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              loginChallenge: {
+                delivery: 'sent',
+                challengeId: 'login-challenge-1',
+                emailHint: 'alice@example.com',
+                expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              },
+            },
+          },
+          jwt: 'app-session-jwt',
+        } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
+      },
+      loginWithEmailOtpEcdsaCapability: async (args) => {
+        calls.push({ type: 'loginWithEmailOtpEcdsaCapability', args });
+        throw new Error('Email OTP device-local enc_s(S) is missing; recovery is required');
+      },
+    });
+
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET] },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+    const submitted = await started.value.submit({ otpCode: '123456' });
+
+    expect(submitted.ok).toBe(false);
+    if (submitted.ok) throw new Error('expected recovery-required failure');
+    expect(submitted.error).toMatchObject({
+      code: 'email_otp_device_recovery_required',
+      message:
+        'This Email OTP wallet needs recovery on this device. Restore it with your recovery code to unlock.',
+    });
+    expect(calls.map((call) => call.type)).toEqual([
+      'exchangeGoogleEmailOtpSession',
+      'loginWithEmailOtpEcdsaCapability',
+    ]);
   });
 
   test('registration explicit ECDSA targets are used for signer selection', async () => {

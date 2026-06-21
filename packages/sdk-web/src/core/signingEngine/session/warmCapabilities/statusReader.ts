@@ -211,6 +211,18 @@ export function createWarmSessionStatusReader(
     return null;
   }
 
+  async function readEcdsaWarmSessionClaimForWalletRecord(args: {
+    record: ThresholdEcdsaSessionRecord | null;
+    walletScopedClaims: Map<string, WarmSessionPrfClaim | null>;
+  }): Promise<WarmSessionPrfClaim | null> {
+    if (!args.record) return null;
+    return (
+      readStrictRouterAbEcdsaRecordClaim(args.record) ||
+      args.walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(args.record) || '') ||
+      (await readEcdsaWarmSessionClaimForRecord(args.record))
+    );
+  }
+
   async function readWalletScopedClaimsForRecords(
     records: ReturnType<typeof readWarmSessionCapabilityRecordsForWallet>,
   ): Promise<{
@@ -226,17 +238,19 @@ export function createWarmSessionStatusReader(
     const walletScopedClaims = exactLanes.length
       ? await readWalletScopedLaneClaimsForExactLanes({ deps: claimReaderDeps, lanes: exactLanes })
       : new Map<string, WarmSessionPrfClaim | null>();
+    const evmClaim = await readEcdsaWarmSessionClaimForWalletRecord({
+      record: records.ecdsa.evm,
+      walletScopedClaims,
+    });
+    const tempoClaim = await readEcdsaWarmSessionClaimForWalletRecord({
+      record: records.ecdsa.tempo,
+      walletScopedClaims,
+    });
     return {
       ed25519Claim:
         walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
-      evmClaim:
-        (records.ecdsa.evm ? readStrictRouterAbEcdsaRecordClaim(records.ecdsa.evm) : null) ||
-        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.evm) || '') ||
-        null,
-      tempoClaim:
-        (records.ecdsa.tempo ? readStrictRouterAbEcdsaRecordClaim(records.ecdsa.tempo) : null) ||
-        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.tempo) || '') ||
-        null,
+      evmClaim,
+      tempoClaim,
     };
   }
 
@@ -396,7 +410,10 @@ export function createWarmSessionStatusReader(
           : {}),
       };
     }
-    const records = readWarmSessionCapabilityRecordsForWallet(args.nearAccountId);
+    const records = {
+      ...readWarmSessionCapabilityRecordsForWallet(args.nearAccountId),
+      ed25519: record,
+    };
     const { ed25519Claim } = await readWalletScopedClaimsForRecords(records);
     const status = toSigningSessionStatus({
       sessionId: normalizedThresholdSessionId,

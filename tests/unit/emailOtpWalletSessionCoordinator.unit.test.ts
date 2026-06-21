@@ -1492,7 +1492,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           transport: {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
-            keyVersion: 'signing-session-seal-kek-test-r1',
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
             shamirPrimeB64u: 'prime-b64u',
           },
         },
@@ -1960,7 +1960,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           transport: {
             relayerUrl: 'https://relay.example',
             walletSessionJwt: expect.any(String),
-            keyVersion: 'signing-session-seal-kek-test-r1',
+            signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
             shamirPrimeB64u: 'prime-b64u',
           },
           restore: {

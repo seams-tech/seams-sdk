@@ -39,6 +39,7 @@ import {
   type SealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   restoreEmailOtpEd25519SealedRecordForAccount,
   type EmailOtpEd25519RestorePurpose,
@@ -81,6 +82,13 @@ const EMPTY_ACCOUNT_RESTORE_RESULT = {
 } as const;
 
 const EMPTY_SIGNING_RESTORE_RESULT = { attempted: 0, restored: 0, deferred: 0 } as const;
+
+function markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(
+  record: ThresholdEcdsaSessionRecord | null,
+): boolean {
+  if (!record || record.source !== 'email_otp') return false;
+  return markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record);
+}
 
 function isEmailOtpEd25519RestorePurpose(
   purpose: RestorePersistedSessionPurpose,
@@ -503,7 +511,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       const workerStatus = await this.ports
         .readWarmSessionStatusFromWorker(thresholdSessionId)
         .catch(() => null);
-      if (workerStatus?.ok) {
+      if (workerStatus?.ok && markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(existing)) {
         this.restoreAttempts.rememberCompleted(restoreKey);
         return 'ready';
       }
