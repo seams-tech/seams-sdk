@@ -586,6 +586,38 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     );
   });
 
+  test('Ed25519 availability and auth planning consume classified material state', () => {
+    const availabilitySource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
+    );
+    const authPlanSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialAuthPlan.ts',
+    );
+    const offenders: string[] = [];
+    if (
+      !availabilitySource.includes('classifyRouterAbEd25519PersistedSigningRecord(args.record)')
+    ) {
+      offenders.push('persisted Ed25519 lane availability does not classify records');
+    }
+    for (const marker of [
+      'ed25519Record.ed25519WorkerMaterialHandle',
+      'ed25519Record.ed25519WorkerMaterialBindingDigest',
+      'ed25519Record.clientVerifyingShareB64u',
+    ]) {
+      if (availabilitySource.includes(marker)) {
+        offenders.push(`persisted Ed25519 lane availability reads raw material field ${marker}`);
+      }
+    }
+    if (!authPlanSource.includes('hasRouterAbEd25519LoadedMaterialHint(state)')) {
+      offenders.push('Ed25519 material auth plan does not use the classifier material accessor');
+    }
+    if (authPlanSource.includes('ed25519WorkerMaterialHandle')) {
+      offenders.push('Ed25519 material auth plan reads raw worker material handle fields');
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
   test('ECDSA-HSS Router A/B presign and signing consume worker material handles', () => {
     const poolSource = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
