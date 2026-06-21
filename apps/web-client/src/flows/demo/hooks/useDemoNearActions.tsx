@@ -83,11 +83,11 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
             if (message) signingFailureMessage = message;
           },
           waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
-          afterCall: (success: boolean, results?: ActionResult[], error?: Error) => {
+          afterCall: (success: boolean, result?: ActionResult | ActionResult[], error?: Error) => {
             try {
               toast.dismiss('greeting');
             } catch {}
-            const normalizedResults = Array.isArray(results) ? results : [];
+            const normalizedResults = Array.isArray(result) ? result : result ? [result] : [];
             const successfulResults = normalizedResults.filter((item) => item?.success !== false);
             const latestTxId =
               successfulResults.at(-1)?.transactionId || normalizedResults.at(-1)?.transactionId;

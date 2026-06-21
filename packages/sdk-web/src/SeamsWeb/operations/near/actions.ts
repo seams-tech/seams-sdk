@@ -371,7 +371,7 @@ export async function executeActionInternal({
       errorDetails: details,
       transactionId: undefined,
     };
-    afterCall?.(false);
+    afterCall?.(false, undefined, e);
     return result;
   }
 }
