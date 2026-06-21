@@ -310,6 +310,13 @@ async function withReplayProtectedNormalSigningRouter<T>(
       reservedUses: 0,
       availableUses: 3,
     }),
+    releaseRouterAbNormalSigningBudgetForIdentity: async () => ({
+      ok: true as const,
+      released: true,
+      remainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    }),
   };
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
@@ -404,6 +411,13 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
       remainingUses: 3,
     }),
     releaseRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      released: true,
+      remainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    }),
+    releaseRouterAbNormalSigningBudgetForIdentity: async () => ({
       ok: true as const,
       released: true,
       remainingUses: 3,
@@ -511,6 +525,13 @@ async function withBudgetedNormalSigningRouter<T>(
         operationId: input.operationId,
       }),
     releaseRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      released: true,
+      remainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    }),
+    releaseRouterAbNormalSigningBudgetForIdentity: async () => ({
       ok: true as const,
       released: true,
       remainingUses: 3,

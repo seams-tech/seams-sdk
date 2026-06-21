@@ -554,10 +554,12 @@ test.describe('Router A/B ECDSA-HSS route-core budget gates', () => {
       expect(forwardedBodies).toHaveLength(1);
       expect(forwardedBodies[0]).toMatchObject({
         request: {
-          budget_reservation_id: body.budget_reservation_id,
-          budget_operation_id: body.budget_operation_id,
+          request_id: body.request_id,
+          server_presignature_id: body.server_presignature_id,
         },
       });
+      expect(JSON.stringify(forwardedBodies[0])).not.toContain('budget_reservation_id');
+      expect(JSON.stringify(forwardedBodies[0])).not.toContain('budget_operation_id');
       expect(harness.validateCalls).toHaveLength(1);
       expect(harness.commitCalls).toEqual([]);
       expect(harness.releaseCalls).toEqual([

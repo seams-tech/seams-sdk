@@ -40,17 +40,109 @@ import type { SigningSessionSealRoutesOptions } from '@server/threshold/session/
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import {
   parseCloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
   parseRouterAbEcdsaHssEvmDigestSigningRequestV1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   routerAbEcdsaHssActiveStateSessionId,
-  routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
   routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
   type CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1Wire,
 } from '@shared/utils/routerAbEcdsaHss';
 
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
+
+type RouterAbEcdsaHssPrivateFinalizeFixtureRequest = {
+  scope: unknown;
+  request_id: string;
+  expires_at_ms: number;
+  signing_digest_b64u: string;
+  server_presignature_id: string;
+  client_signature_share32_b64u: string;
+};
+
+type RouterAbEcdsaHssTrustedAdmissionFixture = {
+  request_digest: unknown;
+};
+
+function requireFixtureRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireFixtureExactKeys(
+  record: Record<string, unknown>,
+  label: string,
+  keys: readonly string[],
+): void {
+  const expected = new Set(keys);
+  const extra = Object.keys(record).filter((key) => !expected.has(key));
+  const missing = keys.filter((key) => !(key in record));
+  if (extra.length || missing.length) {
+    throw new Error(
+      `${label} keys mismatch; missing=${missing.join(',') || 'none'} extra=${extra.join(',') || 'none'}`,
+    );
+  }
+}
+
+function requireFixtureString(value: unknown, label: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new Error(`${label} must be a string`);
+  return text;
+}
+
+function requireFixtureNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} must be a positive number`);
+  }
+  return value;
+}
+
+function parseRouterAbEcdsaHssPrivateFinalizeFixtureRequest(
+  value: unknown,
+): RouterAbEcdsaHssPrivateFinalizeFixtureRequest {
+  const record = requireFixtureRecord(value, 'private ecdsa finalize request');
+  requireFixtureExactKeys(record, 'private ecdsa finalize request', [
+    'scope',
+    'request_id',
+    'expires_at_ms',
+    'signing_digest_b64u',
+    'server_presignature_id',
+    'client_signature_share32_b64u',
+  ]);
+  return {
+    scope: record.scope,
+    request_id: requireFixtureString(record.request_id, 'private ecdsa finalize request_id'),
+    expires_at_ms: requireFixtureNumber(
+      record.expires_at_ms,
+      'private ecdsa finalize expires_at_ms',
+    ),
+    signing_digest_b64u: requireFixtureString(
+      record.signing_digest_b64u,
+      'private ecdsa finalize signing_digest_b64u',
+    ),
+    server_presignature_id: requireFixtureString(
+      record.server_presignature_id,
+      'private ecdsa finalize server_presignature_id',
+    ),
+    client_signature_share32_b64u: requireFixtureString(
+      record.client_signature_share32_b64u,
+      'private ecdsa finalize client_signature_share32_b64u',
+    ),
+  };
+}
+
+function parseRouterAbEcdsaHssTrustedAdmissionFixture(
+  value: unknown,
+): RouterAbEcdsaHssTrustedAdmissionFixture {
+  const record = requireFixtureRecord(value, 'private ecdsa trusted admission');
+  if (!record.request_digest) {
+    throw new Error('private ecdsa trusted admission request_digest is required');
+  }
+  return {
+    request_digest: record.request_digest,
+  };
+}
 
 export async function setupThresholdE2ePage(
   page: Page,
@@ -472,8 +564,11 @@ export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
       }
 
       if (path === ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS.finalize) {
-        const body = req.body && typeof req.body === 'object' ? (req.body as any).request : req.body;
-        const request = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(body);
+        const envelope = req.body && typeof req.body === 'object' ? (req.body as any) : {};
+        const request = parseRouterAbEcdsaHssPrivateFinalizeFixtureRequest(envelope.request);
+        const trustedAdmission = parseRouterAbEcdsaHssTrustedAdmissionFixture(
+          envelope.trusted_admission,
+        );
         const signature65 = await signSecp256k1Recoverable(
           base64UrlDecode(request.signing_digest_b64u),
           TEST_ROUTER_AB_ECDSA_HSS_SIGNING_WORKER_PRIVATE_KEY_32,
@@ -481,7 +576,7 @@ export async function setupRouterAbEcdsaHssPrivateSigningWorker(): Promise<{
         res.status(200).json({
           scope: request.scope,
           request_id: request.request_id,
-          request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(request),
+          request_digest: trustedAdmission.request_digest,
           signing_digest: publicDigest(base64UrlDecode(request.signing_digest_b64u)),
           signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
           signature65_b64u: base64UrlEncode(signature65),

@@ -297,8 +297,13 @@ type RouterAbEcdsaHssPrivatePrepareSigningWorkerBody = {
   trusted_admission: RouterAbEcdsaHssTrustedAdmissionV1;
 };
 
+type RouterAbEcdsaHssPrivateFinalizeRequestWire = Omit<
+  RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  'budget_reservation_id' | 'budget_operation_id'
+>;
+
 type RouterAbEcdsaHssPrivateFinalizeSigningWorkerBody = {
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire;
+  request: RouterAbEcdsaHssPrivateFinalizeRequestWire;
   trusted_admission: RouterAbEcdsaHssTrustedAdmissionV1;
 };
 
@@ -499,7 +504,7 @@ function ed25519FinalizeOperationId(body: Record<string, unknown>): string {
 export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
   body:
     | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire;
+    | RouterAbEcdsaHssPrivateFinalizeRequestWire;
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
@@ -535,7 +540,7 @@ export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
 export async function deriveRouterAbEcdsaHssBudgetRequestDigest(input: {
   body:
     | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire;
+    | RouterAbEcdsaHssPrivateFinalizeRequestWire;
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
@@ -613,6 +618,17 @@ function stripRouterAbBudgetMetadata(body: Record<string, unknown>): Record<stri
     ...rest
   } = body;
   return rest;
+}
+
+function stripRouterAbEcdsaHssFinalizeBudgetMetadata(
+  body: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+): RouterAbEcdsaHssPrivateFinalizeRequestWire {
+  const {
+    budget_reservation_id: _budgetReservationId,
+    budget_operation_id: _budgetOperationId,
+    ...request
+  } = body;
+  return request;
 }
 
 function withBudgetReservationMetadata(
@@ -725,8 +741,9 @@ export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody(input: {
       }),
     };
   }
-  const request = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input.body);
-  const requestDigest = await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(request);
+  const publicRequest = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input.body);
+  const request = stripRouterAbEcdsaHssFinalizeBudgetMetadata(publicRequest);
+  const requestDigest = await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(publicRequest);
   return {
     request,
     trusted_admission: ecdsaHssTrustedAdmission({
