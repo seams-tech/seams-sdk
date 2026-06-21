@@ -106,7 +106,9 @@ type EvmFamilyPlannerReadiness = {
   remainingUses: number;
 };
 
-function buildMissingEcdsaPlannerReadiness(thresholdSessionId: string): EvmFamilyPlannerReadiness {
+function buildMissingEcdsaPlannerReadiness(
+  thresholdSessionId: SigningSessionReadiness['thresholdSessionId'],
+): EvmFamilyPlannerReadiness {
   return {
     readiness: {
       status: 'missing_session',
@@ -118,7 +120,7 @@ function buildMissingEcdsaPlannerReadiness(thresholdSessionId: string): EvmFamil
 }
 
 function buildReadyEcdsaBackingReadiness(input: {
-  thresholdSessionId: string;
+  thresholdSessionId: SigningSessionReadiness['thresholdSessionId'];
   expiresAtMs: number;
   remainingUses: number;
 }): EvmFamilyPlannerReadiness {
@@ -200,6 +202,9 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     material: args.material,
   });
   if (trustedPasskeyReadiness) return trustedPasskeyReadiness;
+  if (args.material.kind !== 'ready_to_sign') {
+    return buildMissingEcdsaPlannerReadiness(thresholdSessionId);
+  }
 
   const expiresAtMs = record.expiresAtMs;
   const remainingUses = record.remainingUses;
