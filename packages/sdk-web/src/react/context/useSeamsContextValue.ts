@@ -11,7 +11,6 @@ import type { ThemeName } from '@/core/types/seams';
 import type { DevicesCapability } from '@/SeamsWeb';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
-import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useSeamsContextValue(args: {
   seams: SeamsContextType['seams'];
@@ -84,22 +83,8 @@ export function useSeamsContextValue(args: {
         ...options,
         onEvent: async (event) => {
           if (event.phase === UnlockEventPhase.STEP_07_COMPLETED && event.status === 'succeeded') {
-            const session = await seams.auth.getWalletSession(nearAccountId);
-            const { login } = session;
-            const isLoggedIn = isWalletSessionReadyForUi({ session });
-            setLoginState((prevState) => ({
-              ...prevState,
-              isLoggedIn,
-              nearAccountId: isLoggedIn ? login.nearAccountId || null : null,
-              nearPublicKey: isLoggedIn ? login.publicKey || null : null,
-              authMethod: isLoggedIn ? session.authMethod || login.authMethod || null : null,
-              thresholdEcdsaEthereumAddress: isLoggedIn
-                ? login.thresholdEcdsaEthereumAddress || null
-                : null,
-              thresholdEcdsaPublicKeyB64u: isLoggedIn
-                ? login.thresholdEcdsaPublicKeyB64u || null
-                : null,
-            }));
+            await refreshLoginState(nearAccountId);
+            await refreshAccountData();
           }
           return options?.onEvent?.(event);
         },
@@ -109,7 +94,7 @@ export function useSeamsContextValue(args: {
         },
       });
     },
-    [lock, setLoginState, seams, seamsWithSdkFlow],
+    [lock, refreshAccountData, refreshLoginState, seamsWithSdkFlow],
   );
 
   const registerPasskey: SeamsContextType['registerPasskey'] = useCallback(

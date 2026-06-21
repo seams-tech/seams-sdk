@@ -4,18 +4,28 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
+import { extractUsernameFromAccountId } from '../hooks/useAccountInput';
+
+function syncInputUsernameFromAccountId(
+  setInputUsername: SeamsContextType['setInputUsername'],
+  accountId: string | null | undefined,
+): void {
+  const username = extractUsernameFromAccountId(accountId);
+  if (username) setInputUsername(username);
+}
 
 export function useLoginStateRefresher(args: {
   seams: SeamsWeb;
   walletIframeConnected: boolean;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
+  setInputUsername: SeamsContextType['setInputUsername'];
 }) {
-  const { seams, walletIframeConnected, setLoginState } = args;
+  const { seams, walletIframeConnected, setLoginState, setInputUsername } = args;
 
   const refreshLoginState: SeamsContextType['refreshLoginState'] = useCallback(
     async (walletId?: string) => {
       try {
-        if (walletIframeConnected) {
+        if (walletIframeConnected && !walletId) {
           try {
             const session = await seams.auth.getWalletSession();
             const { login: st } = session;
@@ -29,6 +39,7 @@ export function useLoginStateRefresher(args: {
                 thresholdEcdsaPublicKeyB64u: st.thresholdEcdsaPublicKeyB64u || null,
                 isLoggedIn: true,
               }));
+              syncInputUsernameFromAccountId(setInputUsername, st.nearAccountId);
               return;
             }
           } catch {}
@@ -41,6 +52,7 @@ export function useLoginStateRefresher(args: {
             try {
               seams.preferences.setCurrentWallet(toWalletId(ls.nearAccountId));
             } catch {}
+            syncInputUsernameFromAccountId(setInputUsername, ls.nearAccountId);
           }
           setLoginState((prevState) => ({
             ...prevState,
@@ -66,7 +78,7 @@ export function useLoginStateRefresher(args: {
         console.error('Error refreshing login state:', error);
       }
     },
-    [setLoginState, seams, walletIframeConnected],
+    [setInputUsername, setLoginState, seams, walletIframeConnected],
   );
 
   useEffect(() => {

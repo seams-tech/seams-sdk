@@ -100,6 +100,7 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
     seams,
     walletIframeConnected,
     setLoginState,
+    setInputUsername,
   });
 
   useEffect(() => {

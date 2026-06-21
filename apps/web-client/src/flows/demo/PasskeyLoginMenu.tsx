@@ -33,6 +33,11 @@ type PasskeyLoginMenuProps = {
   __testOverrides?: PasskeyLoginMenuTestOverrides;
 };
 
+type GoogleSsoReadiness =
+  | { kind: 'checking' }
+  | { kind: 'ready'; clientId: string }
+  | { kind: 'unavailable'; message: string };
+
 function normalizeBaseUrl(input: unknown): string {
   return String(input || '')
     .trim()
@@ -90,6 +95,44 @@ function walletFlowErrorMessage(
     if (errorMessage) return errorMessage;
   }
   return event.message || fallback;
+}
+
+function googleSsoUnavailable(message: string): GoogleSsoReadiness {
+  return { kind: 'unavailable', message };
+}
+
+function googleSsoReady(clientId: string): GoogleSsoReadiness {
+  return { kind: 'ready', clientId };
+}
+
+function assertNeverGoogleSsoReadiness(value: never): never {
+  throw new Error(`Unknown Google SSO readiness state: ${JSON.stringify(value)}`);
+}
+
+async function prepareGoogleSsoReadiness(relayerBaseUrl: string): Promise<GoogleSsoReadiness> {
+  if (!relayerBaseUrl) {
+    return googleSsoUnavailable('Relayer base URL is not configured');
+  }
+
+  const googleOptions = await fetchGoogleAuthOptions(relayerBaseUrl);
+  if (!googleOptions.configured || !googleOptions.clientId) {
+    return googleSsoUnavailable('Google SSO is not configured on the Router API server');
+  }
+
+  await ensureGoogleIdentityScriptLoaded();
+  return googleSsoReady(googleOptions.clientId);
+}
+
+function requirePreparedGoogleSsoClientId(readiness: GoogleSsoReadiness): string {
+  switch (readiness.kind) {
+    case 'ready':
+      return readiness.clientId;
+    case 'checking':
+      throw new Error('Google SSO is still loading. Try again in a moment.');
+    case 'unavailable':
+      throw new Error(readiness.message);
+  }
+  return assertNeverGoogleSsoReadiness(readiness);
 }
 
 function handleRegistrationEvent(event: RegistrationFlowEvent): void {
@@ -218,6 +261,28 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
   // let tutorial control the menu (programmatically open/close menus)
   const authMenuControl = useAuthMenuControlHook();
+  const [googleSsoReadiness, setGoogleSsoReadiness] = React.useState<GoogleSsoReadiness>({
+    kind: 'checking',
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setGoogleSsoReadiness({ kind: 'checking' });
+    prepareGoogleSsoReadiness(relayerBaseUrl)
+      .then((readiness) => {
+        if (!cancelled) setGoogleSsoReadiness(readiness);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setGoogleSsoReadiness(
+            googleSsoUnavailable(error instanceof Error ? error.message : String(error)),
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [relayerBaseUrl]);
 
   const onRegister = async () => {
     const result = await registerPasskey(targetAccountId, {
@@ -271,20 +336,11 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     mode: AuthMenuMode;
     emailOtpAuthPolicy: EmailOtpAuthPolicy;
   }) => {
-    if (!relayerBaseUrl) {
-      throw new Error('Relayer base URL is not configured');
-    }
-
-    const googleOptions = await fetchGoogleAuthOptions(relayerBaseUrl);
-    if (!googleOptions.configured || !googleOptions.clientId) {
-      throw new Error('Google SSO is not configured on the Router API server');
-    }
-
     toast.loading('Opening Google SSO…', { id: 'google-sso' });
-    await ensureGoogleIdentityScriptLoaded();
+    const googleClientId = requirePreparedGoogleSsoClientId(googleSsoReadiness);
     let idToken: string;
     try {
-      idToken = await requestGoogleIdToken(googleOptions.clientId);
+      idToken = await requestGoogleIdToken(googleClientId);
     } catch (error: unknown) {
       const message = formatGoogleSsoEmailOtpError(error);
       toast.error(message, { id: 'google-sso' });
@@ -309,10 +365,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       { id: 'google-sso' },
     );
     const onComplete = ({ walletId, mode }: { walletId: string; mode: 'register' | 'login' }) => {
-        toast.success(mode === 'register' ? 'Email OTP wallet ready' : 'Wallet unlocked', {
-          id: GOOGLE_EMAIL_OTP_TOAST_ID,
-        });
-        props.onLoggedIn?.(walletId);
+      toast.success(mode === 'register' ? 'Email OTP wallet ready' : 'Wallet unlocked', {
+        id: GOOGLE_EMAIL_OTP_TOAST_ID,
+      });
+      props.onLoggedIn?.(walletId);
     };
     if (flow.value.mode === 'register') {
       return {

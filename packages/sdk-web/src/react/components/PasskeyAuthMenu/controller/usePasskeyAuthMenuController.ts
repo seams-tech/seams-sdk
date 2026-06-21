@@ -27,6 +27,7 @@ import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
+import { extractUsernameFromAccountId } from '@/react/hooks/useAccountInput';
 
 export interface PasskeyAuthMenuLinkDeviceController {
   isOpen: boolean;
@@ -496,7 +497,10 @@ export function usePasskeyAuthMenuController(
   const onSegmentChange = React.useCallback(
     (next: AuthMenuMode) => {
       lastUserSelectedModeRef.current = next;
-      if (mode === AuthMenuMode.Login && next !== AuthMenuMode.Login) {
+      if (next === AuthMenuMode.Register) {
+        setCurrentValue('');
+        clearPrefillMarkers();
+      } else if (mode === AuthMenuMode.Login && next !== AuthMenuMode.Login) {
         if (prefilledFromRecentRef.current && currentValue === prefilledValueRef.current) {
           setCurrentValue('');
         }
@@ -1251,6 +1255,8 @@ export function usePasskeyAuthMenuController(
           closeLinkDeviceView('flow');
           setMode(AuthMenuMode.Login);
           if (accountId) {
+            const username = extractUsernameFromAccountId(accountId);
+            if (username) setCurrentValue(username);
             void activationRefreshLoginState(accountId).catch(() => {});
           }
           return;
@@ -1278,7 +1284,13 @@ export function usePasskeyAuthMenuController(
           return assertNeverRegistrationActivationSurfaceState(state);
       }
     },
-    [activationRefreshLoginState, activationTargetAccountId, closeLinkDeviceView, setMode],
+    [
+      activationRefreshLoginState,
+      activationTargetAccountId,
+      closeLinkDeviceView,
+      setCurrentValue,
+      setMode,
+    ],
   );
 
   return {

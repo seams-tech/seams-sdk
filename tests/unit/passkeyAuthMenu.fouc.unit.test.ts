@@ -7,6 +7,8 @@ const IMPORT_PATHS = {
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
   passkeyAuthMenuController:
     '/sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
+  seamsContextValue: '/sdk/esm/react/context/useSeamsContextValue.js',
+  loginStateRefresher: '/sdk/esm/react/context/useLoginStateRefresher.js',
   passkeyInput: '/sdk/esm/react/components/PasskeyAuthMenu/ui/PasskeyInput.js',
   authMenuTypes: '/sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
   reactStyles: '/sdk/esm/react/styles/styles.css',
@@ -1501,6 +1503,289 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('#activation-waiting-state')).toHaveText('not-waiting');
     await mount.getByRole('button', { name: 'Start activation' }).click();
     await expect(mount.locator('#activation-waiting-state')).toHaveText('waiting:passkey');
+  });
+
+  test('Register segment clears the full account input for new account creation', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-register-segment-clear-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const { AuthMenuMode } = typesMod;
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('gorp79');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({
+                    accountIds: ['gorp80.w3a-relayer.testnet'],
+                    lastUsedAccount: { nearAccountId: 'gorp80.w3a-relayer.testnet' },
+                  }),
+                },
+              },
+              accountExists: true,
+              inputUsername,
+              targetAccountId: inputUsername ? `${inputUsername}.w3a-relayer.testnet` : '',
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.w3a-relayer.testnet',
+              isUsingExistingAccount: true,
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            { defaultMode: AuthMenuMode.Login },
+            runtime,
+          );
+
+          return React.createElement(
+            'div',
+            null,
+            React.createElement('div', {
+              id: 'register-clear-state',
+              'data-mode': String(controller.mode),
+              'data-input': controller.currentValue,
+            }),
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSegmentChange(AuthMenuMode.Register),
+              },
+              'Register tab',
+            ),
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-register-segment-clear-mount');
+    const state = mount.locator('#register-clear-state');
+    await expect(state).toHaveAttribute('data-input', 'gorp79');
+    await mount.getByRole('button', { name: 'Register tab' }).click();
+    await expect(state).toHaveAttribute('data-input', '');
+    await expect(state).toHaveAttribute('data-mode', '0');
+  });
+
+  test('successful unlock refresh writes the unlocked account into account input state', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-unlock-input-refresh-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const contextMod: any = await import(paths.seamsContextValue);
+        const refresherMod: any = await import(paths.loginStateRefresher);
+
+        const useSeamsContextValue = contextMod.useSeamsContextValue;
+        const useLoginStateRefresher = refresherMod.useLoginStateRefresher;
+
+        (window as any).__pamUnlockInputWrites = [];
+        (window as any).__pamUnlockRefreshAccountCalls = 0;
+
+        const readySessionFor = (nearAccountId: string) => ({
+          authMethod: 'passkey',
+          login: {
+            isLoggedIn: true,
+            nearAccountId,
+            publicKey: 'ed25519:pub',
+            authMethod: 'passkey',
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaPublicKeyB64u: null,
+          },
+          signingSession: {
+            status: 'active',
+            sessionId: 'session-1',
+          },
+        });
+
+        const emptySession = {
+          authMethod: null,
+          login: {
+            isLoggedIn: false,
+            nearAccountId: null,
+            publicKey: null,
+            authMethod: null,
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaPublicKeyB64u: null,
+          },
+          signingSession: {
+            status: 'missing',
+            sessionId: '',
+          },
+        };
+
+        function Harness() {
+          const [inputUsername, setInputUsernameState] = React.useState('gorp79');
+          const [loginState, setLoginState] = React.useState({
+            isLoggedIn: false,
+            nearAccountId: null,
+            nearPublicKey: null,
+            authMethod: null,
+            thresholdEcdsaEthereumAddress: null,
+            thresholdEcdsaPublicKeyB64u: null,
+          });
+
+          const setInputUsername = React.useCallback((username: string) => {
+            (window as any).__pamUnlockInputWrites.push(username);
+            setInputUsernameState(username);
+          }, []);
+
+          const seams = React.useMemo(
+            () => ({
+              auth: {
+                unlock: async (nearAccountId: string, options?: any) => {
+                  await options?.onEvent?.({
+                    flow: 'unlock',
+                    phase: 'unlock.completed',
+                    status: 'succeeded',
+                    message: 'Wallet unlocked',
+                    nearAccountId,
+                  });
+                  return { success: true };
+                },
+                lock: async () => undefined,
+                getWalletSession: async (nearAccountId?: string) =>
+                  nearAccountId ? readySessionFor(nearAccountId) : emptySession,
+                hasPasskeyCredential: async () => true,
+                getRecentUnlocks: async () => ({
+                  accountIds: ['gorp80.w3a-relayer.testnet'],
+                  lastUsedAccount: { nearAccountId: 'gorp80.w3a-relayer.testnet' },
+                }),
+              },
+              registration: {
+                registerPasskey: async () => ({ success: true }),
+                registerWallet: async () => ({ success: true }),
+                registerWithEmailOtp: async () => ({ success: true }),
+                addWalletSigner: async () => ({ success: true }),
+              },
+              recovery: {
+                syncAccount: async () => ({ success: true }),
+                getRecoveryEmails: async () => [],
+                setRecoveryEmails: async () => ({ success: true }),
+                startEmailRecovery: async () => ({ success: true }),
+                finalizeEmailRecovery: async () => ({ success: true }),
+                cancelEmailRecovery: async () => undefined,
+                getEmailOtpRecoveryCodeStatus: async () => ({ activeRecoveryCodeCount: 0 }),
+                rotateEmailOtpRecoveryCodes: async () => undefined,
+              },
+              near: {
+                executeAction: async () => ({ success: true }),
+                signNEP413Message: async () => ({ success: true }),
+                signDelegateAction: async () => ({ success: true }),
+              },
+              devices: {
+                startDevice2LinkingFlow: async () => ({ success: true }),
+                stopDevice2LinkingFlow: async () => undefined,
+                viewAccessKeyList: async () => ({ keys: [] }),
+              },
+              preferences: {
+                setCurrentWallet: () => undefined,
+                setConfirmBehavior: () => undefined,
+                setConfirmationConfig: () => undefined,
+                getConfirmationConfig: () => ({}),
+              },
+              setTheme: () => undefined,
+            }),
+            [],
+          );
+
+          const refreshLoginState = useLoginStateRefresher({
+            seams,
+            walletIframeConnected: false,
+            setLoginState,
+            setInputUsername,
+          });
+
+          const contextValue = useSeamsContextValue({
+            seams,
+            loginState,
+            setLoginState,
+            walletIframeConnected: false,
+            refreshLoginState,
+            accountInputState: {
+              inputUsername,
+              lastLoggedInUsername: '',
+              lastLoggedInDomain: '',
+              targetAccountId: inputUsername ? `${inputUsername}.w3a-relayer.testnet` : '',
+              displayPostfix: inputUsername ? '.w3a-relayer.testnet' : '',
+              isUsingExistingAccount: true,
+              accountExists: true,
+              indexDBAccounts: ['gorp80.w3a-relayer.testnet'],
+              indexDBAccountOptions: [{ nearAccountId: 'gorp80.w3a-relayer.testnet' }],
+            },
+            setInputUsername,
+            refreshAccountData: async () => {
+              (window as any).__pamUnlockRefreshAccountCalls += 1;
+            },
+          });
+
+          React.useEffect(() => {
+            (window as any).__pamUnlockSnapshot = {
+              inputUsername,
+              nearAccountId: loginState.nearAccountId,
+              isLoggedIn: loginState.isLoggedIn,
+            };
+          }, [inputUsername, loginState]);
+
+          return React.createElement(
+            'button',
+            {
+              type: 'button',
+              onClick: () => contextValue.unlock('gorp80.w3a-relayer.testnet'),
+            },
+            'Unlock gorp80',
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-unlock-input-refresh-mount');
+    await mount.getByRole('button', { name: 'Unlock gorp80' }).click();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__pamUnlockSnapshot))
+      .toMatchObject({
+        inputUsername: 'gorp80',
+        nearAccountId: 'gorp80.w3a-relayer.testnet',
+        isLoggedIn: true,
+      });
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__pamUnlockRefreshAccountCalls))
+      .toBeGreaterThan(0);
   });
 
   test('Google SSO errors render inline without unhandled promise rejection', async ({ page }) => {

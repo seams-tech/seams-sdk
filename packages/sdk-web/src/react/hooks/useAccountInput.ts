@@ -60,7 +60,7 @@ export interface UseAccountInputReturn extends AccountInputState {
   refreshAccountData: () => Promise<void>;
 }
 
-function extractUsernameFromAccountId(accountId: string | null | undefined): string {
+export function extractUsernameFromAccountId(accountId: string | null | undefined): string {
   const normalized = String(accountId || '').trim();
   if (!normalized) return '';
   return normalized.split('.')[0] || '';
