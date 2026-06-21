@@ -74,6 +74,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
+import type { WarmSessionEd25519UnsealAuthorizationPutPayload } from '@/core/types/secure-confirm-worker';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
   EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -104,6 +105,10 @@ import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assem
 
 export interface RpIdSurface {
   getRpId(): string;
+}
+
+export interface SignerWorkerContextSurface {
+  getSignerWorkerContext(): WorkerOperationContext;
 }
 
 export interface NonceCoordinatorSurface {
@@ -195,7 +200,7 @@ export type LoginWarmSigningSurface = RuntimeStartupSurface &
   EcdsaSessionBootstrapSurface &
   Ed25519SessionConnectionSurface &
   WorkerOperationContext &
-  Pick<SigningSessionSurface, 'hydrateSigningSession'> &
+  Pick<SigningSessionSurface, 'hydrateSigningSession' | 'putWarmSessionEd25519UnsealAuthorization'> &
   NonceCoordinatorSurface &
   RpIdSurface;
 
@@ -244,6 +249,9 @@ export interface EcdsaRegistrationSurface {
 
 export interface SigningSessionSurface {
   hydrateSigningSession(input: HydrateWarmSigningSessionInput): Promise<void>;
+  putWarmSessionEd25519UnsealAuthorization(
+    input: WarmSessionEd25519UnsealAuthorizationPutPayload,
+  ): Promise<void>;
   restorePersistedSessionsForWallet(
     args: RestorePersistedSessionsForWalletInput,
   ): Promise<RestorePersistedSessionsForWalletResult>;
@@ -473,6 +481,7 @@ export type RegistrationSigningSurface = RpIdSurface &
     EmailOtpRegistrationEnrollmentSurface,
     'prepareEmailOtpRegistrationEnrollmentMaterialInternal'
   > &
+  SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &
   Pick<UserProfileStoreSurface, 'getUserBySignerSlot'> &
   Pick<

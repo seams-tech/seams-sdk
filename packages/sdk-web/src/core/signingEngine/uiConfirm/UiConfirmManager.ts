@@ -8,6 +8,9 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
   SigningSessionSealAuthMethod,
+  WarmSessionEd25519UnsealAuthorizationClaimPayload,
+  WarmSessionEd25519UnsealAuthorizationClaimResult,
+  WarmSessionEd25519UnsealAuthorizationPutPayload,
   WarmSessionSealTransportInput,
   WarmSessionStatusBatchResult,
   WarmSessionRehydratePayload,
@@ -65,6 +68,7 @@ import type {
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultWithTxContext,
 } from '../stepUpConfirmation/confirmOperation';
+import type { ThresholdEd25519WorkerMaterialCredentialAuthorization } from '@/core/types/signer-worker';
 import { requestRegistrationCredentialConfirmationOnMainThread } from './handlers/flows/requestRegistrationCredentialConfirmation';
 import type {
   RequestRegistrationCredentialConfirmationParams,
@@ -403,6 +407,61 @@ function parseWarmSessionClaimResult(data: unknown): WarmSessionClaimResult | nu
     ok: true,
     prfFirstB64u: data.prfFirstB64u,
     remainingUses: data.remainingUses,
+    expiresAtMs: data.expiresAtMs,
+  };
+}
+
+function parseWorkerMaterialUnsealAuthorization(
+  value: unknown,
+): ThresholdEd25519WorkerMaterialCredentialAuthorization | null {
+  if (!isObjectRecord(value)) return null;
+  if (value.purpose !== 'unseal') return null;
+  if (typeof value.materialBindingDigest !== 'string' || !value.materialBindingDigest.trim()) {
+    return null;
+  }
+  return value as ThresholdEd25519WorkerMaterialCredentialAuthorization;
+}
+
+type WarmSessionEd25519UnsealAuthorizationClaimFailureCode = Extract<
+  WarmSessionEd25519UnsealAuthorizationClaimResult,
+  { ok: false }
+>['code'];
+
+function parseWarmSessionEd25519UnsealAuthorizationClaimFailureCode(
+  code: unknown,
+): WarmSessionEd25519UnsealAuthorizationClaimFailureCode {
+  switch (code) {
+    case 'not_found':
+    case 'expired':
+    case 'exhausted':
+    case 'scope_mismatch':
+    case 'invalid_authorization':
+    case 'worker_error':
+      return code;
+    default:
+      return 'worker_error';
+  }
+}
+
+function parseWarmSessionEd25519UnsealAuthorizationClaimResult(
+  data: unknown,
+): WarmSessionEd25519UnsealAuthorizationClaimResult | null {
+  if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
+  if (!data.ok) {
+    return {
+      ok: false,
+      code: parseWarmSessionEd25519UnsealAuthorizationClaimFailureCode(data.code),
+      message:
+        typeof data.message === 'string'
+          ? data.message
+          : 'Ed25519 unseal authorization claim failed',
+    } as WarmSessionEd25519UnsealAuthorizationClaimResult;
+  }
+  const authorization = parseWorkerMaterialUnsealAuthorization(data.authorization);
+  if (!authorization || typeof data.expiresAtMs !== 'number') return null;
+  return {
+    ok: true,
+    authorization,
     expiresAtMs: data.expiresAtMs,
   };
 }
@@ -1982,6 +2041,46 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       args.curve,
       chainTarget,
     );
+    return parsed;
+  };
+
+  putWarmSessionEd25519UnsealAuthorization = async (
+    args: WarmSessionEd25519UnsealAuthorizationPutPayload,
+  ): Promise<WarmSessionStatusResult> => {
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT',
+      id: this.generateMessageId(),
+      payload: args,
+    });
+    const parsed = parseWarmSessionStatusResult(res?.data);
+    if (res?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'Ed25519 unseal authorization put failed'),
+      };
+    }
+    return parsed;
+  };
+
+  claimWarmSessionEd25519UnsealAuthorization = async (
+    args: WarmSessionEd25519UnsealAuthorizationClaimPayload,
+  ): Promise<WarmSessionEd25519UnsealAuthorizationClaimResult> => {
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM',
+      id: this.generateMessageId(),
+      payload: args,
+    });
+    const parsed = parseWarmSessionEd25519UnsealAuthorizationClaimResult(res?.data);
+    if (res?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'Ed25519 unseal authorization claim failed'),
+      };
+    }
     return parsed;
   };
 

@@ -564,10 +564,13 @@ async function resolveNearTransactionPlannerReadiness(args: {
     args.record.emailOtpAuthContext?.retention === 'single_use';
   const persistedState = classifyRouterAbEd25519PersistedSigningRecord(args.record);
   const hasRuntimeValidatedWorkerMaterial = persistedState.kind === 'runtime_validated';
-  const hasRepairablePasskeyWorkerMaterial =
+  const hasRestoreAvailablePasskeyWorkerMaterial =
     args.record.source !== 'email_otp' &&
-    (persistedState.kind === 'material_hint_unvalidated' ||
-      persistedState.kind === 'restore_available') &&
+    persistedState.kind === 'restore_available' &&
+    hasRouterAbEd25519SigningAuth(args.record);
+  const hasUnvalidatedPasskeyWorkerMaterial =
+    args.record.source !== 'email_otp' &&
+    persistedState.kind === 'material_hint_unvalidated' &&
     hasRouterAbEd25519SigningAuth(args.record);
   if (!sessionId || isSingleUseEmailOtpRecord || !hasRouterAbEd25519SigningAuth(args.record)) {
     return buildReadiness('missing_session', 0);
@@ -598,24 +601,37 @@ async function resolveNearTransactionPlannerReadiness(args: {
     });
     return buildReadiness('ready', remainingUses, expiresAtMs);
   }
-  if (hasRepairablePasskeyWorkerMaterial) {
-    if (remainingUses < requiredSignatureUses) {
-      return buildReadiness('exhausted', remainingUses, expiresAtMs);
+  if (hasRestoreAvailablePasskeyWorkerMaterial || hasUnvalidatedPasskeyWorkerMaterial) {
+    if (liveStatus?.sessionId === sessionId) {
+      const liveStatusKind = String(liveStatus.status || '').trim();
+      if (liveStatusKind === 'exhausted') return buildReadiness('exhausted', 0);
+      if (liveStatusKind === 'expired') return buildReadiness('expired', 0);
+      if (liveStatusKind && liveStatusKind !== 'active') {
+        return buildReadiness('missing_session', 0);
+      }
     }
-    console.info(
-      '[SigningEngine][near] rejecting pending-material Ed25519 warm-session readiness',
-      {
-        nearAccountId: args.nearAccount.accountId,
-        thresholdSessionId: sessionId,
-        signingGrantId: args.record.signingGrantId,
-        source: args.record.source,
-        reason: persistedState.reason,
-        remainingUses,
-        expiresAtMs,
-        requiredSignatureUses,
-      },
-    );
-    return buildReadiness('missing_session', 0);
+    const admittedRemainingUses =
+      liveStatus?.sessionId === sessionId && liveStatus.status === 'active'
+        ? Math.max(0, Math.floor(Number(liveStatus.remainingUses) || 0))
+        : remainingUses;
+    const admittedExpiresAtMs =
+      liveStatus?.sessionId === sessionId && liveStatus.status === 'active'
+        ? Math.floor(Number(liveStatus.expiresAtMs) || expiresAtMs)
+        : expiresAtMs;
+    if (admittedRemainingUses < requiredSignatureUses) {
+      return buildReadiness('exhausted', admittedRemainingUses, admittedExpiresAtMs);
+    }
+    console.info('[SigningEngine][near] using pending-material Ed25519 warm-session readiness', {
+      nearAccountId: args.nearAccount.accountId,
+      thresholdSessionId: sessionId,
+      signingGrantId: args.record.signingGrantId,
+      source: args.record.source,
+      reason: persistedState.reason,
+      remainingUses: admittedRemainingUses,
+      expiresAtMs: admittedExpiresAtMs,
+      requiredSignatureUses,
+    });
+    return buildReadiness('ready', admittedRemainingUses, admittedExpiresAtMs);
   }
   if (liveStatus?.sessionId === sessionId) {
     if (liveStatus.status === 'expired') return buildReadiness('expired', 0);

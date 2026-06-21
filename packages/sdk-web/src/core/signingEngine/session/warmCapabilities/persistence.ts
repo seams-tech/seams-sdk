@@ -4,6 +4,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
+  listStoredThresholdEd25519SessionLaneRecordsForAccount,
   type ThresholdEd25519SessionRecord,
   upsertStoredThresholdEd25519SessionRecord,
 } from '../persistence/records';
@@ -75,7 +76,7 @@ type PersistWarmSessionEd25519RuntimeWorkerMaterial = {
 
 type PersistWarmSessionEd25519SealedWorkerMaterial = {
   clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
-  ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
+  ed25519WorkerMaterialHandle?: Ed25519WorkerMaterialHandle;
   ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
   sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
   sealedWorkerMaterialB64u: string;
@@ -90,9 +91,8 @@ type PersistWarmSessionEd25519WorkerMaterialFacts =
   | PersistWarmSessionEd25519RuntimeWorkerMaterial
   | PersistWarmSessionEd25519SealedWorkerMaterial;
 
-type PersistWarmSessionEd25519CapabilityCommon =
-  PersistWarmSessionEd25519CapabilityIdentity &
-    PersistWarmSessionEd25519WorkerMaterialFacts;
+type PersistWarmSessionEd25519CapabilityCommon = PersistWarmSessionEd25519CapabilityIdentity &
+  PersistWarmSessionEd25519WorkerMaterialFacts;
 
 export type PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs =
   PersistWarmSessionEd25519CapabilityCommon & {
@@ -144,7 +144,7 @@ type RetainedEd25519WorkerMaterialFacts =
   | {
       kind: 'sealed_worker_material';
       clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
-      ed25519WorkerMaterialHandle: Ed25519WorkerMaterialHandle;
+      ed25519WorkerMaterialHandle?: Ed25519WorkerMaterialHandle;
       ed25519WorkerMaterialBindingDigest: Ed25519WorkerMaterialBindingDigest;
       sealedWorkerMaterialRef: Ed25519SealedWorkerMaterialRef;
       sealedWorkerMaterialB64u: string;
@@ -168,9 +168,9 @@ function sameEd25519Participants(left: readonly number[], right: readonly number
   const normalizedRight = normalizeThresholdEd25519ParticipantIds(right);
   return Boolean(
     normalizedLeft &&
-      normalizedRight &&
-      normalizedLeft.length === normalizedRight.length &&
-      normalizedLeft.every((value, index) => value === normalizedRight[index]),
+    normalizedRight &&
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((value, index) => value === normalizedRight[index]),
   );
 }
 
@@ -183,10 +183,46 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
   signingRootVersion: string;
   signerSlot: number;
 }): RetainedEd25519WorkerMaterialFacts {
-  const existing =
-    getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.sessionId) ||
-    getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
-  if (!existing) return { kind: 'none' };
+  const candidates = listRetainedEd25519WorkerMaterialCandidateRecords(args);
+  for (const existing of candidates) {
+    const retained = readRetainedEd25519WorkerMaterialFacts({ ...args, existing });
+    if (retained.kind !== 'none') return retained;
+  }
+  return { kind: 'none' };
+}
+
+function listRetainedEd25519WorkerMaterialCandidateRecords(args: {
+  sessionId: string;
+  nearAccountId: AccountId;
+}): ThresholdEd25519SessionRecord[] {
+  const candidates = new Map<string, ThresholdEd25519SessionRecord>();
+  const push = (record: ThresholdEd25519SessionRecord | null): void => {
+    if (!record) return;
+    const sessionId = nonEmptyString(record.thresholdSessionId);
+    if (!sessionId) return;
+    candidates.set(sessionId, record);
+  };
+  push(getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.sessionId));
+  push(getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId));
+  for (const record of listStoredThresholdEd25519SessionLaneRecordsForAccount(args.nearAccountId)) {
+    push(record);
+  }
+  return [...candidates.values()].sort(
+    (left, right) =>
+      positiveInteger(right.updatedAtMs) - positiveInteger(left.updatedAtMs),
+  );
+}
+
+function readRetainedEd25519WorkerMaterialFacts(args: {
+  existing: ThresholdEd25519SessionRecord;
+  nearAccountId: AccountId;
+  relayerKeyId: string;
+  participantIds: readonly number[];
+  signingRootId: string;
+  signingRootVersion: string;
+  signerSlot: number;
+}): RetainedEd25519WorkerMaterialFacts {
+  const existing = args.existing;
   if (String(existing.nearAccountId) !== String(args.nearAccountId)) return { kind: 'none' };
   if (nonEmptyString(existing.relayerKeyId) !== args.relayerKeyId) return { kind: 'none' };
   if (!sameEd25519Participants(existing.participantIds, args.participantIds)) {
@@ -209,14 +245,28 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
   const materialKeyId = nonEmptyString(existing.materialKeyId);
   const materialCreatedAtMs = positiveInteger(existing.materialCreatedAtMs);
   const keyVersion = nonEmptyString(existing.keyVersion);
-  if (clientVerifyingShareB64u && ed25519WorkerMaterialBindingDigest && materialCreatedAtMs && keyVersion) {
-    if (sealedWorkerMaterialRef && sealedWorkerMaterialB64u && materialFormatVersion && materialKeyId) {
+  if (
+    clientVerifyingShareB64u &&
+    ed25519WorkerMaterialBindingDigest &&
+    materialCreatedAtMs &&
+    keyVersion
+  ) {
+    if (
+      sealedWorkerMaterialRef &&
+      sealedWorkerMaterialB64u &&
+      materialFormatVersion &&
+      materialKeyId
+    ) {
       return {
         kind: 'sealed_worker_material',
         clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
-        ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
-          ed25519WorkerMaterialHandle,
-        ),
+        ...(ed25519WorkerMaterialHandle
+          ? {
+              ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
+                ed25519WorkerMaterialHandle,
+              ),
+            }
+          : {}),
         ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
           ed25519WorkerMaterialBindingDigest,
         ),
@@ -232,9 +282,7 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
       return {
         kind: 'runtime_worker_material',
         clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64u),
-        ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(
-          ed25519WorkerMaterialHandle,
-        ),
+        ed25519WorkerMaterialHandle: parseEd25519WorkerMaterialHandle(ed25519WorkerMaterialHandle),
         ed25519WorkerMaterialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
           ed25519WorkerMaterialBindingDigest,
         ),
@@ -287,7 +335,8 @@ export function persistWarmSessionEd25519Capability(
   }
   const keyVersion = String(args.keyVersion || '').trim();
   const jwt = String(args.jwt || '').trim();
-  const runtimePolicyScope = args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
+  const runtimePolicyScope =
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
   const signingRootBinding = runtimePolicyScope
     ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
     : null;
@@ -340,7 +389,9 @@ export function persistWarmSessionEd25519Capability(
     ...(ed25519WorkerMaterialBindingDigest
       ? { ed25519WorkerMaterialBindingDigest }
       : retainedMaterial.kind !== 'none'
-        ? { ed25519WorkerMaterialBindingDigest: retainedMaterial.ed25519WorkerMaterialBindingDigest }
+        ? {
+            ed25519WorkerMaterialBindingDigest: retainedMaterial.ed25519WorkerMaterialBindingDigest,
+          }
         : {}),
     ...(sealedWorkerMaterialRef
       ? { sealedWorkerMaterialRef }
@@ -380,9 +431,7 @@ export function persistWarmSessionEd25519Capability(
     ...(jwt ? { walletSessionJwt: jwt } : {}),
     expiresAtMs,
     remainingUses,
-    ...(args.kind === 'jwt_email_otp'
-      ? { emailOtpAuthContext: args.emailOtpAuthContext }
-      : {}),
+    ...(args.kind === 'jwt_email_otp' ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
     source,
   });

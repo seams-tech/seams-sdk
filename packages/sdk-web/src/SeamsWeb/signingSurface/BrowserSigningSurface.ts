@@ -27,9 +27,11 @@ import type {
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { RegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import type { WarmSessionEd25519UnsealAuthorizationPutPayload } from '@/core/types/secure-confirm-worker';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -381,6 +383,10 @@ export class BrowserSigningSurface {
     return this.touchIdPrompt.getRpId();
   }
 
+  getSignerWorkerContext(): WorkerOperationContext {
+    return this.enginePorts.walletSessionActivationDeps.getSignerWorkerContext();
+  }
+
   getNonceCoordinator(): NonceCoordinator {
     return this.nonceCoordinator;
   }
@@ -664,6 +670,17 @@ export class BrowserSigningSurface {
     input: Parameters<typeof warmCapabilitiesPublic.hydrateSigningSession>[1],
   ): ReturnType<typeof warmCapabilitiesPublic.hydrateSigningSession> {
     return warmCapabilitiesPublic.hydrateSigningSession(this.warmCapabilitiesPublicDeps, input);
+  }
+
+  async putWarmSessionEd25519UnsealAuthorization(
+    input: WarmSessionEd25519UnsealAuthorizationPutPayload,
+  ): Promise<void> {
+    const result = await this.touchConfirm.putWarmSessionEd25519UnsealAuthorization(input);
+    if (!result.ok) {
+      throw new Error(
+        `Ed25519 warm-session unseal authorization install failed (${result.code}): ${result.message}`,
+      );
+    }
   }
 
   requestRegistrationCredentialConfirmation(params: {

@@ -39,6 +39,11 @@ import {
 } from './shared/routerAbEd25519WalletSessionState';
 import { requireOrRestoreRouterAbEd25519WalletSessionState } from './shared/ed25519SigningMaterialReadiness';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp } from './shared/ed25519MaterialRestoreAuthorization';
+import {
+  preConfirmMaterialGateFromSigningAuthPlan,
+  restoreWarmSessionEd25519MaterialBeforeUserConfirmation,
+  selectPreparedEd25519ReadyMaterialState,
+} from './shared/ed25519PreConfirmMaterialReadiness';
 import { buildNearDelegateSigningPayloads } from '../../chains/near/payloads';
 import {
   buildNearSigningSessionAuthPlan,
@@ -232,13 +237,26 @@ export async function runNearDelegateActionSigning({
       signingOperation,
       commandKind: args.commandKind,
       execute: args.execute,
-    });
+  });
   const preparedStepUp = await requireNearStepUpAuth({
     signingAuthPlan: signingSessionAuthPlan.signingAuthPlan,
     signingLane: signingSessionAuthPlan.lane,
     requiredSignatureUses,
   });
   const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
+  const preConfirmMaterialGate = preConfirmMaterialGateFromSigningAuthPlan(
+    confirmationAuthPayload.signingAuthPlan,
+  );
+  const preConfirmedReadyMaterialState =
+    await restoreWarmSessionEd25519MaterialBeforeUserConfirmation({
+      ctx,
+      signingSessionCoordinator: warmSessionReader,
+      thresholdSessionId: signingSessionAuthPlan.sessionId,
+      operation: 'delegate_action',
+      nearAccountId,
+      thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+      gate: preConfirmMaterialGate,
+    });
   if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
@@ -309,21 +327,28 @@ export async function runNearDelegateActionSigning({
       const delegatePayload = delegateSigningPayloads.workerDelegate;
 
       const canonicalThresholdSessionId = signingSessionAuthPlan.sessionId;
-      const readyMaterialState = await requireOrRestoreRouterAbEd25519WalletSessionState({
-        ctx,
-        signingSessionCoordinator: warmSessionReader,
+      const preparedReadyMaterialState = selectPreparedEd25519ReadyMaterialState({
         thresholdSessionId: canonicalThresholdSessionId,
-        operation: 'delegate_action',
-        nearAccountId,
-        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-        restoreAuthorization:
-          await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp({
-            ctx,
-            signingSessionCoordinator: warmSessionReader,
-            thresholdSessionId: canonicalThresholdSessionId,
-            stepUpAuthorization,
-          }),
+        refreshed: null,
+        preConfirmed: preConfirmedReadyMaterialState,
       });
+      const readyMaterialState =
+        preparedReadyMaterialState ||
+        (await requireOrRestoreRouterAbEd25519WalletSessionState({
+          ctx,
+          signingSessionCoordinator: warmSessionReader,
+          thresholdSessionId: canonicalThresholdSessionId,
+          operation: 'delegate_action',
+          nearAccountId,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          restoreAuthorization:
+            await resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp({
+              ctx,
+              signingSessionCoordinator: warmSessionReader,
+              thresholdSessionId: canonicalThresholdSessionId,
+              stepUpAuthorization,
+            }),
+        }));
       await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
         touchConfirm,
         nearAccountId,

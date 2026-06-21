@@ -26,6 +26,9 @@ import type {
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
+  WarmSessionEd25519UnsealAuthorizationClaimPayload,
+  WarmSessionEd25519UnsealAuthorizationClaimResult,
+  WarmSessionEd25519UnsealAuthorizationPutPayload,
   WarmSessionStatusBatchResult,
   WarmSessionRehydratePayload,
   WarmSessionRehydrateResult,
@@ -109,6 +112,15 @@ export interface WarmSessionMaterialConsumer {
   }): Promise<WarmSessionStatusResult>;
 }
 
+export interface WarmSessionEd25519UnsealAuthorizationStore {
+  putWarmSessionEd25519UnsealAuthorization(
+    args: WarmSessionEd25519UnsealAuthorizationPutPayload,
+  ): Promise<WarmSessionStatusResult>;
+  claimWarmSessionEd25519UnsealAuthorization(
+    args: WarmSessionEd25519UnsealAuthorizationClaimPayload,
+  ): Promise<WarmSessionEd25519UnsealAuthorizationClaimResult>;
+}
+
 export type VolatileWarmSessionScope =
   | {
       kind: 'session';
@@ -185,6 +197,7 @@ export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
   WarmSessionMaterialConsumer &
+  WarmSessionEd25519UnsealAuthorizationStore &
   VolatileWarmSessionMaterialClearer &
   VolatileWarmSessionMaterialClearAll;
 

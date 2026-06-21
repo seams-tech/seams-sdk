@@ -354,9 +354,7 @@ function ed25519MaterialSecretErrorsUseRecoveryCodeDomain(): void {
   );
   expect(recoveryCodeIssuerSource).toContain('alphabetizeStringify');
   expect(recoveryCodeIssuerSource).toContain('sha256BytesUtf8');
-  expect(recoveryCodeIssuerSource).toContain(
-    'EMAIL_OTP_ED25519_RECOVERY_CODE_BINDING_DIGEST_KIND',
-  );
+  expect(recoveryCodeIssuerSource).toContain('EMAIL_OTP_ED25519_RECOVERY_CODE_BINDING_DIGEST_KIND');
   expect(recoveryCodeIssuerSource).not.toContain('recovery-code:');
   expect(recoveryCodeIssuerSource).toContain('recoveryCodeSecret32B64u');
   expect(recoveryCodeIssuerSource).not.toContain("kind: 'email_otp'");
@@ -471,12 +469,7 @@ function nearSigningFlowsUseSharedEd25519MaterialRestoreReadiness(): void {
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
     'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
   ] as const;
-  const deletedDirectPrfClaimMarker = [
-    'claim',
-    'PrfFirst',
-    'ByThreshold',
-    'SessionId',
-  ].join('');
+  const deletedDirectPrfClaimMarker = ['claim', 'PrfFirst', 'ByThreshold', 'SessionId'].join('');
   const offenders: string[] = [];
 
   for (const relativePath of signingFlowFiles) {
@@ -751,6 +744,201 @@ function secretBearingMaterialAuthorizationRequestsStayInCredentialBoundaries():
   expect(offenders, offenders.join('\n')).toEqual([]);
 }
 
+function passkeyWarmSessionPrfCacheUsesWorkerOwnedHandles(): void {
+  const source = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+  );
+  const warmEntryType = sourceRangeBetween(
+    source,
+    'type WarmSessionMaterialEntry = {',
+    'type PasskeyPrfFirstHandleEntry = {',
+  );
+  const putHandler = sourceRangeBetween(
+    source,
+    "if (eventType === 'WARM_SESSION_MATERIAL_PUT')",
+    "if (eventType === 'WARM_SESSION_STATUS_READ')",
+  );
+  const sealPersistPath = sourceRangeBetween(
+    source,
+    'async function runSigningSessionSealAndPersist',
+    'async function runSigningSessionRehydrate',
+  );
+
+  expect(warmEntryType).toContain('prfFirstHandle: string');
+  expect(warmEntryType).not.toContain('prfFirstB64u');
+  expect(source).toContain('const warmSessionPrfHandleCache = new Map');
+  expect(source).toContain('const passkeyPrfFirstHandleStore = new Map');
+  expect(source).not.toContain('const prfFirstSessionCache = new Map');
+  expect(putHandler).toContain('storeWarmSessionPrfHandle');
+  expect(putHandler).not.toContain('warmSessionPrfHandleCache.set(sessionId, { prfFirstB64u');
+  expect(sealPersistPath).toContain('payloadKey: entry.prfFirstHandle');
+  expect(sealPersistPath).not.toContain('payloadB64u');
+  expect(sealPersistPath).not.toContain('entry.prfFirstB64u');
+}
+
+function warmSessionEd25519UnsealAuthorizationReplacesRestorePrfClaim(): void {
+  const secureConfirmTypes = readRepoSource('packages/sdk-web/src/core/types/secure-confirm-worker.ts');
+  const passkeyWorker = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+  );
+  const restoreAuthorization = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts',
+  );
+  const preConfirmMaterialReadiness = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PreConfirmMaterialReadiness.ts',
+  );
+  const loginSource = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
+  const uiConfirmManager = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts',
+  );
+  const materialAuthPlan = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialAuthPlan.ts',
+  );
+  const signTransactionsSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+  );
+  const signNep413Source = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+  );
+  const signDelegateSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+  );
+  const signNearSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+  );
+  const stepUpAuthorizationSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/stepUpAuthorization.ts',
+  );
+  const ed25519Recovery = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts',
+  );
+
+  expect(secureConfirmTypes).toContain('WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT');
+  expect(secureConfirmTypes).toContain('WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM');
+  expect(passkeyWorker).toContain('warmSessionEd25519UnsealAuthorizationCache');
+  expect(passkeyWorker).toContain('claimWarmSessionEd25519UnsealAuthorization');
+  expect(passkeyWorker).toContain('ED25519_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000');
+  expect(passkeyWorker).toContain('ED25519_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000');
+  expect(restoreAuthorization).toContain('claimWarmSessionEd25519UnsealAuthorization');
+  expect(restoreAuthorization).toContain('MATERIAL_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000');
+  expect(restoreAuthorization).toContain('MATERIAL_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000');
+  expect(loginSource).toContain(
+    'THRESHOLD_LOGIN_ED25519_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000',
+  );
+  expect(loginSource).toContain(
+    'THRESHOLD_LOGIN_ED25519_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000',
+  );
+  expect(uiConfirmManager).toContain(
+    'function parseWarmSessionEd25519UnsealAuthorizationClaimFailureCode(',
+  );
+  const uiConfirmEd25519ClaimParser = sourceRangeBetween(
+    uiConfirmManager,
+    'function parseWarmSessionEd25519UnsealAuthorizationClaimResult(',
+    'function parseUserConfirmProgressEvent(',
+  );
+  expect(uiConfirmEd25519ClaimParser).not.toContain(
+    "code: typeof data.code === 'string' ? data.code : 'worker_error'",
+  );
+
+  const workerClaimPath = sourceRangeBetween(
+    passkeyWorker,
+    'function claimWarmSessionEd25519UnsealAuthorization(',
+    'function storeWarmSessionPrfHandle(',
+  );
+  const workerClaimScopePath = sourceRangeBetween(
+    passkeyWorker,
+    'function ed25519UnsealAuthorizationScopeMatches(',
+    'function claimWarmSessionEd25519UnsealAuthorization(',
+  );
+  const workerPutPath = sourceRangeBetween(
+    passkeyWorker,
+    'function storeWarmSessionEd25519UnsealAuthorization(',
+    'function ed25519UnsealAuthorizationScopeMatches(',
+  );
+  const loginInstallPath = sourceRangeBetween(
+    loginSource,
+    'async function installThresholdLoginEd25519WarmSessionUnsealAuthorization(',
+    'function logThresholdLoginEd25519UnsealInstallSkipped(',
+  );
+  expect(workerPutPath).toContain('resolveEd25519UnsealAuthorizationStoreExpiresAtMs');
+  expect(workerPutPath).toContain('payload.remainingUses !== 1');
+  expect(workerPutPath).toContain('authorizationExpiresAtMs < expiresAtMs');
+  expect(workerClaimPath).toContain('entry.expiresAtMs <= nowMs()');
+  expect(workerClaimPath).toContain('entry.remainingUses !== 1');
+  expect(workerClaimPath).toContain('payload.consume !== true');
+  expect(workerClaimPath).toContain('ed25519UnsealAuthorizationScopeMatches');
+  expect(workerClaimScopePath).toContain('args.entry.authMethod === args.payload.authMethod');
+  expect(workerClaimPath).toContain('deleteWarmSessionEd25519UnsealAuthorization(sessionId);');
+  expect(workerClaimPath).toContain('authorization: entry.authorization');
+  expect(loginInstallPath).toContain('thresholdLoginEd25519UnsealAuthorizationExpiresAtMs');
+  expect(loginInstallPath).not.toContain('Date.now() + 5 * 60 * 1000');
+  expect(loginInstallPath).not.toContain('restoreThresholdLoginEd25519AccountCurrentRecord');
+
+  const loginUnsealRecordResolver = sourceRangeBetween(
+    loginSource,
+    'async function resolveThresholdLoginEd25519WarmSessionUnsealInstallRecord(',
+    'function logThresholdLoginEd25519UnsealInstallSkipped(',
+  );
+  expect(loginUnsealRecordResolver).toContain(
+    "String(exactHydrated.record.thresholdSessionId || '').trim() === args.thresholdSessionId",
+  );
+  expect(loginUnsealRecordResolver).not.toContain(
+    'hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial',
+  );
+
+  const warmSessionBranch = sourceRangeBetween(
+    restoreAuthorization,
+    "case 'warm_session':",
+    'default: {',
+  );
+  expect(warmSessionBranch).toContain('resolveWarmSessionRestoreAuthorization');
+  expect(warmSessionBranch).not.toContain('preparePasskeyRestoreAuthorization');
+
+  const materialAuthPlanSwitch = sourceRangeBetween(
+    materialAuthPlan,
+    "case 'restore_available':",
+    'default: {',
+  );
+  expect(materialAuthPlanSwitch).toContain("case 'restore_available':");
+  expect(materialAuthPlanSwitch).toContain("case 'auth_ready_material_pending':");
+  expect(materialAuthPlanSwitch).toContain('return args.signingAuthPlan');
+  expect(materialAuthPlanSwitch).not.toContain('SigningAuthPlanKind.PasskeyReauth');
+
+  expect(stepUpAuthorizationSource).toContain(
+    'function buildNearEd25519WarmSessionStepUpAuthorization(',
+  );
+  expect(preConfirmMaterialReadiness).toContain('preConfirmMaterialGateFromSigningAuthPlan');
+  expect(preConfirmMaterialReadiness).toContain(
+    'restoreWarmSessionEd25519MaterialBeforeUserConfirmation',
+  );
+  expect(preConfirmMaterialReadiness).toContain('selectPreparedEd25519ReadyMaterialState');
+  for (const source of [signTransactionsSource, signNep413Source, signDelegateSource]) {
+    const preConfirmRestoreIndex = source.indexOf(
+      'await restoreWarmSessionEd25519MaterialBeforeUserConfirmation({',
+    );
+    const confirmationIndex = source.indexOf(
+      'const confirmation = await runSigningConfirmationCommand({',
+    );
+    expect(preConfirmRestoreIndex).toBeGreaterThan(0);
+    expect(confirmationIndex).toBeGreaterThan(0);
+    expect(preConfirmRestoreIndex).toBeLessThan(confirmationIndex);
+    expect(source).toContain('selectPreparedEd25519ReadyMaterialState({');
+  }
+
+  const materialRetryBranch = sourceRangeBetween(
+    signNearSource,
+    'const materialUnsealAuthorizationRequired =',
+    'return await signTransactionWithActions(deps, args, {',
+  );
+  expect(materialRetryBranch).toContain('isEd25519MaterialUnsealAuthorizationRequiredError');
+  expect(materialRetryBranch).not.toContain('materialRestoreRequired');
+  expect(materialRetryBranch).not.toContain('isEd25519MaterialRestoreRequiredError');
+
+  expect(ed25519Recovery).not.toContain('claimPasskeyEd25519PrfFirst');
+  expect(ed25519Recovery).not.toContain('restorePasskeyEd25519SessionBeforeClaim');
+  expect(ed25519Recovery).not.toContain('claimWarmSessionPrfFirst');
+}
+
 function activeEd25519RestorePersistenceDoesNotStoreCredentialSecrets(): void {
   const forbiddenMarkers = [
     'sealedPrf',
@@ -779,7 +967,10 @@ function activeEd25519RestorePersistenceDoesNotStoreCredentialSecrets(): void {
 }
 
 function preparedIssuerCallSitesStayBehindServerAuthorizedContexts(): void {
-  const roots = ['packages/sdk-web/src/core/signingEngine', 'packages/sdk-web/src/SeamsWeb'] as const;
+  const roots = [
+    'packages/sdk-web/src/core/signingEngine',
+    'packages/sdk-web/src/SeamsWeb',
+  ] as const;
   const issuerMarkers = [
     'prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential',
     'prepareThresholdEd25519PasskeyMaterialUnsealAuthorizationFromCredential',
@@ -804,7 +995,7 @@ function preparedIssuerCallSitesStayBehindServerAuthorizedContexts(): void {
   );
   const passkeySealCallSite = sourceRangeBetween(
     passkeySealBootstrapSource,
-    'const materialBinding = {',
+    'const materialBinding = {\n    thresholdSessionId,',
     'const completed =',
   );
   const emailOtpSealSource = readRepoSource(
@@ -928,11 +1119,7 @@ function ed25519DurableRefreshTransportDoesNotUseHssMaterialKeyVersion(): void {
     'async function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial',
     'export async function reconstructThresholdEd25519SigningMaterialFromWarmSession',
   );
-  const transportSource = sourceRangeBetween(
-    helperSource,
-    'transport: {',
-    '},',
-  );
+  const transportSource = sourceRangeBetween(helperSource, 'transport: {', '},');
 
   expect(helperSource).toContain('hydrateSigningSession');
   expect(transportSource).toContain("curve: 'ed25519'");
@@ -1130,6 +1317,16 @@ test(
 test(
   'Refactor 74 secret-bearing material authorization requests stay in credential boundaries',
   secretBearingMaterialAuthorizationRequestsStayInCredentialBoundaries,
+);
+
+test(
+  'Refactor 74 passkey warm-session PRF cache stores worker-owned handles',
+  passkeyWarmSessionPrfCacheUsesWorkerOwnedHandles,
+);
+
+test(
+  'Refactor 74 warm-session Ed25519 unseal authorization replaces restore PRF claim',
+  warmSessionEd25519UnsealAuthorizationReplacesRestorePrfClaim,
 );
 
 test(

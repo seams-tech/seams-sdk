@@ -9,7 +9,10 @@ import type {
   NearEd25519WarmSessionStepUpAuthorization,
   NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
-import type { EmailOtpConfirmPrompt } from '@/core/signingEngine/stepUpConfirmation/types';
+import type {
+  EmailOtpConfirmPrompt,
+  SigningAuthPlan,
+} from '@/core/signingEngine/stepUpConfirmation/types';
 
 export type {
   NearEd25519EmailOtpStepUpAuthorization,
@@ -19,20 +22,27 @@ export type {
   NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
 
+export function buildNearEd25519WarmSessionStepUpAuthorization(
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>,
+): NearEd25519WarmSessionStepUpAuthorization {
+  return {
+    kind: 'warm_session',
+    signingAuthPlan,
+    sessionId: signingAuthPlan.sessionId,
+    expiresAtMs: signingAuthPlan.expiresAtMs,
+    remainingUses: signingAuthPlan.remainingUses,
+  };
+}
+
 export function buildNearEd25519StepUpAuthorization(args: {
   prepared: NearPreparedStepUpAuth;
   confirmation: ConfirmTransactionSigningOperationResult;
   emailOtpMaterialRestoreAuthorization?: NearEd25519EmailOtpMaterialRestoreAuthorization;
 }): NearEd25519StepUpAuthorization {
   if (args.prepared.kind === 'warm_session') {
-    const signingAuthPlan = args.prepared.confirmationAuthPayload.signingAuthPlan;
-    return {
-      kind: 'warm_session',
-      signingAuthPlan,
-      sessionId: signingAuthPlan.sessionId,
-      expiresAtMs: signingAuthPlan.expiresAtMs,
-      remainingUses: signingAuthPlan.remainingUses,
-    };
+    return buildNearEd25519WarmSessionStepUpAuthorization(
+      args.prepared.confirmationAuthPayload.signingAuthPlan,
+    );
   }
 
   if (args.prepared.kind === 'email_otp') {

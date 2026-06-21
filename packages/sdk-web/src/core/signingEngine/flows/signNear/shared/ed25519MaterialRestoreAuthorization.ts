@@ -4,6 +4,7 @@ import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEng
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { WarmSessionEd25519UnsealAuthorizationStore } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   NearEd25519EmailOtpMaterialRestoreAuthorization,
   NearEd25519EmailOtpRecoveryCodeUnsealAuthorization,
@@ -16,11 +17,15 @@ import type {
 } from '@/core/types/signer-worker';
 import type { RouterAbEd25519WorkerMaterialRestoreAuthorization } from './ed25519SigningMaterialReadiness';
 
-const MATERIAL_UNSEAL_AUTHORIZATION_TTL_MS = 5 * 60 * 1000;
+const MATERIAL_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS = 60 * 1000;
+const MATERIAL_UNSEAL_AUTHORIZATION_MAX_TTL_MS = 5 * 60 * 1000;
 
 function unavailableRestoreAuthorization(): RouterAbEd25519WorkerMaterialRestoreAuthorization {
   return { kind: 'unseal_authorization_unavailable' };
 }
+
+type Ed25519WarmSessionUnsealAuthorizationReader = WarmSessionCapabilityReader &
+  Partial<Pick<WarmSessionEd25519UnsealAuthorizationStore, 'claimWarmSessionEd25519UnsealAuthorization'>>;
 
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
@@ -32,11 +37,13 @@ function positiveInteger(value: unknown): number {
 }
 
 function unsealAuthorizationExpiresAtMs(record: ThresholdEd25519SessionRecord): number {
+  const nowMs = Date.now();
   const sessionExpiresAtMs = positiveInteger(record.expiresAtMs);
-  const shortLivedExpiresAtMs = Date.now() + MATERIAL_UNSEAL_AUTHORIZATION_TTL_MS;
+  const defaultExpiresAtMs = nowMs + MATERIAL_UNSEAL_AUTHORIZATION_DEFAULT_TTL_MS;
+  const maxExpiresAtMs = nowMs + MATERIAL_UNSEAL_AUTHORIZATION_MAX_TTL_MS;
   return sessionExpiresAtMs
-    ? Math.min(sessionExpiresAtMs, shortLivedExpiresAtMs)
-    : shortLivedExpiresAtMs;
+    ? Math.min(sessionExpiresAtMs, defaultExpiresAtMs, maxExpiresAtMs)
+    : Math.min(defaultExpiresAtMs, maxExpiresAtMs);
 }
 
 function requireEmailOtpRecoveryCodeUnsealAuthorization(
@@ -63,6 +70,41 @@ function restoreAvailableRecordForThresholdSession(args: {
     args.signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(thresholdSessionId);
   const state = classifyRouterAbEd25519PersistedSigningRecord(record);
   return state.kind === 'restore_available' ? state.record : null;
+}
+
+function authMethodForEd25519Record(
+  record: ThresholdEd25519SessionRecord,
+): 'passkey' | 'email_otp' {
+  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+}
+
+async function resolveWarmSessionRestoreAuthorization(args: {
+  signingSessionCoordinator: Ed25519WarmSessionUnsealAuthorizationReader;
+  record: ThresholdEd25519SessionRecord;
+}): Promise<RouterAbEd25519WorkerMaterialRestoreAuthorization> {
+  if (typeof args.signingSessionCoordinator.claimWarmSessionEd25519UnsealAuthorization !== 'function') {
+    return unavailableRestoreAuthorization();
+  }
+  const sessionId = nonEmptyString(args.record.thresholdSessionId);
+  const signingGrantId = nonEmptyString(args.record.signingGrantId);
+  const walletId = nonEmptyString(args.record.nearAccountId);
+  const materialBindingDigest = nonEmptyString(args.record.ed25519WorkerMaterialBindingDigest);
+  if (!sessionId || !signingGrantId || !walletId || !materialBindingDigest) {
+    return unavailableRestoreAuthorization();
+  }
+  const claimed = await args.signingSessionCoordinator.claimWarmSessionEd25519UnsealAuthorization({
+    sessionId,
+    signingGrantId,
+    walletId,
+    authMethod: authMethodForEd25519Record(args.record),
+    materialBindingDigest,
+    consume: true,
+  });
+  if (!claimed.ok) return unavailableRestoreAuthorization();
+  return {
+    kind: 'unseal_authorization_available',
+    unsealAuthorization: claimed.authorization,
+  };
 }
 
 async function preparePasskeyRestoreAuthorization(args: {
@@ -135,7 +177,7 @@ function preparePasskeyWorkerMaterialUnsealAuthorizationWithContext(
 
 export async function resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp(args: {
   ctx: WorkerOperationContext;
-  signingSessionCoordinator: WarmSessionCapabilityReader;
+  signingSessionCoordinator: Ed25519WarmSessionUnsealAuthorizationReader;
   thresholdSessionId: string;
   stepUpAuthorization: NearEd25519StepUpAuthorization;
 }): Promise<RouterAbEd25519WorkerMaterialRestoreAuthorization> {
@@ -157,7 +199,10 @@ export async function resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationFo
         args.stepUpAuthorization.ed25519MaterialRestoreAuthorization,
       );
     case 'warm_session':
-      return unavailableRestoreAuthorization();
+      return await resolveWarmSessionRestoreAuthorization({
+        signingSessionCoordinator: args.signingSessionCoordinator,
+        record,
+      });
     default: {
       const exhaustive: never = args.stepUpAuthorization;
       return exhaustive;

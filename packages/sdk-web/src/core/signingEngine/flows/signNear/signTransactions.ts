@@ -107,6 +107,11 @@ import { requiredNearTransactionSignatureUses } from './signatureUses';
 import { tryFinalizeRouterAbEd25519NearTransactionNormalSigning } from './shared/ed25519PresignFinalize';
 import { type RouterAbEd25519NormalSigningReadyState } from './shared/routerAbWalletSessionCredential';
 import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRestore';
+import {
+  preConfirmMaterialGateFromSigningAuthPlan,
+  restoreWarmSessionEd25519MaterialBeforeUserConfirmation,
+  selectPreparedEd25519ReadyMaterialState,
+} from './shared/ed25519PreConfirmMaterialReadiness';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -388,6 +393,19 @@ export async function runNearTransactionWithActionsSigning({
     ...(passkeyEd25519Reconnect ? { passkeyEd25519Reconnect } : {}),
   });
   const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
+  const preConfirmMaterialGate = preConfirmMaterialGateFromSigningAuthPlan(
+    confirmationAuthPayload.signingAuthPlan,
+  );
+  const preConfirmedReadyMaterialState =
+    await restoreWarmSessionEd25519MaterialBeforeUserConfirmation({
+      ctx,
+      signingSessionCoordinator,
+      thresholdSessionId: signingSessionAuthPlan.sessionId,
+      operation: 'near_transaction',
+      nearAccountId,
+      thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+      gate: preConfirmMaterialGate,
+    });
   if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
@@ -556,12 +574,14 @@ export async function runNearTransactionWithActionsSigning({
           data: { sessionId: refreshedSessionId },
         });
       }
+      const preparedReadyMaterialState = selectPreparedEd25519ReadyMaterialState({
+        thresholdSessionId: canonicalThresholdSessionId,
+        refreshed: refreshedReadyMaterialState,
+        preConfirmed: preConfirmedReadyMaterialState,
+      });
       const readyMaterialState =
-        refreshedReadyMaterialState &&
-        refreshedReadyMaterialState.walletSessionState.thresholdSessionId ===
-          canonicalThresholdSessionId
-          ? refreshedReadyMaterialState
-          : await requireOrRestoreRouterAbEd25519WalletSessionState({
+        preparedReadyMaterialState ||
+        (await requireOrRestoreRouterAbEd25519WalletSessionState({
               ctx,
               signingSessionCoordinator,
               thresholdSessionId: canonicalThresholdSessionId,
@@ -575,7 +595,7 @@ export async function runNearTransactionWithActionsSigning({
                   thresholdSessionId: canonicalThresholdSessionId,
                   stepUpAuthorization,
                 }),
-            });
+            }));
       const { walletSessionState, routerAbReadyState, signingMaterial } = readyMaterialState;
       await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
         touchConfirm,

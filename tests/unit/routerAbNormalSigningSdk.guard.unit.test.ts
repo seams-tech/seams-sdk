@@ -641,6 +641,9 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     const authPlanSource = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialAuthPlan.ts',
     );
+    const preConfirmReadinessSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PreConfirmMaterialReadiness.ts',
+    );
     const offenders: string[] = [];
     if (
       !availabilitySource.includes('classifyRouterAbEd25519PersistedSigningRecord(args.record)')
@@ -656,8 +659,13 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
         offenders.push(`persisted Ed25519 lane availability reads raw material field ${marker}`);
       }
     }
-    if (!authPlanSource.includes('hasRouterAbEd25519LoadedMaterialHint(state)')) {
-      offenders.push('Ed25519 material auth plan does not use the classifier material accessor');
+    if (!authPlanSource.includes('classifyRouterAbEd25519PersistedSigningRecord(record)')) {
+      offenders.push('Ed25519 material auth plan does not classify records');
+    }
+    if (
+      !preConfirmReadinessSource.includes('requireOrRestoreRouterAbEd25519WalletSessionState')
+    ) {
+      offenders.push('Ed25519 pre-confirm readiness does not use shared material restore');
     }
     if (authPlanSource.includes('ed25519WorkerMaterialHandle')) {
       offenders.push('Ed25519 material auth plan reads raw worker material handle fields');

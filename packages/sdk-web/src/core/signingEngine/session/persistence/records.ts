@@ -2762,6 +2762,34 @@ export function listStoredThresholdEd25519SessionRecordsForAccount(
   }
 }
 
+export function listStoredThresholdEd25519SessionLaneRecordsForAccount(
+  nearAccountIdRaw: AccountId | string,
+): ThresholdEd25519SessionRecord[] {
+  try {
+    const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
+    if (!accountKey) return [];
+    const recordsBySessionId = new Map<string, ThresholdEd25519SessionRecord>();
+    const add = (record: ThresholdEd25519SessionRecord | null): void => {
+      if (!record) return;
+      if (String(record.nearAccountId || '').trim() !== accountKey) return;
+      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+      if (!thresholdSessionId) return;
+      recordsBySessionId.set(thresholdSessionId, record);
+    };
+    add(inMemoryEd25519RecordsByAccount.get(accountKey) || null);
+    for (const record of inMemoryEd25519RecordsByLane.values()) {
+      add(record);
+    }
+    return [...recordsBySessionId.values()].sort(
+      (left, right) =>
+        Math.floor(Number(right.updatedAtMs) || 0) -
+        Math.floor(Number(left.updatedAtMs) || 0),
+    );
+  } catch {
+    return [];
+  }
+}
+
 export function listStoredThresholdEcdsaSessionRecordsForWallet(
   walletIdRaw: AccountId | string,
   filter: {
