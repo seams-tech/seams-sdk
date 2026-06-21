@@ -446,6 +446,26 @@ test.describe('selected signing capability strict persisted records', () => {
     });
   });
 
+  test('rejects selected Ed25519 records with fractional budget fields', () => {
+    const remainingUsesRecord = makeEd25519Record({
+      remainingUses: 2.5,
+    });
+    expect(classifyRouterAbEd25519PersistedSigningRecord(remainingUsesRecord)).toMatchObject({
+      kind: 'invalid',
+      reason: 'invalid_budget',
+      record: remainingUsesRecord,
+    });
+
+    const expiresAtRecord = makeEd25519Record({
+      expiresAtMs: 2_000_000_000_000.5,
+    });
+    expect(classifyRouterAbEd25519PersistedSigningRecord(expiresAtRecord)).toMatchObject({
+      kind: 'invalid',
+      reason: 'invalid_budget',
+      record: expiresAtRecord,
+    });
+  });
+
   test('rejects selected ECDSA records missing Router A/B normal-signing state', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();
@@ -562,6 +582,26 @@ test.describe('selected signing capability strict persisted records', () => {
       kind: 'invalid',
       reason: 'signing_root_mismatch',
       record,
+    });
+  });
+
+  test('rejects selected ECDSA records with fractional budget fields', () => {
+    const remainingUsesRecord = makeEcdsaRecord({
+      remainingUses: 2.5,
+    });
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(remainingUsesRecord)).toMatchObject({
+      kind: 'invalid',
+      reason: 'invalid_budget',
+      record: remainingUsesRecord,
+    });
+
+    const expiresAtRecord = makeEcdsaRecord({
+      expiresAtMs: 2_000_000_000_000.5,
+    });
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(expiresAtRecord)).toMatchObject({
+      kind: 'invalid',
+      reason: 'invalid_budget',
+      record: expiresAtRecord,
     });
   });
 

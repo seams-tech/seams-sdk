@@ -3,7 +3,6 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEd25519SessionRecord } from '../persistence/records';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
-import { availableUsesForBudgetAdmission } from '../budget/budget';
 import { resolveRouterAbEd25519SigningRootFromRecord } from '../routerAbSigningWalletSession';
 
 export type WarmEd25519SigningSessionMaterialState =
@@ -80,8 +79,7 @@ function nonEmptyString(value: unknown): string {
 }
 
 function positiveInteger(value: unknown): number {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
 function authMethodForEd25519Record(record: ThresholdEd25519SessionRecord): WalletAuthMethod {
@@ -124,7 +122,9 @@ function activePrfClaimFromStatus(args: {
   if (status.status !== 'active') return 'prf_claim_not_active';
   const remainingUses = positiveInteger(status.remainingUses);
   const expiresAtMs = positiveInteger(status.expiresAtMs);
-  const availableUses = availableUsesForBudgetAdmission(status);
+  const statusAvailableUses =
+    status.availableUses === undefined ? remainingUses : positiveInteger(status.availableUses);
+  const availableUses = Math.min(remainingUses, statusAvailableUses);
   if (!remainingUses || !availableUses) return 'prf_claim_exhausted';
   if (!expiresAtMs) return 'prf_claim_not_active';
   return {
@@ -204,8 +204,10 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
 
   const remainingUses = positiveInteger(record.remainingUses);
   const expiresAtMs = positiveInteger(record.expiresAtMs);
-  if (!remainingUses) return { ok: false, reason: 'invalid_budget', details: { thresholdSessionId } };
-  if (!expiresAtMs || expiresAtMs <= (args.nowMs ?? Date.now())) {
+  if (!remainingUses || !expiresAtMs) {
+    return { ok: false, reason: 'invalid_budget', details: { thresholdSessionId } };
+  }
+  if (expiresAtMs <= (args.nowMs ?? Date.now())) {
     return { ok: false, reason: 'expired', details: { thresholdSessionId, expiresAtMs } };
   }
 

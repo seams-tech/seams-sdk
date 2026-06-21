@@ -2719,6 +2719,7 @@ async function registerWalletInternal(
               providerSubject: emailOtpProviderSubject,
             }),
           },
+          workerCtx: context.signingEngine.getSignerWorkerContext(),
           rpId,
           relayerUrl,
           prfFirstB64u: hssClientMaterial.prfFirstB64u,

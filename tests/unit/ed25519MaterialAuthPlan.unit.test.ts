@@ -133,11 +133,13 @@ test.describe('Ed25519 material auth planning', () => {
     expect(resolvePlan(record)).toBe(WARM_AUTH_PLAN);
   });
 
-  test('requires passkey reauth for sealed material without a loaded handle hint', () => {
+  test('keeps warm-session auth for sealed material without a loaded handle hint', () => {
     const record = writeRecord({ sealedWorkerMaterial: true });
-    expect(resolvePlan(record)).toEqual({
-      kind: SigningAuthPlanKind.PasskeyReauth,
-      method: 'passkey',
-    });
+    expect(resolvePlan(record)).toBe(WARM_AUTH_PLAN);
+  });
+
+  test('keeps warm-session auth for pending material before signer restore proves reauth is needed', () => {
+    const record = writeRecord({});
+    expect(resolvePlan(record)).toBe(WARM_AUTH_PLAN);
   });
 });

@@ -467,6 +467,7 @@ export type GoogleEmailOtpWalletAuthFailureCode =
   | 'email_otp_rate_limited'
   | 'registration_failed'
   | 'registration_restore_required'
+  | 'email_otp_device_recovery_required'
   | 'unlock_failed'
   | 'recovery_code_backup_incomplete'
   | 'local_signing_session_not_ready'

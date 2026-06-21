@@ -22,7 +22,10 @@ import {
   type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs,
 } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
+import type {
+  ThresholdEcdsaEmailOtpAuthContext,
+  ThresholdEd25519SessionStoreSource,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/crypto/webauthn';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -45,6 +48,7 @@ import {
   generateThresholdSessionId,
   generateSigningGrantId,
   normalizeThresholdRuntimePolicyScope,
+  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -76,6 +80,10 @@ import { resolveThresholdWarmSessionDefaults } from '@/SeamsWeb/operations/sessi
 import type { ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier } from '@/core/types/signer-worker';
 import { prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential } from '@/core/signingEngine/session/passkey/prfClaim';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import {
+  prepareRecoveryCodeSealAuthorizationForEmailOtp,
+  recoveryCodeBindingDigestForEmailOtpMaterial,
+} from '@/core/signingEngine/session/emailOtp/clientSecretSource';
 import {
   requireOrRestoreRouterAbEd25519WalletSessionState,
   type RouterAbEd25519WorkerMaterialRestoreAuthorization,
@@ -166,7 +174,6 @@ export type CompletedThresholdEd25519Registration = {
 };
 
 type PersistRegisteredThresholdEd25519SessionBaseArgs = {
-  signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'>;
   nearAccountId: AccountId;
   signerSlot: number;
   rpId: string;
@@ -177,12 +184,20 @@ type PersistRegisteredThresholdEd25519SessionBaseArgs = {
 
 export type PersistRegisteredThresholdEd25519SessionArgs =
   | (PersistRegisteredThresholdEd25519SessionBaseArgs & {
+      signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'>;
       auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'passkey' }>;
       prfFirstB64u: string | null;
       registrationHssClientMaterial?: never;
+      workerCtx?: never;
     })
   | (PersistRegisteredThresholdEd25519SessionBaseArgs & {
+      signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'> &
+        Pick<
+          ThresholdEd25519HssCeremonySurface,
+          'runThresholdEd25519HssCeremonyWithMaterialHandle'
+        >;
       auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'email_otp' }>;
+      workerCtx: WorkerOperationContext;
       prfFirstB64u: string;
       registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
     });
@@ -436,6 +451,81 @@ function mostRecentEd25519SealedSessionRecord(
   );
 }
 
+function ed25519ThresholdSessionIdFromSealedRecord(
+  record: CurrentEd25519RestoreSealedSessionRecord,
+): string {
+  return normalizedRestoreString(record.thresholdSessionIds?.ed25519);
+}
+
+function sealedEd25519RestoreRecordMatchesExactSession(args: {
+  record: CurrentEd25519RestoreSealedSessionRecord;
+  nearAccountId: string;
+  thresholdSessionId: string;
+}): boolean {
+  return (
+    normalizedRestoreString(args.record.walletId) === normalizedRestoreString(args.nearAccountId) &&
+    ed25519ThresholdSessionIdFromSealedRecord(args.record) ===
+      normalizedRestoreString(args.thresholdSessionId)
+  );
+}
+
+function sealedEd25519RestoreRuntimePolicyScope(
+  record: CurrentEd25519RestoreSealedSessionRecord,
+): ThresholdRuntimePolicyScope | undefined {
+  return (
+    normalizeThresholdRuntimePolicyScope(record.ed25519Restore.runtimePolicyScope) ||
+    parseThresholdRuntimePolicyScopeFromJwt(record.ed25519Restore.walletSessionJwt)
+  );
+}
+
+function upsertEd25519SessionRecordFromExactSealedWorkerMaterial(args: {
+  sealed: CurrentEd25519RestoreSealedSessionRecord;
+  source: ThresholdEd25519SessionStoreSource;
+}): ThresholdEd25519SessionRecord | null {
+  const sealed = args.sealed;
+  const restore = sealed.ed25519Restore;
+  const thresholdSessionId = ed25519ThresholdSessionIdFromSealedRecord(sealed);
+  const runtimePolicyScope = sealedEd25519RestoreRuntimePolicyScope(sealed);
+  const signingRoot = sealedEd25519RestoreSigningRoot(sealed);
+  const walletSessionJwt = normalizedRestoreString(restore.walletSessionJwt);
+  const sessionKind = restore.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+  if (!thresholdSessionId) return null;
+  return upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: sealed.walletId,
+    rpId: restore.rpId,
+    relayerUrl: sealed.relayerUrl,
+    relayerKeyId: restore.relayerKeyId,
+    participantIds: restore.participantIds,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    clientVerifyingShareB64u: normalizedRestoreString(restore.clientVerifyingShareB64u),
+    ed25519WorkerMaterialBindingDigest: normalizedRestoreString(
+      restore.ed25519WorkerMaterialBindingDigest,
+    ),
+    // Persisted worker handles are hints; exact durable hydration forces restore
+    // from sealed material so stale handles cannot look signable.
+    sealedWorkerMaterialRef: normalizedRestoreString(restore.sealedWorkerMaterialRef),
+    sealedWorkerMaterialB64u: normalizedRestoreString(restore.sealedWorkerMaterialB64u),
+    materialFormatVersion: normalizedRestoreString(restore.materialFormatVersion),
+    materialKeyId: normalizedRestoreString(restore.materialKeyId),
+    materialCreatedAtMs: normalizedRestorePositiveInteger(restore.materialCreatedAtMs),
+    signerSlot: normalizedRestorePositiveInteger(restore.signerSlot),
+    keyVersion: normalizedRestoreString(restore.keyVersion),
+    ...(restore.routerAbNormalSigning
+      ? { routerAbNormalSigning: restore.routerAbNormalSigning }
+      : {}),
+    thresholdSessionKind: sessionKind,
+    thresholdSessionId,
+    signingGrantId: sealed.signingGrantId,
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
+    expiresAtMs: normalizedRestorePositiveInteger(sealed.expiresAtMs),
+    remainingUses: normalizedRestorePositiveInteger(sealed.remainingUses),
+    updatedAtMs: Date.now(),
+    source: args.source,
+  });
+}
+
 function uniqueSealedSessionRecordsByStoreKey(
   records: readonly CurrentSealedSessionRecord[],
 ): CurrentSealedSessionRecord[] {
@@ -472,6 +562,145 @@ async function listPasskeyEd25519RestoreSealedSessionsForWallet(
   return uniqueSealedSessionRecordsByStoreKey([...ed25519Records, ...ecdsaRecords]).filter(
     hasEd25519RestoreMetadata,
   );
+}
+
+export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(args: {
+  nearAccountId: string;
+  thresholdSessionId: string;
+  source: ThresholdEd25519SessionStoreSource;
+}): Promise<
+  | {
+      kind: 'hydrated';
+      record: ThresholdEd25519SessionRecord;
+      pendingReason?: never;
+      pendingDetails?: never;
+    }
+  | {
+      kind: 'not_found';
+      record?: never;
+      pendingReason: RestoreThresholdEd25519WorkerMaterialPendingReason;
+      pendingDetails: string;
+    }
+> {
+  const nearAccountId = normalizedRestoreString(args.nearAccountId);
+  const thresholdSessionId = normalizedRestoreString(args.thresholdSessionId);
+  if (!nearAccountId || !thresholdSessionId) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'pending_material',
+      pendingDetails: 'missing exact Ed25519 sealed-session lookup identity',
+    };
+  }
+  const records = (await listPasskeyEd25519RestoreSealedSessionsForWallet(nearAccountId)).filter(
+    (record) =>
+      sealedEd25519RestoreRecordMatchesExactSession({
+        record,
+        nearAccountId,
+        thresholdSessionId,
+      }),
+  );
+  const materialRecords = records.filter(sealedEd25519RestoreHasWorkerMaterial);
+  if (!records.length) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'no_durable_restore_records',
+      pendingDetails:
+        'no passkey sealed session record contains Ed25519 restore metadata for the exact threshold session',
+    };
+  }
+  if (!materialRecords.length) {
+    const missingFields = [
+      ...new Set(records.flatMap(missingEd25519RestoreWorkerMaterialFields)),
+    ].sort();
+    return {
+      kind: 'not_found',
+      pendingReason: 'durable_restore_missing_worker_material',
+      pendingDetails: `candidate records=${records.length}; missing fields=${missingFields.join(',') || 'unknown'}`,
+    };
+  }
+  const selected = mostRecentEd25519SealedSessionRecord(materialRecords);
+  const hydrated = selected
+    ? upsertEd25519SessionRecordFromExactSealedWorkerMaterial({
+        sealed: selected,
+        source: args.source,
+      })
+    : null;
+  if (!selected || !hydrated) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'pending_material',
+      pendingDetails: 'failed to hydrate exact Ed25519 session record from durable metadata',
+    };
+  }
+  return {
+    kind: 'hydrated',
+    record: hydrated,
+  };
+}
+
+export async function hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial(args: {
+  nearAccountId: string;
+  source: ThresholdEd25519SessionStoreSource;
+}): Promise<
+  | {
+      kind: 'hydrated';
+      record: ThresholdEd25519SessionRecord;
+      pendingReason?: never;
+      pendingDetails?: never;
+    }
+  | {
+      kind: 'not_found';
+      record?: never;
+      pendingReason: RestoreThresholdEd25519WorkerMaterialPendingReason;
+      pendingDetails: string;
+    }
+> {
+  const nearAccountId = normalizedRestoreString(args.nearAccountId);
+  if (!nearAccountId) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'pending_material',
+      pendingDetails: 'missing latest Ed25519 sealed-session lookup account',
+    };
+  }
+  const records = await listPasskeyEd25519RestoreSealedSessionsForWallet(nearAccountId);
+  const materialRecords = records.filter(sealedEd25519RestoreHasWorkerMaterial);
+  if (!records.length) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'no_durable_restore_records',
+      pendingDetails:
+        'no passkey sealed session record contains Ed25519 restore metadata for this account',
+    };
+  }
+  if (!materialRecords.length) {
+    const missingFields = [
+      ...new Set(records.flatMap(missingEd25519RestoreWorkerMaterialFields)),
+    ].sort();
+    return {
+      kind: 'not_found',
+      pendingReason: 'durable_restore_missing_worker_material',
+      pendingDetails: `candidate records=${records.length}; missing fields=${missingFields.join(',') || 'unknown'}`,
+    };
+  }
+  const selected = mostRecentEd25519SealedSessionRecord(materialRecords);
+  const hydrated = selected
+    ? upsertEd25519SessionRecordFromExactSealedWorkerMaterial({
+        sealed: selected,
+        source: args.source,
+      })
+    : null;
+  if (!selected || !hydrated) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'pending_material',
+      pendingDetails: 'failed to hydrate latest Ed25519 session record from durable metadata',
+    };
+  }
+  return {
+    kind: 'hydrated',
+    record: hydrated,
+  };
 }
 
 type Ed25519DurableRestoreLookupResult =
@@ -584,7 +813,7 @@ function logEd25519DurableRestoreLookupFailure(args: {
   });
 }
 
-async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
+export async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
   record: ThresholdEd25519SessionRecord,
 ): Promise<
   | {
@@ -828,11 +1057,12 @@ export async function restoreThresholdEd25519WorkerMaterialFromCredential(args: 
         record: signingSessionState.record,
       });
     case 'material_hint_unvalidated': {
-      const thresholdKeyMaterial =
-        await requireThresholdEd25519KeyMaterialForWorkerMaterialRestore({
+      const thresholdKeyMaterial = await requireThresholdEd25519KeyMaterialForWorkerMaterialRestore(
+        {
           nearAccountId,
           signerSlot,
-        });
+        },
+      );
       try {
         await requireOrRestoreRouterAbEd25519WalletSessionState({
           ctx: args.context.signingEngine,
@@ -1441,6 +1671,26 @@ export async function persistRegisteredThresholdEd25519Session(
       warmSessionArgs.routerAbNormalSigning = routerAbNormalSigning;
     }
     persistWarmSessionEd25519Capability(warmSessionArgs);
+    await persistEmailOtpRegisteredThresholdEd25519WorkerMaterial({
+      signingEngine: args.signingEngine,
+      workerCtx: args.workerCtx,
+      nearAccountId: args.nearAccountId,
+      signerSlot: args.signerSlot,
+      rpId: args.rpId,
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+      sessionId,
+      signingGrantId,
+      jwt,
+      expiresAtMs,
+      participantIds,
+      runtimePolicyScope,
+      routerAbNormalSigning,
+      keyVersion: args.completedRegistration.registered.keyVersion,
+      recoveryCodeSecret32B64u: prfFirstB64u,
+      emailOtpAuthContext: args.auth.emailOtpAuthContext,
+      registrationHssClientMaterial,
+    });
   } else {
     const warmSessionArgs: PersistWarmSessionEd25519JwtPasskeyCapabilityArgs = {
       kind: 'jwt_passkey',
@@ -1512,6 +1762,129 @@ async function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial(arg
       walletSessionJwt: args.walletSessionJwt,
     },
   });
+}
+
+async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
+  signingEngine: Pick<
+    ThresholdEd25519HssCeremonySurface,
+    'runThresholdEd25519HssCeremonyWithMaterialHandle'
+  >;
+  workerCtx: WorkerOperationContext;
+  nearAccountId: AccountId;
+  signerSlot: number;
+  rpId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+  sessionId: string;
+  signingGrantId: string;
+  jwt: string;
+  expiresAtMs: number;
+  participantIds: number[];
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  keyVersion: string;
+  recoveryCodeSecret32B64u: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
+}): Promise<void> {
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  const signingRootId = String(signingRootScope.signingRootId || '').trim();
+  const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
+  const signingWorkerId = String(args.routerAbNormalSigning.signingWorkerId || '').trim();
+  if (!signingRootId || !signingRootVersion || !signingWorkerId) {
+    throw new Error('Email OTP Ed25519 registration worker material missing Router A/B binding');
+  }
+  const materialCreatedAtMs = Date.now();
+  const materialBinding = {
+    thresholdSessionId: args.sessionId,
+    signingGrantId: args.signingGrantId,
+    signingRootId,
+    signingRootVersion,
+    expiresAtMs: args.expiresAtMs,
+    nearAccountId: String(args.nearAccountId),
+    signerSlot: args.signerSlot,
+    relayerKeyId: args.relayerKeyId,
+    keyVersion: args.keyVersion,
+    participantIds: args.participantIds,
+    createdAtMs: materialCreatedAtMs,
+    signingWorkerId,
+  };
+  const bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier = {
+    nearAccountId: materialBinding.nearAccountId,
+    signerSlot: materialBinding.signerSlot,
+    signingRootId: materialBinding.signingRootId,
+    signingRootVersion: materialBinding.signingRootVersion,
+    relayerKeyId: materialBinding.relayerKeyId,
+    keyVersion: materialBinding.keyVersion,
+    participantIds: materialBinding.participantIds,
+    createdAtMs: materialBinding.createdAtMs,
+  };
+  const authSubjectId = String(args.emailOtpAuthContext.authSubjectId || '').trim();
+  if (!authSubjectId) {
+    throw new Error('Email OTP Ed25519 registration worker material requires auth subject id');
+  }
+  const recoveryCodeBindingDigest = await recoveryCodeBindingDigestForEmailOtpMaterial({
+    authSubjectId,
+    rpId: args.rpId,
+    nearAccountId: String(args.nearAccountId),
+  });
+  const preparedSealAuthorization = await prepareRecoveryCodeSealAuthorizationForEmailOtp({
+    bindingInput,
+    authSubjectId,
+    recoveryCodeBindingDigest,
+    recoveryCodeSecret32B64u: args.recoveryCodeSecret32B64u,
+    workerCtx: args.workerCtx,
+  });
+  const completed = await args.signingEngine.runThresholdEd25519HssCeremonyWithMaterialHandle({
+    relayerUrl: args.relayerUrl,
+    walletSessionJwt: args.jwt,
+    relayerKeyId: args.relayerKeyId,
+    operation: 'warm_session_reconstruction',
+    context: {
+      signingRootId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+      keyVersion: args.keyVersion,
+      participantIds: args.participantIds,
+      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+    },
+    clientInputs: args.registrationHssClientMaterial.clientInputs,
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: args.recoveryCodeSecret32B64u,
+    },
+    materialBinding,
+    preparedSealAuthorization,
+  });
+  if (!completed.ok) {
+    throw new Error(
+      completed.message || 'Email OTP Ed25519 registration worker material persistence failed',
+    );
+  }
+  const signingMaterial = completed.signingMaterial;
+  const clientVerifyingShareB64u = String(signingMaterial.clientVerifyingShareB64u || '').trim();
+  if (!clientVerifyingShareB64u) {
+    throw new Error('Email OTP Ed25519 registration worker material missing verifying share');
+  }
+  const persisted = persistStoredThresholdEd25519SessionMaterialHandle({
+    thresholdSessionId: args.sessionId,
+    clientVerifyingShareB64u,
+    ed25519WorkerMaterialHandle: signingMaterial.materialHandle,
+    ed25519WorkerMaterialBindingDigest: signingMaterial.materialBindingDigest,
+    sealedWorkerMaterialRef: signingMaterial.sealedWorkerMaterialRef,
+    sealedWorkerMaterialB64u: signingMaterial.sealedWorkerMaterialB64u,
+    materialFormatVersion: signingMaterial.materialFormatVersion,
+    materialKeyId: signingMaterial.materialKeyId,
+    materialCreatedAtMs,
+    signerSlot: signingMaterial.signerSlot,
+    keyVersion: signingMaterial.keyVersion,
+  });
+  if (!persisted) {
+    throw new Error('Email OTP Ed25519 registration worker material record was not persisted');
+  }
+  markRouterAbEd25519WorkerMaterialRuntimeValidated(
+    getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.sessionId),
+  );
 }
 
 export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(args: {

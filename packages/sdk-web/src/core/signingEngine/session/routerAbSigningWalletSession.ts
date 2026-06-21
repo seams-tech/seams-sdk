@@ -253,8 +253,7 @@ function nonEmptyString(value: unknown): string {
 }
 
 function positiveInteger(value: unknown): number {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
 function sha256CanonicalB64uSync(input: unknown): string {

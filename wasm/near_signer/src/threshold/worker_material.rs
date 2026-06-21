@@ -2300,6 +2300,14 @@ mod tests {
     use super::*;
     use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
     use curve25519_dalek::scalar::Scalar as CurveScalar;
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    use ed25519_hss::server::ServerEvalOperation;
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    use ed25519_hss::shared::CanonicalContext;
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    use serde::Serialize;
     use signer_core::commands::{
         ed25519_worker_material_binding_digest, ed25519_worker_material_key_id,
         seal_ed25519_worker_material_artifact, Ed25519DeleteSealedWorkerMaterialRequestKindV1,
@@ -2454,6 +2462,98 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    fn encode_state_blob_for_test<T: Serialize>(value: &T) -> String {
+        base64_url_encode(&bincode::serialize(value).unwrap())
+    }
+
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    fn encode_wire_message_for_test(value: &ed25519_hss::wire::WireMessage) -> String {
+        base64_url_encode(&value.bytes)
+    }
+
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    struct HssWorkerMaterialFixture {
+        evaluator_driver_state_b64u: String,
+        client_output_message_b64u: String,
+        expected_context_binding_b64u: String,
+        client_output_mask: [u8; 32],
+        client_verifying_share_b64u: String,
+    }
+
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    fn build_hss_worker_material_fixture() -> HssWorkerMaterialFixture {
+        let binding = sample_material_binding();
+        let context = CanonicalContext {
+            org_id: binding.signing_root_id.clone(),
+            account_id: binding.near_account_id.clone(),
+            key_purpose: "wallet-signing".to_string(),
+            key_version: binding.key_version.clone(),
+            participant_ids: vec![1, 2],
+            derivation_version: 1,
+        };
+        let prepared = prepare_prime_order_succinct_hss(&context).unwrap();
+        let evaluator_driver_state = prepared.evaluator_driver_state();
+        let evaluator_driver_state_b64u = encode_state_blob_for_test(&evaluator_driver_state);
+        let expected_context_binding_b64u =
+            base64_url_encode(&evaluator_driver_state.evaluator_session.context_binding);
+        let (_runtime, evaluator_session) = evaluator_driver_state.materialize().unwrap();
+        let garbler_session = prepared.garbler_session();
+        let client_offer_message = garbler_session.client_ot_offer_message().unwrap();
+        let y_client = [11u8; 32];
+        let tau_client = [12u8; 32];
+        let y_server = [13u8; 32];
+        let tau_server = [14u8; 32];
+        let (client_request_message, evaluator_ot_state) = evaluator_session
+            .prepare_client_ot_request_from_offer_message(
+                &client_offer_message,
+                y_client,
+                tau_client,
+            )
+            .unwrap();
+        let (server_input_delivery, _server_eval_state) = garbler_session
+            .prepare_role_separated_server_input_delivery_message(
+                &client_request_message,
+                y_server,
+                tau_server,
+                ServerEvalOperation::Registration,
+            )
+            .unwrap();
+        let client_output_mask = [21u8; 32];
+        let shared_runtime = prepared.shared_runtime();
+        let staged_evaluator_artifact = evaluator_session
+            .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
+                &shared_runtime,
+                &client_request_message,
+                &evaluator_ot_state,
+                &server_input_delivery,
+                client_output_mask,
+            )
+            .unwrap();
+        let report = shared_runtime
+            .finalize_report_from_staged_evaluator_artifact(
+                &garbler_session,
+                &staged_evaluator_artifact,
+            )
+            .unwrap();
+        let x_client_base = evaluator_session
+            .client_output_opener()
+            .open_masked(&report.output_delivery.client, client_output_mask)
+            .unwrap();
+        let client_verifying_share =
+            role_separated_ed25519_client_verifying_share_v1(x_client_base).unwrap();
+
+        HssWorkerMaterialFixture {
+            evaluator_driver_state_b64u,
+            client_output_message_b64u: encode_wire_message_for_test(
+                &report.output_delivery.client,
+            ),
+            expected_context_binding_b64u,
+            client_output_mask,
+            client_verifying_share_b64u: base64_url_encode(&client_verifying_share),
+        }
+    }
+
     #[test]
     fn store_validate_and_presign_roundtrip_keeps_material_in_registry() {
         let material_handle = "test-material".to_string();
@@ -2494,6 +2594,87 @@ mod tests {
             .starts_with("ed25519-client-presign:"));
         assert!(!presign.client_commitments.hiding.is_empty());
         assert!(!presign.client_commitments.binding.is_empty());
+    }
+
+    #[cfg(all(feature = "hss-client-exports", feature = "hss-server-exports"))]
+    #[test]
+    fn store_from_hss_output_opens_output_stores_material_and_sealed_artifact() {
+        let fixture = build_hss_worker_material_fixture();
+        let material_binding = sample_material_binding();
+        let binding_input = sample_binding_input_without_verifier(&material_binding);
+        let material_key_id = material_key_id_from_binding_input(&binding_input).unwrap();
+        let seal_secret = [31u8; 32];
+        let seal_expires_at_ms = now_ms() + 60_000;
+        install_material_authorization_secret(
+            "test-hss-store-seal-handle".to_string(),
+            StoredWorkerMaterialAuthorizationScope::MaterialKeyId(material_key_id),
+            Ed25519WorkerMaterialCredentialAuthorizationPurposeV1::Seal,
+            &seal_secret,
+            seal_expires_at_ms,
+            MATERIAL_AUTHORIZATION_MAX_USES_V1,
+        )
+        .unwrap();
+        install_hss_client_output_mask(
+            "test-hss-output-mask-handle".to_string(),
+            fixture.client_output_mask,
+            fixture.expected_context_binding_b64u.clone(),
+            now_ms() + 60_000,
+        )
+        .unwrap();
+
+        let stored = store_worker_material_from_hss_output(StoreWorkerMaterialFromHssOutputRequest {
+            evaluator_driver_state_b64u: fixture.evaluator_driver_state_b64u,
+            client_output_message_b64u: fixture.client_output_message_b64u,
+            client_output_mask: Ed25519HssClientOutputMaskTransportV1::RustOwnedMaskHandleV1 {
+                client_output_mask_handle: "test-hss-output-mask-handle".to_string(),
+            },
+            expected_context_binding_b64u: fixture.expected_context_binding_b64u,
+            near_account_id: material_binding.near_account_id.clone(),
+            signer_slot: material_binding.signer_slot,
+            signing_root_id: material_binding.signing_root_id.clone(),
+            signing_root_version: material_binding.signing_root_version.clone(),
+            relayer_key_id: material_binding.relayer_key_id.clone(),
+            key_version: material_binding.key_version.clone(),
+            participant_ids: material_binding.participant_ids.clone(),
+            created_at_ms: material_binding.created_at_ms,
+            seal_authorization: Some(
+                Ed25519WorkerMaterialSealAuthorizationV1::PasskeyPrfMaterialSealAuthorizationHandleV1 {
+                    handle: "test-hss-store-seal-handle".to_string(),
+                    rp_id: "example.test".to_string(),
+                    credential_id_b64u: "credential".to_string(),
+                    material_key_id: material_binding.material_key_id.clone(),
+                    expires_at_ms: seal_expires_at_ms,
+                },
+            ),
+        })
+        .unwrap();
+        let expected_material_binding = Ed25519WorkerMaterialBindingV1 {
+            client_verifying_share_b64u: fixture.client_verifying_share_b64u.clone(),
+            ..material_binding
+        };
+        let expected_material_binding_digest =
+            ed25519_worker_material_binding_digest(&expected_material_binding).unwrap();
+
+        assert!(stored.ok);
+        assert!(stored
+            .material_handle
+            .starts_with("ed25519-worker-material:"));
+        assert_eq!(
+            stored.sealed_worker_material_ref,
+            signer_core::commands::ed25519_worker_material_storage_ref(
+                &expected_material_binding_digest,
+            )
+            .unwrap()
+        );
+        assert!(!stored.sealed_worker_material_b64u.is_empty());
+        assert_eq!(
+            stored.client_verifying_share_b64u,
+            fixture.client_verifying_share_b64u
+        );
+        assert_eq!(
+            stored.material_binding_digest,
+            expected_material_binding_digest
+        );
     }
 
     #[test]

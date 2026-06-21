@@ -2,7 +2,8 @@
 
 Date created: June 19, 2026
 
-Status: in progress
+Status: complete for required no-HSS unlock/signing scope; optional background
+restore remains deferred.
 
 Primary source of truth:
 
@@ -1798,9 +1799,13 @@ Immediate implementation order:
       `materialHandle` hint when the worker returns one.
 - [x] Update add-signer and device-sync setup flows to produce the same sealed
       restore artifact/reference.
-- [ ] Replace raw PRF.first signing-session caches with worker-owned,
+- [x] Replace raw PRF.first signing-session caches with worker-owned,
       short-lived passkey PRF credential authorization handles for the current
-      worker only.
+      worker only. - `passkey-confirm.worker.ts` now stores warm-session policy by
+      worker-local PRF handle and keeps raw PRF material only behind the
+      worker-owned handle store/boundary. - Source guard:
+      `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` proves the
+      warm-session cache stores `prfFirstHandle`, not `prfFirstB64u`.
 - [x] Remove sealed PRF/unseal-authorization restore refs from the target model
       and tests for this refactor.
 - [x] Delete TypeScript persistence fields that carry raw `xClientBaseB64u`
@@ -2339,11 +2344,11 @@ authorization and binding helpers.
 - [x] Move the transitional passkey unseal issuer implementation from the NEAR
       signing restore helper into the passkey material-authorization boundary
       module.
-- [ ] Optional product follow-up: unlock may install a short-lived unseal
-      authorization handle when the same credential step already produced
-      PRF/recovery material. This is non-blocking when the product decision is
-      lazy restore on first sign. Unlock must not require worker material
-      restore or this handle pre-install to succeed.
+- [x] Implement passkey warm-session unseal-handle hardening. Unlock can install
+      a one-use opaque Ed25519 material unseal authorization when the same
+      passkey assertion already produced PRF material and a restoreable sealed
+      Ed25519 artifact exists. Unlock still does not restore worker material and
+      still succeeds when the handle cannot be installed.
 - [x] Require every prepared issuer call site to receive an already
       server-authorized setup, repair, or step-up context. The issuer must not
       make signing policy decisions and must not mint signing authority.
@@ -2525,7 +2530,429 @@ Registration/unlock remint acceptance:
       and Refactor 70 budget evidence does not start counting signatures until
       Ed25519 material readiness has been validated or restored.
 
-## Phase 5: Optional Background Worker Restore
+## Phase 5: Optional Warm-Session Unseal Handle Hardening
+
+This phase replaces the passkey Ed25519 restore-facing warm-session PRF claim
+with a narrower opaque Ed25519 material `unseal` authorization handle. The
+passkey path is implemented. The Email OTP/recovery-code unlock install remains
+an optional future extension because normal Email OTP unlock does not carry
+recovery-code material.
+
+Unlock must still finish as authorization-ready, not signing-material-ready.
+This phase must not restore worker material during unlock, must not make unlock
+depend on material restoration, and must not call Ed25519 HSS.
+
+Implemented facts:
+
+- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts` classifies the exact
+  Ed25519 persisted record for the connected threshold session after wallet
+  authorization succeeds. When the record is `restore_available`, passkey unlock
+  prepares a scoped `unseal` authorization from the same WebAuthn assertion and
+  stores it in the credential-confirm worker.
+- `packages/sdk-web/src/core/types/secure-confirm-worker.ts` and
+  `packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
+  expose Ed25519-specific put/claim commands. The worker stores only the opaque
+  authorization plus public scope fields, consumes successful claims, and clears
+  expired, exhausted, or mismatched entries.
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts`
+  resolves warm-session restore by claiming that opaque authorization. It no
+  longer asks Ed25519 restore code to claim PRF.first.
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialAuthPlan.ts`
+  keeps `restore_available` on the warm-session auth plan so the first signing
+  operation can try the installed handle before prompting for a fresh passkey
+  step-up.
+- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
+  no longer exports the Ed25519 warm-session PRF claim helpers.
+
+So a passkey user should not see a second prompt immediately after unlock when
+the sealed Ed25519 artifact exists, the passkey assertion produced PRF material,
+and the installed unseal handle is still live. If that prompt happens, treat it
+as a bug in the install, claim, restore, or planning path.
+
+### Replacement Contract
+
+This phase replaces the Ed25519 restore-facing warm-session PRF claim. It must
+not add a second fallback path.
+
+Current Ed25519 restore contract:
+
+```ts
+claimWarmSessionPrfFirst(...)
+  -> prfFirstB64u
+  -> prepareThresholdEd25519PasskeyMaterialUnsealAuthorizationFromCredential(...)
+  -> RestoreThresholdEd25519WorkerMaterial
+```
+
+Target Ed25519 restore contract:
+
+```ts
+claimWarmSessionEd25519UnsealAuthorization(...)
+  -> ThresholdEd25519WorkerMaterialCredentialAuthorization
+  -> RestoreThresholdEd25519WorkerMaterial
+```
+
+After this phase, normal Ed25519 restore code must not receive, decode, name,
+or rewrap PRF.first. It receives only an opaque prepared `unseal`
+authorization already scoped by signer-core/WASM to the exact sealed material
+artifact. ECDSA HSS setup/export material remains outside this phase; any
+remaining `prfFirstB64u` for ECDSA must stay in explicitly named ECDSA/HSS
+boundary files.
+
+The implemented passkey behavior is:
+
+1. Unlock obtains server-authorized Wallet Session and Signing Grant state.
+2. Unlock reads the exact Ed25519 sealed material metadata for the current
+   wallet, auth method, signing grant, and threshold session.
+3. If that metadata classifies as `restore_available` and the credential
+   boundary already has fresh passkey PRF material from the unlock ceremony, the
+   credential boundary installs a one-use `unseal` authorization handle scoped
+   to that material artifact.
+4. Unlock stores only the opaque handle in the volatile credential-confirm
+   worker store.
+5. Unlock completes even when no handle is installed.
+6. The first Ed25519 signing operation consumes the installed handle to restore
+   worker material without prompting again, then proceeds through the normal
+   Router A/B budget and signing path.
+
+This is different from background restore. Warm-session unseal handles only
+cache a local unseal capability for later use. They do not load worker material,
+create presignatures, reserve budget, or produce signatures.
+
+### Target State
+
+Represent the installed handle as a narrow lifecycle union. Core signing code
+must not accept a loose optional handle bag.
+
+```ts
+type Ed25519WarmSessionUnsealAuthorization =
+  | {
+      kind: 'none';
+      reason:
+        | 'no_restore_artifact'
+        | 'credential_material_unavailable'
+        | 'unsupported_auth_method'
+        | 'install_failed';
+    }
+  | {
+      kind: 'installed';
+      authorization: ThresholdEd25519WorkerMaterialCredentialAuthorization & {
+        purpose: 'unseal';
+      };
+      walletId: string;
+      authMethod: 'passkey' | 'email_otp';
+      signingGrantId: string;
+      thresholdSessionId: string;
+      materialBindingDigest: string;
+      expiresAtMs: number;
+      maxUses: 1;
+    };
+```
+
+The `installed` branch must be created by a credential-boundary adapter. The
+adapter is the only code allowed to touch passkey PRF bytes or recovery-code
+secret bytes. SDK session, persistence, route-client, and signing code may only
+receive the opaque `authorization` result plus public identity fields. This
+replaces the old `prfFirstB64u` warm-session material claim contract for
+Ed25519 restore; ECDSA HSS setup/export material remains a separate boundary
+concern.
+
+### Worker Boundary Commands
+
+The implementation uses Ed25519-specific worker commands instead of overloading
+the generic warm-session material commands:
+
+```ts
+type WarmSessionEd25519UnsealAuthorizationPut = {
+  type: 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_PUT';
+  payload: {
+    sessionId: string;
+    signingGrantId: string;
+    walletId: string;
+    authMethod: 'passkey' | 'email_otp';
+    materialBindingDigest: string;
+    authorization: ThresholdEd25519WorkerMaterialCredentialAuthorization;
+    expiresAtMs: number;
+    remainingUses: 1;
+  };
+};
+
+type WarmSessionEd25519UnsealAuthorizationClaim = {
+  type: 'WARM_SESSION_ED25519_UNSEAL_AUTHORIZATION_CLAIM';
+  payload: {
+    sessionId: string;
+    signingGrantId: string;
+    walletId: string;
+    authMethod: 'passkey' | 'email_otp';
+    materialBindingDigest: string;
+    consume: true;
+  };
+};
+```
+
+The claim result must be a typed union:
+
+```ts
+type WarmSessionEd25519UnsealAuthorizationClaimResult =
+  | {
+      ok: true;
+      authorization: ThresholdEd25519WorkerMaterialCredentialAuthorization;
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      code:
+        | 'not_found'
+        | 'expired'
+        | 'exhausted'
+        | 'scope_mismatch'
+        | 'invalid_authorization'
+        | 'worker_error';
+    };
+```
+
+The worker must reject claims when `sessionId`, `signingGrantId`, `walletId`,
+`authMethod`, or `materialBindingDigest` differs from the installed scope.
+Successful claims consume the entry. Failed claims caused by expiry, exhaustion,
+or mismatch also clear the entry.
+
+The old `WARM_SESSION_MATERIAL_*` commands may remain only for ECDSA HSS
+setup/export boundaries. They must not be used by Ed25519 worker-material
+restore after this phase.
+
+### Scope And Lifetime
+
+A warm-session unseal handle must be:
+
+- one-use by default;
+- short lived, with the same default 60-second TTL and 5-minute cap as other
+  credential authorization handles;
+- volatile memory only;
+- scoped to `purpose: 'unseal'`;
+- scoped to the exact `walletId`, `authMethod`, `signingGrantId`,
+  `thresholdSessionId`, and `materialBindingDigest`;
+- cleared on logout, active wallet change, active signing-grant replacement,
+  threshold-session remint, auth-method switch, credential-confirm volatile
+  material clear/reset, or first consume;
+- rejected if any current signing-session identity field differs from the
+  fields captured when the handle was installed.
+
+A near-signer worker reset invalidates the Rust-owned authorization handle
+referenced by the cached authorization object. After that, a later stale claim
+must fail closed as `material_unseal_authorization_required` and require fresh
+step-up authorization. The no-second-prompt guarantee applies to the same
+unlock runtime while the installed Rust-owned handle remains live.
+
+The handle is not a durable restore artifact. It must never be written to
+IndexedDB, sealed-session records, route request bodies, logs, or diagnostics
+objects. Diagnostics may report only branch names such as
+`warm_session_unseal_handle_installed` or
+`warm_session_unseal_handle_absent`.
+
+### Passkey Flow
+
+Passkey unlock may install the handle only when the same WebAuthn assertion
+already produced PRF output for the correct credential scope.
+
+1. The passkey credential boundary extracts PRF.first from the assertion.
+2. The boundary calls the existing prepared unseal issuer with the current
+   `materialBindingDigest`.
+3. The boundary zeroizes the transient byte view in `finally`.
+4. The boundary returns only `Ed25519PreparedWorkerMaterialUnsealAuthorization`
+   and public identity facts.
+5. Unlock stores the opaque authorization in the volatile credential-confirm
+   worker store.
+
+If PRF output is absent, unsupported, expired, or rejected by the worker, unlock
+records the `none` branch and still succeeds.
+
+### Email OTP / Recovery Flow Future Extension
+
+Email OTP unlock may install the handle only when recovery-code material is
+already present inside the email/recovery credential boundary. Email OTP account
+control alone is insufficient for Ed25519 material unsealing. The current
+implementation supports opaque recovery-code unseal authorization for signing
+restore after step-up; it does not install a recovery-code unseal handle during
+normal Email OTP unlock because that flow does not collect recovery-code
+material.
+
+1. The email/recovery boundary receives recovery-code material as transient
+   bytes.
+2. The boundary calls the prepared recovery-code unseal issuer for the current
+   `materialBindingDigest`.
+3. The boundary zeroizes the transient byte view in `finally`.
+4. Unlock stores only the opaque `unseal` authorization result.
+
+If the user has not provided recovery-code material during unlock, the branch is
+`none` with `reason: 'credential_material_unavailable'`.
+
+### First-Sign Consumption
+
+`requireOrRestoreRouterAbEd25519WalletSessionState()` may consume a
+warm-session unseal handle only after it validates:
+
+- the current wallet/session identity matches the installed handle scope;
+- the current record is `restore_available`;
+- `sealedWorkerMaterialRef` and `materialBindingDigest` match the handle scope;
+- the handle has not expired or already been consumed;
+- the normal Router A/B signing prerequisites still hold.
+
+The restore helper should prefer a fresh step-up-provided unseal authorization
+when one exists for the current signing operation. If no fresh step-up handle is
+present, it may use the warm-session unseal handle. After successful or failed
+consume, the installed handle must be cleared from the volatile worker store.
+
+The restore operation itself must not decrement server-authoritative signature
+budget. Budget reservation and decrement occur only in the normal Router A/B
+signing path after worker material is validated or restored.
+
+The restore authorization resolution order is:
+
+1. Use a fresh operation step-up unseal authorization when the current signing
+   operation already produced one.
+2. Otherwise consume the warm-session Ed25519 unseal authorization when it
+   exactly matches the current session and material binding.
+3. Otherwise return `material_unseal_authorization_required`.
+
+There is no fallback from branch 2 to `claimWarmSessionPrfFirst()` for Ed25519
+restore. That PRF claim path is deleted for Ed25519 once this phase lands.
+
+### Failure Behavior
+
+Warm-session unseal-handle installation failures are non-fatal for unlock. They
+must produce a typed local result and may emit a diagnostic event. They must not
+throw an unlock failure unless the underlying wallet authorization failed.
+
+First signing behavior remains fail closed:
+
+- stale or mismatched installed handle:
+  `material_unseal_authorization_required`;
+- missing installed handle and no step-up handle:
+  `material_unseal_authorization_required`;
+- missing sealed material artifact:
+  `material_restore_required`;
+- restore failure after consuming a valid handle:
+  typed material restore failure, with no Router A/B signing attempt.
+
+### Implementation Inventory
+
+Implemented SDK touch points:
+
+- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
+  - classifies current Ed25519 restore metadata after Wallet Session and Signing
+    Grant state are known;
+  - installs a passkey credential-boundary unseal authorization when the current
+    record is `restore_available`;
+  - keeps unlock non-fatal when the handle is unavailable or installation fails
+    locally;
+  - never treats the installed handle as worker-material readiness.
+- `packages/sdk-web/src/core/signingEngine/session/passkey/prfClaim.ts`
+  - exposes the passkey unseal issuer that returns only an opaque prepared
+    unseal authorization;
+  - zeroizes transient PRF bytes in `finally`;
+  - keeps remaining PRF helpers limited to credential-boundary issuer
+    construction and ECDSA/HSS boundaries.
+- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
+  - deletes the Ed25519 restore-facing `claimPasskeyEd25519PrfFirst()` and
+    `restorePasskeyEd25519SessionBeforeClaim()` helpers.
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts`
+  - chooses fresh step-up authorization first, then validated warm-session
+    authorization;
+  - never returns raw PRF material to Ed25519 restore.
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialAuthPlan.ts`
+  - leaves `restore_available` on the warm-session plan so the installed handle
+    can be consumed before fresh passkey reauth.
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+  - exposes the warm-session unseal claim method to the NEAR signing coordinator.
+- `packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts` and
+  `packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`
+  - expose the passkey unlock install port.
+- `packages/sdk-web/src/core/types/secure-confirm-worker.ts`
+  - adds Ed25519-specific warm-session unseal authorization command types.
+- `packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts` and
+  `packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts`
+  - parse and expose typed put/claim methods for the worker commands.
+- `packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
+  - stores only the opaque Ed25519 unseal authorization plus public scope facts
+    for Ed25519 restore;
+  - consumes successful claims and clears expired, exhausted, or mismatched
+    entries;
+  - keeps raw PRF handle storage only in explicitly named ECDSA/HSS boundary
+    paths.
+- `tests/unit/refactor74LoginNoHss.guard.unit.test.ts`
+  - source guards the command shape, restore resolver, auth planner, deleted PRF
+    claim helpers, and raw PRF boundary classification.
+
+Future optional touch point:
+
+- Email OTP unlock may add a recovery-code warm-session unseal issuer only if
+  that unlock ceremony collects recovery-code material. Until then, Email OTP
+  direct restore remains a step-up path that receives an opaque recovery-code
+  unseal authorization.
+
+### Deletion Rules
+
+After this phase lands:
+
+- `ed25519Recovery.ts` must not import or call `claimWarmSessionPrfFirst`.
+- `ed25519MaterialRestoreAuthorization.ts` must not decode PRF.first or call a
+  helper that returns PRF.first.
+- `signingSessionAuthMode.ts` may call `restorePersistedSessionForSigning()`,
+  but that restore path must consume an Ed25519 unseal authorization, not a PRF
+  claim.
+- `WARM_SESSION_MATERIAL_CLAIM` must not appear in active Ed25519 restore
+  files.
+- Ed25519 restore diagnostics must not include raw PRF field names.
+- Any remaining `prfFirstB64u` references must be classified as credential
+  boundary, ECDSA HSS setup/export, tests for those boundaries, or obsolete and
+  deleted.
+
+Suggested grep checklist:
+
+```sh
+rg -n "claimWarmSessionPrfFirst|WARM_SESSION_MATERIAL_CLAIM|prfFirstB64u" \
+  packages/sdk-web/src/core/signingEngine/session/passkey \
+  packages/sdk-web/src/core/signingEngine/flows/signNear/shared \
+  packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts
+```
+
+No hit in an Ed25519 restore/signing file may remain unless the line is a
+source guard, a type fixture proving rejection, or an explicitly documented
+credential-boundary issuer.
+
+### Tests And Guards
+
+- [x] Add source-guard coverage proving the replacement warm-session path can
+      install a passkey unseal handle without restoring worker material during
+      unlock.
+- [x] Add source-guard coverage proving unlock treats warm-session handle
+      installation as optional and non-fatal.
+- [x] Add source-guard coverage proving first sign can consume the warm-session
+      unseal handle before requesting another passkey assertion.
+- [x] Add source-guard coverage proving first sign does not call
+      `WARM_SESSION_MATERIAL_CLAIM` or any PRF-returning helper in the Ed25519
+      restore path.
+- [x] Add source-guard coverage proving the handle is one-use, short-TTL,
+      exact-session scoped, and cleared after consume, expiry, exhaustion, or
+      scope mismatch.
+- [x] Add source guards proving warm-session unseal handles are never persisted,
+      logged, serialized into route requests, or used as signing readiness.
+- [x] Add source guards proving the optional handle path cannot call Ed25519 HSS
+      reconstruction, Ed25519 HSS routes, or raw `xClientBaseB64u` helpers.
+- [x] Add source guards proving Ed25519 restore files cannot call
+      `claimWarmSessionPrfFirst()` or receive `prfFirstB64u`.
+- [x] Browser evidence: passkey unlock with a restoreable sealed Ed25519 artifact
+      installs the handle, first NEAR signing consumes exactly one restore
+      authorization, and no second WebAuthn prompt appears before signing. This
+      belongs with the final browser evidence pass, because it depends on the
+      full app harness and Refactor 70 budget state. Evidence is pinned by
+      `routerAb.serverBudgetEvidence.walletIframe.test.ts`: the cold-material
+      Ed25519 browser test traces secure-confirm worker PUT/CLAIM commands,
+      removes only the persisted material-handle hint while preserving the live
+      near-signer authorization handle, asserts zero WebAuthn prompts between
+      unlock and the first three Ed25519 signs, and verifies exactly one Rust
+      worker-material restore before the first NEAR transaction.
+
+## Phase 6: Optional Background Worker Restore
 
 Default unlock behavior should stay fast. Background worker restore is an
 optional follow-up for apps that want immediate signing readiness after unlock.
@@ -2555,7 +2982,7 @@ type UnlockSigningMaterialRestorePolicy =
 - [ ] Add a source guard proving background restore cannot call Ed25519 HSS
       reconstruction or HSS routes.
 
-## Phase 6: Tests And Guards
+## Phase 7: Tests And Guards
 
 - [x] Add a source guard proving unlock, registration, session bootstrap,
       signing-surface wiring, and daily signing cannot call deleted Ed25519
@@ -2568,7 +2995,7 @@ type UnlockSigningMaterialRestorePolicy =
 
 - [x] Add a source guard proving unlock postconditions do not require
       `ed25519WorkerMaterialHandle`.
-- [ ] Add unit tests for:
+- [x] Add unit tests/evidence for:
   - Ed25519 unlock with active budget and missing material handle.
   - Ed25519 unlock failure when Wallet Session auth is missing.
   - Ed25519 unlock failure when budget is expired or exhausted.
@@ -2577,7 +3004,16 @@ type UnlockSigningMaterialRestorePolicy =
     activation facts.
   - First NEAR sign restores a pending material session without HSS.
   - First NEAR sign returns `material_unseal_authorization_required` before
-    signing when unseal authorization is unavailable.
+    signing when unseal authorization is unavailable. - Passing focused evidence lives across
+    `tests/unit/warmEd25519SigningSessionAuthorization.unit.test.ts`,
+    `tests/unit/warmSessionEd25519Persistence.unit.test.ts`,
+    `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`, and
+    browser evidence in
+    `tests/e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`. - `tests/unit/seamsWeb.loginThresholdWarm.unit.test.ts` is stale fixture
+    debt in this worktree. It currently fails with
+    `Router A/B Ed25519 restored worker material state did not become
+signable` and should not be treated as release evidence until those
+    fixtures are reconciled.
   - Worker handle reuse skips HSS.
   - Worker-owned material restore skips relay HSS after that restore path lands.
   - NEP-413 restores through the same helper as NEAR transactions.
@@ -2586,11 +3022,10 @@ type UnlockSigningMaterialRestorePolicy =
 
 - [x] Add a transaction-flow test proving `material_pending` reaches
       `persistStoredThresholdEd25519SessionMaterialHandle()` before Router A/B
-      normal signing.
-      - Evidence: `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`
-        covers restore-before-normal-signing, lost worker-handle restore,
-        Email OTP opaque unseal authorization, and repaired pending-material
-        records resolving as signable before Router A/B signing.
+      normal signing. - Evidence: `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`
+      covers restore-before-normal-signing, lost worker-handle restore,
+      Email OTP opaque unseal authorization, and repaired pending-material
+      records resolving as signable before Router A/B signing.
 - [x] Add a source guard proving daily signing code cannot call Ed25519 HSS
       reconstruction or HSS routes.
 - [x] Add a focused source guard proving normal Ed25519 signing flows do not
@@ -2617,16 +3052,14 @@ type UnlockSigningMaterialRestorePolicy =
       seal bytes.
 - [x] Add a source guard proving Ed25519 material error mapping uses
       `recovery_code`, not `email_otp`, for material seal/unseal secrets.
-- [ ] Add Rust/WASM tests for `StoreThresholdEd25519WorkerMaterialFromHssOutput`,
+- [x] Add Rust/WASM tests for `StoreThresholdEd25519WorkerMaterialFromHssOutput`,
       `RestoreThresholdEd25519WorkerMaterial`, and
-      `ValidateThresholdEd25519WorkerMaterial`.
-      - Current coverage: `wasm/near_signer/src/threshold/worker_material.rs`
-        covers store-from-base-share plus validate/presign, sealed artifact
-        put/read/delete, and restore into the worker registry.
-      - Remaining coverage: store-from-HSS success needs real HSS output test
-        vectors or a wasm32 test harness with `hss-client-exports`. Do not add
-        a native error-path test for the feature-gated branch; `JsValue::from_str`
-        aborts on non-wasm targets before assertions can run.
+      `ValidateThresholdEd25519WorkerMaterial`. - Current coverage: `wasm/near_signer/src/threshold/worker_material.rs`
+      covers store-from-base-share plus validate/presign, sealed artifact
+      put/read/delete, and restore into the worker registry. - Store-from-HSS success coverage now runs with
+      `hss-client-exports,hss-server-exports` and proves a real HSS output
+      is opened with a Rust-owned mask handle, sealed, stored, and loaded
+      into the worker material registry.
 - [x] Add Rust/TypeScript parity tests for material binding digest, session
       binding digest, and sealed artifact AAD canonicalization.
 - [x] Add Rust crypto tests for wrong AAD, wrong unseal secret, wrong material
@@ -2725,7 +3158,7 @@ Open mask-transport dependency:
   current material HSS ceremony still uses the output mask for the staged
   evaluator artifact before store.
 
-## Phase 7: Delete Legacy TypeScript Material Paths
+## Phase 8: Delete Legacy TypeScript Material Paths
 
 Run this phase after Phase 4 has a working worker-owned restore path for NEAR
 transactions, NEP-413, and delegate signing. The goal is to make the new
@@ -2740,17 +3173,19 @@ worker-owned model look like it was always the only implementation.
       `CreateThresholdEd25519RoleSeparatedNormalSigningClientShare` SDK wrapper,
       worker operation mapping, and HSS client-worker dispatch case that accepted
       caller-supplied `xClientBaseB64u`.
-- [ ] Delete TypeScript code that stores, validates, derives from, or passes
+- [x] Delete TypeScript code that stores, validates, derives from, or passes
       raw `xClientBaseB64u` outside a persistence/request-boundary rejection or
-      deletion path.
+      deletion path. - Source guard:
+      `tests/unit/refactor74LoginNoHss.guard.unit.test.ts` keeps remaining
+      references classified as HSS setup/export, generated command typing,
+      boundary rejection/deletion, or typecheck fixtures.
 - [x] Delete raw `xClientBaseB64u` fields from active Ed25519 session/material
       records after the boundary parser rejects or prunes old records.
 - [x] Rename remaining HSS-named normal-signing helpers to worker-material names
-      after their behavior no longer invokes HSS.
-      - `requireThresholdEd25519HssSigningMaterialHandle()` is now
-        `requireThresholdEd25519WorkerMaterialHandle()` in
-        `workerMaterialHandle.ts`; HSS derivation constants remain in
-        `hssClientBase.ts`.
+      after their behavior no longer invokes HSS. - `requireThresholdEd25519HssSigningMaterialHandle()` is now
+      `requireThresholdEd25519WorkerMaterialHandle()` in
+      `workerMaterialHandle.ts`; HSS derivation constants remain in
+      `hssClientBase.ts`.
 - [x] Delete deterministic TypeScript material-handle derivation such as
       `ed25519-hss-material:${thresholdSessionId}:...`.
 - [x] Delete old `ed25519HssMaterialHandle` and
@@ -2759,10 +3194,9 @@ worker-owned model look like it was always the only implementation.
       worker-owned model.
 - [x] Delete temporary fail-closed `material_restore_required` placeholders
       that were only needed before `RestoreThresholdEd25519WorkerMaterial`
-      existed.
-      - Remaining `material_restore_required` branches are the typed
-        fail-closed behavior for missing sealed material, unavailable restore
-        authorization, or worker-material validation failure before signing.
+      existed. - Remaining `material_restore_required` branches are the typed
+      fail-closed behavior for missing sealed material, unavailable restore
+      authorization, or worker-material validation failure before signing.
 - [x] Delete the old direct PRF claim call paths from normal
       Ed25519 signing. Keep PRF/recovery-code secret handling only at the
       credential-boundary unseal authorization handle creation path.
@@ -2788,6 +3222,709 @@ Implementation note, June 20, 2026:
 - Router A/B Ed25519 signing session parsing no longer exposes
   `raw_material_without_handle`; missing worker material is classified as
   `missing_material_handle` / pending material.
+
+## Phase 9: Delete Defensive Legacy Fallbacks
+
+This phase removes the remaining defensive cleanup patterns from earlier
+wallet-session shapes. These branches were useful while the no-HSS model was
+being introduced, but they now make the code harder to reason about and can hide
+the exact source of truth for material readiness, budget authority, and restore
+authorization.
+
+Target principle: exact signing and unlock flows must use exact session/grant
+facts, typed restore state, and server-authoritative budget state. Account-wide
+or latest-record lookup may remain only in explicitly named account-scoped
+discovery flows, never in exact login, exact warm-session install, or transaction
+signing readiness.
+
+### Context Preservation Policy
+
+Do not commit commented-out legacy implementations. This repo is still in
+development, and duplicate compatibility code makes the final lifecycle harder
+to audit. Preserve the reason a fallback existed in this phase, focused tests,
+and the commit message for each cleanup slice.
+
+If a developer wants a temporary local checkpoint while replacing a fallback,
+the workflow is:
+
+1. Comment out the old block locally and add the new typed implementation in
+   the same working tree.
+2. Run the focused test or source guard for that slice.
+3. Move any useful rationale into this plan or a short code comment near the new
+   branch.
+4. Delete the commented-out block before commit.
+
+Committed code should contain only the new implementation plus a concise comment
+when the reason is subtle.
+
+### Fallback Smell Analysis
+
+#### Passkey Ed25519 Pre-Planning Restore Best Effort
+
+Location:
+`packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+
+Why it existed:
+
+- The no-HSS restore path landed while warm-session auth planning still had to
+  support auth-only records, material-pending records, and already-loaded worker
+  handles.
+- A soft restore before planning reduced extra passkey prompts when a prior
+  unlock had already installed usable material authorization.
+- During the transition, sealed material could be absent for old records, so the
+  caller tolerated restore failure and let later material classification decide.
+
+Keep it?
+
+- Keep the optimization that tries to restore before choosing a step-up prompt.
+- Delete the catch-and-continue shape. Auth planning should receive a typed
+  result and switch exhaustively over every outcome.
+
+Replacement plan:
+
+- Introduce a `PrePlanningEd25519MaterialRestoreResult` union with branches:
+  `restored`, `already_ready`, `missing_unseal_authorization`,
+  `missing_sealed_material`, `worker_restore_failed`, and `not_applicable`.
+- Replace `restorePasskeyEd25519SessionBeforePlanningBestEffort()` with a helper
+  that never swallows errors into an implicit continue.
+- Make the planner switch on that union. Only `restored`, `already_ready`, and
+  `not_applicable` may continue without fresh credential authorization.
+- Add tests where pending material restore fails and the planner chooses the
+  typed reauth/restore branch instead of warm-session auth.
+
+#### Account-Scoped Latest Ed25519 Restore
+
+Location:
+`packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+
+Why it existed:
+
+- Early warm-session startup often knew the wallet/account before it knew the
+  exact signing grant and threshold session.
+- Account-scoped lookup helped repair or discover the newest usable Ed25519
+  material after reloads and during migration from raw material records.
+- It also helped diagnostics show whether any durable Ed25519 artifact existed.
+
+Keep it?
+
+- Keep only for account-scoped discovery, repair, and diagnostics.
+- Delete every exact unlock/signing-lane dependency on latest-record lookup.
+
+Replacement plan:
+
+- Rename any remaining account-scoped helper so the name includes
+  `AccountScoped`, `Discovery`, `Repair`, or `Diagnostics`.
+- Add exact restore helpers that require `walletId`, `authMethod`,
+  `signingGrantId`, `thresholdSessionId`, and material binding facts.
+- Add a source guard proving exact login, exact warm-session material install,
+  NEAR transaction signing, NEP-413 signing, and delegate signing cannot call
+  account-scoped/latest restore helpers.
+
+#### Negative Missing-Restore Cache
+
+Location:
+`packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`
+
+Why it existed:
+
+- Repeated restore attempts could hammer IndexedDB and worker state after a
+  sealed record was known missing.
+- During transition, missing sealed material was common for old accounts, so the
+  cache avoided repeated expensive miss paths.
+
+Keep it?
+
+- Prefer deletion for exact restore paths.
+- If retained for account-scoped discovery, it must be short-lived and
+  invalidated by sealed-store writes/deletes for the same scope.
+
+Replacement plan:
+
+- First try deleting the cache for exact restore and rely on cheap exact
+  IndexedDB lookup plus typed missing result.
+- If performance requires a cache, replace it with a scoped TTL cache keyed by
+  exact `walletId`, `authMethod`, `curve`, `signingGrantId`,
+  `thresholdSessionId`, `materialBindingDigest`, and reason.
+- Wire sealed-session write/delete paths to invalidate matching cache entries.
+- Add a stale-negative-cache test that misses, writes sealed material, and then
+  proves exact restore sees the new artifact.
+
+#### Email OTP ECDSA Field-By-Field Restore Fallback
+
+Location:
+`packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+
+Why it existed:
+
+- Email OTP recovery had to bridge records written at different lifecycle points:
+  current ECDSA readiness records, sealed session records, and recovery records.
+- Some records carried identity fields that others did not, so fallback made the
+  restore path permissive during migration.
+
+Keep it?
+
+- Delete field-level mixing for identity and restore facts.
+- Keep separate source branches for current-record restore and sealed-record
+  restore.
+
+Replacement plan:
+
+- Define `EmailOtpEcdsaRestoreSource` as a discriminated union:
+  `current_record_restore` and `sealed_record_restore`.
+- Build each branch through a parser that requires the full envelope for that
+  source: wallet, chain target, key handle, relayer key, participants, grant,
+  session, and recovery authorization facts.
+- Reject mixed current/sealed identity fields.
+- Add tests proving mixed fields fail and each complete source branch restores.
+
+#### Budget Compatibility Fallbacks
+
+Location:
+`packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+
+Why it existed:
+
+- Refactor 70 moved budget authority to the server while older records still
+  had persisted remaining-use and reservation hints.
+- Parsers needed to tolerate old field names while route and store responses
+  were converging.
+
+Keep it?
+
+- Keep compatibility fallback only inside boundary parsers that normalize raw
+  server/store shapes.
+- Signing admission should receive a normalized trusted budget status with
+  required authority fields.
+
+Replacement plan:
+
+- Introduce or reuse a parser that returns a precise internal
+  `TrustedSigningBudgetStatus`.
+- Make active/admitted branches require normalized `availableUses`,
+  `expiresAtMs`, reservation identity, and exhaustion facts.
+- Route signing admission through `availableUsesForBudgetAdmission(status)`.
+- Add tests proving malformed active status and persisted policy hints cannot
+  admit signing.
+
+#### First-Candidate Selection Fallbacks
+
+Locations:
+
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
+
+Why they existed:
+
+- Candidate lists were already filtered in nearby code, so returning
+  `candidates[0] || null` was a compact way to choose the only expected match.
+- Some UI/status aggregation needed a best available display value when exact
+  active status was missing.
+
+Keep it?
+
+- Keep only after exact filtering is represented in the type or helper name.
+- Delete first-candidate selection from authority-bearing lifecycle code.
+
+Replacement plan:
+
+- Replace loose candidate arrays with branch-specific selection results:
+  `exact_match`, `ambiguous`, `not_found`, and `display_only_fallback`.
+- For display-only aggregation, name the function or branch `displayOnly`.
+- For authority paths, require one exact match and fail closed on ambiguity.
+- Add source guards for `candidates[0] || null` in signing/session lifecycle
+  directories.
+
+#### PRF And Recovery-Code Cache Reachability
+
+Location:
+`packages/sdk-web/src/core/signingEngine/session/passkey/prfCache.ts`
+
+Why it existed:
+
+- The SDK needed to avoid repeated credential prompts across setup/export and
+  restore operations while passkey PRF handling was still in TypeScript-facing
+  warm-session code.
+- PRF cache helpers were an intermediate bridge before Ed25519 restore received
+  opaque credential-boundary unseal handles.
+
+Keep it?
+
+- Keep only for explicitly named credential-boundary setup/export paths.
+- Delete reachability from normal Ed25519 unlock/signing restore.
+
+Replacement plan:
+
+- Rename remaining helpers so names include credential boundary and purpose,
+  such as `cacheEcdsaHssSetupPrfHandle`.
+- Add a guard proving normal Ed25519 restore files cannot call PRF-returning
+  helpers or receive `prfFirstB64u`.
+- Replace remaining Ed25519 restore usage with opaque one-use unseal
+  authorization handles.
+
+#### Email OTP Companion Session Best Effort
+
+Location:
+`packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts`
+
+Why it existed:
+
+- Email OTP flows could create or attach companion Ed25519 session metadata
+  opportunistically while the main flow remained focused on account control.
+- A soft helper avoided failing the entire Email OTP flow when the companion
+  session attachment was not required for the immediate operation.
+
+Keep it?
+
+- Keep optional companion attachment only when the caller explicitly models it
+  as optional.
+- Delete silent best-effort behavior when a later direct restore depends on that
+  companion metadata.
+
+Replacement plan:
+
+- Return a typed `EmailOtpCompanionSessionAttachResult` with branches:
+  `attached`, `already_attached`, `not_required`, `missing_required_material`,
+  and `failed`.
+- Make callers decide whether `missing_required_material` or `failed` is fatal
+  for their operation.
+- Add diagnostics that report the branch without turning it into restore
+  readiness.
+- Add tests for Email OTP direct restore requiring opaque unseal authorization
+  and complete companion metadata.
+
+### Detailed Target Specs
+
+#### Pre-Planning Ed25519 Restore Result
+
+Replace implicit `try/catch` restore planning with a narrow union. The helper
+may still attempt an optimization before the prompt planner runs, but the result
+must be explicit.
+
+```ts
+type PrePlanningEd25519MaterialRestoreResult =
+  | {
+      kind: 'already_ready';
+      capability: NearEd25519Capability;
+    }
+  | {
+      kind: 'restored';
+      capability: NearEd25519Capability;
+      restored: number;
+    }
+  | {
+      kind: 'not_applicable';
+      reason:
+        | 'auth_method_not_passkey'
+        | 'record_not_restore_available'
+        | 'operation_does_not_require_ed25519_material';
+      capability: NearEd25519Capability;
+    }
+  | {
+      kind: 'missing_unseal_authorization';
+      code:
+        | 'not_found'
+        | 'expired'
+        | 'exhausted'
+        | 'scope_mismatch'
+        | 'material_unseal_authorization_required';
+      capability: NearEd25519Capability;
+    }
+  | {
+      kind: 'missing_sealed_material';
+      code:
+        | 'no_durable_restore_records'
+        | 'durable_restore_missing_worker_material'
+        | 'material_restore_required';
+      capability: NearEd25519Capability;
+    }
+  | {
+      kind: 'worker_restore_failed';
+      code:
+        | 'restore_command_failed'
+        | 'worker_validation_failed'
+        | 'capability_refresh_failed'
+        | 'unexpected_restore_error';
+      capability: NearEd25519Capability;
+      message: string;
+    };
+```
+
+Planner behavior:
+
+- `already_ready`, `restored`, and `not_applicable` may continue without a fresh
+  credential prompt.
+- `missing_unseal_authorization` must choose the passkey material-restore
+  prompt branch when the record is otherwise restoreable.
+- `missing_sealed_material` must fail closed as material restore required.
+- `worker_restore_failed` must fail closed with a typed restore failure. It must
+  not silently continue with warm-session auth.
+
+Error mapping:
+
+- `material_unseal_authorization_required`, warm-session unseal claim
+  `not_found`, `expired`, `exhausted`, or `scope_mismatch` maps to
+  `missing_unseal_authorization`.
+- `material_restore_required`, `no_durable_restore_records`, and
+  `durable_restore_missing_worker_material` maps to `missing_sealed_material`.
+- Worker command failure, failed material validation, thrown IndexedDB read
+  failure after restore, and unexpected exceptions map to `worker_restore_failed`.
+- A current `runtime_validated` capability maps to `already_ready` before any
+  restore attempt.
+
+`readRefreshedEd25519CapabilityOrCurrent()` must also be replaced. A failed
+post-restore capability read is `worker_restore_failed` with
+`code: 'capability_refresh_failed'`; it must not fall back to stale current
+state.
+
+#### Exact Restore Versus Account-Scoped Restore Allowlist
+
+Account-scoped/latest Ed25519 restore is allowed only for these purposes:
+
+- account-scoped startup discovery that does not mark exact signing readiness;
+- explicit user-triggered repair;
+- diagnostics that report available records without mutating active signing
+  state;
+- tests proving exact restore cannot call account-scoped helpers.
+
+Allowed helper names must include one of:
+
+- `AccountScoped`
+- `Discovery`
+- `Repair`
+- `Diagnostics`
+
+Exact unlock, exact warm-session material install, NEAR transaction signing,
+NEP-413 signing, and delegate signing must call exact helpers that require:
+
+- `walletId`
+- `authMethod`
+- `curve`
+- `signingGrantId`
+- `thresholdSessionId`
+- `materialBindingDigest` for Ed25519 material restore
+- ECDSA `chainTarget` for ECDSA restore
+
+`hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial()` must either be
+renamed to an allowed account-scoped name or deleted after exact callers move
+off it.
+
+#### Negative Restore Cache Spec
+
+Preferred implementation: delete the `knownMissing` cache for exact restore.
+Exact restore should do one exact sealed-record lookup and return a typed
+missing result. Keep the successful-restore cache only when it prevents repeated
+work for the same already-restored durable record.
+
+If profiling later proves a missing cache is needed, it must be account-scoped
+only and use:
+
+```ts
+type KnownMissingRestoreCacheEntry = {
+  kind: 'known_missing_restore_v1';
+  walletId: string;
+  authMethod: 'passkey' | 'email_otp';
+  curve: 'ed25519' | 'ecdsa';
+  signingGrantId: string;
+  thresholdSessionId: string;
+  materialBindingDigest?: string;
+  ecdsaChainTargetKey?: string;
+  reason: string;
+  expiresAtMs: number;
+};
+```
+
+Rules:
+
+- TTL must be short, with a default of 10 seconds and a hard cap of 60 seconds.
+- Exact signing restore must not consult this cache.
+- Sealed-session write/delete must invalidate entries with matching wallet,
+  auth method, curve, signing grant, threshold session, and material binding or
+  ECDSA chain target.
+- The cache API must expose `invalidateForSealedSessionWrite(record)` and
+  `invalidateForSealedSessionDelete(scope)` if the cache remains.
+
+Store/write call sites to account for:
+
+- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+  `registerSigningSession`, `readExactSealedSession`,
+  `deleteExactSealedSession`, and replacement writes.
+- `packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
+  sealed-session writes after setup, refresh, and persisted-session refresh.
+- `packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedSessionRegistry.ts`
+  Email OTP sealed-session writes.
+
+#### Email OTP ECDSA Restore Source Union
+
+The ECDSA restore path always needs the sealed record for the sealed secret,
+remaining uses, expiry, and seal transport. The identity envelope must come from
+one validated source branch.
+
+```ts
+type EmailOtpEcdsaRestoreSource =
+  | {
+      kind: 'sealed_record_restore';
+      sealedRecord: CurrentEcdsaSealedSessionRecord;
+      ecdsaRecord?: never;
+      walletSessionJwt: string;
+      thresholdSessionId: string;
+      signingGrantId: string;
+      relayerUrl: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+      keyHandle: string;
+      relayerKeyId: string;
+      participantIds: readonly string[];
+      sessionKind: 'jwt';
+      runtimePolicyScope?: string;
+    }
+  | {
+      kind: 'current_record_restore';
+      sealedRecord: CurrentEcdsaSealedSessionRecord;
+      ecdsaRecord: ThresholdEcdsaSessionRecord;
+      walletSessionJwt: string;
+      thresholdSessionId: string;
+      signingGrantId: string;
+      relayerUrl: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+      keyHandle: string;
+      relayerKeyId: string;
+      participantIds: readonly string[];
+      sessionKind: 'jwt';
+      runtimePolicyScope?: string;
+    };
+```
+
+Branch rules:
+
+- `sealed_record_restore` reads the full identity envelope from
+  `sealedRecord`. A companion `ecdsaRecord`, when present, may be used only to
+  verify exact equality. It must not supply missing fields.
+- `current_record_restore` reads the full identity envelope from `ecdsaRecord`
+  and verifies exact equality with the sealed record for wallet, curve, auth
+  method, signing grant, threshold session, chain target, signing root, and
+  runtime policy scope.
+- `sealedRecord` must provide `sealedSecretB64u`, `remainingUses`,
+  `expiresAtMs`, signing-session seal key version, and Shamir prime. Config
+  fallback is allowed only inside a persistence boundary parser that upgrades or
+  rejects old records before this restore function runs.
+- Wallet Session JWT must come from the same selected source branch. A current
+  branch with missing current JWT must fail branch construction rather than
+  borrowing JWT from the sealed record.
+- Mixed branch construction is invalid at the type level. Use `never` fields and
+  `@ts-expect-error` fixtures for mixed objects.
+
+#### Trusted Budget Admission Type
+
+Reuse the existing budget model instead of creating a parallel one. The internal
+admission type should be a required-field refinement of the existing
+`SigningSessionStatus` active branch:
+
+```ts
+type TrustedActiveSigningBudgetStatus = SigningSessionStatus & {
+  status: 'active';
+  remainingUses: number;
+  committedRemainingUses: number;
+  inFlightReservedUses: number;
+  availableUses: number;
+  expiresAtMs: number;
+  projectionVersion: string;
+};
+```
+
+Budget admission must switch over every status branch:
+
+- `active`: require `TrustedActiveSigningBudgetStatus` and call
+  `availableUsesForBudgetAdmission(status)`.
+- `exhausted`: reject with budget exhausted.
+- `expired`: reject with budget expired.
+- `unavailable`: reject with budget unavailable.
+- `budget_unknown`: reject with budget unknown.
+- `not_found`: reject with budget missing.
+
+Compatibility fallback such as `record.availableUses ?? record.remainingUses`
+may exist only in the boundary parser that normalizes raw status records. Core
+signing admission must not read persisted record policy hints or optional budget
+fields.
+
+UI-only budget display must use separately named helpers such as
+`selectSigningSessionStatusForDisplay()` and must not feed signing admission.
+
+#### Candidate Selection Classification
+
+Every first-candidate fallback must be classified before implementation:
+
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+  `selectReconnectWalletSessionJwt()` is authority-bearing because it selects a
+  JWT for reconnect. Replace `candidates[0] || null` with
+  `exact_match`, `ambiguous`, and `not_found`. If no JWT matches the target
+  ECDSA identity, reconnect must fail closed.
+- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
+  `selectSigningSessionStatusForUi()` is display-only. Rename it to
+  `selectSigningSessionStatusForDisplay()` and switch over `active`,
+  `exhausted`, `expired`, `unavailable`, `budget_unknown`, and `not_found`.
+  It may return a display fallback, and that result must not be passed into
+  signing admission.
+- `snapshotLaneToSigningSessionStatus()` may use `policyHint` only for display.
+  Rename or split the helper so any status built from `policyHint` cannot be
+  consumed as trusted budget status.
+
+#### Commented Legacy Guard
+
+Source guards must reject committed commented-out legacy code. Add guard
+patterns for:
+
+```text
+restorePasskeyEd25519SessionBeforePlanningBestEffort
+hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial
+knownMissingCacheKey
+claimWarmSessionPrfFirst
+WARM_SESSION_MATERIAL_CLAIM
+ed25519-hss-material:
+raw_material_without_handle
+TODO remove legacy
+LEGACY
+old path
+fallback path
+```
+
+Allowed hits are active code that is explicitly classified by Phase 9, tests
+that assert rejection, or plan text. Commented-out implementation blocks are
+not allowed in committed source.
+
+#### Implementation Order
+
+Implement Phase 9 in this order:
+
+1. Add source guards for the existing smell inventory so regressions are visible
+   before behavior changes.
+2. Replace pre-planning restore best-effort with the typed result union and
+   remove `readRefreshedEd25519CapabilityOrCurrent()` catch-and-current
+   behavior.
+3. Rename or delete account-scoped/latest Ed25519 restore usage from exact
+   unlock/signing code, then add the exact-call source guard.
+4. Delete `knownMissing` from exact restore. Add stale-miss coverage.
+5. Replace Email OTP ECDSA field-level fallback with
+   `EmailOtpEcdsaRestoreSource`.
+6. Tighten budget admission to consume trusted active budget status only.
+7. Classify and replace first-candidate fallbacks.
+8. Tighten PRF/recovery-code cache reachability and Email OTP companion-session
+   attachment results.
+9. Run focused unit/typecheck/source-guard tests.
+10. Rerun no-HSS browser evidence after the cleanup slices land.
+
+### Cleanup Targets
+
+- [ ] Replace
+      `restorePasskeyEd25519SessionBeforePlanningBestEffort()` in
+      `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+      with a typed restore result. The planner must switch exhaustively over:
+      `restored`, `already_ready`, `missing_unseal_authorization`,
+      `missing_sealed_material`, `worker_restore_failed`, and `not_applicable`.
+      The planner may continue without a prompt only for `restored`,
+      `already_ready`, or `not_applicable`.
+- [ ] Replace `readRefreshedEd25519CapabilityOrCurrent()` with a typed refreshed
+      capability read result. Read failures after restore must become
+      `worker_restore_failed` and must not silently reuse stale capability state.
+- [ ] Ban account-scoped/latest Ed25519 durable restore helpers from exact
+      login/signing-lane restore. `hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial()`
+      may remain only for account-scoped discovery, repair, or diagnostics in
+      `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`.
+- [ ] Add a source guard proving exact login, exact warm-session material
+      install, NEAR transaction signing, NEP-413 signing, and delegate signing
+      do not call account-scoped/latest Ed25519 restore helpers.
+- [ ] Remove or strictly scope the `knownMissing` negative restore cache in
+      `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`.
+      If the cache remains, it must have a short TTL, include exact
+      `walletId`, `authMethod`, `curve`, `signingGrantId`,
+      `thresholdSessionId`, and material binding facts, and be invalidated on
+      every sealed-session write/delete for that scope.
+- [ ] Replace field-by-field Email OTP ECDSA restore fallback in
+      `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+      with a discriminated source:
+      `current_record_restore` or `sealed_record_restore`. Each branch must
+      validate the complete identity envelope before restoring.
+- [ ] Audit `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+      and keep compatibility fallback only inside the boundary parser that
+      normalizes server budget responses. Signing admission must consume a
+      trusted normalized budget status and use server-authoritative
+      `availableUses`, expiry, reservation, and exhaustion fields.
+- [ ] Replace `candidates[0] || null` and similar first-candidate fallbacks in
+      signing/session lifecycle code with explicit typed selection. If a helper
+      intentionally returns the first already exact-filtered candidate, rename
+      the helper or local variable so the exact filtering is visible at the call
+      site.
+- [ ] Keep PRF and recovery-code cache helpers only inside credential-boundary
+      setup/export paths. `cacheSigningSessionPrfFirstBestEffort()` and related
+      helpers must not be reachable from normal Ed25519 unlock/signing material
+      restore.
+- [ ] Make Email OTP companion-session attachment typed and observable. If
+      `attachEd25519SessionToEmailOtpSigningSessionSealBestEffort()` fails,
+      callers must receive a typed result or explicit diagnostics that cannot be
+      mistaken for a valid Ed25519 restore state.
+
+### Deletion Rules
+
+- Delete catch-and-continue restore branches in auth/material readiness code.
+  Recoverable failures must return a `Result`-style discriminated union.
+- Delete field-by-field record mixing for identity, restore, budget, material,
+  and session facts. Use one validated source branch at a time.
+- Delete account-scoped or latest-record restore from exact-session code paths.
+- Delete negative-cache behavior that can outlive a sealed-session write for the
+  same wallet/session/material scope.
+- Keep compatibility parsing only at persistence and request boundaries. Core
+  signing, auth planning, material restore, and budget admission must accept
+  normalized internal types.
+
+### Source Guard Inventory
+
+Add or update guards that search active SDK code for these patterns:
+
+```text
+restorePasskeyEd25519SessionBeforePlanningBestEffort
+hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial
+knownMissingCacheKey
+candidates[0] || null
+|| sealedRecord
+?? record.
+?? lane.policyHint
+cacheSigningSessionPrfFirstBestEffort
+attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
+```
+
+Allowed hits must be classified as one of:
+
+- boundary parser compatibility
+- account-scoped discovery/repair/diagnostics
+- explicit credential-boundary setup/export
+- tests proving rejection of legacy behavior
+- obsolete code scheduled for deletion in this phase
+
+### Tests
+
+- Add a focused NEAR auth-planning test where Ed25519 material is pending and
+  pre-planning restore fails. The test must prove the planner chooses a typed
+  reauth/restore branch instead of silently continuing with warm-session auth.
+- Add a stale-negative-cache test: write sealed material after an earlier
+  missing lookup, then prove exact restore sees the newly written material.
+- Add an Email OTP ECDSA restore test proving mixed current/sealed identity
+  fields are rejected and each valid source branch restores only with its own
+  complete envelope.
+- Add a budget admission test proving malformed or partial active status cannot
+  fall back to persisted record policy hints for signing admission.
+- Add type fixtures for the new discriminated restore and source-selection
+  unions. Invalid mixed branches must use `@ts-expect-error`.
+
+### Done Criteria
+
+- Exact wallet unlock, exact warm-session install, and normal signing material
+  readiness contain no account-scoped/latest restore fallback.
+- Auth/material planning uses exhaustive `switch` statements over typed restore
+  outcomes.
+- No material, identity, budget, or restore authority is assembled by mixing
+  fields from multiple persisted records.
+- Negative restore caches cannot hide a sealed material record written after a
+  previous miss.
+- Source guards classify or delete every remaining defensive fallback marker.
+- Existing no-HSS browser evidence still passes after cleanup.
 
 ## Validation Commands
 
@@ -2836,10 +3973,12 @@ Implementation note, June 20, 2026:
 
 ## Refactor 74 Done Gate
 
-Optional unlock-installed unseal handles are not a completion blocker. The
-default product path can stay lazy: unlock authorizes the wallet/session, and
-the first signing operation restores worker material only when it actually needs
-the sealed Ed25519 artifact.
+Passkey warm-session unseal-handle hardening is implemented. The product path
+stays lazy: unlock authorizes the wallet/session and may install a one-use
+unseal authorization inside the credential-confirm worker, and the first signing
+operation restores worker material only when it actually needs the sealed
+Ed25519 artifact. Email OTP/recovery-code unlock install remains optional unless
+that unlock ceremony starts collecting recovery-code material.
 
 Before calling Refactor 74 done, these release gates must be closed or
 explicitly evidenced:

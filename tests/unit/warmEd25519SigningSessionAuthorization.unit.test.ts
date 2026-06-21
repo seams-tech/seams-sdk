@@ -148,6 +148,70 @@ test.describe('warm Ed25519 signing session authorization', () => {
     });
   });
 
+  test('rejects fractional persisted authorization budget fields', () => {
+    const remainingUsesResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record({ remainingUses: 2.5 }),
+      nearAccountId: ACCOUNT_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus(),
+      nowMs: 1_800_000_000_000,
+    });
+    expect(remainingUsesResult).toMatchObject({
+      ok: false,
+      reason: 'invalid_budget',
+    });
+
+    const expiresAtResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record({ expiresAtMs: 1_900_000_000_000.5 }),
+      nearAccountId: ACCOUNT_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus(),
+      nowMs: 1_800_000_000_000,
+    });
+    expect(expiresAtResult).toMatchObject({
+      ok: false,
+      reason: 'invalid_budget',
+    });
+  });
+
+  test('rejects fractional live server budget status fields', () => {
+    const remainingUsesResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record(),
+      nearAccountId: ACCOUNT_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus({ remainingUses: 2.5 }),
+      nowMs: 1_800_000_000_000,
+    });
+    expect(remainingUsesResult).toMatchObject({
+      ok: false,
+      reason: 'prf_claim_exhausted',
+    });
+
+    const availableUsesResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record(),
+      nearAccountId: ACCOUNT_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus({ availableUses: 2.5 }),
+      nowMs: 1_800_000_000_000,
+    });
+    expect(availableUsesResult).toMatchObject({
+      ok: false,
+      reason: 'prf_claim_exhausted',
+    });
+
+    const expiresAtResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record: ed25519Record(),
+      nearAccountId: ACCOUNT_ID,
+      authMethod: 'passkey',
+      signingSessionStatus: activeStatus({ expiresAtMs: 1_900_000_000_000.5 }),
+      nowMs: 1_800_000_000_000,
+    });
+    expect(expiresAtResult).toMatchObject({
+      ok: false,
+      reason: 'prf_claim_not_active',
+    });
+  });
+
   test('rejects auth-method mismatches', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({ source: 'email_otp' }),

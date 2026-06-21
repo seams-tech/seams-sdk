@@ -529,7 +529,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     expect(result.sessionId).toBe('registration-session-parity');
   });
 
-  test('Email OTP registration defers Ed25519 client-base reconstruction off the critical path', async ({
+  test('Email OTP registration persists sealed Ed25519 worker material before hydrate', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -551,7 +551,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           signingWorkerId: 'signing-worker-local',
         };
         const signingRootId = 'proj-registration:env-registration';
-        let reconstructCalls = 0;
+        const recoveryCodeSecret32B64u = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+        const workerRequests: Array<Record<string, unknown>> = [];
+        let materialHandleCalls = 0;
         let hydratedRecord: Record<string, unknown> | null = null;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -579,17 +581,43 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         keyMaterialPort.getKeyMaterial = async () => null;
 
         try {
+          const workerCtx = {
+            requestWorkerOperation: async (request: Record<string, unknown>) => {
+              workerRequests.push(request);
+              return {
+                ok: true,
+                materialKeyId: 'email-otp-material-key',
+                remainingUses: 1,
+                sealAuthorization: {
+                  kind: 'recovery_code_material_seal_authorization_handle_v1',
+                  handle: 'email-otp-seal-auth-handle',
+                  authSubjectId: 'google:registration-subject',
+                  recoveryCodeBindingDigest: 'email-otp-recovery-binding',
+                  materialKeyId: 'email-otp-material-key',
+                  expiresAtMs: 0,
+                },
+              };
+            },
+          };
+
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: {
-              runThresholdEd25519HssCeremonyWithSession: async () => {
-                reconstructCalls += 1;
+              runThresholdEd25519HssCeremonyWithMaterialHandle: async (input: {
+                context: { keyVersion: string };
+              }) => {
+                materialHandleCalls += 1;
                 return {
                   ok: true,
-                  contextBindingB64u: 'context-binding',
-                  preparedSession: {},
-                  finalizedReport: {},
-                  clientOutput: {
-                    xClientBaseB64u: 'email-otp-x-client-base',
+                  signingMaterial: {
+                    materialHandle: 'email-otp-worker-material',
+                    materialBindingDigest: 'email-otp-worker-binding',
+                    sealedWorkerMaterialRef: 'email-otp-sealed-worker-material',
+                    sealedWorkerMaterialB64u: 'email-otp-sealed-worker-material-b64u',
+                    materialFormatVersion: 'ed25519_worker_material_v1',
+                    materialKeyId: 'email-otp-material-key',
+                    keyVersion: input.context.keyVersion,
+                    clientVerifyingShareB64u: 'email-otp-client-verifier',
+                    signerSlot: 1,
                   },
                 };
               },
@@ -612,9 +640,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 authSubjectId: 'google:registration-subject',
               },
             },
+            workerCtx,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
-            prfFirstB64u: 'email-otp-prf-first',
+            prfFirstB64u: recoveryCodeSecret32B64u,
             registrationHssClientMaterial: {
               hssContext: {
                 signingRootId,
@@ -624,7 +653,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 derivationVersion: 1,
               },
-              prfFirstB64u: 'email-otp-prf-first',
+              prfFirstB64u: recoveryCodeSecret32B64u,
               clientInputs: {
                 contextBindingB64u: 'client-context-binding',
                 yClientB64u: 'y-client',
@@ -671,10 +700,22 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           const capturedHydratedRecord = hydratedRecord as Record<string, unknown> | null;
           return {
-            reconstructCalls,
+            materialHandleCalls,
+            workerRequestCount: workerRequests.length,
             hydratedSource: capturedHydratedRecord?.source || null,
             hydratedXClientBaseB64u: capturedHydratedRecord?.xClientBaseB64u || null,
             hydratedSessionId: capturedHydratedRecord?.thresholdSessionId || null,
+            hydratedWorkerMaterialHandle:
+              capturedHydratedRecord?.ed25519WorkerMaterialHandle || null,
+            hydratedClientVerifyingShareB64u:
+              capturedHydratedRecord?.clientVerifyingShareB64u || null,
+            hydratedMaterialBindingDigest:
+              capturedHydratedRecord?.ed25519WorkerMaterialBindingDigest || null,
+            hydratedSealedWorkerMaterialRef:
+              capturedHydratedRecord?.sealedWorkerMaterialRef || null,
+            hydratedMaterialKeyId: capturedHydratedRecord?.materialKeyId || null,
+            hydratedMaterialCreatedAtMs: capturedHydratedRecord?.materialCreatedAtMs || null,
+            hydratedKeyVersion: capturedHydratedRecord?.keyVersion || null,
           };
         } finally {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
@@ -688,9 +729,17 @@ test.describe('threshold Ed25519 registration warm-session', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.reconstructCalls).toBe(0);
+    expect(result.materialHandleCalls).toBe(1);
+    expect(result.workerRequestCount).toBe(1);
     expect(result.hydratedSource).toBe('email_otp');
     expect(result.hydratedXClientBaseB64u).toBeNull();
     expect(result.hydratedSessionId).toBe('registration-session-email-otp');
+    expect(result.hydratedWorkerMaterialHandle).toBe('email-otp-worker-material');
+    expect(result.hydratedClientVerifyingShareB64u).toBe('email-otp-client-verifier');
+    expect(result.hydratedMaterialBindingDigest).toBe('email-otp-worker-binding');
+    expect(result.hydratedSealedWorkerMaterialRef).toBe('email-otp-sealed-worker-material');
+    expect(result.hydratedMaterialKeyId).toBe('email-otp-material-key');
+    expect(typeof result.hydratedMaterialCreatedAtMs).toBe('number');
+    expect(result.hydratedKeyVersion).toBe('threshold-ed25519-hss-v1');
   });
 });

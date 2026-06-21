@@ -31,17 +31,8 @@ import {
   type SigningSessionSealKeyVersion,
 } from '../keyMaterialBrands';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
-import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/walletSession';
-import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-
-type PasskeyEd25519SessionRestoreIdentity = {
-  touchConfirm: PasskeyWarmSessionRecoveryPorts;
-  walletId: string;
-  signingGrantId: string;
-  thresholdSessionId: string;
-};
 
 type PasskeyEd25519ReconnectRuntimeHandle =
   | {
@@ -64,52 +55,6 @@ type PasskeyEd25519ReconnectWorkerMaterialFacts = PasskeyEd25519ReconnectRuntime
   signerSlot: number;
   keyVersion: string;
 };
-
-export type PasskeyEd25519PrfClaimArgs = PasskeyEd25519SessionRestoreIdentity & {
-  errorContext: string;
-  uses?: number;
-  consume?: boolean;
-};
-
-export async function restorePasskeyEd25519SessionBeforeClaim(
-  args: PasskeyEd25519SessionRestoreIdentity,
-): Promise<void> {
-  if (typeof args.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
-  const signingGrantId = SigningSessionIds.signingGrant(
-    args.signingGrantId,
-  );
-  const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(args.thresholdSessionId);
-  await args.touchConfirm.restorePersistedSessionForSigning({
-    walletId: String(args.walletId).trim(),
-    authMethod: 'passkey',
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId,
-    thresholdSessionId,
-    reason: 'transaction',
-  });
-}
-
-export async function claimPasskeyEd25519PrfFirst(
-  args: PasskeyEd25519PrfClaimArgs,
-): Promise<string> {
-  return await claimWarmSessionPrfFirst({
-    touchConfirm: args.touchConfirm,
-    thresholdSessionId: args.thresholdSessionId,
-    errorContext: args.errorContext,
-    uses: args.uses,
-    ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
-    curve: 'ed25519',
-    chain: 'near',
-    restoreBeforeClaim: () =>
-      restorePasskeyEd25519SessionBeforeClaim({
-        touchConfirm: args.touchConfirm,
-        walletId: args.walletId,
-        signingGrantId: args.signingGrantId,
-        thresholdSessionId: args.thresholdSessionId,
-      }),
-  });
-}
 
 function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
