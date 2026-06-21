@@ -221,4 +221,58 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
     expect(plannedRecord?.signingGrantId).toBe(plannedSigningGrantId);
     expect(plannedRecord?.sealedWorkerMaterialRef).toBe('sealed-ref-reconnect');
   });
+
+  test('retains sealed worker material facts when reconnect remints a different SigningWorker route', async () => {
+    const oldRecord = writeEd25519Record({
+      thresholdSessionId: 'tsess-ed25519-material-worker-old',
+      signingGrantId: 'wsess-ed25519-material-worker-old',
+      remainingUses: 0,
+      withWorkerMaterial: true,
+      signingWorkerId: 'signing-worker-before-remint',
+    });
+    const plannedSessionId = 'tsess-ed25519-material-worker-planned';
+    const plannedSigningGrantId = 'wsess-ed25519-material-worker-planned';
+
+    await reconnectPasskeyEd25519CapabilityForSigning({
+      nearAccountId: ACCOUNT_ID,
+      record: oldRecord,
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: TEST_WEBAUTHN_CREDENTIAL as any,
+        rpId: RP_ID,
+      }),
+      remainingUses: 1,
+      sessionId: plannedSessionId,
+      signingGrantId: plannedSigningGrantId,
+      provisionThresholdEd25519Session: async () => {
+        writeEd25519Record({
+          thresholdSessionId: plannedSessionId,
+          signingGrantId: plannedSigningGrantId,
+          signingWorkerId: 'signing-worker-after-remint',
+        });
+        return {
+          ok: true,
+          sessionId: plannedSessionId,
+          signingGrantId: plannedSigningGrantId,
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          jwt: `jwt:${plannedSessionId}`,
+        };
+      },
+      restorePasskeyEd25519SigningMaterial: async ({ thresholdSessionId }) => {
+        const plannedRecord =
+          getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+        expect(plannedRecord?.sealedWorkerMaterialRef).toBe('sealed-ref-reconnect');
+        expect(plannedRecord?.sealedWorkerMaterialB64u).toBe('sealed-blob-reconnect');
+        expect(plannedRecord?.materialKeyId).toBe('material-key-reconnect');
+        expect(plannedRecord?.routerAbNormalSigning?.signingWorkerId).toBe(
+          'signing-worker-after-remint',
+        );
+      },
+    });
+
+    const plannedRecord =
+      getStoredThresholdEd25519SessionRecordByThresholdSessionId(plannedSessionId);
+    expect(plannedRecord?.signingGrantId).toBe(plannedSigningGrantId);
+    expect(plannedRecord?.sealedWorkerMaterialRef).toBe('sealed-ref-reconnect');
+  });
 });

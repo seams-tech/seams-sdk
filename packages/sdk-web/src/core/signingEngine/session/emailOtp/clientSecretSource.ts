@@ -12,6 +12,8 @@ import type {
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
+const WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS = 0;
+
 export type EmailOtpEd25519RegistrationClientSecretSource = {
   kind: 'email_otp_registration_ed25519_recovery_code_secret_source';
   registrationAttemptId: string;
@@ -121,7 +123,6 @@ export async function prepareRecoveryCodeSealAuthorizationForEmailOtp(args: {
   authSubjectId: string;
   recoveryCodeBindingDigest: string;
   recoveryCodeSecret32B64u: string;
-  expiresAtMs: number;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult> {
   const recoveryCodeSecret32 = decodeMaterialAuthorizationSecret32B64u(
@@ -135,7 +136,7 @@ export async function prepareRecoveryCodeSealAuthorizationForEmailOtp(args: {
         authSubjectId: args.authSubjectId,
         recoveryCodeBindingDigest: args.recoveryCodeBindingDigest,
         recoveryCodeSecret32,
-        expiresAtMs: args.expiresAtMs,
+        expiresAtMs: WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS,
       },
       workerCtx: args.workerCtx,
     });

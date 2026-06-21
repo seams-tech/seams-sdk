@@ -17,8 +17,12 @@ const IMPORT_PATHS = {
     '/sdk/esm/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.js',
   emailOtpClientSecretSource: '/sdk/esm/core/signingEngine/session/emailOtp/clientSecretSource.js',
   hssMaterialBinding: '/sdk/esm/core/signingEngine/threshold/ed25519/hssMaterialBinding.js',
+  indexedDB: '/sdk/esm/core/indexedDB/index.js',
+  sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   signerWorkerTypes: '/sdk/esm/core/types/signer-worker.js',
   ecdsaRoleLocalRecords: '/sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
+  thresholdWarmSessionBootstrap:
+    '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
 } as const;
 
 test.describe('Router A/B Ed25519 Wallet Session state', () => {
@@ -415,6 +419,329 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       persistedHandle: 'restored-worker-material-handle',
       persistedMaterialCreatedAtMs: 1_700_000_000_123,
     });
+  });
+
+  test('login restore hydrates pending Ed25519 material from durable ECDSA sealed metadata', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const warmBootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
+        const indexedDbMod = await import(paths.indexedDB);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
+        const bindingMod = await import(paths.hssMaterialBinding);
+        const signerWorkerTypes = await import(paths.signerWorkerTypes);
+        const storeMod = await import(paths.thresholdSessionStore);
+        const thresholdSessionId = 'tsess-login-ed25519';
+        const signingGrantId = 'wsess-login-1';
+        const materialCreatedAtMs = 1_700_000_000_789;
+        const clientVerifyingShareB64u = 'ed25519-client-verifying-share';
+        const keyVersion = 'threshold-ed25519-hss-v1';
+        const expiresAtMs = Date.now() + 60_000;
+        const prfFirstB64u = 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc';
+        const base64UrlEncodeString = (value: string) =>
+          btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+        const unsignedJwt = (payload: Record<string, unknown>) =>
+          `${base64UrlEncodeString(JSON.stringify({ alg: 'none', typ: 'JWT' }))}.${base64UrlEncodeString(JSON.stringify(payload))}.`;
+        const ecdsaWalletSessionJwt = unsignedJwt({
+          kind: 'router_ab_ecdsa_hss_wallet_session_v1',
+          sub: 'alice.testnet',
+          walletId: 'alice.testnet',
+          keyHandle: 'ehss-key-login-tempo',
+          keyScope: 'evm-family',
+          chainTarget: {
+            kind: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-testnet',
+          },
+          thresholdSessionId: 'tsess-login-ecdsa',
+          signingGrantId,
+        });
+        const material = await bindingMod.buildRouterAbEd25519WorkerMaterialBinding({
+          nearAccountId: 'alice.testnet',
+          signerSlot: 1,
+          signingRootId: 'proj_local:dev',
+          signingRootVersion: 'default',
+          relayerKeyId: 'rk-1',
+          keyVersion,
+          participantIds: [1, 2],
+          clientVerifyingShareB64u,
+          createdAtMs: materialCreatedAtMs,
+        });
+        const calls: string[] = [];
+        const restorePayloads: unknown[] = [];
+
+        storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        await sealedStoreMod.clearAllSealedSessions();
+        const originalGetKeyMaterial = indexedDbMod.IndexedDBManager.getKeyMaterial;
+        const originalResolveProfileAccountContext =
+          indexedDbMod.IndexedDBManager.resolveProfileAccountContext;
+        indexedDbMod.IndexedDBManager.resolveProfileAccountContext = async (accountRef: {
+          chainIdKey: string;
+          accountAddress: string;
+        }) =>
+          accountRef.chainIdKey === 'near:testnet' &&
+          accountRef.accountAddress === 'alice.testnet'
+            ? { profileId: 'profile:alice.testnet', accountRef }
+            : null;
+        indexedDbMod.IndexedDBManager.getKeyMaterial = async () => ({
+          profileId: 'profile:alice.testnet',
+          signerSlot: 1,
+          chainIdKey: 'near:testnet',
+          keyKind: 'threshold_share_v1',
+          algorithm: 'ed25519',
+          publicKey: 'ed25519:group',
+          payload: {
+            relayerKeyId: 'rk-1',
+            keyVersion,
+            participants: [
+              { id: 1, role: 'client' },
+              { id: 2, role: 'relayer', relayerKeyId: 'rk-1' },
+            ],
+          },
+          timestamp: materialCreatedAtMs - 1,
+          schemaVersion: 1,
+        });
+        try {
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId: 'alice.testnet',
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay.example',
+            relayerKeyId: 'rk-1',
+            participantIds: [1, 2],
+            signerSlot: 1,
+            signingRootId: 'proj_local:dev',
+            signingRootVersion: 'default',
+            runtimePolicyScope: {
+              orgId: 'org-local',
+              projectId: 'proj_local',
+              envId: 'dev',
+              signingRootVersion: 'default',
+            },
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId,
+            signingGrantId,
+            walletSessionJwt: 'jwt-ed25519',
+            routerAbNormalSigning: {
+              kind: 'router_ab_ed25519_normal_signing_v1',
+              signingWorkerId: 'signing-worker-local',
+            },
+            expiresAtMs,
+            remainingUses: 3,
+            source: 'login',
+          });
+          const durableRecord = sealedStoreMod.buildCurrentSealedSessionRecord({
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            walletId: 'alice.testnet',
+            signingGrantId,
+            thresholdSessionId: 'tsess-login-ecdsa',
+            thresholdSessionIds: {
+              ecdsa: 'tsess-login-ecdsa',
+              ed25519: thresholdSessionId,
+            },
+            sealedSecretB64u: 'sealed-ecdsa-secret',
+            relayerUrl: 'https://relay.example',
+            keyVersion: 'seal-key-v1',
+            shamirPrimeB64u: 'shamir-prime',
+            ecdsaRestore: {
+              chainTarget: {
+                kind: 'tempo',
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
+              rpId: 'example.localhost',
+              walletSessionJwt: ecdsaWalletSessionJwt,
+              sessionKind: 'jwt',
+              keyHandle: 'ehss-key-login-tempo',
+              ecdsaThresholdKeyId: 'ehss-login-tempo',
+              ethereumAddress: `0x${'aa'.repeat(20)}`,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              thresholdEcdsaPublicKeyB64u: 'CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk',
+              participantIds: [1, 2],
+              runtimePolicyScope: {
+                orgId: 'org-local',
+                projectId: 'proj_local',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
+            },
+            ed25519Restore: {
+              rpId: 'example.localhost',
+              relayerKeyId: 'rk-1',
+              participantIds: [1, 2],
+              walletSessionJwt: 'jwt-ed25519',
+              sessionKind: 'jwt',
+              runtimePolicyScope: {
+                orgId: 'org-local',
+                projectId: 'proj_local',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
+              clientVerifyingShareB64u,
+              ed25519WorkerMaterialBindingDigest: material.materialBindingDigest,
+              sealedWorkerMaterialRef: `ed25519-worker-material-v1:${material.materialBindingDigest}`,
+              materialFormatVersion: 'ed25519_worker_material_v1',
+              materialKeyId: material.materialBinding.materialKeyId,
+              materialCreatedAtMs,
+              signerSlot: 1,
+              keyVersion,
+              routerAbNormalSigning: {
+                kind: 'router_ab_ed25519_normal_signing_v1',
+                signingWorkerId: 'signing-worker-local',
+              },
+            },
+            issuedAtMs: Date.now(),
+            expiresAtMs,
+            remainingUses: 3,
+            updatedAtMs: Date.now(),
+          });
+          if (!durableRecord) {
+            throw new Error('test failed to build durable ECDSA sealed Ed25519 restore record');
+          }
+          await sealedStoreMod.writeExactSealedSession(durableRecord);
+          const durableRecords = await sealedStoreMod.listEcdsaSealedSessionsForWallet({
+            walletId: 'alice.testnet',
+            filter: {
+              authMethod: 'passkey',
+              curve: 'ecdsa',
+            },
+          });
+          const restored = await warmBootstrapMod.restoreThresholdEd25519WorkerMaterialFromCredential(
+            {
+              context: {
+                signingEngine: {
+                  requestWorkerOperation: async ({
+                    kind,
+                    request,
+                  }: {
+                    kind: string;
+                    request: { type: string; payload: unknown };
+                  }) => {
+                    calls.push(`${kind}:${request.type}`);
+                    if (
+                      request.type ===
+                      signerWorkerTypes.NearSignerWorkerCustomRequestType
+                        .ThresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization
+                    ) {
+                      return {
+                        ok: true,
+                        unsealAuthorization: {
+                          kind: 'passkey_prf_material_authorization_handle_v1',
+                          handle: 'unseal-handle',
+                          purpose: 'unseal',
+                          rpId: 'example.localhost',
+                          credentialIdB64u: 'cred-1',
+                          materialBindingDigest: material.materialBindingDigest,
+                          expiresAtMs: Date.now() + 60_000,
+                        },
+                        remainingUses: 1,
+                      };
+                    }
+                    if (
+                      request.type ===
+                      signerWorkerTypes.NearSignerWorkerCustomRequestType
+                        .ThresholdEd25519RestoreWorkerMaterial
+                    ) {
+                      restorePayloads.push(request.payload);
+                      return {
+                        ok: true,
+                        materialHandle: 'restored-worker-material-handle',
+                        materialBindingDigest: material.materialBindingDigest,
+                        clientVerifyingShareB64u,
+                        sealedWorkerMaterialRef: `ed25519-worker-material-v1:${material.materialBindingDigest}`,
+                        sealedWorkerMaterialB64u: 'sealed-worker-material',
+                        materialFormatVersion: 'ed25519_worker_material_v1',
+                        materialKeyId: material.materialBinding.materialKeyId,
+                        signerSlot: 1,
+                        keyVersion,
+                      };
+                    }
+                    if (
+                      request.type ===
+                      signerWorkerTypes.NearSignerWorkerCustomRequestType
+                        .ThresholdEd25519ValidateWorkerMaterial
+                    ) {
+                      return {
+                        materialHandle: 'restored-worker-material-handle',
+                        bindingDigest: material.materialBindingDigest,
+                        clientVerifyingShareB64u,
+                      };
+                    }
+                    throw new Error(`unexpected worker call ${request.type}`);
+                  },
+                },
+              },
+              credential: {
+                id: 'cred-1',
+                rawId: 'cred-1',
+                type: 'public-key',
+                authenticatorAttachment: undefined,
+                response: {
+                  clientDataJSON: 'client-data-json',
+                  authenticatorData: 'authenticator-data',
+                  signature: 'signature',
+                  userHandle: undefined,
+                },
+                clientExtensionResults: {
+                  prf: {
+                    results: {
+                      first: prfFirstB64u,
+                    },
+                  },
+                },
+              },
+              nearAccountId: 'alice.testnet',
+              signerSlot: 1,
+              thresholdSessionId,
+            },
+          );
+          const persisted =
+            storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+          return {
+            restored,
+            calls,
+            durableRecordCount: durableRecords.length,
+            durableRecordHasEd25519Restore: Boolean(durableRecords[0]?.ed25519Restore),
+            restorePayload: restorePayloads[0],
+            persistedHandle: persisted?.ed25519WorkerMaterialHandle,
+            persistedBindingDigest: persisted?.ed25519WorkerMaterialBindingDigest,
+            persistedMaterialCreatedAtMs: persisted?.materialCreatedAtMs,
+          };
+        } finally {
+          indexedDbMod.IndexedDBManager.resolveProfileAccountContext =
+            originalResolveProfileAccountContext;
+          indexedDbMod.IndexedDBManager.getKeyMaterial = originalGetKeyMaterial;
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+          await sealedStoreMod.clearAllSealedSessions();
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toMatchObject({
+      restored: {
+        kind: 'restored',
+        thresholdSessionId: 'tsess-login-ed25519',
+      },
+      calls: [
+        'nearSigner:thresholdEd25519PreparePasskeyPrfWorkerMaterialUnsealAuthorization',
+        'nearSigner:thresholdEd25519RestoreWorkerMaterial',
+        'nearSigner:thresholdEd25519ValidateWorkerMaterial',
+      ],
+      durableRecordCount: 1,
+      durableRecordHasEd25519Restore: true,
+      persistedHandle: 'restored-worker-material-handle',
+      persistedMaterialCreatedAtMs: 1_700_000_000_789,
+    });
+    expect(result.restorePayload).toMatchObject({
+      kind: 'ed25519_restore_worker_material_v1',
+      sealedMaterial: {
+        kind: 'storage_ref',
+      },
+    });
+    expect(result.persistedBindingDigest).toEqual(expect.any(String));
   });
 
   test('restores a signable Ed25519 record when the current worker has lost the material handle', async ({

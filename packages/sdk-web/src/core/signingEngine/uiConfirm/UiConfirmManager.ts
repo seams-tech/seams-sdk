@@ -160,6 +160,58 @@ type PasskeySealedRecordAccountMetadata = {
 
 type SigningSessionSealedAuthMethod = SigningSessionSealAuthMethod;
 
+function positiveInteger(value: unknown): number {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function ed25519SealedWorkerMaterialMissingFields(
+  value: {
+    clientVerifyingShareB64u?: unknown;
+    ed25519WorkerMaterialBindingDigest?: unknown;
+    sealedWorkerMaterialRef?: unknown;
+    materialFormatVersion?: unknown;
+    materialKeyId?: unknown;
+    materialCreatedAtMs?: unknown;
+    signerSlot?: unknown;
+    keyVersion?: unknown;
+  } | null | undefined,
+): string[] {
+  const missing: string[] = [];
+  if (!String(value?.clientVerifyingShareB64u || '').trim()) {
+    missing.push('clientVerifyingShareB64u');
+  }
+  if (!String(value?.ed25519WorkerMaterialBindingDigest || '').trim()) {
+    missing.push('ed25519WorkerMaterialBindingDigest');
+  }
+  if (!String(value?.sealedWorkerMaterialRef || '').trim()) {
+    missing.push('sealedWorkerMaterialRef');
+  }
+  if (!String(value?.materialFormatVersion || '').trim()) {
+    missing.push('materialFormatVersion');
+  }
+  if (!String(value?.materialKeyId || '').trim()) {
+    missing.push('materialKeyId');
+  }
+  if (!positiveInteger(value?.materialCreatedAtMs)) {
+    missing.push('materialCreatedAtMs');
+  }
+  if (!positiveInteger(value?.signerSlot)) {
+    missing.push('signerSlot');
+  }
+  if (!String(value?.keyVersion || '').trim()) {
+    missing.push('keyVersion');
+  }
+  return missing;
+}
+
+function completeEd25519RestoreMetadata(
+  value: SigningSessionSealedStoreRecord['ed25519Restore'] | undefined,
+): SigningSessionSealedStoreRecord['ed25519Restore'] | undefined {
+  if (!value) return undefined;
+  return ed25519SealedWorkerMaterialMissingFields(value).length === 0 ? value : undefined;
+}
+
 type WarmSessionSealAuthMethodInput =
   | {
       thresholdSessionId: string;
@@ -801,6 +853,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     refreshed: PasskeySealedRecordAccountMetadata;
   }): PasskeySealedRecordAccountMetadata {
     const existing = args.existing;
+    const ed25519Restore =
+      completeEd25519RestoreMetadata(args.refreshed.ed25519Restore) ||
+      completeEd25519RestoreMetadata(existing?.ed25519Restore);
     return {
       ...(args.refreshed.walletId || existing?.walletId
         ? { walletId: args.refreshed.walletId || existing?.walletId }
@@ -817,9 +872,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ...(args.refreshed.ecdsaRestore || existing?.ecdsaRestore
         ? { ecdsaRestore: args.refreshed.ecdsaRestore || existing?.ecdsaRestore }
         : {}),
-      ...(args.refreshed.ed25519Restore || existing?.ed25519Restore
-        ? { ed25519Restore: args.refreshed.ed25519Restore || existing?.ed25519Restore }
-        : {}),
+      ...(ed25519Restore ? { ed25519Restore } : {}),
     };
   }
 
@@ -995,43 +1048,57 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           }
         : undefined;
     const ed25519SignerSlot = Math.floor(Number(ed25519Record?.signerSlot) || 0);
-    const ed25519Restore = ed25519Record && ed25519SignerSlot > 0
-      ? {
-          rpId: ed25519Record.rpId,
-          relayerKeyId: ed25519Record.relayerKeyId,
-          participantIds: ed25519Record.participantIds,
-          ...persistedRestoreWalletSessionAuthFields(ed25519Record),
-          signerSlot: ed25519SignerSlot,
-          ...(ed25519Record.runtimePolicyScope
-            ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
-            : {}),
-          ...(ed25519Record.clientVerifyingShareB64u
-            ? { clientVerifyingShareB64u: ed25519Record.clientVerifyingShareB64u }
-            : {}),
-          ...(ed25519Record.ed25519WorkerMaterialBindingDigest
-            ? { ed25519WorkerMaterialBindingDigest: ed25519Record.ed25519WorkerMaterialBindingDigest }
-            : {}),
-          ...(ed25519Record.sealedWorkerMaterialRef
-            ? { sealedWorkerMaterialRef: ed25519Record.sealedWorkerMaterialRef }
-            : {}),
-          ...(ed25519Record.sealedWorkerMaterialB64u
-            ? { sealedWorkerMaterialB64u: ed25519Record.sealedWorkerMaterialB64u }
-            : {}),
-          ...(ed25519Record.materialFormatVersion
-            ? { materialFormatVersion: ed25519Record.materialFormatVersion }
-            : {}),
-          ...(ed25519Record.materialKeyId
-            ? { materialKeyId: ed25519Record.materialKeyId }
-            : {}),
-          ...(ed25519Record.materialCreatedAtMs
-            ? { materialCreatedAtMs: ed25519Record.materialCreatedAtMs }
-            : {}),
-          ...(ed25519Record.keyVersion ? { keyVersion: ed25519Record.keyVersion } : {}),
-          ...(ed25519Record.routerAbNormalSigning
-            ? { routerAbNormalSigning: ed25519Record.routerAbNormalSigning }
-            : {}),
-        }
-      : undefined;
+    const ed25519MaterialMissingFields = ed25519Record
+      ? ed25519SealedWorkerMaterialMissingFields(ed25519Record)
+      : [];
+    if (ed25519Record && ed25519SignerSlot > 0 && ed25519MaterialMissingFields.length > 0) {
+      console.warn('[UiConfirm] skipping Ed25519 durable restore metadata without worker material', {
+        thresholdSessionId: args.thresholdSessionId,
+        curve: args.curve,
+        walletId: String(ed25519Record.nearAccountId || args.walletId || '').trim(),
+        source: ed25519Record.source,
+        missingFields: ed25519MaterialMissingFields,
+        hasRuntimeMaterialHandle: Boolean(
+          String(ed25519Record.ed25519WorkerMaterialHandle || '').trim(),
+        ),
+        hasClientVerifier: Boolean(String(ed25519Record.clientVerifyingShareB64u || '').trim()),
+        hasMaterialBindingDigest: Boolean(
+          String(ed25519Record.ed25519WorkerMaterialBindingDigest || '').trim(),
+        ),
+        hasSealedWorkerMaterialRef: Boolean(
+          String(ed25519Record.sealedWorkerMaterialRef || '').trim(),
+        ),
+        hasMaterialKeyId: Boolean(String(ed25519Record.materialKeyId || '').trim()),
+        hasKeyVersion: Boolean(String(ed25519Record.keyVersion || '').trim()),
+      });
+    }
+    const ed25519Restore =
+      ed25519Record && ed25519SignerSlot > 0 && ed25519MaterialMissingFields.length === 0
+        ? {
+            rpId: ed25519Record.rpId,
+            relayerKeyId: ed25519Record.relayerKeyId,
+            participantIds: ed25519Record.participantIds,
+            ...persistedRestoreWalletSessionAuthFields(ed25519Record),
+            signerSlot: ed25519SignerSlot,
+            ...(ed25519Record.runtimePolicyScope
+              ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
+              : {}),
+            clientVerifyingShareB64u: ed25519Record.clientVerifyingShareB64u,
+            ed25519WorkerMaterialBindingDigest:
+              ed25519Record.ed25519WorkerMaterialBindingDigest,
+            sealedWorkerMaterialRef: ed25519Record.sealedWorkerMaterialRef,
+            ...(ed25519Record.sealedWorkerMaterialB64u
+              ? { sealedWorkerMaterialB64u: ed25519Record.sealedWorkerMaterialB64u }
+              : {}),
+            materialFormatVersion: ed25519Record.materialFormatVersion,
+            materialKeyId: ed25519Record.materialKeyId,
+            materialCreatedAtMs: ed25519Record.materialCreatedAtMs,
+            keyVersion: ed25519Record.keyVersion,
+            ...(ed25519Record.routerAbNormalSigning
+              ? { routerAbNormalSigning: ed25519Record.routerAbNormalSigning }
+              : {}),
+          }
+        : undefined;
     return {
       ...(accountId ? { walletId: accountId } : {}),
       ...(ed25519Record?.signingRootId ? { signingRootId: ed25519Record.signingRootId } : {}),
@@ -1283,10 +1350,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!parsed.ok) {
       throw new Error(`Warm-session cache failed (${parsed.code}): ${parsed.message}`);
     }
-    const persisted = await this.ensureSealedRecordPersisted(
-      args.sessionId,
-      args.transport || null,
-    );
+    const persisted = args.transport
+      ? await this.ensureSealedRecordPersisted(args.sessionId, args.transport)
+      : null;
     if (persisted && !persisted.ok) {
       throw new Error(
         `Warm-session cache could not persist sealed refresh material (${persisted.code}): ${persisted.message}`,
@@ -1551,6 +1617,24 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ? { walletId: args.transport?.walletId || inferredTransport?.walletId }
         : {}),
     });
+    console.info('[UiConfirm] signing-session seal metadata summary', {
+      thresholdSessionId,
+      curve,
+      signingGrantId,
+      hasEcdsaRestore: Boolean(recordMetadata.ecdsaRestore),
+      hasEd25519Restore: Boolean(recordMetadata.ed25519Restore),
+      ed25519RestoreMissingFields: recordMetadata.ed25519Restore
+        ? ed25519SealedWorkerMaterialMissingFields(recordMetadata.ed25519Restore)
+        : [],
+    });
+    if (curve === 'ed25519' && !recordMetadata.ed25519Restore) {
+      return {
+        ok: false,
+        code: 'missing_restore_metadata',
+        message:
+          'Ed25519 signing-session seal persistence requires sealed worker-material restore metadata',
+      };
+    }
     const chainTarget = curve === 'ecdsa' ? recordMetadata.ecdsaRestore?.chainTarget : undefined;
     const explicitAuthMethod = args.transport?.authMethod || inferredTransport?.authMethod;
     if (curve === 'ecdsa' && !chainTarget) {

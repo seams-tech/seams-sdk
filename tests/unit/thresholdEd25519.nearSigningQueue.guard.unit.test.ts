@@ -64,6 +64,20 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(nearSigning).not.toContain('rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord');
   });
 
+  test('NEAR transaction step-up uses material-aware auth planning', () => {
+    const transactionsFlow = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    );
+    const stepUpBlock = sourceBetween(
+      transactionsFlow,
+      'const preparedStepUp = await requireNearStepUpAuth({',
+      'const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;',
+    );
+
+    expect(stepUpBlock).toContain('signingAuthPlan: materialAwareSigningAuthPlan');
+    expect(stepUpBlock).not.toContain('signingAuthPlan: providedSigningAuthPlan');
+  });
+
   test('Email OTP NEAR warm-session planning does not treat sealed records as spendable auth', () => {
     const nearSigning = readNearSigningSource();
     const walletSessionCredential = readRepoSource(
@@ -124,6 +138,74 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(loginFlow).not.toContain('clientVerifyingShareB64u');
     expect(loginSurface).not.toContain('ThresholdEd25519HssClientSurface');
     expect(loginSurface).not.toContain('ThresholdEd25519HssCeremonySurface');
+  });
+
+  test('passkey Ed25519 unlock restores worker material from durable sealed metadata', () => {
+    const loginFlow = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
+    const sessionProvision = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts',
+    );
+    const bootstrap = readRepoSource(
+      'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
+    );
+    const reconnectRestore = sourceBetween(
+      bootstrap,
+      'export async function restoreThresholdEd25519WorkerMaterialFromCredential',
+      'function parsePositiveInt',
+    );
+    const durableMaterialPredicate = sourceBetween(
+      bootstrap,
+      'function sealedEd25519RestoreHasWorkerMaterial',
+      'function sealedEd25519RestoreMatchesCurrentRecord',
+    );
+    const durableLookup = sourceBetween(
+      bootstrap,
+      'function hasEd25519RestoreMetadata',
+      'async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial',
+    );
+    const reconstruction = sourceBetween(
+      bootstrap,
+      'export async function reconstructThresholdEd25519SigningMaterialFromWarmSession',
+      'export async function hydrateThresholdWarmSessionFromRelay',
+    );
+    const loginRestore = sourceBetween(
+      loginFlow,
+      'const restoredMaterial = await restoreThresholdEd25519WorkerMaterialFromCredential',
+      "if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519')",
+    );
+
+    expect(reconnectRestore).toContain(
+      'restoreDurableThresholdEd25519WorkerMaterialFromCredential',
+    );
+    expect(sessionProvision).toContain("if (args.source === 'login') return undefined");
+    expect(durableLookup).toContain('hasEd25519RestoreMetadata');
+    expect(durableLookup).toContain('listEcdsaSealedSessionsForWallet');
+    expect(durableLookup).not.toContain("sealedRecord.curve === 'ed25519'");
+    expect(durableMaterialPredicate).toContain('restore.sealedWorkerMaterialRef');
+    expect(durableMaterialPredicate).not.toContain('restore.sealedWorkerMaterialB64u');
+    expect(reconstruction).toContain('persistStoredThresholdEd25519SessionMaterialHandle');
+    expect(reconstruction).toContain(
+      'refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial',
+    );
+    expect(
+      reconstruction.indexOf('persistStoredThresholdEd25519SessionMaterialHandle'),
+    ).toBeLessThan(
+      reconstruction.indexOf('refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial'),
+    );
+    expect(loginRestore).toContain('requireThresholdLoginEd25519WorkerMaterialReady');
+  });
+
+  test('wallet-session reads do not treat pending Ed25519 records as logged-in capability', () => {
+    const loginFlow = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
+    const loginStateReader = sourceBetween(
+      loginFlow,
+      'async function getLoginStateInternal',
+      'export async function getRecentUnlocks',
+    );
+
+    expect(loginStateReader).toContain('hasThresholdEd25519SigningCapability');
+    expect(loginStateReader).not.toContain('hasThresholdEd25519SessionRecord');
+    expect(loginStateReader).not.toContain('getStoredThresholdEd25519SessionRecordForAccount(resolvedNearAccountId)');
   });
 
   test('normal Ed25519 signing flows do not run HSS material repair', () => {

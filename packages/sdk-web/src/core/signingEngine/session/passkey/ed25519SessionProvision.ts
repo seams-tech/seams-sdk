@@ -2,6 +2,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import { cacheSigningSessionPrfFirst, generateSessionId } from './prfCache';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import {
   persistWarmSessionEd25519Capability,
   type PersistWarmSessionEd25519CapabilityArgs,
@@ -22,6 +23,23 @@ export type ProvisionThresholdEd25519SessionDeps = {
   getSignerWorkerContext: () => ConnectEd25519SessionInput['workerCtx'];
   persistWarmSessionEd25519Capability?: (args: PersistWarmSessionEd25519CapabilityArgs) => unknown;
 };
+
+function sealTransportForProvisionedEd25519Session(args: {
+  source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
+  nearAccountId: string;
+  relayerUrl: string;
+  signingGrantId: string;
+  walletSessionJwt: string;
+}): WarmSessionSealTransportInput | undefined {
+  if (args.source === 'login') return undefined;
+  return {
+    curve: 'ed25519',
+    walletId: args.nearAccountId,
+    relayerUrl: args.relayerUrl,
+    signingGrantId: args.signingGrantId,
+    ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
+  };
+}
 
 export async function provisionThresholdEd25519Session(
   deps: ProvisionThresholdEd25519SessionDeps,
@@ -115,19 +133,20 @@ export async function provisionThresholdEd25519Session(
   });
 
   if (prfFirstB64u) {
+    const transport = sealTransportForProvisionedEd25519Session({
+      source,
+      nearAccountId: String(nearAccountId),
+      relayerUrl,
+      signingGrantId,
+      walletSessionJwt: jwt,
+    });
     try {
       await cacheSigningSessionPrfFirst(deps.touchConfirm, {
         sessionId: resolvedSessionId,
         prfFirstB64u,
         expiresAtMs,
         remainingUses,
-        transport: {
-          curve: 'ed25519',
-          walletId: String(nearAccountId),
-          relayerUrl,
-          signingGrantId,
-          ...(jwt ? { walletSessionJwt: jwt } : {}),
-        },
+        ...(transport ? { transport } : {}),
       });
     } catch (error: unknown) {
       const details = String(

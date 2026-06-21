@@ -423,6 +423,11 @@ function ed25519SealAuthorizationSecretsLiveInCredentialBoundaries(): void {
     'export async function prepareThresholdEd25519PasskeyMaterialSealAuthorizationFromCredential',
     'export async function prepareThresholdEd25519PasskeyMaterialUnsealAuthorizationFromCredential',
   );
+  const emailSealHelperSource = sourceRangeBetween(
+    emailAuthorizationSource,
+    'export async function prepareRecoveryCodeSealAuthorizationForEmailOtp',
+    'export async function prepareRecoveryCodeUnsealAuthorizationForEmailOtp',
+  );
 
   expect(passkeyAuthorizationSource).toContain('prfFirstBytes');
   expect(passkeyAuthorizationSource).toContain(
@@ -445,6 +450,13 @@ function ed25519SealAuthorizationSecretsLiveInCredentialBoundaries(): void {
   expect(passkeySealHelperSource).toContain('zeroizeSecretBytes(prfFirstBytes)');
   expect(passkeySealHelperSource).not.toContain('prfFirstB64u: string');
   expect(passkeySealHelperSource).not.toContain('args.prfFirstB64u');
+  for (const sealHelperSource of [passkeySealHelperSource, emailSealHelperSource] as const) {
+    expect(sealHelperSource).toContain(
+      'expiresAtMs: WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS',
+    );
+    expect(sealHelperSource).not.toContain('expiresAtMs: args.expiresAtMs');
+    expect(sealHelperSource).not.toContain('expiresAtMs: number;');
+  }
 }
 
 function nearSigningFlowsUseSharedEd25519MaterialRestoreReadiness(): void {
@@ -907,6 +919,27 @@ function addSignerAndDeviceSyncUseSharedSealedWorkerMaterialSetup(): void {
   expect(offenders, offenders.join('\n')).toEqual([]);
 }
 
+function ed25519DurableRefreshTransportDoesNotUseHssMaterialKeyVersion(): void {
+  const source = readRepoSource(
+    'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
+  );
+  const helperSource = sourceRangeBetween(
+    source,
+    'async function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial',
+    'export async function reconstructThresholdEd25519SigningMaterialFromWarmSession',
+  );
+  const transportSource = sourceRangeBetween(
+    helperSource,
+    'transport: {',
+    '},',
+  );
+
+  expect(helperSource).toContain('hydrateSigningSession');
+  expect(transportSource).toContain("curve: 'ed25519'");
+  expect(transportSource).toContain('walletSessionJwt: args.walletSessionJwt');
+  expect(transportSource).not.toContain('keyVersion');
+}
+
 function rawHssMaterialMarkersStayDeletedFromActiveSourceAndFixtures(): void {
   const forbiddenMarkers = [
     ['claim', 'PrfFirst', 'ByThreshold', 'SessionId'].join(''),
@@ -1112,6 +1145,11 @@ test(
 test(
   'Refactor 74 add-signer and device-sync setup use shared sealed worker-material persistence',
   addSignerAndDeviceSyncUseSharedSealedWorkerMaterialSetup,
+);
+
+test(
+  'Refactor 74 Ed25519 durable refresh transport does not use HSS material keyVersion',
+  ed25519DurableRefreshTransportDoesNotUseHssMaterialKeyVersion,
 );
 
 test(

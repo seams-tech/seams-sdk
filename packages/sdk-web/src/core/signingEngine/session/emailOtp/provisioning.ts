@@ -283,7 +283,6 @@ export async function reconstructEmailOtpEd25519Session(args: {
     authSubjectId,
     recoveryCodeBindingDigest,
     recoveryCodeSecret32B64u,
-    expiresAtMs,
     workerCtx,
   });
   const completed = await runThresholdEd25519HssCeremonyWithMaterialHandle({

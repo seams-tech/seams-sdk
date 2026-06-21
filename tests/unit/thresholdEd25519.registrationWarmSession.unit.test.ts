@@ -141,7 +141,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
-                  sessionId: 'registration-session-1',
+                  thresholdSessionId: 'registration-session-1',
                   signingGrantId: 'signing-grant-1',
                   expiresAtMs: now + 60_000,
                   participantIds: [1, 2],
@@ -191,6 +191,169 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     expect(result.walletSession.login?.nearAccountId).toBe('registration-alice.testnet');
     expect(result.walletSession.signingSession?.status).toBe('active');
     expect(result.walletSession.signingSession?.sessionId).toBe('registration-session-1');
+  });
+
+  test('registration reconstruction seal refresh uses configured seal keyVersion', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const bootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
+        const sessionStoreMod = await import(paths.thresholdSessionStore);
+
+        const now = Date.now();
+        const nearAccountId = 'registration-reconstruct.testnet';
+        const thresholdSessionId = 'registration-session-reconstruct';
+        const runtimePolicyScope = {
+          orgId: 'org-registration',
+          projectId: 'proj-registration',
+          envId: 'env-registration',
+          signingRootVersion: 'default',
+        };
+        const routerAbNormalSigning = {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: 'signing-worker-local',
+        };
+        const hydrateInputs: Array<Record<string, unknown>> = [];
+        let hssContextKeyVersion: string | null = null;
+        let sealAuthorizationMaterialKeyId: string | null = null;
+
+        sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
+        try {
+          sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId,
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay.example',
+            relayerKeyId: 'rk-reconstruct',
+            participantIds: [1, 2],
+            signingRootId: 'proj-registration:env-registration',
+            signingRootVersion: 'default',
+            runtimePolicyScope,
+            routerAbNormalSigning,
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId,
+            signingGrantId: 'signing-grant-reconstruct',
+            walletSessionJwt: 'jwt-registration-reconstruct',
+            expiresAtMs: now + 60_000,
+            remainingUses: 3,
+            signerSlot: 1,
+            source: 'registration',
+          });
+
+          const context = {
+            signingEngine: {
+              prepareThresholdEd25519HssClientCeremonyFromCredential: async (input: {
+                keyVersion: string;
+              }) => {
+                hssContextKeyVersion = input.keyVersion;
+                return {
+                  ok: true,
+                  participantIds: [1, 2],
+                  contextBindingB64u: 'context-binding',
+                  yClientB64u: 'y-client',
+                  tauClientB64u: 'tau-client',
+                };
+              },
+              prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: async () => {
+                sealAuthorizationMaterialKeyId = 'material-key-reconstruct';
+                return {
+                  ok: true,
+                  materialKeyId: 'material-key-reconstruct',
+                  remainingUses: 1,
+                  sealAuthorization: {
+                    kind: 'passkey_prf_material_seal_authorization_handle_v1',
+                    handle: 'seal-auth-handle',
+                    rpId: 'example.localhost',
+                    credentialIdB64u: 'credential-id',
+                    materialKeyId: 'material-key-reconstruct',
+                    expiresAtMs: 0,
+                  },
+                };
+              },
+              runThresholdEd25519HssCeremonyWithMaterialHandle: async (input: {
+                context: { keyVersion: string };
+              }) => ({
+                ok: true,
+                signingMaterial: {
+                  materialHandle: 'worker-material-handle',
+                  materialBindingDigest: 'worker-material-binding-digest',
+                  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+                  sealedWorkerMaterialB64u: 'sealed-worker-material',
+                  materialFormatVersion: 'ed25519_worker_material_v1',
+                  materialKeyId: 'material-key-reconstruct',
+                  keyVersion: input.context.keyVersion,
+                  clientVerifyingShareB64u: 'client-verifier',
+                  signerSlot: 1,
+                },
+              }),
+              hydrateSigningSession: async (input: Record<string, unknown>) => {
+                hydrateInputs.push(input);
+              },
+            },
+          };
+
+          await bootstrapMod.reconstructThresholdEd25519SigningMaterialFromWarmSession({
+            context,
+            credential: {
+              rawId: 'credential-id',
+              id: 'credential-id',
+              clientExtensionResults: {
+                prf: {
+                  results: {
+                    first: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+                  },
+                },
+              },
+            },
+            nearAccountId,
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay.example',
+            relayerKeyId: 'rk-reconstruct',
+            signerSlot: 1,
+            session: {
+              thresholdSessionId,
+              jwt: 'jwt-registration-reconstruct',
+              signingGrantId: 'signing-grant-reconstruct',
+              expiresAtMs: now + 60_000,
+              remainingUses: 3,
+              participantIds: [1, 2],
+              runtimePolicyScope,
+              routerAbNormalSigning,
+            },
+            keyVersion: 'threshold-ed25519-hss-v1',
+            materialCreatedAtMs: now,
+            participantIdsHint: [1, 2],
+          });
+
+          const hydrateTransport = hydrateInputs[0]?.transport as Record<string, unknown> | undefined;
+          const storedRecord =
+            sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+              thresholdSessionId,
+            );
+
+          return {
+            hydrateCalls: hydrateInputs.length,
+            hydrateTransportKeyVersion: hydrateTransport?.keyVersion ?? null,
+            hydrateTransportWalletSessionJwt: hydrateTransport?.walletSessionJwt ?? null,
+            hssContextKeyVersion,
+            sealAuthorizationMaterialKeyId,
+            storedRecordKeyVersion: storedRecord?.keyVersion ?? null,
+            storedRecordMaterialKeyId: storedRecord?.materialKeyId ?? null,
+          };
+        } finally {
+          sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.hydrateCalls).toBe(1);
+    expect(result.hydrateTransportKeyVersion).toBeNull();
+    expect(result.hydrateTransportWalletSessionJwt).toBe('jwt-registration-reconstruct');
+    expect(result.hssContextKeyVersion).toBe('threshold-ed25519-hss-v1');
+    expect(result.sealAuthorizationMaterialKeyId).toBe('material-key-reconstruct');
+    expect(result.storedRecordKeyVersion).toBe('threshold-ed25519-hss-v1');
+    expect(result.storedRecordMaterialKeyId).toBe('material-key-reconstruct');
   });
 
   test('wallet session read ignores Tempo parity failures after registration', async ({ page }) => {
@@ -318,7 +481,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
-                  sessionId: 'registration-session-parity',
+                  thresholdSessionId: 'registration-session-parity',
                   signingGrantId: 'signing-grant-parity',
                   expiresAtMs: now + 60_000,
                   participantIds: [1, 2],
@@ -487,7 +650,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
-                  sessionId: 'registration-session-email-otp',
+                  thresholdSessionId: 'registration-session-email-otp',
                   signingGrantId: 'signing-grant-email-otp',
                   expiresAtMs: now + 60_000,
                   participantIds: [1, 2],

@@ -542,6 +542,45 @@ function normalizeEd25519RestoreMetadata(
   };
 }
 
+function ed25519WorkerMaterialMissingFields(value: unknown): string[] {
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const missing: string[] = [];
+  if (!normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u)) {
+    missing.push('clientVerifyingShareB64u');
+  }
+  if (!normalizeOptionalNonEmptyString(obj.ed25519WorkerMaterialBindingDigest)) {
+    missing.push('ed25519WorkerMaterialBindingDigest');
+  }
+  if (!normalizeOptionalNonEmptyString(obj.sealedWorkerMaterialRef)) {
+    missing.push('sealedWorkerMaterialRef');
+  }
+  if (!normalizeOptionalNonEmptyString(obj.materialFormatVersion)) {
+    missing.push('materialFormatVersion');
+  }
+  if (!normalizeOptionalNonEmptyString(obj.materialKeyId)) {
+    missing.push('materialKeyId');
+  }
+  const materialCreatedAtMs = normalizeInteger(obj.materialCreatedAtMs);
+  if (materialCreatedAtMs == null || materialCreatedAtMs <= 0) {
+    missing.push('materialCreatedAtMs');
+  }
+  const signerSlot = normalizeInteger(obj.signerSlot);
+  if (signerSlot == null || signerSlot <= 0) {
+    missing.push('signerSlot');
+  }
+  if (!normalizeOptionalNonEmptyString(obj.keyVersion)) {
+    missing.push('keyVersion');
+  }
+  return missing;
+}
+
+function ed25519RestoreHasWorkerMaterial(value: unknown): boolean {
+  return ed25519WorkerMaterialMissingFields(value).length === 0;
+}
+
 function ed25519RestoreHasRawMaterial(value: unknown): boolean {
   const obj =
     value && typeof value === 'object' && !Array.isArray(value)
@@ -975,6 +1014,13 @@ function buildSealedSessionSafeSummary(
     thresholdSessionIds: normalizeThresholdSessionIdsFromStoredRecord(obj),
     hasEcdsaRestore: Boolean(asRawSealedSessionRecord(obj?.ecdsaRestore)),
     hasEd25519Restore: Boolean(asRawSealedSessionRecord(obj?.ed25519Restore)),
+    ...(asRawSealedSessionRecord(obj?.ed25519Restore)
+      ? {
+          ed25519WorkerMaterialMissingFields: ed25519WorkerMaterialMissingFields(
+            obj?.ed25519Restore,
+          ),
+        }
+      : {}),
     issuedAtMs: normalizeInteger(obj?.issuedAtMs),
     expiresAtMs: normalizeInteger(obj?.expiresAtMs),
     remainingUses: normalizeInteger(obj?.remainingUses),
@@ -1120,7 +1166,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         ...(keyVersion ? { keyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
         ecdsaRestore,
-        ...(ed25519Restore && !ed25519RestoreHasRawMaterial(ed25519RestoreObj)
+        ...(ed25519Restore &&
+        !ed25519RestoreHasRawMaterial(ed25519RestoreObj) &&
+        ed25519RestoreHasWorkerMaterial(ed25519RestoreObj)
           ? { ed25519Restore }
           : {}),
         issuedAtMs,
@@ -1141,6 +1189,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
   }
   if (normalizeOptionalNonEmptyString(ed25519RestoreObj.xClientBaseB64u)) {
+    return classifyNonCurrentRecord('delete_required', obj, 'missing_restore_metadata');
+  }
+  if (!ed25519RestoreHasWorkerMaterial(ed25519RestoreObj)) {
     return classifyNonCurrentRecord('delete_required', obj, 'missing_restore_metadata');
   }
   if (

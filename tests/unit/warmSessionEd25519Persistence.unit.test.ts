@@ -219,20 +219,23 @@ test.describe('warm Ed25519 session persistence', () => {
     });
   });
 
-  test('drops sealed worker-material facts when signing-worker identity drifts', () => {
+  test('retains sealed worker-material facts when signing-worker identity changes', () => {
     persistMaterialBackedSession({ signingWorkerId: 'signing-worker-a' });
     remintSessionWithoutMaterial({ signingWorkerId: 'signing-worker-b' });
 
     const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
     expect(record?.walletSessionJwt).toBe('wallet-session-jwt-reminted');
-    expect(record?.clientVerifyingShareB64u || '').toBe('');
-    expect(record?.ed25519WorkerMaterialHandle || '').toBe('');
-    expect(record?.sealedWorkerMaterialRef || '').toBe('');
-    expect(record?.sealedWorkerMaterialB64u || '').toBe('');
-    expect(record?.materialKeyId || '').toBe('');
+    expect(record?.clientVerifyingShareB64u).toBe('client-verifier');
+    expect(record?.ed25519WorkerMaterialHandle).toBe('runtime-material-handle');
+    expect(record?.ed25519WorkerMaterialBindingDigest).toBe('material-binding-digest');
+    expect(record?.sealedWorkerMaterialRef).toBe('sealed-material-ref');
+    expect(record?.sealedWorkerMaterialB64u).toBe('sealed-material');
+    expect(record?.materialKeyId).toBe('material-key-id');
+    expect(record?.materialCreatedAtMs).toBe(1_800_000_000_000);
+    expect(record?.keyVersion).toBe('threshold-ed25519-hss-v1');
     expect(classifyRouterAbEd25519PersistedSigningRecord(record)).toMatchObject({
-      kind: 'auth_ready_material_pending',
-      reason: 'missing_material_handle',
+      kind: 'restore_available',
+      reason: 'loaded_material_missing',
     });
   });
 });

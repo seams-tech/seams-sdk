@@ -29,7 +29,14 @@ const PASSKEY_ED25519_RESTORE = {
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
   sessionKind: 'cookie',
+  clientVerifyingShareB64u: 'ed25519-client-verifying-share',
+  ed25519WorkerMaterialBindingDigest: 'ed25519-worker-material-binding-digest',
+  sealedWorkerMaterialRef: 'sealed-worker-material-ref',
+  materialFormatVersion: 'ed25519-worker-material-v1',
+  materialKeyId: 'ed25519-material-key-id',
+  materialCreatedAtMs: 1_789_000_000_000,
   signerSlot: 1,
+  keyVersion: 'kek-s-test',
 } as const;
 
 const EMAIL_OTP_ED25519_RESTORE = {
@@ -1164,7 +1171,7 @@ test.describe('signing session sealed store', () => {
     expect(result.passkeyAfterDelete?.signingGrantId).toBe('passkey-wallet-session');
   });
 
-  test('keeps passkey Ed25519 signing-session seals without client-base metadata', async ({
+  test('keeps passkey Ed25519 signing-session seals with worker-material metadata', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -1201,6 +1208,108 @@ test.describe('signing session sealed store', () => {
 
     expect(result?.sealedSecretB64u).toBe('sealed-passkey-prf-first');
     expect(result?.ed25519Restore?.xClientBaseB64u).toBeUndefined();
+    expect(result?.ed25519Restore?.sealedWorkerMaterialRef).toBe('sealed-worker-material-ref');
+  });
+
+  test('rejects passkey Ed25519 signing-session seals without worker-material metadata', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        const walletId = 'passkey-ed25519-incomplete.testnet';
+        await mod.clearAllSealedSessions();
+        await mod.writeExactSealedSession(
+          mod.buildCurrentSealedSessionRecord({
+            thresholdSessionId: 'complete-ed25519-session',
+            signingGrantId: 'complete-ed25519-wallet-session',
+            thresholdSessionIds: { ed25519: 'complete-ed25519-session' },
+            curve: 'ed25519',
+            authMethod: 'passkey',
+            walletId,
+            userId: walletId,
+            ed25519Restore: PASSKEY_ED25519_RESTORE,
+            relayerUrl: 'https://relay.example',
+            sealedSecretB64u: 'sealed-complete-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 5,
+            updatedAtMs: Date.now() - 1_000,
+          })!,
+        );
+        const incompleteRestore = {
+          rpId: PASSKEY_ED25519_RESTORE.rpId,
+          relayerKeyId: PASSKEY_ED25519_RESTORE.relayerKeyId,
+          participantIds: PASSKEY_ED25519_RESTORE.participantIds,
+          sessionKind: PASSKEY_ED25519_RESTORE.sessionKind,
+          signerSlot: PASSKEY_ED25519_RESTORE.signerSlot,
+        };
+        const incompleteRawRecord = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          authMethod: 'passkey',
+          secretKind: 'signing_session_secret32',
+          signingGrantId: 'incomplete-ed25519-wallet-session',
+          thresholdSessionIds: { ed25519: 'incomplete-ed25519-session' },
+          curve: 'ed25519',
+          walletId,
+          userId: walletId,
+          ed25519Restore: incompleteRestore,
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-incomplete-ed25519',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 5,
+          updatedAtMs: Date.now(),
+        };
+        const classification = mod.classifyRawSealedSessionRecord(incompleteRawRecord);
+        const built = mod.buildCurrentSealedSessionRecord(incompleteRawRecord);
+        if (built) {
+          await mod.writeExactSealedSession(built);
+        }
+        const completeAfterRejectedWrite = await mod.readExactSealedSession(
+          'complete-ed25519-session',
+          {
+            authMethod: 'passkey',
+            curve: 'ed25519',
+          },
+        );
+        const incompleteAfterRejectedWrite = await mod.readExactSealedSession(
+          'incomplete-ed25519-session',
+          {
+            authMethod: 'passkey',
+            curve: 'ed25519',
+          },
+        );
+
+        return {
+          classification,
+          built,
+          completeAfterRejectedWrite,
+          incompleteAfterRejectedWrite,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.classification).toMatchObject({
+      kind: 'delete_required',
+      reason: 'missing_restore_metadata',
+      safeSummary: {
+        ed25519WorkerMaterialMissingFields: [
+          'clientVerifyingShareB64u',
+          'ed25519WorkerMaterialBindingDigest',
+          'sealedWorkerMaterialRef',
+          'materialFormatVersion',
+          'materialKeyId',
+          'materialCreatedAtMs',
+          'keyVersion',
+        ],
+      },
+    });
+    expect(result.built).toBeNull();
+    expect(result.completeAfterRejectedWrite?.sealedSecretB64u).toBe('sealed-complete-ed25519');
+    expect(result.incompleteAfterRejectedWrite).toBeNull();
   });
 
   test('rejects passkey Ed25519 signing-session seals with raw client-base metadata', async ({

@@ -131,6 +131,8 @@ export type ThresholdEd25519PasskeyMaterialUnsealAuthorizationPort = {
   }) => Promise<ThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult>;
 };
 
+const WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS = 0;
+
 function zeroizeSecretBytes(bytes?: Uint8Array | null): void {
   if (bytes instanceof Uint8Array) bytes.fill(0);
 }
@@ -173,7 +175,6 @@ export async function prepareThresholdEd25519PasskeyMaterialSealAuthorizationFro
   bindingInput: ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier;
   rpId: string;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-  expiresAtMs: number;
 }): Promise<ThresholdEd25519PrepareWorkerMaterialSealAuthorizationResult> {
   const prfFirstBytes = decodeMaterialAuthorizationSecret32B64u(
     requirePasskeyCredentialPrfFirstB64u(args.credential),
@@ -187,7 +188,7 @@ export async function prepareThresholdEd25519PasskeyMaterialSealAuthorizationFro
           rpId: String(args.rpId || '').trim(),
           credentialIdB64u: requirePasskeyCredentialIdB64u(args.credential),
           prfFirstBytes,
-          expiresAtMs: args.expiresAtMs,
+          expiresAtMs: WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS,
         },
       },
     );

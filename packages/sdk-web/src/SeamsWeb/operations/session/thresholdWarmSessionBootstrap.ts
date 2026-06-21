@@ -35,8 +35,10 @@ import {
   markRouterAbEd25519WorkerMaterialRuntimeValidated,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
+  listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
   type CurrentEd25519SealedSessionRecord,
+  type CurrentSealedSessionRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
@@ -113,6 +115,24 @@ export type ThresholdWarmSessionPolicyDraft = {
   participantIds?: number[];
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
+
+export type ThresholdWarmSessionPolicyDraftInput =
+  | {
+      kind?: 'generated_signing_grant';
+      sessionId?: string;
+      participantIds?: number[];
+      signingGrantId?: never;
+      ttlMs?: never;
+      remainingUses?: never;
+    }
+  | {
+      kind: 'shared_signing_grant';
+      signingGrantId: string;
+      ttlMs: number;
+      remainingUses: number;
+      sessionId?: string;
+      participantIds?: number[];
+    };
 
 export type ThresholdWarmSessionRequestEnvelope = {
   session_policy: {
@@ -197,21 +217,30 @@ export type ThresholdEd25519RegistrationHssClientMaterial = {
   };
 };
 
+type RestoreThresholdEd25519WorkerMaterialPendingReason =
+  | 'pending_material'
+  | 'no_durable_restore_records'
+  | 'durable_restore_missing_worker_material'
+  | 'durable_restore_identity_mismatch';
+
 export type RestoreThresholdEd25519WorkerMaterialFromCredentialResult =
   | {
       kind: 'already_loaded';
       thresholdSessionId: string;
       pendingReason?: never;
+      pendingDetails?: never;
     }
   | {
       kind: 'restored';
       thresholdSessionId: string;
       pendingReason?: never;
+      pendingDetails?: never;
     }
   | {
       kind: 'material_pending';
       thresholdSessionId: string;
-      pendingReason: 'pending_material';
+      pendingReason: RestoreThresholdEd25519WorkerMaterialPendingReason;
+      pendingDetails: string;
     };
 
 function requireThresholdEd25519SessionRecordForWorkerMaterialRestore(args: {
@@ -238,6 +267,10 @@ type RouterAbEd25519RestoreAvailableState = Extract<
   ReturnType<typeof classifyRouterAbEd25519PersistedSigningRecord>,
   { kind: 'restore_available' }
 >;
+
+type CurrentEd25519RestoreSealedSessionRecord = CurrentSealedSessionRecord & {
+  ed25519Restore: CurrentEd25519SealedSessionRecord['ed25519Restore'];
+};
 
 function normalizedRestoreString(value: unknown): string {
   return String(value || '').trim();
@@ -276,67 +309,119 @@ function ed25519RecordSigningRoot(record: ThresholdEd25519SessionRecord): {
   };
 }
 
-function sealedEd25519RestoreHasWorkerMaterial(record: CurrentEd25519SealedSessionRecord): boolean {
+function sealedEd25519RestoreHasWorkerMaterial(
+  record: CurrentEd25519RestoreSealedSessionRecord,
+): boolean {
+  return missingEd25519RestoreWorkerMaterialFields(record).length === 0;
+}
+
+function missingEd25519RestoreWorkerMaterialFields(
+  record: CurrentEd25519RestoreSealedSessionRecord,
+): string[] {
   const restore = record.ed25519Restore;
-  return Boolean(
-    normalizedRestoreString(restore.clientVerifyingShareB64u) &&
-    normalizedRestoreString(restore.ed25519WorkerMaterialBindingDigest) &&
-    normalizedRestoreString(restore.sealedWorkerMaterialRef) &&
-    normalizedRestoreString(restore.sealedWorkerMaterialB64u) &&
-    normalizedRestoreString(restore.materialFormatVersion) &&
-    normalizedRestoreString(restore.materialKeyId) &&
-    normalizedRestorePositiveInteger(restore.materialCreatedAtMs) &&
-    normalizedRestorePositiveInteger(restore.signerSlot) &&
-    normalizedRestoreString(restore.keyVersion),
+  const missing: string[] = [];
+  if (!normalizedRestoreString(restore.clientVerifyingShareB64u)) {
+    missing.push('clientVerifyingShareB64u');
+  }
+  if (!normalizedRestoreString(restore.ed25519WorkerMaterialBindingDigest)) {
+    missing.push('ed25519WorkerMaterialBindingDigest');
+  }
+  if (!normalizedRestoreString(restore.sealedWorkerMaterialRef)) {
+    missing.push('sealedWorkerMaterialRef');
+  }
+  if (!normalizedRestoreString(restore.materialFormatVersion)) {
+    missing.push('materialFormatVersion');
+  }
+  if (!normalizedRestoreString(restore.materialKeyId)) {
+    missing.push('materialKeyId');
+  }
+  if (!normalizedRestorePositiveInteger(restore.materialCreatedAtMs)) {
+    missing.push('materialCreatedAtMs');
+  }
+  if (!normalizedRestorePositiveInteger(restore.signerSlot)) {
+    missing.push('signerSlot');
+  }
+  if (!normalizedRestoreString(restore.keyVersion)) {
+    missing.push('keyVersion');
+  }
+  return missing;
+}
+
+function hasEd25519RestoreMetadata(
+  record: CurrentSealedSessionRecord,
+): record is CurrentEd25519RestoreSealedSessionRecord {
+  return Boolean(record.ed25519Restore);
+}
+
+function sealedEd25519RestoreSigningRoot(record: CurrentEd25519RestoreSealedSessionRecord): {
+  signingRootId: string;
+  signingRootVersion: string;
+} {
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
+    record.ed25519Restore.runtimePolicyScope,
   );
+  const restoreRuntimePolicyScope = runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)
+    : null;
+  return {
+    signingRootId:
+      normalizedRestoreString(record.signingRootId) ||
+      normalizedRestoreString(restoreRuntimePolicyScope?.signingRootId),
+    signingRootVersion:
+      normalizedRestoreString(record.signingRootVersion) ||
+      normalizedRestoreString(restoreRuntimePolicyScope?.signingRootVersion),
+  };
 }
 
 function sealedEd25519RestoreMatchesCurrentRecord(args: {
   current: ThresholdEd25519SessionRecord;
-  sealed: CurrentEd25519SealedSessionRecord;
+  sealed: CurrentEd25519RestoreSealedSessionRecord;
 }): boolean {
+  return ed25519RestoreIdentityMismatchReasons(args).length === 0;
+}
+
+function ed25519RestoreIdentityMismatchReasons(args: {
+  current: ThresholdEd25519SessionRecord;
+  sealed: CurrentEd25519RestoreSealedSessionRecord;
+}): string[] {
   const current = args.current;
   const sealed = args.sealed;
   const restore = sealed.ed25519Restore;
   const signingRoot = ed25519RecordSigningRoot(current);
+  const sealedSigningRoot = sealedEd25519RestoreSigningRoot(sealed);
+  const reasons: string[] = [];
   if (normalizedRestoreString(sealed.walletId) !== normalizedRestoreString(current.nearAccountId)) {
-    return false;
+    reasons.push('walletId');
   }
-  if (normalizedRestoreString(sealed.signingRootId) !== signingRoot.signingRootId) return false;
-  if (normalizedRestoreString(sealed.signingRootVersion) !== signingRoot.signingRootVersion) {
-    return false;
+  if (sealedSigningRoot.signingRootId !== signingRoot.signingRootId) {
+    reasons.push('signingRootId');
+  }
+  if (sealedSigningRoot.signingRootVersion !== signingRoot.signingRootVersion) {
+    reasons.push('signingRootVersion');
   }
   if (normalizedRestoreString(restore.rpId) !== normalizedRestoreString(current.rpId)) {
-    return false;
+    reasons.push('rpId');
   }
   if (
     normalizedRestoreString(restore.relayerKeyId) !== normalizedRestoreString(current.relayerKeyId)
   ) {
-    return false;
+    reasons.push('relayerKeyId');
   }
-  if (!restoreParticipantIdsEqual(restore.participantIds, current.participantIds)) return false;
+  if (!restoreParticipantIdsEqual(restore.participantIds, current.participantIds)) {
+    reasons.push('participantIds');
+  }
   if (
     normalizedRestorePositiveInteger(restore.signerSlot) !==
     normalizedRestorePositiveInteger(current.signerSlot)
   ) {
-    return false;
+    reasons.push('signerSlot');
   }
-  const currentSigningWorkerId = normalizedRestoreString(
-    current.routerAbNormalSigning?.signingWorkerId,
-  );
-  const sealedSigningWorkerId = normalizedRestoreString(
-    restore.routerAbNormalSigning?.signingWorkerId,
-  );
-  return Boolean(
-    currentSigningWorkerId &&
-    sealedSigningWorkerId &&
-    currentSigningWorkerId === sealedSigningWorkerId,
-  );
+  return reasons;
 }
 
 function mostRecentEd25519SealedSessionRecord(
-  records: CurrentEd25519SealedSessionRecord[],
-): CurrentEd25519SealedSessionRecord | null {
+  records: CurrentEd25519RestoreSealedSessionRecord[],
+): CurrentEd25519RestoreSealedSessionRecord | null {
   return (
     [...records].sort(
       (left, right) =>
@@ -346,27 +431,187 @@ function mostRecentEd25519SealedSessionRecord(
   );
 }
 
-async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
-  record: ThresholdEd25519SessionRecord,
-): Promise<ThresholdEd25519SessionRecord | null> {
-  const records = await listExactSealedSessionsForWallet({
-    walletId: record.nearAccountId,
-    filter: {
-      authMethod: 'passkey',
-      curve: 'ed25519',
-    },
-  });
-  const matchingRecords = records.filter(
-    (sealedRecord): sealedRecord is CurrentEd25519SealedSessionRecord =>
-      sealedRecord.curve === 'ed25519' &&
-      sealedEd25519RestoreHasWorkerMaterial(sealedRecord) &&
-      sealedEd25519RestoreMatchesCurrentRecord({ current: record, sealed: sealedRecord }),
+function uniqueSealedSessionRecordsByStoreKey(
+  records: readonly CurrentSealedSessionRecord[],
+): CurrentSealedSessionRecord[] {
+  const seen = new Set<string>();
+  const unique: CurrentSealedSessionRecord[] = [];
+  for (const record of records) {
+    const storeKey = normalizedRestoreString(record.storeKey);
+    if (!storeKey || seen.has(storeKey)) continue;
+    seen.add(storeKey);
+    unique.push(record);
+  }
+  return unique;
+}
+
+async function listPasskeyEd25519RestoreSealedSessionsForWallet(
+  walletId: string,
+): Promise<CurrentEd25519RestoreSealedSessionRecord[]> {
+  const [ed25519Records, ecdsaRecords] = await Promise.all([
+    listExactSealedSessionsForWallet({
+      walletId,
+      filter: {
+        authMethod: 'passkey',
+        curve: 'ed25519',
+      },
+    }),
+    listEcdsaSealedSessionsForWallet({
+      walletId,
+      filter: {
+        authMethod: 'passkey',
+        curve: 'ecdsa',
+      },
+    }),
+  ]);
+  return uniqueSealedSessionRecordsByStoreKey([...ed25519Records, ...ecdsaRecords]).filter(
+    hasEd25519RestoreMetadata,
+  );
+}
+
+type Ed25519DurableRestoreLookupResult =
+  | {
+      kind: 'matched';
+      record: CurrentEd25519RestoreSealedSessionRecord;
+      pendingReason?: never;
+      pendingDetails?: never;
+    }
+  | {
+      kind: 'not_found';
+      record?: never;
+      pendingReason: RestoreThresholdEd25519WorkerMaterialPendingReason;
+      pendingDetails: string;
+    };
+
+function summarizeEd25519DurableRestoreLookupFailure(args: {
+  current: ThresholdEd25519SessionRecord;
+  records: readonly CurrentEd25519RestoreSealedSessionRecord[];
+}): Ed25519DurableRestoreLookupResult {
+  if (args.records.length === 0) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'no_durable_restore_records',
+      pendingDetails:
+        'no passkey sealed session record contains Ed25519 worker-material restore metadata; no-HSS unlock cannot restore NEAR signing material for this account until registration or repair writes a sealed worker-material artifact',
+    };
+  }
+  const materialRecords = args.records.filter(sealedEd25519RestoreHasWorkerMaterial);
+  if (materialRecords.length === 0) {
+    const missingFields = [
+      ...new Set(args.records.flatMap(missingEd25519RestoreWorkerMaterialFields)),
+    ].sort();
+    return {
+      kind: 'not_found',
+      pendingReason: 'durable_restore_missing_worker_material',
+      pendingDetails: `candidate records=${args.records.length}; missing fields=${missingFields.join(',') || 'unknown'}`,
+    };
+  }
+  const matchingRecords = materialRecords.filter((sealedRecord) =>
+    sealedEd25519RestoreMatchesCurrentRecord({ current: args.current, sealed: sealedRecord }),
   );
   const selected = mostRecentEd25519SealedSessionRecord(matchingRecords);
-  if (!selected) return null;
+  if (selected) {
+    return {
+      kind: 'matched',
+      record: selected,
+    };
+  }
+  const mismatchReasons = [
+    ...new Set(
+      materialRecords.flatMap((sealedRecord) =>
+        ed25519RestoreIdentityMismatchReasons({ current: args.current, sealed: sealedRecord }),
+      ),
+    ),
+  ].sort();
+  return {
+    kind: 'not_found',
+    pendingReason: 'durable_restore_identity_mismatch',
+    pendingDetails: `candidate records=${materialRecords.length}; mismatch fields=${mismatchReasons.join(',') || 'unknown'}`,
+  };
+}
+
+function ed25519DurableRestoreCandidateSummary(args: {
+  current: ThresholdEd25519SessionRecord;
+  sealed: CurrentEd25519RestoreSealedSessionRecord;
+}): Record<string, unknown> {
+  const restore = args.sealed.ed25519Restore;
+  return {
+    curve: args.sealed.curve,
+    authMethod: args.sealed.authMethod,
+    storeKey: normalizedRestoreString(args.sealed.storeKey),
+    signingGrantId: normalizedRestoreString(args.sealed.signingGrantId),
+    thresholdSessionIds: args.sealed.thresholdSessionIds,
+    updatedAtMs: normalizedRestorePositiveInteger(args.sealed.updatedAtMs),
+    expiresAtMs: normalizedRestorePositiveInteger(args.sealed.expiresAtMs),
+    remainingUses: normalizedRestorePositiveInteger(args.sealed.remainingUses),
+    hasEd25519Restore: true,
+    hasWalletSessionJwt: Boolean(normalizedRestoreString(restore.walletSessionJwt)),
+    hasClientVerifier: Boolean(normalizedRestoreString(restore.clientVerifyingShareB64u)),
+    hasMaterialBindingDigest: Boolean(
+      normalizedRestoreString(restore.ed25519WorkerMaterialBindingDigest),
+    ),
+    hasSealedWorkerMaterialRef: Boolean(normalizedRestoreString(restore.sealedWorkerMaterialRef)),
+    hasMaterialFormatVersion: Boolean(normalizedRestoreString(restore.materialFormatVersion)),
+    hasMaterialKeyId: Boolean(normalizedRestoreString(restore.materialKeyId)),
+    hasMaterialCreatedAtMs: Boolean(normalizedRestorePositiveInteger(restore.materialCreatedAtMs)),
+    hasKeyVersion: Boolean(normalizedRestoreString(restore.keyVersion)),
+    missingFields: missingEd25519RestoreWorkerMaterialFields(args.sealed),
+    identityMismatchFields: ed25519RestoreIdentityMismatchReasons(args),
+  };
+}
+
+function logEd25519DurableRestoreLookupFailure(args: {
+  current: ThresholdEd25519SessionRecord;
+  records: readonly CurrentEd25519RestoreSealedSessionRecord[];
+  lookup: Extract<Ed25519DurableRestoreLookupResult, { kind: 'not_found' }>;
+}): void {
+  console.warn('[threshold-ed25519] durable worker-material restore lookup failed', {
+    thresholdSessionId: args.current.thresholdSessionId,
+    nearAccountId: args.current.nearAccountId,
+    signerSlot: args.current.signerSlot,
+    signingGrantId: normalizedRestoreString(args.current.signingGrantId),
+    pendingReason: args.lookup.pendingReason,
+    pendingDetails: args.lookup.pendingDetails,
+    candidateCount: args.records.length,
+    candidates: args.records.map((sealed) =>
+      ed25519DurableRestoreCandidateSummary({ current: args.current, sealed }),
+    ),
+  });
+}
+
+async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
+  record: ThresholdEd25519SessionRecord,
+): Promise<
+  | {
+      kind: 'hydrated';
+      record: ThresholdEd25519SessionRecord;
+      pendingReason?: never;
+      pendingDetails?: never;
+    }
+  | {
+      kind: 'not_found';
+      record?: never;
+      pendingReason: RestoreThresholdEd25519WorkerMaterialPendingReason;
+      pendingDetails: string;
+    }
+> {
+  const records = await listPasskeyEd25519RestoreSealedSessionsForWallet(record.nearAccountId);
+  const lookup = summarizeEd25519DurableRestoreLookupFailure({
+    current: record,
+    records,
+  });
+  if (lookup.kind === 'not_found') {
+    logEd25519DurableRestoreLookupFailure({
+      current: record,
+      records,
+      lookup,
+    });
+    return lookup;
+  }
+  const selected = lookup.record;
   const restore = selected.ed25519Restore;
   const signingRoot = ed25519RecordSigningRoot(record);
-  return upsertStoredThresholdEd25519SessionRecord({
+  const hydrated = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: record.nearAccountId,
     rpId: record.rpId,
     relayerUrl: record.relayerUrl,
@@ -398,6 +643,17 @@ async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
     updatedAtMs: Date.now(),
     source: record.source,
   });
+  if (!hydrated) {
+    return {
+      kind: 'not_found',
+      pendingReason: 'pending_material',
+      pendingDetails: 'failed to hydrate current Ed25519 session record from durable metadata',
+    };
+  }
+  return {
+    kind: 'hydrated',
+    record: hydrated,
+  };
 }
 
 async function requireThresholdEd25519KeyMaterialForWorkerMaterialRestore(args: {
@@ -449,6 +705,55 @@ async function restoreAvailableThresholdEd25519WorkerMaterialFromCredential(args
     kind: 'restored',
     thresholdSessionId: args.thresholdSessionId,
   };
+}
+
+async function restoreDurableThresholdEd25519WorkerMaterialFromCredential(args: {
+  context: ThresholdEd25519WorkerMaterialRestoreContext;
+  credential: WebAuthnAuthenticationCredential;
+  nearAccountId: string;
+  signerSlot: number;
+  thresholdSessionId: string;
+  record: ThresholdEd25519SessionRecord;
+}): Promise<RestoreThresholdEd25519WorkerMaterialFromCredentialResult | null> {
+  const hydrated = await hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(args.record);
+  if (hydrated.kind === 'not_found') {
+    return {
+      kind: 'material_pending',
+      thresholdSessionId: args.thresholdSessionId,
+      pendingReason: hydrated.pendingReason,
+      pendingDetails: hydrated.pendingDetails,
+    };
+  }
+  const hydratedState = classifyRouterAbEd25519PersistedSigningRecord(hydrated.record);
+  switch (hydratedState.kind) {
+    case 'restore_available':
+      return await restoreAvailableThresholdEd25519WorkerMaterialFromCredential({
+        context: args.context,
+        credential: args.credential,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.signerSlot,
+        thresholdSessionId: args.thresholdSessionId,
+        state: hydratedState,
+      });
+    case 'runtime_validated':
+      return await validateOrRestoreSignableThresholdEd25519WorkerMaterialFromCredential({
+        context: args.context,
+        credential: args.credential,
+        nearAccountId: args.nearAccountId,
+        signerSlot: args.signerSlot,
+        thresholdSessionId: args.thresholdSessionId,
+        record: hydratedState.record,
+      });
+    case 'material_hint_unvalidated':
+    case 'auth_ready_material_pending':
+    case 'non_signing':
+    case 'invalid':
+      return null;
+    default: {
+      const exhaustive: never = hydratedState;
+      return exhaustive;
+    }
+  }
 }
 
 async function validateOrRestoreSignableThresholdEd25519WorkerMaterialFromCredential(args: {
@@ -523,41 +828,50 @@ export async function restoreThresholdEd25519WorkerMaterialFromCredential(args: 
           nearAccountId,
           signerSlot,
         });
-      await requireOrRestoreRouterAbEd25519WalletSessionState({
-        ctx: args.context.signingEngine,
-        signingSessionCoordinator: createWarmSessionCapabilityReader(),
-        thresholdSessionId,
-        operation: 'wallet_unlock',
-        nearAccountId,
-        thresholdKeyMaterial,
-        restoreAuthorization: { kind: 'unseal_authorization_unavailable' },
-      });
-      return {
-        kind: 'already_loaded',
-        thresholdSessionId,
-      };
+      try {
+        await requireOrRestoreRouterAbEd25519WalletSessionState({
+          ctx: args.context.signingEngine,
+          signingSessionCoordinator: createWarmSessionCapabilityReader(),
+          thresholdSessionId,
+          operation: 'wallet_unlock',
+          nearAccountId,
+          thresholdKeyMaterial,
+          restoreAuthorization: { kind: 'unseal_authorization_unavailable' },
+        });
+        return {
+          kind: 'already_loaded',
+          thresholdSessionId,
+        };
+      } catch (error: unknown) {
+        const restored = await restoreDurableThresholdEd25519WorkerMaterialFromCredential({
+          context: args.context,
+          credential: args.credential,
+          nearAccountId,
+          signerSlot,
+          thresholdSessionId,
+          record: signingSessionState.record,
+        });
+        if (restored) return restored;
+        throw error;
+      }
     }
     case 'auth_ready_material_pending':
       {
-        const hydrated = await hydrateCurrentEd25519SessionFromDurableSealedWorkerMaterial(
-          signingSessionState.record,
-        );
-        const hydratedState = classifyRouterAbEd25519PersistedSigningRecord(hydrated);
-        if (hydratedState.kind === 'restore_available') {
-          return await restoreAvailableThresholdEd25519WorkerMaterialFromCredential({
-            context: args.context,
-            credential: args.credential,
-            nearAccountId,
-            signerSlot,
-            thresholdSessionId,
-            state: hydratedState,
-          });
-        }
+        const restored = await restoreDurableThresholdEd25519WorkerMaterialFromCredential({
+          context: args.context,
+          credential: args.credential,
+          nearAccountId,
+          signerSlot,
+          thresholdSessionId,
+          record: signingSessionState.record,
+        });
+        if (restored) return restored;
       }
       return {
         kind: 'material_pending',
         thresholdSessionId,
         pendingReason: 'pending_material',
+        pendingDetails: 'current Ed25519 session record has no restorable worker material facts',
       };
     case 'restore_available':
       return await restoreAvailableThresholdEd25519WorkerMaterialFromCredential({
@@ -611,19 +925,32 @@ export function createRouterAbNormalSigningPolicy(
 
 export function createThresholdWarmSessionPolicyDraft(
   context: ThresholdWarmSessionContext,
-  input?: { sessionId?: string; participantIds?: number[] },
+  input?: ThresholdWarmSessionPolicyDraftInput,
 ): ThresholdWarmSessionPolicyDraft | null {
   const defaults = resolveThresholdWarmSessionDefaults(context);
   if (!defaults) return null;
   const sessionId = String(input?.sessionId || '').trim() || generateThresholdSessionId();
-  const signingGrantId = generateSigningGrantId();
+  const sharedGrant = input?.kind === 'shared_signing_grant' ? input : null;
+  const signingGrantId = sharedGrant
+    ? String(sharedGrant.signingGrantId || '').trim()
+    : generateSigningGrantId();
+  if (!signingGrantId) {
+    throw new Error('Threshold warm-session shared signing grant is missing signingGrantId');
+  }
+  const ttlMs = sharedGrant ? parsePositiveInt(sharedGrant.ttlMs) : defaults.ttlMs;
+  const remainingUses = sharedGrant
+    ? parsePositiveInt(sharedGrant.remainingUses)
+    : defaults.remainingUses;
+  if (sharedGrant && (!ttlMs || !remainingUses)) {
+    throw new Error('Threshold warm-session shared signing grant has invalid policy limits');
+  }
   const participantIds = normalizeThresholdEd25519ParticipantIds(input?.participantIds);
   const routerAbNormalSigning = createRouterAbNormalSigningPolicy(context.configs);
   return {
     sessionId,
     signingGrantId,
-    ttlMs: defaults.ttlMs,
-    remainingUses: defaults.remainingUses,
+    ttlMs,
+    remainingUses,
     ...(participantIds ? { participantIds } : {}),
     routerAbNormalSigning,
   };
@@ -1140,6 +1467,32 @@ export async function persistRegisteredThresholdEd25519Session(
   });
 }
 
+async function refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial(args: {
+  context: ThresholdWarmSessionContext;
+  thresholdSessionId: string;
+  prfFirstB64u: string;
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  signingGrantId: string;
+  walletSessionJwt: string;
+  expiresAtMs: number;
+  remainingUses: number;
+}): Promise<void> {
+  await args.context.signingEngine.hydrateSigningSession({
+    sessionId: args.thresholdSessionId,
+    prfFirstB64u: args.prfFirstB64u,
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: args.remainingUses,
+    transport: {
+      curve: 'ed25519',
+      walletId: String(args.nearAccountId),
+      relayerUrl: args.relayerUrl,
+      signingGrantId: args.signingGrantId,
+      walletSessionJwt: args.walletSessionJwt,
+    },
+  });
+}
+
 export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(args: {
   context: ThresholdWarmSessionContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
@@ -1185,8 +1538,16 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   }
   const signingGrantId = String(args.session.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(args.session.expiresAtMs));
+  const remainingUses = Math.floor(Number(args.session.remainingUses));
   const signingWorkerId = String(args.session.routerAbNormalSigning?.signingWorkerId || '').trim();
-  if (!signingGrantId || !signingRootVersion || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+  if (
+    !signingGrantId ||
+    !signingRootVersion ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !Number.isFinite(remainingUses) ||
+    remainingUses < 0
+  ) {
     throw new Error('Threshold Ed25519 warm-session reconstruction is missing session binding');
   }
   if (!signingWorkerId) {
@@ -1248,7 +1609,6 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
       bindingInput,
       rpId: args.rpId,
       credential: args.credential,
-      expiresAtMs,
     });
   const completed =
     await args.context.signingEngine.runThresholdEd25519HssCeremonyWithMaterialHandle({
@@ -1305,6 +1665,17 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   markRouterAbEd25519WorkerMaterialRuntimeValidated(
     getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
   );
+  await refreshDurableThresholdEd25519SealedSessionWithWorkerMaterial({
+    context: args.context,
+    thresholdSessionId,
+    prfFirstB64u,
+    nearAccountId: args.nearAccountId,
+    relayerUrl,
+    signingGrantId,
+    walletSessionJwt,
+    expiresAtMs,
+    remainingUses,
+  });
   return {
     materialHandle: signingMaterial.materialHandle,
     bindingDigest: signingMaterial.materialBindingDigest,

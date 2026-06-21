@@ -7,6 +7,10 @@ import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEng
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearPasskeyEd25519ReconnectHook } from '@/core/signingEngine/interfaces/near';
 
+function hasMaterialHandle(record: { ed25519WorkerMaterialHandle?: string } | null): boolean {
+  return Boolean(String(record?.ed25519WorkerMaterialHandle || '').trim());
+}
+
 export function signingAuthPlanForEd25519MaterialReadiness(args: {
   signingSessionCoordinator: WarmSessionCapabilityReader;
   sessionId: string;
@@ -22,11 +26,17 @@ export function signingAuthPlanForEd25519MaterialReadiness(args: {
   const state = classifyRouterAbEd25519PersistedSigningRecord(record);
   switch (state.kind) {
     case 'runtime_validated':
+    case 'material_hint_unvalidated':
     case 'non_signing':
     case 'invalid':
       return args.signingAuthPlan;
     case 'restore_available':
-    case 'material_hint_unvalidated':
+      return hasMaterialHandle(state.record)
+        ? args.signingAuthPlan
+        : {
+            kind: SigningAuthPlanKind.PasskeyReauth,
+            method: 'passkey',
+          };
     case 'auth_ready_material_pending':
       return {
         kind: SigningAuthPlanKind.PasskeyReauth,

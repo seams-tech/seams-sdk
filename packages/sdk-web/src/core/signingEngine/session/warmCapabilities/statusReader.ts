@@ -37,6 +37,7 @@ import {
 import { walletSessionJwtFromPersistedWarmSessionRecord } from './walletSessionAuthBoundary';
 import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import {
+  isRouterAbEd25519WorkerMaterialRuntimeValidated,
   parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
 } from '../routerAbSigningWalletSession';
 import type {
@@ -302,7 +303,7 @@ export function createWarmSessionStatusReader(
     return null;
   }
 
-  function hasRecordBackedEd25519Status(
+  function hasRecordBackedEd25519MaterialFacts(
     record: ThresholdEd25519SessionRecord | null | undefined,
   ): record is ThresholdEd25519SessionRecord {
     if (!record || !String(record.ed25519WorkerMaterialHandle || '').trim()) return false;
@@ -312,10 +313,10 @@ export function createWarmSessionStatusReader(
     return true;
   }
 
-  function toRecordBackedEd25519Status(
+  function toRecordBackedEd25519StatusIfRuntimeValid(
     record: ThresholdEd25519SessionRecord,
     thresholdSessionId: string,
-  ): SigningSessionStatus {
+  ): SigningSessionStatus | null {
     const remainingUses = Math.floor(Number(record.remainingUses) || 0);
     const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
     const status =
@@ -324,6 +325,9 @@ export function createWarmSessionStatusReader(
         : remainingUses <= 0
           ? 'exhausted'
           : 'active';
+    if (status === 'active' && !isRouterAbEd25519WorkerMaterialRuntimeValidated(record)) {
+      return null;
+    }
     return {
       sessionId: thresholdSessionId,
       status,
@@ -400,8 +404,10 @@ export function createWarmSessionStatusReader(
       authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
       retention: record?.emailOtpAuthContext?.retention || null,
     });
-    if (status.status === 'not_found' && hasRecordBackedEd25519Status(record)) {
-      return toRecordBackedEd25519Status(record, normalizedThresholdSessionId);
+    if (status.status === 'not_found' && hasRecordBackedEd25519MaterialFacts(record)) {
+      return (
+        toRecordBackedEd25519StatusIfRuntimeValid(record, normalizedThresholdSessionId) || status
+      );
     }
     return status;
   }

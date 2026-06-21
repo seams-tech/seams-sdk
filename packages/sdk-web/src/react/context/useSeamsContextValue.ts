@@ -59,6 +59,7 @@ export function useSeamsContextValue(args: {
       isLoggedIn: false,
       nearAccountId: null,
       nearPublicKey: null,
+      authMethod: null,
       thresholdEcdsaEthereumAddress: null,
       thresholdEcdsaPublicKeyB64u: null,
     }));

@@ -162,10 +162,6 @@ function sameEd25519Participants(left: readonly number[], right: readonly number
   );
 }
 
-function routerAbSigningWorkerId(value: RouterAbEd25519NormalSigningState | undefined): string {
-  return nonEmptyString(value?.signingWorkerId);
-}
-
 function resolveRetainedEd25519WorkerMaterialFacts(args: {
   sessionId: string;
   nearAccountId: AccountId;
@@ -174,7 +170,6 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
   signingRootId: string;
   signingRootVersion: string;
   signerSlot: number;
-  routerAbNormalSigning: RouterAbEd25519NormalSigningState | undefined;
 }): RetainedEd25519WorkerMaterialFacts {
   const existing =
     getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.sessionId) ||
@@ -190,11 +185,6 @@ function resolveRetainedEd25519WorkerMaterialFacts(args: {
     return { kind: 'none' };
   }
   if (positiveInteger(existing.signerSlot) !== args.signerSlot) return { kind: 'none' };
-  const expectedSigningWorkerId = routerAbSigningWorkerId(args.routerAbNormalSigning);
-  const existingSigningWorkerId = routerAbSigningWorkerId(existing.routerAbNormalSigning);
-  if (expectedSigningWorkerId && existingSigningWorkerId !== expectedSigningWorkerId) {
-    return { kind: 'none' };
-  }
 
   const clientVerifyingShareB64u = nonEmptyString(existing.clientVerifyingShareB64u);
   const ed25519WorkerMaterialHandle = nonEmptyString(existing.ed25519WorkerMaterialHandle);
@@ -304,7 +294,6 @@ export function persistWarmSessionEd25519Capability(
           signingRootId,
           signingRootVersion,
           signerSlot,
-          routerAbNormalSigning: args.routerAbNormalSigning,
         })
       : { kind: 'none' as const };
 

@@ -1225,6 +1225,7 @@ test.describe('registration intent allocation', () => {
     let ed25519PrepareRequest: Record<string, unknown> | null = null;
     let ed25519RespondRequest: Record<string, unknown> | null = null;
     let ed25519FinalizeRequest: Record<string, unknown> | null = null;
+    let ed25519SessionMintRequest: Record<string, unknown> | null = null;
     let ecdsaBootstrapRequest: Record<string, unknown> | null = null;
     (service as any).createAccount = async (request: Record<string, unknown>) => {
       accountCreation = request;
@@ -1286,6 +1287,22 @@ test.describe('registration intent allocation', () => {
         ok: true,
         value: { keyHandle: 'ehss-combined-key-alice' },
       }),
+      mintEd25519SessionFromRegistration: async (request: Record<string, unknown>) => {
+        ed25519SessionMintRequest = request;
+        const sessionPolicy = request.sessionPolicy as Record<string, unknown>;
+        const expiresAtMs = Date.now() + Number(sessionPolicy.ttlMs || 60_000);
+        return {
+          ok: true,
+          thresholdSessionId: String(sessionPolicy.thresholdSessionId || ''),
+          signingGrantId: String(sessionPolicy.signingGrantId || ''),
+          expiresAtMs,
+          expiresAt: new Date(expiresAtMs).toISOString(),
+          participantIds: sessionPolicy.participantIds,
+          remainingUses: Number(sessionPolicy.remainingUses),
+          routerAbNormalSigning: sessionPolicy.routerAbNormalSigning,
+          jwt: 'ed25519-shared-registration-jwt',
+        };
+      },
       getSchemeModule: () => ({
         schemeId: 'threshold-ed25519-frost-2p-v1',
         registration: {
@@ -1409,12 +1426,33 @@ test.describe('registration intent allocation', () => {
         ceremonyHandle: 'combined-ed25519-handle',
       },
     });
-    expect(ecdsaBootstrapRequest).toMatchObject(clientBootstrap);
+    const { thresholdSessionId: ecdsaThresholdSessionId, ...ecdsaBootstrapServiceRequest } =
+      clientBootstrap;
+    expect(ecdsaBootstrapRequest).toMatchObject({
+      ...ecdsaBootstrapServiceRequest,
+      sessionId: ecdsaThresholdSessionId,
+    });
 
     const finalized = await service.finalizeWalletRegistration({
       registrationCeremonyId: started.registrationCeremonyId,
       ed25519: {
         evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+        sessionPolicy: {
+          version: 'threshold_session_v1',
+          rpId: 'wallet.example.test',
+          nearAccountId: 'alice.testnet',
+          relayerKeyId: 'relayer-key-ed25519',
+          thresholdSessionId: 'tsess_combined_ed25519',
+          signingGrantId: started.ecdsa.prepare.signingGrantId,
+          participantIds: [1, 2],
+          ttlMs: started.ecdsa.prepare.ttlMs,
+          remainingUses: started.ecdsa.prepare.remainingUses,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: 'signing-worker-test',
+          },
+        },
+        sessionKind: 'jwt',
       },
       ecdsa: {
         expectedKeyHandles: ['ehss-combined-key-alice'],
@@ -1427,6 +1465,18 @@ test.describe('registration intent allocation', () => {
       ed25519: {
         nearAccountId: 'alice.testnet',
         publicKey: 'ed25519:public-key',
+        session: {
+          thresholdSessionId: 'tsess_combined_ed25519',
+          signingGrantId: started.ecdsa.prepare.signingGrantId,
+          remainingUses: started.ecdsa.prepare.remainingUses,
+        },
+      },
+    });
+    expect(ed25519SessionMintRequest).toMatchObject({
+      sessionPolicy: {
+        thresholdSessionId: 'tsess_combined_ed25519',
+        signingGrantId: started.ecdsa.prepare.signingGrantId,
+        remainingUses: started.ecdsa.prepare.remainingUses,
       },
     });
     expect(finalized.ok && finalized.ecdsa?.walletKeys).toEqual(

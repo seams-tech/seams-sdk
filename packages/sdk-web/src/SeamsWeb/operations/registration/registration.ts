@@ -25,6 +25,8 @@ import {
   prepareThresholdEd25519RegistrationHssClientRequest,
   persistRegisteredThresholdEd25519Session,
   reconstructThresholdEd25519SigningMaterialFromWarmSession,
+  type ThresholdWarmSessionContext,
+  type ThresholdWarmSessionPolicyDraft,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import type {
   PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
@@ -67,6 +69,7 @@ import {
   respondWalletRegistrationHss,
   startWalletAddSigner,
   startWalletRegistration,
+  type WalletRegistrationEcdsaHssRespondBootstrap,
   type WalletRegistrationEmailOtpBackupAck,
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
@@ -99,7 +102,10 @@ import {
   listStoredThresholdEcdsaSessionRecordsForWallet,
   thresholdEcdsaRecordRpId,
 } from '@/core/signingEngine/session/persistence/records';
-import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
+import {
+  assertWalletRuntimePostconditions,
+  type WalletRuntimeInventory,
+} from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
   parseRouterAbEcdsaHssSigningWalletSessionFromRecord,
@@ -1657,15 +1663,54 @@ function assertStrictRegistrationSigningRecords(args: {
   }
 }
 
+function createRegistrationThresholdWarmSessionPolicyDraft(args: {
+  context: ThresholdWarmSessionContext;
+  participantIds: readonly number[];
+  ecdsaSession:
+    | {
+        preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
+        bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+      }
+    | null;
+}): ThresholdWarmSessionPolicyDraft | null {
+  const participantIds = [...args.participantIds];
+  if (!args.ecdsaSession) {
+    return createThresholdWarmSessionPolicyDraft(args.context, { participantIds });
+  }
+
+  const clientBootstrap = args.ecdsaSession.preparedClientBootstrap.clientBootstrap;
+  const serverBootstrap = args.ecdsaSession.bootstrap;
+  const clientSigningGrantId = String(clientBootstrap.signingGrantId || '').trim();
+  const serverSigningGrantId = String(serverBootstrap.signingGrantId || '').trim();
+  if (!clientSigningGrantId || clientSigningGrantId !== serverSigningGrantId) {
+    throw new Error(
+      '[Registration] combined Ed25519/ECDSA registration has mismatched signing grant',
+    );
+  }
+  if (Math.floor(Number(clientBootstrap.remainingUses)) !== serverBootstrap.remainingUses) {
+    throw new Error(
+      '[Registration] combined Ed25519/ECDSA registration has mismatched signing budget limits',
+    );
+  }
+  return createThresholdWarmSessionPolicyDraft(args.context, {
+    kind: 'shared_signing_grant',
+    signingGrantId: clientSigningGrantId,
+    ttlMs: clientBootstrap.ttlMs,
+    remainingUses: serverBootstrap.remainingUses,
+    participantIds,
+  });
+}
+
 async function assertImmediateRegistrationSigningLanes(args: {
   signingEngine: RegistrationSigningSurface;
   walletId: string;
   authMethod: 'passkey' | 'email_otp';
   expectEd25519: boolean;
   expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+  requireSharedSigningGrant: boolean;
 }): Promise<void> {
   assertStrictRegistrationSigningRecords(args);
-  await assertWalletRuntimePostconditions({
+  const inventory = await assertWalletRuntimePostconditions({
     source: 'registration_finalize',
     walletId: args.walletId,
     authMethod: args.authMethod,
@@ -1679,6 +1724,37 @@ async function assertImmediateRegistrationSigningLanes(args: {
     readPersistedAvailableSigningLanes: async (input) =>
       await args.signingEngine.readPersistedAvailableSigningLanes(input),
   });
+  if (args.requireSharedSigningGrant) {
+    assertCombinedRegistrationSharedSigningGrant({
+      walletId: args.walletId,
+      inventory,
+      expectedEcdsaChainTargets: args.expectedEcdsaChainTargets,
+    });
+  }
+}
+
+function assertCombinedRegistrationSharedSigningGrant(args: {
+  walletId: string;
+  inventory: WalletRuntimeInventory;
+  expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+}): void {
+  const ed25519GrantId = String(args.inventory.ed25519?.signingGrantId || '').trim();
+  if (!ed25519GrantId) {
+    throw new Error(
+      `[Registration][postcondition] combined registration missing Ed25519 signing grant for ${args.walletId}`,
+    );
+  }
+  for (const chainTarget of args.expectedEcdsaChainTargets) {
+    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+    const ecdsaGrantId = String(
+      args.inventory.ecdsaByTarget.get(targetKey)?.signingGrantId || '',
+    ).trim();
+    if (ecdsaGrantId !== ed25519GrantId) {
+      throw new Error(
+        `[Registration][postcondition] combined registration split signing budget for ${args.walletId}:${targetKey}`,
+      );
+    }
+  }
 }
 
 function expectedEcdsaChainTargetsFromRegistrationSpec(
@@ -2048,6 +2124,7 @@ async function registerEcdsaWalletOnly(args: {
         expectedEcdsaChainTargets: expectedEcdsaChainTargetsFromRegistrationSpec(
           signerSelection.ecdsa,
         ),
+        requireSharedSigningGrant: false,
       }),
     );
     emitRegistrationEvent(onEvent, eventAccountId, {
@@ -2464,8 +2541,16 @@ async function registerWalletInternal(
       }),
     );
 
-    const requestedPolicy = createThresholdWarmSessionPolicyDraft(context, {
+    const requestedPolicy = createRegistrationThresholdWarmSessionPolicyDraft({
+      context,
       participantIds: hssClientMaterial.hssContext.participantIds,
+      ecdsaSession:
+        ecdsaPreparedClientBootstrap && ecdsaBootstrap
+          ? {
+              preparedClientBootstrap: ecdsaPreparedClientBootstrap,
+              bootstrap: ecdsaBootstrap,
+            }
+          : null,
     });
     if (!requestedPolicy) {
       throw new Error('Threshold warm-session defaults are disabled for registration');
@@ -2724,6 +2809,7 @@ async function registerWalletInternal(
         expectedEcdsaChainTargets: ecdsaSelection
           ? expectedEcdsaChainTargetsFromRegistrationSpec(ecdsaSelection)
           : [],
+        requireSharedSigningGrant: Boolean(ecdsaSelection),
       }),
     );
     registrationState.databaseStored = true;

@@ -117,10 +117,6 @@ function sameParticipantIds(left: readonly number[], right: readonly number[]): 
   );
 }
 
-function routerAbEd25519SigningWorkerId(record: ThresholdEd25519SessionRecord): string {
-  return nonEmptyString(record.routerAbNormalSigning?.signingWorkerId);
-}
-
 function readPasskeyEd25519ReconnectWorkerMaterialFacts(
   record: ThresholdEd25519SessionRecord,
 ): PasskeyEd25519ReconnectWorkerMaterialFacts | null {
@@ -188,8 +184,7 @@ function canRetainPasskeyEd25519ReconnectWorkerMaterial(args: {
     sameParticipantIds(source.participantIds, target.participantIds) &&
     nonEmptyString(source.signingRootId) === nonEmptyString(target.signingRootId) &&
     nonEmptyString(source.signingRootVersion) === nonEmptyString(target.signingRootVersion) &&
-    positiveInteger(target.signerSlot) === args.facts.signerSlot &&
-    routerAbEd25519SigningWorkerId(source) === routerAbEd25519SigningWorkerId(target)
+    positiveInteger(target.signerSlot) === args.facts.signerSlot
   );
 }
 

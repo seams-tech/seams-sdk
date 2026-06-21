@@ -54,6 +54,7 @@ import type { WalletSessionReconnectEcdsaBootstrapRouteAuth } from '@/core/signi
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
+  clearStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForAccount,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionRecord,
@@ -79,6 +80,7 @@ import { shouldRequireThresholdWarmSession } from '@/SeamsWeb/operations/session
 import {
   createRouterAbNormalSigningPolicy,
   restoreThresholdEd25519WorkerMaterialFromCredential,
+  type RestoreThresholdEd25519WorkerMaterialFromCredentialResult,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { listConfiguredThresholdEcdsaPublicationTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import type {
@@ -1348,6 +1350,17 @@ export async function unlock(
       afterCall,
     });
   } catch (err: unknown) {
+    console.warn('[login] unlock failed before active session commit', {
+      nearAccountId,
+      message:
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: unknown }).message || '')
+          : String(err || ''),
+    });
+    await clearFailedUnlockSessionState({
+      context,
+      nearAccountId,
+    });
     // Normalize every thrown value through the public login error hooks/events.
     const errorMessage = getUserFriendlyErrorMessage(err, 'login') || 'Login failed';
     return await finalizeLoginError({
@@ -1360,6 +1373,24 @@ export async function unlock(
       afterCall,
     });
   }
+}
+
+async function clearFailedUnlockSessionState(args: {
+  context: LoginWebContext;
+  nearAccountId: AccountId;
+}): Promise<void> {
+  await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
+  try {
+    args.context.signingEngine.getNonceCoordinator().clearAll();
+  } catch {}
+  try {
+    await args.context.signingEngine.clearVolatileWarmSigningMaterial(
+      toWalletId(args.nearAccountId),
+    );
+  } catch {}
+  try {
+    clearStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+  } catch {}
 }
 
 async function finalizeLoginSuccess(args: {
@@ -1729,6 +1760,26 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
   }
 }
 
+function requireThresholdLoginEd25519WorkerMaterialReady(
+  result: RestoreThresholdEd25519WorkerMaterialFromCredentialResult,
+): void {
+  switch (result.kind) {
+    case 'already_loaded':
+    case 'restored':
+      return;
+    case 'material_pending':
+      {
+        const pendingDetails = String(result.pendingDetails || '').trim();
+        const suffix = pendingDetails ? `: ${pendingDetails}` : '';
+        throw new Error(
+          `[login] threshold Ed25519 warm-up did not restore worker signing material: ${result.pendingReason}${suffix}`,
+        );
+      }
+    default:
+      return assertNeverLoginState(result);
+  }
+}
+
 async function primeThresholdLoginWarmSigners(args: {
   context: LoginWebContext;
   signingEngine: LoginWarmSigningSurface;
@@ -1876,7 +1927,7 @@ async function primeThresholdLoginWarmSigners(args: {
             '[login] threshold Ed25519 warm-up requires the wallet unlock passkey credential to restore signing material',
           );
         }
-        await restoreThresholdEd25519WorkerMaterialFromCredential({
+        const restoredMaterial = await restoreThresholdEd25519WorkerMaterialFromCredential({
           context: {
             signingEngine: args.signingEngine,
           },
@@ -1885,6 +1936,7 @@ async function primeThresholdLoginWarmSigners(args: {
           signerSlot: args.signerSlot,
           thresholdSessionId: connectedSessionId,
         });
+        requireThresholdLoginEd25519WorkerMaterialReady(restoredMaterial);
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
           activeCanonicalEcdsaContext =
             await args.ecdsaContextResolution.resolveAfterEd25519(warmState);
@@ -3121,14 +3173,10 @@ async function getLoginStateInternal(
       context,
       resolvedNearAccountId,
     ).catch(() => null);
-    const hasThresholdEd25519SessionRecord =
-      !!getStoredThresholdEd25519SessionRecordForAccount(resolvedNearAccountId);
     const shouldGateNearPublicKey =
       requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin;
     const hasThresholdEd25519SigningCapability =
-      ed25519WarmStatus?.status === 'active' ||
-      snapshotStatusForLogin?.status === 'active' ||
-      hasThresholdEd25519SessionRecord;
+      ed25519WarmStatus?.status === 'active' || snapshotStatusForLogin?.status === 'active';
     const publicKey =
       userData?.operationalPublicKey &&
       (!shouldGateNearPublicKey || hasThresholdEd25519SigningCapability)

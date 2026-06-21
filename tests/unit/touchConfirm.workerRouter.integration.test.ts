@@ -784,7 +784,7 @@ test.describe('UserConfirm worker router', () => {
     expect(result.persistedPolicy.remainingUses).toBe(8);
   });
 
-  test('sealed mode persists signing-session seal using canonical Ed25519 session-record transport fallback', async ({
+  test('sealed mode keeps transport-less Ed25519 warm material cache-only', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -884,24 +884,10 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const sealRequest = await waitForPosted(1);
-        emitMessage({
-          id: sealRequest?.id,
-          success: true,
-          data: {
-            ok: true,
-            sealedSecretB64u: 'sealed-prf-first',
-            keyVersion: 'kek-v-ed25519',
-            remainingUses: 5,
-            expiresAtMs: Date.now() + 60_000,
-          },
-        });
-
         await putPromise;
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
-          sealPayload: postedMessages[1]?.payload || null,
           persistedRecord:
             await sealedStoreMod.readExactSealedSession('session-from-record', {
               authMethod: 'passkey',
@@ -912,22 +898,8 @@ test.describe('UserConfirm worker router', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypes).toEqual([
-      'WARM_SESSION_MATERIAL_PUT',
-      'WARM_SESSION_SEAL_AND_PERSIST',
-    ]);
-    expect(result.sealPayload).toMatchObject({
-      sessionId: 'session-from-record',
-      transport: {
-        relayerUrl: 'https://relay.example',
-        signingGrantId: 'wallet-session-from-record',
-        walletSessionJwt: 'jwt:session-from-record',
-        keyVersion: 'kek-v-ed25519',
-        shamirPrimeB64u: 'AQAB',
-      },
-    });
-    expect(result.persistedRecord?.thresholdSessionIds.ed25519).toBe('session-from-record');
-    expect(result.persistedRecord?.sealedSecretB64u).toBe('sealed-prf-first');
+    expect(result.postedTypes).toEqual(['WARM_SESSION_MATERIAL_PUT']);
+    expect(result.persistedRecord).toBeNull();
   });
 
   test('sealed mode persists signing-session seal using explicit ECDSA transport and canonical record metadata', async ({

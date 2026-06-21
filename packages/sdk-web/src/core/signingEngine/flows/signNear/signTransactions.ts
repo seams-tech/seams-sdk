@@ -378,7 +378,7 @@ export async function runNearTransactionWithActionsSigning({
     }
   };
   const preparedStepUp = await requireNearStepUpAuth({
-    signingAuthPlan: providedSigningAuthPlan,
+    signingAuthPlan: materialAwareSigningAuthPlan,
     signingLane,
     requiredSignatureUses,
     ...(emailOtpSigning ? { emailOtpSigning } : {}),
