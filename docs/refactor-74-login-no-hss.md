@@ -3828,6 +3828,8 @@ Implement Phase 9 in this order:
       login/signing-lane restore. `hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial()`
       may remain only for account-scoped discovery, repair, or diagnostics in
       `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`.
+- [ ] Rename every allowed account-scoped/latest helper to include
+      `AccountScoped`, `Discovery`, `Repair`, or `Diagnostics`.
 - [ ] Add a source guard proving exact login, exact warm-session material
       install, NEAR transaction signing, NEP-413 signing, and delegate signing
       do not call account-scoped/latest Ed25519 restore helpers.
@@ -3842,16 +3844,26 @@ Implement Phase 9 in this order:
       with a discriminated source:
       `current_record_restore` or `sealed_record_restore`. Each branch must
       validate the complete identity envelope before restoring.
+- [ ] Remove config fallback from core Email OTP ECDSA restore. Signing-session
+      seal key version and Shamir prime fallback may exist only in the
+      persistence boundary parser that normalizes or rejects old sealed records.
 - [ ] Audit `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
       and keep compatibility fallback only inside the boundary parser that
       normalizes server budget responses. Signing admission must consume a
       trusted normalized budget status and use server-authoritative
       `availableUses`, expiry, reservation, and exhaustion fields.
+- [ ] Reuse the existing budget model with a required-field
+      `TrustedActiveSigningBudgetStatus` refinement. Do not create a parallel
+      budget authority type.
 - [ ] Replace `candidates[0] || null` and similar first-candidate fallbacks in
       signing/session lifecycle code with explicit typed selection. If a helper
       intentionally returns the first already exact-filtered candidate, rename
       the helper or local variable so the exact filtering is visible at the call
       site.
+- [ ] Split authority-bearing candidate selection from display-only candidate
+      selection. `selectReconnectWalletSessionJwt()` must fail closed on no
+      exact JWT match; UI status selection must be renamed display-only and must
+      not feed signing admission.
 - [ ] Keep PRF and recovery-code cache helpers only inside credential-boundary
       setup/export paths. `cacheSigningSessionPrfFirstBestEffort()` and related
       helpers must not be reachable from normal Ed25519 unlock/signing material
@@ -3880,6 +3892,7 @@ Add or update guards that search active SDK code for these patterns:
 
 ```text
 restorePasskeyEd25519SessionBeforePlanningBestEffort
+readRefreshedEd25519CapabilityOrCurrent
 hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial
 knownMissingCacheKey
 candidates[0] || null
@@ -3888,6 +3901,13 @@ candidates[0] || null
 ?? lane.policyHint
 cacheSigningSessionPrfFirstBestEffort
 attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
+selectReconnectWalletSessionJwt
+selectSigningSessionStatusForUi
+snapshotLaneToSigningSessionStatus
+TODO remove legacy
+LEGACY
+old path
+fallback path
 ```
 
 Allowed hits must be classified as one of:
@@ -3903,6 +3923,8 @@ Allowed hits must be classified as one of:
 - Add a focused NEAR auth-planning test where Ed25519 material is pending and
   pre-planning restore fails. The test must prove the planner chooses a typed
   reauth/restore branch instead of silently continuing with warm-session auth.
+- Add a focused NEAR auth-planning test where post-restore capability refresh
+  throws. The test must prove stale current capability state is not reused.
 - Add a stale-negative-cache test: write sealed material after an earlier
   missing lookup, then prove exact restore sees the newly written material.
 - Add an Email OTP ECDSA restore test proving mixed current/sealed identity
@@ -3910,6 +3932,10 @@ Allowed hits must be classified as one of:
   complete envelope.
 - Add a budget admission test proving malformed or partial active status cannot
   fall back to persisted record policy hints for signing admission.
+- Add reconnect JWT selection tests proving no exact identity match returns
+  `not_found` or fails closed rather than returning the first candidate.
+- Add display-status tests proving UI fallback statuses are display-only and do
+  not reach budget admission.
 - Add type fixtures for the new discriminated restore and source-selection
   unions. Invalid mixed branches must use `@ts-expect-error`.
 
@@ -3923,6 +3949,12 @@ Allowed hits must be classified as one of:
   fields from multiple persisted records.
 - Negative restore caches cannot hide a sealed material record written after a
   previous miss.
+- Authority-bearing candidate selection fails closed on ambiguity or no exact
+  match. Display-only fallbacks are named and cannot feed signing admission.
+- Core Email OTP ECDSA restore receives complete normalized source branches; it
+  does not borrow missing identity or seal transport fields from config or a
+  different record.
+- Commented-out legacy implementation blocks are absent from committed source.
 - Source guards classify or delete every remaining defensive fallback marker.
 - Existing no-HSS browser evidence still passes after cleanup.
 
