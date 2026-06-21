@@ -237,11 +237,11 @@ const signingSessionSeal = createSigningSessionSealRoutesOptions({
   sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
     ecdsaStores: [ecdsaWalletSessionStore],
     walletBudgetStores: [ecdsaWalletSessionStore],
-  }),
-  cipher: createSigningSessionSealShamir3PassCipherAdapter({
-    currentKeyVersion: 'kek-s-2026-02',
-    keys: [{
-      keyVersion: 'kek-s-2026-02',
+	  }),
+	  cipher: createSigningSessionSealShamir3PassCipherAdapter({
+	    currentKeyVersion: 'signing-session-seal-kek-2026-02-r1',
+	    keys: [{
+	      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       // Development/test bootstrap only.
       // Production should load the active seal key material from a KMS/HSM boundary
       // and keep only the selected key version in ordinary app config.
@@ -250,9 +250,9 @@ const signingSessionSeal = createSigningSessionSealRoutesOptions({
       serverDecryptExponentB64u: process.env.SIGNING_SESSION_SEAL_D_S_B64U!,
     }],
   }),
-  capabilities: {
-    mode: 'sealed_refresh_v1',
-    keyVersion: 'kek-s-2026-02',
+	  capabilities: {
+	    mode: 'sealed_refresh_v1',
+	    keyVersion: 'signing-session-seal-kek-2026-02-r1',
     shamirPrimeB64u: process.env.SIGNING_SESSION_SHAMIR_P_B64U!,
   },
   rateLimit: resolveSigningSessionSealRateLimitFromEnv({

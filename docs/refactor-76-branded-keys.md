@@ -248,7 +248,8 @@ Do not brand every ID in this slice.
 Out of scope unless a concrete bug appears:
 
 - `walletSessionJwt`: use a validated auth material union instead.
-- `thresholdSessionId` and `signingGrantId`: these are already being normalized through signing-session identity helpers; improve those with existing session-id brands separately if needed.
+- `thresholdSessionId`: this is already being normalized through signing-session identity helpers; improve it with existing session-id brands separately if needed.
+- `signingGrantId` as key material: this is not key material and should not be added to the key-material brand set. It is in scope for the shared-budget lifecycle phase below because registration must distinguish "mint a grant" from "reuse the registration grant."
 - `signingRootId` and `signingRootVersion`: useful domain IDs, but broader than key material. Treat them as a separate signing-root identity cleanup if they keep causing bugs.
 - Raw PRF, recovery-code, mask, HSS share, or additive-share bytes in TypeScript: these should be moved behind worker/WASM boundaries or represented by opaque one-use handles.
 
@@ -520,7 +521,244 @@ Acceptance:
   - passkey provision mints a new session from existing key material.
   - email OTP provision mints a new session from existing key material.
 
-### 7. Add Static Guards
+### 7. Model Shared Signing-Grant Budget Lifecycle
+
+This phase addresses the registration-only budget split where combined Ed25519 + ECDSA registration produced two valid wallet signing budgets:
+
+- ECDSA registration prepared a server-authorized `signingGrantId`.
+- Ed25519 warm-session policy later minted a fresh `signingGrantId`.
+- Server budget accounting is keyed by `signingGrantId`, so NEAR and ECDSA signers consumed separate `remainingUses` budgets even though product behavior expects one shared wallet signing session.
+
+This is not key material and should not be solved by a simple `SigningGrantId` brand alone. Two different branded `SigningGrantId` values can still be valid. The type needs to encode lifecycle intent: generate a new grant or reuse an existing registration grant.
+
+Target warm-session policy input:
+
+```ts
+type ThresholdWarmSessionPolicyDraftInput =
+  | {
+      kind: 'generated_signing_grant';
+      sessionId?: string;
+      participantIds?: number[];
+      signingGrantId?: never;
+      ttlMs?: never;
+      remainingUses?: never;
+    }
+  | {
+      kind: 'shared_signing_grant';
+      signingGrantId: string;
+      ttlMs: number;
+      remainingUses: number;
+      sessionId?: string;
+      participantIds?: number[];
+    };
+```
+
+Target combined-registration helper:
+
+```ts
+type CombinedRegistrationEcdsaBudgetSource = {
+  preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
+  bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+};
+
+function createRegistrationThresholdWarmSessionPolicyDraft(args: {
+  context: ThresholdWarmSessionContext;
+  participantIds: readonly number[];
+  ecdsaSession: CombinedRegistrationEcdsaBudgetSource | null;
+}): ThresholdWarmSessionPolicyDraft | null;
+```
+
+Concrete implementation shape:
+
+1. Warm-session policy creation gets a discriminated input.
+
+```ts
+export type ThresholdWarmSessionPolicyDraftInput =
+  | {
+      kind: 'generated_signing_grant';
+      sessionId?: string;
+      participantIds?: number[];
+      signingGrantId?: never;
+      ttlMs?: never;
+      remainingUses?: never;
+    }
+  | {
+      kind: 'shared_signing_grant';
+      signingGrantId: string;
+      ttlMs: number;
+      remainingUses: number;
+      sessionId?: string;
+      participantIds?: number[];
+    };
+```
+
+2. The policy builder chooses between minting and reusing the grant.
+
+```ts
+const sharedGrant = input.kind === 'shared_signing_grant' ? input : null;
+const signingGrantId = sharedGrant
+  ? parseSharedSigningGrantId(sharedGrant.signingGrantId)
+  : generateSigningGrantId();
+```
+
+Implementation notes:
+
+- `shared_signing_grant` must reject empty `signingGrantId`.
+- `shared_signing_grant` must reject non-positive `ttlMs`.
+- `shared_signing_grant` must reject non-positive `remainingUses`.
+- Generated grant call sites should pass `kind: 'generated_signing_grant'` explicitly in the final shape.
+- A short transitional slice may keep `kind` optional for existing generated-grant call sites, but the done state requires explicit `kind` on every call.
+
+3. Combined registration converts the ECDSA registration budget into an Ed25519 warm-session policy.
+
+```ts
+function createRegistrationThresholdWarmSessionPolicyDraft(args: {
+  context: ThresholdWarmSessionContext;
+  participantIds: readonly number[];
+  ecdsaSession: CombinedRegistrationEcdsaBudgetSource | null;
+}): ThresholdWarmSessionPolicyDraft | null {
+  const participantIds = [...args.participantIds];
+  if (!args.ecdsaSession) {
+    return createThresholdWarmSessionPolicyDraft(args.context, {
+      kind: 'generated_signing_grant',
+      participantIds,
+    });
+  }
+
+  const clientBootstrap = args.ecdsaSession.preparedClientBootstrap.clientBootstrap;
+  const serverBootstrap = args.ecdsaSession.bootstrap;
+  if (clientBootstrap.signingGrantId !== serverBootstrap.signingGrantId) {
+    throw new Error('combined Ed25519/ECDSA registration has mismatched signing grant');
+  }
+  if (clientBootstrap.remainingUses !== serverBootstrap.remainingUses) {
+    throw new Error('combined Ed25519/ECDSA registration has mismatched signing budget limits');
+  }
+
+  return createThresholdWarmSessionPolicyDraft(args.context, {
+    kind: 'shared_signing_grant',
+    signingGrantId: clientBootstrap.signingGrantId,
+    ttlMs: clientBootstrap.ttlMs,
+    remainingUses: serverBootstrap.remainingUses,
+    participantIds,
+  });
+}
+```
+
+4. The combined registration flow must use the helper at the Ed25519 finalize policy construction point.
+
+```ts
+const requestedPolicy = createRegistrationThresholdWarmSessionPolicyDraft({
+  context,
+  participantIds: hssClientMaterial.hssContext.participantIds,
+  ecdsaSession:
+    ecdsaPreparedClientBootstrap && ecdsaBootstrap
+      ? {
+          preparedClientBootstrap: ecdsaPreparedClientBootstrap,
+          bootstrap: ecdsaBootstrap,
+        }
+      : null,
+});
+```
+
+5. Registration postconditions enforce the invariant after persistence.
+
+```ts
+function assertCombinedRegistrationSharedSigningGrant(args: {
+  walletId: string;
+  inventory: WalletRuntimeInventory;
+  expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+}): void {
+  const ed25519GrantId = requireReadyEd25519SigningGrant(args.inventory);
+  for (const chainTarget of args.expectedEcdsaChainTargets) {
+    const ecdsaGrantId = requireReadyEcdsaSigningGrant(args.inventory, chainTarget);
+    if (ecdsaGrantId !== ed25519GrantId) {
+      throw new Error(
+        `[Registration][postcondition] combined registration split signing budget for ${args.walletId}`,
+      );
+    }
+  }
+}
+```
+
+Rules:
+
+- Ed25519-only registration uses `generated_signing_grant`.
+- ECDSA-only registration keeps the ECDSA prepare/bootstrap grant.
+- Combined Ed25519 + ECDSA registration uses `shared_signing_grant` for the Ed25519 warm-session policy.
+- The shared grant must come from the ECDSA registration prepare/bootstrap pair.
+- The helper must assert that ECDSA client bootstrap and parsed server bootstrap agree on `signingGrantId`.
+- The helper must assert that ECDSA client bootstrap and parsed server bootstrap agree on `remainingUses`.
+- Ed25519 and ECDSA keep separate curve-specific `thresholdSessionId` values.
+- Ed25519 and ECDSA share the same wallet-level `signingGrantId` when one registration creates both curves.
+- Do not infer shared budget from equal TTL, equal account, equal signer slot, or route timing. The shared budget is only established by the explicit `shared_signing_grant` branch.
+
+Registration postcondition:
+
+```ts
+function assertCombinedRegistrationSharedSigningGrant(args: {
+  walletId: string;
+  inventory: WalletRuntimeInventory;
+  expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+}): void;
+```
+
+Postcondition rules:
+
+- Run after combined registration has persisted Ed25519 and ECDSA lanes.
+- Read the persisted signing-lane inventory.
+- Require the Ed25519 lane to have a `signingGrantId`.
+- Require every ECDSA lane created in the same registration to have the same `signingGrantId`.
+- Throw a registration postcondition error immediately if the budget is split.
+- Do not apply this assertion to ECDSA-only registration.
+- Do not apply this assertion to independent add-signer flows unless a product requirement says that add-signer must join an existing wallet budget.
+
+Files:
+
+- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts` if the shared-grant check is promoted into a reusable postcondition.
+- `tests/unit/thresholdWarmSessionPolicyDraft.unit.test.ts`
+- `tests/unit/registrationIntentAllocation.unit.test.ts`
+
+Tasks:
+
+- Change `createThresholdWarmSessionPolicyDraft()` to accept a discriminated input instead of an open optional bag.
+- Add the `shared_signing_grant` branch with required `signingGrantId`, `ttlMs`, and `remainingUses`.
+- Add the `generated_signing_grant` branch and update generated-grant call sites to pass it explicitly.
+- Keep wire/session policy field names unchanged: `thresholdSessionId`, `signingGrantId`, `ttlMs`, `remainingUses`.
+- Add `createRegistrationThresholdWarmSessionPolicyDraft()` at the registration orchestration layer.
+- Use the ECDSA registration prepare/bootstrap pair as the source for combined-registration Ed25519 `signingGrantId`.
+- Add explicit mismatch errors for ECDSA client/server `signingGrantId` and `remainingUses` drift.
+- Add a combined-registration postcondition that fails if persisted Ed25519/ECDSA lanes do not share `signingGrantId`.
+- Keep `thresholdSessionId` curve-specific. Do not collapse Ed25519 and ECDSA threshold sessions into one ID.
+- Keep server budget authority unchanged: server budget reservation/commit/release remains keyed by `signingGrantId`.
+- Remove the transitional optional `kind?: 'generated_signing_grant'` once all generated-grant call sites are updated.
+- Audit generated-grant call sites:
+  - Ed25519-only registration.
+  - Ed25519 add-signer.
+  - link-device.
+  - email recovery.
+  - sync-account recovery.
+
+Acceptance:
+
+- A call site cannot pass `signingGrantId`, `ttlMs`, or `remainingUses` into policy creation without selecting `kind: 'shared_signing_grant'`.
+- A generated-grant call site cannot omit `kind: 'generated_signing_grant'` in the final state.
+- Combined registration finalizes Ed25519 with the same `signingGrantId` returned by ECDSA registration prepare/bootstrap.
+- Combined registration persistence fails immediately if Ed25519 and ECDSA lanes have different `signingGrantId` values.
+- NEAR, Tempo, and EVM consume the same `remainingUses` budget immediately after combined registration.
+- Ed25519-only registration still mints a fresh grant.
+- ECDSA-only registration behavior is unchanged.
+- Login/wallet-unlock behavior is unchanged.
+
+Tests:
+
+- Unit test: `createThresholdWarmSessionPolicyDraft()` with `shared_signing_grant` preserves `signingGrantId`, `ttlMs`, and `remainingUses` through `buildThresholdWarmSessionRequestEnvelope()`.
+- Unit test: combined registration route finalizes Ed25519 with `started.ecdsa.prepare.signingGrantId` and returns an Ed25519 session with that grant.
+- Unit or integration test: combined registration postcondition rejects a persisted Ed25519 lane whose `signingGrantId` differs from the ECDSA lane.
+- Browser evidence after this phase: fresh registration, then NEAR -> Tempo -> EVM -> NEAR should require step-up on the fourth signing operation globally, not on the fourth NEAR operation.
+
+### 8. Add Static Guards
 
 Add typecheck fixtures near the new key-version module.
 
@@ -547,8 +785,10 @@ Add source guards:
 - Guard that Ed25519 durable refresh transport does not include HSS `keyVersion`.
 - Guard that signing-session seal tests and fixtures use domain-explicit KEK IDs.
 - Guard that ECDSA reconnect identity validation is not callable with fresh provision plans.
+- Guard that combined registration uses `shared_signing_grant` when both Ed25519 and ECDSA are selected.
+- Guard that no combined-registration path calls `createThresholdWarmSessionPolicyDraft()` directly with a generated grant after ECDSA prepare/bootstrap exists.
 
-### 8. Add Second-Tier Key-Material Brands
+### 9. Add Second-Tier Key-Material Brands
 
 Do this only after the three key-version brands are in place and green.
 
@@ -569,7 +809,7 @@ Acceptance:
 - `EcdsaRelayerKeyId` cannot be passed where `Ed25519RelayerKeyId` is required.
 - Secret bytes do not gain new raw-string domain paths as a side effect of branding.
 
-### 9. Sequencing
+### 10. Sequencing
 
 Recommended order:
 
@@ -579,10 +819,11 @@ Recommended order:
 4. Brand ECDSA HSS paths last.
 5. Preserve and test ECDSA reconnect/provision lifecycle separation.
 6. Make ECDSA lifecycle states structurally strict.
-7. Add second-tier opaque handle and digest brands.
-8. Add curve-specific relayer/verifier brands.
-9. Add ECDSA key identity brands.
-10. Run focused signing/session tests after each slice.
+7. Model shared signing-grant budget lifecycle for combined registration.
+8. Add second-tier opaque handle and digest brands.
+9. Add curve-specific relayer/verifier brands.
+10. Add ECDSA key identity brands.
+11. Run focused signing/session tests after each slice.
 
 Avoid broad mechanical renames before the branded parsers exist. The point is to tighten assignability, not to churn every `keyVersion` field in the repo.
 
@@ -719,7 +960,7 @@ Primary files:
 - `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519LocalMetadata.ts`
 - `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
 - `packages/sdk-web/src/core/signingEngine/session/emailOtp/ports.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssMaterialBinding.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
 - `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts`
 - `packages/sdk-web/src/core/signingEngine/threshold/ed25519/clientOutputMask.ts`
 - `packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
@@ -834,6 +1075,38 @@ Relevant tests:
 - `tests/unit/signingEngineEcdsaIdentity.lifecycle.guard.unit.test.ts`
 - `tests/unit/helpers/warmSessionStore.fixtures.ts`
 
+### Shared Signing-Grant Budget Lifecycle
+
+Primary files:
+
+- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts`
+- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts`
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
+
+Server/route files to audit:
+
+- `packages/sdk-server-ts/src/core/AuthService.ts`
+- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`
+- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
+- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
+
+Relevant tests:
+
+- `tests/unit/thresholdWarmSessionPolicyDraft.unit.test.ts`
+- `tests/unit/registrationIntentAllocation.unit.test.ts`
+- `tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts`
+- `tests/unit/seamsWeb.chainSigners.integration.test.ts`
+- `tests/e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts`
+
+Browser evidence:
+
+- Fresh combined registration with NEAR, Tempo, and EVM enabled.
+- Sign sequence: NEAR, Tempo, EVM, NEAR.
+- Expected: first three signs consume the shared budget; the fourth sign triggers step-up regardless of curve.
+- Repeat after wallet unlock to confirm registration and unlock use the same shared-budget semantics.
+
 ## Grep Checklist
 
 Run these before and after each phase. After a phase lands, every remaining hit should be either updated, explicitly allowed, or tracked in this plan.
@@ -863,6 +1136,17 @@ rg -n "existingSessionIdentity|newSessionIdentity|wallet_session_ecdsa_reconnect
 rg -n "EcdsaSessionProvisionPlan|BuildEcdsaSessionProvisionPlanArgs" packages/sdk-web/src/core/signingEngine tests/unit
 ```
 
+### Shared Signing-Grant Inventory
+
+```bash
+rg -n "createThresholdWarmSessionPolicyDraft\\(" packages/sdk-web/src/SeamsWeb packages/sdk-web/src/core tests/unit
+rg -n "shared_signing_grant|generated_signing_grant|signingGrantId" packages/sdk-web/src/SeamsWeb/operations/registration packages/sdk-web/src/SeamsWeb/operations/session tests/unit
+rg -n "assertCombinedRegistrationSharedSigningGrant|requireSharedSigningGrant" packages/sdk-web/src tests/unit
+rg -n "remainingUses|remainingSignatureUses" packages/sdk-web/src/SeamsWeb/operations/registration packages/sdk-web/src/core/signingEngine/session/postconditions tests/unit
+```
+
+After Phase 7 lands, combined-registration code should have one clear shared-grant construction path. Remaining generated-grant calls should be Ed25519-only, add-signer, recovery, link-device, or another explicitly independent wallet-session flow.
+
 ### Allowed Raw Boundary Hits
 
 These areas may continue to expose raw strings, provided they parse immediately before core use:
@@ -872,6 +1156,165 @@ These areas may continue to expose raw strings, provided they parse immediately 
 - IndexedDB/server persistence record modules.
 - Config/env parsing modules.
 - Tests named or scoped as wire, persistence, migration, invalid input, or boundary tests.
+
+## Remaining Implementation TODO
+
+Current status:
+
+- Key-version brands are implemented for the three original high-risk domains.
+- ECDSA reconnect/provision lifecycle separation is implemented.
+- Combined Ed25519 + ECDSA registration now has an explicit shared-signing-grant path.
+- Phase 9 second-tier key-material branding is implemented for the scoped SDK/server core boundaries.
+
+Do not reopen completed key-version, ECDSA lifecycle, shared-budget, or Phase 9 second-tier branding behavior unless a test proves a regression. Raw strings remain intentional at route, worker, generated-command, config, and persistence boundaries; core signing/session code should receive branded values through boundary parsers.
+
+### 9A. Add Second-Tier Brands And Parsers
+
+- [x] Extend the SDK key-material brand module with:
+  - `Ed25519WorkerMaterialHandle`
+  - `Ed25519SealedWorkerMaterialRef`
+  - `Ed25519WorkerMaterialKeyId`
+  - `Ed25519WorkerMaterialBindingDigest`
+  - `Ed25519ClientVerifyingShareB64u`
+  - `EcdsaClientVerifyingShareB64u`
+  - `Ed25519RelayerKeyId`
+  - `EcdsaRelayerKeyId`
+  - `EcdsaThresholdKeyId`
+  - `EcdsaKeyHandle`
+  - `EcdsaClientAdditiveShareHandle`
+  - `SigningSessionSealShamirPrimeB64u`
+- [x] Extend the server key-material brand module with the server-side subset:
+  - `Ed25519RelayerKeyId`
+  - `EcdsaRelayerKeyId`
+  - `Ed25519ClientVerifyingShareB64u`
+  - `EcdsaClientVerifyingShareB64u`
+  - `EcdsaThresholdKeyId`
+  - `EcdsaKeyHandle`
+  - `SigningSessionSealShamirPrimeB64u`
+- [x] Add parser and `format*ForWire()` helpers for each brand.
+- [x] Keep parsers minimal: trim strings, reject empty strings, and do format-specific validation only where an existing local validator already exists.
+- [x] Add type fixtures proving the new brands cannot be assigned across domains.
+
+Files:
+
+- `packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts`
+- `packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts`
+- `packages/sdk-server-ts/src/core/keyMaterialBrands.ts`
+- `packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts`
+
+### 9B. Parse At Boundaries, Then Pass Brands In Core
+
+- [x] Treat route bodies, generated worker commands, worker responses, and persisted records as raw boundary shapes.
+- [x] Parse raw strings into brands immediately after reading persistence or route/worker responses.
+- [x] Format brands back to strings only when writing persistence or sending route/worker requests.
+- [x] Do not brand raw secret bytes. Keep PRF, recovery-code, mask, HSS share, and additive-share bytes behind worker/WASM handles or one-use authorization capabilities.
+
+Acceptance:
+
+- Core signing/session functions accept the narrow branded type.
+- Boundary modules still expose the existing wire and persisted string fields.
+- No compatibility layer is added outside request, worker, route, or persistence boundaries.
+
+### 9C. Brand Ed25519 Worker-Material Restore And Signing References
+
+- [x] Brand runtime material handles as `Ed25519WorkerMaterialHandle`.
+- [x] Brand persisted sealed artifact refs as `Ed25519SealedWorkerMaterialRef`.
+- [x] Brand material binding digests as `Ed25519WorkerMaterialBindingDigest`.
+- [x] Brand worker material key IDs as `Ed25519WorkerMaterialKeyId`.
+- [x] Update restore/readiness code so `materialHandle`, `sealedWorkerMaterialRef`, `materialBindingDigest`, and `materialKeyId` cannot be interchanged.
+- [x] Keep generated near-signer worker command shapes raw and convert at the wrapper boundary.
+
+Primary files:
+
+- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts`
+- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts`
+- `packages/sdk-web/src/core/signingEngine/chains/near/nearSignerWasm.ts`
+- `packages/sdk-web/src/core/signingEngine/workerManager/workers/near-signer.worker.ts`
+- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts`
+
+### 9D. Brand Curve-Specific Relayer Keys And Verifying Shares
+
+- [x] Brand Ed25519 relayer keys as `Ed25519RelayerKeyId`.
+- [x] Brand ECDSA relayer keys as `EcdsaRelayerKeyId`.
+- [x] Brand Ed25519 client verifying shares as `Ed25519ClientVerifyingShareB64u`.
+- [x] Brand ECDSA client verifying shares as `EcdsaClientVerifyingShareB64u`.
+- [x] Update Ed25519 material-binding, presign-pool, and restore functions to require Ed25519 brands.
+- [x] Update ECDSA keygen/provision/presign/signing functions to require ECDSA brands.
+- [x] Keep persistence and route schema field names unchanged: `relayerKeyId` and `clientVerifyingShareB64u`.
+
+Primary files:
+
+- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
+- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts`
+- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
+- `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/relayerKeyMaterial.ts`
+
+### 9E. Brand ECDSA Key Identity Handles
+
+- [x] Brand threshold ECDSA key IDs as `EcdsaThresholdKeyId`.
+- [x] Brand ECDSA key handles as `EcdsaKeyHandle`.
+- [x] Brand ECDSA additive-share handles as `EcdsaClientAdditiveShareHandle`.
+- [x] Update ECDSA identity, provision, reconnect, sealed-refresh, and signing code to require the narrow handle type.
+- [x] Keep generated worker command and persisted record fields raw at the boundary.
+
+Primary files:
+
+- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+- `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
+- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
+- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
+- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
+- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/clientSigningMaterialBoundary.ts`
+- `packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts`
+
+### 9F. Brand Signing-Session Seal Non-Secret Parameters
+
+- [x] Brand Shamir prime config as `SigningSessionSealShamirPrimeB64u`.
+- [x] Parse it at server/env/config boundaries.
+- [x] Format it only when constructing the seal adapter or route-compatible config.
+- [x] Do not brand raw server exponents unless the code keeps them at config boundary only.
+
+Primary files:
+
+- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts`
+- `packages/sdk-server-ts/src/core/AuthService.ts`
+- `apps/web-server/scripts/generate-signing-session-seal-keys.mjs`
+- `apps/web-server/src/index.ts`
+
+### 9G. Add Guards And Tests For Remaining Brands
+
+- [x] Extend `tests/unit/refactor76BrandedKeys.guard.unit.test.ts` to fail on raw material handle/ref/digest/core declarations outside allowlisted boundary files.
+- [x] Add type fixtures that reject:
+  - `Ed25519WorkerMaterialHandle` where `Ed25519SealedWorkerMaterialRef` is required.
+  - `Ed25519WorkerMaterialBindingDigest` where `Ed25519WorkerMaterialKeyId` is required.
+  - `EcdsaClientVerifyingShareB64u` where `Ed25519ClientVerifyingShareB64u` is required.
+  - `EcdsaRelayerKeyId` where `Ed25519RelayerKeyId` is required.
+  - `EcdsaKeyHandle` where `EcdsaThresholdKeyId` is required.
+- [x] Add or update focused unit tests for:
+  - Ed25519 material restore from persisted sealed artifact.
+  - NEAR material-backed signing after restore.
+  - ECDSA sealed refresh and normal signing.
+  - Signing-session seal config parsing.
+
+Validation:
+
+- [x] `pnpm --dir packages/sdk-web exec tsc --noEmit --pretty false`
+- [x] `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- [x] `pnpm -C tests exec playwright test tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts tests/unit/warmSessionEd25519Persistence.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test tests/unit/evmFamilyStepUpProvisionPlan.unit.test.ts tests/unit/sealedRefresh.parity.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test tests/unit/routerAbEd25519.walletSessionState.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test tests/unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts`
 
 ## Source Guard Inventory
 
@@ -890,6 +1333,9 @@ Guard requirements:
 - Ed25519 durable refresh transport does not accept an HSS material `keyVersion`.
 - ECDSA reconnect identity validation is callable only from reconnect-specific paths.
 - Raw opaque material strings appear only in allowlisted boundary files before their brand phase is complete.
+- Combined Ed25519 + ECDSA registration uses the `shared_signing_grant` branch.
+- Combined registration has a persisted-lane postcondition that compares Ed25519 and ECDSA `signingGrantId`.
+- No combined registration helper creates a second wallet budget after ECDSA registration prepare/bootstrap has returned a `signingGrantId`.
 
 ## Validation Matrix
 
@@ -900,7 +1346,9 @@ Run narrow checks by phase:
 - Phase 3: signing-session seal router tests and UiConfirm/sealed-store tests.
 - Phase 4: ECDSA/Tempo sealed refresh and normal signing tests.
 - Phase 5 and 6: ECDSA reconnect/provision lifecycle tests and type fixtures.
-- Phase 8: source guards for opaque handle/ref/digest/verifier/relayer brands.
+- Phase 7: combined registration shared-budget unit tests and browser evidence.
+- Phase 8: source guards for branded key versions, lifecycle helpers, and shared-grant registration paths.
+- Phase 9: source guards for opaque handle/ref/digest/verifier/relayer brands.
 
 Full SDK/server type-check is required before the branch is called done because this refactor changes shared types and core signing/session surfaces.
 
@@ -925,6 +1373,8 @@ Suggested targeted tests:
 - `tests/relayer/signing-session-seal-router.test.ts`
 - `tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts`
 - `tests/unit/evmFamilyStepUpProvisionPlan.unit.test.ts`
+- `tests/unit/thresholdWarmSessionPolicyDraft.unit.test.ts`
+- `tests/unit/registrationIntentAllocation.unit.test.ts --grep "runs combined Ed25519 and ECDSA registration through one ceremony"`
 
 ## Done Criteria
 
@@ -939,3 +1389,6 @@ Suggested targeted tests:
 - New signing-session seal config/test values use domain-explicit names.
 - ECDSA reconnect and fresh provision identity rules are represented as separate lifecycle branches.
 - Existing and new ECDSA session identities are not interchangeable in plan builders or validation helpers.
+- Combined Ed25519 + ECDSA registration cannot mint separate Ed25519 and ECDSA signing budgets.
+- Combined registration fails a postcondition if persisted Ed25519 and ECDSA lanes have different `signingGrantId` values.
+- Fresh browser registration evidence proves NEAR, Tempo, and EVM consume one shared `remainingUses` budget before step-up.

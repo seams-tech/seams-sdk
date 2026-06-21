@@ -6,6 +6,14 @@ import { createSigningSessionSealShamir3PassCipherAdapter } from './crypto/ciphe
 import { resolveSigningSessionSealIdempotencyFromEnv } from './idempotencyBackends';
 import { createSigningSessionSealPolicyFromWalletSessionStores } from './policy/sessionPolicy';
 import { createSigningSessionSealRoutesOptions } from './routesOptions';
+import {
+  formatSigningSessionSealShamirPrimeB64uForWire,
+  formatSigningSessionSealKeyVersionForWire,
+  parseSigningSessionSealShamirPrimeB64u,
+  parseSigningSessionSealKeyVersion,
+  type SigningSessionSealKeyVersion,
+  type SigningSessionSealShamirPrimeB64u,
+} from '../../../core/keyMaterialBrands';
 
 export type CreateSigningSessionSealOptionsInput = {
   enabled?: unknown;
@@ -31,17 +39,19 @@ function parseBooleanFlag(value: unknown, defaultValue: boolean): boolean {
 }
 
 function createShamir3PassCipher(input: {
-  keyVersion: string;
-  shamirPrimeB64u: string;
+  signingSessionSealKeyVersion: SigningSessionSealKeyVersion;
+  shamirPrimeB64u: SigningSessionSealShamirPrimeB64u;
   serverEncryptExponentB64u: string;
   serverDecryptExponentB64u: string;
 }) {
+  const keyVersion = formatSigningSessionSealKeyVersionForWire(input.signingSessionSealKeyVersion);
+  const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(input.shamirPrimeB64u);
   return createSigningSessionSealShamir3PassCipherAdapter({
-    currentKeyVersion: input.keyVersion,
+    currentKeyVersion: keyVersion,
     keys: [
       {
-        keyVersion: input.keyVersion,
-        shamirPrimeB64u: input.shamirPrimeB64u,
+        keyVersion,
+        shamirPrimeB64u,
         serverEncryptExponentB64u: input.serverEncryptExponentB64u,
         serverDecryptExponentB64u: input.serverDecryptExponentB64u,
       },
@@ -82,12 +92,14 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
   const enabled = parseBooleanFlag(input.enabled, true);
   if (!enabled) return null;
 
-  const keyVersion = String(input.keyVersion || '').trim();
-  if (!keyVersion) {
-    throw new Error(
-      'SIGNING_SESSION_SEAL_KEY_VERSION must be a non-empty string when SIGNING_SESSION_SEAL_ENABLED is enabled',
-    );
-  }
+  const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(input.keyVersion);
+  const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
+  const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
+    input.shamirPrimeB64u,
+  );
+  const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
+    signingSessionSealShamirPrimeB64u,
+  );
 
   const walletSessionStore = createEd25519WalletSessionStore({
     config: input.thresholdStoreConfig,
@@ -107,15 +119,15 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
       walletBudgetStores: [walletSessionStore],
     }),
     cipher: createShamir3PassCipher({
-      keyVersion,
-      shamirPrimeB64u: input.shamirPrimeB64u,
+      signingSessionSealKeyVersion,
+      shamirPrimeB64u: signingSessionSealShamirPrimeB64u,
       serverEncryptExponentB64u: input.serverEncryptExponentB64u,
       serverDecryptExponentB64u: input.serverDecryptExponentB64u,
     }),
     capabilities: {
       mode: 'sealed_refresh_v1',
       keyVersion,
-      shamirPrimeB64u: input.shamirPrimeB64u,
+      shamirPrimeB64u,
     },
     idempotency: buildIdempotencyOptions(input.thresholdStoreConfig),
     logger: console,

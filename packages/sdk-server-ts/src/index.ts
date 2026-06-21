@@ -2,6 +2,14 @@
 export * from './core/types';
 export * from './core/config';
 export * from './core/defaultConfigsServer';
+export {
+  formatSigningSessionSealKeyVersionForWire,
+  formatSigningSessionSealShamirPrimeB64uForWire,
+  parseSigningSessionSealKeyVersion,
+  parseSigningSessionSealShamirPrimeB64u,
+  type SigningSessionSealKeyVersion,
+  type SigningSessionSealShamirPrimeB64u,
+} from './core/keyMaterialBrands';
 export { AuthService } from './core/AuthService';
 export { SessionService, parseCsvList, buildCorsOrigins } from './core/SessionService';
 export type { SessionConfig } from './core/SessionService';

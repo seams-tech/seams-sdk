@@ -13,6 +13,10 @@ import {
   createSigningSessionSealShamir3PassCipherAdapter,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   ensureTempoOnboardingSponsorshipForAllOrganizations,
+  formatSigningSessionSealKeyVersionForWire,
+  formatSigningSessionSealShamirPrimeB64uForWire,
+  parseSigningSessionSealKeyVersion,
+  parseSigningSessionSealShamirPrimeB64u,
   resolveSigningSessionSealIdempotencyFromEnv,
   resolveSigningSessionSealRateLimitFromEnv,
   resolveCoinGeckoSponsoredExecutionPricingFromEnv,
@@ -1238,10 +1242,18 @@ async function main() {
   const signingSessionSeal = (() => {
     if (!signingSessionSealEnabled) return null;
 
-    const shamirPrimeB64u = requireEnvVar(env, 'SIGNING_SESSION_SHAMIR_P_B64U');
+    const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
+      requireEnvVar(env, 'SIGNING_SESSION_SHAMIR_P_B64U'),
+    );
+    const shamirPrimeB64u = formatSigningSessionSealShamirPrimeB64uForWire(
+      signingSessionSealShamirPrimeB64u,
+    );
     const serverEncryptExponentB64u = requireEnvVar(env, 'SIGNING_SESSION_SEAL_E_S_B64U');
     const serverDecryptExponentB64u = requireEnvVar(env, 'SIGNING_SESSION_SEAL_D_S_B64U');
-    const keyVersion = String(env.SIGNING_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
+    const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(
+      env.SIGNING_SESSION_SEAL_KEY_VERSION || 'signing-session-seal-kek-2026-02-28-r1',
+    );
+    const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
     if (!keyVersion) {
       throw new Error(
         'SIGNING_SESSION_SEAL_KEY_VERSION must be a non-empty string when SIGNING_SESSION_SEAL_ENABLED=1',

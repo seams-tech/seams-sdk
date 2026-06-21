@@ -25,7 +25,7 @@ function parsePositiveInt(raw, fallback) {
 function parseArgs(argv) {
   const today = new Date().toISOString().slice(0, 10);
   const out = {
-    keyVersion: `kek-s-${today}`,
+    keyVersion: `signing-session-seal-kek-${today}-r1`,
     primeBits: 2048,
     json: false,
   };

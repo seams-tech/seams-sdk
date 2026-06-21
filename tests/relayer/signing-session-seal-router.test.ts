@@ -185,7 +185,7 @@ function makeBody(overrides?: Record<string, unknown>) {
   return {
     thresholdSessionId: THRESHOLD_SESSION_ID,
     ciphertext: 'ciphertext-b64u',
-    keyVersion: 'kek-s-2026-02',
+    keyVersion: 'signing-session-seal-kek-2026-02-r1',
     ...overrides,
   };
 }
@@ -223,7 +223,7 @@ test.describe('signing-session seal routes', () => {
       expect(res.status).toBe(200);
       expect(res.json?.ok).toBe(true);
       expect(res.json?.ciphertext).toBe('ciphertext-b64u');
-      expect(res.json?.keyVersion).toBe('kek-s-2026-02');
+      expect(res.json?.keyVersion).toBe('signing-session-seal-kek-2026-02-r1');
       expect(Number(res.json?.expiresAtMs)).toBeGreaterThan(Date.now());
     } finally {
       await srv.close();
@@ -875,7 +875,7 @@ test.describe('signing-session seal routes', () => {
 
   test('express shamir3pass adapter round-trips apply/remove with keyVersion binding', async () => {
     const service = makeFakeAuthService();
-    const keyVersion = 'kek-s-2026-02';
+    const keyVersion = 'signing-session-seal-kek-2026-02-r1';
     const primeB64u = encodePositiveBigIntB64u(257n);
     const encryptExponentB64u = encodePositiveBigIntB64u(3n);
     const decryptExponentB64u = encodePositiveBigIntB64u(171n);
@@ -942,10 +942,10 @@ test.describe('signing-session seal routes', () => {
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
         cipher: createSigningSessionSealShamir3PassCipherAdapter({
-          currentKeyVersion: 'kek-s-2026-02',
+          currentKeyVersion: 'signing-session-seal-kek-2026-02-r1',
           keys: [
             {
-              keyVersion: 'kek-s-2026-02',
+              keyVersion: 'signing-session-seal-kek-2026-02-r1',
               shamirPrimeB64u: encodePositiveBigIntB64u(257n),
               serverEncryptExponentB64u: encodePositiveBigIntB64u(3n),
               serverDecryptExponentB64u: encodePositiveBigIntB64u(171n),
@@ -983,10 +983,10 @@ test.describe('signing-session seal routes', () => {
       signingSessionSeal: createSigningSessionSealRoutesOptions({
         sessionPolicy: makePolicy(),
         cipher: createSigningSessionSealShamir3PassCipherAdapter({
-          currentKeyVersion: 'kek-s-2026-02',
+          currentKeyVersion: 'signing-session-seal-kek-2026-02-r1',
           keys: [
             {
-              keyVersion: 'kek-s-2026-02',
+              keyVersion: 'signing-session-seal-kek-2026-02-r1',
               shamirPrimeB64u: primeB64u,
               serverEncryptExponentB64u: encodePositiveBigIntB64u(3n),
               serverDecryptExponentB64u: encodePositiveBigIntB64u(171n),
@@ -1004,7 +1004,7 @@ test.describe('signing-session seal routes', () => {
         body: JSON.stringify(
           makeBody({
             ciphertext: primeB64u,
-            keyVersion: 'kek-s-2026-02',
+            keyVersion: 'signing-session-seal-kek-2026-02-r1',
           }),
         ),
       });
@@ -1089,7 +1089,7 @@ test.describe('signing-session seal routes', () => {
     const result = {
       ok: true as const,
       ciphertext: 'sealed:ciphertext-b64u',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
     };
 
     await idempotency.store.set({

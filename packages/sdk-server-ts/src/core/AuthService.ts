@@ -343,6 +343,12 @@ import {
   type SigningSessionSealRateLimiter,
 } from '../threshold/session/signingSessionSeal';
 import {
+  formatSigningSessionSealShamirPrimeB64uForWire,
+  formatSigningSessionSealKeyVersionForWire,
+  parseSigningSessionSealShamirPrimeB64u,
+  parseSigningSessionSealKeyVersion,
+} from './keyMaterialBrands';
+import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
 } from './ThresholdService/ethSignerWasm';
@@ -4249,12 +4255,12 @@ export class AuthService {
   private createEmailOtpShamirCipher() {
     // Local/dev bootstrap path only. Production should source the active Email OTP
     // seal material from a KMS/HSM boundary before constructing this adapter.
-    const keyVersion = this.readConfigValue('SIGNING_SESSION_SEAL_KEY_VERSION');
+    const keyVersionRaw = this.readConfigValue('SIGNING_SESSION_SEAL_KEY_VERSION');
     const shamirPrimeB64u = this.readConfigValue('SIGNING_SESSION_SHAMIR_P_B64U');
     const serverEncryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_E_S_B64U');
     const serverDecryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_D_S_B64U');
     if (
-      !keyVersion ||
+      !keyVersionRaw ||
       !shamirPrimeB64u ||
       !serverEncryptExponentB64u ||
       !serverDecryptExponentB64u
@@ -4267,6 +4273,14 @@ export class AuthService {
       };
     }
     try {
+      const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(keyVersionRaw);
+      const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
+      const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
+        shamirPrimeB64u,
+      );
+      const shamirPrime = formatSigningSessionSealShamirPrimeB64uForWire(
+        signingSessionSealShamirPrimeB64u,
+      );
       return {
         ok: true as const,
         keyVersion,
@@ -4275,7 +4289,7 @@ export class AuthService {
           keys: [
             {
               keyVersion,
-              shamirPrimeB64u,
+              shamirPrimeB64u: shamirPrime,
               serverEncryptExponentB64u,
               serverDecryptExponentB64u,
             },

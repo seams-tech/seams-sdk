@@ -7,6 +7,11 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
+  formatEcdsaHssKeyVersionForWire,
+  parseEcdsaHssKeyVersion,
+  type EcdsaHssKeyVersion,
+} from '../keyMaterialBrands';
+import {
   parseRouterAbNormalSigningServerPolicy,
   validateRouterAbNormalSigningServerPolicy,
   type ParseResult,
@@ -339,7 +344,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 const THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1 = 'evm-signing';
-const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = 'v1';
+const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = parseEcdsaHssKeyVersion('v1');
 const THRESHOLD_ECDSA_SIGNING_ROOT_VERSION_DEFAULT = 'default';
 const THRESHOLD_ECDSA_DERIVATION_VERSION_V1 = 1;
 const THRESHOLD_ECDSA_HSS_EXPORT_CLOCK_SKEW_MS = 5 * 60_000;
@@ -372,6 +377,15 @@ function canonicalEcdsaHssSigningRootVersion(signingRootVersion: unknown): strin
   return toOptionalTrimmedString(signingRootVersion) || 'default';
 }
 
+function parseEcdsaHssKeyVersionOrDefault(value: unknown): EcdsaHssKeyVersion {
+  const raw = toOptionalTrimmedString(value);
+  return raw ? parseEcdsaHssKeyVersion(raw) : THRESHOLD_ECDSA_HSS_KEY_VERSION_V1;
+}
+
+function ecdsaHssKeyVersionWire(value: EcdsaHssKeyVersion): string {
+  return formatEcdsaHssKeyVersionForWire(value);
+}
+
 async function deriveThresholdEcdsaHssKeyHandle(input: {
   readonly ecdsaThresholdKeyId: unknown;
   readonly signingRootId: unknown;
@@ -389,11 +403,12 @@ async function deriveThresholdEcdsaHssKeyHandle(input: {
 function createEcdsaSigningRootMetadata(
   signingRootId: string,
   signingRootVersion?: string,
+  ecdsaHssKeyVersion: EcdsaHssKeyVersion = THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
 ): ThresholdEcdsaSigningRootMetadata {
   return {
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
-    walletKeyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+    walletKeyVersion: ecdsaHssKeyVersionWire(ecdsaHssKeyVersion),
     derivationVersion: THRESHOLD_ECDSA_DERIVATION_VERSION_V1,
   };
 }
@@ -1928,7 +1943,7 @@ export class ThresholdSigningService {
       signingRootId: string;
       signingRootVersion: string;
       keyPurpose: string;
-      keyVersion: string;
+      keyVersion: EcdsaHssKeyVersion;
     };
     signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
   }): Promise<ParseResult<Uint8Array>> {
@@ -2966,8 +2981,8 @@ export class ThresholdSigningService {
     const chainTarget = input.chainTarget;
     const ecdsaThresholdKeyId = toOptionalTrimmedString(input.ecdsaThresholdKeyId);
     const rpId = toOptionalTrimmedString(input.rpId);
-    const walletKeyVersion =
-      toOptionalTrimmedString(input.walletKeyVersion) || THRESHOLD_ECDSA_HSS_KEY_VERSION_V1;
+    const ecdsaHssKeyVersion = parseEcdsaHssKeyVersionOrDefault(input.walletKeyVersion);
+    const walletKeyVersion = ecdsaHssKeyVersionWire(ecdsaHssKeyVersion);
     if (!signingRootId || !signingRootVersion || !walletId || !ecdsaThresholdKeyId || !rpId) {
       return {
         ok: false,
@@ -2994,7 +3009,11 @@ export class ThresholdSigningService {
     const expectedEthereumAddress = toOptionalTrimmedString(input.expectedEthereumAddress);
     let yRelayer32Le: Uint8Array | null = null;
     try {
-      const signingRootMetadata = createEcdsaSigningRootMetadata(signingRootId, signingRootVersion);
+      const signingRootMetadata = createEcdsaSigningRootMetadata(
+        signingRootId,
+        signingRootVersion,
+        ecdsaHssKeyVersion,
+      );
       const hssContext = {
         walletId,
         rpId,
@@ -3002,7 +3021,7 @@ export class ThresholdSigningService {
         signingRootId,
         signingRootVersion: canonicalEcdsaHssSigningRootVersion(signingRootVersion),
         keyPurpose: THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1,
-        keyVersion: walletKeyVersion,
+        keyVersion: ecdsaHssKeyVersion,
       };
       const derived = await this.deriveThresholdEcdsaHssYRelayerForContext({
         hssContext,
@@ -3288,6 +3307,7 @@ export class ThresholdSigningService {
         request.signingRootId,
         request.signingRootVersion,
       );
+      const ecdsaHssKeyVersion = THRESHOLD_ECDSA_HSS_KEY_VERSION_V1;
       const hssContext = {
         walletId: request.walletId,
         rpId: request.rpId,
@@ -3297,7 +3317,7 @@ export class ThresholdSigningService {
           signingRootMetadata.signingRootVersion,
         ),
         keyPurpose: THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1,
-        keyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+        keyVersion: ecdsaHssKeyVersion,
       };
       const derivedRelayerShare = await this.deriveThresholdEcdsaHssYRelayerForContext({
         hssContext,

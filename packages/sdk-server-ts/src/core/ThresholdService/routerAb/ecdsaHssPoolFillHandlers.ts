@@ -40,8 +40,23 @@ import {
   validateSecp256k1PublicKey33,
 } from '../ethSignerWasm';
 import { ThresholdEcdsaPresignSession } from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
+import {
+  formatEcdsaHssKeyVersionForWire,
+  formatEcdsaKeyHandleForWire,
+  formatEcdsaRelayerKeyIdForWire,
+  formatEcdsaThresholdKeyIdForWire,
+  parseEcdsaClientVerifyingShareB64u,
+  parseEcdsaHssKeyVersion,
+  parseEcdsaKeyHandle,
+  parseEcdsaRelayerKeyId,
+  parseEcdsaThresholdKeyId,
+  type EcdsaClientVerifyingShareB64u,
+  type EcdsaKeyHandle,
+  type EcdsaRelayerKeyId,
+  type EcdsaThresholdKeyId,
+} from '../../keyMaterialBrands';
 
-const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION = 'v1';
+const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION = parseEcdsaHssKeyVersion('v1');
 const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_DERIVATION_VERSION = 1;
 
 type ThresholdEcdsaMpcSessionRecord = {
@@ -83,7 +98,9 @@ function signingRootMetadataFromRoleLocalKey(
   return {
     signingRootId: record.signingRootId,
     signingRootVersion: record.signingRootVersion,
-    walletKeyVersion: THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION,
+    walletKeyVersion: formatEcdsaHssKeyVersionForWire(
+      THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION,
+    ),
     derivationVersion: THRESHOLD_ECDSA_HSS_ROLE_LOCAL_DERIVATION_VERSION,
   };
 }
@@ -98,17 +115,23 @@ function presignPoolKeyPart(value: unknown, fieldName: string): string {
 }
 
 function ecdsaPresignPoolKey(input: {
-  ecdsaThresholdKeyId: string;
-  keyHandle: string;
-  relayerKeyId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle: EcdsaKeyHandle;
+  relayerKeyId: EcdsaRelayerKeyId;
   thresholdEcdsaPublicKeyB64u: string;
   signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
 }): string {
   return [
     ECDSA_PRESIGN_POOL_KEY_VERSION,
-    `keyHandle=${presignPoolKeyPart(input.keyHandle, 'keyHandle')}`,
-    `ecdsaThresholdKeyId=${presignPoolKeyPart(input.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId')}`,
-    `relayerKeyId=${presignPoolKeyPart(input.relayerKeyId, 'relayerKeyId')}`,
+    `keyHandle=${presignPoolKeyPart(formatEcdsaKeyHandleForWire(input.keyHandle), 'keyHandle')}`,
+    `ecdsaThresholdKeyId=${presignPoolKeyPart(
+      formatEcdsaThresholdKeyIdForWire(input.ecdsaThresholdKeyId),
+      'ecdsaThresholdKeyId',
+    )}`,
+    `relayerKeyId=${presignPoolKeyPart(
+      formatEcdsaRelayerKeyIdForWire(input.relayerKeyId),
+      'relayerKeyId',
+    )}`,
     `signingRootId=${presignPoolKeyPart(input.signingRootMetadata.signingRootId, 'signingRootId')}`,
     `signingRootVersion=${presignPoolKeyPart(
       input.signingRootMetadata.signingRootVersion || 'default',
@@ -168,11 +191,11 @@ type ThresholdEcdsaRelayerSigningShare = {
 };
 
 type ThresholdEcdsaSigningKeyMaterial = {
-  ecdsaThresholdKeyId: string;
-  keyHandle: string;
-  relayerKeyId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle: EcdsaKeyHandle;
+  relayerKeyId: EcdsaRelayerKeyId;
   contextBinding32B64u: string;
-  clientVerifyingShareB64u: string;
+  clientVerifyingShareB64u: EcdsaClientVerifyingShareB64u;
   relayerPublicKey33B64u: string;
   thresholdEcdsaPublicKeyB64u: string;
   signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
@@ -338,7 +361,9 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
   const context = scope.context;
   const publicIdentity = scope.public_identity;
   const expected = input.keyMaterial;
-  const keyVersion = String(expected.signingRootMetadata.walletKeyVersion);
+  const keyVersion = formatEcdsaHssKeyVersionForWire(
+    parseEcdsaHssKeyVersion(expected.signingRootMetadata.walletKeyVersion),
+  );
   const signingRootVersion = expected.signingRootMetadata.signingRootVersion || 'default';
   const contextChecks: Array<[string, string, string]> = [
     ['poolFill.scope.context.wallet_id', context.wallet_id, input.walletSessionUserId],
@@ -667,10 +692,15 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         message: 'ECDSA key selector is not active on this server',
       };
     }
-    const ecdsaThresholdKeyId = toOptionalTrimmedString(roleLocalKey.ecdsaThresholdKeyId);
-    const keyHandle = toOptionalTrimmedString(roleLocalKey.keyHandle);
+    const ecdsaThresholdKeyIdRaw = toOptionalTrimmedString(roleLocalKey.ecdsaThresholdKeyId);
+    const keyHandleRaw = toOptionalTrimmedString(roleLocalKey.keyHandle);
     const tokenKeyHandle = toOptionalTrimmedString(input.tokenKeyHandle);
-    if (!ecdsaThresholdKeyId || !keyHandle || !tokenKeyHandle || tokenKeyHandle !== keyHandle) {
+    if (
+      !ecdsaThresholdKeyIdRaw ||
+      !keyHandleRaw ||
+      !tokenKeyHandle ||
+      tokenKeyHandle !== keyHandleRaw
+    ) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -709,14 +739,20 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         message: 'ecdsaThresholdKeyId does not match Wallet Session relayer scope',
       };
     }
+    const ecdsaThresholdKeyId = parseEcdsaThresholdKeyId(ecdsaThresholdKeyIdRaw);
+    const keyHandle = parseEcdsaKeyHandle(keyHandleRaw);
+    const relayerKeyId = parseEcdsaRelayerKeyId(roleLocalKey.relayerKeyId);
+    const clientVerifyingShareB64u = parseEcdsaClientVerifyingShareB64u(
+      roleLocalKey.clientPublicKey33B64u,
+    );
     return {
       ok: true,
       value: {
         ecdsaThresholdKeyId,
         keyHandle,
-        relayerKeyId: roleLocalKey.relayerKeyId,
+        relayerKeyId,
         contextBinding32B64u: roleLocalKey.contextBinding32B64u,
-        clientVerifyingShareB64u: roleLocalKey.clientPublicKey33B64u,
+        clientVerifyingShareB64u,
         relayerPublicKey33B64u: roleLocalKey.relayerPublicKey33B64u,
         thresholdEcdsaPublicKeyB64u: roleLocalKey.groupPublicKey33B64u,
         signingRootMetadata,
@@ -727,7 +763,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         presignPoolKey: ecdsaPresignPoolKey({
           ecdsaThresholdKeyId,
           keyHandle,
-          relayerKeyId: roleLocalKey.relayerKeyId,
+          relayerKeyId,
           thresholdEcdsaPublicKeyB64u: roleLocalKey.groupPublicKey33B64u,
           signingRootMetadata,
         }),

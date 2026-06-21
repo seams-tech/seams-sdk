@@ -8,7 +8,7 @@ function createStubSigningSessionSealOptionsWithCapabilities() {
     enabled: false,
     capabilities: {
       mode: 'sealed_refresh_v1' as const,
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
     },
     service: {
@@ -112,7 +112,7 @@ test.describe('relayer health/ready + well-known', () => {
       expect(res.status).toBe(200);
       expect((res.json?.capabilities as any)?.signingSessionSeal).toEqual({
         mode: 'sealed_refresh_v1',
-        keyVersion: 'kek-s-2026-02',
+        keyVersion: 'signing-session-seal-kek-2026-02-r1',
         shamirPrimeB64u: 'AQAB',
       });
     } finally {
@@ -226,7 +226,7 @@ test.describe('relayer health/ready + well-known', () => {
     expect(res.status).toBe(200);
     expect((res.json?.capabilities as any)?.signingSessionSeal).toEqual({
       mode: 'sealed_refresh_v1',
-      keyVersion: 'kek-s-2026-02',
+      keyVersion: 'signing-session-seal-kek-2026-02-r1',
       shamirPrimeB64u: 'AQAB',
     });
   });
