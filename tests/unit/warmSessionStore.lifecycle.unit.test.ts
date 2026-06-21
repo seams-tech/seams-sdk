@@ -53,7 +53,9 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
-    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBe('jwt:ed25519-session-1');
+    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBe(
+      ed25519Record.walletSessionJwt,
+    );
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
       state: 'warm',
       sessionId: 'ed25519-session-1',
@@ -84,7 +86,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('auth_missing');
-    expect(warmSession.capabilities.ed25519.auth?.walletSessionJwtSource).toBe('none');
+    expect(warmSession.capabilities.ed25519.auth).toBeNull();
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
       state: 'missing',
       sessionId: 'cookie-ed25519-session',

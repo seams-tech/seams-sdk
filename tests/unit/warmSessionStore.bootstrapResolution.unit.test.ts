@@ -28,8 +28,9 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
         nearAccountId: 'fallback.testnet',
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-fallback',
-        sessionId: 'sess-ecdsa-cookie',
-        sessionKind: 'cookie',
+        sessionId: 'sess-ecdsa-jwt-fallback',
+        walletSessionJwt: 'jwt-ecdsa-fallback',
+        sessionKind: 'jwt',
       }),
     });
 
