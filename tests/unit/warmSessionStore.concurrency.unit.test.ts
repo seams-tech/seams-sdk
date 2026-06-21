@@ -139,6 +139,7 @@ test.describe('WarmSessionStore concurrency', () => {
           chain: request.lanePolicy.chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap,
+          runtimeValidated: true,
         });
         claimsBySessionId[bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || ''] = {
           ok: true,
@@ -184,8 +185,7 @@ test.describe('WarmSessionStore concurrency', () => {
       state: 'warm',
       remainingUses: 5,
     });
-    expect(readCalls).toContain('stale-concurrent-session');
-    expect(readCalls).toContain('fresh-concurrent-session');
+    expect(readCalls).toEqual([]);
   });
 
   test('dedupes concurrent seal persistence for the same threshold session', async () => {

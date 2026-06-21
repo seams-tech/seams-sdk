@@ -271,6 +271,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
           chain: request.lanePolicy.chainTarget.kind,
           source: 'login',
           bootstrap: refreshedBootstrap,
+          runtimeValidated: true,
         });
         fixture.claimsBySessionId[refreshedRecord.thresholdSessionId] = {
           state: 'warm',
@@ -298,7 +299,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         capabilities: {
           ecdsa: {
             evm: {
-              state: 'ready',
+              state: 'prf_missing',
               thresholdSessionId: 'ecdsa-stale-session',
             },
           },
