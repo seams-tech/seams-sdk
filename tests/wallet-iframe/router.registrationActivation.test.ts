@@ -219,6 +219,11 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             );
           }, 3000);
           const boxShadow = getComputedStyle(target).boxShadow;
+          const transactionConfirmerMounted = Boolean(
+            document.querySelector(
+              'seams-tx-confirmer,w3a-tx-tree,w3a-modal-tx-confirmer,w3a-drawer-tx-confirmer',
+            ),
+          );
           const attributes = {
             active: target.getAttribute('data-seams-registration-button-active'),
             hovered: target.getAttribute('data-seams-registration-button-hovered'),
@@ -257,6 +262,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
             resizedRectsAligned,
             scrolledRectsAligned,
             boxShadow,
+            transactionConfirmerMounted,
             attributes,
             states,
             cleared,
@@ -284,6 +290,7 @@ test.describe('WalletIframeRouter registration activation surface', () => {
     expect(result.resizedRectsAligned).toBe(true);
     expect(result.scrolledRectsAligned).toBe(true);
     expect(result.boxShadow).not.toBe('none');
+    expect(result.transactionConfirmerMounted).toBe(false);
     expect(result.attributes).toEqual({
       active: 'true',
       hovered: 'false',

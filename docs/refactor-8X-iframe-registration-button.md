@@ -1179,16 +1179,16 @@ instead of adding an ad hoc lifecycle state bag in the view.
 
 ### Phase 0: Guardrails And Baseline
 
-- [ ] Confirm current failing UX with a browser trace:
+- [x] Confirm current failing UX with a browser trace:
       `Create with Passkey` -> iframe confirmation popup -> TouchID.
       If current main no longer reproduces the old popup because this plan is
       partially implemented, attach a saved historical trace/screenshot or mark
       this item superseded by the regression test that proves the popup no
       longer mounts on the activation-button path.
-- [ ] Add a focused regression test that detects transaction confirmer mounting
+- [x] Add a focused regression test that detects transaction confirmer mounting
       during iframe passkey registration.
-- [ ] Keep existing tests that prove normal iframe registration is clamped.
-- [ ] Keep existing tests that prove caller-supplied activation proofs are
+- [x] Keep existing tests that prove normal iframe registration is clamped.
+- [x] Keep existing tests that prove caller-supplied activation proofs are
       stripped from `PM_REGISTER`.
 
 ### Phase 1: Types And Protocol
@@ -1366,7 +1366,7 @@ instead of adding an ad hoc lifecycle state bag in the view.
       `setPointerCapture` is available.
 - [x] Source guard: `seams-passkey-registration-btn` does not import
       tx-confirm, export-key UI, modal/drawer containers, or React wrappers.
-- [ ] Unit/integration: router ignores activation state messages that do not
+- [x] Unit/integration: router ignores activation state messages that do not
       arrive through the established `MessagePort` for the active `activationId`.
 - [x] Unit/component: code-only registration modal renders account/intended user
       name and rpID from `PasskeyRegistrationConfirmDisplay`.
@@ -1374,17 +1374,17 @@ instead of adding an ad hoc lifecycle state bag in the view.
       tree.
 - [x] Unit/component: registration modal busy state appears after confirm.
 - [x] Unit: rpID displayed in the modal matches the rpID passed to WebAuthn.
-- [ ] Browser: iframe rect equals target rect within 1 CSS pixel.
-- [ ] Browser: `Create with Passkey` opens WebAuthn without mounting
+- [x] Browser: iframe rect equals target rect within 1 CSS pixel.
+- [x] Browser: `Create with Passkey` opens WebAuthn without mounting
       a transaction confirmer element.
-- [ ] Browser: code-only registration opens the improved wallet-origin modal,
+- [x] Browser: code-only registration opens the improved wallet-origin modal,
       displays intended user name and rpID, then opens WebAuthn after confirm.
-- [ ] Browser: app-domain `box-shadow` remains visible outside iframe boundary.
-- [ ] Browser: keyboard focus and Enter start registration.
-- [ ] Browser: app-domain outline styling changes for hovered, pressed,
+- [x] Browser: app-domain `box-shadow` remains visible outside iframe boundary.
+- [x] Browser: keyboard focus and Enter start registration.
+- [x] Browser: app-domain outline styling changes for hovered, pressed,
       focused, busy, and disabled mirrored states.
-- [ ] Browser: unmount removes iframe hit target and target data attributes.
-- [ ] Browser: target resize, document scroll, scrollable ancestor movement, and
+- [x] Browser: unmount removes iframe hit target and target data attributes.
+- [x] Browser: target resize, document scroll, scrollable ancestor movement, and
       visual viewport changes keep iframe aligned.
 
 Browser validation matrix:
@@ -1420,14 +1420,14 @@ Browser validation matrix:
 
 ### Phase 9: Cleanup And Documentation
 
-- [ ] Delete the old fullscreen registration activation panel path used by the
+- [x] Delete the old fullscreen registration activation panel path used by the
       activation-surface flow.
       Target cleanup: remove the activation-surface-only fullscreen panel
       renderer in `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts`
       after browser tests prove `outline_overlay` is the only activation-surface
       path. Keep the code-only wallet-origin registration modal.
 - [x] Delete old optional `button` payload compatibility.
-- [ ] Update README or SDK docs for `PasskeyAuthMenu` one-click registration.
+- [x] Update README or SDK docs for `PasskeyAuthMenu` one-click registration.
       Required docs snippet:
 
       ```tsx
@@ -1452,7 +1452,7 @@ Browser validation matrix:
 - [x] Document the code-only registration modal path.
 - [x] Document the `seams-passkey-registration-btn` modal-skipping path.
 - [x] Add `lit-components/passkey-registration-btn/README.md`.
-- [ ] Update `docs/refactor-8X-lit.md` relationship notes if that plan's target
+- [x] Update `docs/refactor-8X-lit.md` relationship notes if that plan's target
       directory structure changes first.
 - [x] Document that React components do not cross the iframe boundary.
 - [x] Document `outline_overlay` as the default styling model.

@@ -173,6 +173,47 @@ test.describe('seams-passkey-registration-btn', () => {
     );
   });
 
+  test('starts activation from keyboard Enter on the focused iframe button', async ({ page }) => {
+    await mountComponent(page, {
+      tagName: TAG_NAME,
+      props: {
+        activationId: 'activation-keyboard',
+        label: 'Create with passkey',
+        busyLabel: 'Creating passkey...',
+        accessibleLabel: 'Create passkey account',
+      },
+    });
+
+    await page.evaluate(
+      async ({ tagName, modulePath }) => {
+        const mod = await import(modulePath);
+        const startEvent = mod.SEAMS_PASSKEY_REGISTRATION_ACTIVATION_START_EVENT as string;
+        const element = document.querySelector(tagName) as HTMLElement & {
+          updateComplete?: Promise<unknown>;
+        };
+        await element.updateComplete;
+        const starts: unknown[] = [];
+        element.addEventListener(startEvent, (event) => {
+          starts.push((event as CustomEvent<unknown>).detail);
+        });
+        (globalThis as any).__seamsKeyboardActivationStarts = starts;
+      },
+      { tagName: TAG_NAME, modulePath: MODULE_PATH },
+    );
+
+    const button = page.locator(`${TAG_NAME} button`);
+    await button.focus();
+    await page.keyboard.press('Enter');
+
+    const result = await page.evaluate(() => {
+      const starts = (globalThis as any).__seamsKeyboardActivationStarts;
+      delete (globalThis as any).__seamsKeyboardActivationStarts;
+      return starts;
+    });
+
+    expect(result).toEqual([{ activationId: 'activation-keyboard' }]);
+  });
+
   test('uses the same rpID source for WebAuthn registration options', async ({ page }) => {
     const result = await page.evaluate(async ({ touchIdPromptPath }) => {
       const mod = await import(touchIdPromptPath);
