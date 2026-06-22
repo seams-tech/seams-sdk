@@ -1784,20 +1784,24 @@ async function installThresholdLoginEd25519WarmSessionUnsealAuthorization(args: 
   signingEngine: LoginWarmSigningSurface;
   credential: WebAuthnAuthenticationCredential;
   nearAccountId: AccountId;
+  signingGrantId: string;
   thresholdSessionId: string;
 }): Promise<void> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const nearAccountId = String(args.nearAccountId || '').trim();
-  if (!thresholdSessionId || !nearAccountId) {
+  const signingGrantId = String(args.signingGrantId || '').trim();
+  if (!thresholdSessionId || !nearAccountId || !signingGrantId) {
     logThresholdLoginEd25519UnsealInstallOutcome({
       outcome: 'skipped_missing_identity',
       nearAccountId,
+      signingGrantId,
       thresholdSessionId,
     });
     return;
   }
   const record = await resolveThresholdLoginEd25519WarmSessionUnsealInstallRecord({
     nearAccountId,
+    signingGrantId,
     thresholdSessionId,
   });
   const state = classifyRouterAbEd25519PersistedSigningRecord(record);
@@ -1854,15 +1858,19 @@ async function installThresholdLoginEd25519WarmSessionUnsealAuthorization(args: 
   const materialBindingDigest = String(
     state.record.ed25519WorkerMaterialBindingDigest || '',
   ).trim();
-  const signingGrantId = String(state.record.signingGrantId || '').trim();
+  const recordSigningGrantId = String(state.record.signingGrantId || '').trim();
   const expiresAtMs = Math.floor(Number(state.record.expiresAtMs) || 0);
-  if (!materialBindingDigest || !signingGrantId || expiresAtMs <= Date.now()) {
+  if (
+    !materialBindingDigest ||
+    recordSigningGrantId !== signingGrantId ||
+    expiresAtMs <= Date.now()
+  ) {
     logThresholdLoginEd25519UnsealInstallOutcome({
       outcome: 'skipped_invalid_record_scope',
       nearAccountId,
       thresholdSessionId,
       hasMaterialBindingDigest: Boolean(materialBindingDigest),
-      hasSigningGrantId: Boolean(signingGrantId),
+      hasSigningGrantId: Boolean(recordSigningGrantId),
       expiresAtMs,
     });
     return;
@@ -1881,7 +1889,7 @@ async function installThresholdLoginEd25519WarmSessionUnsealAuthorization(args: 
   }
   await args.signingEngine.putWarmSessionEd25519UnsealAuthorization({
     sessionId: resolvedThresholdSessionId,
-    signingGrantId,
+    signingGrantId: recordSigningGrantId,
     walletId: nearAccountId,
     authMethod: 'passkey',
     materialBindingDigest,
@@ -1905,8 +1913,10 @@ function ignoreThresholdLoginEd25519HydrationError(): null {
 
 async function resolveThresholdLoginEd25519WarmSessionUnsealInstallRecord(args: {
   nearAccountId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 }): Promise<ThresholdEd25519SessionRecord | null> {
+  const signingGrantId = String(args.signingGrantId || '').trim();
   const initialRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
     args.thresholdSessionId,
   );
@@ -1916,11 +1926,15 @@ async function resolveThresholdLoginEd25519WarmSessionUnsealInstallRecord(args: 
       ignoreThresholdLoginEd25519HydrationError,
     ));
   const volatileRecord = hydrated?.kind === 'hydrated' ? hydrated.record : initialRecord;
-  if (classifyRouterAbEd25519PersistedSigningRecord(volatileRecord).kind === 'restore_available') {
+  if (
+    classifyRouterAbEd25519PersistedSigningRecord(volatileRecord).kind === 'restore_available' &&
+    String(volatileRecord?.signingGrantId || '').trim() === signingGrantId
+  ) {
     return volatileRecord;
   }
   const exactHydrated = await hydrateExactEd25519SessionFromDurableSealedWorkerMaterial({
     nearAccountId: args.nearAccountId,
+    signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     source: 'login',
   });
@@ -1949,6 +1963,7 @@ function logThresholdLoginEd25519UnsealInstallSkipped(args: {
 function logThresholdLoginEd25519UnsealInstallOutcome(args: {
   outcome: string;
   nearAccountId: string;
+  signingGrantId?: string;
   thresholdSessionId: string;
   state?: string;
   reason?: string;
@@ -2500,6 +2515,7 @@ async function primeThresholdLoginWarmSigners(args: {
         signingEngine: args.signingEngine,
         credential,
         nearAccountId: args.nearAccountId,
+        signingGrantId: warmState.signingGrantId,
         thresholdSessionId: warmState.sessionId,
       });
     } catch (error) {
@@ -3210,12 +3226,12 @@ async function resolveWarmSigningSessionStatusForUi(
   const statuses = [ed25519, ...ecdsaStatuses].filter((status): status is SigningSessionStatus =>
     Boolean(status),
   );
-  return selectSigningSessionStatusForUi(statuses);
+  return selectSigningSessionStatusForDisplay(statuses);
 }
 
 type AvailableSigningLanesLane = AvailableEd25519SigningLane | AvailableEcdsaSigningLane;
 
-function selectSigningSessionStatusForUi(
+function selectSigningSessionStatusForDisplay(
   statuses: readonly (SigningSessionStatus | null | undefined)[],
 ): SigningSessionStatus | null {
   const candidates = statuses.filter((status): status is SigningSessionStatus => Boolean(status));
@@ -3228,10 +3244,21 @@ function selectSigningSessionStatusForUi(
       return Math.floor(Number(left.expiresAtMs) || 0) - Math.floor(Number(right.expiresAtMs) || 0);
     })[0];
   if (active) return active;
-  return candidates.find((status) => status.status !== 'not_found') || candidates[0] || null;
+  return selectDisplayFallbackSigningSessionStatus(candidates);
 }
 
-function snapshotLaneToSigningSessionStatus(
+function selectDisplayFallbackSigningSessionStatus(
+  candidates: readonly SigningSessionStatus[],
+): SigningSessionStatus | null {
+  const priority = ['exhausted', 'expired', 'unavailable', 'budget_unknown', 'not_found'] as const;
+  for (const status of priority) {
+    const candidate = candidates.find((candidateStatus) => candidateStatus.status === status);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function snapshotLaneToDisplaySigningSessionStatus(
   lane: AvailableSigningLanesLane,
 ): SigningSessionStatus | null {
   if (!isConcreteAvailableSigningLane(lane)) return null;
@@ -3274,10 +3301,10 @@ function snapshotToSigningSessionStatusForUi(
   snapshot: AvailableSigningLanes | null,
 ): SigningSessionStatus | null {
   if (!snapshot) return null;
-  return selectSigningSessionStatusForUi([
-    snapshotLaneToSigningSessionStatus(snapshot.lanes.ed25519.near),
+  return selectSigningSessionStatusForDisplay([
+    snapshotLaneToDisplaySigningSessionStatus(snapshot.lanes.ed25519.near),
     ...ecdsaAvailableLaneTargets(snapshot).map((target) =>
-      snapshotLaneToSigningSessionStatus(ecdsaAvailableLaneForTarget(snapshot, target)),
+      snapshotLaneToDisplaySigningSessionStatus(ecdsaAvailableLaneForTarget(snapshot, target)),
     ),
   ]);
 }
@@ -3316,7 +3343,7 @@ async function resolveSigningSessionStatusForUi(
   ]);
   // Status reads are side-effect-free. The next signing command owns exact
   // restore; warm status remains useful to display currently active sessions.
-  return selectSigningSessionStatusForUi([snapshotStatus, warmStatus]);
+  return selectSigningSessionStatusForDisplay([snapshotStatus, warmStatus]);
 }
 
 async function getLoginStateInternal(

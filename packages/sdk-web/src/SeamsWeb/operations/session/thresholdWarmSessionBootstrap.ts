@@ -241,6 +241,7 @@ type RestoreThresholdEd25519WorkerMaterialPendingReason =
   | 'pending_material'
   | 'no_durable_restore_records'
   | 'durable_restore_missing_worker_material'
+  | 'durable_restore_ambiguous_worker_material'
   | 'durable_restore_identity_mismatch';
 
 export type RestoreThresholdEd25519WorkerMaterialFromCredentialResult =
@@ -413,6 +414,18 @@ function ed25519RestoreIdentityMismatchReasons(args: {
   if (normalizedRestoreString(sealed.walletId) !== normalizedRestoreString(current.nearAccountId)) {
     reasons.push('walletId');
   }
+  if (
+    normalizedRestoreString(sealed.signingGrantId) !==
+    normalizedRestoreString(current.signingGrantId)
+  ) {
+    reasons.push('signingGrantId');
+  }
+  if (
+    ed25519ThresholdSessionIdFromSealedRecord(sealed) !==
+    normalizedRestoreString(current.thresholdSessionId)
+  ) {
+    reasons.push('thresholdSessionId');
+  }
   if (sealedSigningRoot.signingRootId !== signingRoot.signingRootId) {
     reasons.push('signingRootId');
   }
@@ -436,6 +449,19 @@ function ed25519RestoreIdentityMismatchReasons(args: {
   ) {
     reasons.push('signerSlot');
   }
+  const currentMaterialBindingDigest = normalizedRestoreString(
+    current.ed25519WorkerMaterialBindingDigest,
+  );
+  const sealedMaterialBindingDigest = normalizedRestoreString(
+    restore.ed25519WorkerMaterialBindingDigest,
+  );
+  if (
+    currentMaterialBindingDigest &&
+    sealedMaterialBindingDigest &&
+    currentMaterialBindingDigest !== sealedMaterialBindingDigest
+  ) {
+    reasons.push('ed25519WorkerMaterialBindingDigest');
+  }
   return reasons;
 }
 
@@ -451,6 +477,49 @@ function mostRecentEd25519SealedSessionRecord(
   );
 }
 
+type ExactEd25519WorkerMaterialRestoreRecordSelection =
+  | {
+      kind: 'exact_match';
+      record: CurrentEd25519RestoreSealedSessionRecord;
+    }
+  | {
+      kind: 'ambiguous';
+      exactMatchCount: number;
+      storeKeys: string[];
+    }
+  | {
+      kind: 'not_found';
+    };
+
+function selectExactEd25519WorkerMaterialRestoreRecord(
+  records: readonly CurrentEd25519RestoreSealedSessionRecord[],
+): ExactEd25519WorkerMaterialRestoreRecordSelection {
+  switch (records.length) {
+    case 0:
+      return { kind: 'not_found' };
+    case 1: {
+      const record = records[0];
+      return record ? { kind: 'exact_match', record } : { kind: 'not_found' };
+    }
+    default:
+      return {
+        kind: 'ambiguous',
+        exactMatchCount: records.length,
+        storeKeys: records.map((record) => normalizedRestoreString(record.storeKey)).filter(Boolean),
+      };
+  }
+}
+
+function ambiguousExactEd25519RestoreDetails(
+  selection: Extract<ExactEd25519WorkerMaterialRestoreRecordSelection, { kind: 'ambiguous' }>,
+): string {
+  return `candidate records=${selection.exactMatchCount}; storeKeys=${selection.storeKeys.join(',') || 'unknown'}`;
+}
+
+function assertNeverExactEd25519WorkerMaterialRestoreRecordSelection(value: never): never {
+  throw new Error(`Unexpected exact Ed25519 restore selection branch: ${String(value)}`);
+}
+
 function ed25519ThresholdSessionIdFromSealedRecord(
   record: CurrentEd25519RestoreSealedSessionRecord,
 ): string {
@@ -460,10 +529,13 @@ function ed25519ThresholdSessionIdFromSealedRecord(
 function sealedEd25519RestoreRecordMatchesExactSession(args: {
   record: CurrentEd25519RestoreSealedSessionRecord;
   nearAccountId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
 }): boolean {
   return (
     normalizedRestoreString(args.record.walletId) === normalizedRestoreString(args.nearAccountId) &&
+    normalizedRestoreString(args.record.signingGrantId) ===
+      normalizedRestoreString(args.signingGrantId) &&
     ed25519ThresholdSessionIdFromSealedRecord(args.record) ===
       normalizedRestoreString(args.thresholdSessionId)
   );
@@ -566,6 +638,7 @@ async function listPasskeyEd25519RestoreSealedSessionsForWallet(
 
 export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(args: {
   nearAccountId: string;
+  signingGrantId: string;
   thresholdSessionId: string;
   source: ThresholdEd25519SessionStoreSource;
 }): Promise<
@@ -583,8 +656,9 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
     }
 > {
   const nearAccountId = normalizedRestoreString(args.nearAccountId);
+  const signingGrantId = normalizedRestoreString(args.signingGrantId);
   const thresholdSessionId = normalizedRestoreString(args.thresholdSessionId);
-  if (!nearAccountId || !thresholdSessionId) {
+  if (!nearAccountId || !signingGrantId || !thresholdSessionId) {
     return {
       kind: 'not_found',
       pendingReason: 'pending_material',
@@ -596,6 +670,7 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
       sealedEd25519RestoreRecordMatchesExactSession({
         record,
         nearAccountId,
+        signingGrantId,
         thresholdSessionId,
       }),
   );
@@ -618,14 +693,30 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
       pendingDetails: `candidate records=${records.length}; missing fields=${missingFields.join(',') || 'unknown'}`,
     };
   }
-  const selected = mostRecentEd25519SealedSessionRecord(materialRecords);
-  const hydrated = selected
-    ? upsertEd25519SessionRecordFromExactSealedWorkerMaterial({
-        sealed: selected,
-        source: args.source,
-      })
-    : null;
-  if (!selected || !hydrated) {
+  const selection = selectExactEd25519WorkerMaterialRestoreRecord(materialRecords);
+  switch (selection.kind) {
+    case 'not_found':
+      return {
+        kind: 'not_found',
+        pendingReason: 'pending_material',
+        pendingDetails: 'failed to select exact Ed25519 session record from durable metadata',
+      };
+    case 'ambiguous':
+      return {
+        kind: 'not_found',
+        pendingReason: 'durable_restore_ambiguous_worker_material',
+        pendingDetails: ambiguousExactEd25519RestoreDetails(selection),
+      };
+    case 'exact_match':
+      break;
+    default:
+      return assertNeverExactEd25519WorkerMaterialRestoreRecordSelection(selection);
+  }
+  const hydrated = upsertEd25519SessionRecordFromExactSealedWorkerMaterial({
+    sealed: selection.record,
+    source: args.source,
+  });
+  if (!hydrated) {
     return {
       kind: 'not_found',
       pendingReason: 'pending_material',
@@ -638,7 +729,7 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
   };
 }
 
-export async function hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial(args: {
+export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSealedWorkerMaterial(args: {
   nearAccountId: string;
   source: ThresholdEd25519SessionStoreSource;
 }): Promise<
@@ -743,12 +834,23 @@ function summarizeEd25519DurableRestoreLookupFailure(args: {
   const matchingRecords = materialRecords.filter((sealedRecord) =>
     sealedEd25519RestoreMatchesCurrentRecord({ current: args.current, sealed: sealedRecord }),
   );
-  const selected = mostRecentEd25519SealedSessionRecord(matchingRecords);
-  if (selected) {
-    return {
-      kind: 'matched',
-      record: selected,
-    };
+  const selection = selectExactEd25519WorkerMaterialRestoreRecord(matchingRecords);
+  switch (selection.kind) {
+    case 'exact_match':
+      return {
+        kind: 'matched',
+        record: selection.record,
+      };
+    case 'ambiguous':
+      return {
+        kind: 'not_found',
+        pendingReason: 'durable_restore_ambiguous_worker_material',
+        pendingDetails: ambiguousExactEd25519RestoreDetails(selection),
+      };
+    case 'not_found':
+      break;
+    default:
+      return assertNeverExactEd25519WorkerMaterialRestoreRecordSelection(selection);
   }
   const mismatchReasons = [
     ...new Set(
