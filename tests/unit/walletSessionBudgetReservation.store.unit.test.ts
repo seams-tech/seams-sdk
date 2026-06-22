@@ -462,6 +462,7 @@ test.describe('Wallet Session budget reservations', () => {
 
   test('commit rejects expired reservations and releases visible availability', async () => {
     const { store } = await putWalletSession({ remainingUses: 1 });
+    const reservationExpiresAtMs = Date.now() + 100;
     const expiredReservation = await store.reserveUseCountOnce({
       signingGrantId: 'wallet-session-1',
       curve: 'ed25519',
@@ -470,12 +471,12 @@ test.describe('Wallet Session budget reservations', () => {
       operationId: 'operation-1',
       requestDigest: 'digest-1',
       signatureUses: 1,
-      expiresAtMs: Date.now() + 1,
+      expiresAtMs: reservationExpiresAtMs,
     });
     expect(expiredReservation.ok).toBe(true);
     if (!expiredReservation.ok) throw new Error(expiredReservation.message);
 
-    await delay(5);
+    await delay(Math.max(0, reservationExpiresAtMs - Date.now() + 5));
 
     const committed = await store.commitReservedUseCountOnce({
       signingGrantId: 'wallet-session-1',

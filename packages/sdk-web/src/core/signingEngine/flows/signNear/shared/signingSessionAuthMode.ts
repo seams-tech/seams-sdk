@@ -159,31 +159,91 @@ type Ed25519PostRefreshPlannerState =
       capability: NearEd25519Capability;
     };
 
-type TrustedEd25519SigningSessionStatus =
+type PrePlanningEd25519MaterialRestoreResult =
   | {
-      kind: 'active';
-      remainingUses: number;
-      availableUses: number;
-      expiresAtMs: number;
+      kind: 'already_ready';
+      capability: NearEd25519Capability;
     }
   | {
-      kind: 'exhausted';
+      kind: 'restored';
+      capability: NearEd25519Capability;
+      restored: number;
     }
   | {
-      kind: 'expired';
+      kind: 'not_applicable';
+      reason:
+        | 'auth_method_not_passkey'
+        | 'record_not_restore_available'
+        | 'operation_does_not_require_ed25519_material';
+      capability: NearEd25519Capability;
     }
   | {
-      kind: 'unavailable';
+      kind: 'missing_unseal_authorization';
+      code:
+        | 'not_found'
+        | 'expired'
+        | 'exhausted'
+        | 'scope_mismatch'
+        | 'material_unseal_authorization_required';
+      capability: NearEd25519Capability;
+    }
+  | {
+      kind: 'missing_sealed_material';
+      code:
+        | 'no_durable_restore_records'
+        | 'durable_restore_missing_worker_material'
+        | 'material_restore_required';
+      capability: NearEd25519Capability;
+    }
+  | {
+      kind: 'worker_restore_failed';
+      code:
+        | 'restore_command_failed'
+        | 'worker_validation_failed'
+        | 'capability_refresh_failed'
+        | 'unexpected_restore_error';
+      capability: NearEd25519Capability;
+      message: string;
+    };
+
+type TrustedActiveEd25519SigningBudgetStatus = SigningSessionStatus & {
+  status: 'active';
+  remainingUses: number;
+  committedRemainingUses: number;
+  inFlightReservedUses: number;
+  availableUses: number;
+  expiresAtMs: number;
+  projectionVersion: string;
+};
+
+type TrustedInactiveEd25519SigningSessionStatus =
+  | {
+      sessionId: string;
+      status: 'exhausted';
+    }
+  | {
+      sessionId: string;
+      status: 'expired';
+    }
+  | {
+      sessionId: string;
+      status: 'unavailable';
       statusCode?: string;
     }
   | {
-      kind: 'budget_unknown';
+      sessionId: string;
+      status: 'budget_unknown';
     }
   | {
-      kind: 'not_found';
-    }
+      sessionId: string;
+      status: 'not_found';
+    };
+
+type TrustedEd25519SigningSessionStatus =
+  | TrustedActiveEd25519SigningBudgetStatus
+  | TrustedInactiveEd25519SigningSessionStatus
   | {
-      kind: 'missing_status';
+      status: 'missing_status';
     };
 
 export function createNearSigningSessionCoordinator(
@@ -401,7 +461,6 @@ async function resolvePlannerReadinessForEd25519(
         plannerInput: args,
         capability: initialState.capability,
         authMethod: 'email_otp',
-        activeUseSource: 'remaining_uses',
       });
     case 'passkey_refreshable':
       return await resolveRefreshablePasskeyEd25519PlannerReadiness({
@@ -517,11 +576,15 @@ async function resolveRefreshablePasskeyEd25519PlannerReadiness(args: {
   plannerInput: ResolveEd25519PlannerReadinessArgs;
   capability: NearEd25519Capability;
 }): Promise<Ed25519PlannerReadinessResult> {
-  await restorePasskeyEd25519SessionBeforePlanningBestEffort(args.plannerInput);
-  const capability = await readRefreshedEd25519CapabilityOrCurrent({
-    warmSessionReader: args.plannerInput.warmSessionReader,
-    sessionId: args.plannerInput.sessionId,
-    current: args.capability,
+  const prePlanningRestore = await resolvePrePlanningPasskeyEd25519MaterialRestore(
+    args.plannerInput,
+  );
+  if (prePlanningRestore.kind === 'missing_unseal_authorization') {
+    return missingEd25519PlannerReadiness(args.plannerInput, prePlanningRestore.capability);
+  }
+  const capability = prePlanningRestoreCapabilityForPlanning({
+    plannerInput: args.plannerInput,
+    result: prePlanningRestore,
   });
   const state = classifyPostRefreshEd25519PlannerState(capability);
 
@@ -531,7 +594,6 @@ async function resolveRefreshablePasskeyEd25519PlannerReadiness(args: {
         plannerInput: args.plannerInput,
         capability: state.capability,
         authMethod: 'passkey',
-        activeUseSource: 'available_uses',
       });
     case 'runtime_validated':
       return admitCapabilityBackedEd25519PlannerReadiness({
@@ -549,7 +611,6 @@ async function resolveRefreshablePasskeyEd25519PlannerReadiness(args: {
         plannerInput: args.plannerInput,
         capability: state.capability,
         authMethod: state.authMethod,
-        activeUseSource: 'remaining_uses',
       });
     case 'missing':
       return resolveMissingPostRefreshEd25519PlannerReadiness({
@@ -561,6 +622,32 @@ async function resolveRefreshablePasskeyEd25519PlannerReadiness(args: {
       throw new Error('[SigningEngine] Ed25519 signing session record is invalid');
     default:
       return assertNeverSigningSessionAuthMode(state);
+  }
+}
+
+function prePlanningRestoreCapabilityForPlanning(args: {
+  plannerInput: ResolveEd25519PlannerReadinessArgs;
+  result: PrePlanningEd25519MaterialRestoreResult;
+}): NearEd25519Capability {
+  switch (args.result.kind) {
+    case 'already_ready':
+    case 'restored':
+    case 'not_applicable':
+      return args.result.capability;
+    case 'missing_sealed_material':
+      throw new Error(
+        `[SigningEngine][near] material_restore_required: pre_confirm:${args.result.code}:${args.plannerInput.sessionId}`,
+      );
+    case 'missing_unseal_authorization':
+      throw new Error(
+        `[SigningEngine][near] material_unseal_authorization_required: pre_confirm:${args.result.code}:${args.plannerInput.sessionId}`,
+      );
+    case 'worker_restore_failed':
+      throw new Error(
+        `[SigningEngine][near] worker_restore_failed: pre_confirm:${args.result.code}:${args.result.message}`,
+      );
+    default:
+      return assertNeverSigningSessionAuthMode(args.result);
   }
 }
 
@@ -606,50 +693,149 @@ function classifyPostRefreshCapabilityState(
   }
 }
 
-async function restorePasskeyEd25519SessionBeforePlanningBestEffort(args: {
+async function resolvePrePlanningPasskeyEd25519MaterialRestore(args: {
   warmSessionReader: NearWarmSessionReader;
   nearAccountId: string;
   capability: NearEd25519Capability;
   sessionId: string;
   operationLabel?: string;
-}): Promise<void> {
-  try {
-    await restorePasskeyEd25519SessionBeforePlanning(args);
-  } catch (error) {
-    logPasskeyEd25519PlanningRestoreFailure({ plannerInput: args, error });
+}): Promise<PrePlanningEd25519MaterialRestoreResult> {
+  const record = args.capability.record;
+  if (!record || record.source === 'email_otp') {
+    return {
+      kind: 'not_applicable',
+      reason: 'auth_method_not_passkey',
+      capability: args.capability,
+    };
+  }
+  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
+  switch (persistedState.kind) {
+    case 'runtime_validated':
+      return { kind: 'already_ready', capability: args.capability };
+    case 'restore_available':
+      return await restorePasskeyEd25519SessionBeforePlanning(args);
+    case 'material_hint_unvalidated':
+    case 'auth_ready_material_pending':
+    case 'non_signing':
+    case 'invalid':
+      return {
+        kind: 'not_applicable',
+        reason: 'record_not_restore_available',
+        capability: args.capability,
+      };
+    default:
+      return assertNeverSigningSessionAuthMode(persistedState);
   }
 }
 
-function logPasskeyEd25519PlanningRestoreFailure(args: {
-  plannerInput: Pick<
-    ResolveEd25519PlannerReadinessArgs,
-    'nearAccountId' | 'sessionId' | 'operationLabel'
-  >;
+function prePlanningRestoreFailureFromError(args: {
   error: unknown;
-}): void {
-  if (!args.plannerInput.operationLabel) return;
-  console.warn(
-    `[SigningEngine][near] ${args.plannerInput.operationLabel} sealed session restore failed before auth planning`,
-    {
-      nearAccountId: args.plannerInput.nearAccountId,
-      sessionId: args.plannerInput.sessionId,
-      error: args.error instanceof Error ? args.error.message : String(args.error || 'unknown error'),
-    },
-  );
+  capability: NearEd25519Capability;
+}): PrePlanningEd25519MaterialRestoreResult {
+  const message = errorMessageForPrePlanningRestore(args.error);
+  if (message.includes('material_unseal_authorization_required')) {
+    return {
+      kind: 'missing_unseal_authorization',
+      code: 'material_unseal_authorization_required',
+      capability: args.capability,
+    };
+  }
+  if (message.includes('not_found')) {
+    return { kind: 'missing_unseal_authorization', code: 'not_found', capability: args.capability };
+  }
+  if (message.includes('expired')) {
+    return { kind: 'missing_unseal_authorization', code: 'expired', capability: args.capability };
+  }
+  if (message.includes('exhausted')) {
+    return { kind: 'missing_unseal_authorization', code: 'exhausted', capability: args.capability };
+  }
+  if (message.includes('scope_mismatch')) {
+    return {
+      kind: 'missing_unseal_authorization',
+      code: 'scope_mismatch',
+      capability: args.capability,
+    };
+  }
+  if (message.includes('no_durable_restore_records')) {
+    return {
+      kind: 'missing_sealed_material',
+      code: 'no_durable_restore_records',
+      capability: args.capability,
+    };
+  }
+  if (message.includes('durable_restore_missing_worker_material')) {
+    return {
+      kind: 'missing_sealed_material',
+      code: 'durable_restore_missing_worker_material',
+      capability: args.capability,
+    };
+  }
+  if (message.includes('material_restore_required')) {
+    return {
+      kind: 'missing_sealed_material',
+      code: 'material_restore_required',
+      capability: args.capability,
+    };
+  }
+  if (message.includes('validation')) {
+    return {
+      kind: 'worker_restore_failed',
+      code: 'worker_validation_failed',
+      capability: args.capability,
+      message,
+    };
+  }
+  if (message.includes('restore')) {
+    return {
+      kind: 'worker_restore_failed',
+      code: 'restore_command_failed',
+      capability: args.capability,
+      message,
+    };
+  }
+  return {
+    kind: 'worker_restore_failed',
+    code: 'unexpected_restore_error',
+    capability: args.capability,
+    message,
+  };
 }
 
-async function readRefreshedEd25519CapabilityOrCurrent(args: {
+function errorMessageForPrePlanningRestore(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error || 'unknown error');
+}
+
+async function readRefreshedEd25519CapabilityAfterRestore(args: {
   warmSessionReader: NearWarmSessionReader;
   sessionId: string;
-  current: NearEd25519Capability;
-}): Promise<NearEd25519Capability> {
+  capability: NearEd25519Capability;
+  restored: number;
+}): Promise<PrePlanningEd25519MaterialRestoreResult> {
   try {
     const refreshed = await args.warmSessionReader.getEd25519CapabilityByThresholdSessionId(
       args.sessionId,
     );
-    return refreshed?.record ? refreshed : args.current;
-  } catch {
-    return args.current;
+    if (!refreshed?.record) {
+      return {
+        kind: 'worker_restore_failed',
+        code: 'capability_refresh_failed',
+        capability: args.capability,
+        message: 'post-restore Ed25519 capability read returned no record',
+      };
+    }
+    return {
+      kind: 'restored',
+      capability: refreshed,
+      restored: args.restored,
+    };
+  } catch (error) {
+    return {
+      kind: 'worker_restore_failed',
+      code: 'capability_refresh_failed',
+      capability: args.capability,
+      message: errorMessageForPrePlanningRestore(error),
+    };
   }
 }
 
@@ -657,7 +843,6 @@ async function resolveStatusBackedEd25519PlannerReadiness(args: {
   plannerInput: ResolveEd25519PlannerReadinessArgs;
   capability: NearEd25519Capability;
   authMethod: Ed25519PlannerAuthMethod;
-  activeUseSource: 'remaining_uses' | 'available_uses';
 }): Promise<Ed25519PlannerReadinessResult> {
   const trustedStatus = toTrustedEd25519SigningSessionStatus(
     await args.plannerInput.warmSessionReader.getEd25519SigningSessionStatusForSession({
@@ -669,7 +854,6 @@ async function resolveStatusBackedEd25519PlannerReadiness(args: {
     trustedStatus,
     capability: args.capability,
     authMethod: args.authMethod,
-    activeUseSource: args.activeUseSource,
     usesNeeded: normalizeRequiredSignatureUses(args.plannerInput.requiredSignatureUses),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(args.plannerInput.sessionId),
   });
@@ -679,16 +863,14 @@ function admitTrustedEd25519SigningSessionStatus(args: {
   trustedStatus: TrustedEd25519SigningSessionStatus;
   capability: NearEd25519Capability;
   authMethod: Ed25519PlannerAuthMethod;
-  activeUseSource: 'remaining_uses' | 'available_uses';
   usesNeeded: number;
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEd25519Session>;
 }): Ed25519PlannerReadinessResult {
-  switch (args.trustedStatus.kind) {
+  switch (args.trustedStatus.status) {
     case 'active':
       return admitActiveTrustedEd25519SigningSessionStatus({
         trustedStatus: args.trustedStatus,
         capability: args.capability,
-        activeUseSource: args.activeUseSource,
         usesNeeded: args.usesNeeded,
         thresholdSessionId: args.thresholdSessionId,
       });
@@ -728,16 +910,12 @@ function admitTrustedEd25519SigningSessionStatus(args: {
 }
 
 function admitActiveTrustedEd25519SigningSessionStatus(args: {
-  trustedStatus: Extract<TrustedEd25519SigningSessionStatus, { kind: 'active' }>;
+  trustedStatus: TrustedActiveEd25519SigningBudgetStatus;
   capability: NearEd25519Capability;
-  activeUseSource: 'remaining_uses' | 'available_uses';
   usesNeeded: number;
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEd25519Session>;
 }): Ed25519PlannerReadinessResult {
-  const remainingUses =
-    args.activeUseSource === 'available_uses'
-      ? args.trustedStatus.availableUses
-      : args.trustedStatus.remainingUses;
+  const remainingUses = availableUsesForBudgetAdmission(args.trustedStatus);
   const status = remainingUses < args.usesNeeded ? 'exhausted' : 'ready';
   return buildEd25519PlannerReadiness({
     status,
@@ -749,7 +927,7 @@ function admitActiveTrustedEd25519SigningSessionStatus(args: {
 }
 
 function unavailableTrustedEd25519SigningSessionReadiness(args: {
-  trustedStatus: Extract<TrustedEd25519SigningSessionStatus, { kind: 'unavailable' }>;
+  trustedStatus: Extract<TrustedEd25519SigningSessionStatus, { status: 'unavailable' }>;
   capability: NearEd25519Capability;
   authMethod: Ed25519PlannerAuthMethod;
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEd25519Session>;
@@ -891,29 +1069,65 @@ function buildEd25519PlannerReadiness(args: {
 function toTrustedEd25519SigningSessionStatus(
   status: SigningSessionStatus | null,
 ): TrustedEd25519SigningSessionStatus {
-  if (!status) return { kind: 'missing_status' };
+  if (!status) return { status: 'missing_status' };
 
   switch (status.status) {
-    case 'active':
+    case 'active': {
+      const remainingUses = parseNonNegativeIntegerStatusField(status.remainingUses);
+      const committedRemainingUses = parseNonNegativeIntegerStatusField(
+        status.committedRemainingUses,
+      );
+      const inFlightReservedUses = parseNonNegativeIntegerStatusField(
+        status.inFlightReservedUses,
+      );
+      const availableUses = parseNonNegativeIntegerStatusField(status.availableUses);
+      const expiresAtMs = parsePositiveIntegerStatusField(status.expiresAtMs);
+      const projectionVersion = String(status.projectionVersion || '').trim();
+      if (
+        remainingUses === null ||
+        committedRemainingUses === null ||
+        inFlightReservedUses === null ||
+        availableUses === null ||
+        expiresAtMs === null ||
+        !projectionVersion
+      ) {
+        return { sessionId: status.sessionId, status: 'budget_unknown' };
+      }
       return {
-        kind: 'active',
-        remainingUses: Math.max(0, Math.floor(Number(status.remainingUses) || 0)),
-        availableUses: availableUsesForBudgetAdmission(status),
-        expiresAtMs: Math.floor(Number(status.expiresAtMs) || 0),
+        sessionId: status.sessionId,
+        status: 'active',
+        remainingUses,
+        committedRemainingUses,
+        inFlightReservedUses,
+        availableUses,
+        expiresAtMs,
+        projectionVersion,
       };
+    }
     case 'exhausted':
-      return { kind: 'exhausted' };
+      return { sessionId: status.sessionId, status: 'exhausted' };
     case 'expired':
-      return { kind: 'expired' };
+      return { sessionId: status.sessionId, status: 'expired' };
     case 'unavailable':
-      return { kind: 'unavailable', statusCode: status.statusCode };
+      return { sessionId: status.sessionId, status: 'unavailable', statusCode: status.statusCode };
     case 'budget_unknown':
-      return { kind: 'budget_unknown' };
+      return { sessionId: status.sessionId, status: 'budget_unknown' };
     case 'not_found':
-      return { kind: 'not_found' };
+      return { sessionId: status.sessionId, status: 'not_found' };
     default:
       return assertNeverSigningSessionAuthMode(status.status);
   }
+}
+
+function parseNonNegativeIntegerStatusField(value: unknown): number | null {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+function parsePositiveIntegerStatusField(value: unknown): number | null {
+  const parsed = parseNonNegativeIntegerStatusField(value);
+  return parsed && parsed > 0 ? parsed : null;
 }
 
 function ed25519PlannerAuthMethod(
@@ -957,26 +1171,60 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
     ReturnType<WarmSessionCapabilityReader['getWarmSession']>
   >['capabilities']['ed25519'];
   sessionId: string;
-}): Promise<void> {
+}): Promise<PrePlanningEd25519MaterialRestoreResult> {
   const record = args.capability.record;
-  if (!record || record.source === 'email_otp') return;
-  const persistedState = classifyRouterAbEd25519PersistedSigningRecord(record);
-  if (args.capability.prfClaim?.state === 'warm' && persistedState.kind === 'runtime_validated') {
-    return;
+  if (!record || record.source === 'email_otp') {
+    return {
+      kind: 'not_applicable',
+      reason: 'auth_method_not_passkey',
+      capability: args.capability,
+    };
   }
-  if (typeof args.warmSessionReader.restorePersistedSessionForSigning !== 'function') return;
+  if (typeof args.warmSessionReader.restorePersistedSessionForSigning !== 'function') {
+    return { kind: 'missing_unseal_authorization', code: 'not_found', capability: args.capability };
+  }
   const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();
-  if (!signingGrantId || !thresholdSessionId) return;
-  await args.warmSessionReader.restorePersistedSessionForSigning({
-    walletId: args.nearAccountId,
-    authMethod: 'passkey',
-    curve: 'ed25519',
-    chain: 'near',
-    signingGrantId,
-    thresholdSessionId,
-    reason: 'transaction',
-  });
+  if (!signingGrantId || !thresholdSessionId) {
+    return {
+      kind: 'missing_sealed_material',
+      code: 'material_restore_required',
+      capability: args.capability,
+    };
+  }
+  try {
+    const result = await args.warmSessionReader.restorePersistedSessionForSigning({
+      walletId: args.nearAccountId,
+      authMethod: 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      signingGrantId,
+      thresholdSessionId,
+      reason: 'transaction',
+    });
+    if (result.deferred > 0) {
+      return {
+        kind: 'missing_unseal_authorization',
+        code: 'material_unseal_authorization_required',
+        capability: args.capability,
+      };
+    }
+    if (result.restored > 0 || result.attempted > 0) {
+      return await readRefreshedEd25519CapabilityAfterRestore({
+        warmSessionReader: args.warmSessionReader,
+        sessionId: thresholdSessionId,
+        capability: args.capability,
+        restored: result.restored,
+      });
+    }
+    return {
+      kind: 'missing_sealed_material',
+      code: 'no_durable_restore_records',
+      capability: args.capability,
+    };
+  } catch (error) {
+    return prePlanningRestoreFailureFromError({ error, capability: args.capability });
+  }
 }
 
 function normalizeRequiredSignatureUses(requiredSignatureUsesRaw: unknown): number {
