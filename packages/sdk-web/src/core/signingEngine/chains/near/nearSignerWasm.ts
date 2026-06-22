@@ -194,6 +194,8 @@ export async function prepareThresholdEd25519RecoveryCodeWorkerMaterialUnsealAut
   return requireThresholdEd25519PrepareWorkerMaterialUnsealAuthorizationResult(response);
 }
 
+// TS supplies expected bindings; the worker decides whether the handle currently
+// maps to valid material for those bindings.
 export async function validateThresholdEd25519WorkerMaterialNearSignerWasm(args: {
   materialHandle: string;
   expectedMaterialBinding: ThresholdEd25519WorkerMaterialBinding;

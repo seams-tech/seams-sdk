@@ -178,6 +178,8 @@ function unavailableEcdsaSigningMaterialPlanForRecordState(
   }
 }
 
+// Final ECDSA signing consumes only runtime-validated material. Restore,
+// reconnect, and step-up must complete before this plan returns ready material.
 async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
   record: ThresholdEcdsaSessionRecord | undefined;
   requestLabel: unknown;

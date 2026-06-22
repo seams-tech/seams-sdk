@@ -1820,6 +1820,8 @@ type BuildEcdsaRecordFromBootstrapArgs = EcdsaRecordFromBootstrapArgs & {
   nowMs: number;
 };
 
+// Bootstrap persistence boundary: normalize raw route/worker output once, then
+// store the exact session/grant/material identity used by strict lane readers.
 function buildEcdsaRecordFromBootstrap(
   args: BuildEcdsaRecordFromBootstrapArgs,
 ): ThresholdEcdsaSessionRecord {

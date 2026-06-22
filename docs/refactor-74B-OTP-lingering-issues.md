@@ -42,6 +42,60 @@ Persisted records are durable hints. They are not durable proof that a browser
 worker has loaded material. Worker validation is runtime-local and must be
 re-established after reload, restore, reconnect, bootstrap, or worker restart.
 
+## Identity And Readiness Glossary
+
+`thresholdSessionId` identifies the MPC/HSS protocol session and material
+lineage. It is the id that lets multi-round threshold flows, restored holder
+material, and persisted server/client material refer to the same signing
+material.
+
+`signingGrantId` identifies the Wallet Session signing authorization grant. It
+owns the server-authoritative budget boundary: expiry, remaining uses, step-up,
+and budget admission.
+
+Restore-ready state means durable material exists and can be loaded back into a
+worker. It does not mean the current worker can sign.
+
+Sign-ready state means the current runtime has proved all of the following
+together:
+
+- Wallet Session auth and `signingGrantId`
+- active budget for the requested operation
+- exact `thresholdSessionId`
+- Router A/B scope and SigningWorker identity
+- signing root and key/material identity
+- worker-owned client material loaded and validated
+
+The intended control flow is:
+
+```ts
+switch (state.kind) {
+  case 'runtime_validated':
+    // Sign-ready: auth/grant, threshold identity, budget, Router A/B scope,
+    // and current worker-owned material were validated together.
+    return state.value;
+
+  case 'restore_available':
+    // Restore-ready: durable material exists, so restore can run before signing.
+    throw new Error(`not sign-ready: ${state.reason}`);
+
+  case 'material_hint_unvalidated':
+    // A persisted handle exists, but this worker has not validated it.
+    throw new Error(`not sign-ready: ${state.reason}`);
+
+  case 'invalid':
+    // Required auth, budget, material, scope, or identity is missing.
+    throw new Error(`not sign-ready: ${state.reason}`);
+
+  case 'non_signing':
+    // Valid lifecycle state for another purpose, but not Router A/B signing.
+    throw new Error(`not sign-ready: ${state.reason}`);
+}
+```
+
+Final signing should consume only `runtime_validated` state. Restore, remint,
+repair, and step-up must happen in explicit pre-signing phases.
+
 ## Issues Found
 
 ### 1. Email OTP ECDSA Worker Material Was Not Promoted

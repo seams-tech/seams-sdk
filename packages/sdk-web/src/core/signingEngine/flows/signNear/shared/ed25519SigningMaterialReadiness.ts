@@ -88,6 +88,8 @@ export function requireSignableRouterAbEd25519WalletSessionState(args: {
   const state = classifyRouterAbEd25519PersistedSigningRecord(record);
   switch (state.kind) {
     case 'runtime_validated': {
+      // Sign-ready: auth/grant, threshold session identity, budget, Router A/B scope,
+      // and current worker-owned material have all been validated for this runtime.
       const resolved = resolveRouterAbEd25519WalletSessionStateFromRecord(state.record);
       if (!resolved) {
         throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: unresolved_signable_record`);
@@ -95,20 +97,35 @@ export function requireSignableRouterAbEd25519WalletSessionState(args: {
       return resolved;
     }
     case 'material_hint_unvalidated':
+      // A persisted worker-material handle exists, but the current worker has not
+      // validated it against the active session/grant/material binding.
+      throwEd25519MaterialRestoreRequired({
+        operation: args.operation,
+        thresholdSessionId,
+        reason: 'pending_material',
+      });
     case 'auth_ready_material_pending':
+      // Auth/grant state exists, but required Router A/B worker material is missing.
       throwEd25519MaterialRestoreRequired({
         operation: args.operation,
         thresholdSessionId,
         reason: 'pending_material',
       });
     case 'restore_available':
+      // Restore-ready: durable sealed worker material exists, so an explicit restore
+      // phase can run before signing.
       throwEd25519MaterialRestoreRequired({
         operation: args.operation,
         thresholdSessionId,
         reason: 'restore_available',
       });
     case 'non_signing':
+      // This record is valid for some session/lifecycle purpose, but cannot authorize
+      // Router A/B signing.
+      throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
     case 'invalid':
+      // The record is missing required Router A/B signing identity, auth, budget,
+      // threshold material, or scope fields.
       throw new Error(`${SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR}: ${state.reason}`);
     default:
       assertNeverRouterAbEd25519PersistedSigningRecordState(state satisfies never);

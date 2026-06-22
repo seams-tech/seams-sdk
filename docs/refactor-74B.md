@@ -178,6 +178,38 @@ Persisted state must be classified as one of these lifecycle states:
 
 Only `runtime-validated` is sign-ready.
 
+`thresholdSessionId` and `signingGrantId` must not be conflated:
+
+- `thresholdSessionId` names the MPC/HSS protocol session and signing material
+  lineage. Multi-round protocol state, restored holder material, and server
+  material must all bind to this id.
+- `signingGrantId` names the Wallet Session signing authorization grant. It owns
+  budget, expiry, remaining uses, and step-up.
+
+Restore-ready state means the system has enough durable material metadata to
+attempt restore. It is not proof that the current browser worker can sign.
+
+Sign-ready state means auth, budget, protocol identity, Router A/B scope, and
+current worker-owned material have all been validated together:
+
+```ts
+switch (state.kind) {
+  case 'runtime_validated':
+    // The only sign-ready state.
+    return state.value;
+
+  case 'restore_available':
+  case 'material_hint_unvalidated':
+  case 'auth_ready_material_pending':
+  case 'invalid':
+  case 'non_signing':
+    throw new Error(`not sign-ready: ${state.reason}`);
+}
+```
+
+Final signing should only accept the `runtime_validated` branch. All restore,
+step-up, remint, and repair work belongs in explicit pre-signing phases.
+
 Unlock, registration, restore, and reconnect may produce auth-ready or
 restore-available state. They must not report sign-ready until the current worker
 validates the material for the exact current binding.

@@ -828,6 +828,8 @@ export function hasRouterAbEd25519LoadedMaterialHint(
   }
 }
 
+// Persisted records are durable hints. Only runtime_validated proves the current
+// worker has loaded material for this exact session/grant/material binding.
 export function classifyRouterAbEd25519PersistedSigningRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): RouterAbEd25519PersistedSigningRecordState {

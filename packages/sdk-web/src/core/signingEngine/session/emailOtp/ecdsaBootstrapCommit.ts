@@ -144,6 +144,8 @@ function markWorkerProvisionedEcdsaSessionRuntimeValidated(args: {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   record: ThresholdEcdsaSessionRecord;
 }): void {
+  // Worker-handle bootstrap outputs are already loaded in the current runtime.
+  // Mark the exact persisted record before capability readers inspect it.
   if (
     !isRuntimeValidatedWorkerBootstrapBinding(args.bootstrap.thresholdEcdsaKeyRef.backendBinding)
   ) {
@@ -242,6 +244,8 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
           bootstrap: args.bootstrap,
           source: args.source,
         });
+  // Prove the exact thresholdSessionId from this bootstrap is ready. Wallet-level
+  // lane reads can select older records for the same chain.
   const warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
     walletId: args.walletId,
     chainTarget: args.primaryChain,
