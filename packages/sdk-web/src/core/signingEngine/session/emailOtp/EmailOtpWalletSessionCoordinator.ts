@@ -48,14 +48,14 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.readPersistedSessionSnapshot(args);
   }
 
-  attachEd25519SessionToEmailOtpSigningSessionSealBestEffort(
+  attachEd25519SessionToEmailOtpSigningSessionSeal(
     args: Parameters<
-      EmailOtpWalletSessionRuntime['attachEd25519SessionToEmailOtpSigningSessionSealBestEffort']
+      EmailOtpWalletSessionRuntime['attachEd25519SessionToEmailOtpSigningSessionSeal']
     >[0],
   ): ReturnType<
-    EmailOtpWalletSessionRuntime['attachEd25519SessionToEmailOtpSigningSessionSealBestEffort']
+    EmailOtpWalletSessionRuntime['attachEd25519SessionToEmailOtpSigningSessionSeal']
   > {
-    return this.runtime.attachEd25519SessionToEmailOtpSigningSessionSealBestEffort(args);
+    return this.runtime.attachEd25519SessionToEmailOtpSigningSessionSeal(args);
   }
 
   readWarmSessionStatusOnly(

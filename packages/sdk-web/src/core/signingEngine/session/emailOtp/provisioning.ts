@@ -33,7 +33,10 @@ import type {
 import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/session/persistence/records';
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
 import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
-import { attachEd25519SessionToEmailOtpSigningSessionSealBestEffort } from './companionSessions';
+import {
+  attachEd25519SessionToEmailOtpSigningSessionSeal,
+  type EmailOtpCompanionSessionAttachResult,
+} from './companionSessions';
 import {
   deriveThresholdEd25519HssClientInputsFromEmailOtpRecoveryCode,
   prepareRecoveryCodeSealAuthorizationForEmailOtp,
@@ -118,6 +121,39 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = String(value ?? '').trim();
   return normalized || undefined;
+}
+
+function assertNeverEmailOtpCompanionSessionAttachResult(
+  result: never,
+): never {
+  throw new Error(
+    `Unsupported Email OTP companion attachment result: ${String(
+      (result as { kind?: unknown })?.kind || '',
+    )}`,
+  );
+}
+
+function observeOptionalEmailOtpCompanionAttachmentResult(
+  result: EmailOtpCompanionSessionAttachResult,
+): void {
+  switch (result.kind) {
+    case 'attached':
+    case 'already_attached':
+    case 'not_required':
+      return;
+    case 'missing_required_material':
+      console.warn('[EmailOtpSession] optional companion attachment skipped', {
+        reason: result.reason,
+      });
+      return;
+    case 'failed':
+      console.warn('[EmailOtpSession] optional companion attachment failed', {
+        message: result.message,
+      });
+      return;
+    default:
+      return assertNeverEmailOtpCompanionSessionAttachResult(result);
+  }
 }
 
 export async function reconstructEmailOtpEd25519Session(args: {
@@ -374,7 +410,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     },
   });
   if (ecdsaThresholdSessionId) {
-    await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+    const attachResult = await attachEd25519SessionToEmailOtpSigningSessionSeal({
       sessionPersistenceMode: args.sessionPersistenceMode,
       ecdsaThresholdSessionId,
       ed25519ThresholdSessionId: sessionId,
@@ -385,6 +421,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
         args.getThresholdEd25519SessionRecordByThresholdSessionId,
       registerSigningSession: args.registerSigningSession,
     });
+    observeOptionalEmailOtpCompanionAttachmentResult(attachResult);
   }
   return {
     relayerKeyId,

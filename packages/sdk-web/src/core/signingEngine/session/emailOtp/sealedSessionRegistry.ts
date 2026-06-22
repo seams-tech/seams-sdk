@@ -18,7 +18,8 @@ import {
   type writeExactSealedSession,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
-  attachEd25519SessionToEmailOtpSigningSessionSealBestEffort,
+  attachEd25519SessionToEmailOtpSigningSessionSeal,
+  type EmailOtpCompanionSessionAttachResult,
 } from './companionSessions';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
 
@@ -60,11 +61,11 @@ export class EmailOtpSealedSessionRegistry {
     this.ports.clearEcdsaRestoreCaches();
   }
 
-  async attachEd25519SessionToEmailOtpSigningSessionSealBestEffort(args: {
+  async attachEd25519SessionToEmailOtpSigningSessionSeal(args: {
     ecdsaThresholdSessionId: string;
     ed25519ThresholdSessionId: string;
-  }): Promise<void> {
-    await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+  }): Promise<EmailOtpCompanionSessionAttachResult> {
+    return await attachEd25519SessionToEmailOtpSigningSessionSeal({
       sessionPersistenceMode: this.ports.configs.signing.sessionPersistenceMode,
       ecdsaThresholdSessionId: args.ecdsaThresholdSessionId,
       ed25519ThresholdSessionId: args.ed25519ThresholdSessionId,

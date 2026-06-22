@@ -242,13 +242,11 @@ export class EmailOtpWalletSessionRuntime {
     });
   }
 
-  async attachEd25519SessionToEmailOtpSigningSessionSealBestEffort(args: {
+  async attachEd25519SessionToEmailOtpSigningSessionSeal(args: {
     ecdsaThresholdSessionId: string;
     ed25519ThresholdSessionId: string;
-  }): Promise<void> {
-    await this.sealedSessionRegistry.attachEd25519SessionToEmailOtpSigningSessionSealBestEffort(
-      args,
-    );
+  }) {
+    return await this.sealedSessionRegistry.attachEd25519SessionToEmailOtpSigningSessionSeal(args);
   }
 
   async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {

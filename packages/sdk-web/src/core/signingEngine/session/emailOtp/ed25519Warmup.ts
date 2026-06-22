@@ -50,6 +50,7 @@ import {
 } from './routePlan';
 import {
   selectEmailOtpEcdsaRecordForEd25519Signing,
+  type EmailOtpEcdsaRecordForEd25519SigningSelectionResult,
 } from './companionSessions';
 import {
   EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
@@ -87,6 +88,39 @@ export type LoginEmailOtpEd25519CapabilityArgs = {
   >;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
+
+function assertNeverEmailOtpEcdsaRecordSelection(
+  selection: never,
+): never {
+  throw new Error(
+    `[EmailOtpSession] unsupported ECDSA companion selection: ${String(
+      (selection as { kind?: unknown })?.kind || '',
+    )}`,
+  );
+}
+
+function requireExactEmailOtpEcdsaRecordForEd25519Signing(
+  selection: EmailOtpEcdsaRecordForEd25519SigningSelectionResult,
+): ThresholdEcdsaSessionRecord {
+  switch (selection.kind) {
+    case 'exact_match':
+      return selection.record;
+    case 'ambiguous':
+      throw new Error(
+        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane is ambiguous: exact matches=${selection.exactMatchCount}`,
+      );
+    case 'not_found':
+      throw new Error(
+        'Email OTP Ed25519 signing requires an exact concrete ECDSA bootstrap lane',
+      );
+    case 'display_only_fallback':
+      throw new Error(
+        'Email OTP Ed25519 signing cannot use display-only ECDSA bootstrap lane fallback',
+      );
+    default:
+      return assertNeverEmailOtpEcdsaRecordSelection(selection);
+  }
+}
 
 function routerAbNormalSigningStateFromConfigs(
   configs: SeamsConfigsReadonly,
@@ -335,17 +369,19 @@ export class EmailOtpEd25519Warmup {
             operation,
           });
     const defaultRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
-    const ecdsaRecord = selectEmailOtpEcdsaRecordForEd25519Signing({
-      walletId: toWalletId(nearAccountId),
-      signingGrantFilter: args.record.signingGrantId,
-      listThresholdEcdsaSessionRecordsForWallet:
-        this.ports.listThresholdEcdsaSessionRecordsForWallet,
-    });
-    if (!ecdsaRecord) {
-      throw new Error(
-        'Email OTP Ed25519 signing requires an exact concrete ECDSA bootstrap lane',
-      );
+    const signingGrantId = String(args.record.signingGrantId || '').trim();
+    if (!signingGrantId) {
+      throw new Error('Email OTP Ed25519 signing requires a signing-grant identity');
     }
+    const ecdsaRecord = requireExactEmailOtpEcdsaRecordForEd25519Signing(
+      selectEmailOtpEcdsaRecordForEd25519Signing({
+        kind: 'signing_grant_exact',
+        walletId: toWalletId(nearAccountId),
+        signingGrantId,
+        listThresholdEcdsaSessionRecordsForWallet:
+          this.ports.listThresholdEcdsaSessionRecordsForWallet,
+      }),
+    );
     const ecdsaBootstrapRouteAuth = emailOtpEcdsaBootstrapRouteAuthFromRecord(ecdsaRecord);
     const ecdsaLogin = await this.ports.loginWithEcdsaCapabilityInternal({
       walletSession: walletSessionRefFromSession({
