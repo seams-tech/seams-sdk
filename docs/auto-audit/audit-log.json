@@ -1,10 +1,12 @@
 {
-  "updated_at": "2026-06-18T08:05:26Z",
+  "updated_at": "2026-06-22T00:04:22Z",
   "audited_files": [
-    "crates/router-ab-core/src/protocol/ecdsa_hss.rs"
+    "crates/router-ab-core/src/protocol/ecdsa_hss.rs",
+    "packages/shared-ts/src/utils/routerAbEcdsaHss.ts"
   ],
   "audited_flows": [
-    "Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary"
+    "Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary",
+    "Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity"
   ],
   "entries": [
     {
@@ -31,6 +33,32 @@
         "Wallet SDK Router A/B ECDSA-HSS wire parser and JWT/session rehydration boundary",
         "Cloudflare Router A/B ECDSA-HSS prepare/finalize handlers",
         "Cloudflare durable-object active-signing-worker lookup and ECDSA presignature pool state"
+      ]
+    },
+    {
+      "timestamp": "2026-06-22T00:04:22Z",
+      "target_file": "packages/shared-ts/src/utils/routerAbEcdsaHss.ts",
+      "flow": "Wallet SDK Router A/B ECDSA-HSS wire parser, JWT rehydration, request digest binding, and active-session identity",
+      "report_path": "docs/auto-audit/2026-06-22T00-04-22Z-shared-ts-router-ab-ecdsa-hss.md",
+      "finding_counts": {
+        "security": 3,
+        "refactor": 2,
+        "total": 5
+      },
+      "highest_severity": "high",
+      "highest_severity_findings": [
+        "Finalize request digests omit budget_reservation_id and budget_operation_id",
+        "Active-state session ids are collision-prone because they join unconstrained fields with ':'"
+      ],
+      "recommended_next_files": [
+        "packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts",
+        "packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts",
+        "crates/router-ab-cloudflare/src/lib.rs"
+      ],
+      "recommended_next_flows": [
+        "Wallet SDK Router A/B ECDSA-HSS finalize RPC and digest/response binding",
+        "Wallet SDK Router A/B ECDSA-HSS persisted session rehydration and runtime material validation",
+        "Cloudflare Router A/B ECDSA-HSS finalize budget validation and active-signing-worker lookup"
       ]
     }
   ]

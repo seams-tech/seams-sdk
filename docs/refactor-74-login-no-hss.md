@@ -3672,7 +3672,7 @@ type EmailOtpEcdsaRestoreSource =
       chainTarget: ThresholdEcdsaChainTarget;
       keyHandle: string;
       relayerKeyId: string;
-      participantIds: readonly string[];
+      participantIds: readonly number[];
       sessionKind: 'jwt';
       runtimePolicyScope?: string;
     }
@@ -3687,7 +3687,7 @@ type EmailOtpEcdsaRestoreSource =
       chainTarget: ThresholdEcdsaChainTarget;
       keyHandle: string;
       relayerKeyId: string;
-      participantIds: readonly string[];
+      participantIds: readonly number[];
       sessionKind: 'jwt';
       runtimePolicyScope?: string;
     };
@@ -3811,9 +3811,329 @@ Implement Phase 9 in this order:
 9. Run focused unit/typecheck/source-guard tests.
 10. Rerun no-HSS browser evidence after the cleanup slices land.
 
+### Test-First Guard Plan
+
+The first committed Phase 9 slice should add passing inventory guards before
+behavior changes. These guards must freeze the known fallback sites and prevent
+new fallback sites from appearing while the refactor is in progress.
+
+Add a focused guard file:
+
+```text
+tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts
+```
+
+The guard file should follow the existing source-guard style from
+`tests/unit/refactor74LoginNoHss.guard.unit.test.ts`: read source files from the
+repo, inspect exact source ranges, and report all offenders in one failure.
+
+Initial guard behavior:
+
+- Maintain a `knownPhase9FallbackInventory` array with:
+  - marker;
+  - file path;
+  - owner phase item;
+  - allowed reason;
+  - expected removal or rename step.
+- Fail on any matching marker outside the inventory.
+- Fail if an inventoried marker disappears without its inventory entry being
+  updated. This forces the implementer to mark off the cleanup deliberately.
+- Exclude `docs/refactor-74-login-no-hss.md` and the guard file itself from
+  marker scans.
+- Exclude `.typecheck.ts` only when scanning for runtime control-flow markers;
+  include `.typecheck.ts` when checking type-level guarantees.
+
+Known initial inventory:
+
+```text
+packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts
+  restorePasskeyEd25519SessionBeforePlanningBestEffort
+  readRefreshedEd25519CapabilityOrCurrent
+
+packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+  hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial
+
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts
+  knownMissingCacheKey
+  rememberKnownMissing
+  hasKnownMissing
+
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts
+  || sealedRecord
+  ecdsaRecord?.
+  args.configs.signing.sessionSeal
+
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts
+  selectReconnectWalletSessionJwt
+  candidates[0] || null
+
+packages/sdk-web/src/SeamsWeb/operations/auth/login.ts
+  selectSigningSessionStatusForUi
+  snapshotLaneToSigningSessionStatus
+  ?? lane.policyHint
+
+packages/sdk-web/src/core/signingEngine/session/passkey/prfCache.ts
+  cacheSigningSessionPrfFirstBestEffort
+
+packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts
+  attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
+```
+
+The guard should also reject committed commented-out implementation blocks by
+scanning active source for commented lines containing Phase 9 markers:
+
+```text
+// restorePasskeyEd25519SessionBeforePlanningBestEffort
+// readRefreshedEd25519CapabilityOrCurrent
+// hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial
+// knownMissingCacheKey
+// candidates[0] || null
+// claimWarmSessionPrfFirst
+// WARM_SESSION_MATERIAL_CLAIM
+// TODO remove legacy
+// LEGACY
+```
+
+The allowed transition is:
+
+1. Inventory guard lands and passes with current known offenders.
+2. Each implementation slice writes target behavior/type tests locally and
+   observes the expected failure.
+3. The same slice implements the fix and updates the inventory guard by removing
+   or renaming that offender.
+4. The slice is committed only after source guards, unit tests, typecheck
+   fixtures, and targeted runtime tests pass.
+
+Do not commit failing target tests. Target tests should be introduced at the
+start of the relevant implementation slice and committed with the fix.
+
+### Required Test Changes Before Each Cleanup Slice
+
+#### Pre-Planning Restore Tests
+
+Target file:
+
+```text
+tests/unit/nearSigning.sessionSelection.unit.test.ts
+```
+
+Add tests before replacing the helper:
+
+- pending passkey Ed25519 material with an expired or missing warm-session
+  unseal handle produces a passkey material-restore reauth plan, not a
+  warm-session plan;
+- restore succeeds but refreshed capability read throws, producing
+  `worker_restore_failed` instead of reusing stale current capability;
+- current runtime-validated capability maps to `already_ready` and does not
+  attempt restore;
+- non-passkey auth method maps to `not_applicable`.
+
+If current public helpers do not expose enough detail to assert the typed
+result, extract a small pure planner helper from
+`signingSessionAuthMode.ts`. The helper must be exported from the internal
+module only if tests need it; it must not become public SDK API.
+
+#### Account-Scoped Restore Guard Tests
+
+Target file:
+
+```text
+tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts
+```
+
+Add source guards before renaming/deleting account-scoped restore:
+
+- exact NEAR signing files must not import or call helpers with
+  `Latest`, `AccountScoped`, `Discovery`, `Repair`, or `Diagnostics` in their
+  Ed25519 material readiness path;
+- exact login warm-up code must call an exact helper that takes
+  `signingGrantId`, `thresholdSessionId`, and Ed25519 material binding facts;
+- any allowed account-scoped helper must include one of the allowed names and
+  must not call `persistStoredThresholdEd25519SessionMaterialHandle()`.
+
+#### Negative Cache Tests
+
+Existing test debt:
+
+```text
+tests/unit/signingSessionRestoreCoordinator.unit.test.ts
+  "caches exact-purpose durable-record absence"
+```
+
+That test encodes the legacy behavior. Delete or rewrite it during the
+negative-cache cleanup slice. Do not preserve tests that require exact restore
+to cache missing durable records.
+
+Replacement tests:
+
+- exact restore calls the exact sealed-session lookup again after a miss;
+- exact restore sees a sealed material record written after an earlier miss;
+- successful restore caching, if retained, is keyed by durable record identity
+  and cannot suppress a newer record with a different `updatedAtMs`,
+  `signingGrantId`, `thresholdSessionId`, or material binding.
+
+#### Email OTP ECDSA Source Tests
+
+Target files:
+
+```text
+tests/unit/sealedRecovery.methodAdapters.unit.test.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.typecheck.ts
+```
+
+Add behavior tests:
+
+- sealed-source restore succeeds only when the sealed record contains the full
+  ECDSA identity envelope and Wallet Session JWT;
+- current-record restore succeeds only when the current record contains the full
+  ECDSA identity envelope and exactly matches the sealed record;
+- current-record restore with missing JWT fails instead of borrowing JWT from
+  the sealed record;
+- mixed current/sealed `chainTarget`, `keyHandle`, `relayerKeyId`,
+  `participantIds`, `thresholdSessionId`, `signingGrantId`, signing root, or
+  runtime policy scope fails before worker restore;
+- config fallback for signing-session seal key version or Shamir prime is
+  rejected in core restore and accepted only by the boundary parser that
+  normalizes old sealed records.
+
+Add type fixtures:
+
+- mixed `EmailOtpEcdsaRestoreSource` branches reject `ecdsaRecord` on
+  `sealed_record_restore`;
+- `current_record_restore` requires `ecdsaRecord`;
+- both branches require `walletSessionJwt`, `chainTarget`, `keyHandle`,
+  `relayerKeyId`, and `participantIds`;
+- branch-specific objects use `never` fields to reject fallback bags.
+
+#### Trusted Budget Admission Tests
+
+Target files:
+
+```text
+tests/unit/walletSessionReadiness.gate.unit.test.ts
+tests/unit/walletSessionBudgetReservation.store.unit.test.ts
+packages/sdk-web/src/core/signingEngine/session/budget/budget.typecheck.ts
+```
+
+Add behavior tests:
+
+- malformed `active` status missing `availableUses`, `expiresAtMs`, or
+  `projectionVersion` is rejected before signing admission;
+- `active` status with `availableUses < remainingUses` admits only
+  `availableUses`;
+- `unavailable`, `budget_unknown`, `not_found`, `expired`, and `exhausted`
+  branches all reject through explicit switch cases;
+- UI display status built from `policyHint` cannot be passed to budget
+  admission.
+
+Add type fixtures:
+
+- `TrustedActiveSigningBudgetStatus` requires every active authority field;
+- optional `remainingUses`/`expiresAtMs` public status cannot satisfy trusted
+  admission without boundary parsing;
+- display-only status types are not assignable to trusted admission input.
+
+#### Candidate Selection Tests
+
+Target files:
+
+```text
+tests/unit/evmFamilyEcdsaIdentity.unit.test.ts
+tests/unit/nearSigning.sessionSelection.unit.test.ts
+```
+
+Add behavior tests:
+
+- `selectReconnectWalletSessionJwt()` returns exact match only;
+- no matching JWT returns `not_found` or throws a typed reconnect identity error;
+- multiple matching JWTs with conflicting identity metadata returns
+  `ambiguous`;
+- display-only signing status selection sorts and returns a display fallback
+  without exposing a trusted budget status.
+
+#### PRF Cache And Companion Session Tests
+
+Target files:
+
+```text
+tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts
+tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.typecheck.ts
+```
+
+Add guards/tests:
+
+- normal Ed25519 signing restore files cannot import
+  `cacheSigningSessionPrfFirstBestEffort` or any PRF-returning helper;
+- remaining PRF cache helpers are named for credential-boundary setup/export;
+- `attachEd25519SessionToEmailOtpSigningSessionSealBestEffort()` is replaced by
+  a typed attachment result;
+- callers switch over `attached`, `already_attached`, `not_required`,
+  `missing_required_material`, and `failed`;
+- direct Email OTP restore cannot treat companion attachment diagnostics as
+  material readiness.
+
+### Phase 9 Validation Matrix
+
+Run these checks for each cleanup slice:
+
+```bash
+pnpm -C tests exec playwright test --reporter=line \
+  unit/refactor74LegacyFallbacks.guard.unit.test.ts
+
+pnpm -C tests exec playwright test --reporter=line \
+  unit/refactor74LoginNoHss.guard.unit.test.ts
+
+pnpm -C tests exec playwright test --reporter=line \
+  unit/nearSigning.sessionSelection.unit.test.ts \
+  unit/signingSessionRestoreCoordinator.unit.test.ts \
+  unit/sealedRecovery.methodAdapters.unit.test.ts \
+  unit/emailOtpWalletSessionCoordinator.unit.test.ts \
+  unit/walletSessionReadiness.gate.unit.test.ts \
+  unit/walletSessionBudgetReservation.store.unit.test.ts
+
+pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
+```
+
+After all Phase 9 cleanup slices land, rerun the browser evidence:
+
+```bash
+RUN_ROUTER_AB_BUDGET_EVIDENCE=1 pnpm -C tests exec playwright test --reporter=line \
+  e2e/routerAb.serverBudgetEvidence.walletIframe.test.ts
+```
+
+Evidence: reran on 2026-06-22 after Phase 9 compliance fixes; both browser
+evidence tests passed.
+
+### Phase 9 No-Regression Gates
+
+The cleanup is complete only if these existing Refactor 74 guarantees still
+hold:
+
+- Passkey wallet unlock succeeds without Ed25519 HSS.
+- A failed wallet unlock does not commit an active logged-in SDK state.
+- After successful passkey unlock with a restoreable sealed Ed25519 artifact,
+  the first NEAR transaction does not show a second WebAuthn prompt when the
+  unlock-installed unseal handle is still live.
+- A single NEAR transaction request shows one transaction confirmer modal.
+- First cold Ed25519 signing restores through exactly one
+  `RestoreThresholdEd25519WorkerMaterial` command before Router A/B signing.
+- NEAR transaction, NEP-413, and delegate signing make zero Ed25519 HSS route
+  calls.
+- Worker-material restore does not decrement server-authoritative signature
+  budget. Budget reservation/decrement starts only after material readiness is
+  ready for signing.
+- Shared signing-grant budget exhaustion still triggers step-up after the
+  server-authoritative budget is exhausted.
+- ECDSA Tempo/EVM signing still uses its ECDSA/HSS setup/export boundaries and
+  is not affected by Ed25519 PRF-cache cleanup.
+
+If a Phase 9 slice changes any of these behaviors, stop and fix the regression
+before continuing to the next cleanup item.
+
 ### Cleanup Targets
 
-- [ ] Replace
+- [x] Replace
       `restorePasskeyEd25519SessionBeforePlanningBestEffort()` in
       `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
       with a typed restore result. The planner must switch exhaustively over:
@@ -3821,54 +4141,54 @@ Implement Phase 9 in this order:
       `missing_sealed_material`, `worker_restore_failed`, and `not_applicable`.
       The planner may continue without a prompt only for `restored`,
       `already_ready`, or `not_applicable`.
-- [ ] Replace `readRefreshedEd25519CapabilityOrCurrent()` with a typed refreshed
+- [x] Replace `readRefreshedEd25519CapabilityOrCurrent()` with a typed refreshed
       capability read result. Read failures after restore must become
       `worker_restore_failed` and must not silently reuse stale capability state.
-- [ ] Ban account-scoped/latest Ed25519 durable restore helpers from exact
+- [x] Ban account-scoped/latest Ed25519 durable restore helpers from exact
       login/signing-lane restore. `hydrateLatestEd25519SessionFromDurableSealedWorkerMaterial()`
       may remain only for account-scoped discovery, repair, or diagnostics in
       `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`.
-- [ ] Rename every allowed account-scoped/latest helper to include
+- [x] Rename every allowed account-scoped/latest helper to include
       `AccountScoped`, `Discovery`, `Repair`, or `Diagnostics`.
-- [ ] Add a source guard proving exact login, exact warm-session material
+- [x] Add a source guard proving exact login, exact warm-session material
       install, NEAR transaction signing, NEP-413 signing, and delegate signing
       do not call account-scoped/latest Ed25519 restore helpers.
-- [ ] Remove or strictly scope the `knownMissing` negative restore cache in
+- [x] Remove or strictly scope the `knownMissing` negative restore cache in
       `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`.
       If the cache remains, it must have a short TTL, include exact
       `walletId`, `authMethod`, `curve`, `signingGrantId`,
       `thresholdSessionId`, and material binding facts, and be invalidated on
       every sealed-session write/delete for that scope.
-- [ ] Replace field-by-field Email OTP ECDSA restore fallback in
+- [x] Replace field-by-field Email OTP ECDSA restore fallback in
       `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
       with a discriminated source:
       `current_record_restore` or `sealed_record_restore`. Each branch must
       validate the complete identity envelope before restoring.
-- [ ] Remove config fallback from core Email OTP ECDSA restore. Signing-session
+- [x] Remove config fallback from core Email OTP ECDSA restore. Signing-session
       seal key version and Shamir prime fallback may exist only in the
       persistence boundary parser that normalizes or rejects old sealed records.
-- [ ] Audit `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+- [x] Audit `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
       and keep compatibility fallback only inside the boundary parser that
       normalizes server budget responses. Signing admission must consume a
       trusted normalized budget status and use server-authoritative
       `availableUses`, expiry, reservation, and exhaustion fields.
-- [ ] Reuse the existing budget model with a required-field
+- [x] Reuse the existing budget model with a required-field
       `TrustedActiveSigningBudgetStatus` refinement. Do not create a parallel
       budget authority type.
-- [ ] Replace `candidates[0] || null` and similar first-candidate fallbacks in
+- [x] Replace `candidates[0] || null` and similar first-candidate fallbacks in
       signing/session lifecycle code with explicit typed selection. If a helper
       intentionally returns the first already exact-filtered candidate, rename
       the helper or local variable so the exact filtering is visible at the call
       site.
-- [ ] Split authority-bearing candidate selection from display-only candidate
+- [x] Split authority-bearing candidate selection from display-only candidate
       selection. `selectReconnectWalletSessionJwt()` must fail closed on no
       exact JWT match; UI status selection must be renamed display-only and must
       not feed signing admission.
-- [ ] Keep PRF and recovery-code cache helpers only inside credential-boundary
+- [x] Keep PRF and recovery-code cache helpers only inside credential-boundary
       setup/export paths. `cacheSigningSessionPrfFirstBestEffort()` and related
       helpers must not be reachable from normal Ed25519 unlock/signing material
       restore.
-- [ ] Make Email OTP companion-session attachment typed and observable. If
+- [x] Make Email OTP companion-session attachment typed and observable. If
       `attachEd25519SessionToEmailOtpSigningSessionSealBestEffort()` fails,
       callers must receive a typed result or explicit diagnostics that cannot be
       mistaken for a valid Ed25519 restore state.
