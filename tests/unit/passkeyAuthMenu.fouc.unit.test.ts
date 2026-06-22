@@ -136,7 +136,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     expect(remount.hasClientMenuAtFirstFrame).toBe(true);
   });
 
-  test('login mode shows passkey and Google SSO Email OTP methods without email recovery CTA', async ({
+  test('login mode shows passkey, Google SSO Email OTP, and email recovery methods', async ({
     page,
   }) => {
     await page.evaluate(
@@ -200,17 +200,212 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.getByRole('button', { name: 'Continue with Email OTP' })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Sign in with Google SSO' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
     await expect(mount.locator('.w3a-social-helper')).toHaveCount(0);
-    await expect(mount.getByText('Recover Account with Email')).toHaveCount(0);
 
     await mount.getByRole('button', { name: 'Register' }).click();
     await expect(mount.getByRole('button', { name: 'Create with Passkey' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Register with Google SSO' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
     await expect(
       mount.getByText(
         'Creates a Google SSO account that uses a 6-digit Email OTP for signing. Passkey is recommended for stronger security.',
       ),
-    ).toBeVisible();
+    ).toHaveCount(0);
+    await expect(mount.locator('.w3a-social-helper')).toHaveCount(0);
+  });
+
+  test('login and register expose email recovery without synced passkey restore CTA', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-synced-passkey-restore-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://relay-server.localhost' },
+          iframeWallet: { walletOrigin: '' },
+        };
+
+        (window as any).__emailRecoveryModes = [];
+        (window as any).__emailRecoveryLoginMode = String(AuthMenuMode.Login);
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(PasskeyAuthMenu, {
+                defaultMode: AuthMenuMode.Login,
+                onSyncAccount: async () => {
+                  throw new Error('onSyncAccount should not be exposed as a button');
+                },
+                socialLogin: {
+                  google: async (args: { mode: number | string }) => {
+                    (window as any).__emailRecoveryModes.push(String(args.mode));
+                  },
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-synced-passkey-restore-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await expect(mount.locator('.w3a-seg-btn.sync')).toHaveCount(0);
+    await expect(mount.getByRole('button', { name: /^Sync$/ })).toHaveCount(0);
+    await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(
+      0,
+    );
+    await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
+
+    await mount.getByRole('button', { name: 'Register' }).click();
+    await expect(mount.getByRole('button', { name: 'Create with Passkey' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Restore from synced passkey' })).toHaveCount(
+      0,
+    );
+    await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Recover Account with Email' })).toBeVisible();
+
+    await mount.getByRole('button', { name: 'Recover Account with Email' }).click();
+    const expectedLoginMode = await page.evaluate(() => (window as any).__emailRecoveryLoginMode);
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__emailRecoveryModes))
+      .toEqual([expectedLoginMode]);
+  });
+
+  test('login submit auto-restores synced passkey when no local passkey exists', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const { AuthMenuMode } = typesMod;
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-auto-synced-passkey-restore-mount';
+        document.body.appendChild(mount);
+
+        (window as any).__autoSyncedPasskeyRestore = {
+          loginCalls: 0,
+          syncCalls: 0,
+          waitingStates: [] as string[],
+        };
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('alice');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({ lastUsedAccount: null }),
+                },
+              },
+              accountExists: true,
+              inputUsername,
+              targetAccountId: 'alice.testnet',
+              accountOptions: [
+                {
+                  nearAccountId: 'alice.testnet',
+                  authMethod: 'email_otp',
+                },
+              ],
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: true,
+            }),
+            [inputUsername],
+          );
+
+          const controller = usePasskeyAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Login,
+              onLogin: async () => {
+                (window as any).__autoSyncedPasskeyRestore.loginCalls += 1;
+              },
+              onSyncAccount: async () => {
+                (window as any).__autoSyncedPasskeyRestore.syncCalls += 1;
+              },
+            },
+            runtime,
+          );
+
+          React.useEffect(() => {
+            (window as any).__autoSyncedPasskeyRestore.waitingStates.push(
+              controller.waiting ? String(controller.waitingReason) : 'idle',
+            );
+          }, [controller.waiting, controller.waitingReason]);
+
+          return React.createElement(
+            'button',
+            {
+              type: 'button',
+              disabled: !controller.canSubmit,
+              onClick: controller.onProceed,
+            },
+            'Continue with Passkey',
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-auto-synced-passkey-restore-mount');
+    await mount.getByRole('button', { name: 'Continue with Passkey' }).click();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__autoSyncedPasskeyRestore))
+      .toMatchObject({
+        loginCalls: 0,
+        syncCalls: 1,
+      });
   });
 
   test('account dropdown groups accounts from auth method metadata', async ({ page }) => {

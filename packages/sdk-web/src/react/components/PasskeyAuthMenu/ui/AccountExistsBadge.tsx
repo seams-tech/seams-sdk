@@ -2,8 +2,6 @@ import React from 'react';
 import { AuthMenuMode } from '../authMenuTypes';
 
 export interface AccountExistsBadgeProps {
-  /** Whether the current target was resolved from a locally saved account */
-  isUsingExistingAccount?: boolean;
   /** Whether the current target account exists on-chain */
   accountExists?: boolean;
   /** Current signup mode */
@@ -20,7 +18,6 @@ export interface AccountExistsBadgeProps {
  * AccountExistsBadge renders a small inline status message with tone classes.
  */
 export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
-  isUsingExistingAccount,
   accountExists = false,
   mode = AuthMenuMode.Register,
   secure = true,
@@ -37,10 +34,6 @@ export const AccountExistsBadge: React.FC<AccountExistsBadgeProps> = ({
     if (mode === AuthMenuMode.Login) {
       if (accountExists) return { message: '', tone: 'success' };
       return { message: 'Account not found', tone: 'error' };
-    }
-    if (mode === AuthMenuMode.Sync) {
-      if (isUsingExistingAccount) return { message: '', tone: 'success' };
-      return { message: '', tone: 'neutral' };
     }
     return { message: '', tone: 'neutral' };
   };

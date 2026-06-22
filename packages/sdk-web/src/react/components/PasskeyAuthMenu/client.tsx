@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
+import { ArrowLeftIcon, FingerprintIcon, MailIcon } from './ui/icons';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
@@ -120,8 +120,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     if (!showSDKEvents) return '';
     if (
       controller.mode !== AuthMenuMode.Register &&
-      controller.mode !== AuthMenuMode.Login &&
-      controller.mode !== AuthMenuMode.Sync
+      controller.mode !== AuthMenuMode.Login
     ) {
       return '';
     }
@@ -210,10 +209,10 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
         waitingText={
           controller.waitingReason === 'social'
             ? 'Waiting for Google SSO authentication...'
-            : controller.mode === AuthMenuMode.Register
-              ? 'Creating passkey wallet…'
-              : controller.mode === AuthMenuMode.Sync
-                ? 'Syncing account…'
+            : controller.waitingReason === 'restore'
+              ? 'Restoring synced passkey...'
+              : controller.mode === AuthMenuMode.Register
+                ? 'Creating passkey wallet…'
                 : 'Signing in…'
         }
         waitingSubtext=""
@@ -496,9 +495,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               placeholder={
                 controller.mode === AuthMenuMode.Register
                   ? 'Pick a username'
-                  : controller.mode === AuthMenuMode.Sync
-                    ? 'Leave blank to discover accounts'
-                    : 'Enter your username'
+                  : 'Enter your username'
               }
               postfixText={controller.postfixText}
               isUsingExistingAccount={controller.isUsingExistingAccount}
@@ -514,21 +511,11 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               items={[
                 { value: AuthMenuMode.Register, label: 'Register', className: 'register' },
                 { value: AuthMenuMode.Login, label: 'Login', className: 'login' },
-                { value: AuthMenuMode.Sync, label: 'Sync', className: 'sync' },
               ]}
               value={controller.mode}
               onValueChange={(v) => controller.onSegmentChange(v as AuthMenuMode)}
               activeBg={segActiveBg}
             />
-
-            {controller.mode !== AuthMenuMode.Login ? (
-              <div className="w3a-seg-help-row">
-                <div className="w3a-seg-help" aria-live="polite">
-                  {controller.mode === AuthMenuMode.Register && 'Create a new account'}
-                  {controller.mode === AuthMenuMode.Sync && 'Sync account (iCloud/Chrome sync)'}
-                </div>
-              </div>
-            ) : null}
 
             {(controller.mode === AuthMenuMode.Login ||
               controller.mode === AuthMenuMode.Register) && (
@@ -616,7 +603,8 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               </div>
             )}
 
-            {controller.mode === AuthMenuMode.Login && (
+            {(controller.mode === AuthMenuMode.Login ||
+              controller.mode === AuthMenuMode.Register) && (
               <div className="w3a-scan-device-row">
                 <div className="w3a-section-divider">
                   <span className="w3a-section-divider-text">Other options</span>
@@ -635,6 +623,17 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                     <QRCodeIcon width={18} height={18} strokeWidth={2} />
                     Scan and Link Device
                   </button>
+                  {controller.canRecoverAccountWithEmail ? (
+                    <button
+                      type="button"
+                      onClick={controller.onRecoverAccountWithEmail}
+                      className="w3a-link-device-btn"
+                      disabled={controller.waiting}
+                    >
+                      <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
+                      Recover Account with Email
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )}

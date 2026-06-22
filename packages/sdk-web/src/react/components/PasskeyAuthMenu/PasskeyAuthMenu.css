@@ -721,7 +721,7 @@
 }
 
 .w3a-account-menu {
-  position: relative;
+  position: static;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -775,9 +775,9 @@
 
 .w3a-account-menu-popover {
   position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: min(360px, calc(100dvw - 48px));
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
   max-height: 300px;
   overflow-y: auto;
   padding: 10px;
@@ -786,7 +786,7 @@
   background: var(--w3a-colors-colorBackground);
   box-shadow: var(--w3a-shadows-lg);
   z-index: 20;
-  animation: content-enter 160ms ease-out;
+  animation: content-enter 100ms ease-out;
 }
 
 .w3a-account-menu-group + .w3a-account-menu-group {
@@ -1232,6 +1232,7 @@
 
 /* Button System */
 .w3a-scan-device-row {
+  padding-bottom: 1px;
 }
 
 .w3a-secondary-actions {

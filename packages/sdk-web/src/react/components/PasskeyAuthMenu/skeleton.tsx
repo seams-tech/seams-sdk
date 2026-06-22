@@ -6,7 +6,7 @@ import QRCodeIcon from '../QRCodeIcon';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import { PasskeyAuthMenuThemeScope } from './themeScope';
 import { useTheme } from '../theme';
-import { getModeTitle } from './controller/mode';
+import { getModeTitle, resolveDefaultMode } from './controller/mode';
 import { AuthMenuMode, type AuthMenuHeadings } from './types';
 import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 
@@ -25,28 +25,16 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
   HTMLDivElement,
   PasskeyAuthMenuSkeletonProps
 >(({ className, style, defaultMode, headings, emailOtpAuthPolicy }, ref) => {
-  const mode = typeof defaultMode === 'number' ? defaultMode : AuthMenuMode.Register;
+  const mode = resolveDefaultMode(false, defaultMode);
   const resolvedEmailOtpAuthPolicy: EmailOtpAuthPolicy = emailOtpAuthPolicy || 'session';
   const title = getModeTitle(mode, headings ?? null);
   const placeholder =
-    mode === AuthMenuMode.Register
-      ? 'Pick a username'
-      : mode === AuthMenuMode.Sync
-        ? 'Leave blank to discover accounts'
-        : 'Enter your username';
-  const segHelpText =
-    mode === AuthMenuMode.Sync
-      ? 'Sync account (iCloud/Chrome sync)'
-      : mode === AuthMenuMode.Register
-        ? 'Create a new account'
-        : '';
-  const segActiveWidth = 'calc((100% - 18px) / 3)';
+    mode === AuthMenuMode.Register ? 'Pick a username' : 'Enter your username';
+  const segActiveWidth = 'calc((100% - 14px) / 2)';
   const segActiveX =
     mode === AuthMenuMode.Login
       ? `calc(5px + ${segActiveWidth} + 4px)`
-      : mode === AuthMenuMode.Sync
-        ? `calc(5px + ${segActiveWidth} + 4px + ${segActiveWidth} + 4px)`
-        : '5px';
+      : '5px';
 
   return (
     <div
@@ -119,24 +107,8 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                   >
                     Login
                   </button>
-                  <button
-                    type="button"
-                    aria-pressed={mode === AuthMenuMode.Sync}
-                    className={`w3a-seg-btn${mode === AuthMenuMode.Sync ? ' is-active' : ''} sync`}
-                    disabled
-                  >
-                    Sync
-                  </button>
                 </div>
               </div>
-
-              {segHelpText ? (
-                <div className="w3a-seg-help-row">
-                  <div className="w3a-seg-help" aria-live="polite">
-                    {segHelpText}
-                  </div>
-                </div>
-              ) : null}
 
               {(mode === AuthMenuMode.Login || mode === AuthMenuMode.Register) && (
                 <div className="w3a-auth-methods">

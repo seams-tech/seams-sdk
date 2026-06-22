@@ -189,7 +189,6 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
           )}
           <AccountExistsBadge
             id={statusId}
-            isUsingExistingAccount={isUsingExistingAccount}
             accountExists={accountExists}
             mode={mode}
             secure={secure}

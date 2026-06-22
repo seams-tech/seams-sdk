@@ -11,10 +11,7 @@ export function getGoogleSsoHelperText(
   mode: AuthMenuMode,
   emailOtpAuthPolicy: EmailOtpAuthPolicy,
 ): string {
-  if (mode === AuthMenuMode.Register) {
-    return 'Creates a Google SSO account that uses a 6-digit Email OTP for signing. Passkey is recommended for stronger security.';
-  }
-
+  void mode;
   void emailOtpAuthPolicy;
   return '';
 }

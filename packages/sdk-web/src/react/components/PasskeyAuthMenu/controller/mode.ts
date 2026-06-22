@@ -11,7 +11,7 @@ export function resolveDefaultMode(
   accountExists: boolean,
   requested?: AuthMenuMode | null,
 ): AuthMenuMode {
-  if (typeof requested === 'number') return requested;
+  if (requested === AuthMenuMode.Register || requested === AuthMenuMode.Login) return requested;
   return accountExists ? AuthMenuMode.Login : AuthMenuMode.Register;
 }
 
@@ -25,16 +25,11 @@ export function getModeTitle(
       title: 'Register Account',
       subtitle: 'Create a wallet with Passkey',
     },
-    [AuthMenuMode.Sync]: {
-      title: 'Sync Account',
-      subtitle: 'Sync a wallet to this device with Passkey',
-    },
   } as const;
 
   if (headings) {
     if (mode === AuthMenuMode.Login && headings.login) return headings.login;
     if (mode === AuthMenuMode.Register && headings.registration) return headings.registration;
-    if (mode === AuthMenuMode.Sync && headings.syncAccount) return headings.syncAccount;
   }
 
   return defaults[mode] ?? defaults[AuthMenuMode.Login];
@@ -79,14 +74,13 @@ export function useAuthMenuMode({
 }: UseAuthMenuModeArgs): UseAuthMenuModeResult {
   const preferredDefaultMode = resolveDefaultMode(accountExists, defaultMode);
   const [mode, setMode] = React.useState<AuthMenuMode>(() => {
-    if (typeof defaultMode === 'number') return defaultMode;
     if (forceInitialRegister) return AuthMenuMode.Register;
     return preferredDefaultMode;
   });
   const title = React.useMemo(() => getModeTitle(mode, headings), [mode, headings]);
 
   const onSegmentChange = (nextMode: AuthMenuMode) => {
-    setMode(nextMode);
+    setMode(resolveDefaultMode(accountExists, nextMode));
   };
 
   const onInputChange = (val: string) => {

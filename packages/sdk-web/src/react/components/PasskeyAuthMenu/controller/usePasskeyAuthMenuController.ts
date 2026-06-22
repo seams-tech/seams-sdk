@@ -97,7 +97,7 @@ export interface PasskeyAuthMenuController {
   mode: AuthMenuMode;
   title: { title: string; subtitle: string };
   waiting: boolean;
-  waitingReason: 'passkey' | 'social' | 'sync' | null;
+  waitingReason: 'passkey' | 'social' | 'restore' | null;
   showScanDevice: boolean;
   otpPrompt: PasskeyAuthMenuOtpPromptController | null;
   registrationPrompt: PasskeyAuthMenuRegistrationPromptController | null;
@@ -111,9 +111,11 @@ export interface PasskeyAuthMenuController {
   emailOtpAuthPolicy: EmailOtpAuthPolicy;
   canShowContinue: boolean;
   canSubmit: boolean;
+  canRecoverAccountWithEmail: boolean;
   onSegmentChange: (next: AuthMenuMode) => void;
   onInputChange: (val: string) => void;
   onProceed: () => void;
+  onRecoverAccountWithEmail: () => void;
   onResetToStart: () => void;
   openScanDevice: () => void;
   onSocialLogin: (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => void;
@@ -405,6 +407,27 @@ function formatEmailOtpResendError(error: unknown): string {
   return getErrorMessage(error, 'Could not send code. Try again.');
 }
 
+function normalizeStoredAccountId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function isLocalPasskeyAccountOption(option: StoredAccountOption): boolean {
+  return option.authMethod !== 'email_otp';
+}
+
+function hasLocalPasskeyAccountOption(input: {
+  accountOptions?: StoredAccountOption[];
+  targetAccountId: string;
+}): boolean {
+  const targetAccountId = normalizeStoredAccountId(input.targetAccountId);
+  if (!targetAccountId) return false;
+  for (const option of input.accountOptions ?? []) {
+    if (!isLocalPasskeyAccountOption(option)) continue;
+    if (normalizeStoredAccountId(option.nearAccountId) === targetAccountId) return true;
+  }
+  return false;
+}
+
 export function usePasskeyAuthMenuController(
   props: Pick<
     PasskeyAuthMenuProps,
@@ -453,9 +476,9 @@ export function usePasskeyAuthMenuController(
   const lastUserSelectedModeRef = React.useRef<AuthMenuMode | null>(null);
 
   const [waiting, setWaiting] = React.useState(false);
-  const [waitingReason, setWaitingReason] = React.useState<'passkey' | 'social' | 'sync' | null>(
-    null,
-  );
+  const [waitingReason, setWaitingReason] = React.useState<
+    'passkey' | 'social' | 'restore' | null
+  >(null);
   const [showScanDevice, setShowScanDevice] = React.useState(false);
   const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
   const [registrationPromptState, setRegistrationPromptState] =
@@ -544,6 +567,14 @@ export function usePasskeyAuthMenuController(
     }
     return [...byAccountId.values()].sort((a, b) => a.nearAccountId.localeCompare(b.nearAccountId));
   }, [runtime.accountOptions]);
+
+  const shouldRestoreSyncedPasskeyOnLogin =
+    mode === AuthMenuMode.Login &&
+    typeof props.onSyncAccount === 'function' &&
+    !hasLocalPasskeyAccountOption({
+      accountOptions: runtime.accountOptions,
+      targetAccountId: runtime.targetAccountId,
+    });
 
   // If the user is attempting to register but we discover the account already exists,
   // automatically switch them to the Login tab.
@@ -670,20 +701,20 @@ export function usePasskeyAuthMenuController(
       return;
     }
 
+    const shouldRestoreSyncedPasskey = shouldRestoreSyncedPasskeyOnLogin;
     setWaiting(true);
-    setWaitingReason(mode === AuthMenuMode.Sync ? 'sync' : 'passkey');
+    setWaitingReason(shouldRestoreSyncedPasskey ? 'restore' : 'passkey');
     setPostRecoveryRotationPromptState(null);
     setPostRecoveryRotationError('');
 
     void (async () => {
       try {
-        if (mode === AuthMenuMode.Sync) {
-          await props.onSyncAccount?.();
-          setWaiting(false);
-          setWaitingReason(null);
-          setMode(AuthMenuMode.Login);
-        } else if (mode === AuthMenuMode.Login) {
-          await props.onLogin?.();
+        if (mode === AuthMenuMode.Login) {
+          if (shouldRestoreSyncedPasskey) {
+            await props.onSyncAccount?.();
+          } else {
+            await props.onLogin?.();
+          }
           setWaiting(false);
           setWaitingReason(null);
           closeLinkDeviceView('flow');
@@ -694,12 +725,15 @@ export function usePasskeyAuthMenuController(
           setWaitingReason(null);
           setMode(AuthMenuMode.Login);
         }
-      } catch {
+      } catch (error) {
         if (mode === AuthMenuMode.Login) {
           setWaiting(false);
           setWaitingReason(null);
           closeLinkDeviceView('flow');
           setMode(mode);
+          if (shouldRestoreSyncedPasskey) {
+            setMethodError(getErrorMessage(error, 'Could not restore from synced passkey.'));
+          }
           return;
         }
         onResetToStart();
@@ -711,9 +745,10 @@ export function usePasskeyAuthMenuController(
     secure,
     runtime.accountExists,
     currentValue,
-    props.onSyncAccount,
     props.onLogin,
     props.onRegister,
+    props.onSyncAccount,
+    shouldRestoreSyncedPasskeyOnLogin,
     setMode,
     closeLinkDeviceView,
     onResetToStart,
@@ -804,6 +839,11 @@ export function usePasskeyAuthMenuController(
     },
     [waiting, props.socialLogin, mode, emailOtpAuthPolicy, runtime, setCurrentValue],
   );
+
+  const canRecoverAccountWithEmail = typeof props.socialLogin?.google === 'function';
+  const onRecoverAccountWithEmail = React.useCallback(() => {
+    onSocialLogin('google', AuthMenuMode.Login);
+  }, [onSocialLogin]);
 
   const onOtpCodeChange = React.useCallback(
     (value: string) => {
@@ -1311,9 +1351,11 @@ export function usePasskeyAuthMenuController(
     emailOtpAuthPolicy,
     canShowContinue,
     canSubmit,
+    canRecoverAccountWithEmail,
     onSegmentChange,
     onInputChange,
     onProceed,
+    onRecoverAccountWithEmail,
     onResetToStart,
     openScanDevice,
     onSocialLogin,

@@ -2,8 +2,8 @@ import React from 'react';
 import type { SDKFlowRuntime } from '@/react/types';
 
 /*
- * Feeds SDK events to the PasskeyAuthMenu so that we can display SDk events
- * When registering accounts, syncing accounts, logging in, etc
+ * Feeds SDK events to the PasskeyAuthMenu so that we can display SDK events
+ * for registration, recovery, login, and related flows.
  */
 
 type FlowKind = Exclude<SDKFlowRuntime['kind'], null>;
