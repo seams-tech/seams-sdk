@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
@@ -41,8 +40,8 @@ test.describe('signing-engine state architecture guardrails', () => {
       'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
     );
     const signingBudget = readRepoSource('packages/sdk-web/src/core/signingEngine/session/budget/budget.ts');
-    const operationState = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/flows/shared/operationState.ts',
+    const signingStateMachine = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
     );
     const planner = readRepoSource('packages/sdk-web/src/core/signingEngine/session/planning/planner.ts');
     const restoreTypes = readRepoSource(
@@ -69,20 +68,11 @@ test.describe('signing-engine state architecture guardrails', () => {
       expect(stripNeverOptionalGuards(normalizedAlias), typeName).not.toMatch(/\w+\?:/);
     }
 
-    for (const typeName of [
-      'SigningReadyState',
-      'ReadyLane',
-      'ReauthRequired',
-      'PreparedOperation',
-    ]) {
-      expect(
-        stripNeverOptionalGuards(sliceTypeAlias(operationState, typeName)),
-        typeName,
-      ).not.toMatch(/\w+\?:/);
-    }
-    expect(operationState).not.toContain('BudgetAdmission');
-    expect(operationState).not.toContain('BudgetAdmittedOperation');
-    expect(operationState).not.toContain('SignedOperation');
+    expect(
+      listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows/shared')),
+    ).not.toContain('packages/sdk-web/src/core/signingEngine/flows/shared/operationState.ts');
+    expect(signingStateMachine).not.toContain('PreparedOperation');
+    expect(signingStateMachine).not.toContain('preparedOperation');
 
     expect(signingLanes).not.toContain("kind: 'selected_lane'");
     expect(signingLanes).not.toContain("chain: 'near'");
@@ -218,8 +208,10 @@ test.describe('signing-engine state architecture guardrails', () => {
 
   test('threshold protocol entrypoints take protocol material instead of broad session shapes', () => {
     const protocolFiles = [
-      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/authorize.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
       'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/connectSession.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
       'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts',
       'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts',
       'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',

@@ -32,7 +32,6 @@ export async function runSuccessfulEvmFamilyPostSignCommands(args: {
   const operationPlan = createSigningPostSignOperationPlan({
     sessionPlan: args.signingSessionPlan,
     operation: null,
-    preparedOperation: null,
     commands: [SigningOperationCommandKind.SpendBudget, SigningOperationCommandKind.Cleanup],
   });
   const result = await runSigningOperationSteps({

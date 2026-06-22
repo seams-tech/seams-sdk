@@ -1,7 +1,5 @@
-import {
-  SigningAuthPlanKind,
-  type SigningAuthPlan,
-} from '@/core/signingEngine/stepUpConfirmation/types';
+import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
+import { signingAuthPlanFromSigningSessionPlan } from '../../shared/signingConfirmation';
 import { availableUsesForBudgetAdmission } from '@/core/signingEngine/session/budget/budget';
 import {
   formatThresholdSigningSessionAvailabilityError,
@@ -374,53 +372,25 @@ export function buildNearSigningSessionAuthPlan(args: {
   const resolvedSigningSession = args.resolvedSigningSession;
   const plan = resolvedSigningSession.signingSessionPlan;
 
+  if (plan.kind !== SigningSessionPlanKind.NotReady) {
+    const signingAuthPlan = signingAuthPlanFromSigningSessionPlan({
+      plan,
+      accountId,
+      intent: SigningOperationIntent.TransactionSign,
+      curve: 'ed25519',
+      expiresAtMs: resolvedSigningSession.expiresAtMs,
+      remainingUses: resolvedSigningSession.remainingUses,
+    });
+    return {
+      sessionId,
+      lane,
+      signingAuthPlan,
+      confirmationAuthPayload: { signingAuthPlan },
+      warmSessionReady: plan.kind === SigningSessionPlanKind.WarmSession,
+    };
+  }
+
   switch (plan.kind) {
-    case SigningSessionPlanKind.WarmSession: {
-      const signingAuthPlan: SigningAuthPlan = {
-        kind: SigningAuthPlanKind.WarmSession,
-        method: lane.authMethod,
-        accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        curve: 'ed25519',
-        sessionId,
-        retention: lane.retention,
-        expiresAtMs: resolvedSigningSession.expiresAtMs,
-        remainingUses: resolvedSigningSession.remainingUses,
-      };
-      return {
-        sessionId,
-        lane,
-        signingAuthPlan,
-        confirmationAuthPayload: { signingAuthPlan },
-        warmSessionReady: true,
-      };
-    }
-    case SigningSessionPlanKind.PasskeyReauth: {
-      const signingAuthPlan: SigningAuthPlan = {
-        kind: SigningAuthPlanKind.PasskeyReauth,
-        method: 'passkey',
-      };
-      return {
-        sessionId,
-        lane,
-        signingAuthPlan,
-        confirmationAuthPayload: { signingAuthPlan },
-        warmSessionReady: false,
-      };
-    }
-    case SigningSessionPlanKind.EmailOtpReauth: {
-      const signingAuthPlan: SigningAuthPlan = {
-        kind: SigningAuthPlanKind.EmailOtpReauth,
-        method: 'email_otp',
-      };
-      return {
-        sessionId,
-        lane,
-        signingAuthPlan,
-        confirmationAuthPayload: { signingAuthPlan },
-        warmSessionReady: false,
-      };
-    }
     case SigningSessionPlanKind.NotReady:
       throw new Error(`[SigningEngine][near] signing session is not ready: ${plan.reason}`);
     default:

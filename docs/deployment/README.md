@@ -37,8 +37,8 @@ old `testnet` environment into `staging`.
 3. Generate Router A/B deployment identity keys with
    `pnpm router:deploy:keygen -- --env staging --apply`. Repeat for production.
 4. Store `SIGNER_A_ROOT_SHARE_WIRE_SECRET` and
-   `SIGNER_B_ROOT_SHARE_WIRE_SECRET` from the derivation/provisioning ceremony
-   in the matching GitHub Environment.
+   `SIGNER_B_ROOT_SHARE_WIRE_SECRET` from
+   `pnpm router:deploy:root-share-keygen` in the matching GitHub Environment.
 5. Provision Postgres signer and console databases, users, grants, and
    migrations from [infra.md](infra.md#postgres).
 6. Provision Cloudflare Worker secrets for the relay.

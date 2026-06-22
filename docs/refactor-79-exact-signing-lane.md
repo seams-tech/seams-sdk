@@ -9,6 +9,7 @@ Related plans:
 - [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
 - [refactor-76-branded-keys.md](./refactor-76-branded-keys.md)
 - [refactor-77-switch-case.md](./refactor-77-switch-case.md)
+- [refactor-78-near-implicit-accounts.md](./refactor-78-near-implicit-accounts.md)
 
 ## Goal
 
@@ -53,7 +54,16 @@ Boundary parsers and persistence lookup APIs may detect duplicate records. Core
 signing, export, restore, and budget functions should accept exact identity and
 return either the exact record or a typed failure.
 
-Preferred shape:
+The canonical implementation point is the existing identity module:
+
+```text
+packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
+```
+
+This refactor hardens that module and removes parallel exact-lane terminology.
+Do not add another public `ExactSigningLaneIdentity` module.
+
+Target shape:
 
 ```ts
 type ExactSigningLaneIdentity =
@@ -61,24 +71,33 @@ type ExactSigningLaneIdentity =
   | ExactEcdsaSigningLaneIdentity;
 
 type ExactEd25519SigningLaneIdentity = {
-  kind: 'exact_ed25519_signing_lane';
+  kind: 'exact_ed25519_signing_lane_identity';
+  curve: 'ed25519';
+  chainFamily: 'near';
   walletId: WalletId;
+  nearAccountId: NamedNearAccountId | ImplicitNearAccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   authMethod: 'passkey' | 'email_otp';
   signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdSessionId;
-  materialBindingDigest?: Ed25519MaterialBindingDigest;
+  thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 type ExactEcdsaSigningLaneIdentity = {
-  kind: 'exact_ecdsa_signing_lane';
+  kind: 'exact_ecdsa_signing_lane_identity';
+  curve: 'ecdsa';
+  chainFamily: ThresholdEcdsaChainTarget['kind'];
   walletId: WalletId;
   authMethod: 'passkey' | 'email_otp';
   signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
-  evmFamilyKeyFingerprint?: EvmFamilyEcdsaKeyFingerprint;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  key: EvmFamilyEcdsaKeyIdentity;
 };
 ```
+
+`EvmFamilyEcdsaKeyFingerprint` is a diagnostic summary field. Authority reads
+use the full ECDSA key identity plus `keyHandle`.
 
 Boundary lookup result:
 
@@ -96,6 +115,33 @@ type ExactRecordLookup<TRecord> =
 Core signing paths should switch on `found | not_found | duplicate_records`.
 `duplicate_records` is a data-integrity failure. It should not flow into a
 second selector.
+
+## Terminology To Keep
+
+Use one public vocabulary for lane identity:
+
+| Term | Meaning | Authority-bearing |
+| --- | --- | --- |
+| `WalletId` | Durable wallet/profile id from `@shared/utils/domainIds` | yes |
+| `nearAccountId` | Protocol NEAR account id, named or implicit | yes for Ed25519 |
+| `SelectedLane` | User/session selected lane without planning fields | yes only after exact identity is built |
+| `ExactSigningLaneIdentity` | Canonical signing/export/restore/budget identity | yes |
+| `NearTransactionSigningLane` / `EcdsaTransactionSigningLane` | Operation-ready lane with storage/source/readiness metadata | yes |
+| `SigningLaneReference` | Durable wallet-key/lane-share reference from `@shared/signing-lanes` | yes for lane-share storage |
+| `EcdsaSessionIdentity` | `signingGrantId` plus `thresholdSessionId` only | no |
+
+Cleanup rules:
+
+- `ExactSigningLaneIdentity` is the only public exact-lane authority type.
+- `SelectedSigningLaneIdentity`, `ResolvedSigningSessionIdentity`, and
+  `EcdsaSessionIdentity` may remain as private projections only when the name
+  includes the narrower scope.
+- `walletId` fields use `WalletId`. `nearAccountId` fields use the NEAR account
+  id brands from Refactor 78.
+- ECDSA public facts fingerprints are summaries. They cannot replace full key
+  identity in authority reads.
+- `SigningLaneReference` stays separate from threshold-session identity. It
+  identifies wallet-key/lane-share custody state.
 
 ## Scope
 
@@ -132,33 +178,55 @@ High-priority files:
 
 ```text
 packages/sdk-web/src/core/signingEngine/session/persistence/records.ts
+packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
+packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts
 packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts
+packages/sdk-web/src/core/signingEngine/session/operationState/types.ts
+packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts
+packages/sdk-web/src/core/signingEngine/interfaces/operationDeps.ts
 packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection.ts
 packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts
+packages/sdk-web/src/core/signingEngine/session/budget/budget.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts
 packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts
 packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts
 packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts
 packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts
 packages/sdk-web/src/SeamsWeb/operations/auth/walletAuth.ts
 packages/sdk-web/src/core/signingEngine/session/public.ts
 packages/sdk-web/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts
+packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts
+packages/shared-ts/src/utils/domainIds.ts
+packages/shared-ts/src/signing-lanes/records.ts
 ```
 
 Important tests:
 
 ```text
 tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts
+tests/unit/walletScopedLookups.guard.unit.test.ts
+packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts
 tests/unit/ecdsaRoleLocalRecords.unit.test.ts
+tests/unit/ecdsaSelection.restorable.unit.test.ts
 tests/unit/exportLaneSelection.unit.test.ts
 tests/unit/nearSigning.sessionSelection.unit.test.ts
+tests/unit/signingSessionFreshness.unit.test.ts
 tests/unit/warmSessionEd25519Persistence.unit.test.ts
 tests/unit/routerAbEd25519.walletSessionState.unit.test.ts
 tests/unit/emailOtpWalletSessionCoordinator.unit.test.ts
@@ -189,6 +257,12 @@ Guard categories:
   - `getThresholdEcdsaSessionRecordByThresholdSessionId(`
   - allowed only in boundary adapters or tests proving duplicate rejection;
 - no `ambiguous` branch in core signing inputs after later phases complete.
+- no duplicate public exact-lane authority type names:
+  - `ExactEcdsaLaneIdentity`;
+  - `ExactEcdsaRuntimeLaneRef`;
+  - new `ExactSigningLaneIdentity` exports outside the canonical module;
+- no `walletId: AccountId` in signing-lane identity or planning types after
+  Refactor 78 wallet id brands are available.
 
 Initial guard should classify existing allowed hits:
 
@@ -197,37 +271,50 @@ Initial guard should classify existing allowed hits:
 - request/persistence boundary parsing;
 - tests that intentionally assert duplicate rejection.
 
-## Phase 1: Introduce Exact Lane Identity Types
+Required guard updates:
 
-Add co-located type-only domain module:
+- flip the existing `refactor74LegacyFallbacks` assertions that currently expect
+  newest-candidate helpers;
+- include `signEvmFamily/ecdsaSelection.ts` in the authority-selector scan;
+- extend `walletScopedLookups.guard.unit.test.ts` so exact-lane and planning
+  structs use `WalletId` for `walletId`;
+- add an allowlist comment for each remaining broad lookup that names the
+  boundary role: display, repair, request parsing, or persistence parsing.
+
+## Phase 1: Reconcile Existing Exact Lane Identity Types
+
+Use the existing module as the canonical public surface:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.types.ts
+packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
 ```
 
-Types:
+Tasks:
 
-- `ExactSigningLaneIdentity`;
-- `ExactEd25519SigningLaneIdentity`;
-- `ExactEcdsaSigningLaneIdentity`;
-- branch-specific builders:
-  - `exactEd25519SigningLaneIdentity(...)`;
-  - `exactEcdsaSigningLaneIdentity(...)`.
+- update `ExactEd25519SigningLaneIdentity` to carry `walletId`,
+  `nearAccountId`, and `ed25519KeyScopeId`;
+- update `ExactEcdsaSigningLaneIdentity` to use `WalletId`, require
+  `keyHandle`, and keep full `EvmFamilyEcdsaKeyIdentity`;
+- remove public `ExactEcdsaLaneIdentity` and `ExactEcdsaRuntimeLaneRef` exports
+  from `session/persistence/records.ts` after consumers use the canonical type;
+- reconcile `SelectedEcdsaLane`, `EcdsaSigningSessionPlanningLane`,
+  `ResolvedEcdsaSigningSessionIdentity`, and `EcdsaWalletSigningSpendPlan` so
+  `walletId` uses `WalletId`;
+- reconcile Ed25519 planning/spend types so `walletId` and `nearAccountId` are
+  separate fields after Refactor 78 lands;
+- keep `EcdsaSessionIdentity` as the session pair projection only;
+- keep `SigningLaneReference` as the wallet-key/lane-share custody reference;
+- make `exactSigningLaneIdentityKey(...)` the only canonical authority key
+  builder.
 
-Use branded types from Refactor 76 where available:
-
-- `SigningGrantId`;
-- `ThresholdSessionId`;
-- `WalletId` / `AccountId`;
-- `Ed25519MaterialBindingDigest`;
-- `EvmFamilyEcdsaKeyFingerprint`.
-
-Rules:
+Builder rules:
 
 - exact identity builders require every authority field;
-- no broad object spread into identity objects;
+- builders accept only branded or already-normalized boundary values;
 - boundary parsers normalize raw strings once;
-- core functions accept exact identity types instead of partial bags.
+- broad object spreads cannot construct exact identity objects;
+- core functions accept exact identity types or transaction lanes that can build
+  the same exact identity.
 
 Type fixtures:
 
@@ -239,8 +326,14 @@ Fixtures should reject:
 
 - missing `signingGrantId`;
 - missing `thresholdSessionId`;
+- missing Ed25519 `walletId`;
+- missing Ed25519 `nearAccountId`;
+- missing Ed25519 `ed25519KeyScopeId`;
 - ECDSA identity without `chainTarget`;
+- ECDSA identity without full `key`;
+- ECDSA identity without `keyHandle`;
 - Ed25519 identity with ECDSA fields;
+- `walletId: AccountId` in ECDSA identity fixtures;
 - generic `string` cast into branded IDs outside a boundary builder.
 
 ## Phase 2: Make Persistence Reads Exact
@@ -252,6 +345,11 @@ readExactThresholdEd25519SessionRecord(identity: ExactEd25519SigningLaneIdentity
 readExactThresholdEcdsaSessionRecord(identity: ExactEcdsaSigningLaneIdentity): ExactRecordLookup<ThresholdEcdsaSessionRecord>
 ```
 
+Use the `SigningCapabilityReaderDeps` exact lookup shape as the ECDSA starting
+point: `walletId`, `chainTarget`, `keyHandle`, `thresholdSessionId`, and
+`signingGrantId`. Extend it to carry full exact lane identity and typed duplicate
+results.
+
 The lookup must:
 
 - use canonical lane key identity;
@@ -260,6 +358,10 @@ The lookup must:
 - return `not_found` for absent records;
 - never select by `updatedAtMs`;
 - never choose the first record from an indexed set.
+- reject ECDSA record matches where `keyHandle` matches but full key identity
+  facts differ;
+- reject Ed25519 records where `walletId`, `nearAccountId`, or
+  `ed25519KeyScopeId` differ.
 
 Existing broad reads become boundary-only:
 
@@ -267,6 +369,8 @@ Existing broad reads become boundary-only:
 getStoredThresholdEd25519SessionRecordByThresholdSessionId
 getStoredThresholdEcdsaSessionRecordByThresholdSessionId
 getThresholdEcdsaSessionRecordByThresholdSessionId
+getStoredThresholdEd25519SessionRecordForAccount
+getStoredThresholdEcdsaSessionRecordForWalletChain
 ```
 
 Target action:
@@ -275,6 +379,11 @@ Target action:
   `readDisplayOrRepairRecordByThresholdSessionId`;
 - update signing/export/budget flows to use exact reads;
 - add guards that block broad reads in exact signing files.
+- replace Ed25519 consume-by-account with consume-by-exact-lane and expected
+  record version;
+- keep account-current records for display/default wallet state only;
+- update `EvmFamilyEcdsaSessionReaderDeps` so signing paths use exact record
+  lookup, while list/broad readers sit behind display/repair names.
 
 Tests:
 
@@ -285,6 +394,8 @@ Tests:
 - exact lane identity selects the intended record when duplicates exist in
   unrelated lanes;
 - target-specific ECDSA lookup requires `chainTarget`.
+- ECDSA lookup fails when key handle matches but full key identity differs;
+- Ed25519 consume fails when account-current points at another exact lane.
 
 ## Phase 3: Enforce Write-Time Uniqueness
 
@@ -292,8 +403,8 @@ Strengthen `upsert*` paths so authority records cannot accumulate silently.
 
 Ed25519:
 
-- canonical lane key includes wallet/account, auth method, signing grant,
-  threshold session, and curve;
+- canonical lane key includes `walletId`, `nearAccountId`,
+  `ed25519KeyScopeId`, auth method, signing grant, threshold session, and curve;
 - material-bearing records include material binding digest in the durable
   restore identity when available;
 - writing a new current lane for the same wallet/auth/curve/signing grant must
@@ -304,12 +415,14 @@ Ed25519:
 ECDSA:
 
 - canonical lane key includes wallet, auth method, signing grant, threshold
-  session, chain target, key handle, and curve;
+  session, chain target, key handle, full key identity, and curve;
 - shared EVM-family key identity checks stay active;
 - target-specific writes delete replaced current passkey lanes through one
   named replacement helper;
 - Email OTP session-lifetime lanes may coexist only when their exact identities
   differ and the caller uses exact identity for reads.
+- persistence parsers use `parseWalletId` for `walletId`;
+- NEAR account validators are used only for `nearAccountId` fields.
 
 Tests:
 
@@ -317,6 +430,10 @@ Tests:
 - conflicting duplicate write fails before insertion;
 - exact read after replacement returns only the new lane;
 - exact read after duplicate fixture returns `duplicate_records`.
+- implicit wallet id fixture writes Ed25519 and ECDSA records without projecting
+  `walletId` through `toAccountId`;
+- sponsored named wallet fixture still stores matching `walletId` and
+  `nearAccountId` where the provisioning mode requires it.
 
 ## Phase 4: Remove Best-Candidate Selection From Transaction Signing
 
@@ -325,6 +442,11 @@ Current risk files:
 ```text
 packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts
+packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts
 packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts
 ```
 
@@ -348,6 +470,14 @@ Selection rules:
   timestamp;
 - restore availability updates the exact lane, then retries the same exact
   identity.
+- EVM-family signing receives an exact lane identity before
+  `resolveEvmFamilyEcdsaSigningSelection(...)`;
+- `selectPasskeyMaterialForCandidate(...)` can use visible passkey materials for
+  diagnostics and repair only;
+- `listPasskeyVisibleMaterials(...)` cannot provide authority material for a
+  different exact lane;
+- `findSharedEvmFamilyEcdsaSessionRecordForLane(...)` returns duplicate failure
+  when more than one source-chain material record matches.
 
 Tests:
 
@@ -356,6 +486,11 @@ Tests:
 - EVM/Tempo signing does not choose a newer record when exact identity points at
   a different valid lane;
 - sponsored Tempo actions that do not require signing skip budget/lane admission.
+- EVM passkey signing fails closed when exact material is missing and visible
+  passkey material exists for another lane;
+- shared EVM-family material requires exact source material lane plus target
+  chain operation identity;
+- prepared EVM material binding rejects mismatched `laneIdentityKey`.
 
 ## Phase 5: Remove Best-Candidate Selection From Export
 
@@ -371,6 +506,10 @@ Target shape:
 - display inventory may group candidates for user choice;
 - authority export flow accepts a single exact lane;
 - duplicate exact lanes return `duplicate_records`.
+- iframe/UI export selection sends the exact identity payload that the user chose;
+- export worker inputs carry exact identity and reject display inventory groups;
+- ECDSA export uses full key identity plus source material lane for shared
+  EVM-family keys.
 
 Remove or demote:
 
@@ -390,6 +529,8 @@ Tests:
 - duplicate export candidates require explicit identity;
 - exact export lane selects even when display inventory has other lanes;
 - ambiguous display inventory cannot call the export worker.
+- exact ECDSA export for shared family material binds the export key identity to
+  the source material lane.
 
 ## Phase 6: Remove Broad Restore Selection
 
@@ -397,6 +538,10 @@ Current risk files:
 
 ```text
 packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts
 packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts
 packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts
@@ -427,6 +572,12 @@ Rules:
 - `mostRecent*` restore helper names are removed from signing/restore paths;
 - duplicate restore material returns `duplicate_records`;
 - restore retry keeps the original exact identity.
+- sealed-session filters include `signingGrantId`, `thresholdSessionId`,
+  auth method, curve, and ECDSA `chainTarget`;
+- sealed-session read and lease APIs return typed duplicate results;
+- `readRecordByThresholdSessionId(...)` cannot select the last matching record in
+  authority paths;
+- restore coordinator runs one exact restore work item per exact identity.
 
 Tests:
 
@@ -435,6 +586,9 @@ Tests:
 - no restore path uses latest/newest account-scoped record;
 - Email OTP restore receives only opaque unseal authorization and exact lane
   identity.
+- sealed restore lease fails closed when two sealed records match the exact
+  identity;
+- restore coordinator rejects duplicate exact-purpose work items.
 
 ## Phase 7: Budget Admission Uses Exact Identity
 
@@ -442,6 +596,8 @@ Current risk file:
 
 ```text
 packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts
+packages/sdk-web/src/core/signingEngine/session/budget/budget.ts
+packages/sdk-web/src/core/signingEngine/session/operationState/transactionState.ts
 ```
 
 Target shape:
@@ -461,6 +617,13 @@ Rules:
 - budget status parser remains the only compatibility point for
   `remainingUses` / `availableUses` fallback;
 - admission uses `availableUsesForBudgetAdmission`.
+- reservation identity derives `thresholdSessionIds` from
+  `ExactSigningLaneIdentity`;
+- `WalletSigningSpendPlan.thresholdSessionIds` is removed from admission input or
+  renamed to `backingMaterialSessionIds` when that is the intended meaning;
+- `resolveWalletSigningBudgetStatusAuth(...)` cannot independently rediscover
+  signing auth by broad threshold-session lookup;
+- budget freshness and reservation keys use the same `laneIdentityKey`.
 
 Tests:
 
@@ -468,6 +631,9 @@ Tests:
 - rejected auth status does not retry through persisted records;
 - duplicate record lookup blocks budget admission;
 - display policy hints cannot influence admission.
+- caller-provided threshold-session list cannot alter the exact lane reservation;
+- budget admission for implicit NEAR wallets uses `walletId` for wallet budget
+  owner and `nearAccountId` only for NEAR signing.
 
 ## Phase 8: UiConfirm And Wallet Iframe Boundaries
 
@@ -475,6 +641,9 @@ Current risk file:
 
 ```text
 packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts
+packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/export.ts
+packages/sdk-web/src/SeamsWeb/walletIframe/host/runtime-export.ts
 ```
 
 Target:
@@ -483,6 +652,15 @@ Target:
 - if payload lacks exact identity, return typed boundary error;
 - display-only fallback may show diagnostics and repair prompts;
 - signing material selection does not read broad records by threshold session.
+- payloads that touch signing material include `walletId`, auth method, curve,
+  signing grant id, threshold session id, and branch-specific fields;
+- Ed25519 payloads include `nearAccountId` and `ed25519KeyScopeId`;
+- ECDSA payloads include `chainTarget`, `keyHandle`, and full key identity or a
+  boundary-parsed key identity reference;
+- Email OTP app-session JWT cache remains wallet-scoped only if the JWT is
+  wallet-session auth; document that invariant in the cache type and tests;
+- exact refresh identity rejection clears only the wallet-scoped cached JWT for
+  that wallet.
 
 Tests:
 
@@ -490,6 +668,10 @@ Tests:
 - payload with threshold session only cannot select signing material;
 - duplicate persisted records produce typed duplicate error;
 - diagnostics label broad records as display-only.
+- Ed25519 UiConfirm payload with `walletId !== nearAccountId` succeeds when both
+  values match the exact identity;
+- Email OTP JWT cache reuse cannot change the exact lane identity used for
+  signing/export.
 
 ## Phase 9: Rename Errors And Delete Core `ambiguous` Branches
 
@@ -508,6 +690,9 @@ Rules:
 - signing/export/restore/budget core unions use duplicate-specific names;
 - every duplicate error carries safe candidate summaries;
 - summaries include public identity only, never secret material or JWTs.
+- public exact-lane type names outside `exactSigningLaneIdentity.ts` are deleted
+  or renamed to private serialization helpers;
+- helper names that include `exact` must require exact authority identity.
 
 Tests:
 
@@ -515,6 +700,8 @@ Tests:
 - existing tests are updated to duplicate-specific names;
 - user-facing error messages describe duplicate session state and suggest
   refresh/repair, without exposing sensitive fields.
+- guard tests reject new `Exact*LaneIdentity` exports outside the canonical
+  module.
 
 ## Phase 10: Final Cleanup And Validation
 
@@ -525,6 +712,11 @@ Delete or rename:
 - `mostRecent*` restore helpers in signing paths;
 - broad `getByThresholdSessionId` imports from signing/export/budget paths;
 - first-candidate fallback tests that encode old behavior.
+- public `ExactEcdsaLaneIdentity` and `ExactEcdsaRuntimeLaneRef` exports after
+  canonical identity wiring;
+- `walletId: AccountId` from exact-lane, planning-lane, budget-spend, and warm
+  capability identity structs;
+- `toAccountId(args.walletId)` from wallet-scoped authority paths.
 
 Keep:
 
@@ -537,9 +729,12 @@ Validation matrix:
 ```text
 pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
 pnpm -C tests exec playwright test --reporter=line unit/refactor74LegacyFallbacks.guard.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/walletScopedLookups.guard.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/ecdsaRoleLocalRecords.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/ecdsaSelection.restorable.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/exportLaneSelection.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/nearSigning.sessionSelection.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/signingSessionFreshness.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/warmSessionEd25519Persistence.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/routerAbEd25519.walletSessionState.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/emailOtpWalletSessionCoordinator.unit.test.ts
@@ -552,6 +747,7 @@ Browser evidence after implementation:
 - passkey registration;
 - wallet unlock;
 - first NEAR transaction after unlock, with no extra Touch ID prompt;
+- first NEAR transaction for implicit account with `walletId !== nearAccountId`;
 - NEAR lazy restore from cold worker material;
 - NEP-413 signing;
 - delegate signing;
@@ -559,10 +755,17 @@ Browser evidence after implementation:
 - EVM signed transaction;
 - sponsored Tempo action that does not consume budget;
 - budget exhaustion and step-up after server-authoritative remaining uses.
+- EVM passkey signing with exact material missing and another visible passkey
+  lane present;
+- Email OTP signing/export after JWT refresh rejection.
 
 ## Done Criteria
 
 - Core signing/export/restore/budget functions accept exact lane identity.
+- `ExactSigningLaneIdentity` is the only public exact-lane authority type.
+- Exact Ed25519 identity separates `walletId`, `nearAccountId`, and
+  `ed25519KeyScopeId`.
+- Exact ECDSA identity uses `WalletId`, `keyHandle`, and full key identity.
 - Persistence writes enforce uniqueness or return typed duplicate errors.
 - Broad threshold-session reads are absent from authority-bearing paths.
 - Candidate ranking and timestamp tie-breakers are absent from authority-bearing
@@ -570,4 +773,5 @@ Browser evidence after implementation:
 - Display-only and repair-only broad discovery helpers are explicitly named.
 - Source guards block first-candidate fallback and broad authority reads.
 - Unit tests prove duplicate records fail closed.
+- Unit tests prove implicit `walletId !== nearAccountId` signing identity works.
 - Browser evidence shows normal unlock/signing paths still work.

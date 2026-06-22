@@ -213,6 +213,17 @@ generate `SIGNER_A_ROOT_SHARE_WIRE_SECRET` or
 derivation/provisioning ceremony. By default the command redacts private values
 in stdout; use `--show-secrets` only for manual secret entry.
 
+Generate matched Router A/B root-share wire secrets with:
+
+```bash
+pnpm router:deploy:root-share-keygen
+pnpm router:deploy:root-share-keygen -- --json
+```
+
+The command prints a 2-of-3 share pair using Deriver A share id `1` and
+Deriver B share id `3`. Store the A value only in the Account-1 / Deriver-A
+environment and the B value only in the Account-2 / Deriver-B environment.
+
 The Router serves public deployment keys at:
 
 - `/.well-known/router-ab/keyset`

@@ -330,41 +330,25 @@ export async function resolveEvmFamilyTransactionStepUp(
         })
       : null;
   const signingIntent = SigningOperationIntent.TransactionSign;
-  const signingCurve = args.senderSignatureAlgorithm === 'secp256k1' ? 'ecdsa' : undefined;
   let plannedEcdsaSigningAuthPlan: SigningAuthPlan | null = null;
   let plannedSigningSessionPlan: SigningSessionPlan | undefined;
   if (args.senderSignatureAlgorithm === 'secp256k1') {
     const preparedOperation = args.preparedOperation;
     const signingSessionPlan = preparedOperation.signingSessionPlan;
     plannedSigningSessionPlan = signingSessionPlan;
-    if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
-      plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
-        plan: signingSessionPlan,
-        accountId: walletId,
-        intent: signingIntent,
-        ...(signingCurve ? { curve: signingCurve } : {}),
-        expiresAtMs: preparedOperation.expiresAtMs,
-        remainingUses: preparedOperation.remainingUses,
-      });
-    } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
-      plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
-        plan: signingSessionPlan,
-        accountId: walletId,
-        intent: signingIntent,
-        ...(signingCurve ? { curve: signingCurve } : {}),
-      });
-    } else if (signingSessionPlan.kind === SigningSessionPlanKind.PasskeyReauth) {
-      plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
-        plan: signingSessionPlan,
-        accountId: walletId,
-        intent: signingIntent,
-        ...(signingCurve ? { curve: signingCurve } : {}),
-      });
-    } else {
+    if (signingSessionPlan.kind === SigningSessionPlanKind.NotReady) {
       throw new Error(
         `[SigningEngine] ECDSA signing session is not ready: ${signingSessionPlan.reason}`,
       );
     }
+    plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
+      plan: signingSessionPlan,
+      accountId: walletId,
+      intent: signingIntent,
+      curve: 'ecdsa',
+      expiresAtMs: preparedOperation.expiresAtMs,
+      remainingUses: preparedOperation.remainingUses,
+    });
   }
   const directAuthPlan = plannedEcdsaSigningAuthPlan ? null : await resolveDirectSigningAuthPlan();
   const signingAuthPlan = plannedEcdsaSigningAuthPlan || directAuthPlan!.signingAuthPlan;

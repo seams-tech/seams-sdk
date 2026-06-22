@@ -10,7 +10,6 @@ import {
   type SigningPlanSummary,
 } from '../../session/operationState/types';
 import type { OperationCommandExecutor, OperationTransitionObserver } from './operationPorts';
-import type { PreparedOperation } from './operationState';
 
 export const SigningOperationStateKind = {
   Planned: 'planned',
@@ -147,7 +146,6 @@ export type SigningOperationPlan = {
   kind: 'signing_operation_plan';
   sessionPlan: SigningSessionPlan;
   operation: SigningOperationContext | null;
-  preparedOperation: PreparedOperation | null;
   commands: SigningOperationCommandSequence;
 };
 
@@ -155,7 +153,6 @@ export type SigningPostSignOperationPlan = {
   kind: 'signing_post_sign_operation_plan';
   sessionPlan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
   operation: SigningOperationContext | null;
-  preparedOperation: PreparedOperation | null;
   commands: SigningPostSignOperationCommandSequence;
 };
 
@@ -204,14 +201,12 @@ export type RunSigningOperationCommandStepsResult =
 export function createSigningOperationPlan(args: {
   sessionPlan: SigningSessionPlan;
   operation: SigningOperationContext | null;
-  preparedOperation: PreparedOperation | null;
   commands: SigningOperationCommandSequence;
 }): SigningOperationPlan {
   return {
     kind: 'signing_operation_plan',
     sessionPlan: args.sessionPlan,
     operation: args.operation,
-    preparedOperation: args.preparedOperation,
     commands: args.commands,
   };
 }
@@ -219,14 +214,12 @@ export function createSigningOperationPlan(args: {
 export function createSigningPostSignOperationPlan(args: {
   sessionPlan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
   operation: SigningOperationContext | null;
-  preparedOperation: PreparedOperation | null;
   commands: SigningPostSignOperationCommandSequence;
 }): SigningPostSignOperationPlan {
   return {
     kind: 'signing_post_sign_operation_plan',
     sessionPlan: args.sessionPlan,
     operation: args.operation,
-    preparedOperation: args.preparedOperation,
     commands: args.commands,
   };
 }
@@ -434,7 +427,6 @@ export async function runSigningOperationCommand<T>(args: {
   const operationPlan = createSigningOperationPlan({
     sessionPlan: args.signingSessionPlan,
     operation: args.signingOperation,
-    preparedOperation: null,
     commands: [args.commandKind],
   });
   const executor: SigningOperationCommandExecutor = {

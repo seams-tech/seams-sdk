@@ -9,6 +9,8 @@ Related plans:
 - [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
 - [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md)
 - [refactor-76-branded-keys.md](./refactor-76-branded-keys.md)
+- [refactor-78-near-implicit-accounts.md](./refactor-78-near-implicit-accounts.md)
+- [refactor-79-exact-signing-lane.md](./refactor-79-exact-signing-lane.md)
 
 ## Goal
 
@@ -26,6 +28,34 @@ Primary outcomes:
 - adding a new state breaks type fixtures or exhaustive switches until handled;
 - persistence/request compatibility remains isolated at boundary parsers;
 - core signing/session code accepts precise internal domain types.
+
+## Authority Model Dependency
+
+Refactor 77 is the lifecycle/state-modeling layer under Refactor 78 and
+Refactor 79. Authority-bearing unions in signing, restore, budget, session
+planning, and Email OTP flows must sit behind canonical exact lane identity.
+
+The canonical exact-lane type lives in:
+
+```text
+packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
+```
+
+Rules:
+
+- do not create another public `ExactSigningLaneIdentity` type or module;
+- lifecycle unions may carry exact identity, exact identity keys, or private
+  projections derived from canonical exact identity;
+- NEAR Ed25519 authority uses `walletId`, `nearAccountId`, and
+  `ed25519KeyScopeId` from Refactor 78/79;
+- ECDSA authority uses `walletId`, `chainTarget`, `keyHandle`, full key
+  identity, `signingGrantId`, and `thresholdSessionId`;
+- `SelectedSigningLaneIdentity`, `ResolvedSigningSessionIdentity`,
+  `EcdsaSessionIdentity`, `ExactEcdsaLaneIdentity`,
+  `ExactEcdsaRuntimeLaneRef`, and export-specific lane structs must become
+  private projections or aliases during 79 reconciliation;
+- threshold-session-only lookups, account-wide reads, newest/latest selection,
+  and first-candidate fallback are boundary display/repair tools only.
 
 ## Bundle Size Impact
 
@@ -76,6 +106,10 @@ Guidelines:
   once into strict internal types.
 - Avoid exporting internal lifecycle unions from the public SDK API unless the
   public surface genuinely needs them.
+- Domain modules such as
+  `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/nearSigning.types.ts`
+  may define operation lifecycle unions, but must import canonical exact-lane
+  identity types instead of defining competing lane identity structs.
 
 ### Naming Pattern
 
@@ -155,6 +189,8 @@ Current risk:
 - reservation/finalization commands can be mixed through broad object shapes;
 - zero-spend, reserved-spend, and externally-consumed spend are semantically
   different states.
+- admission and finalization can drift when budget inputs carry session ids
+  separately from the exact lane authority.
 
 Target:
 
@@ -170,12 +206,18 @@ type WalletBudgetFinalizationCommand =
 ```
 
 - switch over every command in finalization and sync code;
-- require `TrustedActiveSigningBudgetStatus` for admission.
+- require `TrustedActiveSigningBudgetStatus` for admission;
+- run budget unions after exact lane admission from Refactor 79;
+- derive reservation `thresholdSessionIds` from `ExactSigningLaneIdentity`;
+- use implicit NEAR `walletId` as the budget owner and `nearAccountId` only for
+  NEAR signing.
 
 Acceptance:
 
 - no admission code reads display-only `policyHint`;
 - no finalization branch uses optional `reservation?` to imply behavior;
+- no caller-provided threshold-session list can alter exact lane reservation;
+- duplicate exact-lane record lookup blocks budget admission;
 - type fixtures reject `reserved_success` without a reservation and
   `zero_spend_success` with positive spend.
 
@@ -195,11 +237,15 @@ Current risk:
 
 - persisted record optionals can look signable unless classified;
 - pending, restoreable, stale, and runtime-validated material can be conflated;
-- current durable restore requires exact grant/session/material checks.
+- current durable restore requires exact grant/session/material checks;
+- Ed25519 material branches can become ambiguous after implicit accounts unless
+  they carry exact `walletId`, `nearAccountId`, and `ed25519KeyScopeId`.
 
 Target:
 
 - keep `RouterAbEd25519PersistedSigningRecordState` as the boundary classifier;
+- downstream readiness branches carry or derive
+  `ExactEd25519SigningLaneIdentity`;
 - define narrow downstream inputs:
   - `Ed25519RuntimeValidatedSigningMaterial`
   - `Ed25519RestoreableMaterial`
@@ -211,8 +257,8 @@ Acceptance:
 
 - final signing accepts only runtime-validated material;
 - lazy restore accepts only restoreable material plus unseal authorization;
-- exact restore checks wallet, signing grant, threshold session, and material
-  binding facts where available;
+- exact restore checks wallet id, NEAR account id, Ed25519 key scope id,
+  signing grant, threshold session, and material binding facts;
 - guards reject truthy material handle checks as signing authority.
 
 ### 4. NEAR Transaction, NEP-413, And Delegate Signing
@@ -239,9 +285,24 @@ Target:
 
 ```ts
 type NearEd25519SigningOperation =
-  | { kind: 'near_transaction'; requiredSignatureUses: number; payload: NearTxPayload }
-  | { kind: 'nep413_message'; requiredSignatureUses: 1; payload: Nep413Payload }
-  | { kind: 'delegate_action'; requiredSignatureUses: 1; payload: DelegatePayload };
+  | {
+      kind: 'near_transaction';
+      signing: ExactEd25519SigningLaneIdentity;
+      requiredSignatureUses: number;
+      payload: NearTxPayload;
+    }
+  | {
+      kind: 'nep413_message';
+      signing: ExactEd25519SigningLaneIdentity;
+      requiredSignatureUses: 1;
+      payload: Nep413Payload;
+    }
+  | {
+      kind: 'delegate_action';
+      signing: ExactEd25519SigningLaneIdentity;
+      requiredSignatureUses: 1;
+      payload: DelegatePayload;
+    };
 ```
 
 - create shared `NearSigningStepUpResult`:
@@ -260,6 +321,8 @@ Acceptance:
 
 - all three flows call one shared operation helper after operation-specific
   payload construction;
+- shared NEAR helpers receive the exact Ed25519 signing context, including
+  `walletId`, `nearAccountId`, and `ed25519KeyScopeId`;
 - no duplicated material-repair `if` blocks remain in the three signing files;
 - one test matrix covers all operation kinds.
 
@@ -317,7 +380,9 @@ Current risk:
   and Ed25519 material state have different meanings;
 - fallback source branches can mix current and sealed records if not typed
   strictly;
-- optional companion attachment must remain observable and non-authoritative.
+- optional companion attachment must remain observable and non-authoritative;
+- app-session JWT reuse can accidentally influence signing material if the
+  lifecycle branch does not also carry exact lane identity.
 
 Target:
 
@@ -327,15 +392,27 @@ Target:
 ```ts
 type EmailOtpSigningSessionLifecycle =
   | { kind: 'account_control_verified'; routeAuth: AppOrWalletSessionAuth }
-  | { kind: 'signing_session_ready'; auth: EmailOtpSigningSessionAuth }
+  | {
+      kind: 'signing_session_ready';
+      identity: ExactSigningLaneIdentity;
+      auth: EmailOtpSigningSessionAuth;
+    }
   | { kind: 'companion_restore_available'; source: EmailOtpEcdsaRestoreSource }
-  | { kind: 'ed25519_reconstruction_required'; recovery: RecoveryCodeAuthorization }
+  | {
+      kind: 'ed25519_reconstruction_required';
+      identity: ExactEd25519SigningLaneIdentity;
+      recovery: RecoveryCodeAuthorization;
+    }
   | { kind: 'not_available'; reason: EmailOtpSessionUnavailableReason };
 ```
 
 Acceptance:
 
 - Email OTP direct signing restore receives opaque unseal authorization only;
+- every Email OTP branch that can influence signing material carries exact lane
+  identity;
+- wallet-scoped app-session JWT cache reuse cannot change the exact lane used
+  for signing/export;
 - companion attachment diagnostics cannot become material readiness;
 - current/sealed branch mixing remains rejected by type fixtures.
 
@@ -357,7 +434,9 @@ Current risk:
 - successful-restore cache and account-wide restore must not suppress exact
   record writes;
 - current code has some typed unions already, but call sites still use broad
-  counters and optional record branches.
+  counters and optional record branches;
+- restore code can re-enter broad account/session lookup after a duplicate exact
+  record result.
 
 Target:
 
@@ -366,17 +445,30 @@ Target:
 
 ```ts
 type RestoreAttemptOutcome =
-  | { kind: 'restored'; record: SealedRecoveryRecord }
-  | { kind: 'already_ready'; record: SealedRecoveryRecord }
-  | { kind: 'deferred'; record: SealedRecoveryRecord; reason: RestoreDeferredReason }
+  | { kind: 'restored'; identity: MaterialRestoreIdentity; record: SealedRecoveryRecord }
+  | { kind: 'already_ready'; identity: MaterialRestoreIdentity; record: SealedRecoveryRecord }
+  | {
+      kind: 'deferred';
+      identity: MaterialRestoreIdentity;
+      record: SealedRecoveryRecord;
+      reason: RestoreDeferredReason;
+    }
   | { kind: 'rejected'; rejection: RejectedSealedRecoveryRecord }
-  | { kind: 'not_applicable' };
+  | {
+      kind: 'duplicate_records';
+      identity: MaterialRestoreIdentity;
+      details: DuplicateRecordSummary[];
+    }
+  | { kind: 'not_applicable'; identity?: MaterialRestoreIdentity };
 ```
 
 Acceptance:
 
 - exact restore loops switch over `RestoreAttemptOutcome`;
 - counters are derived from outcomes, not incremented by scattered `if` blocks;
+- duplicate exact restore records return a typed `duplicate_records` outcome and
+  stop the authority path;
+- restore retry keeps the original exact identity;
 - successful cache keys include durable record version and exact purpose.
 
 ### 8. Login, Wallet Unlock, And Local Session Restoration
@@ -664,9 +756,12 @@ Fixture rules:
 - `*.types.ts` modules are imported with `import type`;
 - authority-bearing functions do not accept public/persistence raw shapes;
 - display-only helpers include `Display` or `Ui` in the name;
+- repair-only helpers include `Repair` in the name;
 - `policyHint` appears only in display helpers;
-- `candidates[0]` appears only inside helpers whose name includes `Exact`,
-  `Sorted`, or `Display`.
+- `candidates[0]` appears only inside display/repair helpers or
+  `selectOnly*` helpers that first prove exactly one candidate;
+- helpers with `Exact` in the name cannot use `candidates[0]` unless they return
+  a typed duplicate result before selecting.
 
 ## Done Criteria
 
@@ -675,9 +770,10 @@ Fixture rules:
   exhaustively over those states.
 - Boundary parsers convert raw request/persistence data into strict internal
   types once.
+- Authority-bearing lifecycle types import canonical exact-lane identity and do
+  not define parallel lane identity structs.
 - Type fixtures reject invalid branch combinations.
 - Source guards prevent high-risk fallback patterns from returning.
-- Existing Refactor 74 and Refactor 76 evidence still passes.
+- Existing Refactor 74, 76, 78, and 79 evidence still passes.
 - Bundle audit confirms type-only modules are erased or only runtime helpers
   that replaced existing logic remain.
-

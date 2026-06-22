@@ -268,7 +268,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     const operationPlan = createSigningOperationPlan({
       sessionPlan: input.signingSessionPlan,
       operation: input.signingOperation || null,
-      preparedOperation: null,
       commands,
     });
     const executor: SigningOperationCommandExecutor = {
