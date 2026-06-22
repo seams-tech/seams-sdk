@@ -13,10 +13,14 @@ import {
   setupManagedThresholdRegistrationHarness,
 } from '../../../tests/e2e/thresholdEd25519.testUtils';
 import {
-  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
+import {
+  parseRouterAbPublicKeysetV2,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+} from '@shared/utils/routerAbPublicKeyset';
 
 const SUMMARY_MARKER = '@@REGISTRATION_FLOW_SUMMARY@@';
 const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
@@ -40,6 +44,37 @@ const BENCHMARK_SHAMIR_PRIME_B64U = '_____________________________________v___C8
 const BENCHMARK_SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const BENCHMARK_SHAMIR_SERVER_DECRYPT_EXPONENT_B64U =
   '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
+const BENCHMARK_ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV2({
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
+  signer_envelope_hpke: {
+    current: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-a',
+        public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-b',
+        public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+      },
+    },
+  },
+  signer_peer_verifying_keys: {
+    deriver_a: {
+      role: 'signer_a',
+      verifying_key_hex: '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+    },
+    deriver_b: {
+      role: 'signer_b',
+      verifying_key_hex: '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+    },
+  },
+  signing_worker_server_output_hpke: {
+    key_epoch: 'epoch-server',
+    public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
+  },
+});
 
 type ScenarioId =
   | 'passkey_ed25519_only_wallet_iframe'
@@ -625,7 +660,7 @@ function createBenchmarkSigningSessionSealOptions(threshold: unknown) {
     throw new Error('Missing threshold auth session stores for registration benchmark seal policy');
   }
   return createSigningSessionSealRoutesOptions({
-    sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+    sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [thresholdAuthStores.authSessionStore as any],
       ecdsaStores: [thresholdAuthStores.ecdsaAuthSessionStore as any],
       walletBudgetStores: [thresholdAuthStores.authSessionStore as any],
@@ -700,6 +735,7 @@ test.describe('registration flow benchmark scenario', () => {
       orgName: `Benchmark ${scenarioId}`,
       projectId: `proj_benchmark_${scenarioId}`,
       projectName: `Benchmark ${scenarioId}`,
+      routerAbPublicKeyset: BENCHMARK_ROUTER_AB_PUBLIC_KEYSET,
       ...(authMode === 'email_otp'
         ? { signingSessionSeal: createBenchmarkSigningSessionSealOptions(threshold) }
         : {}),
@@ -859,6 +895,12 @@ test.describe('registration flow benchmark scenario', () => {
                       },
                     }
                   : {}),
+                routerAb: {
+                  normalSigning: {
+                    mode: 'enabled' as const,
+                    signingWorkerId: 'local-signing-worker',
+                  },
+                },
                 iframeWallet:
                   browserWalletIframeMode === 'wallet_iframe'
                     ? {
