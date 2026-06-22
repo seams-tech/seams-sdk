@@ -280,17 +280,44 @@ function selectNewestCandidateWhenUnambiguous<TCandidate extends ConcreteTransac
   return ambiguous ? null : selected;
 }
 
+function selectOnlyConcreteTransactionCandidate<TCandidate extends ConcreteTransactionCandidate>(
+  candidates: readonly TCandidate[],
+): TCandidate | null {
+  switch (candidates.length) {
+    case 0:
+      return null;
+    case 1: {
+      const candidate = candidates.at(0);
+      return candidate === undefined ? null : candidate;
+    }
+    default:
+      return null;
+  }
+}
+
 function selectBestConcreteTransactionCandidate<TCandidate extends ConcreteTransactionCandidate>(
   candidates: readonly TCandidate[],
 ): TCandidate | null {
   const bestStateCandidates = candidatesWithBestPriority(candidates, candidateStatePriority);
-  if (bestStateCandidates.length <= 1) return bestStateCandidates[0] || null;
+  switch (bestStateCandidates.length) {
+    case 0:
+    case 1:
+      return selectOnlyConcreteTransactionCandidate(bestStateCandidates);
+    default:
+      break;
+  }
 
   const bestSourceCandidates = candidatesWithBestPriority(
     bestStateCandidates,
     candidateSourcePriority,
   );
-  if (bestSourceCandidates.length <= 1) return bestSourceCandidates[0] || null;
+  switch (bestSourceCandidates.length) {
+    case 0:
+    case 1:
+      return selectOnlyConcreteTransactionCandidate(bestSourceCandidates);
+    default:
+      break;
+  }
 
   return selectNewestCandidateWhenUnambiguous(bestSourceCandidates);
 }

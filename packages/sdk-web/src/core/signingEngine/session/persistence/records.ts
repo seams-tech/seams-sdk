@@ -1627,16 +1627,15 @@ function getInMemoryThresholdEcdsaSessionRecordByThresholdSessionId(
 ): ThresholdEcdsaSessionRecord | null {
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
-
-  const laneKeys = inMemoryEcdsaRecordIndex.laneKeysByThresholdSessionId.get(
-    ecdsaIndexKey([thresholdSessionId]),
-  );
-  return (
-    indexedThresholdEcdsaRecords({
-      recordsByLane: inMemoryEcdsaRecordsByLane,
-      laneKeys,
-    })[0] || null
-  );
+  return selectUniqueThresholdEcdsaRecordByThresholdSessionId({
+    thresholdSessionId,
+    stores: [
+      {
+        recordsByLane: inMemoryEcdsaRecordsByLane,
+        index: inMemoryEcdsaRecordIndex,
+      },
+    ],
+  });
 }
 
 function normalizeThresholdEcdsaSessionStoreSource(
@@ -1685,6 +1684,39 @@ function getThresholdEcdsaSessionLaneKeyForRecord(
     signingGrantId: record.signingGrantId,
     thresholdSessionId: record.thresholdSessionId,
   }) as ThresholdEcdsaRuntimeLaneKey;
+}
+
+function selectUniqueThresholdEcdsaRecordByThresholdSessionId(args: {
+  thresholdSessionId: string;
+  stores: readonly {
+    recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
+    index: ThresholdEcdsaRuntimeRecordIndex;
+  }[];
+}): ThresholdEcdsaSessionRecord | null {
+  const unique = new Map<ThresholdEcdsaRuntimeLaneKey, ThresholdEcdsaSessionRecord>();
+  const indexKey = ecdsaIndexKey([args.thresholdSessionId]);
+  for (const store of args.stores) {
+    const laneKeys = store.index.laneKeysByThresholdSessionId.get(indexKey);
+    const candidates = indexedThresholdEcdsaRecords({
+      recordsByLane: store.recordsByLane,
+      laneKeys,
+    });
+    for (const candidate of candidates) {
+      if (String(candidate.thresholdSessionId || '').trim() !== args.thresholdSessionId) continue;
+      unique.set(getThresholdEcdsaSessionLaneKeyForRecord(candidate), candidate);
+    }
+  }
+
+  switch (unique.size) {
+    case 0:
+      return null;
+    case 1: {
+      const selected = unique.values().next();
+      return selected.done ? null : selected.value;
+    }
+    default:
+      return null;
+  }
 }
 
 export function deriveThresholdEcdsaRuntimeLaneKey(
@@ -2535,7 +2567,16 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarge
   for (const candidate of candidates) {
     unique.set(getThresholdEcdsaSessionLaneKeyForRecord(candidate), candidate);
   }
-  return unique.size === 1 ? [...unique.values()][0] : null;
+  switch (unique.size) {
+    case 0:
+      return null;
+    case 1: {
+      const selected = unique.values().next();
+      return selected.done ? null : selected.value;
+    }
+    default:
+      return null;
+  }
 }
 
 export function getThresholdEcdsaSessionRecordByThresholdSessionId(
@@ -2544,15 +2585,19 @@ export function getThresholdEcdsaSessionRecordByThresholdSessionId(
 ): ThresholdEcdsaSessionRecord | null {
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
-  const indexKey = ecdsaIndexKey([thresholdSessionId]);
-  const depsRecord =
-    indexedThresholdEcdsaRecords({
-      recordsByLane: deps.recordsByLane,
-      laneKeys:
-        getThresholdEcdsaRuntimeRecordIndex(deps).laneKeysByThresholdSessionId.get(indexKey),
-    })[0] || null;
-  if (depsRecord) return depsRecord;
-  return getInMemoryThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+  return selectUniqueThresholdEcdsaRecordByThresholdSessionId({
+    thresholdSessionId,
+    stores: [
+      {
+        recordsByLane: deps.recordsByLane,
+        index: getThresholdEcdsaRuntimeRecordIndex(deps),
+      },
+      {
+        recordsByLane: inMemoryEcdsaRecordsByLane,
+        index: inMemoryEcdsaRecordIndex,
+      },
+    ],
+  });
 }
 
 export function upsertStoredThresholdEd25519SessionRecord(args: {

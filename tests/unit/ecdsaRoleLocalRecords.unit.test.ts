@@ -3,7 +3,9 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
   clearAllThresholdEcdsaSessionRecords,
+  getThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  upsertStoredThresholdEcdsaSessionRecord,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -70,6 +72,16 @@ const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
 const emailOtpAuthMethod = buildEcdsaRoleLocalEmailOtpAuthMethod({
   authSubjectId: emailOtpAuthSubjectId,
 });
+
+function emailOtpSessionAuthContext(): Record<string, unknown> {
+  return {
+    policy: 'session',
+    retention: 'session',
+    reason: 'login',
+    authMethod: 'email_otp',
+    authSubjectId: emailOtpAuthSubjectId,
+  };
+}
 
 function loadInput(
   authMethod: EcdsaRoleLocalAuthMethod = passkeyAuthMethod,
@@ -215,6 +227,52 @@ test.describe('ECDSA role-local record boundary parser', () => {
       getStoredThresholdEcdsaSessionRecordByThresholdSessionId('tehss-restored')
         ?.signingGrantId,
     ).toBe(restored.signingGrantId);
+  });
+
+  test('threshold-session ECDSA lookup fails closed when multiple lane identities match', () => {
+    const thresholdSessionId = 'tehss-ambiguous';
+    upsertRestoredThresholdEcdsaSessionRecord(
+      rawSessionRecord({
+        source: 'email_otp',
+        thresholdSessionId,
+        signingGrantId: 'wss-ambiguous-a',
+        emailOtpAuthContext: emailOtpSessionAuthContext(),
+      }),
+    );
+    upsertRestoredThresholdEcdsaSessionRecord(
+      rawSessionRecord({
+        source: 'email_otp',
+        thresholdSessionId,
+        signingGrantId: 'wss-ambiguous-b',
+        emailOtpAuthContext: emailOtpSessionAuthContext(),
+      }),
+    );
+
+    expect(getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId)).toBeNull();
+  });
+
+  test('deps threshold-session ECDSA lookup fails closed across local and in-memory stores', () => {
+    const thresholdSessionId = 'tehss-store-ambiguous';
+    const deps = { recordsByLane: new Map() };
+    upsertStoredThresholdEcdsaSessionRecord(
+      deps,
+      rawSessionRecord({
+        source: 'email_otp',
+        thresholdSessionId,
+        signingGrantId: 'wss-store-ambiguous-a',
+        emailOtpAuthContext: emailOtpSessionAuthContext(),
+      }),
+    );
+    upsertRestoredThresholdEcdsaSessionRecord(
+      rawSessionRecord({
+        source: 'email_otp',
+        thresholdSessionId,
+        signingGrantId: 'wss-store-ambiguous-b',
+        emailOtpAuthContext: emailOtpSessionAuthContext(),
+      }),
+    );
+
+    expect(getThresholdEcdsaSessionRecordByThresholdSessionId(deps, thresholdSessionId)).toBeNull();
   });
 
   test('reads persisted ready records without legacy role-local raw state', () => {

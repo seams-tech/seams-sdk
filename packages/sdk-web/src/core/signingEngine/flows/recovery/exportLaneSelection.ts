@@ -218,13 +218,40 @@ function selectNewestExportLaneWhenUnambiguous<TLane extends ConcreteExportAvail
   return ambiguous ? null : selected;
 }
 
+function selectOnlyExportLaneCandidate<TLane extends ConcreteExportAvailableLane>(
+  candidates: readonly TLane[],
+): TLane | null {
+  switch (candidates.length) {
+    case 0:
+      return null;
+    case 1: {
+      const candidate = candidates.at(0);
+      return candidate === undefined ? null : candidate;
+    }
+    default:
+      return null;
+  }
+}
+
 function selectCanonicalLaneFromSelectionGroup<TLane extends ConcreteExportAvailableLane>(
   candidates: TLane[],
 ): TLane | null {
   const stateCandidates = candidatesWithBestPriority(candidates, exportLaneStatePriority);
-  if (stateCandidates.length <= 1) return stateCandidates[0] || null;
+  switch (stateCandidates.length) {
+    case 0:
+    case 1:
+      return selectOnlyExportLaneCandidate(stateCandidates);
+    default:
+      break;
+  }
   const sourceCandidates = candidatesWithBestPriority(stateCandidates, exportLaneSourcePriority);
-  if (sourceCandidates.length <= 1) return sourceCandidates[0] || null;
+  switch (sourceCandidates.length) {
+    case 0:
+    case 1:
+      return selectOnlyExportLaneCandidate(sourceCandidates);
+    default:
+      break;
+  }
   return selectNewestExportLaneWhenUnambiguous(sourceCandidates);
 }
 
