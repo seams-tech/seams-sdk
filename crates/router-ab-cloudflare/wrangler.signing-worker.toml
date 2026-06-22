@@ -13,7 +13,7 @@ bindings = [
 
 [[migrations]]
 tag = "router_ab_signing_worker_v1"
-new_classes = ["RouterAbSigningWorkerServerOutputDurableObject"]
+new_sqlite_classes = ["RouterAbSigningWorkerServerOutputDurableObject"]
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"

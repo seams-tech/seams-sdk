@@ -13,7 +13,7 @@ bindings = [
 
 [[migrations]]
 tag = "router_ab_signer_b_v1"
-new_classes = ["RouterAbSignerBRootShareDurableObject"]
+new_sqlite_classes = ["RouterAbSignerBRootShareDurableObject"]
 
 [[services]]
 binding = "SIGNER_A"

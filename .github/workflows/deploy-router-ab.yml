@@ -62,8 +62,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
-        with:
-          version: 10.28.2
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -146,6 +144,7 @@ jobs:
       SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY }}
       SIGNER_B_PEER_SIGNING_KEY: ${{ secrets.SIGNER_B_PEER_SIGNING_KEY }}
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: ${{ secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -154,8 +153,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
-        with:
-          version: 10.28.2
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -222,19 +219,26 @@ jobs:
           }
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-a" ]; then
+            require_secret ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET "Deriver A"
             require_secret SIGNER_A_ROOT_SHARE_WIRE_SECRET "Deriver A"
             require_secret SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY "Deriver A"
             require_secret SIGNER_A_PEER_SIGNING_KEY "Deriver A"
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-b" ]; then
+            require_secret ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET "Deriver B"
             require_secret SIGNER_B_ROOT_SHARE_WIRE_SECRET "Deriver B"
             require_secret SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY "Deriver B"
             require_secret SIGNER_B_PEER_SIGNING_KEY "Deriver B"
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "signing-worker" ]; then
+            require_secret ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET SigningWorker
             require_secret SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY SigningWorker
+          fi
+
+          if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ]; then
+            require_secret ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET router
           fi
 
       - name: Check Router A/B release blockers
@@ -253,19 +257,26 @@ jobs:
           }
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-a" ]; then
+            put_secret wrangler.signer-a.toml ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
             put_secret wrangler.signer-a.toml SIGNER_A_ROOT_SHARE_WIRE_SECRET "$SIGNER_A_ROOT_SHARE_WIRE_SECRET"
             put_secret wrangler.signer-a.toml SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY "$SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY"
             put_secret wrangler.signer-a.toml SIGNER_A_PEER_SIGNING_KEY "$SIGNER_A_PEER_SIGNING_KEY"
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-b" ]; then
+            put_secret wrangler.signer-b.toml ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
             put_secret wrangler.signer-b.toml SIGNER_B_ROOT_SHARE_WIRE_SECRET "$SIGNER_B_ROOT_SHARE_WIRE_SECRET"
             put_secret wrangler.signer-b.toml SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY "$SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY"
             put_secret wrangler.signer-b.toml SIGNER_B_PEER_SIGNING_KEY "$SIGNER_B_PEER_SIGNING_KEY"
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "signing-worker" ]; then
+            put_secret wrangler.signing-worker.toml ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
             put_secret wrangler.signing-worker.toml SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY "$SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
+          fi
+
+          if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ]; then
+            put_secret wrangler.router.toml ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET "$ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
           fi
 
       - name: Upload Router A/B Worker versions

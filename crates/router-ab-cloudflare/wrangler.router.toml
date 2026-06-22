@@ -18,7 +18,7 @@ bindings = [
 
 [[migrations]]
 tag = "router_ab_router_v1"
-new_classes = [
+new_sqlite_classes = [
   "RouterAbRouterReplayDurableObject",
   "RouterAbRouterLifecycleDurableObject",
   "RouterAbRouterProjectPolicyDurableObject",
@@ -28,7 +28,7 @@ new_classes = [
 
 [[migrations]]
 tag = "router_ab_router_wallet_budget_v1"
-new_classes = [
+new_sqlite_classes = [
   "RouterAbRouterWalletBudgetDurableObject",
 ]
 
