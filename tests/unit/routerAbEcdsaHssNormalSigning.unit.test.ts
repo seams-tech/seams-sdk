@@ -1,14 +1,15 @@
 import { expect, test } from '@playwright/test';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningResponseForRequestV1,
+  parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1,
   parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1,
   parseRouterAbEcdsaHssEvmDigestSigningRequestV1,
   routerAbEcdsaHssContextBindingB64uV1,
-  routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
   routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
-  type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningResponseV1Wire,
@@ -114,12 +115,17 @@ async function prepareResponse(
 }
 
 async function signingResponse(
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  request: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
 ): Promise<RouterAbEcdsaHssEvmDigestSigningResponseV1Wire> {
+  const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+    request,
+  );
   return {
     scope,
     request_id: request.request_id,
-    request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(request),
+    request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(
+      coreRequest,
+    ),
     signing_digest: digest(11),
     signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
     signature65_b64u: b64u(16, 65),
@@ -141,7 +147,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
       signing_digest_b64u: b64u(11, 32),
     });
 
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: request.request_id,
       budgetReservationId: 'ecdsa-sign-budget-reservation-1',
@@ -227,7 +233,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
 
   test('rejects mismatched finalize response request digests', async () => {
     const request = prepareRequest();
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: request.request_id,
       budgetReservationId: 'ecdsa-sign-budget-reservation-1',
@@ -239,17 +245,20 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     });
 
     await expect(
-      parseRouterAbEcdsaHssEvmDigestSigningResponseForRequestV1(finalizeRequest, {
-        ...(await signingResponse(finalizeRequest)),
-        request_digest: digest(99),
-      }),
+      parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1(
+        routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(finalizeRequest),
+        {
+          ...(await signingResponse(finalizeRequest)),
+          request_digest: digest(99),
+        },
+      ),
     ).rejects.toThrow('ecdsaSigningResponse.request_digest does not match request');
   });
 
   test('posts prepare and finalize requests through Wallet Session bearer auth', async () => {
     const request = prepareRequest();
     const preparedResponse = await prepareResponse(request);
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: request.request_id,
       budgetReservationId: 'ecdsa-sign-budget-reservation-1',

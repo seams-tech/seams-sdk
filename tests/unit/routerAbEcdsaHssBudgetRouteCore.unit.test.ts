@@ -14,13 +14,13 @@ import {
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/relay';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
   ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   routerAbEcdsaHssActiveStateSessionId,
   routerAbEcdsaHssContextBindingB64uV1,
-  type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
@@ -174,8 +174,8 @@ function prepareBody(): RouterAbEcdsaHssEvmDigestSigningRequestV1Wire {
 
 function finalizeBody(args: {
   budgetOperationId: string;
-}): RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire {
-  return buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+}): RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire {
+  return buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
     scope,
     requestId: 'ecdsa-sign-request-1',
     budgetReservationId: 'budget-reservation-ecdsa-1',
@@ -190,7 +190,7 @@ function finalizeBody(args: {
 async function ecdsaBudgetRequestDigest(
   body:
     | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+    | RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
 ): Promise<string> {
   return deriveRouterAbEcdsaHssBudgetRequestDigest({
     body,
@@ -266,7 +266,7 @@ function createThresholdService(args?: {
 async function callEcdsaRouteCore(input: {
   body:
     | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire;
+    | RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
   privatePath: EcdsaRouteInput['privatePath'];
   phase: EcdsaRouteInput['phase'];
   service: EcdsaThresholdService;

@@ -20,9 +20,10 @@ import {
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
   ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
   routerAbEcdsaHssContextBindingB64uV1,
-  routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
   routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
-  type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssNormalSigningScopeV1,
 } from '@shared/utils/routerAbEcdsaHss';
@@ -322,12 +323,19 @@ function installThresholdEcdsaFetchMock(args?: {
 
     if (path.endsWith('/v1/hss/ecdsa/sign')) {
       counters.routerFinalize += 1;
-      const body = JSON.parse(String(init?.body || '{}')) as RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire;
+      const body = JSON.parse(
+        String(init?.body || '{}'),
+      ) as RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
+      const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+        body,
+      );
       return new Response(
         JSON.stringify({
           scope: body.scope,
           request_id: body.request_id,
-          request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(body),
+          request_digest: await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(
+            coreRequest,
+          ),
           signing_digest: { bytes: Array.from(DIGEST_32) },
           signature_scheme: 'ecdsa_secp256k1_recoverable_v1',
           signature65_b64u: SIGNATURE_65_B64U,

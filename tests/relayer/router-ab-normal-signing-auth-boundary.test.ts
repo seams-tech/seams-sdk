@@ -13,7 +13,7 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
 } from '@shared/utils/signingSessionSeal';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
   routerAbEcdsaHssContextBindingB64uV1,
   ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
@@ -664,7 +664,7 @@ async function ecdsaFinalizeBudgetCase(input: {
     signingWorkerId: scope.signing_worker.server_id,
     thresholdSessionId: input.thresholdSessionId,
   });
-  const body = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+  const body = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
     scope,
     requestId: input.requestId,
     budgetReservationId: `${input.requestId}-budget-reservation`,
@@ -919,7 +919,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
               signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
             })
-          : buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+          : buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
               scope: driftedScope,
               requestId: 'router-ab-ecdsa-hss-scope-drift-finalize',
               budgetReservationId: 'router-ab-ecdsa-hss-scope-drift-budget-reservation',
@@ -998,7 +998,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
               expiresAtMs: 1,
               signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
             })
-          : buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+          : buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
               scope: ECDSA_HSS_SCOPE,
               requestId: 'router-ab-ecdsa-hss-expired-finalize',
               budgetReservationId: 'router-ab-ecdsa-hss-expired-budget-reservation',
@@ -1491,7 +1491,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
         label: 'ECDSA-HSS finalize abuse',
         path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
         claims: ecdsaClaims,
-        body: buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+        body: buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
           scope: ecdsaScope,
           requestId: 'router-ab-ecdsa-hss-abuse-finalize',
           budgetReservationId: 'router-ab-ecdsa-hss-abuse-budget-reservation',

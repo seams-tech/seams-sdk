@@ -26,14 +26,15 @@ import {
 import { parseSessionKind, type SessionAdapter } from './relay';
 import {
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
-  parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   parseRouterAbEcdsaHssEvmDigestSigningRequestV1,
   routerAbEcdsaHssActiveStateSessionId,
-  routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
   routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
   routerAbEcdsaHssNormalSigningScopeCanonicalBytesV1,
   sameRouterAbEcdsaHssNormalSigningScopeV1,
-  type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  type RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssNormalSigningScopeV1,
   type RouterAbPublicDigest32V1Wire,
@@ -297,13 +298,8 @@ type RouterAbEcdsaHssPrivatePrepareSigningWorkerBody = {
   trusted_admission: RouterAbEcdsaHssTrustedAdmissionV1;
 };
 
-type RouterAbEcdsaHssPrivateFinalizeRequestWire = Omit<
-  RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
-  'budget_reservation_id' | 'budget_operation_id'
->;
-
 type RouterAbEcdsaHssPrivateFinalizeSigningWorkerBody = {
-  request: RouterAbEcdsaHssPrivateFinalizeRequestWire;
+  request: RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
   trusted_admission: RouterAbEcdsaHssTrustedAdmissionV1;
 };
 
@@ -504,7 +500,7 @@ function ed25519FinalizeOperationId(body: Record<string, unknown>): string {
 export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
   body:
     | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssPrivateFinalizeRequestWire;
+    | RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
@@ -540,7 +536,7 @@ export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
 export async function deriveRouterAbEcdsaHssBudgetRequestDigest(input: {
   body:
     | RouterAbEcdsaHssEvmDigestSigningRequestV1Wire
-    | RouterAbEcdsaHssPrivateFinalizeRequestWire;
+    | RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
@@ -618,17 +614,6 @@ function stripRouterAbBudgetMetadata(body: Record<string, unknown>): Record<stri
     ...rest
   } = body;
   return rest;
-}
-
-function stripRouterAbEcdsaHssFinalizeBudgetMetadata(
-  body: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
-): RouterAbEcdsaHssPrivateFinalizeRequestWire {
-  const {
-    budget_reservation_id: _budgetReservationId,
-    budget_operation_id: _budgetOperationId,
-    ...request
-  } = body;
-  return request;
 }
 
 function withBudgetReservationMetadata(
@@ -741,9 +726,14 @@ export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody(input: {
       }),
     };
   }
-  const publicRequest = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input.body);
-  const request = stripRouterAbEcdsaHssFinalizeBudgetMetadata(publicRequest);
-  const requestDigest = await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(publicRequest);
+  const publicRequest = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(
+    input.body,
+  );
+  const request = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+    publicRequest,
+  );
+  const requestDigest =
+    await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(request);
   return {
     request,
     trusted_admission: ecdsaHssTrustedAdmission({
@@ -1254,9 +1244,9 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
       ),
     };
   }
-  let request: ReturnType<typeof parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1>;
+  let request: ReturnType<typeof parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1>;
   try {
-    request = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input.body);
+    request = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(input.body);
   } catch (error) {
     return {
       ok: false,

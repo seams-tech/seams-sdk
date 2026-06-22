@@ -3,6 +3,10 @@ import type {
   RouterAbNormalSigningPrepareRequestV2Wire,
   RouterAbWalletSessionCredential,
 } from './routerAbNormalSigning';
+import type {
+  RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+  RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
+} from '@shared/utils/routerAbEcdsaHss';
 
 const scope = {
   request_id: 'router-ab-normal-signing/request-1',
@@ -109,6 +113,69 @@ const prepareWithoutSigningWorker = {
   scope: missingSigningWorkerScope,
 } satisfies RouterAbNormalSigningPrepareRequestV2Wire;
 void prepareWithoutSigningWorker;
+
+const ecdsaScope = {
+  context: {
+    wallet_id: 'wallet-1',
+    rp_id: 'example.com',
+    key_scope: 'evm-family' as const,
+    ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
+    signing_root_id: 'signing-root-1',
+    signing_root_version: 'v1',
+    key_purpose: 'evm-signing',
+    key_version: 'v1',
+  },
+  public_identity: {
+    context_binding_b64u: 'context-binding',
+    client_public_key33_b64u: 'client-public-key',
+    server_public_key33_b64u: 'server-public-key',
+    threshold_public_key33_b64u: 'threshold-public-key',
+    ethereum_address20_b64u: 'ethereum-address',
+    client_share_retry_counter: 0,
+    server_share_retry_counter: 0,
+  },
+  signing_worker: {
+    server_id: 'signing-worker-a',
+    key_epoch: 'epoch-1',
+    recipient_encryption_key: 'recipient-key',
+  },
+  activation_epoch: 'wallet-session-1',
+};
+
+const ecdsaFinalizeCoreRequest = {
+  scope: ecdsaScope,
+  request_id: 'ecdsa-request-1',
+  expires_at_ms: 1_900_000_000_000,
+  signing_digest_b64u: 'signing-digest',
+  server_presignature_id: 'server-presignature-1',
+  client_signature_share32_b64u: 'client-signature-share',
+} satisfies RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
+void ecdsaFinalizeCoreRequest;
+
+const ecdsaCoreRequestWithBudgetMetadata = {
+  scope: ecdsaScope,
+  request_id: 'ecdsa-request-1',
+  expires_at_ms: 1_900_000_000_000,
+  signing_digest_b64u: 'signing-digest',
+  server_presignature_id: 'server-presignature-1',
+  client_signature_share32_b64u: 'client-signature-share',
+  // @ts-expect-error core finalize request excludes public Router budget metadata.
+  budget_reservation_id: 'budget-reservation-1',
+  budget_operation_id: 'budget-operation-1',
+} satisfies RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire;
+void ecdsaCoreRequestWithBudgetMetadata;
+
+const ecdsaBudgetedFinalizeRequest = {
+  ...ecdsaFinalizeCoreRequest,
+  budget_reservation_id: 'budget-reservation-1',
+  budget_operation_id: 'budget-operation-1',
+} satisfies RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
+void ecdsaBudgetedFinalizeRequest;
+
+// @ts-expect-error public Router finalize requires budget metadata.
+const ecdsaBudgetedFinalizeWithoutBudget: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire =
+  ecdsaFinalizeCoreRequest;
+void ecdsaBudgetedFinalizeWithoutBudget;
 
 const jwtCredential = {
   kind: 'jwt' as const,

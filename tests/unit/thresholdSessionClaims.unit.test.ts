@@ -31,7 +31,7 @@ import {
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
 } from '@shared/utils/routerAbEcdsaHss';
 import {
@@ -710,7 +710,7 @@ test.describe('threshold session auth token claims', () => {
       expiresAtMs: claims.thresholdExpiresAtMs,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
     });
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
       scope,
       requestId: prepareRequest.request_id,
       budgetReservationId: 'router-ab-ecdsa-private-validator-budget-reservation',

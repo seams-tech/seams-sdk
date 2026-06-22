@@ -2,7 +2,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
+  buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
   parseRouterAbEcdsaHssNormalSigningScopeV1,
   routerAbEcdsaHssNormalSigningScopeCanonicalBytesV1,
@@ -949,7 +949,7 @@ export async function signRouterAbEcdsaHssDigestWithPoolHit(args: {
       };
     }
 
-    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+    const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
       scope: args.scope,
       requestId: prepareRequest.request_id,
       budgetReservationId: prepareResponse.budget_reservation_id,

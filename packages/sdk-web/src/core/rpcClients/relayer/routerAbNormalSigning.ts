@@ -1,11 +1,12 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { base64Decode, base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
-  routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1,
   routerAbEcdsaHssEvmDigestSigningRequestDigestV1,
   parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseForRequestV1,
-  parseRouterAbEcdsaHssEvmDigestSigningResponseForRequestV1,
-  type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+  parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1,
+  routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1,
+  type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaHssEvmDigestSigningResponseV1Wire,
@@ -1092,16 +1093,19 @@ export async function finalizeRouterAbNormalSigningV2(args: {
 export async function finalizeRouterAbEcdsaHssEvmDigestSigningV1(args: {
   relayServerUrl: string;
   credential: RouterAbWalletSessionCredential;
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire;
+  request: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire;
 }): Promise<RouterAbEcdsaHssEvmDigestSigningResponseV1Wire> {
-  await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(args.request);
+  const coreRequest = routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+    args.request,
+  );
+  await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(coreRequest);
   return postRouterAbNormalSigningJson({
     relayServerUrl: args.relayServerUrl,
     path: '/v1/hss/ecdsa/sign',
     credential: args.credential,
     body: args.request,
     parse: (value) =>
-      parseRouterAbEcdsaHssEvmDigestSigningResponseForRequestV1(args.request, value),
+      parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1(coreRequest, value),
   });
 }
 

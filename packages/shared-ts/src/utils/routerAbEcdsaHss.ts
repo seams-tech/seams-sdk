@@ -143,16 +143,20 @@ export type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire = {
   signing_digest_b64u: string;
 };
 
-export type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire = {
+export type RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   request_id: string;
-  budget_reservation_id: string;
-  budget_operation_id: string;
   expires_at_ms: number;
   signing_digest_b64u: string;
   server_presignature_id: string;
   client_signature_share32_b64u: string;
 };
+
+export type RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire =
+  RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire & {
+    budget_reservation_id: string;
+    budget_operation_id: string;
+  };
 
 export type RouterAbEcdsaHssBudgetStatusV1Wire = {
   committed_remaining_uses: number;
@@ -630,10 +634,10 @@ export async function routerAbEcdsaHssEvmDigestSigningRequestDigestV1(
   );
 }
 
-export function routerAbEcdsaHssEvmDigestSigningFinalizeRequestCanonicalBytesV1(
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+export function routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestCanonicalBytesV1(
+  request: RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
 ): Uint8Array {
-  const parsed = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(request);
+  const parsed = parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1(request);
   const out: number[] = [];
   pushLen32(out, asciiBytes(ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_FINALIZE_REQUEST_VERSION_V1));
   pushLen32(out, canonicalNormalSigningScopeBytes(parsed.scope));
@@ -645,13 +649,13 @@ export function routerAbEcdsaHssEvmDigestSigningFinalizeRequestCanonicalBytesV1(
   return new Uint8Array(out);
 }
 
-export async function routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+export async function routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(
+  request: RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
 ): Promise<RouterAbPublicDigest32V1Wire> {
-  const parsed = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(request);
+  const parsed = parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1(request);
   await verifyRouterAbEcdsaHssNormalSigningScopeContextBindingV1(parsed.scope);
   return publicDigest32FromCanonicalBytes(
-    routerAbEcdsaHssEvmDigestSigningFinalizeRequestCanonicalBytesV1(parsed),
+    routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestCanonicalBytesV1(parsed),
   );
 }
 
@@ -999,7 +1003,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningRequestV1(
   };
 }
 
-export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
+export function buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(input: {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   requestId: string;
   budgetReservationId: string;
@@ -1008,8 +1012,8 @@ export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
   signingDigest32: Uint8Array;
   serverPresignatureId: string;
   clientSignatureShare32: Uint8Array;
-}): RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire {
-  return parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+}): RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire {
+  return parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1({
     scope: input.scope,
     request_id: input.requestId,
     budget_reservation_id: input.budgetReservationId,
@@ -1025,31 +1029,27 @@ export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
   });
 }
 
-export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(
+export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1(
   value: unknown,
-): RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire {
-  const record = requireRecord(value, 'ecdsaFinalizeRequest');
-  requireExactKeys(record, 'ecdsaFinalizeRequest', [
+): RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire {
+  const record = requireRecord(value, 'ecdsaFinalizeCoreRequest');
+  requireExactKeys(record, 'ecdsaFinalizeCoreRequest', [
     'scope',
     'request_id',
-    'budget_reservation_id',
-    'budget_operation_id',
     'expires_at_ms',
     'signing_digest_b64u',
     'server_presignature_id',
     'client_signature_share32_b64u',
   ]);
+  return parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFields(record);
+}
+
+function parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFields(
+  record: Record<string, unknown>,
+): RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire {
   return {
     scope: parseRouterAbEcdsaHssNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaFinalizeRequest.request_id'),
-    budget_reservation_id: requireAsciiNonEmptyString(
-      record.budget_reservation_id,
-      'ecdsaFinalizeRequest.budget_reservation_id',
-    ),
-    budget_operation_id: requireAsciiNonEmptyString(
-      record.budget_operation_id,
-      'ecdsaFinalizeRequest.budget_operation_id',
-    ),
     expires_at_ms: requirePositiveUnixMs(
       record.expires_at_ms,
       'ecdsaFinalizeRequest.expires_at_ms',
@@ -1068,6 +1068,48 @@ export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(
       'ecdsaFinalizeRequest.client_signature_share32_b64u',
       32,
     ),
+  };
+}
+
+export function parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(
+  value: unknown,
+): RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire {
+  const record = requireRecord(value, 'ecdsaFinalizeRequest');
+  requireExactKeys(record, 'ecdsaFinalizeRequest', [
+    'scope',
+    'request_id',
+    'budget_reservation_id',
+    'budget_operation_id',
+    'expires_at_ms',
+    'signing_digest_b64u',
+    'server_presignature_id',
+    'client_signature_share32_b64u',
+  ]);
+  const coreRequest = parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFields(record);
+  return {
+    ...coreRequest,
+    budget_reservation_id: requireAsciiNonEmptyString(
+      record.budget_reservation_id,
+      'ecdsaFinalizeRequest.budget_reservation_id',
+    ),
+    budget_operation_id: requireAsciiNonEmptyString(
+      record.budget_operation_id,
+      'ecdsaFinalizeRequest.budget_operation_id',
+    ),
+  };
+}
+
+export function routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestFromBudgetedV1(
+  request: RouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1Wire,
+): RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire {
+  const parsed = parseRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1(request);
+  return {
+    scope: parsed.scope,
+    request_id: parsed.request_id,
+    expires_at_ms: parsed.expires_at_ms,
+    signing_digest_b64u: parsed.signing_digest_b64u,
+    server_presignature_id: parsed.server_presignature_id,
+    client_signature_share32_b64u: parsed.client_signature_share32_b64u,
   };
 }
 
@@ -1257,11 +1299,11 @@ export function parseRouterAbEcdsaHssEvmDigestSigningResponseV1(
   };
 }
 
-export async function parseRouterAbEcdsaHssEvmDigestSigningResponseForRequestV1(
-  request: RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
+export async function parseRouterAbEcdsaHssEvmDigestSigningResponseForCoreRequestV1(
+  request: RouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1Wire,
   value: unknown,
 ): Promise<RouterAbEcdsaHssEvmDigestSigningResponseV1Wire> {
-  const parsedRequest = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(request);
+  const parsedRequest = parseRouterAbEcdsaHssEvmDigestSigningFinalizeCoreRequestV1(request);
   const response = parseRouterAbEcdsaHssEvmDigestSigningResponseV1(value);
   if (!sameRouterAbEcdsaHssNormalSigningScopeV1(response.scope, parsedRequest.scope)) {
     throw new Error('ecdsaSigningResponse.scope does not match request');
@@ -1280,7 +1322,7 @@ export async function parseRouterAbEcdsaHssEvmDigestSigningResponseForRequestV1(
   if (
     !samePublicDigest32(
       response.request_digest,
-      await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(parsedRequest),
+      await routerAbEcdsaHssEvmDigestSigningFinalizeCoreRequestDigestV1(parsedRequest),
     )
   ) {
     throw new Error('ecdsaSigningResponse.request_digest does not match request');
