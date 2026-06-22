@@ -6,6 +6,7 @@ import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 
 const TEMPO_CHAIN_TARGET = {
   kind: 'tempo' as const,
@@ -78,6 +79,44 @@ function makeEmailOtpEcdsaSealedRecord(
     throw new Error('Expected accepted Email OTP ECDSA recovery record fixture');
   }
   return normalized.record;
+}
+
+function makeEmailOtpEcdsaCurrentRecord(
+  overrides?: Partial<ThresholdEcdsaSessionRecord>,
+): ThresholdEcdsaSessionRecord {
+  const now = Date.now();
+  return {
+    source: 'email_otp',
+    walletId: 'alice.testnet',
+    authMetadata: { rpId: 'example.com' },
+    chainTarget: TEMPO_CHAIN_TARGET,
+    relayerUrl: 'https://relay.example',
+    keyHandle: 'key-handle-ecdsa',
+    ecdsaThresholdKeyId: 'ecdsa-key',
+    signingRootId: 'root-1',
+    signingRootVersion: 'v1',
+    relayerKeyId: 'relayer-key',
+    clientVerifyingShareB64u: 'client-verifying-share',
+    ecdsaRoleLocalReadyRecord: {} as never,
+    participantIds: [1, 2],
+    thresholdSessionKind: 'jwt',
+    walletSessionJwt: 'jwt-current-ecdsa',
+    signingSessionSealShamirPrimeB64u: 'prime-b64u',
+    signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
+    thresholdSessionId: 'tsess-ecdsa',
+    signingGrantId: 'wsess-ecdsa',
+    expiresAtMs: now + 60_000,
+    remainingUses: 3,
+    ethereumAddress: `0x${'33'.repeat(20)}`,
+    updatedAtMs: now,
+    emailOtpAuthContext: {
+      policy: 'session',
+      retention: 'session',
+      reason: 'login',
+      authMethod: 'email_otp',
+    },
+    ...overrides,
+  } as never;
 }
 
 test.describe('sealed recovery method adapters', () => {
@@ -285,6 +324,7 @@ test.describe('sealed recovery method adapters', () => {
         sealedRecord,
         ecdsaRecord: {
           source: 'email_otp',
+          walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
           thresholdSessionId: 'tsess-ecdsa',
           signingGrantId: 'wsess-mismatch',
@@ -312,6 +352,121 @@ test.describe('sealed recovery method adapters', () => {
         } as never,
       }),
     ).rejects.toThrow('signing grant id mismatch');
+  });
+
+  test('rejects current-record Email OTP ECDSA restore without current Wallet Session JWT', async () => {
+    const sealedRecord = makeEmailOtpEcdsaSealedRecord();
+
+    await expect(
+      restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord({
+        configs: { signing: { sessionSeal: {} } } as never,
+        getSignerWorkerContext: () => ({
+          requestWorkerOperation: async () => {
+            throw new Error('worker should not be called when current JWT is missing');
+          },
+        }),
+        commitEvmFamilyThresholdEcdsaSessions: async () => {
+          throw new Error('commit should not be called when current JWT is missing');
+        },
+        hydrateSigningSession: async () => undefined,
+        requireRpId: () => 'example.com',
+        sealedRecord,
+        ecdsaRecord: makeEmailOtpEcdsaCurrentRecord({
+          walletSessionJwt: undefined,
+        } as never),
+      }),
+    ).rejects.toThrow('current record is missing Wallet Session JWT');
+  });
+
+  for (const mismatchCase of [
+    {
+      label: 'wallet id',
+      overrides: { walletId: 'bob.testnet' },
+      message: 'wallet id mismatch',
+    },
+    {
+      label: 'missing signing-root version',
+      overrides: { signingRootVersion: undefined },
+      message: 'missing signing-root version',
+    },
+    {
+      label: 'signing-root version',
+      overrides: { signingRootVersion: 'v2' },
+      message: 'signing-root version mismatch',
+    },
+    {
+      label: 'relayer URL',
+      overrides: { relayerUrl: 'https://different-relay.example' },
+      message: 'relayer URL mismatch',
+    },
+    {
+      label: 'key handle',
+      overrides: { keyHandle: 'different-key-handle' },
+      message: 'key handle mismatch',
+    },
+    {
+      label: 'relayer key id',
+      overrides: { relayerKeyId: 'different-relayer-key' },
+      message: 'relayer key id mismatch',
+    },
+    {
+      label: 'participant ids',
+      overrides: { participantIds: [2, 1] },
+      message: 'participant ids mismatch',
+    },
+  ] as const) {
+    test(`rejects current-record Email OTP ECDSA restore on ${mismatchCase.label} mismatch`, async () => {
+      const sealedRecord = makeEmailOtpEcdsaSealedRecord();
+
+      await expect(
+        restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord({
+          configs: { signing: { sessionSeal: {} } } as never,
+          getSignerWorkerContext: () => ({
+            requestWorkerOperation: async () => {
+              throw new Error('worker should not be called on current/sealed mismatch');
+            },
+          }),
+          commitEvmFamilyThresholdEcdsaSessions: async () => {
+            throw new Error('commit should not be called on current/sealed mismatch');
+          },
+          hydrateSigningSession: async () => undefined,
+          requireRpId: () => 'example.com',
+          sealedRecord,
+          ecdsaRecord: makeEmailOtpEcdsaCurrentRecord(mismatchCase.overrides as never),
+        }),
+      ).rejects.toThrow(mismatchCase.message);
+    });
+  }
+
+  test('rejects Email OTP ECDSA core restore without normalized seal transport metadata', async () => {
+    const sealedRecord = {
+      ...makeEmailOtpEcdsaSealedRecord(),
+      keyVersion: '',
+    } as EmailOtpEcdsaSealedRecoveryRecord;
+
+    await expect(
+      restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord({
+        configs: {
+          signing: {
+            sessionSeal: {
+              signingSessionSealKeyVersion: 'fallback-key-version',
+              shamirPrimeB64u: 'fallback-prime',
+            },
+          },
+        } as never,
+        getSignerWorkerContext: () => ({
+          requestWorkerOperation: async () => {
+            throw new Error('worker should not be called when seal metadata is missing');
+          },
+        }),
+        commitEvmFamilyThresholdEcdsaSessions: async () => {
+          throw new Error('commit should not be called when seal metadata is missing');
+        },
+        hydrateSigningSession: async () => undefined,
+        requireRpId: () => 'example.com',
+        sealedRecord,
+      }),
+    ).rejects.toThrow('missing normalized seal transport metadata');
   });
 
   for (const staleCase of [
