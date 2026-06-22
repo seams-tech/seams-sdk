@@ -27,21 +27,6 @@ function isMatchedRestoreWorkItemLookup(
   return lookup.kind === 'matched';
 }
 
-function knownMissingCacheKey(input: RestorePersistedSessionForSigningInput): string {
-  const chainKey =
-    input.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(input.chainTarget) : input.chain;
-  return [
-    input.walletId,
-    input.authMethod,
-    input.curve,
-    chainKey,
-    input.signingGrantId,
-    input.thresholdSessionId,
-    input.reason,
-    'missing',
-  ].join('|');
-}
-
 function successfulRestoreCacheKey(
   input: RestorePersistedSessionCacheInput,
   record: SealedRecoveryRecord,
@@ -78,20 +63,14 @@ function purposeCacheKey(purpose: RestorePersistedSessionPurpose, record: Sealed
 }
 
 export function createSigningSessionRestoreCache(): SigningSessionRestoreCache {
-  const knownMissing = new Set<string>();
   const successfulRestores = new Set<string>();
   return {
-    hasKnownMissing: (input) => knownMissing.has(knownMissingCacheKey(input)),
-    rememberKnownMissing: (input) => {
-      knownMissing.add(knownMissingCacheKey(input));
-    },
     hasSuccessfulRestore: (input, record) =>
       successfulRestores.has(successfulRestoreCacheKey(input, record)),
     rememberSuccessfulRestore: (input, record) => {
       successfulRestores.add(successfulRestoreCacheKey(input, record));
     },
     clear: () => {
-      knownMissing.clear();
       successfulRestores.clear();
     },
   };
@@ -138,9 +117,6 @@ export async function restorePersistedSessionForSigningCommand(
     ...input,
     walletId,
   };
-  if (ports.cache?.hasKnownMissing(normalizedInput)) {
-    return { attempted: 0, restored: 0, deferred: 0 };
-  }
 
   let records;
   try {
@@ -182,7 +158,6 @@ export async function restorePersistedSessionForSigningCommand(
     .filter(isMatchedRestoreWorkItemLookup)
     .map((lookup) => lookup.workItem);
   if (!exactPurposeWorkItems.length) {
-    ports.cache?.rememberKnownMissing(normalizedInput);
     return { attempted: 0, restored: 0, deferred: 0 };
   }
   let attempted = 0;

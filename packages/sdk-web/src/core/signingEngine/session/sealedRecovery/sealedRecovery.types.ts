@@ -115,8 +115,6 @@ export type RestorePersistedSessionsForWalletResult = {
 export type RestoreSealedRecordResult = 'restored' | 'ready' | 'deferred';
 
 export type SigningSessionRestoreCache = {
-  hasKnownMissing: (input: RestorePersistedSessionForSigningInput) => boolean;
-  rememberKnownMissing: (input: RestorePersistedSessionForSigningInput) => void;
   hasSuccessfulRestore: (
     input: RestorePersistedSessionForSigningInput | RestorePersistedSessionPurpose,
     record: SealedRecoveryRecord,

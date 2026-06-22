@@ -156,7 +156,7 @@ function makeEcdsaRecordWithEd25519Companion(args: {
 }
 
 test.describe('restorePersistedSessionForSigningCommand', () => {
-  test('caches exact-purpose durable-record absence', async () => {
+  test('does not cache exact-purpose durable-record absence', async () => {
     const cache = createSigningSessionRestoreCache();
     let listCalls = 0;
 
@@ -199,7 +199,58 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       },
     );
 
-    expect(listCalls).toBe(1);
+    expect(listCalls).toBe(2);
+  });
+
+  test('sees a sealed record written after an earlier exact miss', async () => {
+    const cache = createSigningSessionRestoreCache();
+    const restoredRecords: SealedRecoveryRecord[] = [];
+    let listCalls = 0;
+    const record = makeSealedRecord({
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      chain: 'tempo',
+      thresholdSessionId: 'tsess-restore-after-miss',
+      signingGrantId: 'wsess-restore-after-miss',
+    });
+
+    const input = {
+      walletId: 'restore.testnet',
+      authMethod: 'email_otp' as const,
+      curve: 'ecdsa' as const,
+      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+      signingGrantId: 'wsess-restore-after-miss',
+      thresholdSessionId: 'tsess-restore-after-miss',
+      reason: 'transaction' as const,
+    };
+
+    const first = await restorePersistedSessionForSigningCommand(input, {
+      cache,
+      listExactSealedSessionsForWallet: async () => {
+        listCalls += 1;
+        return [];
+      },
+      restoreSealedRecordForWallet: async ({ record: restoredRecord }) => {
+        restoredRecords.push(restoredRecord);
+        return 'restored';
+      },
+    });
+    const second = await restorePersistedSessionForSigningCommand(input, {
+      cache,
+      listExactSealedSessionsForWallet: async () => {
+        listCalls += 1;
+        return [record];
+      },
+      restoreSealedRecordForWallet: async ({ record: restoredRecord }) => {
+        restoredRecords.push(restoredRecord);
+        return 'restored';
+      },
+    });
+
+    expect(first).toEqual({ attempted: 0, restored: 0, deferred: 0 });
+    expect(second).toEqual({ attempted: 1, restored: 1, deferred: 0 });
+    expect(listCalls).toBe(2);
+    expect(restoredRecords).toHaveLength(1);
   });
 
   test('does not cache transient list failures as known missing', async () => {
@@ -243,7 +294,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     expect(listCalls).toBe(2);
   });
 
-  test('caches exact-purpose misses when only purpose-mismatched records exist', async () => {
+  test('does not cache exact-purpose misses when only purpose-mismatched records exist', async () => {
     const cache = createSigningSessionRestoreCache();
     let listCalls = 0;
     let restoreCalls = 0;
@@ -272,7 +323,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     await restorePersistedSessionForSigningCommand(input, ports);
     await restorePersistedSessionForSigningCommand(input, ports);
 
-    expect(listCalls).toBe(1);
+    expect(listCalls).toBe(2);
     expect(restoreCalls).toBe(0);
   });
 
