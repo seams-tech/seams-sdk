@@ -5,7 +5,7 @@ import {
   type CommitEvmFamilyThresholdEcdsaSessionsDeps,
 } from '../../session/emailOtp/ecdsaBootstrapCommit';
 import { persistWarmSessionEd25519Capability } from '../../session/warmCapabilities/persistence';
-import { cacheSigningSessionPrfFirst } from '../../session/passkey/prfCache';
+import { cacheCredentialBoundarySetupExportPrfFirst } from '../../session/passkey/prfCache';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   listStoredThresholdEcdsaSessionRecordsForWallet,
@@ -77,7 +77,7 @@ export function createStepUpRuntime(args: {
     persistWarmSessionEd25519Capability: (persistArgs) =>
       persistWarmSessionEd25519Capability(persistArgs),
     hydrateSigningSession: (hydrateArgs) =>
-      cacheSigningSessionPrfFirst(args.baseTouchConfirm, hydrateArgs),
+      cacheCredentialBoundarySetupExportPrfFirst(args.baseTouchConfirm, hydrateArgs),
     writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
     readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
     listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,

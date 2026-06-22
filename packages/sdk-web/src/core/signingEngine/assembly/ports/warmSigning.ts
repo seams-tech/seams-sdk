@@ -31,7 +31,7 @@ import {
 } from '../../session/passkey/ecdsaWarmCapabilityBootstrap';
 import { provisionThresholdEd25519Session } from '../../session/passkey/ed25519SessionProvision';
 import { clearVolatileWarmSigningMaterial } from '../../session/warmCapabilities/clearVolatileWarmSigningMaterial';
-import { cacheSigningSessionPrfFirst } from '../../session/passkey/prfCache';
+import { cacheCredentialBoundarySetupExportPrfFirst } from '../../session/passkey/prfCache';
 import { createEcdsaLoginPrefillClientSigningMaterialSource } from '../../session/warmCapabilities/ecdsaLoginPrefillSigningMaterialSource';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { SigningEnginePorts } from './shared';
@@ -192,7 +192,7 @@ export function createWarmCapabilitiesPublicDeps(args: {
         signerAuth: persistArgs.signerAuth,
       }),
     hydrateSigningSession: async (hydrateArgs: HydrateSigningSessionInput) =>
-      await cacheSigningSessionPrfFirst(args.touchConfirm, hydrateArgs),
+      await cacheCredentialBoundarySetupExportPrfFirst(args.touchConfirm, hydrateArgs),
     clearVolatileWarmSigningMaterial: async (walletId) =>
       await clearVolatileWarmSigningMaterial(
         {

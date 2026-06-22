@@ -1,6 +1,6 @@
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { WarmSessionMaterialWriter } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
-import { cacheSigningSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfCache';
+import { cacheCredentialBoundarySetupExportPrfFirst } from '@/core/signingEngine/session/passkey/prfCache';
 
 export type HydrateWarmSigningSessionInput = {
   sessionId: string;
@@ -19,6 +19,6 @@ export function createWarmSessionHydrationService(deps: {
 }): WarmSessionHydrationService {
   return {
     hydrateSigningSession: (input) =>
-      cacheSigningSessionPrfFirst(deps.getWarmSessionMaterialWriter(), input),
+      cacheCredentialBoundarySetupExportPrfFirst(deps.getWarmSessionMaterialWriter(), input),
   };
 }

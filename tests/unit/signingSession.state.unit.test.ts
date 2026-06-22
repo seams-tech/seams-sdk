@@ -24,7 +24,7 @@ test.describe('signing session PRF cache utilities', () => {
           transport?: unknown;
         }> = [];
 
-        await mod.cacheSigningSessionPrfFirst(
+        await mod.cacheCredentialBoundarySetupExportPrfFirst(
           {
             putWarmSessionMaterial: async (args: {
               sessionId: string;

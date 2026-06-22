@@ -384,20 +384,64 @@ function verifyEcdsaWalletSessionAuth(args: {
   };
 }
 
-function selectReconnectWalletSessionJwt(args: {
+type ReconnectWalletSessionJwtSelection =
+  | {
+      kind: 'exact_match';
+      walletSessionJwt: string;
+    }
+  | {
+      kind: 'ambiguous';
+      exactMatchCount: number;
+    }
+  | {
+      kind: 'not_found';
+    };
+
+function reconnectWalletSessionJwtCandidates(record: ThresholdEcdsaSessionRecord): string[] {
+  const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
+  return walletSessionJwt ? [walletSessionJwt] : [];
+}
+
+// Reconnect auth must match the exact session identity. Ambiguous or missing
+// JWTs fail closed so reconnect cannot borrow authority from another lane.
+function selectExactReconnectWalletSessionJwt(args: {
   identity: EcdsaSessionIdentity;
   record: ThresholdEcdsaSessionRecord;
-}): string | null {
-  const candidates = [walletSessionJwtFromPersistedWarmSessionRecord(args.record)].filter(Boolean);
+}): ReconnectWalletSessionJwtSelection {
+  const candidates = reconnectWalletSessionJwtCandidates(args.record);
+  const exactMatches: string[] = [];
   for (const token of candidates) {
     const claims = decodeJwtPayloadRecord(token);
     if (!claims) continue;
     const claimIdentity = tryBuildEcdsaSessionIdentityFromClaims(claims);
     if (claimIdentity && ecdsaSessionIdentitiesEqual(claimIdentity, args.identity)) {
-      return token;
+      exactMatches.push(token);
     }
   }
-  return candidates[0] || null;
+  if (exactMatches.length === 1) {
+    return { kind: 'exact_match', walletSessionJwt: exactMatches[0] };
+  }
+  if (exactMatches.length > 1) {
+    return { kind: 'ambiguous', exactMatchCount: exactMatches.length };
+  }
+  return { kind: 'not_found' };
+}
+
+function requireExactReconnectWalletSessionJwt(args: {
+  identity: EcdsaSessionIdentity;
+  record: ThresholdEcdsaSessionRecord;
+}): string {
+  const selection = selectExactReconnectWalletSessionJwt(args);
+  switch (selection.kind) {
+    case 'exact_match':
+      return selection.walletSessionJwt;
+    case 'ambiguous':
+      throw new Error('[SigningEngine][ecdsa] reconnect Wallet Session JWT exact match is ambiguous');
+    case 'not_found':
+      throw new Error('[SigningEngine][ecdsa] reconnect Wallet Session JWT exact match not found');
+    default:
+      return assertNeverEcdsaProvisionPlan(selection);
+  }
 }
 
 function passkeyCredentialIdB64uFromReconnectRecord(record: ThresholdEcdsaSessionRecord): string {
@@ -464,7 +508,7 @@ export function buildWalletSessionEcdsaReconnect(args: {
   if (sessionKind !== 'jwt') {
     throw new Error('[SigningEngine][ecdsa] Router A/B ECDSA reconnect requires Wallet Session JWT auth');
   }
-  const walletSessionJwt = selectReconnectWalletSessionJwt({
+  const walletSessionJwt = requireExactReconnectWalletSessionJwt({
     identity: args.existingSessionIdentity,
     record,
   });
@@ -485,10 +529,7 @@ export function buildWalletSessionEcdsaReconnect(args: {
     walletSessionAuth: verifyEcdsaWalletSessionAuth({
       identity: args.existingSessionIdentity,
       signingKeyContext,
-      walletSessionJwt: requireNonEmptyString(
-        walletSessionJwt,
-        'walletSessionJwt',
-      ),
+      walletSessionJwt,
       relayerKeyId,
     }),
   } satisfies WalletSessionEcdsaReconnect;

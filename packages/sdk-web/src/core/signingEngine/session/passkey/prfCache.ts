@@ -49,7 +49,7 @@ function normalizeSigningSessionCacheEntry(
   };
 }
 
-export async function cacheSigningSessionPrfFirst(
+export async function cacheCredentialBoundarySetupExportPrfFirst(
   writer: SigningSessionPrfCacheWriter,
   args: SigningSessionCacheEntry,
 ): Promise<void> {
@@ -63,9 +63,9 @@ export async function cacheSigningSessionPrfFirst(
   });
 }
 
-export async function cacheSigningSessionPrfFirstBestEffort(
+export async function cacheCredentialBoundarySetupExportPrfFirstBestEffort(
   writer: SigningSessionPrfCacheWriter,
   args: SigningSessionCacheEntry,
 ): Promise<void> {
-  await cacheSigningSessionPrfFirst(writer, args).catch(() => undefined);
+  await cacheCredentialBoundarySetupExportPrfFirst(writer, args).catch(() => undefined);
 }

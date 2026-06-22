@@ -1,7 +1,7 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
-import { cacheSigningSessionPrfFirst, generateSessionId } from './prfCache';
+import { cacheCredentialBoundarySetupExportPrfFirst, generateSessionId } from './prfCache';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import {
   persistWarmSessionEd25519Capability,
@@ -18,7 +18,7 @@ type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 export type ProvisionThresholdEd25519SessionDeps = {
   credentialStore: ConnectEd25519SessionInput['credentialStore'];
   touchIdPrompt: ConnectEd25519SessionInput['touchIdPrompt'];
-  touchConfirm: Parameters<typeof cacheSigningSessionPrfFirst>[0];
+  touchConfirm: Parameters<typeof cacheCredentialBoundarySetupExportPrfFirst>[0];
   defaultRelayerUrl: string;
   getSignerWorkerContext: () => ConnectEd25519SessionInput['workerCtx'];
   persistWarmSessionEd25519Capability?: (args: PersistWarmSessionEd25519CapabilityArgs) => unknown;
@@ -141,7 +141,7 @@ export async function provisionThresholdEd25519Session(
       walletSessionJwt: jwt,
     });
     try {
-      await cacheSigningSessionPrfFirst(deps.touchConfirm, {
+      await cacheCredentialBoundarySetupExportPrfFirst(deps.touchConfirm, {
         sessionId: resolvedSessionId,
         prfFirstB64u,
         expiresAtMs,
