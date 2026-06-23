@@ -17,6 +17,7 @@ const signerBWrangler = readRepoFile('crates/router-ab-cloudflare/wrangler.signe
 const signingWorkerWrangler = readRepoFile(
   'crates/router-ab-cloudflare/wrangler.signing-worker.toml',
 );
+const deployRouterAbWorkflow = readRepoFile('.github/workflows/deploy-router-ab.yml');
 if (strictWorkerSource.includes('strict SigningWorker normal-signing handler is not configured')) {
   blockers.push('P1: strict SigningWorker normal-signing handler is still fail-closed');
 }
@@ -29,9 +30,7 @@ if (
     'P1: strict SigningWorker normal-signing finalizer still lacks server round-1 nonce persistence',
   );
 }
-if (
-  cloudflareSource.includes('STRICT_CLOUDFLARE_WALLET_SESSION_BUDGET_ENFORCEMENT_REQUIRED_V1')
-) {
+if (cloudflareSource.includes('STRICT_CLOUDFLARE_WALLET_SESSION_BUDGET_ENFORCEMENT_REQUIRED_V1')) {
   blockers.push(
     'P1: strict Cloudflare Router A/B Wallet Session budget enforcement is fail-closed pending reserve/commit store wiring',
   );
@@ -130,13 +129,7 @@ for (const [label, startNeedle, endNeedle, requiredNeedle] of [
     'reserve_cloudflare_router_wallet_budget_v1',
   ],
 ]) {
-  requireSourceRangeIncludes(
-    label,
-    cloudflareSource,
-    startNeedle,
-    endNeedle,
-    requiredNeedle,
-  );
+  requireSourceRangeIncludes(label, cloudflareSource, startNeedle, endNeedle, requiredNeedle);
 }
 for (const [label, startNeedle, endNeedle] of [
   [
@@ -250,6 +243,7 @@ for (const [label, startNeedle, endNeedle] of [
     'require_cloudflare_internal_service_auth_request_v1',
   );
 }
+requireDeployWorkflowSplitEnvironmentBoundary(deployRouterAbWorkflow);
 for (const functionName of [
   'execute_cloudflare_signer_recipient_proof_bundle_service_call_v1',
   'execute_cloudflare_ecdsa_hss_deriver_registration_service_call_v1',
@@ -275,11 +269,7 @@ for (const functionName of [
   );
 }
 for (const [label, source, needle] of [
-  [
-    'P0: ECDSA-HSS protocol id is missing',
-    ecdsaProtocolSource,
-    'router_ab_ecdsa_hss_secp256k1_v1',
-  ],
+  ['P0: ECDSA-HSS protocol id is missing', ecdsaProtocolSource, 'router_ab_ecdsa_hss_secp256k1_v1'],
   [
     'P0: ECDSA-HSS registration public route is missing',
     strictWorkerSource,
@@ -413,6 +403,100 @@ console.log('Router A/B release blockers clear.');
 
 function readRepoFile(path) {
   return readFileSync(join(repoRoot, path), 'utf8');
+}
+
+function requireDeployWorkflowSplitEnvironmentBoundary(workflowSource) {
+  if (/^\s+name:\s*\$\{\{\s*inputs\.target\s*\}\}\s*$/m.test(workflowSource)) {
+    blockers.push('P1: deploy-router-ab workflow still uses the shared target environment');
+  }
+
+  for (const [jobId, expectedEnvironmentName] of [
+    ['validate_router_ab', '${{ inputs.target }}-router'],
+    ['upload_or_deploy_router', '${{ inputs.target }}-router'],
+    ['upload_or_deploy_deriver_a', '${{ inputs.target }}-deriver-a'],
+    ['upload_or_deploy_deriver_b', '${{ inputs.target }}-deriver-b'],
+    ['upload_or_deploy_signing_worker', '${{ inputs.target }}-signing-worker'],
+  ]) {
+    const jobSource = workflowJobSource(workflowSource, jobId);
+    if (!jobSource) {
+      blockers.push(`P1: deploy-router-ab workflow is missing ${jobId}`);
+      continue;
+    }
+    if (!jobSource.includes(`name: ${expectedEnvironmentName}`)) {
+      blockers.push(
+        `P1: deploy-router-ab ${jobId} does not use environment ${expectedEnvironmentName}`,
+      );
+    }
+  }
+
+  for (const [jobId, forbiddenNeedles] of [
+    [
+      'upload_or_deploy_router',
+      [
+        'SIGNER_A_ROOT_SHARE_WIRE_SECRET',
+        'SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'SIGNER_A_PEER_SIGNING_KEY',
+        'SIGNER_B_ROOT_SHARE_WIRE_SECRET',
+        'SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'SIGNER_B_PEER_SIGNING_KEY',
+        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+      ],
+    ],
+    [
+      'upload_or_deploy_signing_worker',
+      [
+        'SIGNER_A_ROOT_SHARE_WIRE_SECRET',
+        'SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'SIGNER_A_PEER_SIGNING_KEY',
+        'SIGNER_B_ROOT_SHARE_WIRE_SECRET',
+        'SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'SIGNER_B_PEER_SIGNING_KEY',
+      ],
+    ],
+    [
+      'upload_or_deploy_deriver_a',
+      [
+        'SIGNER_B_ROOT_SHARE_WIRE_SECRET',
+        'SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+        'SIGNER_B_PEER_SIGNING_KEY',
+        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+      ],
+    ],
+    [
+      'upload_or_deploy_deriver_b',
+      [
+        'SIGNER_A_ROOT_SHARE_WIRE_SECRET',
+        'SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+        'SIGNER_A_PEER_SIGNING_KEY',
+        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+      ],
+    ],
+  ]) {
+    const jobSource = workflowJobSource(workflowSource, jobId);
+    if (!jobSource) {
+      continue;
+    }
+    for (const forbiddenNeedle of forbiddenNeedles) {
+      if (jobSource.includes(forbiddenNeedle)) {
+        blockers.push(
+          `P1: deploy-router-ab ${jobId} references forbidden secret ${forbiddenNeedle}`,
+        );
+      }
+    }
+  }
+}
+
+function workflowJobSource(workflowSource, jobId) {
+  const startMarker = `  ${jobId}:\n`;
+  const start = workflowSource.indexOf(startMarker);
+  if (start < 0) {
+    return '';
+  }
+  const nextJob = workflowSource.slice(start + startMarker.length).search(/\n  [a-zA-Z0-9_]+:\n/);
+  if (nextJob < 0) {
+    return workflowSource.slice(start);
+  }
+  return workflowSource.slice(start, start + startMarker.length + nextJob);
 }
 
 function requireSourceRangeIncludes(label, source, startNeedle, endNeedle, requiredNeedle) {

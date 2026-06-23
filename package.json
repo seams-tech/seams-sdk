@@ -45,6 +45,7 @@
     "router:deploy:browser-evidence": "pnpm -C tests exec playwright test -c playwright.router-ab-deployed-evidence.config.ts --reporter=line",
     "router:deploy:keygen": "node ./crates/router-ab-cloudflare/scripts/generate-deployment-keys.mjs",
     "router:deploy:root-share-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-root-share-keys.mjs",
+    "router:deploy:env-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs",
     "router:deploy:dry-run": "node ./crates/router-ab-cloudflare/scripts/measure-startup-latencies.mjs --dry-run",
     "router:deploy:upload": "node ./crates/router-ab-cloudflare/scripts/measure-startup-latencies.mjs --upload",
     "router:evidence": "node ./crates/router-ab-dev/scripts/local-command.mjs release-evidence",

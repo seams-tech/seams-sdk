@@ -27,6 +27,243 @@ hardening.
 
 Local cleanup and local smoke evidence do not prove deployed readiness.
 
+## Active Plan: Split GitHub Environments
+
+Status: workflow split implemented; staging deploy evidence pending.
+
+`.github/workflows/deploy-router-ab.yml` now selects role-specific GitHub
+Environments from `inputs.target`:
+
+```yaml
+environment:
+  name: ${{ inputs.target }}-router
+```
+
+That shape enforces role-level secret isolation because each role job reads only
+the GitHub Environment for the Worker it deploys.
+
+Target environments:
+
+```text
+staging-router
+staging-deriver-a
+staging-deriver-b
+staging-signing-worker
+
+production-router
+production-deriver-a
+production-deriver-b
+production-signing-worker
+```
+
+The generator command for these environments is:
+
+```bash
+pnpm router:deploy:env-keygen
+pnpm router:deploy:env-keygen -- --env staging
+pnpm router:deploy:env-keygen -- --env production
+```
+
+### Environment Contents
+
+Each GitHub Environment must be self-contained. Do not put Router A/B
+deployment identity keys in repository-level Actions variables.
+
+`<target>-router` variables:
+
+```text
+ROUTER_AB_JWT_ISSUER
+ROUTER_AB_JWT_AUDIENCE
+ROUTER_AB_JWT_JWKS_URL
+ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
+ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY
+ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX
+ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX
+```
+
+`<target>-router` secrets:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
+```
+
+`<target>-deriver-a` variables:
+
+```text
+ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX
+ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX
+```
+
+`<target>-deriver-a` secrets:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
+SIGNER_A_ROOT_SHARE_WIRE_SECRET
+SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY
+SIGNER_A_PEER_SIGNING_KEY
+```
+
+`<target>-deriver-b` variables:
+
+```text
+ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
+ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX
+ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX
+```
+
+`<target>-deriver-b` secrets:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
+SIGNER_B_ROOT_SHARE_WIRE_SECRET
+SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY
+SIGNER_B_PEER_SIGNING_KEY
+```
+
+`<target>-signing-worker` variables:
+
+```text
+ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY
+```
+
+`<target>-signing-worker` secrets:
+
+```text
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
+ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY
+```
+
+### Workflow Shape
+
+Keep one manual workflow entrypoint:
+
+```text
+workflow: deploy-router-ab
+inputs:
+  target: staging | production
+  operation: validate | upload-version | deploy
+  role: all | router | deriver-a | deriver-b | signing-worker
+```
+
+The workflow uses role-specific jobs:
+
+```text
+validate_router_ab
+upload_or_deploy_signing_worker
+upload_or_deploy_deriver_a
+upload_or_deploy_deriver_b
+upload_or_deploy_router
+```
+
+Each role job must set its GitHub Environment from `target` plus the role:
+
+```yaml
+environment:
+  name: ${{ inputs.target }}-router
+```
+
+The equivalent names for the other jobs are:
+
+```text
+${{ inputs.target }}-deriver-a
+${{ inputs.target }}-deriver-b
+${{ inputs.target }}-signing-worker
+```
+
+Each job declares only the variables and secrets required by its role.
+
+### Deploy Ordering
+
+For `operation=deploy` and `role=all`, deploy order must be:
+
+```text
+signing-worker -> deriver-a + deriver-b -> router
+```
+
+Reason:
+
+- Deriver A and Deriver B bind to SigningWorker.
+- Router binds to Deriver A, Deriver B, and SigningWorker.
+- Deploying Router last avoids service-binding references to undeployed or
+  stale role workers.
+
+For individual roles:
+
+```text
+role=signing-worker -> signing-worker job only
+role=deriver-a      -> deriver-a job only
+role=deriver-b      -> deriver-b job only
+role=router         -> router job only
+```
+
+### Validation Rules
+
+The workflow and release gate keep these checks in place:
+
+- `pnpm router:deploy:check`
+- `cargo test --manifest-path crates/router-ab-core/Cargo.toml`
+- `cargo test --manifest-path crates/router-ab-dev/Cargo.toml`
+- `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml`
+- strict Worker entrypoint `cargo check` for Router, Deriver A, Deriver B, and
+  SigningWorker
+- startup dry-run with `pnpm router:deploy:dry-run`
+
+Workflow source guards now run through `pnpm router:deploy:check`:
+
+- no deploy job may use the shared `environment: ${{ inputs.target }}`
+- no role job may reference another role's private key secret
+- Router job must not reference root-share or role-private signing secrets
+- SigningWorker job must not reference Deriver A/B root-share or peer-signing
+  secrets
+- Deriver A job must not reference B private/root-share secrets
+- Deriver B job must not reference A private/root-share secrets
+
+### Implementation Tasks
+
+- [x] Refactor `.github/workflows/deploy-router-ab.yml` into role-specific
+      upload/deploy jobs.
+- [x] Set role job environments to `${{ inputs.target }}-<role>`.
+- [x] Move the shared shell helpers into repeated small role-local steps or a
+      local checked-in script if duplication becomes noisy.
+- [x] Keep `validate-router-ab` free of private Worker secrets.
+- [x] Ensure `operation=upload-version` uses the same split environments as
+      `operation=deploy`.
+- [x] Preserve `role=all` plus individual role deploy behavior.
+- [x] Add source guards for forbidden role secret references.
+- [x] Run the validation matrix above for local workflow/source checks.
+- [ ] Trigger staging deploy with `target=staging`, `operation=deploy`,
+      `role=all`.
+- [ ] Verify the deployed Router keyset endpoint:
+      `https://staging.seams.sh/.well-known/router-ab/keyset`.
+- [ ] Verify the Router JWT JWKS endpoint:
+      `https://staging.seams.sh/.well-known/router-ab/jwks.json`.
+- [ ] Run deployed browser evidence after Router, relay, and domain wiring are
+      live.
+
+### Done Criteria
+
+- GitHub Actions never exposes Deriver A private/root-share secrets to Deriver
+  B, Router, or SigningWorker jobs.
+- GitHub Actions never exposes Deriver B private/root-share secrets to Deriver
+  A, Router, or SigningWorker jobs.
+- Router deploy has only Router admission/config secrets and public deployment
+  identity values.
+- SigningWorker deploy has only SigningWorker server-output private material,
+  shared internal service auth, and Cloudflare deploy credentials.
+- Staging deploy completes from the split environments.
+- Production can be configured with separate generated values without changing
+  workflow code.
+
 ## Merged Source: Router A/B Deployment Choices
 
 ### Router A/B Deployment Choices
