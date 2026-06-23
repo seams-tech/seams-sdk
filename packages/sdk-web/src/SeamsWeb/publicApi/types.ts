@@ -572,11 +572,11 @@ export type GoogleEmailOtpWalletAuthStartInput = {
 };
 
 export interface AuthCapability {
-  unlock(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
+  unlock(walletId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
   getWalletSession(walletId?: string): Promise<WalletSession>;
   getRecentUnlocks(): Promise<GetRecentUnlocksResult>;
-  hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
+  hasPasskeyCredential(walletId: string): Promise<boolean>;
   prefillRouterAbEcdsaHssPresignaturePool(args: {
     walletSession: WalletSessionRef;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -586,7 +586,7 @@ export interface AuthCapability {
     minRemainingUsesBeforePrefill?: number;
   }): Promise<RouterAbEcdsaHssLoginPresignaturePrefillResult>;
   requestEmailOtpChallenge(args: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
@@ -647,13 +647,13 @@ export interface RegistrationCapability {
     args: CreatePasskeyRegistrationActivationSurfaceArgs,
   ): WalletIframeRegistrationActivationSurface;
   requestEmailOtpEnrollmentChallenge(args: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   enrollEmailOtp(args: {
-    nearAccountId: string;
+    walletId: string;
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
@@ -833,10 +833,10 @@ export interface EvmSignerCapability {
 }
 
 export interface RecoveryCapability {
-  getRecoveryEmails(accountId: string): Promise<Array<{ hashHex: string; email: string }>>;
+  getRecoveryEmails(walletId: string): Promise<Array<{ hashHex: string; email: string }>>;
 
   setRecoveryEmails(args: {
-    accountId: string;
+    walletId: string;
     recoveryEmails: string[];
     options: ActionHooksOptions;
   }): Promise<ActionResult>;
@@ -884,7 +884,10 @@ export interface DevicesCapability {
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult>;
 
-  viewAccessKeyList(accountId: string): Promise<AccessKeyList>;
+  viewAccessKeyList(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+  }): Promise<AccessKeyList>;
 
   deleteDeviceKey(args: {
     walletSession: WalletSessionRef;
@@ -903,6 +906,7 @@ export type ThresholdEd25519SeedExportUiOptions = {
 export type ExportKeypairWithUIInput =
   | {
       kind: 'near';
+      walletSession: WalletSessionRef;
       nearAccount: NearAccountRef;
       options: ThresholdEd25519SeedExportUiOptions & {
         chain: 'near';
@@ -918,7 +922,8 @@ export type ExportKeypairWithUIInput =
 export interface KeyExportCapability {
   exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void>;
   exportThresholdEd25519SeedFromHssReport(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
     finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
     expectedPublicKey: string;

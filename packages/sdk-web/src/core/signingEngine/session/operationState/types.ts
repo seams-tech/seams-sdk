@@ -1,5 +1,6 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/seams';
+import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
@@ -82,8 +83,10 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
-  accountId: AccountId;
-  walletId?: never;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
+  accountId?: never;
   chainTarget?: never;
   subjectId?: never;
   ecdsaThresholdKeyId?: never;
@@ -116,8 +119,11 @@ type BaseSelectedSigningLaneIdentity = {
 export type SelectedEd25519SigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
   curve: 'ed25519';
   chainFamily: 'near';
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   thresholdSessionId: ThresholdEd25519SessionId;
+  accountId?: never;
 };
 
 export type SelectedEcdsaSigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
@@ -153,7 +159,10 @@ export type ResolvedEd25519SigningSessionIdentity = BaseResolvedSigningSessionId
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
+  accountId?: never;
   thresholdSessionId: ThresholdEd25519SessionId;
   signingRootId?: never;
   signingRootVersion?: never;
@@ -199,7 +208,7 @@ export type SigningKeyRefIntent =
 export type Ed25519WalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
-  walletId: AccountId;
+  walletId: WalletId;
   signingGrantId: SigningGrantId;
   lane: SelectedEd25519SigningSessionPlanningLane;
   thresholdSessionIds: readonly ThresholdEd25519SessionId[];
@@ -284,7 +293,10 @@ type BaseSigningLaneSummary = Pick<
 
 export type Ed25519SigningLaneSummary = BaseSigningLaneSummary & {
   curve: 'ed25519';
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
+  accountId?: never;
 };
 
 export type EcdsaSigningLaneSummary = BaseSigningLaneSummary & {
@@ -360,7 +372,9 @@ export function summarizeSigningLane(lane: SigningSessionPlanningLane): SigningL
     : {
         ...summary,
         curve: 'ed25519',
-        accountId: lane.accountId,
+        walletId: lane.walletId,
+        nearAccountId: lane.nearAccountId,
+        ed25519KeyScopeId: lane.ed25519KeyScopeId,
       };
 }
 
@@ -390,8 +404,19 @@ export function findSigningLaneIdentityMismatch(
       return 'walletId';
     }
   } else if (a.curve === 'ed25519' && b.curve === 'ed25519') {
-    if (normalizeLaneIdentityField(a.accountId) !== normalizeLaneIdentityField(b.accountId)) {
-      return 'accountId';
+    if (normalizeLaneIdentityField(a.walletId) !== normalizeLaneIdentityField(b.walletId)) {
+      return 'walletId';
+    }
+    if (
+      normalizeLaneIdentityField(a.nearAccountId) !== normalizeLaneIdentityField(b.nearAccountId)
+    ) {
+      return 'nearAccountId';
+    }
+    if (
+      normalizeLaneIdentityField(a.ed25519KeyScopeId) !==
+      normalizeLaneIdentityField(b.ed25519KeyScopeId)
+    ) {
+      return 'ed25519KeyScopeId';
     }
   }
   for (const field of fields) {
@@ -429,17 +454,11 @@ export function normalizeWalletSigningSpendPlan(
     input.operationFingerprint != null
       ? SigningSessionIds.signingOperationFingerprint(input.operationFingerprint)
       : undefined;
-  const walletId =
-    lane.curve === 'ecdsa'
-      ? toWalletId(input.walletId || lane.walletId)
-      : toAccountId(input.walletId || lane.accountId);
-  const laneWalletId = lane.curve === 'ecdsa' ? toWalletId(lane.walletId) : toAccountId(lane.accountId);
-  if (String(walletId) !== String(laneWalletId)) {
+  const walletId = toWalletId(input.walletId);
+  if (lane.curve === 'ecdsa' && String(walletId) !== String(toWalletId(lane.walletId))) {
     throw new Error('[SigningSession] wallet signing spend account does not match lane');
   }
-  const signingGrantId = SigningSessionIds.signingGrant(
-    input.signingGrantId || lane.signingGrantId,
-  );
+  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
   const laneSigningGrantId = SigningSessionIds.signingGrant(
     lane.signingGrantId,
   );
@@ -464,7 +483,7 @@ export function normalizeWalletSigningSpendPlan(
         }
       : {
           ...lane,
-          accountId: toAccountId(walletId),
+          walletId: toWalletId(walletId),
           signingGrantId,
         };
   if (normalizedLane.curve === 'ecdsa') {

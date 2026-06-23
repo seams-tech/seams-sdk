@@ -1369,13 +1369,30 @@ function normalizeThresholdEcdsaEmailOtpAuthContext(
   };
 }
 
+function migrateLegacyThresholdEd25519SessionIdentity(obj: Record<string, unknown>): {
+  walletId: ReturnType<typeof toWalletId>;
+  nearAccountId: ReturnType<typeof toAccountId>;
+  ed25519KeyScopeId: ReturnType<typeof ed25519KeyScopeIdFromString>;
+} {
+  const nearAccountIdRaw = String(obj.nearAccountId || '').trim();
+  const walletIdRaw = String(obj.walletId || '').trim();
+  const ed25519KeyScopeIdRaw = String(obj.ed25519KeyScopeId || '').trim();
+  const migratedWalletIdRaw = walletIdRaw ? walletIdRaw : nearAccountIdRaw;
+  const migratedKeyScopeRaw = ed25519KeyScopeIdRaw ? ed25519KeyScopeIdRaw : nearAccountIdRaw;
+  if (!migratedWalletIdRaw || !nearAccountIdRaw || !migratedKeyScopeRaw) {
+    throw new Error('Invalid threshold Ed25519 canonical session record: missing identity binding');
+  }
+  return {
+    walletId: toWalletId(migratedWalletIdRaw),
+    nearAccountId: toAccountId(nearAccountIdRaw),
+    ed25519KeyScopeId: ed25519KeyScopeIdFromString(migratedKeyScopeRaw),
+  };
+}
+
 function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd25519SessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
-  const walletId = toWalletId(String(obj.walletId || obj.nearAccountId || '').trim());
-  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
-    String(obj.ed25519KeyScopeId || obj.nearAccountId || '').trim(),
-  );
+  const { walletId, nearAccountId, ed25519KeyScopeId } =
+    migrateLegacyThresholdEd25519SessionIdentity(obj);
   const rpId = String(obj.rpId || '').trim();
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -1695,7 +1712,9 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
   if (!signingGrantId) return null;
   return {
     kind: 'lane_candidate',
-    accountId: args.record.nearAccountId,
+    walletId: args.record.walletId,
+    nearAccountId: args.record.nearAccountId,
+    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
     authMethod: thresholdEd25519AuthMethodForRecord(args.record),
     curve: 'ed25519',
     chain: 'near',
@@ -2948,9 +2967,9 @@ export function getThresholdEcdsaSessionRecordByThresholdSessionId(
 }
 
 export function upsertStoredThresholdEd25519SessionRecord(args: {
-  walletId?: WalletId | string;
+  walletId: WalletId | string;
   nearAccountId: AccountId | string;
-  ed25519KeyScopeId?: Ed25519KeyScopeId | string;
+  ed25519KeyScopeId: Ed25519KeyScopeId | string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -2981,10 +3000,13 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
 }): ThresholdEd25519SessionRecord | null {
   if (isRawOnlyEd25519ClientBaseInput(args)) return null;
   const nearAccountId = toAccountId(args.nearAccountId);
-  const walletId = toWalletId(args.walletId || nearAccountId);
-  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
-    String(args.ed25519KeyScopeId || nearAccountId).trim(),
-  );
+  const rawWalletId = String(args.walletId || '').trim();
+  const rawEd25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
+  if (!rawWalletId || !rawEd25519KeyScopeId) {
+    throw new Error('Threshold Ed25519 session persistence requires walletId and ed25519KeyScopeId');
+  }
+  const walletId = toWalletId(rawWalletId);
+  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(rawEd25519KeyScopeId);
   const record = normalizeThresholdEd25519SessionRecord({
     walletId,
     nearAccountId,

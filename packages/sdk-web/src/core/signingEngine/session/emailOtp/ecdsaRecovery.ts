@@ -409,7 +409,7 @@ function resolveEmailOtpCompanionEd25519Session(args: {
   const companion = sealedCompanion;
   if (!companion) return null;
   return {
-    nearAccountId: args.sealedRecord.walletId,
+    nearAccountId: companion.nearAccountId,
     rpId: companion.rpId,
     relayerUrl: companion.relayerUrl,
     relayerKeyId: companion.relayerKeyId,

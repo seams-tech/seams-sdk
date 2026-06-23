@@ -252,7 +252,7 @@ function buildDetailsJson(input: {
 function parseDetailsJson(value: string): SponsoredEvmCallDetails | null {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    const walletId = String(parsed.walletId || parsed.nearAccountId || '').trim();
+    const walletId = String(parsed.walletId || '').trim();
     const walletAddress = normalizeEvmAddress(parsed.walletAddress);
     const chainId = parseOptionalPositiveInteger(parsed.chainId);
     const call =

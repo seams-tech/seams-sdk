@@ -33,6 +33,7 @@ import {
 import {
   type ThresholdEcdsaChainTarget,
   type ThresholdEcdsaSessionRecordKey,
+  toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   normalizeThresholdRuntimePolicyScope,
@@ -125,7 +126,7 @@ export function ecdsaExportSessionRecordKey(
   lane: ExactEcdsaExportLane,
 ): EcdsaExportSessionRecordLookupKey {
   return {
-    walletId: String(lane.key.walletId),
+    walletId: toWalletId(lane.key.walletId),
     keyHandle: String(lane.publicFacts.keyHandle),
     authMethod: lane.session.authMethod,
     curve: 'ecdsa',

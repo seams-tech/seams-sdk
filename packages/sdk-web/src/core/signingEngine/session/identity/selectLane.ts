@@ -181,7 +181,9 @@ function missingConcreteFields(
 function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
   if (candidate.curve === 'ed25519') {
     return selectedEd25519Lane({
-      accountId: candidate.accountId,
+      walletId: candidate.walletId,
+      nearAccountId: candidate.nearAccountId,
+      ed25519KeyScopeId: candidate.ed25519KeyScopeId,
       authMethod: candidate.authMethod,
       signingGrantId: candidate.signingGrantId,
       thresholdSessionId: candidate.thresholdSessionId,
@@ -363,7 +365,6 @@ function selectSelectedEd25519Lane(
   // concrete candidate. Account metadata cannot create or override this anchor.
   if (nearRuntimeLane) {
     const candidate = ed25519LaneCandidateFromAvailableLane({
-      walletId: intent.walletId,
       lane: nearRuntimeLane,
     });
     if (!candidate) {
@@ -401,7 +402,6 @@ function selectSelectedEd25519Lane(
       .map((availableLane) => ({
         availableLane,
         candidate: ed25519LaneCandidateFromAvailableLane({
-          walletId: intent.walletId,
           lane: availableLane,
         }),
       }))

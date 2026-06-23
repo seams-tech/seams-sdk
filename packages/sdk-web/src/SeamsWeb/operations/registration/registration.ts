@@ -934,11 +934,10 @@ type RouterAbPublicKeysetPrefetchOutcome =
 function startRegistrationWarmup(input: {
   recorder: RegistrationTimingRecorder;
   context: RegistrationWebContext;
-  nearAccountId?: string;
 }): Promise<RegistrationWarmupOutcome> {
   return input.recorder
     .measure('registrationWarmupMs', () =>
-      input.context.signingEngine.warmCriticalResources(input.nearAccountId),
+      input.context.signingEngine.warmCriticalResources({ kind: 'none' }),
     )
     .then(
       (diagnostics) => ({ kind: 'completed' as const, diagnostics }),
@@ -1119,21 +1118,6 @@ function registrationPreflightFromEd25519Selection(args: {
   };
 }
 
-function spreadManagedRegistrationGrantIdentity(
-  identity: RegistrationGrantIdentity,
-): { nearAccountId: string } | { walletId: string } | Record<string, never> {
-  switch (identity.kind) {
-    case 'near_account':
-      return { nearAccountId: identity.nearAccountId };
-    case 'wallet':
-      return { walletId: identity.walletId };
-    case 'none':
-      return {};
-    default:
-      return assertNever(identity);
-  }
-}
-
 async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   walletId: WalletId;
   rpId: string;
@@ -1242,14 +1226,11 @@ async function startWalletRegistrationPrecomputeReady(input: {
   const registrationWarmup = startRegistrationWarmup({
     recorder: input.recorder,
     context: input.context,
-    ...(grantIdentity.kind === 'near_account'
-      ? { nearAccountId: grantIdentity.nearAccountId }
-      : {}),
   });
   const managedGrant = await input.recorder.measure('managedRegistrationGrantMs', () =>
     createManagedRegistrationFlowGrant({
       context: input.context,
-      ...spreadManagedRegistrationGrantIdentity(grantIdentity),
+      identity: grantIdentity,
       rpId: scope.rpId,
     }),
   );
@@ -1938,7 +1919,10 @@ async function registerEcdsaWalletOnly(args: {
     const managedGrant = await registrationTiming.measure('managedRegistrationGrantMs', () =>
       createManagedRegistrationFlowGrant({
         context,
-        ...(wallet.kind === 'provided' ? { walletId: String(wallet.walletId || '').trim() } : {}),
+        identity:
+          wallet.kind === 'provided'
+            ? { kind: 'wallet', walletId: String(wallet.walletId || '').trim() }
+            : { kind: 'none' },
         rpId,
       }),
     );
@@ -3109,7 +3093,7 @@ export async function addWalletSigner(args: {
 
     const managedGrant = await createManagedRegistrationFlowGrant({
       context,
-      nearAccountId: String(walletId),
+      identity: { kind: 'wallet', walletId: String(walletId) },
       rpId,
     });
     const intentResponse = await createWalletAddSignerIntent({

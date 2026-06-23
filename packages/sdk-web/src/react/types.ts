@@ -9,8 +9,13 @@ import type {
   SignNEP413MessageParams,
   SignNEP413MessageResult,
   RegistrationCapability,
+  DevicesCapability,
 } from '../SeamsWeb';
 import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
+import type {
+  CurrentWalletAuthMethod,
+  WalletAuthMethodBinding,
+} from '@shared/utils/walletCapabilityBindings';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
 import type { ClientUserData } from '../core/accountData/near/nearAccountData.types';
@@ -39,20 +44,27 @@ import type {
 
 // === React states types ===
 
-export interface LoginState {
-  // Whether a user is currently authenticated
-  isLoggedIn: boolean;
-  // The public key of the currently authenticated user (if available)
-  nearPublicKey: string | null;
-  // The NEAR account ID of the currently authenticated user (e.g., "alice.testnet")
-  nearAccountId: string | null;
-  // Auth method that unlocked the active wallet session.
-  authMethod?: WalletAuthMethod | null;
-  // Canonical threshold ECDSA account address used for Tempo/EVM signing
-  thresholdEcdsaEthereumAddress?: string | null;
-  // Canonical threshold ECDSA public key (base64url)
-  thresholdEcdsaPublicKeyB64u?: string | null;
-}
+export type LoginState =
+  | {
+      isLoggedIn: false;
+      walletId: null;
+      nearPublicKey: null;
+      nearAccountId: null;
+      authMethods: readonly [];
+      currentAuthMethod: { kind: 'none' };
+      thresholdEcdsaEthereumAddress?: null;
+      thresholdEcdsaPublicKeyB64u?: null;
+    }
+  | {
+      isLoggedIn: true;
+      walletId: string;
+      nearPublicKey: string | null;
+      nearAccountId: string | null;
+      authMethods: readonly WalletAuthMethodBinding[];
+      currentAuthMethod: CurrentWalletAuthMethod;
+      thresholdEcdsaEthereumAddress?: string | null;
+      thresholdEcdsaPublicKeyB64u?: string | null;
+    };
 
 export interface StoredAccountOption {
   nearAccountId: string;
@@ -145,7 +157,7 @@ export interface SeamsContextType {
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: (options?: RegistrationHooksOptions) => Promise<RegistrationResult>;
   unlock: (
-    nearAccountId: string,
+    walletId: string,
     options?: LoginHooksOptions,
   ) => Promise<LoginAndCreateSessionResult>;
   lock: () => void;
@@ -208,7 +220,7 @@ export interface SeamsContextType {
   getConfirmationConfig: () => ConfirmationConfig;
 
   // Account management functions
-  viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
+  viewAccessKeyList: DevicesCapability['viewAccessKeyList'];
 
   // Theme capabilities (controlled by host app)
   themeCapabilities: {

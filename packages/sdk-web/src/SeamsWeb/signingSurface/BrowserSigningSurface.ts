@@ -140,7 +140,10 @@ import {
   storeWalletRegistrationEcdsaClientSigningMaterial,
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
-import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
+import type {
+  WorkerResourceWarmupAccountContext,
+  WorkerResourceWarmupDiagnostics,
+} from '@/core/signingEngine/assembly/warmup';
 import {
   restoreThresholdEd25519WorkerMaterialFromCredential,
 } from '../operations/session/thresholdWarmSessionBootstrap';
@@ -366,7 +369,9 @@ export class BrowserSigningSurface {
     return await sessionPublic.readPersistedAvailableSigningLanes(this.sessionPublicDeps, args);
   }
 
-  async warmCriticalResources(nearAccountId?: string): Promise<WorkerResourceWarmupDiagnostics> {
+  async warmCriticalResources(
+    accountContext?: WorkerResourceWarmupAccountContext,
+  ): Promise<WorkerResourceWarmupDiagnostics> {
     try {
       await this.ensureSealedRefreshStartupParity();
     } catch (error: unknown) {
@@ -376,7 +381,7 @@ export class BrowserSigningSurface {
         error instanceof Error ? error.message : String(error || 'unknown error'),
       );
     }
-    return await this.enginePorts.getManagerConveniencePorts().warmCriticalResources(nearAccountId);
+    return await this.enginePorts.getManagerConveniencePorts().warmCriticalResources(accountContext);
   }
 
   getRpId(): string {
@@ -684,7 +689,8 @@ export class BrowserSigningSurface {
   }
 
   requestRegistrationCredentialConfirmation(params: {
-    nearAccountId: string;
+    walletId: string;
+    nearAccountId?: string;
     signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;

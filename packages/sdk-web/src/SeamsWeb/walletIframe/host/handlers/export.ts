@@ -1,4 +1,8 @@
 import { isTouchIdCancellationError } from '@shared/utils/errors';
+import {
+  nearAccountRefFromAccountId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk } from './shared';
 
@@ -13,6 +17,7 @@ export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap 
           payload.kind === 'near'
             ? {
                 kind: 'near',
+                walletSession: payload.walletSession,
                 nearAccount: payload.nearAccount,
                 options: {
                   ...payload.options,
@@ -46,12 +51,16 @@ export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap 
       req: Req<'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'>,
     ) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, preparedSession, finalizedReport, expectedPublicKey, variant, theme } =
+      const { walletId, nearAccountId, preparedSession, finalizedReport, expectedPublicKey, variant, theme } =
         req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       try {
         await pm.keys.exportThresholdEd25519SeedFromHssReport({
-          nearAccountId,
+          walletSession: walletSessionRefFromSession({
+            walletId,
+            walletSessionUserId: walletId,
+          }),
+          nearAccount: nearAccountRefFromAccountId(nearAccountId),
           preparedSession,
           finalizedReport,
           expectedPublicKey,
@@ -74,4 +83,3 @@ export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap 
     },
   };
 }
-

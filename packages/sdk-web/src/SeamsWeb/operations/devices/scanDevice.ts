@@ -77,10 +77,15 @@ export async function linkDeviceWithScannedQRData(
     // 3. Get Device1's current account (the account that will receive the new key)
     const { login: device1LoginState } = await getWalletSession(context);
 
-    if (!device1LoginState.isLoggedIn || !device1LoginState.nearAccountId) {
+    if (
+      !device1LoginState.isLoggedIn ||
+      !device1LoginState.walletId ||
+      !device1LoginState.nearAccountId
+    ) {
       throw new Error('Device1 must be logged in to authorize device linking');
     }
 
+    const device1WalletId = device1LoginState.walletId;
     const device1AccountId = device1LoginState.nearAccountId;
 
     // 4. Execute one transaction: AddKey + contract notification actions
@@ -141,6 +146,7 @@ export async function linkDeviceWithScannedQRData(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             session_id: sessionId,
+            wallet_id: String(device1WalletId),
             account_id: String(device1AccountId),
             device2_public_key: device2PublicKey,
             ...(addKeyTxHash ? { add_key_tx_hash: addKeyTxHash } : {}),

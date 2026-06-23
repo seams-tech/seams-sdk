@@ -304,10 +304,14 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
   if (!shamirPrimeB64u) {
     throw new Error('Missing shamir prime for Email OTP runtime');
   }
+  const userId = String(args.userId).trim();
+  if (!userId) {
+    throw new Error('Email OTP registration enrollment material requires userId');
+  }
   return await prepareEmailOtpRegistrationEnrollmentMaterial({
     relayUrl,
     walletId: String(walletId),
-    userId: String(args.userId || walletId).trim(),
+    userId,
     shamirPrimeB64u,
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,

@@ -151,8 +151,8 @@ function parseEvmRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResult
 
 function parseNearRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResult {
   const publicKey = rawString(input.obj.publicKey);
-  const walletId = rawString(input.obj.walletId) || input.accountId;
-  if (!input.accountId || !publicKey) {
+  const walletId = rawString(input.obj.walletId);
+  if (!input.accountId || !walletId || !publicKey) {
     return malformedRecordResult(input.obj, input.laneKey, input.leaseId, 'near');
   }
 

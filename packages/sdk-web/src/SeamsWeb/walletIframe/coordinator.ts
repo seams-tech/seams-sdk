@@ -76,13 +76,8 @@ export class WalletIframeCoordinator {
   }
 
   async init(walletId?: string): Promise<void> {
-    const walletOriginConfigured = this.configs.wallet.mode === 'iframe';
     // Warm local critical resources (nonce coordinator, workers) regardless of iframe usage.
-    // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
-    const shouldAvoidLocalUserState = walletOriginConfigured && !__isWalletIframeHostMode();
-    await this.signingEngine.warmCriticalResources(
-      shouldAvoidLocalUserState ? undefined : walletId,
-    );
+    await this.signingEngine.warmCriticalResources({ kind: 'none' });
 
     // Guardrail: when running inside the wallet service iframe host, never attempt to
     // initialize a nested wallet iframe client, even if configs accidentally set wallet.mode='iframe'.

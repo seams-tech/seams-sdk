@@ -42,7 +42,7 @@ async function enqueueWebAuthnPrompt<T>(operation: () => Promise<T>): Promise<T>
 }
 
 interface RegisterCredentialsArgs {
-  nearAccountId: string; // NEAR account ID for PRF salts and keypair derivation (always base account)
+  walletId: string;
   challengeB64u: string;
   signerSlot?: number;
   intendedUserName: string;
@@ -178,13 +178,13 @@ export class TouchIdPrompt {
 
   /**
    * Internal method for generating WebAuthn registration credentials with PRF output
-   * @param nearAccountId - NEAR account ID for PRF salts and keypair derivation (always base account)
+   * @param walletId - Durable wallet identity used for WebAuthn user handles.
    * @param challenge - Random challenge bytes for the registration ceremony
    * @param signerSlot - Local signer slot for WebAuthn user-handle disambiguation.
    * @returns Credential with PRF output
    */
   async generateRegistrationCredentialsInternal({
-    nearAccountId,
+    walletId,
     challengeB64u,
     signerSlot,
     intendedUserName,
@@ -197,7 +197,7 @@ export class TouchIdPrompt {
       const rpId = this.getRpId();
       const userName = normalizeCredentialDisplayName(
         intendedUserName,
-        generateSignerSlotDisplayName(nearAccountId, signerSlot),
+        generateSignerSlotDisplayName(walletId, signerSlot),
       );
       const publicKey: PublicKeyCredentialCreationOptions = {
         challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
@@ -206,7 +206,7 @@ export class TouchIdPrompt {
           id: rpId,
         },
         user: {
-          id: new TextEncoder().encode(generateSignerSlotUserId(nearAccountId, signerSlot)),
+          id: new TextEncoder().encode(generateSignerSlotUserId(walletId, signerSlot)),
           name: userName,
           displayName: userName,
         },
@@ -325,37 +325,36 @@ function normalizeCredentialDisplayName(value: string, fallback: string): string
 
 /**
  * Generate signer-slot-specific user ID to prevent Chrome sync conflicts
- * Creates technical identifiers with full account context
+ * Creates technical identifiers with full wallet context.
  *
- * @param nearAccountId - The NEAR account ID (e.g., "serp1.w3a-relayer.testnet")
+ * @param walletId - The wallet ID.
  * @param signerSlot - The signer slot (optional, undefined for signer slot 1, 2 for signer slot 2, etc.)
  * @returns Technical identifier:
  *   - Signer slot 1: "serp120.web3-authn.testnet"
  *   - Signer slot 2: "serp120.web3-authn.testnet (2)"
  *   - Signer slot 3: "serp120.web3-authn.testnet (3)"
  */
-function generateSignerSlotUserId(nearAccountId: string, signerSlot?: number): string {
-  // The first signer slot keeps the historical account-scoped WebAuthn user ID.
+function generateSignerSlotUserId(walletId: string, signerSlot?: number): string {
+  // The first signer slot keeps the historical wallet-scoped WebAuthn user ID.
   if (signerSlot === undefined || signerSlot === 1) {
-    return nearAccountId;
+    return walletId;
   }
-  return `${nearAccountId} (${signerSlot})`;
+  return `${walletId} (${signerSlot})`;
 }
 
 /**
  * Generate user-friendly display name for passkey manager UI
  * Creates clean, intuitive names that users will see
  *
- * @param nearAccountId - The NEAR account ID (e.g., "serp1.w3a-relayer.testnet")
+ * @param walletId - The wallet ID.
  * @param signerSlot - The signer slot (optional, undefined for signer slot 1, 2 for signer slot 2, etc.)
  * @returns User-friendly display name:
  *   - Signer slot 1: "serp120"
  *   - Signer slot 2: "serp120 (signer 2)"
  *   - Signer slot 3: "serp120 (signer 3)"
  */
-function generateSignerSlotDisplayName(nearAccountId: string, signerSlot?: number): string {
-  // Extract the base username (everything before the first dot)
-  const baseUsername = nearAccountId.split('.')[0];
+function generateSignerSlotDisplayName(walletId: string, signerSlot?: number): string {
+  const baseUsername = walletId.split('.')[0];
   if (signerSlot === undefined || signerSlot === 1) {
     return baseUsername;
   }

@@ -933,7 +933,7 @@ export class WalletIframeRouter {
         // Progress bus will hide after completion; hide defensively here
         this.hideFrameForActivation();
         if (ok) {
-          const walletId = payload?.result?.walletId || payload?.result?.nearAccountId;
+          const walletId = payload?.result?.walletId;
           void this.getWalletSession(walletId)
             .then(({ login: st }) => {
               this.emitLoginStatusFromState(st);
@@ -1523,7 +1523,7 @@ export class WalletIframeRouter {
       });
       const result = res.result;
       if (result.success) {
-        const { login: st } = await this.getWalletSession(unlockPayload.nearAccountId);
+        const { login: st } = await this.getWalletSession(unlockPayload.walletId);
         this.emitLoginStatusFromState(st);
       }
       return result;
@@ -1541,7 +1541,7 @@ export class WalletIframeRouter {
   }
 
   async requestEmailOtpChallenge(payload: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
@@ -1557,7 +1557,7 @@ export class WalletIframeRouter {
   }
 
   async requestEmailOtpEnrollmentChallenge(payload: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     onEvent?: (ev: RegistrationFlowEvent) => void;
@@ -1761,7 +1761,7 @@ export class WalletIframeRouter {
   }
 
   async enrollEmailOtp(payload: {
-    nearAccountId: string;
+    walletId: string;
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
@@ -2164,18 +2164,16 @@ export class WalletIframeRouter {
   }
 
   async setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): Promise<void> {
-    const { walletId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
-      payload: { behavior, walletId },
+      payload: { behavior },
     });
   }
 
   async setConfirmationConfig(config: ConfirmationConfig): Promise<void> {
-    const { walletId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRMATION_CONFIG',
-      payload: { config, walletId },
+      payload: { config },
     });
   }
 
@@ -2224,17 +2222,17 @@ export class WalletIframeRouter {
   }
 
   async getRecoveryEmails(
-    nearAccountId: string,
+    walletId: string,
   ): Promise<Array<{ hashHex: string; email: string }>> {
     const res = await this.post<Array<{ hashHex: string; email: string }>>({
       type: 'PM_GET_RECOVERY_EMAILS',
-      payload: { nearAccountId },
+      payload: { walletId },
     });
     return Array.isArray(res?.result) ? res.result : [];
   }
 
   async setRecoveryEmails(payload: {
-    nearAccountId: string;
+    walletId: string;
     recoveryEmails: string[];
     options: ActionHooksOptions;
   }): Promise<ActionResult> {
@@ -2248,7 +2246,7 @@ export class WalletIframeRouter {
     const res = await this.post<ActionResult>({
       type: 'PM_SET_RECOVERY_EMAILS',
       payload: {
-        nearAccountId: payload.nearAccountId,
+        walletId: payload.walletId,
         recoveryEmails: payload.recoveryEmails,
         options: safeOptions,
       },
@@ -2350,7 +2348,6 @@ export class WalletIframeRouter {
       payload: {
         ...(payload?.ui ? { ui: payload.ui } : {}),
         ...(payload?.cameraId ? { cameraId: payload.cameraId } : {}),
-        ...(payload?.accountId ? { accountId: String(payload.accountId) } : {}),
         ...(typeof payload?.signerSlot === 'number' ? { signerSlot: payload.signerSlot } : {}),
         ...(payload?.options
           ? {
@@ -2423,18 +2420,21 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async hasPasskeyCredential(nearAccountId: string): Promise<boolean> {
+  async hasPasskeyCredential(walletId: string): Promise<boolean> {
     const res = await this.post<boolean>({
       type: 'PM_HAS_PASSKEY',
-      payload: { nearAccountId },
+      payload: { walletId },
     });
     return !!res?.result;
   }
 
-  async viewAccessKeyList(accountId: string): Promise<AccessKeyList> {
+  async viewAccessKeyList(args: {
+    walletId: string;
+    nearAccountId: string;
+  }): Promise<AccessKeyList> {
     const res = await this.post<AccessKeyList>({
       type: 'PM_VIEW_ACCESS_KEYS',
-      payload: { accountId },
+      payload: { walletId: args.walletId, nearAccountId: args.nearAccountId },
     });
     return res.result;
   }
@@ -2487,6 +2487,7 @@ export class WalletIframeRouter {
       input.kind === 'near'
         ? {
             kind: 'near' as const,
+            walletSession: input.walletSession,
             nearAccount: input.nearAccount,
             options: {
               ...messageOptions,
@@ -2510,6 +2511,7 @@ export class WalletIframeRouter {
   }
 
   async exportThresholdEd25519SeedFromHssReport(args: {
+    walletId: string;
     nearAccountId: string;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
     finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
@@ -2523,6 +2525,7 @@ export class WalletIframeRouter {
     await this.post<void>({
       type: 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
       payload: {
+        walletId: args.walletId,
         nearAccountId: args.nearAccountId,
         preparedSession: args.preparedSession,
         finalizedReport: args.finalizedReport,

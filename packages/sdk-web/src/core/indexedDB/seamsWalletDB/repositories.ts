@@ -467,10 +467,17 @@ function walletAuthMethodIdentifier(record: LocalWalletAuthMethodRecord): string
 }
 
 function walletAuthMethodId(record: LocalWalletAuthMethodRecord): string {
+  if (record.kind === 'passkey') {
+    return [
+      toTrimmedString(record.walletId || ''),
+      record.kind,
+      toTrimmedString(record.rpId || ''),
+      walletAuthMethodIdentifier(record),
+    ].join('\0');
+  }
   return [
     toTrimmedString(record.walletId || ''),
     record.kind,
-    toTrimmedString(record.rpId || ''),
     walletAuthMethodIdentifier(record),
   ].join('\0');
 }
@@ -482,13 +489,13 @@ function walletAuthMethodFields(
     throw new Error('[SeamsWalletDB] auth-method binding version is invalid');
   }
   const walletId = toTrimmedString(record.walletId || '');
-  const rpId = toTrimmedString(record.rpId || '');
+  const rpId = record.kind === 'passkey' ? toTrimmedString(record.rpId || '') : '';
   const authIdentifierKey = walletAuthMethodIdentifier(record);
   const createdAtMs = Math.floor(Number(record.createdAtMs));
   const updatedAtMs = Math.floor(Number(record.updatedAtMs));
-  if (!walletId || !rpId || !authIdentifierKey) {
+  if (!walletId || !authIdentifierKey || (record.kind === 'passkey' && !rpId)) {
     throw new Error(
-      '[SeamsWalletDB] auth-method binding requires walletId, rpId, and branch identifier',
+      '[SeamsWalletDB] auth-method binding requires walletId and branch identity',
     );
   }
   if (record.status !== 'active' && record.status !== 'revoked') {
@@ -518,7 +525,8 @@ function walletAuthMethodFields(
     if (
       record.credentialIdB64u != null ||
       record.credentialPublicKeyB64u != null ||
-      record.counter != null
+      record.counter != null ||
+      record.rpId != null
     ) {
       throw new Error('[SeamsWalletDB] Email OTP auth-method binding has passkey fields');
     }
@@ -674,6 +682,16 @@ function emailOtpAuthMethodRow(
   };
 }
 
+function migrateLegacyEmailOtpAuthMethodRecord(
+  record: LocalWalletAuthMethodRecord & { kind: 'email_otp' },
+): LocalWalletAuthMethodRecord & { kind: 'email_otp' } {
+  const { rpId: _legacyRpId, ...normalized } = record as LocalWalletAuthMethodRecord & {
+    kind: 'email_otp';
+    rpId?: string;
+  };
+  return normalized;
+}
+
 function walletAuthMethodRowFromBinding(
   record: LocalWalletAuthMethodRecord,
   signerSlot: number,
@@ -685,7 +703,7 @@ function walletAuthMethodRowFromBinding(
         authenticator: passkeyAuthenticatorFromBinding(record, signerSlot),
       });
     case 'email_otp':
-      return emailOtpAuthMethodRow(record);
+      return emailOtpAuthMethodRow(migrateLegacyEmailOtpAuthMethodRecord(record));
     default: {
       const _exhaustive: never = record;
       throw new Error(`[SeamsWalletDB] Unsupported auth-method row: ${String(_exhaustive)}`);
@@ -718,18 +736,32 @@ function parseWalletAuthMethodStorageRow(value: unknown): WalletAuthMethodRow | 
         authenticator: row.authenticator,
       });
     } else if (record.kind === 'email_otp') {
-      normalized = emailOtpAuthMethodRow(record);
+      normalized = emailOtpAuthMethodRow(migrateLegacyEmailOtpAuthMethodRecord(record));
     } else {
       return null;
     }
   } catch {
     return null;
   }
-  if (row.wallet_auth_method_id !== normalized.wallet_auth_method_id) return null;
+  const legacyEmailOtpId =
+    normalized.kind === 'email_otp' && row.rp_id
+      ? [
+          normalized.wallet_id,
+          normalized.kind,
+          toTrimmedString(row.rp_id || ''),
+          normalized.auth_identifier_key,
+        ].join('\0')
+      : '';
+  if (
+    row.wallet_auth_method_id !== normalized.wallet_auth_method_id &&
+    row.wallet_auth_method_id !== legacyEmailOtpId
+  ) {
+    return null;
+  }
   if (row.wallet_id !== normalized.wallet_id) return null;
   if (row.kind !== normalized.kind) return null;
   if (row.auth_method !== normalized.auth_method) return null;
-  if (row.rp_id !== normalized.rp_id) return null;
+  if (normalized.kind === 'passkey' && row.rp_id !== normalized.rp_id) return null;
   if (row.auth_identifier_key !== normalized.auth_identifier_key) return null;
   if (row.status !== normalized.status) return null;
   if (row.updated_at !== normalized.updated_at) return null;

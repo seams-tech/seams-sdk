@@ -58,10 +58,15 @@ import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../ses
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
+
+type RequestEmailOtpTransactionSigningChallengeArgs =
+  | Parameters<NonNullable<NearSigningApiDeps['requestEmailOtpTransactionSigningChallenge']>>[0]
+  | Parameters<NonNullable<EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge']>>[0];
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
   warmCriticalResources as warmCriticalResourcesValue,
+  type WorkerResourceWarmupAccountContext,
   type WorkerResourceWarmupDiagnostics,
   type WorkerResourceWarmupDeps,
   type WorkerResourceWarmupStorePort,
@@ -77,7 +82,9 @@ export type SignTempoPortInput = {
 export type SigningEngineConveniencePorts = {
   signTempo: (args: SignTempoPortInput) => Promise<TempoSignedResult | EvmSignedResult>;
   prewarmSignerWorkers: () => void;
-  warmCriticalResources: (nearAccountId?: string) => Promise<WorkerResourceWarmupDiagnostics>;
+  warmCriticalResources: (
+    accountContext?: WorkerResourceWarmupAccountContext,
+  ) => Promise<WorkerResourceWarmupDiagnostics>;
   getWarmThresholdEd25519SessionStatus: (
     nearAccountId: AccountId | string,
   ) => Promise<SigningSessionStatus | null>;
@@ -149,8 +156,9 @@ export type CreateSigningEnginePortsArgs = {
     chainTarget: ThresholdEcdsaChainTarget;
     source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   }) => ThresholdEcdsaSessionRecord;
-  requestEmailOtpTransactionSigningChallenge?: NearSigningApiDeps['requestEmailOtpTransactionSigningChallenge'] &
-    EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge'];
+  requestEmailOtpTransactionSigningChallenge?: (
+    args: RequestEmailOtpTransactionSigningChallengeArgs,
+  ) => Promise<{ challengeId: string; emailHint?: string }>;
   isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId }) => boolean;
   waitForPendingEmailOtpEd25519Warmup?: (args: { nearAccountId: AccountId }) => Promise<boolean>;
   loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
@@ -309,8 +317,8 @@ export function createManagerConveniencePortsFactory(args: {
   return () => ({
     signTempo: createArgs.signTempo,
     prewarmSignerWorkers: () => prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
-    warmCriticalResources: (nearAccountId?: string) =>
-      warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), nearAccountId),
+    warmCriticalResources: (accountContext?: WorkerResourceWarmupAccountContext) =>
+      warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), accountContext),
     getWarmThresholdEd25519SessionStatus,
   });
 }

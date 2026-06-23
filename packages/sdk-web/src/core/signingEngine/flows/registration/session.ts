@@ -7,7 +7,8 @@ import type { RegistrationSessionDeps } from '../../interfaces/operationDeps';
 export async function requestRegistrationSessionCredentialConfirmation(
   deps: RegistrationSessionDeps,
   params: {
-    nearAccountId: string;
+    walletId: string;
+    nearAccountId?: string;
     signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -18,6 +19,7 @@ export async function requestRegistrationSessionCredentialConfirmation(
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return await deps.touchConfirm.requestRegistrationCredentialConfirmation({
+    walletId: params.walletId,
     nearAccountId: params.nearAccountId,
     signerSlot: params.signerSlot,
     confirmerText: params.confirmerText,

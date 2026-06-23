@@ -44,10 +44,10 @@ export function useSeamsWithSdkFlow(args: {
     type SetThemeFn = SeamsWeb['setTheme'];
 
     const loginWithSdkFlow: LoginFn = async (
-      nearAccountId: string,
+      walletId: string,
       options?: LoginHooksOptions,
     ) => {
-      const seq = beginSdkFlow('login', nearAccountId);
+      const seq = beginSdkFlow('login', walletId);
       const wrappedOptions: LoginHooksOptions = {
         ...options,
         onEvent: (event: UnlockFlowEvent) => {
@@ -72,7 +72,7 @@ export function useSeamsWithSdkFlow(args: {
         },
       };
 
-      return await seams.auth.unlock(nearAccountId, wrappedOptions);
+      return await seams.auth.unlock(walletId, wrappedOptions);
     };
 
     const registerPasskeyWithSdkFlow: RegisterPasskeyFn = async (

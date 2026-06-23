@@ -1,7 +1,7 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { EmailOtpSessionRefreshResult } from '../emailOtp/appSessionJwtCache';
 import type { PositiveRemainingUses } from '../budget/policy';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   exactSigningLaneIdentityKey,
   thresholdSessionIdsFromExactSigningLaneIdentity,
@@ -64,7 +64,7 @@ export type StepUpExpiryState =
 
 export type FreshStepUpRequired = {
   kind: 'fresh_step_up_required';
-  walletId: AccountId;
+  walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   authMethod: SigningAuthMethod;
@@ -85,7 +85,7 @@ export type FreshStepUpRequired = {
 
 export type FreshStepUpSatisfied = {
   kind: 'fresh_step_up_satisfied';
-  walletId: AccountId;
+  walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   authMethod: SigningAuthMethod;
@@ -112,7 +112,7 @@ export type StepUpFreshnessState =
 
 export type StepUpFreshnessDiagnostics = {
   kind: StepUpFreshnessState['kind'];
-  walletId: AccountId;
+  walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   authMethod: SigningAuthMethod;
@@ -128,7 +128,7 @@ export type StepUpFreshnessDiagnostics = {
 };
 
 type StepUpFreshnessBaseInput = {
-  walletId: AccountId;
+  walletId: WalletId;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   laneIdentity: ExactSigningLaneIdentity;
@@ -171,7 +171,7 @@ function validateBase(input: StepUpFreshnessBaseInput): {
   const laneWalletId =
     input.laneIdentity.curve === 'ecdsa'
       ? String(input.laneIdentity.walletId)
-      : String(input.laneIdentity.accountId);
+      : String(input.laneIdentity.walletId);
   if (String(input.walletId) !== laneWalletId) {
     throw new Error('[StepUpFreshness] walletId does not match exact lane identity');
   }

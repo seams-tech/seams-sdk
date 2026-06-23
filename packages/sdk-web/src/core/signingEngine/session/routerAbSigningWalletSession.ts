@@ -85,6 +85,7 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_material_binding_digest'
   | 'missing_client_verifying_share'
   | 'material_identity_mismatch'
+  | 'wallet_binding_mismatch'
   | 'missing_runtime_policy_scope'
   | 'missing_router_ab_state'
   | 'invalid_router_ab_state'
@@ -273,6 +274,52 @@ function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessio
   };
 }
 
+export type RouterAbEd25519WalletSessionIdentityClaims = {
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+};
+
+export function parseRouterAbEd25519WalletSessionIdentityClaims(
+  walletSessionJwt: string,
+): RouterAbEd25519WalletSessionIdentityClaims | null {
+  const payload = decodeJwtPayloadRecord(walletSessionJwt);
+  if (payload?.kind !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND) return null;
+  const walletId = nonEmptyString(payload.walletId);
+  const nearAccountId = nonEmptyString(payload.nearAccountId);
+  const ed25519KeyScopeId = nonEmptyString(payload.ed25519KeyScopeId);
+  const thresholdSessionId = nonEmptyString(payload.thresholdSessionId);
+  const signingGrantId = nonEmptyString(payload.signingGrantId);
+  if (!walletId || !nearAccountId || !ed25519KeyScopeId || !thresholdSessionId || !signingGrantId) {
+    return null;
+  }
+  return {
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
+    thresholdSessionId,
+    signingGrantId,
+  };
+}
+
+function routerAbEd25519WalletSessionClaimsMatchRecord(args: {
+  record: ThresholdEd25519SessionRecord;
+  claims: RouterAbEd25519WalletSessionIdentityClaims | null;
+}): boolean {
+  const claims = args.claims;
+  if (!claims) return false;
+  const record = args.record;
+  return (
+    claims.walletId === nonEmptyString(record.walletId) &&
+    claims.nearAccountId === nonEmptyString(record.nearAccountId) &&
+    claims.ed25519KeyScopeId === nonEmptyString(record.ed25519KeyScopeId) &&
+    claims.thresholdSessionId === nonEmptyString(record.thresholdSessionId) &&
+    claims.signingGrantId === nonEmptyString(record.signingGrantId)
+  );
+}
+
 const routerAbEd25519RuntimeValidatedMaterialKeys = new Set<string>();
 const routerAbEcdsaHssRuntimeValidatedMaterialKeys = new Set<string>();
 
@@ -404,6 +451,7 @@ function ed25519WorkerMaterialValidationFailureFromParseReason(
     case 'missing_record':
     case 'cookie_session':
     case 'missing_wallet_session_jwt':
+    case 'wallet_binding_mismatch':
     case 'missing_signing_grant_id':
     case 'missing_threshold_session_id':
     case 'missing_runtime_policy_scope':
@@ -664,6 +712,10 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (record.thresholdSessionKind !== 'jwt') return { ok: false, reason: 'cookie_session' };
   const auth = buildWalletSessionJwtAuth(record.walletSessionJwt);
   if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
+  const identityClaims = parseRouterAbEd25519WalletSessionIdentityClaims(auth.walletSessionJwt);
+  if (!routerAbEd25519WalletSessionClaimsMatchRecord({ record, claims: identityClaims })) {
+    return { ok: false, reason: 'wallet_binding_mismatch' };
+  }
   const thresholdSessionId = nonEmptyString(record.thresholdSessionId);
   if (!thresholdSessionId) return { ok: false, reason: 'missing_threshold_session_id' };
   const signingGrantId = nonEmptyString(record.signingGrantId);

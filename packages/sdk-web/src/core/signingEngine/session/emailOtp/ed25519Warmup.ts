@@ -1,5 +1,4 @@
 import type { AccountId } from '@/core/types/accountIds';
-import { toAccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import type {
   listStoredThresholdEcdsaSessionRecordsForWallet,
@@ -55,6 +54,7 @@ import {
 import {
   EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
   reconstructEmailOtpEd25519Session,
+  type EmailOtpEd25519SessionReconstructionKey,
   type EmailOtpEd25519SessionReconstructionPlan,
   type EmailOtpThresholdEd25519ProvisioningResult,
   type ReconstructEmailOtpEd25519SessionArgs,
@@ -69,6 +69,10 @@ import {
 import type {
   EmailOtpEd25519RecoveryCodeSigningSessionHydration,
 } from './recoveryCodeWarmSessionHydration';
+import {
+  buildNearEd25519SignerBinding,
+  nearAccountBindingFromRaw,
+} from '@shared/utils/walletCapabilityBindings';
 
 export type LoginEmailOtpEd25519CapabilityArgs = {
   walletSession: WalletSessionRef;
@@ -145,6 +149,37 @@ function routerAbNormalSigningStateFromConfigs(
       );
     }
   }
+}
+
+function ed25519ReconstructionKeyFromRecord(
+  record: ThresholdEd25519SessionRecord,
+): EmailOtpEd25519SessionReconstructionKey {
+  const nearAccountId = String(record.nearAccountId || '').trim();
+  const signerSlot = Number(record.signerSlot);
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 0) {
+    throw new Error('Email OTP Ed25519 reconstruction requires signerSlot');
+  }
+  const account = nearAccountBindingFromRaw({
+    kind:
+      nearAccountId.length === 64 && /^[0-9a-f]+$/i.test(nearAccountId)
+        ? 'implicit_near_account'
+        : 'named_near_account',
+    wallet: { walletId: record.walletId },
+    nearAccountId,
+  });
+  if (!account.ok) {
+    throw new Error(account.error.message);
+  }
+  return {
+    signer: buildNearEd25519SignerBinding({
+      account: account.value,
+      ed25519KeyScopeId: record.ed25519KeyScopeId,
+      signerSlot,
+    }),
+    relayerKeyId: record.relayerKeyId,
+    keyVersion: record.keyVersion || EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+    participantIds: record.participantIds,
+  };
 }
 
 function emailOtpEcdsaBootstrapRouteAuthFromRecord(
@@ -246,7 +281,6 @@ export class EmailOtpEd25519Warmup {
   async loginWithEd25519CapabilityInternal(
     args: LoginEmailOtpEd25519CapabilityArgs,
   ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-    const nearAccountId = toAccountId(args.walletSession.walletId);
     const relayUrl = String(args.relayUrl || this.ports.requireRelayUrl()).trim();
     const shamirPrimeB64u = String(args.shamirPrimeB64u || this.ports.requireShamirPrimeB64u()).trim();
     const rpId = this.ports.requireRpId('Email OTP Ed25519 login');
@@ -305,7 +339,6 @@ export class EmailOtpEd25519Warmup {
     };
     return await this.reconstructSession({
       kind: 'session_ed25519_reconstruction',
-      nearAccountId,
       relayUrl,
       rpId,
       recoveryCodeSecret32B64u,
@@ -336,6 +369,11 @@ export class EmailOtpEd25519Warmup {
       ? authLaneToRouteAuth(providedAuthLane)
       : args.routeAuth;
     const operation = WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
+    const walletIdRaw = String(args.record.walletId || '').trim();
+    if (!walletIdRaw) {
+      throw new Error('Email OTP Ed25519 signing requires wallet identity');
+    }
+    const walletId = toWalletId(walletIdRaw);
     const routePlan =
       providedAuthLane || providedRouteAuth
         ? buildEmailOtpSigningSessionRoutePlan({
@@ -357,8 +395,8 @@ export class EmailOtpEd25519Warmup {
               resolveEmailOtpAuthLane({
                 appSessionJwt: await this.ports.resolveAppSessionJwt({
                   walletSession: walletSessionRefFromSession({
-                    walletId: nearAccountId,
-                    walletSessionUserId: nearAccountId,
+                    walletId,
+                    walletSessionUserId: walletId,
                   }),
                   relayUrl,
                 }),
@@ -376,7 +414,7 @@ export class EmailOtpEd25519Warmup {
     const ecdsaRecord = requireExactEmailOtpEcdsaRecordForEd25519Signing(
       selectEmailOtpEcdsaRecordForEd25519Signing({
         kind: 'signing_grant_exact',
-        walletId: toWalletId(nearAccountId),
+        walletId,
         signingGrantId,
         listThresholdEcdsaSessionRecordsForWallet:
           this.ports.listThresholdEcdsaSessionRecordsForWallet,
@@ -385,8 +423,8 @@ export class EmailOtpEd25519Warmup {
     const ecdsaBootstrapRouteAuth = emailOtpEcdsaBootstrapRouteAuthFromRecord(ecdsaRecord);
     const ecdsaLogin = await this.ports.loginWithEcdsaCapabilityInternal({
       walletSession: walletSessionRefFromSession({
-        walletId: nearAccountId,
-        walletSessionUserId: nearAccountId,
+        walletId,
+        walletSessionUserId: walletId,
       }),
       relayUrl,
       chainTarget: ecdsaRecord.chainTarget,
@@ -410,21 +448,13 @@ export class EmailOtpEd25519Warmup {
       ed25519SessionReconstruction: args.record.runtimePolicyScope
         ? {
             kind: 'reconstruct',
-            ed25519Key: {
-              relayerKeyId: args.record.relayerKeyId,
-              keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
-              participantIds: args.record.participantIds,
-            },
+            ed25519Key: ed25519ReconstructionKeyFromRecord(args.record),
             runtimePolicyScope: args.record.runtimePolicyScope,
           }
         : {
             kind: 'defer',
             reason: 'missing_runtime_policy_scope',
-            ed25519Key: {
-              relayerKeyId: args.record.relayerKeyId,
-              keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
-              participantIds: args.record.participantIds,
-            },
+            ed25519Key: ed25519ReconstructionKeyFromRecord(args.record),
           },
     });
     if (ecdsaLogin.ed25519Reconstruction.kind !== 'completed') {

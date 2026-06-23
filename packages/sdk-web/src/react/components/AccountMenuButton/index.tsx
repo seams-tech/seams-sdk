@@ -20,7 +20,6 @@ import { RecoveryCodesModal } from './RecoveryCodesModal';
 import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
-import { AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase, type KeyExportFlowEvent } from '@/core/types/sdkSentEvents';
 import { requirePrimaryChainByFamily } from '@/core/config/chains';
 import {
@@ -115,6 +114,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     'User';
   const loggedInAccountId = loginState.nearAccountId;
   const nearAccountId = nearAccountIdProp || loggedInAccountId;
+  const walletId = loginState.walletId;
 
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -136,7 +136,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
   const canShowRecoveryCodes =
-    loginState.isLoggedIn && loginState.authMethod === SIGNER_AUTH_METHODS.emailOtp;
+    loginState.isLoggedIn &&
+    Boolean(walletId) &&
+    loginState.authMethods.some((authMethod) => authMethod.kind === SIGNER_AUTH_METHODS.emailOtp);
 
   useEffect(() => {
     if (!canShowRecoveryCodes) {
@@ -147,15 +149,15 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Keep local view state in sync with SDK preferences (mirrors wallet host in iframe mode)
   useEffect(() => {
     if (!seams) return;
-    if (!loginState.isLoggedIn || !loggedInAccountId) {
+    if (!loginState.isLoggedIn || !walletId) {
       setCurrentConfirmConfig(null);
       return;
     }
 
     let cancelled = false;
 
-    if (AccountId.validate(loggedInAccountId).valid) {
-      seams.preferences.setCurrentWallet(toWalletId(loggedInAccountId));
+    if (walletId) {
+      seams.preferences.setCurrentWallet(toWalletId(walletId));
     }
     setCurrentConfirmConfig(seams.preferences.getConfirmationConfig());
 
@@ -168,7 +170,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       cancelled = true;
       unsubConfirmConfig?.();
     };
-  }, [seams, loginState.isLoggedIn, loggedInAccountId]);
+  }, [seams, loginState.isLoggedIn, walletId]);
 
   // Handlers for transaction settings
   const handleSetUiMode = (mode: 'none' | 'modal' | 'drawer') => {
@@ -214,7 +216,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   const startExportKeyFlow = useCallback(
     async (chain: 'near' | 'evm') => {
-      if (!nearAccountId) return;
+      if (chain === 'near' && (!nearAccountId || !walletId)) return;
+      if (chain === 'evm' && !walletId) return;
       let exportViewerDisplayed = false;
       const handleExportEvent = (event: KeyExportFlowEvent) => {
         if (event.phase !== KeyExportEventPhase.STEP_04_VIEWER_OPENED) return;
@@ -235,6 +238,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           chain === 'near'
             ? {
                 kind: 'near',
+                walletSession: walletSessionRefFromSession({
+                  walletId: walletId!,
+                  walletSessionUserId: walletId!,
+                }),
                 nearAccount: nearAccountRefFromAccountId(nearAccountId),
                 options: {
                   chain: 'near',
@@ -245,8 +252,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             : {
                 kind: 'ecdsa',
                 walletSession: walletSessionRefFromSession({
-                  walletId: nearAccountId,
-                  walletSessionUserId: nearAccountId,
+                  walletId: walletId!,
+                  walletSessionUserId: walletId!,
                 }),
                 chainTarget: thresholdEcdsaChainTargetFromConfig(
                   requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
@@ -274,7 +281,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         }
       }
     },
-    [nearAccountId, seams],
+    [nearAccountId, seams, walletId],
   );
 
   // Menu items configuration with context-aware handlers
@@ -449,9 +456,12 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
       {/* Linked Devices Modal (portaled to nearest root for robustness) */}
       {canPortal &&
+        walletId &&
+        nearAccountId &&
         createPortal(
           <LinkedDevicesModal
-            nearAccountId={nearAccountId!}
+            walletId={walletId}
+            nearAccountId={nearAccountId}
             isOpen={showLinkedDevices}
             onClose={() => setShowLinkedDevices(false)}
           />,
@@ -462,7 +472,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       {canPortal &&
         createPortal(
           <RecoveryCodesModal
-            nearAccountId={nearAccountId!}
+            walletId={walletId!}
             isOpen={showRecoveryCodes}
             onClose={() => setShowRecoveryCodes(false)}
           />,

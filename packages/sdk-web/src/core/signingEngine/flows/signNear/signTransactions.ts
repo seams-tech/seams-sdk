@@ -102,7 +102,7 @@ import {
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
-import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
+import type { NearAccountRef, NearCommandSubject } from '../../interfaces/ecdsaChainTarget';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
 import { tryFinalizeRouterAbEd25519NearTransactionNormalSigning } from './shared/ed25519PresignFinalize';
 import { type RouterAbEd25519NormalSigningReadyState } from './shared/routerAbWalletSessionCredential';
@@ -171,6 +171,7 @@ type RouterAbNearTransactionSigningPayload = {
 
 export async function runNearTransactionWithActionsSigning({
   ctx,
+  commandSubject,
   nearAccount,
   transaction,
   rpcCall,
@@ -188,8 +189,9 @@ export async function runNearTransactionWithActionsSigning({
   ed25519Warmup,
   passkeyEd25519Reconnect,
 }: {
-  ctx: NearSigningRuntimeDeps;
-  nearAccount: NearAccountRef;
+	  ctx: NearSigningRuntimeDeps;
+	  commandSubject: NearCommandSubject;
+	  nearAccount: NearAccountRef;
   transaction: TransactionInputWasm;
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -434,7 +436,7 @@ export async function runNearTransactionWithActionsSigning({
         chain: 'near',
         kind: 'transaction',
         ...confirmationAuthPayload,
-        walletId: String(signingLane.accountId),
+        walletId: String(signingLane.walletId),
         txSigningRequests: [confirmationTransaction],
         rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
@@ -721,9 +723,9 @@ export async function runNearTransactionWithActionsSigning({
   ): Promise<void> => {
     if (walletSpendRecorded) return;
     const spend = {
-      operationId: confirmationOperationId,
-      ...(operationFingerprint ? { operationFingerprint } : {}),
-      walletId: buildBudgetSigningLane().accountId,
+	      operationId: confirmationOperationId,
+	      ...(operationFingerprint ? { operationFingerprint } : {}),
+	      walletId: commandSubject.walletSession.walletId,
       signingGrantId: buildBudgetSigningLane().signingGrantId,
       lane: buildBudgetSigningLane(),
       thresholdSessionIds: [operationState.lane.thresholdSessionId],
@@ -864,6 +866,7 @@ export async function runNearTransactionWithActionsSigning({
         thresholdSessionId: canonicalThresholdSessionId,
         walletSessionState,
         thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        walletId: commandSubject.walletSession.walletId,
         nearAccountId,
         signingMaterial: payload.signingMaterial,
         operationId: signingOperation.operationId,

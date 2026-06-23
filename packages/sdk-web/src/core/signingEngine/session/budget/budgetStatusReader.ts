@@ -511,9 +511,8 @@ function resolveWalletSigningBudgetStatusAuth(
 
 function walletIdFromBudgetAuthRecord(record: {
   walletId?: unknown;
-  nearAccountId?: unknown;
 }): string {
-  return String(record.walletId ?? record.nearAccountId ?? '').trim();
+  return String(record.walletId || '').trim();
 }
 
 function ecdsaRecordMatchesBudgetLane(

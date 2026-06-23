@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useSeams } from '../../context';
 import './LinkedDevicesModal.css';
 import { useTheme, Theme } from '../theme';
+import {
+  nearAccountRefFromAccountId,
+  walletSessionRefFromSession,
+} from '../../../core/signingEngine/interfaces/ecdsaChainTarget';
 
 interface LinkedDevicesModalProps {
+  walletId: string;
   nearAccountId: string;
   isOpen: boolean;
   onClose: () => void;
@@ -15,6 +20,7 @@ type RelayAuthenticatorRow = {
 };
 
 export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
+  walletId,
   nearAccountId,
   isOpen,
   onClose,
@@ -51,7 +57,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       setPage(0);
       loadAuthenticators();
     }
-  }, [isOpen, nearAccountId]);
+  }, [isOpen, walletId, nearAccountId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -81,7 +87,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // Resolve current signer slot for highlighting
       let currentSignerSlotFromState: number | null = null;
       try {
-        const { login } = await seams.auth.getWalletSession(nearAccountId);
+        const { login } = await seams.auth.getWalletSession(walletId);
         const slot = (login as any)?.userData?.signerSlot;
         currentSignerSlotFromState =
           typeof slot === 'number' && Number.isFinite(slot) ? Math.floor(slot) : null;
@@ -90,7 +96,13 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       }
       setCurrentSignerSlot(currentSignerSlotFromState);
 
-      const keys = await viewAccessKeyList(nearAccountId);
+      const keys = await viewAccessKeyList({
+        walletSession: walletSessionRefFromSession({
+          walletId,
+          walletSessionUserId: walletId,
+        }),
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+      });
 
       const keyMetaByPublicKey = new Map<string, { signerSlot?: number }>();
 

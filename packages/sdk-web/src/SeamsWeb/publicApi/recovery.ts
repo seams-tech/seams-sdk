@@ -20,7 +20,7 @@ export function createRecoveryCapability(deps: {
     walletIframe: deps.walletIframe,
   });
   return {
-    getRecoveryEmails: async (accountId) => await emailRecovery.getRecoveryEmails(accountId),
+    getRecoveryEmails: async (walletId) => await emailRecovery.getRecoveryEmails(walletId),
     setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
     syncAccount: async (args) => await emailRecovery.syncAccount(args),
     startEmailRecovery: async (args) => await emailRecovery.startEmailRecovery(args),

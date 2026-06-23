@@ -39,8 +39,9 @@ export function createNearSigningDeps(args: {
     },
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    requestEmailOtpTransactionSigningChallenge: ({ nearAccountId, chain, authLane }) =>
+    requestEmailOtpTransactionSigningChallenge: ({ walletSession, nearAccountId, chain, authLane }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
+        walletSession,
         nearAccountId,
         chain,
         ...(authLane ? { authLane } : {}),

@@ -6,6 +6,7 @@ import { useLoginStateRefresher } from './useLoginStateRefresher';
 import { useSeamsContextValue } from './useSeamsContextValue';
 import { useWalletIframeLifecycle } from './useWalletIframeLifecycle';
 import { getOrCreateSeamsManager } from './seamsManagerSingleton';
+import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import type {
   SeamsContextType,
   SeamsContextProviderProps,
@@ -23,9 +24,11 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
 }) => {
   const [loginState, setLoginState] = useState<LoginState>({
     isLoggedIn: false,
+    walletId: null,
     nearAccountId: null,
     nearPublicKey: null,
-    authMethod: null,
+    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+    authMethods: [],
     thresholdEcdsaEthereumAddress: null,
     thresholdEcdsaPublicKeyB64u: null,
   });
@@ -53,7 +56,7 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
     ...(hasExplicitAccountDomainOverride
       ? { accountDomain: seams.configs.network.relayer.accountId }
       : {}),
-    currentWalletId: loginState.nearAccountId,
+    currentWalletId: loginState.walletId,
     isLoggedIn: loginState.isLoggedIn,
   });
 

@@ -29,8 +29,36 @@ export type EmailOtpExportAuthorizationConfirmer = {
   requestUserConfirmation: (request: UserConfirmRequest) => Promise<UserConfirmDecision>;
 };
 
+export type EmailOtpExportAuthorizationIdentity =
+  | {
+      kind: 'near_account';
+      nearAccountId: AccountId | string;
+    }
+  | {
+      kind: 'wallet_session';
+      walletId: string;
+    };
+
 function createEmailOtpExportUiRequestId(prefix: string): string {
   return secureRandomId(prefix, 32, 'Email OTP export UI request IDs');
+}
+
+function accountIdForEmailOtpExportUi(identity: EmailOtpExportAuthorizationIdentity): string {
+  switch (identity.kind) {
+    case 'near_account':
+      return String(toAccountId(identity.nearAccountId));
+    case 'wallet_session': {
+      const walletId = String(identity.walletId || '').trim();
+      if (!walletId) {
+        throw new Error('Email OTP export requires wallet identity');
+      }
+      return walletId;
+    }
+    default: {
+      const exhaustive: never = identity;
+      return exhaustive;
+    }
+  }
 }
 
 function buildEmailOtpExportPrompt(args: {
@@ -48,14 +76,14 @@ function buildEmailOtpExportPrompt(args: {
 }
 
 export async function requestEmailOtpExportAuthorization(args: {
-  nearAccountId: AccountId | string;
+  identity: EmailOtpExportAuthorizationIdentity;
   chain: EmailOtpExportAuthorizationChain;
   publicKey: string;
   curve: WalletAuthCurve;
   challengeSource: EmailOtpExportAuthorizationChallengeSource;
   confirmer: EmailOtpExportAuthorizationConfirmer;
 }): Promise<EmailOtpExportAuthorizationResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const accountIdForUi = accountIdForEmailOtpExportUi(args.identity);
   const requestExportChallenge = async (): Promise<EmailOtpExportAuthorizationChallenge> => {
     const challenge = await args.challengeSource.requestChallenge();
     const challengeId = String(challenge.challengeId || '').trim();
@@ -82,13 +110,13 @@ export async function requestEmailOtpExportAuthorization(args: {
     type: UserConfirmationType.SIGN_INTENT_DIGEST,
     summary: {
       operation: 'Export Private Key',
-      accountId: nearAccountId,
+      accountId: accountIdForUi,
       publicKey: args.publicKey,
       warning:
         'Enter the email code to export this key. Anyone with the private key can fully control the account.',
     },
     payload: {
-      nearAccountId,
+      nearAccountId: accountIdForUi,
       publicKey: args.publicKey,
       challengeB64u: challenge.challengeId,
       signingAuthPlan: {
@@ -98,7 +126,7 @@ export async function requestEmailOtpExportAuthorization(args: {
       },
       emailOtpPrompt,
     },
-    intentDigest: `export-keys:${nearAccountId}:${args.chain}:${args.curve}:email-otp`,
+    intentDigest: `export-keys:${accountIdForUi}:${args.chain}:${args.curve}:email-otp`,
   });
 
   if (!decision.confirmed) {

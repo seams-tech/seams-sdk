@@ -11,13 +11,11 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
   return {
     PM_START_DEVICE2_LINKING_FLOW: async (req: Req<'PM_START_DEVICE2_LINKING_FLOW'>) => {
       const pm = deps.getSeamsWeb();
-      const { ui, cameraId, accountId, signerSlot, options } = req.payload || {};
-      const accountIdValue = accountId ? toAccountId(accountId) : undefined;
+      const { ui, cameraId, signerSlot, options } = req.payload || {};
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.devices.startDevice2LinkingFlow({
         ...(ui ? { ui } : {}),
         ...(cameraId ? { cameraId } : {}),
-        ...(accountIdValue ? { accountId: accountIdValue } : {}),
         ...(typeof signerSlot === 'number' ? { signerSlot } : {}),
         options: {
           ...withProgress(deps, req.requestId, options || {}),
@@ -51,20 +49,30 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
 
     PM_HAS_PASSKEY: async (req: Req<'PM_HAS_PASSKEY'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId } = req.payload!;
+      const { walletId } = req.payload!;
       const ctx = pm.getContext();
       await ctx?.signingEngine.getLastUser().catch(() => undefined);
-      await ctx?.signingEngine
-        .nearAuthenticatorsByAccount(toAccountId(nearAccountId))
-        .catch(() => undefined);
-      const result = await pm.auth.hasPasskeyCredential(toAccountId(nearAccountId));
+      const session = await pm.auth.getWalletSession(walletId).catch(() => null);
+      const nearAccountId = session?.login.nearAccountId ? String(session.login.nearAccountId) : '';
+      if (nearAccountId) {
+        await ctx?.signingEngine
+          .nearAuthenticatorsByAccount(toAccountId(nearAccountId))
+          .catch(() => undefined);
+      }
+      const result = await pm.auth.hasPasskeyCredential(walletId);
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_VIEW_ACCESS_KEYS: async (req: Req<'PM_VIEW_ACCESS_KEYS'>) => {
       const pm = deps.getSeamsWeb();
-      const { accountId } = req.payload!;
-      const result = await pm.devices.viewAccessKeyList(accountId);
+      const { walletId, nearAccountId } = req.payload!;
+      const result = await pm.devices.viewAccessKeyList({
+        walletSession: walletSessionRefFromSession({
+          walletId,
+          walletSessionUserId: walletId,
+        }),
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+      });
       respondOkResult(deps, req.requestId, result);
     },
 

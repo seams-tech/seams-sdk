@@ -1260,7 +1260,7 @@ export async function consumeSigningGrantUse(args: {
   );
   if (ed25519EmailOtpLane && input.owner.curve === 'ed25519') {
     args.deps.markThresholdEd25519EmailOtpSessionConsumedForWallet?.({
-      walletId: input.owner.accountId,
+      walletId: input.owner.walletId,
       thresholdSessionId: ed25519EmailOtpLane.thresholdSessionId,
       uses,
     });

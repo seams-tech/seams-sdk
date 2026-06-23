@@ -753,6 +753,10 @@ type ResolvedEd25519SignerBinding =
       ed25519KeyScopeId: WalletRegistrationEd25519KeyScopeId;
     };
 
+function knownAccountEd25519KeyScopeIdFromNearAccountId(nearAccountId: string): string {
+  return String(nearAccountId);
+}
+
 function knownAccountEd25519SignerBindingFromScope(input: {
   walletId: WalletId;
   scope: Extract<
@@ -1265,13 +1269,14 @@ function thresholdEd25519KnownAccountRegistrationScope(input: {
   { kind: 'known_account_registration_scope' }
 > {
   const nearAccountId = String(input.nearAccountId);
+  const ed25519KeyScopeId = knownAccountEd25519KeyScopeIdFromNearAccountId(nearAccountId);
   return {
     kind: 'known_account_registration_scope',
     walletId: String(input.walletId),
     rpId: input.rpId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
-    ed25519KeyScopeId: nearAccountId,
+    ed25519KeyScopeId,
     signerSlot: input.signerSlot,
     keyPurpose: input.keyPurpose,
     keyVersion: input.keyVersion,
@@ -6011,7 +6016,6 @@ export class AuthService {
               kind: 'email_otp',
               proofKind: 'google_sso_registration',
               walletId: finalWalletId.value,
-              rpId: input.intent.rpId,
               providerSubject: providerSubject.value,
               email: attempt.email.toLowerCase(),
               emailHashHex,
@@ -6087,7 +6091,6 @@ export class AuthService {
             kind: 'email_otp',
             proofKind: 'otp_challenge',
             walletId: challengeProof.finalWalletId,
-            rpId: input.intent.rpId,
             providerSubject: challengeProof.providerSubject,
             challengeSubjectId: challengeProof.challengeSubjectId,
             email: challengeProof.challengeEmail,
@@ -7354,7 +7357,6 @@ export class AuthService {
 
   private buildEmailOtpWalletAuthMethodRecord(input: {
     walletId: WalletId;
-    rpId: string;
     emailHashHex: string;
     registrationAuthorityId: string;
     now: number;
@@ -7364,7 +7366,6 @@ export class AuthService {
       kind: 'email_otp',
       status: 'active',
       walletId: input.walletId,
-      rpId: input.rpId,
       emailHashHex: input.emailHashHex,
       registrationAuthorityId: input.registrationAuthorityId,
       createdAtMs: input.now,
@@ -7411,7 +7412,6 @@ export class AuthService {
           walletAuthMethods: [
             this.buildEmailOtpWalletAuthMethodRecord({
               walletId: input.authority.walletId,
-              rpId: input.authority.rpId,
               emailHashHex: input.authority.emailHashHex,
               registrationAuthorityId: input.authority.registrationAuthorityId,
               now: input.now,
@@ -7482,7 +7482,6 @@ export class AuthService {
           walletAuthMethods: [
             this.buildEmailOtpWalletAuthMethodRecord({
               walletId: input.walletId,
-              rpId: input.rpId,
               emailHashHex: input.authority.emailHashHex,
               registrationAuthorityId: input.authority.registrationAuthorityId,
               now: input.now,
@@ -9466,7 +9465,6 @@ export class AuthService {
         const emailHashHex = bytesToHex(await sha256BytesUtf8(challengeProof.challengeEmail));
         const duplicateEmailOtp = await input.walletAuthMethodStore.getEmailOtp({
           walletId: input.intent.walletId,
-          rpId: input.intent.rpId,
           emailHashHex,
         });
         if (duplicateEmailOtp && duplicateEmailOtp.status === 'active') {
@@ -9482,7 +9480,6 @@ export class AuthService {
             kind: 'email_otp',
             proofKind: 'otp_challenge',
             walletId: challengeProof.finalWalletId,
-            rpId: input.intent.rpId,
             providerSubject: challengeProof.providerSubject,
             challengeSubjectId: challengeProof.challengeSubjectId,
             email: challengeProof.challengeEmail,
@@ -9523,7 +9520,6 @@ export class AuthService {
         const emailHashHex = bytesToHex(await sha256BytesUtf8(input.target.email));
         const record = await input.walletAuthMethodStore.getEmailOtp({
           walletId: input.walletId,
-          rpId: input.rpId,
           emailHashHex,
         });
         if (!record || record.kind !== 'email_otp') {
@@ -9832,7 +9828,6 @@ export class AuthService {
     } else {
       const duplicateEmailOtp = await this.getWalletAuthMethodStore().getEmailOtp({
         walletId: ceremony.authority.walletId,
-        rpId: ceremony.authority.rpId,
         emailHashHex: ceremony.authority.emailHashHex,
       });
       if (duplicateEmailOtp && duplicateEmailOtp.status === 'active') {
@@ -15308,6 +15303,8 @@ export class AuthService {
   async claimLinkDeviceSession(request: {
     session_id?: unknown;
     sessionId?: unknown;
+    wallet_id?: unknown;
+    walletId?: unknown;
     account_id?: unknown;
     accountId?: unknown;
     device2_public_key?: unknown;
@@ -15338,6 +15335,10 @@ export class AuthService {
       const accountId = String(request?.account_id ?? request?.accountId ?? '').trim();
       if (!accountId || !isValidAccountId(accountId)) {
         return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
+      }
+      const walletId = parseBoundaryWalletId(request?.wallet_id ?? request?.walletId);
+      if (!walletId) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid walletId' };
       }
 
       const device2PublicKey = String(
@@ -15376,6 +15377,13 @@ export class AuthService {
           message: 'Session is already claimed by a different accountId',
         };
       }
+      if (existing?.walletId && existing.walletId !== walletId) {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'Session is already claimed by a different walletId',
+        };
+      }
       if (existing?.device2PublicKey && existing.device2PublicKey !== device2PublicKey) {
         return { ok: false, code: 'conflict', message: 'Session public key mismatch' };
       }
@@ -15388,7 +15396,7 @@ export class AuthService {
       try {
         const bindingStore = this.getWebAuthnCredentialBindingStore();
         if (bindingStore.getMaxSignerSlot) {
-          const maxSignerSlot = await bindingStore.getMaxSignerSlot({ userId: accountId });
+          const maxSignerSlot = await bindingStore.getMaxSignerSlot({ userId: walletId });
           if (typeof maxSignerSlot === 'number' && maxSignerSlot >= signerSlot) {
             signerSlot = maxSignerSlot + 1;
           }
@@ -15408,6 +15416,7 @@ export class AuthService {
         createdAtMs: existing?.createdAtMs ?? now,
         expiresAtMs,
         claimedAtMs: now,
+        walletId,
         accountId,
         signerSlot,
         ...(addKeyTxHash ? { addKeyTxHash } : {}),
@@ -15419,7 +15428,7 @@ export class AuthService {
       // Best-effort: persist the ephemeral (device2) key metadata. This key is expected to be deleted
       // by Device2 during completion, but storing it helps UIs classify access keys while linking is in flight.
       await this.recordNearPublicKeyMetadata({
-        userId: accountId,
+        userId: walletId,
         publicKey: device2PublicKey,
         kind: 'ephemeral',
         signerSlot,
@@ -15429,6 +15438,7 @@ export class AuthService {
 
       this.logger.info('[link-device] session claimed', {
         sessionId,
+        walletId,
         accountId,
         device2PublicKey,
         signerSlot,
@@ -15446,6 +15456,8 @@ export class AuthService {
   }
 
   async prepareLinkDevice(request: {
+    wallet_id?: unknown;
+    walletId?: unknown;
     account_id?: unknown;
     accountId?: unknown;
     session_id?: unknown;
@@ -15460,6 +15472,7 @@ export class AuthService {
   }): Promise<
     | {
         ok: true;
+        walletId: string;
         accountId: string;
         signerSlot: number;
         credentialIdB64u: string;
@@ -15471,6 +15484,8 @@ export class AuthService {
           clientParticipantId?: number;
           relayerParticipantId?: number;
           participantIds?: number[];
+          nearAccountId: string;
+          ed25519KeyScopeId: string;
           session?: ThresholdEd25519BootstrapSession;
         };
         ecdsa?: WalletRegistrationEcdsaPreparePayload;
@@ -15492,7 +15507,12 @@ export class AuthService {
       if (!accountId || !isValidAccountId(accountId)) {
         return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
       }
-      const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim() || undefined;
+      const sessionId =
+        String(request?.session_id ?? request?.sessionId ?? '').trim() || undefined;
+      const walletId = parseBoundaryWalletId(request?.wallet_id ?? request?.walletId);
+      if (!walletId) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid walletId' };
+      }
 
       const rpId = String(request?.rp_id || '').trim();
       if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
@@ -15606,12 +15626,12 @@ export class AuthService {
       const bindingStore = this.getWebAuthnCredentialBindingStore();
       const existingRuntimePolicyScope = await resolveBoundThresholdRuntimePolicyScope({
         bindingStore,
-        userId: accountId,
+        userId: walletId,
         rpId,
       });
       const existingThresholdEd25519Binding = await resolveExistingThresholdEd25519Binding({
         bindingStore,
-        userId: accountId,
+        userId: walletId,
         rpId,
       });
       if (!existingThresholdEd25519Binding) {
@@ -15619,6 +15639,20 @@ export class AuthService {
           ok: false,
           code: 'not_found',
           message: 'No existing threshold-ed25519 key binding found for account',
+        };
+      }
+      if (existingThresholdEd25519Binding.userId !== walletId) {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'Existing threshold-ed25519 binding walletId mismatch',
+        };
+      }
+      if (existingThresholdEd25519Binding.nearAccountId !== accountId) {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'Existing threshold-ed25519 binding accountId mismatch',
         };
       }
       const keygen = {
@@ -15670,7 +15704,7 @@ export class AuthService {
         }
         ecdsaPrepare = await this.prepareEcdsaRegistrationStartPayload({
           registrationCeremonyId: `link_device_${randomBase64Url(16)}`,
-          walletId: walletIdFromString(accountId),
+          walletId: walletIdFromString(walletId),
           rpId,
           signingRootId,
           signingRootVersion,
@@ -15756,7 +15790,7 @@ export class AuthService {
       const now = Date.now();
 
       const authStore = this.getWebAuthnAuthenticatorStore();
-      await authStore.put(accountId, {
+      await authStore.put(walletId, {
         version: 'webauthn_authenticator_v1',
         credentialIdB64u,
         credentialPublicKeyB64u: base64UrlEncode(credentialPublicKey),
@@ -15769,7 +15803,7 @@ export class AuthService {
         version: 'webauthn_credential_binding_v1',
         rpId,
         credentialIdB64u,
-        userId: accountId,
+        userId: walletId,
         nearAccountId: existingThresholdEd25519Binding.nearAccountId,
         ed25519KeyScopeId: existingThresholdEd25519Binding.ed25519KeyScopeId,
         signerSlot,
@@ -15790,7 +15824,7 @@ export class AuthService {
 
       // Best-effort: persist key metadata for UI surfaces like "Linked Devices".
       await this.recordNearPublicKeyMetadata({
-        userId: accountId,
+        userId: walletId,
         publicKey: keygen.publicKey,
         kind: 'threshold',
         signerSlot,
@@ -15816,15 +15850,24 @@ export class AuthService {
             message: 'Link-device session accountId mismatch',
           };
         }
+        if (existingSession.walletId && existingSession.walletId !== walletId) {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'Link-device session walletId mismatch',
+          };
+        }
 
         await sessionStore.put({
           ...existingSession,
+          walletId,
           ...(ecdsaPrepare ? { preparedEcdsa: ecdsaPrepare } : {}),
         });
       }
 
       return {
         ok: true,
+        walletId,
         accountId,
         signerSlot,
         credentialIdB64u,
@@ -15838,6 +15881,8 @@ export class AuthService {
           clientParticipantId: keygen.clientParticipantId,
           relayerParticipantId: keygen.relayerParticipantId,
           participantIds: keygen.participantIds,
+          nearAccountId: existingThresholdEd25519Binding.nearAccountId,
+          ed25519KeyScopeId: existingThresholdEd25519Binding.ed25519KeyScopeId,
           ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
         },
         ...(ecdsaPrepare ? { ecdsa: ecdsaPrepare } : {}),

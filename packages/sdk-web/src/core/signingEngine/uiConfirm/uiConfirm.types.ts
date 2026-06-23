@@ -78,7 +78,8 @@ export type WarmSessionClaimResult =
   | { ok: false; code: string; message: string };
 
 export type RequestRegistrationCredentialConfirmationParams = {
-  nearAccountId: string;
+  walletId: string;
+  nearAccountId?: string;
   signerSlot: number;
   confirmerText?: { title?: string; body?: string };
   confirmationConfigOverride?: Partial<ConfirmationConfig>;

@@ -5,6 +5,7 @@ import { AccountId } from './accountIds';
 import { SignedTransaction } from '../rpcClients/near/NearClient';
 import { WebAuthnRegistrationCredential } from '.';
 import type { ConfirmationConfig } from './signer-worker';
+import type { WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
 
@@ -27,6 +28,7 @@ export interface DeviceLinkingQRData {
 
 export interface DeviceLinkingSession {
   sessionId?: string;
+  walletId: WalletId | null;
   accountId: AccountId | null; // Null until discovered from contract logs (Option F) or provided upfront (Option E)
   signerSlot?: number;
   nearPublicKey: string;
@@ -66,11 +68,6 @@ export enum DeviceLinkingErrorCode {
 
 export type StartDevice2LinkingFlowArgs = {
   ui?: 'modal' | 'inline';
-  /**
-   * Optional accountId for immediate completion on Device2.
-   * When omitted, Device2 discovers the account via relay claim after Device1 adds the key.
-   */
-  accountId?: AccountId;
   /**
    * Optional preferred signer slot for the new passkey credential (1-indexed).
    * When omitted, device2 will attempt `2` and auto-increment on duplicate.

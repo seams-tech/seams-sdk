@@ -213,6 +213,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     : '';
   const rpId = String(args.bootstrap.keygen.rpId || '').trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  const userId = String(keyRef.userId || '').trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
   const clientVerifyingShareB64u = String(
     keyRef.backendBinding?.clientVerifyingShareB64u || '',
@@ -227,6 +228,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (
     !ecdsaThresholdKeyId ||
     !rpId ||
+    !userId ||
     !ethereumAddress ||
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
@@ -280,7 +282,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     signingGrantId: readyPersistenceInput.signingGrantId,
     thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
-    userId: String(keyRef.userId || args.walletId || '').trim(),
+    userId,
     relayerUrl,
     ...(String(sealed.keyVersion || keyVersion).trim()
       ? { keyVersion: String(sealed.keyVersion || keyVersion).trim() }

@@ -30,6 +30,7 @@ import {
 import type { TransactionContext } from '@/core/types/rpc';
 import { ActionType, fromActionArgsWasm, type ActionArgsWasm } from '@/core/types/actions';
 import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import type {
@@ -148,6 +149,7 @@ type RouterAbEd25519PresignPoolSigningInput = {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  walletId: WalletId;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
   nearNetworkId: 'testnet' | 'mainnet';
@@ -217,12 +219,12 @@ function routerAbNormalSigningExpiresAtMs(args: {
 function buildRouterAbNormalSigningScope(args: {
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
-  nearAccountId: string;
+  walletId: WalletId;
   operationId: SigningOperationId;
 }): RouterAbNormalSigningScopeV1Wire | null {
   const routerAbState = args.walletSessionState.routerAbNormalSigning;
   if (!routerAbState) return null;
-  const walletId = String(args.walletSessionState.signingLane.accountId || '').trim();
+  const walletId = String(args.walletId || '').trim();
   if (!walletId) {
     throw new Error('[SigningEngine][near] Router A/B Ed25519 signing scope is missing wallet id');
   }
@@ -237,11 +239,11 @@ function buildRouterAbNormalSigningScope(args: {
 function buildRouterAbPresignPoolRefillScope(args: {
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
-  nearAccountId: string;
+  walletId: WalletId;
 }): RouterAbNormalSigningScopeV1Wire | null {
   const routerAbState = args.walletSessionState.routerAbNormalSigning;
   if (!routerAbState) return null;
-  const walletId = String(args.walletSessionState.signingLane.accountId || '').trim();
+  const walletId = String(args.walletId || '').trim();
   if (!walletId) {
     throw new Error('[SigningEngine][near] Router A/B Ed25519 presign scope is missing wallet id');
   }
@@ -335,6 +337,7 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
   nearAccountId: string;
   signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
@@ -342,7 +345,7 @@ export async function refillRouterAbEd25519ClientPresignPool(args: {
   const scope = buildRouterAbPresignPoolRefillScope({
     thresholdSessionId: args.thresholdSessionId,
     walletSessionState: args.walletSessionState,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   });
   if (!scope) return null;
   const routerAbReadyState = requireRouterAbEd25519NormalSigningReadyState({
@@ -485,6 +488,7 @@ function scheduleRouterAbEd25519ClientPresignPoolRefillInBackground(args: {
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
   nearAccountId: string;
   signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
@@ -574,6 +578,7 @@ async function signReservedRouterAbEd25519Presign(args: {
       thresholdSessionId: input.thresholdSessionId,
       walletSessionState: input.walletSessionState,
       thresholdKeyMaterial: input.thresholdKeyMaterial,
+      walletId: input.walletId,
       nearAccountId: input.nearAccountId,
       signingMaterial: input.signingMaterial,
       requestTag: 'background_presign_pool_refill',
@@ -708,6 +713,7 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
   nearAccountId: string;
   nearNetworkId: 'testnet' | 'mainnet';
   signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
@@ -791,6 +797,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
   signingSessionCoordinator: SigningSessionCoordinator;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
   nearAccountId: string;
   signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   operationId: SigningOperationId;
@@ -802,7 +809,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
   const scope = buildRouterAbNormalSigningScope({
     thresholdSessionId: args.thresholdSessionId,
     walletSessionState: args.walletSessionState,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     operationId: args.operationId,
   });
   if (!scope) return null;
@@ -864,6 +871,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
     walletSessionState: args.walletSessionState,
     thresholdSessionId: args.thresholdSessionId,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
+    walletId: args.walletId,
     nearAccountId: args.nearAccountId,
     operationId: args.operationId,
     operationFingerprint: args.operationFingerprint,
@@ -880,6 +888,7 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
       thresholdSessionId: args.thresholdSessionId,
       walletSessionState: args.walletSessionState,
       thresholdKeyMaterial: args.thresholdKeyMaterial,
+      walletId: args.walletId,
       nearAccountId: args.nearAccountId,
       nearNetworkId,
       signingMaterial: args.signingMaterial,
@@ -944,6 +953,7 @@ async function prepareRouterAbEd25519SignatureOnlyBudgetFinalizer(args: {
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
   nearAccountId: string;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
@@ -968,7 +978,7 @@ async function prepareRouterAbEd25519SignatureOnlyBudgetFinalizer(args: {
       spend: {
         operationId: args.operationId,
         operationFingerprint: args.operationFingerprint,
-        walletId: args.walletSessionState.signingLane.accountId,
+        walletId: args.walletId,
         signingGrantId: args.walletSessionState.signingLane.signingGrantId,
         lane: args.walletSessionState.signingLane,
         thresholdSessionIds: [args.walletSessionState.signingLane.thresholdSessionId],
@@ -1037,6 +1047,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   thresholdSessionId: string;
   walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
+  walletId: WalletId;
   nearAccountId: string;
   signingMaterial: RouterAbEd25519RuntimeValidatedMaterial;
   operationId: SigningOperationId;
@@ -1086,7 +1097,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   const scope = buildRouterAbNormalSigningScope({
     thresholdSessionId: args.thresholdSessionId,
     walletSessionState: args.walletSessionState,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     operationId: args.operationId,
   });
   if (!scope) {
@@ -1116,6 +1127,7 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
     thresholdSessionId: args.thresholdSessionId,
     walletSessionState: args.walletSessionState,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
+    walletId: args.walletId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
     signingMaterial: args.signingMaterial,

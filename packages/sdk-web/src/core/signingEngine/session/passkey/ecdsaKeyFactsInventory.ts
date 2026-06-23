@@ -122,10 +122,12 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
     keyFacts.thresholdEcdsaPublicKeyB64u || args.metadata.thresholdEcdsaPublicKeyB64u || '',
   ).trim();
   if (!thresholdEcdsaPublicKeyB64u) return null;
+  const keyWalletId = String(keyFacts.walletId || '').trim();
+  if (!keyWalletId) return null;
   try {
     toThresholdEcdsaPublicKeyB64u(thresholdEcdsaPublicKeyB64u);
     return buildEvmFamilyEcdsaWalletKey({
-      walletId: keyFacts.walletId || args.walletId,
+      walletId: keyWalletId,
       rpId: keyFacts.rpId || args.metadata.rpId,
       keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
@@ -233,7 +235,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   const keyHandle = parseCurrentEcdsaKeyHandle(raw.keyHandle);
   const accountAddress = normalizeEvmOwnerAddress(raw.accountAddress);
   const ownerAddress = normalizeEvmOwnerAddress(raw.ownerAddress);
-  const keyWalletId = String(rawKey.walletId || rawKey.walletSessionUserId || '').trim();
+  const keyWalletId = String(rawKey.walletId || '').trim();
   const rawKeySubjectId = String(rawKey.subjectId || '').trim();
   const expectedKeySubjectId = String(walletIdFromWalletProfile({ walletId: args.walletId }));
   const keyRpId = String(rawKey.rpId || '').trim();

@@ -111,7 +111,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     args: Parameters<RegistrationlessGoogleSessionExchange>[0],
   ): Promise<GoogleEmailOtpSessionExchangeResult>;
   requestEmailOtpChallenge(args: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     onEvent?: (event: UnlockFlowEvent) => void;
@@ -237,11 +237,19 @@ function classifyRegistrationError(error: unknown): GoogleEmailOtpWalletAuthFail
 }
 
 function requireWalletId(exchange: GoogleEmailOtpSessionExchangeResult): WalletId {
-  const walletId = String(exchange.session?.walletId || exchange.session?.userId || '').trim();
+  const walletId = String(exchange.session?.walletId || '').trim();
   if (!walletId) {
     throw new Error('Google session exchange did not return a wallet id');
   }
   return walletIdFromString(walletId);
+}
+
+function requireWalletSessionUserId(exchange: GoogleEmailOtpSessionExchangeResult): string {
+  const userId = String(exchange.session?.userId || '').trim();
+  if (!userId) {
+    throw new Error('Google session exchange did not return a wallet session user id');
+  }
+  return userId;
 }
 
 function requireEmail(exchange: GoogleEmailOtpSessionExchangeResult): string {
@@ -352,7 +360,7 @@ function resolveSessionState(input: {
     ...(offer ? { offer } : {}),
     ...(loginChallenge ? { loginChallenge } : {}),
     ...(loginChallengeRateLimit ? { loginChallengeRateLimit } : {}),
-    walletSessionUserId: String(input.exchange.session?.userId || walletId).trim(),
+    walletSessionUserId: requireWalletSessionUserId(input.exchange),
     emailHint,
     requestedMode: input.requestedMode,
     mode,
@@ -385,7 +393,7 @@ async function requestLoginChallenge(args: {
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
 }): Promise<ActiveChallenge> {
   const result = await args.deps.requestEmailOtpChallenge({
-    nearAccountId: args.state.walletId,
+    walletId: args.state.walletId,
     ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
     ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
     ...(args.onEvent ? { onEvent: args.onEvent as (event: UnlockFlowEvent) => void } : {}),

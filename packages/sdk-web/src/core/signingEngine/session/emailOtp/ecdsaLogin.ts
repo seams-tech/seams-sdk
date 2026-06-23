@@ -1,4 +1,3 @@
-import { toAccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
@@ -426,7 +425,6 @@ export async function loginWithEmailOtpEcdsaCapability(
   args: LoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaLoginPorts,
 ): Promise<EmailOtpThresholdEcdsaLoginResult> {
-  const nearAccountId = toAccountId(args.walletSession.walletId);
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
@@ -542,10 +540,8 @@ export async function loginWithEmailOtpEcdsaCapability(
       ? { additionalChainTargets: args.publicationChainTargets }
       : {}),
   });
-  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(
-    args.walletSession.walletSessionUserId || nearAccountId,
-  );
-  const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId || nearAccountId);
+  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
+  const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId);
   const workerResult = await unlockEmailOtpWallet({
     walletSession: args.walletSession,
     relayUrl,
@@ -649,7 +645,6 @@ export async function loginWithEmailOtpEcdsaCapability(
     if (resolvedEd25519Reconstruction && reconstructionAuth) {
       const ed25519ReconstructionArgs: ReconstructEmailOtpEd25519SessionArgs = {
         kind: 'session_ed25519_reconstruction',
-        nearAccountId,
         relayUrl,
         rpId,
         recoveryCodeSecret32B64u: thresholdEd25519RecoveryCodeSecret32B64u,

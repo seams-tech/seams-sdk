@@ -19,6 +19,7 @@ export type DeviceLinkingSessionRecord = {
   createdAtMs: number;
   expiresAtMs: number;
   claimedAtMs?: number;
+  walletId?: string;
   accountId?: string;
   signerSlot?: number;
   addKeyTxHash?: string;
@@ -154,6 +155,7 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
       : typeof raw.claimedAtMs === 'number'
         ? raw.claimedAtMs
         : Number(raw.claimedAtMs);
+  const walletId = toOptionalTrimmedString(raw.walletId);
   const accountId = toOptionalTrimmedString(raw.accountId);
   const signerSlotRaw =
     raw.signerSlot == null
@@ -177,6 +179,7 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
     ...(Number.isFinite(claimedAtMs) && claimedAtMs! > 0
       ? { claimedAtMs: Math.floor(claimedAtMs!) }
       : {}),
+    ...(walletId ? { walletId } : {}),
     ...(accountId ? { accountId } : {}),
     ...(signerSlot ? { signerSlot } : {}),
     ...(addKeyTxHash ? { addKeyTxHash } : {}),

@@ -20,6 +20,7 @@ import {
   type ResolvedEvmFamilyEcdsaKey,
 } from './evmFamilyEcdsaIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
+import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 
 export type { SigningAuthMethod, SigningCurve };
 export type { EcdsaThresholdKeyId };
@@ -70,8 +71,11 @@ export type BaseSelectedLane = {
 export type SelectedEd25519Lane = BaseSelectedLane & {
   curve: 'ed25519';
   chain: 'near';
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   thresholdSessionId: ThresholdEd25519SessionId;
+  accountId?: never;
 };
 
 export type SelectedEcdsaLane = BaseSelectedLane & {
@@ -87,7 +91,9 @@ export type SelectedEcdsaLane = BaseSelectedLane & {
 export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
 
 export type SelectedEd25519LaneInput = {
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   authMethod: SigningAuthMethod;
   signingGrantId: unknown;
   thresholdSessionId: unknown;
@@ -106,7 +112,9 @@ export type SelectedEcdsaLaneInput = {
 export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd25519Lane {
   return {
     kind: 'selected_lane',
-    accountId: input.accountId,
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    ed25519KeyScopeId: input.ed25519KeyScopeId,
     authMethod: input.authMethod,
     curve: 'ed25519',
     chain: 'near',
@@ -160,7 +168,10 @@ export type BaseLaneCandidate = {
 };
 
 export type Ed25519LaneCandidate = BaseLaneCandidate & {
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
+  accountId?: never;
   curve: 'ed25519';
   chain: 'near';
 };

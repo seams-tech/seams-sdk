@@ -1,4 +1,3 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EcdsaRoleLocalAuthMethod, EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -17,9 +16,11 @@ import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
 import { base64UrlEncode } from '@shared/utils/base64';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type EvmEip155ChainTarget,
   type TempoChainTarget,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaKeyHandle,
@@ -106,7 +107,7 @@ export type ActivateEcdsaSessionDeps = {
   workerCtx: WorkerOperationContext;
   routerAbNormalSigning: RouterAbNormalSigningConfig;
   getOrCreateActiveThresholdEcdsaSessionId: (
-    walletId: AccountId,
+    walletId: WalletId,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => string;
 };
@@ -131,7 +132,7 @@ function encodeEthereumAddress20B64u(address: string): string {
 async function buildRouterAbEcdsaHssNormalSigningState(args: {
   config: RouterAbNormalSigningConfig;
   relayerUrl: string;
-  walletId: AccountId;
+  walletId: WalletId;
   rpId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
@@ -271,7 +272,7 @@ type ActivateEcdsaRegistrationSessionPlan = {
 
 type ActivateEcdsaRegistrationRequestBase = ActivateEcdsaSessionRequestCommon & {
   kind: 'key_enrollment_bootstrap';
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyIntent?: ExistingEcdsaBootstrapKeyIntent;
   sessionPlan?: ActivateEcdsaRegistrationSessionPlan;
@@ -539,7 +540,7 @@ export async function activateEcdsaSession(
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionActivationResult> {
   const exactActivation = args.kind === 'session_bootstrap';
-  const walletId = toAccountId(exactActivation ? String(args.key.walletId) : args.walletId);
+  const walletId = toWalletId(exactActivation ? String(args.key.walletId) : args.walletId);
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
 
   const requestedSessionId = String(

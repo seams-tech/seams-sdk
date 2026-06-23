@@ -309,7 +309,9 @@ export async function resolveNearSigningSessionAuthContext(args: {
   const lane =
     record?.source === 'email_otp'
       ? buildNearTransactionSigningLane({
-          accountId: walletId,
+          walletId: record.walletId,
+          nearAccountId: record.nearAccountId,
+          ed25519KeyScopeId: record.ed25519KeyScopeId,
           authMethod: 'email_otp',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -317,7 +319,9 @@ export async function resolveNearSigningSessionAuthContext(args: {
           sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
         })
       : buildNearTransactionSigningLane({
-          accountId: walletId,
+          walletId: record.walletId,
+          nearAccountId: record.nearAccountId,
+          ed25519KeyScopeId: record.ed25519KeyScopeId,
           authMethod: 'passkey',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -379,7 +383,7 @@ export function buildNearSigningSessionAuthPlan(args: {
   if (plan.kind !== SigningSessionPlanKind.NotReady) {
     const signingAuthPlan = signingAuthPlanFromSigningSessionPlan({
       plan,
-      accountId: walletId,
+      accountId: String(lane.nearAccountId),
       intent: SigningOperationIntent.TransactionSign,
       curve: 'ed25519',
       expiresAtMs: resolvedSigningSession.expiresAtMs,

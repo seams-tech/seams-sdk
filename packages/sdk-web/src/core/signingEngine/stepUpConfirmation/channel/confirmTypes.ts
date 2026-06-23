@@ -107,7 +107,8 @@ export interface TxSummary {
   receiverId?: string;
 }
 export interface RegistrationSummary {
-  nearAccountId: string;
+  walletId: string;
+  nearAccountId?: string;
   signerSlot?: number;
   title?: string;
   body?: string;
@@ -176,7 +177,8 @@ export interface SignTransactionPayload {
 }
 
 export interface RegisterAccountPayload {
-  nearAccountId: string;
+  walletId: string;
+  nearAccountId?: string;
   signerSlot?: number;
   webauthnChallenge?: Extract<WebAuthnChallenge, { kind: 'intent_digest' }>;
   walletIframeActivation?: RegistrationActivationProof;

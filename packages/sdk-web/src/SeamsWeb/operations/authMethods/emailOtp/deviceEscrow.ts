@@ -20,7 +20,7 @@ export type {
 export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
   relayUrl: string;
   walletId: string;
-  userId?: string;
+  userId: string;
   challengeId: string;
   otpCode: string;
   recoveryKey: string;
@@ -37,7 +37,7 @@ export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
       payload: {
         relayUrl: readString(args.relayUrl, 'relayUrl'),
         walletId: readString(args.walletId, 'walletId'),
-        ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+        userId: readString(args.userId, 'userId'),
         challengeId: readString(args.challengeId, 'challengeId'),
         otpCode: readString(args.otpCode, 'otpCode'),
         recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
@@ -54,7 +54,7 @@ export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
 
 export async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
   walletId: string;
-  userId?: string;
+  userId: string;
   enrollmentId?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<EmailOtpDeviceEnrollmentRemoveResult> {
@@ -65,7 +65,7 @@ export async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
       type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
       payload: {
         walletId: readString(args.walletId, 'walletId'),
-        ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+        userId: readString(args.userId, 'userId'),
         ...(readOptionalString(args.enrollmentId)
           ? { enrollmentId: readOptionalString(args.enrollmentId) }
           : {}),

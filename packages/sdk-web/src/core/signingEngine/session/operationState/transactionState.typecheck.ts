@@ -1,4 +1,6 @@
 import { toAccountId } from '@/core/types/accountIds';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import { buildNearTransactionSigningLane } from './lanes';
 import { SigningOperationIntent, SigningSessionIds } from './types';
 import {
@@ -16,8 +18,12 @@ import {
 } from './transactionState';
 
 const accountId = toAccountId('transaction-state.testnet');
+const walletId = toWalletId('frost-vermillion-k7p9m2');
+const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
 const lane = buildNearTransactionSigningLane({
-  accountId,
+  walletId,
+  nearAccountId: accountId,
+  ed25519KeyScopeId,
   authMethod: 'passkey',
   signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
@@ -27,7 +33,7 @@ const preparedOperation = {
   intent: {
     curve: 'ed25519',
     chain: 'near',
-    walletId: accountId,
+    walletId,
     authSelectionPolicy: { kind: 'explicit', authMethod: 'passkey' },
     operationUsesNeeded: 1,
   },
@@ -52,7 +58,7 @@ const budgetAdmission = {
   },
 } satisfies TransactionBudgetAdmission;
 const satisfied = buildFreshStepUpSatisfied({
-  walletId: accountId,
+  walletId,
   operationId: SigningSessionIds.signingOperation('operation-1'),
   operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
   laneIdentity: exactSigningLaneIdentity(lane),
@@ -75,7 +81,7 @@ const budgetLifecycle = recordPreparedTransactionBudgetAdmissionFromFreshness(
 void budgetLifecycle;
 
 const requiredFreshness = buildFreshStepUpRequired({
-  walletId: accountId,
+  walletId,
   operationId: SigningSessionIds.signingOperation('operation-1'),
   operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
   laneIdentity: exactSigningLaneIdentity(lane),

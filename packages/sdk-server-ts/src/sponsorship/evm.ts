@@ -310,7 +310,7 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
       ? (bodyRaw as Record<string, unknown>)
       : {};
   const environmentId = String(body.environmentId || '').trim();
-  const walletId = String(body.walletId || body.nearAccountId || '').trim();
+  const walletId = String(body.walletId || '').trim();
   const walletAddress = normalizeEvmAddress(body.walletAddress);
   const chainId = parseOptionalPositiveInteger(body.chainId);
   const callRaw =

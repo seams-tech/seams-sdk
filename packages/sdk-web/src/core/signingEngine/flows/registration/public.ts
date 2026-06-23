@@ -211,7 +211,8 @@ export function storeWalletEmailOtpEcdsaRegistrationData(
 export function requestRegistrationCredentialConfirmation(
   deps: RegistrationPublicDeps,
   params: {
-    nearAccountId: string;
+    walletId: string;
+    nearAccountId?: string;
     signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;

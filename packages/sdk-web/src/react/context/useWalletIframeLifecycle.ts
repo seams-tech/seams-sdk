@@ -4,6 +4,10 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
+import {
+  buildReactLoggedInLoginStateFromSession,
+  buildReactLoggedOutLoginState,
+} from './reactLoginStateBuilders';
 
 export function useWalletIframeLifecycle(args: {
   seams: SeamsWeb;
@@ -37,39 +41,19 @@ export function useWalletIframeLifecycle(args: {
             if (cancelled) return;
             if (status?.isLoggedIn && status?.walletId) {
               const session = await seams.auth.getWalletSession(status.walletId);
-              const { login: state } = session;
               if (isWalletSessionReadyForUi({ session })) {
-                seams.preferences.setCurrentWallet(toWalletId(status.walletId));
-                setLoginState((prev) => ({
-                  ...prev,
-                  isLoggedIn: true,
-                  nearAccountId: state.nearAccountId,
-                  nearPublicKey: state.publicKey || null,
-                  authMethod: session.authMethod || state.authMethod || null,
-                  thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
-                  thresholdEcdsaPublicKeyB64u: state.thresholdEcdsaPublicKeyB64u || null,
-                }));
+                const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
+                if (nextLoginState) {
+                  seams.preferences.setCurrentWallet(toWalletId(nextLoginState.walletId));
+                  setLoginState(nextLoginState);
+                } else {
+                  setLoginState(buildReactLoggedOutLoginState());
+                }
               } else {
-                setLoginState((prev) => ({
-                  ...prev,
-                  isLoggedIn: false,
-                  nearAccountId: null,
-                  nearPublicKey: null,
-                  authMethod: null,
-                  thresholdEcdsaEthereumAddress: null,
-                  thresholdEcdsaPublicKeyB64u: null,
-                }));
+                setLoginState(buildReactLoggedOutLoginState());
               }
             } else if (status && status.isLoggedIn === false) {
-              setLoginState((prev) => ({
-                ...prev,
-                isLoggedIn: false,
-                nearAccountId: null,
-                nearPublicKey: null,
-                authMethod: null,
-                thresholdEcdsaEthereumAddress: null,
-                thresholdEcdsaPublicKeyB64u: null,
-              }));
+              setLoginState(buildReactLoggedOutLoginState());
             }
           },
         );
@@ -82,45 +66,31 @@ export function useWalletIframeLifecycle(args: {
           if (walletId) {
             try {
               const session = await seams.auth.getWalletSession(walletId);
-              const { login: state } = session;
-              if (isWalletSessionReadyForUi({ session }) && state?.nearAccountId) {
-                seams.preferences.setCurrentWallet(toWalletId(walletId));
-                setLoginState((prev) => ({
-                  ...prev,
-                  isLoggedIn: true,
-                  nearAccountId: state.nearAccountId,
-                  nearPublicKey: state.publicKey || null,
-                  authMethod: session.authMethod || state.authMethod || null,
-                  thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
-                  thresholdEcdsaPublicKeyB64u: state.thresholdEcdsaPublicKeyB64u || null,
-                }));
-                return;
+              if (isWalletSessionReadyForUi({ session })) {
+                const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
+                if (nextLoginState) {
+                  seams.preferences.setCurrentWallet(toWalletId(nextLoginState.walletId));
+                  setLoginState(nextLoginState);
+                  return;
+                }
               }
             } catch {}
           }
-          setLoginState((prev) => ({
-            ...prev,
-            isLoggedIn: false,
-            nearAccountId: null,
-            nearPublicKey: null,
-            authMethod: null,
-            thresholdEcdsaEthereumAddress: null,
-            thresholdEcdsaPublicKeyB64u: null,
-          }));
+          setLoginState(buildReactLoggedOutLoginState());
         });
 
-        const session = await seams.auth.getWalletSession();
-        const { login: st } = session;
-        if (isWalletSessionReadyForUi({ session })) {
-          setLoginState((prev) => ({
-            ...prev,
-            isLoggedIn: true,
-            nearAccountId: st.nearAccountId,
-            nearPublicKey: st.publicKey || null,
-            authMethod: session.authMethod || st.authMethod || null,
-            thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
-            thresholdEcdsaPublicKeyB64u: st.thresholdEcdsaPublicKeyB64u || null,
-          }));
+        const selectedWalletId = String(seams.preferences.getCurrentWalletId() || '').trim();
+        if (selectedWalletId) {
+          const session = await seams.auth.getWalletSession(selectedWalletId);
+          if (isWalletSessionReadyForUi({ session })) {
+            setLoginState(
+              buildReactLoggedInLoginStateFromSession(session) ?? buildReactLoggedOutLoginState(),
+            );
+          } else {
+            setLoginState(buildReactLoggedOutLoginState());
+          }
+        } else {
+          setLoginState(buildReactLoggedOutLoginState());
         }
       } catch (err) {
         console.warn('[SeamsContextProvider] WalletIframe init failed:', err);

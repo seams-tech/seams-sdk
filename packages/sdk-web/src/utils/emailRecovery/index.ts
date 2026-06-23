@@ -1,8 +1,5 @@
-import type { AccountId } from '../../core/types/accountIds';
-import { toAccountId } from '../../core/types/accountIds';
 import { IndexedDBManager } from '../../core/indexedDB';
-import { resolveNearAccountProfileContinuity } from '../../core/accountData/near/accountProjection';
-import type { RecoveryEmailRecord } from '../../core/accountData/near/nearAccountData.types';
+import { toWalletId, type WalletId } from '../../core/signingEngine/interfaces/ecdsaChainTarget';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { base64Decode } from '@shared/utils/base64';
 export { EmailRecoveryPendingStore, type PendingStore } from './emailRecoveryPendingStore';
@@ -12,7 +9,12 @@ export type RecoveryEmailEntry = {
   email: string;
 };
 
-export { type RecoveryEmailRecord };
+export type RecoveryEmailRecord = {
+  walletId: WalletId;
+  hashHex: string;
+  email: string;
+  addedAt: number;
+};
 
 export type LinkDeviceRegisterUserResponse = {
   verified?: boolean;
@@ -83,9 +85,9 @@ export const bytesToHex = (bytes: number[] | Uint8Array): string => {
     .join('')}`;
 };
 
-async function hashRecoveryEmails(emails: string[], accountId: AccountId): Promise<number[][]> {
+async function hashRecoveryEmails(emails: string[], walletId: WalletId): Promise<number[][]> {
   const encoder = new TextEncoder();
-  const salt = (accountId || '').trim().toLowerCase();
+  const salt = String(walletId || '').trim().toLowerCase();
   const normalized = (emails || []).map((e) => e.trim()).filter((e) => e.length > 0);
 
   const hashed: number[][] = [];
@@ -112,17 +114,17 @@ async function hashRecoveryEmails(emails: string[], accountId: AccountId): Promi
  * (hashHex → canonical email) in IndexedDB on a best-effort basis.
  */
 export async function prepareRecoveryEmails(
-  nearAccountId: AccountId,
+  walletIdInput: WalletId | string,
   recoveryEmails: string[],
 ): Promise<{
   hashes: number[][];
   pairs: RecoveryEmailEntry[];
 }> {
-  const accountId = toAccountId(nearAccountId);
+  const walletId = toWalletId(String(walletIdInput));
 
   const trimmedEmails = (recoveryEmails || []).map((e) => e.trim()).filter((e) => e.length > 0);
   const canonicalEmails = trimmedEmails.map(canonicalizeEmail);
-  const recoveryEmailHashes = await hashRecoveryEmails(recoveryEmails, accountId);
+  const recoveryEmailHashes = await hashRecoveryEmails(recoveryEmails, walletId);
 
   const pairs: RecoveryEmailEntry[] = recoveryEmailHashes.map((hashBytes, idx) => ({
     hashHex: bytesToHex(hashBytes),
@@ -131,12 +133,7 @@ export async function prepareRecoveryEmails(
 
   void (async () => {
     try {
-      const continuity = await resolveNearAccountProfileContinuity(
-        IndexedDBManager,
-        accountId,
-      ).catch(() => null);
-      if (!continuity?.profile.profileId) return;
-      await IndexedDBManager.upsertRecoveryEmails(continuity.profile.profileId, pairs);
+      await IndexedDBManager.upsertRecoveryEmails(walletId, pairs);
     } catch (error) {
       console.warn('[EmailRecovery] Failed to persist local recovery emails', error);
     }
@@ -146,17 +143,12 @@ export async function prepareRecoveryEmails(
 }
 
 export async function getLocalRecoveryEmails(
-  nearAccountId: AccountId,
+  walletIdInput: WalletId | string,
 ): Promise<RecoveryEmailRecord[]> {
-  const accountId = toAccountId(nearAccountId);
-  const continuity = await resolveNearAccountProfileContinuity(
-    IndexedDBManager,
-    accountId,
-  ).catch(() => null);
-  if (!continuity?.profile.profileId) return [];
-  const rows = await IndexedDBManager.listRecoveryEmails(continuity.profile.profileId);
+  const walletId = toWalletId(String(walletIdInput));
+  const rows = await IndexedDBManager.listRecoveryEmails(walletId);
   return rows.map((row) => ({
-    nearAccountId: accountId,
+    walletId,
     hashHex: String(row.hashHex || ''),
     email: String(row.email || ''),
     addedAt: Number(row.addedAt || 0),

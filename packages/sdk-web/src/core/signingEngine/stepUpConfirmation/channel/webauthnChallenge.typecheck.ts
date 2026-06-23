@@ -40,6 +40,7 @@ const validEmailOtpIntentPayload: SignIntentDigestPayload = {
 void validEmailOtpIntentPayload;
 
 const validRegistrationPayload: RegisterAccountPayload = {
+  walletId: 'frost-vermillion-k7p9m2',
   nearAccountId: 'alice.testnet',
   signerSlot: 1,
   webauthnChallenge: {
@@ -50,6 +51,7 @@ const validRegistrationPayload: RegisterAccountPayload = {
 void validRegistrationPayload;
 
 void ({
+  walletId: 'frost-vermillion-k7p9m2',
   nearAccountId: 'alice.testnet',
   signerSlot: 1,
   // @ts-expect-error registration credential prompts must not carry NEAR RPC context
@@ -58,3 +60,10 @@ void ({
     nearAccountId: 'alice.testnet',
   },
 } satisfies RegisterAccountPayload);
+
+// @ts-expect-error registration credential prompts require walletId.
+const invalidRegistrationPayloadMissingWalletId: RegisterAccountPayload = {
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+};
+void invalidRegistrationPayloadMissingWalletId;

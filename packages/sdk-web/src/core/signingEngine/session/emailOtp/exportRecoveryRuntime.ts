@@ -44,14 +44,14 @@ export type RequestEmailOtpChallengeArgs =
       routeAuth?: AppOrWalletSessionAuth;
       authLane?: EmailOtpAuthLane;
     }
-  | {
-      kind: 'near_account_challenge';
-      nearAccountId: AccountId;
-      chain: EmailOtpRouteChain;
-      routeAuth?: AppOrWalletSessionAuth;
-      authLane?: EmailOtpAuthLane;
-      walletSession?: never;
-    };
+	  | {
+	      kind: 'near_account_challenge';
+	      walletSession: WalletSessionRef;
+	      nearAccountId: AccountId;
+	      chain: EmailOtpRouteChain;
+	      routeAuth?: AppOrWalletSessionAuth;
+	      authLane?: EmailOtpAuthLane;
+	    };
 
 export type ExportEd25519SeedWithAuthorizationArgs = {
   nearAccountId: AccountId;

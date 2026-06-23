@@ -83,9 +83,10 @@ export async function getWarmThresholdEd25519SessionStatus(
   const status = await deps.statusReader.getEd25519SigningSessionStatus(nearAccountId);
   const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
   const signingGrantId = String(record?.signingGrantId || '').trim();
-  const budgetStatusCheck = signingGrantId
+  const recordWalletId = String(record?.walletId || '').trim();
+  const budgetStatusCheck = signingGrantId && recordWalletId
     ? buildWalletBudgetStatusCheckForSession({
-        owner: ed25519WalletBudgetOwner(record?.walletId || nearAccountId),
+        owner: ed25519WalletBudgetOwner(recordWalletId),
         signingGrantId,
       })
     : null;

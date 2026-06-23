@@ -177,13 +177,13 @@ export function clearNearAccessKeyState(state: NearNonceLaneState): void {
 
 export function initializeNearAccessKeyState(input: {
   state: NearNonceLaneState;
-  walletId?: string;
+  walletId: string;
   accountId: string;
   publicKey: string;
 }): void {
   const accountId = normalizeRequiredString(input.accountId, 'accountId');
   const publicKey = normalizeRequiredString(input.publicKey, 'publicKey');
-  const walletId = String(input.walletId || accountId).trim();
+  const walletId = normalizeRequiredString(input.walletId, 'walletId');
   if (!walletId) {
     throw new Error('[NonceCoordinator] NEAR access key walletId is required');
   }

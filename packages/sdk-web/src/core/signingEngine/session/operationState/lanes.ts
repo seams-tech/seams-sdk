@@ -1,5 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionRetention } from '@/core/types/seams';
+import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
@@ -52,7 +53,9 @@ type BaseSigningLaneInput = {
   activeSignerSlot?: number;
 };
 type BaseEd25519SigningLaneInput = BaseSigningLaneInput & {
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
 };
 type BaseEcdsaSigningLaneInput = BaseSigningLaneInput & {
   key: EvmFamilyEcdsaKeyIdentity;
@@ -106,7 +109,9 @@ export function buildEd25519PasskeySigningLane(
   return buildSigningLane<NearTransactionSigningLane>({
     ...input,
     ...selectedEd25519Lane({
-      accountId: input.accountId,
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      ed25519KeyScopeId: input.ed25519KeyScopeId,
       authMethod: 'passkey',
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
@@ -124,7 +129,9 @@ export function buildEd25519EmailOtpSigningLane(
   return buildSigningLane<NearTransactionSigningLane>({
     ...input,
     ...selectedEd25519Lane({
-      accountId: input.accountId,
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      ed25519KeyScopeId: input.ed25519KeyScopeId,
       authMethod: 'email_otp',
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
@@ -507,7 +514,12 @@ function validateLaneCandidateForSigningLane(
         'Session record wallet does not match selected lane',
       );
     }
-  } else if (String(candidate.accountId) !== String(lane.accountId)) {
+  } else if (
+    lane.curve !== 'ed25519' ||
+    String(candidate.walletId) !== String(lane.walletId) ||
+    String(candidate.nearAccountId) !== String(lane.nearAccountId) ||
+    String(candidate.ed25519KeyScopeId) !== String(lane.ed25519KeyScopeId)
+  ) {
     return readError(
       lane,
       'record_mismatch',

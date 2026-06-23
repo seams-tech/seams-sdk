@@ -6,13 +6,13 @@ import type {
 } from '@/core/types/login.types';
 
 export function walletIframeUnlockRequestFromLoginHooks(args: {
-  nearAccountId: string;
+  walletId: string;
   options: LoginHooksOptions | undefined;
 }): WalletIframeUnlockRequest {
-  if (!args.options) return { kind: 'default_options', nearAccountId: args.nearAccountId };
+  if (!args.options) return { kind: 'default_options', walletId: args.walletId };
   return {
     kind: 'custom_options',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     options: args.options,
   };
 }
@@ -22,12 +22,12 @@ export function buildPMUnlockPayload(request: WalletIframeUnlockRequest): PMUnlo
     case 'default_options':
       return {
         kind: 'default_options',
-        nearAccountId: request.nearAccountId,
+        walletId: request.walletId,
       };
     case 'custom_options':
       return {
         kind: 'custom_options',
-        nearAccountId: request.nearAccountId,
+        walletId: request.walletId,
         options: {
           kind: 'pm_unlock_options_v1',
           signerSlot: optionFromValue(request.options.signerSlot),

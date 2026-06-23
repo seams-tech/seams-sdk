@@ -64,10 +64,11 @@ export type EmailOtpEcdsaSigningBootstrapResult = {
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
   resolveThresholdEd25519SessionId?: (walletId: WalletId | string) => string | null;
-  requestEmailOtpTransactionSigningChallenge?: (args: {
-    nearAccountId: AccountId;
-    chain: 'near';
-    authLane?: EmailOtpAuthLane;
+	  requestEmailOtpTransactionSigningChallenge?: (args: {
+	    walletSession: WalletSessionRef;
+	    nearAccountId: AccountId;
+	    chain: 'near';
+	    authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
     thresholdSessionId: string;

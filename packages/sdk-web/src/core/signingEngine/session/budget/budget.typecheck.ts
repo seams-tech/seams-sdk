@@ -49,13 +49,13 @@ const accountId = toAccountId('wallet.testnet');
 const walletId = toWalletId('wallet.testnet');
 const ed25519Owner = {
   curve: 'ed25519',
-  accountId: walletId,
+  walletId,
 } satisfies WalletBudgetOwner;
 
 const invalidRawEd25519Owner: WalletBudgetOwner = {
   curve: 'ed25519',
   // @ts-expect-error shared Ed25519 budget owner requires normalized WalletId branding.
-  accountId: 'wallet.testnet',
+  walletId: 'wallet.testnet',
 };
 void invalidRawEd25519Owner;
 
@@ -69,11 +69,11 @@ void validThresholdCheck;
 
 const invalidWalletBudgetOwnerWithBothBranches: WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check',
-  // @ts-expect-error shared budget owners cannot carry wrong-branch walletId.
   owner: {
     curve: 'ed25519',
-    accountId: walletId,
-    walletId: ecdsaKey.walletId,
+    walletId,
+    // @ts-expect-error shared budget owners cannot carry NEAR account identity.
+    accountId,
   },
   signingGrantId: 'signing-grant-1',
 };
@@ -220,7 +220,7 @@ void invalidZeroWalletSpendWithoutCommand;
 // @ts-expect-error budget finalization spend requires selected lane identity
 const walletOnlyBudgetFinalizationSpend: ReservedBudgetFinalizationSpend['spend'] = {
   operationId: SigningSessionIds.signingOperation('operation-1'),
-  walletId: toAccountId('wallet.testnet'),
+  walletId,
   signingGrantId: SigningSessionIds.signingGrant('signing-grant-1'),
   thresholdSessionIds: [SigningSessionIds.thresholdEcdsaSession('threshold-session-1')],
   backingMaterialSessionIds: [],

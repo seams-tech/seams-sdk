@@ -28,7 +28,8 @@ import { isBoolean, isObject, isString } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 
 type RegistrationCredentialConfirmationArgs = {
-  nearAccountId: string;
+  walletId: string;
+  nearAccountId?: string;
   signerSlot: number;
   confirmerText?: { title?: string; body?: string };
   confirmationConfig?: Partial<ConfirmationConfig>;
@@ -48,6 +49,7 @@ type RegistrationCredentialDecisionInput = {
 
 export async function requestRegistrationCredentialConfirmation({
   touchConfirm,
+  walletId,
   nearAccountId,
   signerSlot,
   confirmerText,
@@ -62,6 +64,7 @@ export async function requestRegistrationCredentialConfirmation({
   }
 
   const request = buildRegistrationCredentialConfirmationRequest({
+    walletId,
     nearAccountId,
     signerSlot,
     confirmerText,
@@ -75,6 +78,7 @@ export async function requestRegistrationCredentialConfirmation({
 
 export async function requestRegistrationCredentialConfirmationOnMainThread({
   ctx,
+  walletId,
   nearAccountId,
   signerSlot,
   confirmerText,
@@ -85,6 +89,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
   ctx: UiConfirmContext;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
   const request = buildRegistrationCredentialConfirmationRequest({
+    walletId,
     nearAccountId,
     signerSlot,
     confirmerText,
@@ -109,6 +114,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
 }
 
 function buildRegistrationCredentialConfirmationRequest({
+  walletId,
   nearAccountId,
   signerSlot,
   confirmerText,
@@ -119,17 +125,24 @@ function buildRegistrationCredentialConfirmationRequest({
   const requestId = secureRandomId('register', 32, 'registration credential confirmation IDs');
   const title = confirmerText?.title;
   const body = confirmerText?.body;
+  const normalizedWalletId = String(walletId || '').trim();
+  const normalizedNearAccountId = String(nearAccountId || '').trim();
+  if (!normalizedWalletId) {
+    throw new Error('Registration credential confirmation requires walletId');
+  }
   return {
     requestId,
     type: UserConfirmationType.REGISTER_ACCOUNT,
     summary: {
-      nearAccountId,
+      walletId: normalizedWalletId,
+      ...(normalizedNearAccountId ? { nearAccountId: normalizedNearAccountId } : {}),
       signerSlot,
       ...(title != null ? { title } : {}),
       ...(body != null ? { body } : {}),
     },
     payload: {
-      nearAccountId,
+      walletId: normalizedWalletId,
+      ...(normalizedNearAccountId ? { nearAccountId: normalizedNearAccountId } : {}),
       signerSlot,
       ...(challengeB64u
         ? {
@@ -142,7 +155,7 @@ function buildRegistrationCredentialConfirmationRequest({
       ...(walletIframeActivation ? { walletIframeActivation } : {}),
     },
     confirmationConfig,
-    intentDigest: `register:${nearAccountId}:${signerSlot}`,
+    intentDigest: `register:${normalizedWalletId}:${signerSlot}`,
   };
 }
 

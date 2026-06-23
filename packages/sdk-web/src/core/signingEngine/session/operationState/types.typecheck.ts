@@ -14,7 +14,8 @@ import type {
 import { SigningSessionIds } from './types';
 import type { EcdsaSigningSessionPlanningLane } from './types';
 
-declare const walletId: AccountId;
+declare const walletId: WalletId;
+declare const accountId: AccountId;
 declare const ecdsaWalletId: WalletId;
 declare const chainTarget: EvmEip155ChainTarget;
 declare const key: EvmFamilyEcdsaKeyIdentity;
@@ -101,7 +102,7 @@ void invalidAuthNeutralEcdsaTransactionIntent;
 
 const invalidEcdsaTransactionIntent: EvmFamilyEcdsaTransactionSigningIntent = {
   // @ts-expect-error ECDSA transaction intents require WalletId.
-  walletId,
+  walletId: accountId,
   curve: 'ecdsa',
   chain: 'evm',
   chainTarget,

@@ -4,6 +4,7 @@ import { UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import type { AccountInputState, LoginState, RegistrationResult, SeamsContextType } from '../types';
 import type { ThemeName } from '@/core/types/seams';
 import type { DevicesCapability } from '@/SeamsWeb';
+import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
 
@@ -51,9 +52,11 @@ export function useSeamsContextValue(args: {
     setLoginState((prevState) => ({
       ...prevState,
       isLoggedIn: false,
+      walletId: null,
       nearAccountId: null,
       nearPublicKey: null,
-      authMethod: null,
+      currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+      authMethods: [],
       thresholdEcdsaEthereumAddress: null,
       thresholdEcdsaPublicKeyB64u: null,
     }));
@@ -73,12 +76,12 @@ export function useSeamsContextValue(args: {
     }, [seams]);
 
   const unlock: SeamsContextType['unlock'] = useCallback(
-    async (nearAccountId, options) => {
-      return seamsWithSdkFlow.auth.unlock(nearAccountId, {
+    async (walletId, options) => {
+      return seamsWithSdkFlow.auth.unlock(walletId, {
         ...options,
         onEvent: async (event) => {
           if (event.phase === UnlockEventPhase.STEP_07_COMPLETED && event.status === 'succeeded') {
-            await refreshLoginState(nearAccountId);
+            await refreshLoginState(walletId);
             await refreshAccountData();
           }
           return options?.onEvent?.(event);
@@ -188,8 +191,8 @@ export function useSeamsContextValue(args: {
   }, [seams]);
 
   const viewAccessKeyList: SeamsContextType['viewAccessKeyList'] = useCallback(
-    (accountId: string) => {
-      return seams.devices.viewAccessKeyList(accountId);
+    (args) => {
+      return seams.devices.viewAccessKeyList(args);
     },
     [seams],
   );

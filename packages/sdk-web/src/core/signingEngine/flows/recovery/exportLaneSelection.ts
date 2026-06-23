@@ -1,4 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import {
   ecdsaAvailableLaneCandidatesForTarget,
   ecdsaAvailableLaneAuthRpId,
@@ -29,6 +30,7 @@ import type {
 export type ExactNearEd25519ExportLane = {
   curve: 'ed25519';
   chain: 'near';
+  signer: NearEd25519SignerBinding;
   nearAccountId: AccountId;
   authMethod: 'email_otp' | 'passkey';
   signingGrantId: string;
@@ -423,10 +425,12 @@ function resolveEcdsaExportMaterialLanesForTarget(args: {
 
 async function resolveNearEd25519ExportLane(
   deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanes'>,
-  args: { nearAccountId: AccountId },
+  args: { signer: NearEd25519SignerBinding },
 ): Promise<ExactNearEd25519ExportLane> {
+  const walletId = String(args.signer.account.wallet.walletId);
+  const nearAccountId = args.signer.account.nearAccountId as AccountId;
   const availableLanes = await deps.readPersistedAvailableSigningLanes({
-    walletId: args.nearAccountId,
+    walletId,
   });
   const concreteCandidates = availableLanes.candidates.ed25519.near.filter(isConcreteEd25519ExportLane);
   const emailOtpCandidates = concreteCandidates.filter(
@@ -441,7 +445,8 @@ async function resolveNearEd25519ExportLane(
   return {
     curve: 'ed25519',
     chain: 'near',
-    nearAccountId: args.nearAccountId,
+    signer: args.signer,
+    nearAccountId,
     authMethod: selected.authMethod,
     signingGrantId: selected.signingGrantId,
     thresholdSessionId: selected.thresholdSessionId,
@@ -510,11 +515,12 @@ async function resolveEcdsaExportLane(
 
 export async function restoreNearEd25519SessionForExport(
   deps: ExportLaneSelectionDeps,
-  args: { nearAccountId: AccountId },
+  args: { signer: NearEd25519SignerBinding },
 ): Promise<ExactNearEd25519ExportLane> {
   const restoreLane = await resolveNearEd25519ExportLane(deps, {
-    nearAccountId: args.nearAccountId,
+    signer: args.signer,
   });
+  const walletId = String(args.signer.account.wallet.walletId);
   if (
     restoreLane.state === 'ready' ||
     restoreLane.source === 'runtime_session_record' ||
@@ -524,7 +530,7 @@ export async function restoreNearEd25519SessionForExport(
   }
   if (restoreLane.authMethod === 'passkey') {
     await deps.restorePasskeyPersistedSessionForSigning({
-      walletId: args.nearAccountId,
+      walletId,
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',
@@ -535,7 +541,7 @@ export async function restoreNearEd25519SessionForExport(
     return restoreLane;
   }
   await deps.restoreEmailOtpPersistedSessionForSigning({
-    walletId: args.nearAccountId,
+    walletId,
     authMethod: 'email_otp',
     curve: 'ed25519',
     chain: 'near',

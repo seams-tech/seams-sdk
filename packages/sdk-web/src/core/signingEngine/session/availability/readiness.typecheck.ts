@@ -24,7 +24,7 @@ void validEcdsaOwner;
 const validReadinessOverride: SigningGrantStatusOverride = {
   owner: {
     curve: 'ed25519',
-    accountId: ed25519WalletId,
+    walletId: ed25519WalletId,
   },
   signingGrantId: 'wallet-session-id',
   status: { sessionId: 'wallet-session-id', status: 'active', remainingUses: 1 },
@@ -37,7 +37,7 @@ const invalidReadinessOverrideWithRawAccountId: SigningGrantStatusOverride = {
   owner: {
     curve: 'ed25519',
     // @ts-expect-error readiness owners require normalized WalletId branding.
-    accountId: 'owner.testnet',
+    walletId: 'owner.testnet',
   },
   signingGrantId: 'wallet-session-id',
   status: { sessionId: 'wallet-session-id', status: 'active', remainingUses: 1 },

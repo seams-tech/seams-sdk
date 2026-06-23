@@ -2,6 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
+  WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaSigningListLookupArgs,
@@ -12,6 +13,7 @@ import type {
 
 declare const nearAccountId: AccountId;
 declare const walletId: WalletId;
+declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 
 const ecdsaSigningLookupArgs: EcdsaSigningLookupArgs = {
@@ -52,6 +54,7 @@ signingDeps.resolveEmailOtpSigningSessionAuthLane?.({
 });
 
 nearSigningDeps.requestEmailOtpTransactionSigningChallenge?.({
+  walletSession,
   nearAccountId,
   chain: 'near',
 });

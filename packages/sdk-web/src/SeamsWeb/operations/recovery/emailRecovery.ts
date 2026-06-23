@@ -200,15 +200,15 @@ export class EmailRecoveryDomain {
     this.walletIframe = deps.walletIframe;
   }
 
-  async getRecoveryEmails(accountId: string): Promise<Array<{ hashHex: string; email: string }>> {
-    const nearAccountId = toAccountId(accountId);
+  async getRecoveryEmails(walletIdInput: string): Promise<Array<{ hashHex: string; email: string }>> {
+    const walletId = walletIdFromString(walletIdInput);
 
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(String(nearAccountId));
-      return await router.getRecoveryEmails(String(nearAccountId));
+      const router = await this.walletIframe.requireRouter(String(walletId));
+      return await router.getRecoveryEmails(String(walletId));
     }
 
-    const records = await getLocalRecoveryEmails(nearAccountId);
+    const records = await getLocalRecoveryEmails(walletId);
     return records.map((entry) => ({
       hashHex: entry.hashHex,
       email: entry.email || entry.hashHex,
@@ -216,24 +216,24 @@ export class EmailRecoveryDomain {
   }
 
   async setRecoveryEmails(args: {
-    accountId: string;
+    walletId: string;
     recoveryEmails: string[];
     options: ActionHooksOptions;
   }): Promise<ActionResult> {
-    const nearAccountId = toAccountId(args.accountId);
+    const walletId = walletIdFromString(args.walletId);
     const recoveryEmails = Array.isArray(args.recoveryEmails) ? args.recoveryEmails : [];
 
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(String(nearAccountId));
+      const router = await this.walletIframe.requireRouter(String(walletId));
       return await router.setRecoveryEmails({
-        nearAccountId: String(nearAccountId),
+        walletId: String(walletId),
         recoveryEmails,
         options: args.options,
       });
     }
 
     try {
-      await prepareRecoveryEmails(nearAccountId, recoveryEmails);
+      await prepareRecoveryEmails(walletId, recoveryEmails);
       const result: ActionResult = { success: true };
       await args.options?.afterCall?.(true, result);
       return result;
@@ -403,7 +403,7 @@ export class EmailRecoveryDomain {
 
       const registrationSession =
         await context.signingEngine.requestRegistrationCredentialConfirmation({
-          nearAccountId: String(walletId),
+          walletId: String(walletId),
           signerSlot: initialSignerSlot,
           confirmerText: this.emailRecoveryOptions?.confirmerText,
           confirmationConfigOverride: this.emailRecoveryOptions?.confirmationConfig,

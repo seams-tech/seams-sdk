@@ -1,4 +1,3 @@
-import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
   type WalletId,
@@ -23,12 +22,16 @@ export type ThresholdEcdsaCommitQueueKeyInput = {
 
 export type ThresholdEcdsaCommitQueueByKey = ThresholdCommitQueueByKey;
 
+function ecdsaCommitQueueWalletIdLabel(walletId: WalletId): string {
+  return String(walletId).trim();
+}
+
 export function createThresholdEcdsaCommitQueueOverflowError(
   walletId: WalletId,
   queueKey: string,
   maxQueueLength: number,
 ): ThresholdEcdsaCommitQueueError {
-  const normalizedWalletId = String(toAccountId(walletId));
+  const normalizedWalletId = ecdsaCommitQueueWalletIdLabel(walletId);
   const err = new Error(
     `[SigningEngine] threshold ECDSA commit queue overflow for ${normalizedWalletId} (queueKey=${queueKey}, max=${maxQueueLength})`,
   ) as ThresholdEcdsaCommitQueueError;
@@ -41,7 +44,7 @@ export function createThresholdEcdsaCommitQueueTimeoutError(
   queueKey: string,
   timeoutMs: number,
 ): ThresholdEcdsaCommitQueueError {
-  const normalizedWalletId = String(toAccountId(walletId));
+  const normalizedWalletId = ecdsaCommitQueueWalletIdLabel(walletId);
   const err = new Error(
     `[SigningEngine] threshold ECDSA commit queue timeout for ${normalizedWalletId} (queueKey=${queueKey}, waited>${timeoutMs}ms before start)`,
   ) as ThresholdEcdsaCommitQueueError;
@@ -54,7 +57,7 @@ export function createThresholdEcdsaCommitQueueCancelledError(
   queueKey: string,
   reason: ThresholdCommitQueueCancelledReason = 'cancelled',
 ): ThresholdEcdsaCommitQueueError {
-  const normalizedWalletId = String(toAccountId(walletId));
+  const normalizedWalletId = ecdsaCommitQueueWalletIdLabel(walletId);
   const message =
     reason === 'queue_cleared'
       ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${normalizedWalletId} (queueKey=${queueKey}, queue_cleared)`

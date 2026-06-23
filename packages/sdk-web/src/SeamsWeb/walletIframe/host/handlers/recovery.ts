@@ -6,19 +6,19 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
   return {
     PM_GET_RECOVERY_EMAILS: async (req: Req<'PM_GET_RECOVERY_EMAILS'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId } = req.payload!;
+      const { walletId } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
-      const result = await pm.recovery.getRecoveryEmails(nearAccountId);
+      const result = await pm.recovery.getRecoveryEmails(walletId);
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_SET_RECOVERY_EMAILS: async (req: Req<'PM_SET_RECOVERY_EMAILS'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, recoveryEmails, options } = req.payload!;
+      const { walletId, recoveryEmails, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.setRecoveryEmails({
-        accountId: nearAccountId,
+        walletId,
         recoveryEmails: Array.isArray(recoveryEmails) ? recoveryEmails : [],
         options: {
           ...withProgress(deps, req.requestId, options || {}),

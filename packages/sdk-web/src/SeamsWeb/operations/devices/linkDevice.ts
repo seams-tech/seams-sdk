@@ -265,7 +265,7 @@ export class LinkDeviceFlow {
 
   private async fetchClaimedSessionFromRelay(
     sessionId: string,
-  ): Promise<{ accountId: string; signerSlot?: number } | null> {
+  ): Promise<{ walletId: string; accountId: string; signerSlot?: number } | null> {
     const relayerUrl = stripTrailingSlashes(
       String(this.context?.configs?.network.relayer?.url || '').trim(),
     );
@@ -293,6 +293,7 @@ export class LinkDeviceFlow {
       return null;
     }
     const session = isObject(body.session) ? body.session : {};
+    const claimedWalletId = String(session.walletId || '').trim();
     const claimedAccountId = String(session.accountId || '').trim();
     const claimedPublicKey = String(session.device2PublicKey || '').trim();
     if (
@@ -310,16 +311,23 @@ export class LinkDeviceFlow {
     }
     const signerSlotRaw = session.signerSlot;
     const signerSlotParsed = Number(signerSlotRaw);
-    const signerSlot = Number.isFinite(signerSlotParsed) ? Math.floor(signerSlotParsed) : undefined;
+    const signerSlot = Number.isFinite(signerSlotParsed)
+      ? Math.floor(signerSlotParsed)
+      : undefined;
     console.debug('[LinkDeviceFlow] relay poll ok', {
       sessionId,
       url,
-      claimed: !!claimedAccountId,
+      claimed: !!claimedWalletId && !!claimedAccountId,
+      ...(claimedWalletId ? { walletId: claimedWalletId } : {}),
       ...(claimedAccountId ? { accountId: claimedAccountId } : {}),
       ...(signerSlot ? { signerSlot } : {}),
     });
-    return claimedAccountId
-      ? { accountId: claimedAccountId, ...(signerSlot ? { signerSlot } : {}) }
+    return claimedWalletId && claimedAccountId
+      ? {
+          walletId: claimedWalletId,
+          accountId: claimedAccountId,
+          ...(signerSlot ? { signerSlot } : {}),
+        }
       : null;
   }
 
@@ -384,7 +392,7 @@ export class LinkDeviceFlow {
         });
       }
 
-      // Poll relay for a claimed session (Device1 posts accountId after AddKey).
+      // Poll relay for a claimed session (Device1 posts walletId/accountId after AddKey).
       attempt++;
       if (attempt <= 3 || attempt % 10 === 0) {
         console.debug('[LinkDeviceFlow] polling relay for claim', {
@@ -393,7 +401,7 @@ export class LinkDeviceFlow {
           pollMs,
         });
       }
-      let claimed: { accountId: string; signerSlot?: number } | null = null;
+      let claimed: { walletId: string; accountId: string; signerSlot?: number } | null = null;
       try {
         claimed = await this.fetchClaimedSessionFromRelay(session.sessionId);
       } catch (e) {
@@ -404,6 +412,7 @@ export class LinkDeviceFlow {
         claimed = null;
       }
       if (claimed?.accountId) {
+        const walletId = walletIdFromString(claimed.walletId);
         const accountId = toAccountId(claimed.accountId);
         const signerSlot = Number.isFinite(claimed.signerSlot)
           ? claimed.signerSlot
@@ -415,6 +424,7 @@ export class LinkDeviceFlow {
         });
         this.session = {
           ...session,
+          walletId,
           accountId,
           ...(signerSlot ? { signerSlot } : {}),
           phase: LinkDeviceEventPhase.STEP_05_LINK_REQUEST_DETECTED,
@@ -449,6 +459,7 @@ export class LinkDeviceFlow {
     if (this.cancelled) return;
     const session = this.session;
     if (!session?.accountId) throw new Error('LinkDeviceFlow: missing accountId for completion');
+    if (!session.walletId) throw new Error('LinkDeviceFlow: missing walletId for completion');
 
     console.debug('[LinkDeviceFlow] completeLinking start', {
       sessionId: session.sessionId,
@@ -457,6 +468,7 @@ export class LinkDeviceFlow {
     });
 
     const nearAccountId = toAccountId(String(session.accountId));
+    const linkWalletId = walletIdFromString(String(session.walletId));
     const nearAccount = nearAccountRefFromAccountId(nearAccountId);
     const relayerUrl = String(this.context?.configs?.network.relayer?.url || '').trim();
     if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
@@ -490,7 +502,8 @@ export class LinkDeviceFlow {
     });
 
     const confirm = await this.context.signingEngine.requestRegistrationCredentialConfirmation({
-      nearAccountId,
+      walletId: String(linkWalletId),
+      nearAccountId: String(nearAccountId),
       signerSlot: signerSlotHint,
       confirmerText: this.options?.options?.confirmerText,
       confirmationConfigOverride: this.options?.options?.confirmationConfig,
@@ -532,6 +545,7 @@ export class LinkDeviceFlow {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         account_id: String(nearAccountId),
+        wallet_id: String(linkWalletId),
         ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
         signer_slot: resolvedSignerSlot,
         threshold_ed25519: thresholdWarmSessionRequest,
@@ -561,7 +575,13 @@ export class LinkDeviceFlow {
     const thresholdSection = isObject(prepareObj.thresholdEd25519)
       ? prepareObj.thresholdEd25519
       : {};
-    const thresholdPublicKey = ensureEd25519Prefix(String(thresholdSection.publicKey || '').trim());
+    const responseWalletId = requireLinkDeviceString(prepareObj.walletId, 'walletId');
+    if (responseWalletId !== String(linkWalletId)) {
+      throw new Error('link-device/prepare returned walletId mismatch');
+    }
+    const thresholdPublicKey = ensureEd25519Prefix(
+      String(thresholdSection.publicKey || '').trim(),
+    );
     const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
     if (!thresholdPublicKey || !relayerKeyId) {
       throw new Error('link-device/prepare returned incomplete threshold key material');
@@ -650,8 +670,19 @@ export class LinkDeviceFlow {
     );
     const thresholdKeyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
     const thresholdKeyMaterialCreatedAtMs = Date.now();
-    const linkWalletId = walletIdFromString(String(nearAccountId));
-    const linkEd25519KeyScopeId = ed25519KeyScopeIdFromString(String(nearAccountId));
+    const responseNearAccountId = requireLinkDeviceString(
+      thresholdSection.nearAccountId,
+      'thresholdEd25519.nearAccountId',
+    );
+    if (responseNearAccountId !== String(nearAccountId)) {
+      throw new Error('link-device/prepare returned nearAccountId mismatch');
+    }
+    const linkEd25519KeyScopeId = ed25519KeyScopeIdFromString(
+      requireLinkDeviceString(
+        thresholdSection.ed25519KeyScopeId,
+        'thresholdEd25519.ed25519KeyScopeId',
+      ),
+    );
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
       signerSlot: resolvedSignerSlot,
@@ -893,6 +924,7 @@ export class LinkDeviceFlow {
 
       this.session = {
         sessionId,
+        walletId: null,
         accountId: null,
         signerSlot,
         nearPublicKey: tempKeypair.publicKey,

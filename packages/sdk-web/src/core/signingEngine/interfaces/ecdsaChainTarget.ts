@@ -41,7 +41,7 @@ export type NearCommandSubject = {
 };
 
 export type ThresholdEcdsaSessionRecordKey = {
-  walletId: AccountId;
+  walletId: WalletId;
   keyHandle: string;
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';

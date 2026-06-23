@@ -23,14 +23,14 @@ export function createAuthCapability(deps: {
   domain: AuthCapabilityDomainMethods;
 }): AuthCapability {
   return {
-    unlock: async (nearAccountId, options) =>
-      await unlockDomain(deps.getWalletAuthDeps(), nearAccountId, options),
+    unlock: async (walletId, options) =>
+      await unlockDomain(deps.getWalletAuthDeps(), walletId, options),
     lock: async () => await lockDomain(deps.getWalletAuthDeps()),
     getWalletSession: async (walletId) =>
       await getWalletSessionDomain(deps.getWalletAuthDeps(), walletId),
     getRecentUnlocks: async () => await getRecentUnlocksDomain(deps.getWalletAuthDeps()),
-    hasPasskeyCredential: async (nearAccountId) =>
-      await hasPasskeyCredentialDomain(deps.getWalletAuthDeps(), nearAccountId),
+    hasPasskeyCredential: async (walletId) =>
+      await hasPasskeyCredentialDomain(deps.getWalletAuthDeps(), walletId),
     prefillRouterAbEcdsaHssPresignaturePool: async (args) =>
       await prefillRouterAbEcdsaHssPresignaturePoolDomain(deps.getWalletAuthDeps(), args),
     requestEmailOtpChallenge: deps.domain.requestEmailOtpChallenge,

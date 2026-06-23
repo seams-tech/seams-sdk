@@ -1,4 +1,3 @@
-import type { StrictAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -300,7 +299,7 @@ export type SigningBudgetReservationIdentity = {
   kind: 'signing_budget_reservation_identity';
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  walletId: StrictAccountId | WalletId;
+  walletId: WalletId;
   signingGrantId: SigningGrantId;
   laneIdentity: ExactSigningLaneIdentity;
   laneIdentityKey: ExactSigningLaneIdentityKey;
@@ -381,8 +380,8 @@ export function isSigningSessionBudgetReservation(
 
 export type Ed25519WalletBudgetOwner = {
   curve: 'ed25519';
-  accountId: WalletId;
-  walletId?: never;
+  walletId: WalletId;
+  accountId?: never;
 };
 
 export type EcdsaWalletBudgetOwner = {
@@ -871,7 +870,7 @@ export function buildWalletSigningSpendPlan(
     ...(operation.operationFingerprint
       ? { operationFingerprint: operation.operationFingerprint }
       : {}),
-    walletId: lane.curve === 'ecdsa' ? lane.walletId : lane.accountId,
+    walletId: lane.walletId,
     signingGrantId: lane.signingGrantId,
     lane,
     thresholdSessionIds: uniqueDefined([lane.thresholdSessionId]),
@@ -991,7 +990,7 @@ export function assertBudgetStatusCheckHasConcreteLaneIdentity(
 }
 
 export function ed25519WalletBudgetOwner(walletId: WalletId | string): Ed25519WalletBudgetOwner {
-  return { curve: 'ed25519', accountId: toWalletId(walletId) };
+  return { curve: 'ed25519', walletId: toWalletId(walletId) };
 }
 
 export function ecdsaWalletBudgetOwner(walletId: WalletId): EcdsaWalletBudgetOwner {
@@ -1003,11 +1002,11 @@ export function walletBudgetOwnerForLane(
 ): WalletBudgetOwner {
   return lane.curve === 'ecdsa'
     ? ecdsaWalletBudgetOwner(toWalletId(lane.walletId))
-    : ed25519WalletBudgetOwner(lane.accountId);
+    : ed25519WalletBudgetOwner(lane.walletId);
 }
 
-export function walletBudgetOwnerId(owner: WalletBudgetOwner): StrictAccountId | WalletId {
-  return owner.curve === 'ecdsa' ? owner.walletId : owner.accountId;
+export function walletBudgetOwnerId(owner: WalletBudgetOwner): WalletId {
+  return owner.walletId;
 }
 
 export function walletBudgetOwnerKey(owner: WalletBudgetOwner): string {

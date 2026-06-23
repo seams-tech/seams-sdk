@@ -24,6 +24,10 @@ import type {
   ResolvedRegistrationNearAccount,
   WalletId,
 } from '@shared/utils/registrationIntent';
+import type {
+  CurrentWalletAuthMethod,
+  WalletAuthMethodBinding,
+} from '@shared/utils/walletCapabilityBindings';
 
 export type {
   AuthMethod,
@@ -355,7 +359,8 @@ export interface LoginState {
   nearAccountId: AccountId | null;
   publicKey: string | null;
   userData: ClientUserData | null;
-  authMethod?: WalletAuthMethod | null;
+  currentAuthMethod: CurrentWalletAuthMethod;
+  authMethods: readonly WalletAuthMethodBinding[];
   thresholdEcdsaEthereumAddress?: string | null;
   thresholdEcdsaPublicKeyB64u?: string | null;
 }
@@ -494,6 +499,8 @@ export interface ThresholdWarmLoginAndCreateSessionResult extends LoginAndCreate
 export interface WalletSession {
   login: LoginState;
   signingSession: SigningSessionStatus | null;
+  currentAuthMethod: CurrentWalletAuthMethod;
+  authMethods: readonly WalletAuthMethodBinding[];
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;
   nonceDiagnostics?: NonceCoordinatorDiagnostics | null;

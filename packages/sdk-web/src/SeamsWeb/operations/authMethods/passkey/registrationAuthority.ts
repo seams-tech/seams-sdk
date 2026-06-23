@@ -78,7 +78,7 @@ export async function collectPasskeyRegistrationAuthority(args: {
   const requestConfirmationStartedAt = performance.now();
   const registrationSession =
     await args.context.signingEngine.requestRegistrationCredentialConfirmation({
-      nearAccountId: args.walletId,
+      walletId: args.walletId,
       signerSlot: args.signerSlot,
       confirmerText: args.options.confirmerText,
       confirmationConfigOverride: args.confirmationConfigOverride,

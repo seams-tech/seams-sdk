@@ -5,6 +5,10 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 import { extractUsernameFromAccountId } from '../hooks/useAccountInput';
+import {
+  buildReactLoggedInLoginStateFromSession,
+  buildReactLoggedOutLoginState,
+} from './reactLoginStateBuilders';
 
 function syncInputUsernameFromAccountId(
   setInputUsername: SeamsContextType['setInputUsername'],
@@ -20,32 +24,20 @@ export function useLoginStateRefresher(args: {
   setLoginState: Dispatch<SetStateAction<LoginState>>;
   setInputUsername: SeamsContextType['setInputUsername'];
 }) {
-  const { seams, walletIframeConnected, setLoginState, setInputUsername } = args;
+  const { seams, setLoginState, setInputUsername } = args;
 
   const refreshLoginState: SeamsContextType['refreshLoginState'] = useCallback(
     async (walletId?: string) => {
       try {
-        if (walletIframeConnected && !walletId) {
-          try {
-            const session = await seams.auth.getWalletSession();
-            const { login: st } = session;
-            if (isWalletSessionReadyForUi({ session })) {
-              setLoginState((prevState) => ({
-                ...prevState,
-                nearAccountId: st.nearAccountId,
-                nearPublicKey: st.publicKey || null,
-                authMethod: session.authMethod || st.authMethod || null,
-                thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
-                thresholdEcdsaPublicKeyB64u: st.thresholdEcdsaPublicKeyB64u || null,
-                isLoggedIn: true,
-              }));
-              syncInputUsernameFromAccountId(setInputUsername, st.nearAccountId);
-              return;
-            }
-          } catch {}
+        const selectedWalletId = String(
+          walletId || seams.preferences.getCurrentWalletId() || '',
+        ).trim();
+        if (!selectedWalletId) {
+          setLoginState(buildReactLoggedOutLoginState());
+          return;
         }
 
-        const session = await seams.auth.getWalletSession(walletId);
+        const session = await seams.auth.getWalletSession(selectedWalletId);
         const { login: ls } = session;
         if (isWalletSessionReadyForUi({ session })) {
           if (ls.walletId) {
@@ -56,31 +48,16 @@ export function useLoginStateRefresher(args: {
           if (ls.nearAccountId) {
             syncInputUsernameFromAccountId(setInputUsername, ls.nearAccountId);
           }
-          setLoginState((prevState) => ({
-            ...prevState,
-            nearAccountId: ls.nearAccountId,
-            nearPublicKey: ls.publicKey || null,
-            authMethod: session.authMethod || ls.authMethod || null,
-            thresholdEcdsaEthereumAddress: ls.thresholdEcdsaEthereumAddress || null,
-            thresholdEcdsaPublicKeyB64u: ls.thresholdEcdsaPublicKeyB64u || null,
-            isLoggedIn: true,
-          }));
+          const nextLoginState = buildReactLoggedInLoginStateFromSession(session);
+          setLoginState(nextLoginState ?? buildReactLoggedOutLoginState());
         } else {
-          setLoginState((prevState) => ({
-            ...prevState,
-            nearAccountId: null,
-            nearPublicKey: null,
-            authMethod: null,
-            thresholdEcdsaEthereumAddress: null,
-            thresholdEcdsaPublicKeyB64u: null,
-            isLoggedIn: false,
-          }));
+          setLoginState(buildReactLoggedOutLoginState());
         }
       } catch (error) {
         console.error('Error refreshing login state:', error);
       }
     },
-    [setInputUsername, setLoginState, seams, walletIframeConnected],
+    [setInputUsername, setLoginState, seams],
   );
 
   useEffect(() => {

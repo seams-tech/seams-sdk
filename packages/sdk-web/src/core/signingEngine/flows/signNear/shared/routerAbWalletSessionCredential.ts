@@ -6,6 +6,7 @@ import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session
 import { walletSessionJwtFromPersistedEd25519Record } from '@/core/signingEngine/session/walletSessionAuthBoundary';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
 import type { RouterAbEd25519SigningMaterialRef } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
+import { parseRouterAbEd25519WalletSessionIdentityClaims } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 export type RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1';
@@ -82,11 +83,17 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
   requireEqual(laneSigningGrantId, signingGrantId, 'signingGrantId');
 
   const nearAccountId = requireNonEmpty(args.nearAccountId, 'nearAccountId');
-  requireEqual(
-    requireNonEmpty(state.signingLane.accountId, 'state.signingLane.accountId'),
-    nearAccountId,
-    'accountId',
+  const walletId = requireNonEmpty(state.signingLane.walletId, 'state.signingLane.walletId');
+  const walletSessionClaims = parseRouterAbEd25519WalletSessionIdentityClaims(
+    signingWalletSession.auth.walletSessionJwt,
   );
+  if (!walletSessionClaims) {
+    throw new Error('Router A/B Ed25519 normal-signing ready state Wallet Session claims are invalid');
+  }
+  requireEqual(walletSessionClaims.walletId, walletId, 'walletId');
+  requireEqual(walletSessionClaims.nearAccountId, nearAccountId, 'nearAccountId');
+  requireEqual(walletSessionClaims.thresholdSessionId, thresholdSessionId, 'claims thresholdSessionId');
+  requireEqual(walletSessionClaims.signingGrantId, signingGrantId, 'claims signingGrantId');
   requireEqual(
     requireNonEmpty(args.thresholdKeyMaterial.nearAccountId, 'thresholdKeyMaterial.nearAccountId'),
     nearAccountId,

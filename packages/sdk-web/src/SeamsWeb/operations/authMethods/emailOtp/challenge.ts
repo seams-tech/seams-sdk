@@ -532,7 +532,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
   });
   const session = requireObjectJson(response.session, 'session/exchange session');
   const userId = readString(session.userId, 'session/exchange session.userId');
-  const walletId = readOptionalString(session.walletId) || userId;
+  const walletId = readString(session.walletId, 'session/exchange session.walletId');
   const jwt = readOptionalString(response.jwt);
   const email = readOptionalString(session.email);
   const name = readOptionalString(session.name);

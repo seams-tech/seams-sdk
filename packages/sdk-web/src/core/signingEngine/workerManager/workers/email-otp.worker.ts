@@ -224,7 +224,7 @@ function resolveEmailOtpAuthSubjectId(args: {
 }): string {
   const appSessionAuthSubjectId = readAppSessionAuthSubjectIdFromRoutePlan(args.routePlan);
   if (appSessionAuthSubjectId) return appSessionAuthSubjectId;
-  return readOptionalString(args.userId) || args.walletId;
+  return readString(args.userId, 'userId');
 }
 
 type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
@@ -2246,7 +2246,7 @@ async function rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment(args: {
 
 async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
   walletId: string;
-  userId?: unknown;
+  userId: unknown;
   enrollmentId?: unknown;
 }): Promise<{
   walletId: string;
@@ -2255,7 +2255,7 @@ async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
   removed: true;
 }> {
   const walletId = readString(args.walletId, 'walletId');
-  const authSubjectId = readOptionalString(args.userId) || walletId;
+  const authSubjectId = readString(args.userId, 'userId');
   const enrollmentId =
     readOptionalString(args.enrollmentId) || emailOtpDeviceEnrollmentId(walletId, authSubjectId);
   await deleteEmailOtpDeviceEnrollmentEscrowRecord({
@@ -2330,7 +2330,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
   relayUrl: string;
   walletId: string;
   orgId?: string;
-  userId?: string;
+  userId: string;
   clientSecret32: Uint8Array;
 }): Promise<{
   clientRootShare32: Uint8Array;
@@ -2341,7 +2341,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
 }> {
   await ensureEthSignerWasm();
   const walletId = readString(args.walletId, 'walletId');
-  const userId = String(args.userId || walletId).trim() || walletId;
+  const userId = readString(args.userId, 'userId');
   const challenge = await postEmailOtpJson({
     relayUrl: readString(args.relayUrl, 'relayUrl'),
     route: '/wallet/unlock/challenge',
@@ -2416,7 +2416,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
 async function completeEmailOtpEnrollmentFromSecret32(args: {
   relayUrl: string;
   walletId: string;
-  userId?: string;
+  userId: string;
   challengeId?: string;
   otpCode?: string;
   shamirPrimeB64u: string;
@@ -2649,7 +2649,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
   relayUrl: string;
   walletId: string;
   orgId?: string;
-  userId?: string;
+  userId: string;
   challengeId?: string;
   otpCode: string;
   shamirPrimeB64u: string;
@@ -4082,9 +4082,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           ...(optionalWorkerString(payload.challengeId)
             ? { challengeId: optionalWorkerString(payload.challengeId)! }
             : {}),
@@ -4130,9 +4128,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan: readRegistrationRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
@@ -4187,9 +4183,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
           recoveryKey: readString(payload.recoveryKey, 'recoveryKey'),
@@ -4207,9 +4201,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           routePlan: readRoutePlan(payload.routePlan, type),
         },
       };
@@ -4219,9 +4211,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         type,
         payload: {
           walletId: readString(payload.walletId, 'walletId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           ...(optionalWorkerString(payload.enrollmentId)
             ? { enrollmentId: optionalWorkerString(payload.enrollmentId)! }
             : {}),
@@ -4234,9 +4224,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
         payload: {
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           ...(optionalWorkerString(payload.challengeId)
             ? { challengeId: optionalWorkerString(payload.challengeId)! }
             : {}),
@@ -4269,9 +4257,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
           nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
-          ...(optionalWorkerString(payload.userId)
-            ? { userId: optionalWorkerString(payload.userId)! }
-            : {}),
+          userId: readString(payload.userId, 'userId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
@@ -4940,7 +4926,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             msg.payload.walletSessionUserId,
             'walletSessionUserId',
           );
-          const userId = readOptionalString(msg.payload.userId) || walletId;
+          const userId = readString(msg.payload.userId, 'userId');
           const rpId = readString(msg.payload.rpId, 'rpId');
           const publicationChainTargets = readEcdsaPublicationChainTargets({
             primaryChainTarget: msg.payload.chainTarget,

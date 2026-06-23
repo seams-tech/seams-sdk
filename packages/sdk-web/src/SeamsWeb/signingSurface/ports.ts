@@ -101,7 +101,10 @@ import type {
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type * as thresholdEd25519Public from '@/core/signingEngine/threshold/ed25519/public';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
-import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
+import type {
+  WorkerResourceWarmupAccountContext,
+  WorkerResourceWarmupDiagnostics,
+} from '@/core/signingEngine/assembly/warmup';
 
 export interface RpIdSurface {
   getRpId(): string;
@@ -156,7 +159,9 @@ export type TempoSigningSurface = EvmFamilySigningSurface &
   EcdsaSessionBootstrapSurface;
 
 export interface WalletIframeWarmupSurface {
-  warmCriticalResources(nearAccountId?: string): Promise<WorkerResourceWarmupDiagnostics>;
+  warmCriticalResources(
+    accountContext?: WorkerResourceWarmupAccountContext,
+  ): Promise<WorkerResourceWarmupDiagnostics>;
 }
 
 export interface RuntimeStartupSurface {
@@ -325,7 +330,8 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
 
 export interface WebAuthnRegistrationConfirmationSurface {
   requestRegistrationCredentialConfirmation(params: {
-    nearAccountId: string;
+    walletId: string;
+    nearAccountId?: string;
     signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;

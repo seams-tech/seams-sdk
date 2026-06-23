@@ -1,14 +1,14 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
-import { toAccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import {
   thresholdEcdsaChainTargetFromConfig,
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
-  listStoredThresholdEd25519SessionRecordsForAccount,
+  listStoredThresholdEd25519SessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
 } from '@/core/signingEngine/session/persistence/records';
 import type { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -87,7 +87,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
   args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
   ports: EmailOtpPersistedSessionSnapshotPorts,
 ): Promise<AvailableSigningLanes> {
-  const accountId = String(toAccountId(args.walletId) || '').trim();
+  const walletId = String(toWalletId(args.walletId) || '').trim();
   const listRecords =
     ports.configs.signing.sessionPersistenceMode === 'sealed_refresh_v1'
       ? ports.listExactSealedSessionsForWallet
@@ -96,7 +96,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
   return await readAvailableSigningLanes(
     {
       ...args,
-      walletId: accountId,
+      walletId,
       ecdsaChainTargets: configuredEmailOtpEcdsaSnapshotChainTargets(ports.configs),
     },
     {
@@ -161,7 +161,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
         }
         return runtimeRecords;
       },
-      listRuntimeEd25519RecordsForAccount: async ({ accountId: recordAccountId }) => {
+      listRuntimeEd25519RecordsForWallet: async ({ walletId: recordWalletId }) => {
         const records: AvailableSigningLanesRuntimeEd25519Record[] = [];
         const seen = new Set<string>();
         const pushRecord = (record: AvailableSigningLanesRuntimeEd25519Record) => {
@@ -170,8 +170,8 @@ export async function readEmailOtpPersistedSessionSnapshot(
           seen.add(identityKey);
           records.push(record);
         };
-        for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForAccount(
-          recordAccountId,
+        for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForWallet(
+          recordWalletId,
         )) {
           const authMethod =
             runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
@@ -181,6 +181,9 @@ export async function readEmailOtpPersistedSessionSnapshot(
             authMethod,
             curve: 'ed25519',
             chain: 'near',
+            walletId: runtimeRecord.walletId,
+            nearAccountId: runtimeRecord.nearAccountId,
+            ed25519KeyScopeId: runtimeRecord.ed25519KeyScopeId,
             routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
             signingGrantId: String(runtimeRecord.signingGrantId || '').trim(),

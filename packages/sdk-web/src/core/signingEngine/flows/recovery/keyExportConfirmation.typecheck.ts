@@ -24,6 +24,10 @@ void requestEmailOtpKeyExportAuthorization(walletDeps, {
 
 void requestEmailOtpKeyExportAuthorization(nearDeps, {
   kind: 'near_account_export_auth',
+  walletSession: {
+    walletId,
+    walletSessionUserId: 'user-1',
+  },
   nearAccountId,
   chain: 'near',
   publicKey: 'ed25519:public-key',
@@ -35,6 +39,10 @@ void requestEmailOtpKeyExportAuthorization(
   walletDeps,
   {
     kind: 'near_account_export_auth',
+    walletSession: {
+      walletId,
+      walletSessionUserId: 'user-1',
+    },
     nearAccountId,
     chain: 'near',
     publicKey: 'ed25519:public-key',

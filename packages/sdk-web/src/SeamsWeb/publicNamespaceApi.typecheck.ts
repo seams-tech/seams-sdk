@@ -19,7 +19,7 @@ const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 
 void seams.registration.enrollEmailOtp({
-  nearAccountId: 'alice.testnet',
+  walletId: 'alice.testnet',
   otpCode: '123456',
 });
 
@@ -78,6 +78,18 @@ void seams.recovery.finalizeEmailRecovery({ accountId: 'alice.testnet' });
 void seams.recovery.cancelEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
 // @ts-expect-error cancelEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
 void seams.recovery.cancelEmailRecovery({ accountId: 'alice.testnet' });
+void seams.recovery.getRecoveryEmails('frost-vermillion-k7p9m2');
+void seams.recovery.setRecoveryEmails({
+  walletId: 'frost-vermillion-k7p9m2',
+  recoveryEmails: ['alice@example.com'],
+  options: {},
+});
+void seams.recovery.setRecoveryEmails({
+  // @ts-expect-error setRecoveryEmails identifies a wallet, not a NEAR account-shaped accountId.
+  accountId: 'alice.testnet',
+  recoveryEmails: ['alice@example.com'],
+  options: {},
+});
 void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet' });
 void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet' });
 // @ts-expect-error public recovery status reads cannot accept plaintext recovery codes.
@@ -94,6 +106,12 @@ void seams.devices.deleteDeviceKey({
   publicKeyToDelete: 'ed25519:11111111111111111111111111111111',
   options: {},
 });
+void seams.devices.viewAccessKeyList({
+  walletSession,
+  nearAccount,
+});
+// @ts-expect-error listing NEAR access keys requires a wallet-scoped subject and NEAR account ref.
+void seams.devices.viewAccessKeyList('alice.testnet');
 // @ts-expect-error deleting a NEAR access key requires the wallet session subject.
 void seams.devices.deleteDeviceKey({
   nearAccount,
@@ -105,6 +123,7 @@ void seams.devices.deleteDeviceKey('alice.testnet', 'ed25519:1111111111111111111
 
 void seams.keys.exportKeypairWithUI({
   kind: 'near',
+  walletSession,
   nearAccount,
   options: {
     chain: 'near',

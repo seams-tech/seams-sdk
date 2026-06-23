@@ -70,7 +70,9 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   const signingLane =
     record.source === 'email_otp'
       ? buildNearTransactionSigningLane({
-          accountId: record.walletId,
+          walletId: record.walletId,
+          nearAccountId: record.nearAccountId,
+          ed25519KeyScopeId: record.ed25519KeyScopeId,
           authMethod: 'email_otp',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
@@ -78,7 +80,9 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
           sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
         })
       : buildNearTransactionSigningLane({
-          accountId: record.walletId,
+          walletId: record.walletId,
+          nearAccountId: record.nearAccountId,
+          ed25519KeyScopeId: record.ed25519KeyScopeId,
           authMethod: 'passkey',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
@@ -182,7 +186,7 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
         sessionId: thresholdSessionId,
         transport: {
           curve: 'ed25519',
-          walletId: String(args.walletSessionState.signingLane.accountId || '').trim(),
+          walletId: String(args.walletSessionState.signingLane.walletId || '').trim(),
           relayerUrl,
           signingGrantId,
           ...(args.walletSessionState.walletSessionAuth.kind === 'wallet_session_jwt'

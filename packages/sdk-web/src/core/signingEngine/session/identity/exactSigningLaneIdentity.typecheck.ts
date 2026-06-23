@@ -1,8 +1,9 @@
-import type { AccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import { SigningSessionIds } from '../operationState/types';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -20,8 +21,9 @@ import {
   type NonEmptyThresholdSessionIds,
 } from './exactSigningLaneIdentity';
 
-const accountId = 'alice.testnet' as AccountId;
-const walletId = toWalletId(accountId);
+const accountId = toAccountId('alice.testnet');
+const walletId = toWalletId('frost-vermillion-k7p9m2');
+const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
 const signingGrantId = SigningSessionIds.signingGrant('wallet-session-1');
 const ed25519ThresholdSessionId = SigningSessionIds.thresholdEd25519Session(
   'ed25519-threshold-session-1',
@@ -49,7 +51,9 @@ const ed25519Identity = exactEd25519SigningLaneIdentity({
   kind: 'selected_lane',
   curve: 'ed25519',
   chain: 'near',
-  accountId,
+  walletId,
+  nearAccountId: accountId,
+  ed25519KeyScopeId,
   authMethod: 'passkey',
   signingGrantId,
   thresholdSessionId: ed25519ThresholdSessionId,
@@ -98,7 +102,6 @@ const invalidEcdsaWithSubjectId: ExactEcdsaSigningLaneIdentity = {
 };
 void invalidEcdsaWithSubjectId;
 
-// @ts-expect-error exact ECDSA identity cannot carry Ed25519 accountId.
 const invalidMixedBranch: ExactSigningLaneIdentity = {
   kind: 'exact_ecdsa_signing_lane_identity',
   curve: 'ecdsa',
@@ -110,6 +113,7 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
   key: ecdsaKey,
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
+  // @ts-expect-error exact ECDSA identity cannot carry Ed25519 accountId.
   accountId,
 };
 void invalidMixedBranch;

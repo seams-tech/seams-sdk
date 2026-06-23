@@ -347,7 +347,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      userId?: string;
+      userId: string;
       challengeId?: string;
       otpCode: string;
       shamirPrimeB64u: string;
@@ -375,7 +375,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      userId?: string;
+      userId: string;
       shamirPrimeB64u: string;
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
@@ -439,7 +439,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      userId?: string;
+      userId: string;
       challengeId: string;
       otpCode: string;
       recoveryKey: string;
@@ -462,7 +462,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      userId?: string;
+      userId: string;
       routePlan: EmailOtpRoutePlan;
     };
     result: {
@@ -482,7 +482,7 @@ export interface EmailOtpWorkerOperationMap {
   removeEmailOtpDeviceEnrollmentEscrowFromDevice: {
     payload: {
       walletId: string;
-      userId?: string;
+      userId: string;
       enrollmentId?: string;
     };
     result: {
@@ -496,7 +496,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      userId?: string;
+      userId: string;
       challengeId?: string;
       otpCode: string;
       shamirPrimeB64u: string;
@@ -538,7 +538,7 @@ export interface EmailOtpWorkerOperationMap {
       relayUrl: string;
       walletId: string;
       nearAccountId: string;
-      userId?: string;
+      userId: string;
       challengeId: string;
       otpCode: string;
       shamirPrimeB64u: string;

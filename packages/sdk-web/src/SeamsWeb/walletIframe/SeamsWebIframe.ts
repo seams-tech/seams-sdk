@@ -73,6 +73,7 @@ import {
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from '@/SeamsWeb/operations/near';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
+import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import type { WalletUIRegistry } from './host/lit-ui/iframe-lit-element-registry';
 import type { DelegateActionInput, SignedDelegate } from '@/core/types/delegate';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
@@ -210,12 +211,11 @@ export class SeamsWebIframe {
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
     });
     this.auth = {
-      unlock: async (nearAccountId, options) => await this.unlockDomain(nearAccountId, options),
+      unlock: async (walletId, options) => await this.unlockDomain(walletId, options),
       lock: async () => await this.lockDomain(),
       getWalletSession: async (walletId) => await this.getWalletSessionDomain(walletId),
       getRecentUnlocks: async () => await this.getRecentUnlocksDomain(),
-      hasPasskeyCredential: async (nearAccountId) =>
-        await this.hasPasskeyCredentialDomain(nearAccountId),
+      hasPasskeyCredential: async (walletId) => await this.hasPasskeyCredentialDomain(walletId),
       prefillRouterAbEcdsaHssPresignaturePool: async (args) =>
         await this.prefillRouterAbEcdsaHssPresignaturePoolDomain(args),
       requestEmailOtpChallenge: async (args) => {
@@ -356,14 +356,14 @@ export class SeamsWebIframe {
       bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.recovery = {
-      getRecoveryEmails: async (accountId) => {
+      getRecoveryEmails: async (walletId) => {
         await this.requireRouterReady();
-        return await this.router.getRecoveryEmails(accountId);
+        return await this.router.getRecoveryEmails(walletId);
       },
       setRecoveryEmails: async (args) => {
         await this.requireRouterReady();
         return await this.router.setRecoveryEmails({
-          nearAccountId: args.accountId,
+          walletId: args.walletId,
           recoveryEmails: args.recoveryEmails,
           options: args.options,
         });
@@ -436,7 +436,7 @@ export class SeamsWebIframe {
           },
         });
       },
-      viewAccessKeyList: async (accountId) => await this.viewAccessKeyListDomain(accountId),
+      viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
       deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
     };
     this.keys = {
@@ -567,7 +567,7 @@ export class SeamsWebIframe {
   }
 
   private async unlockDomain(
-    nearAccountId: string,
+    walletId: string,
     options?: LoginHooksOptions,
   ): Promise<LoginAndCreateSessionResult> {
     try {
@@ -575,7 +575,7 @@ export class SeamsWebIframe {
       // The iframe will handle WebAuthn authentication and session creation
       const res = await this.router.unlock(
         walletIframeUnlockRequestFromLoginHooks({
-          nearAccountId,
+          walletId,
           options,
         }),
       );
@@ -607,8 +607,15 @@ export class SeamsWebIframe {
         nearAccountId: null,
         publicKey: null,
         userData: null,
-      } as LoginState;
-      return { login, signingSession: null };
+        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+        authMethods: [],
+      };
+      return {
+        login,
+        signingSession: null,
+        currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+        authMethods: [],
+      };
     }
     return await this.router.getWalletSession(walletId);
   }
@@ -1014,11 +1021,17 @@ export class SeamsWebIframe {
       .catch(() => ({ accountIds: [], lastUsedAccount: null }));
   }
 
-  private async hasPasskeyCredentialDomain(nearAccountId: string): Promise<boolean> {
-    return this.router.hasPasskeyCredential(nearAccountId);
+  private async hasPasskeyCredentialDomain(walletId: string): Promise<boolean> {
+    return this.router.hasPasskeyCredential(walletId);
   }
-  private async viewAccessKeyListDomain(accountId: string): Promise<AccessKeyList> {
-    return this.router.viewAccessKeyList(accountId);
+  private async viewAccessKeyListDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+  }): Promise<AccessKeyList> {
+    return this.router.viewAccessKeyList({
+      walletId: args.walletSession.walletId,
+      nearAccountId: String(args.nearAccount.accountId),
+    });
   }
   private async deleteDeviceKeyDomain(
     args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
@@ -1103,7 +1116,8 @@ export class SeamsWebIframe {
   }
 
   private async exportThresholdEd25519SeedFromHssReportDomain(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
     finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
     expectedPublicKey: string;
@@ -1114,7 +1128,14 @@ export class SeamsWebIframe {
     };
   }): Promise<void> {
     await this.requireRouterReady();
-    return this.router.exportThresholdEd25519SeedFromHssReport(args);
+    return this.router.exportThresholdEd25519SeedFromHssReport({
+      walletId: args.walletSession.walletId,
+      nearAccountId: String(args.nearAccount.accountId),
+      preparedSession: args.preparedSession,
+      finalizedReport: args.finalizedReport,
+      expectedPublicKey: args.expectedPublicKey,
+      options: args.options,
+    });
   }
 
   private async signAndSendTransactionDomain(args: {

@@ -23,21 +23,21 @@ export type PMUnlockOptions = {
 export type PMUnlockPayload =
   | {
       kind: 'default_options';
-      nearAccountId: string;
+      walletId: string;
     }
   | {
       kind: 'custom_options';
-      nearAccountId: string;
+      walletId: string;
       options: PMUnlockOptions;
     };
 
 export type WalletIframeUnlockRequest =
   | {
       kind: 'default_options';
-      nearAccountId: string;
+      walletId: string;
     }
   | {
       kind: 'custom_options';
-      nearAccountId: string;
+      walletId: string;
       options: LoginHooksOptions;
     };

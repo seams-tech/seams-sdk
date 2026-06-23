@@ -614,7 +614,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 
   const initializeNearAccessKey = (input: {
-    walletId?: string;
+    walletId: string;
     accountId: string;
     publicKey: string;
   }): void => {
@@ -1095,11 +1095,9 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async prefetchNearContext(input) {
-      if (input?.accountId || input?.publicKey) {
-        if (!input.accountId || !input.publicKey) {
-          throw new Error('[NonceCoordinator] NEAR prefetch requires both accountId and publicKey');
-        }
+      if (input?.kind === 'access_key_subject') {
         initializeNearAccessKey({
+          walletId: input.walletId,
           accountId: input.accountId,
           publicKey: input.publicKey,
         });

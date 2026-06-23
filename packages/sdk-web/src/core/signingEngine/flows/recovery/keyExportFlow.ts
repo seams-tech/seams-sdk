@@ -1,4 +1,4 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import {
   createKeyExportFlowEvent,
   KeyExportEventPhase,
@@ -20,6 +20,7 @@ export type KeyExportEventCallback = (event: KeyExportFlowEvent) => void;
 export type SigningEngineExportKeypairWithUIInput =
   | {
       kind: 'near';
+      walletSession: WalletSessionRef;
       nearAccount: NearAccountRef;
       options: {
         chain: 'near';
@@ -79,7 +80,7 @@ export async function runKeyExportWithFlowEvents<TResult>(
   const flowChain = input.kind === 'near' ? 'near' : input.chainTarget.kind;
   const flowId = createKeyExportFlowId(flowSubject, flowChain);
   const accountId =
-    input.kind === 'near' ? input.nearAccount.accountId : toAccountId(input.walletSession.walletId);
+    input.kind === 'near' ? input.nearAccount.accountId : input.walletSession.walletId;
   const eventData =
     input.kind === 'near'
       ? { chain: 'near' as const }

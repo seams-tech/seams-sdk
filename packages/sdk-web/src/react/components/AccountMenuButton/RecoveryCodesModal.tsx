@@ -18,7 +18,7 @@ import {
 import './RecoveryCodesModal.css';
 
 interface RecoveryCodesModalProps {
-  nearAccountId: string;
+  walletId: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -78,7 +78,7 @@ function loadedStatus(loadState: RecoveryCodesLoadState): EmailOtpRecoveryCodeSt
 }
 
 export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
-  nearAccountId,
+  walletId,
   isOpen,
   onClose,
 }) => {
@@ -99,7 +99,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
       setLoadState({ kind: 'loading' });
       try {
         const loaded = await loadRecoveryCodesModalLoadedState({
-          walletId: nearAccountId,
+          walletId,
           recovery: seams.recovery,
           recoveryCodeBackupRepository: emailOtpRecoveryCodeBackupRepository,
           showRecoveryCodes: getEmailOtpRecoveryCodePresenter(seams),
@@ -114,7 +114,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
         });
       }
     },
-    [nearAccountId, seams],
+    [walletId, seams],
   );
 
   useEffect(() => {
@@ -176,7 +176,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     setIsRotating(true);
     setLoadState({ ...current, actionError: '' });
     try {
-      await seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: nearAccountId });
+      await seams.recovery.rotateEmailOtpRecoveryCodes({ walletId });
       await loadRecoveryCodeStatus();
     } catch (error: unknown) {
       setLoadState({
@@ -187,7 +187,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     } finally {
       setIsRotating(false);
     }
-  }, [isRotating, loadRecoveryCodeStatus, loadState, nearAccountId, seams.recovery]);
+  }, [isRotating, loadRecoveryCodeStatus, loadState, walletId, seams.recovery]);
 
   if (!isOpen) return null;
   const status = loadedStatus(loadState);
@@ -226,8 +226,8 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
           </div>
           <div className="w3a-recovery-codes-modal-body">
             <div className="w3a-recovery-codes-status-row">
-              <span className="w3a-recovery-codes-status-label">Account</span>
-              <span className="w3a-recovery-codes-status-value">{nearAccountId}</span>
+              <span className="w3a-recovery-codes-status-label">Wallet</span>
+              <span className="w3a-recovery-codes-status-value">{walletId}</span>
             </div>
             <div className="w3a-recovery-codes-status-row">
               <span className="w3a-recovery-codes-status-label">Status</span>

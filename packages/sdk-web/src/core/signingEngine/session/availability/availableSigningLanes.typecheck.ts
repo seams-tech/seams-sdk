@@ -13,6 +13,9 @@ import type {
   ReadAvailableSigningLanesInput,
   AvailableSigningLanesRuntimeClaim,
 } from './availableSigningLanes';
+import { toAccountId } from '../../../types/accountIds';
+import { toWalletId } from '../../interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 
 const chainTarget = {
   kind: 'evm',
@@ -20,6 +23,9 @@ const chainTarget = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const;
+const ed25519WalletId = toWalletId('frost-vermillion-k7p9m2');
+const ed25519NearAccountId = toAccountId('alice.testnet');
+const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
@@ -169,6 +175,9 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
+  walletId: ed25519WalletId,
+  nearAccountId: ed25519NearAccountId,
+  ed25519KeyScopeId,
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',

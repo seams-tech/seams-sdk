@@ -458,6 +458,7 @@ export async function activateAuthenticatedWalletState(
   const userData = await readNearUserData(deps, accountId, signerSlotToUse);
   if (userData && userData.operationalPublicKey) {
     deps.nonceCoordinator.initializeNearAccessKey({
+      walletId,
       accountId,
       publicKey: userData.operationalPublicKey,
     });
@@ -466,7 +467,7 @@ export async function activateAuthenticatedWalletState(
   // Prefetch block height for better UX (non-fatal if it fails and nearClient is provided)
   if (args.nearClient) {
     await deps.nonceCoordinator
-      .prefetchNearContext({ nearClient: args.nearClient })
+      .prefetchNearContext({ kind: 'initialized_state', nearClient: args.nearClient })
       .catch((prefetchErr) =>
         console.debug(
           'Nonce prefetch after authentication state initialization failed (non-fatal):',
@@ -573,7 +574,6 @@ async function emailOtpAuthMethod(args: {
     status: 'active',
     localStatus: 'synced',
     walletId: args.walletId,
-    rpId: LOCAL_WALLET_AUTH_RP_ID,
     emailHashHex: bytesToHex(await sha256BytesUtf8(email)),
     registrationAuthorityId,
     createdAtMs: nowMs,

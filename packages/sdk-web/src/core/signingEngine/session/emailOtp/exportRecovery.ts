@@ -11,7 +11,6 @@ import type {
   WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpEd25519SessionReconstructionPlan } from './provisioning';
@@ -317,13 +316,14 @@ async function requestEmailOtpChallengeWithRoutePlan(
         walletId: WalletId;
         routePlan: EmailOtpRoutePlan;
       }
-    | {
-        kind: 'near_account';
-        nearAccountId: AccountId;
-        routePlan: EmailOtpRoutePlan;
-      },
+	    | {
+	        kind: 'near_account';
+	        walletSession: WalletSessionRef;
+	        nearAccountId: AccountId;
+	        routePlan: EmailOtpRoutePlan;
+	      },
 ): Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }> {
-  const walletId = args.kind === 'wallet_session' ? args.walletId : args.nearAccountId;
+  const walletId = args.kind === 'wallet_session' ? args.walletId : args.walletSession.walletId;
   const relayUrl = ports.requireRelayUrl();
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
@@ -361,10 +361,7 @@ function resolveChallengeWalletSession(args: RequestEmailOtpChallengeArgs): Wall
     case 'wallet_session_challenge':
       return args.walletSession;
     case 'near_account_challenge':
-      return walletSessionRefFromSession({
-        walletId: args.nearAccountId,
-        walletSessionUserId: args.nearAccountId,
-      });
+      return args.walletSession;
   }
 }
 
@@ -410,6 +407,7 @@ export async function requestTransactionSigningChallenge(
         })
       : await requestEmailOtpChallengeWithRoutePlan(ports, {
           kind: 'near_account',
+          walletSession: args.walletSession,
           nearAccountId: args.nearAccountId,
           routePlan,
         });
@@ -461,6 +459,7 @@ export async function requestExportChallenge(
         })
       : await requestEmailOtpChallengeWithRoutePlan(ports, {
           kind: 'near_account',
+          walletSession: args.walletSession,
           nearAccountId: args.nearAccountId,
           routePlan,
         });
@@ -468,6 +467,24 @@ export async function requestExportChallenge(
     challengeId: challenge.challengeId,
     ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
   };
+}
+
+function requireEmailOtpExportAuthSubject(args: {
+  record: ThresholdEcdsaSessionRecord | ThresholdEd25519SessionRecord;
+  walletSessionUserId: string;
+}): string {
+  if (args.record.source === 'email_otp') {
+    const authSubjectId = String(args.record.emailOtpAuthContext?.authSubjectId || '').trim();
+    if (!authSubjectId) {
+      throw new Error('Email OTP export requires record authSubjectId');
+    }
+    return authSubjectId;
+  }
+  const walletSessionUserId = String(args.walletSessionUserId || '').trim();
+  if (!walletSessionUserId) {
+    throw new Error('Email OTP export requires walletSessionUserId');
+  }
+  return walletSessionUserId;
 }
 
 export async function exportEd25519SeedWithAuthorization(
@@ -478,9 +495,13 @@ export async function exportEd25519SeedWithAuthorization(
     | 'requireShamirPrimeB64u'
     | 'buildSigningSessionRoutePlan'
   >,
-  args: ExportEd25519SeedWithAuthorizationArgs,
+	  args: ExportEd25519SeedWithAuthorizationArgs,
 ): Promise<EmailOtpEd25519ExportArtifact> {
   const nearAccountId = args.nearAccountId;
+  const walletId = args.record.walletId;
+  if (String(args.record.nearAccountId) !== String(nearAccountId)) {
+    throw new Error('Email OTP Ed25519 export nearAccountId mismatch');
+  }
   const relayUrl = String(args.record.relayerUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(ports.requireShamirPrimeB64u()).trim();
   const workerCtx = ports.getSignerWorkerContext();
@@ -491,6 +512,10 @@ export async function exportEd25519SeedWithAuthorization(
   if (!runtimePolicyScope) {
     throw new Error('Email OTP Ed25519 export requires runtime policy scope');
   }
+  const userId = requireEmailOtpExportAuthSubject({
+    record: args.record,
+    walletSessionUserId: String(walletId),
+  });
   const providedAuthLane = args.authLane;
   const providedRouteAuth = providedAuthLane
     ? authLaneToRouteAuth(providedAuthLane)
@@ -514,15 +539,11 @@ export async function exportEd25519SeedWithAuthorization(
     request: {
       type: 'exportEmailOtpEd25519SeedWithAuthorization',
       timeoutMs: 60_000,
-      payload: {
-        relayUrl,
-        walletId: String(nearAccountId),
-        nearAccountId: String(nearAccountId),
-        userId: String(
-          args.record.source === 'email_otp'
-            ? args.record.emailOtpAuthContext?.authSubjectId || nearAccountId
-            : nearAccountId,
-        ),
+		      payload: {
+		        relayUrl,
+		        walletId: String(walletId),
+		        nearAccountId: String(nearAccountId),
+		        userId,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
         shamirPrimeB64u,
@@ -582,12 +603,10 @@ export async function exportEcdsaKeyWithAuthorization(
       payload: {
         relayUrl: exportInput.relayUrl,
         walletId: exportInput.walletSession.walletId,
-        userId: String(
-          record.source === 'email_otp'
-            ? record.emailOtpAuthContext.authSubjectId ||
-                exportInput.walletSession.walletSessionUserId
-            : exportInput.walletSession.walletSessionUserId,
-        ),
+        userId: requireEmailOtpExportAuthSubject({
+          record,
+          walletSessionUserId: exportInput.walletSession.walletSessionUserId,
+        }),
         challengeId: exportInput.challengeId,
         otpCode: exportInput.otpCode,
         shamirPrimeB64u: exportInput.shamirPrimeB64u,

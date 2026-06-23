@@ -143,7 +143,7 @@ export function getNearAccountId(request: UserConfirmRequest): string {
       return (request.payload as SignIntentDigestPayload).nearAccountId;
     case UserConfirmationType.REGISTER_ACCOUNT:
     case UserConfirmationType.LINK_DEVICE:
-      return getRegisterAccountPayload(request).nearAccountId;
+      return String(getRegisterAccountPayload(request).nearAccountId || '').trim();
     case UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF: {
       const p = request.payload as { nearAccountId?: string };
       return p?.nearAccountId || '';
@@ -163,6 +163,9 @@ export function getWalletId(request: UserConfirmRequest): string {
       return String(getSignTransactionPayload(request).walletId || '').trim();
     case UserConfirmationType.SIGN_NEP413_MESSAGE:
       return String((request.payload as SignNep413Payload).walletId || '').trim();
+    case UserConfirmationType.REGISTER_ACCOUNT:
+    case UserConfirmationType.LINK_DEVICE:
+      return String(getRegisterAccountPayload(request).walletId || '').trim();
     default:
       return getNearAccountId(request);
   }

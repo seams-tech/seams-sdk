@@ -365,18 +365,27 @@ export type NonceCoordinator = {
     nearClient?: NearClient;
     force?: boolean;
   }): Promise<{ context: TransactionContext; leases: NonceLease[] }>;
-  initializeNearAccessKey(input: { walletId?: string; accountId: string; publicKey: string }): void;
+  initializeNearAccessKey(input: { walletId: string; accountId: string; publicKey: string }): void;
   getActiveNearPublicKey(): string | null;
   fetchNearContext(input: {
     lane: NearNonceLane;
     nearClient?: NearClient;
     force?: boolean;
   }): Promise<TransactionContext>;
-  prefetchNearContext(input?: {
-    accountId?: string;
-    publicKey?: string;
-    nearClient?: NearClient;
-  }): Promise<void>;
+  prefetchNearContext(
+    input?:
+      | {
+          kind: 'initialized_state';
+          nearClient?: NearClient;
+        }
+      | {
+          kind: 'access_key_subject';
+          walletId: string;
+          accountId: string;
+          publicKey: string;
+          nearClient?: NearClient;
+        },
+  ): Promise<void>;
   clearNearAccessKey(): void;
   markSigned(input: {
     leaseId: string;

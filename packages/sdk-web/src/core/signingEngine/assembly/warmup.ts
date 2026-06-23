@@ -5,8 +5,9 @@ import type { ProfileAccountContextPort } from '@/core/indexedDB/profileAccountP
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
+import type { WalletId } from '../interfaces/ecdsaChainTarget';
 import { getLastLoggedInSignerSlot } from '../webauthnAuth/device/signerSlot';
+import type { NearAccountBinding } from '@shared/utils/walletCapabilityBindings';
 
 export type WorkerResourceWarmupStorePort = ProfileAccountContextPort &
   AccountKeyMaterialStorePort & {
@@ -37,6 +38,16 @@ export type WorkerResourceWarmupDiagnostics = {
   signerWorkerPrewarmMs: number;
 };
 
+export type WorkerResourceWarmupAccountContext =
+  | {
+      kind: 'none';
+      account?: never;
+    }
+  | {
+      kind: 'near_account_bound';
+      account: NearAccountBinding;
+    };
+
 function roundWarmupDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
@@ -58,13 +69,17 @@ export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
 
 export async function warmCriticalResources(
   deps: WorkerResourceWarmupDeps,
-  nearAccountId?: string,
+  accountContext: WorkerResourceWarmupAccountContext = { kind: 'none' },
 ): Promise<WorkerResourceWarmupDiagnostics> {
-  const accountId = nearAccountId ? toAccountId(nearAccountId) : null;
-  const authenticatedWalletStateMs = accountId
+  const accountBinding =
+    accountContext.kind === 'near_account_bound'
+      ? accountContext.account
+      : null;
+  const accountId = accountBinding ? toAccountId(accountBinding.nearAccountId) : null;
+  const authenticatedWalletStateMs = accountBinding && accountId
     ? await measureBestEffortWarmupStep(() =>
         deps.activateAuthenticatedWalletState({
-          walletId: toWalletId(accountId),
+          walletId: accountBinding.wallet.walletId,
           nearAccountId: accountId,
           nearClient: deps.nearClient,
         }),
@@ -72,7 +87,10 @@ export async function warmCriticalResources(
     : 0;
 
   const noncePrefetchMs = await measureBestEffortWarmupStep(() =>
-    deps.nonceCoordinator.prefetchNearContext({ nearClient: deps.nearClient }),
+    deps.nonceCoordinator.prefetchNearContext({
+      kind: 'initialized_state',
+      nearClient: deps.nearClient,
+    }),
   );
 
   const keyMaterialReadMs = accountId

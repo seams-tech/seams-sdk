@@ -1,7 +1,7 @@
-import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaSessionRecord,
@@ -294,7 +294,7 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (this.ports.sessionPersistenceMode !== 'sealed_refresh_v1') {
       return { ...EMPTY_ACCOUNT_RESTORE_RESULT };
     }
-    const walletId = String(toAccountId(args.walletId) || '').trim();
+    const walletId = String(toWalletId(args.walletId) || '').trim();
     if (!walletId) {
       return { ...EMPTY_ACCOUNT_RESTORE_RESULT };
     }
@@ -338,7 +338,7 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (this.ports.sessionPersistenceMode !== 'sealed_refresh_v1') {
       return { ...EMPTY_SIGNING_RESTORE_RESULT };
     }
-    const walletId = String(toAccountId(args.walletId) || '').trim();
+    const walletId = String(toWalletId(args.walletId) || '').trim();
     if (!walletId) return { ...EMPTY_SIGNING_RESTORE_RESULT };
 
     return await restorePersistedSessionForSigningCommand(

@@ -29,7 +29,7 @@ function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
 export async function enrollEmailOtpWallet(args: {
   relayUrl: string;
   walletId: string;
-  userId?: string;
+  userId: string;
   challengeId?: string;
   otpCode: string;
   shamirPrimeB64u: string;
@@ -52,7 +52,7 @@ export async function enrollEmailOtpWallet(args: {
         payload: {
           relayUrl: readString(args.relayUrl, 'relayUrl'),
           walletId: readString(args.walletId, 'walletId'),
-          ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+          userId: readString(args.userId, 'userId'),
           ...(readOptionalString(args.challengeId)
             ? { challengeId: readOptionalString(args.challengeId) }
             : {}),
@@ -76,7 +76,7 @@ export async function enrollEmailOtpWallet(args: {
 export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   relayUrl: string;
   walletId: string;
-  userId?: string;
+  userId: string;
   shamirPrimeB64u: string;
   workerCtx: WorkerOperationContext;
   appSessionJwt?: string;
@@ -115,7 +115,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
         payload: {
           relayUrl: readString(args.relayUrl, 'relayUrl'),
           walletId: readString(args.walletId, 'walletId'),
-          ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+          userId: readString(args.userId, 'userId'),
           shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'registration',

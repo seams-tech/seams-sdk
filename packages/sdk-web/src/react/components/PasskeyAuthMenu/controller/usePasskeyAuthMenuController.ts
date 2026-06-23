@@ -1286,7 +1286,7 @@ export function usePasskeyAuthMenuController(
             return;
           }
           const walletId = String(result.walletId || '').trim();
-          const displayAccountId = String(result.nearAccountId || walletId).trim();
+          const displayAccountId = walletId;
           setMethodError('');
           setWaiting(false);
           setWaitingReason(null);

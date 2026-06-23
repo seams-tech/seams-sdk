@@ -10,6 +10,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   WalletId,
 } from './evmFamilyEcdsaIdentity';
+import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 import type { SelectedEcdsaLane, SelectedEd25519Lane, SelectedLane } from './laneIdentity';
 import {
   SigningSessionIds,
@@ -33,11 +34,13 @@ export type ExactEd25519SigningLaneIdentity = {
   kind: 'exact_ed25519_signing_lane_identity';
   curve: 'ed25519';
   chainFamily: 'near';
-  accountId: AccountId;
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   authMethod: SigningAuthMethod;
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEd25519SessionId;
-  walletId?: never;
+  accountId?: never;
   chainTarget?: never;
   key?: never;
   subjectId?: never;
@@ -70,7 +73,9 @@ type CanonicalExactSigningLaneIdentity =
       kind: ExactEd25519SigningLaneIdentity['kind'];
       curve: 'ed25519';
       chainFamily: 'near';
-      accountId: string;
+      walletId: string;
+      nearAccountId: string;
+      ed25519KeyScopeId: string;
       authMethod: SigningAuthMethod;
       signingGrantId: string;
       thresholdSessionId: string;
@@ -143,7 +148,9 @@ function canonicalExactSigningLaneIdentity(
       kind: identity.kind,
       curve: 'ed25519',
       chainFamily: 'near',
-      accountId: String(identity.accountId),
+      walletId: String(identity.walletId),
+      nearAccountId: String(identity.nearAccountId),
+      ed25519KeyScopeId: String(identity.ed25519KeyScopeId),
       authMethod: identity.authMethod,
       signingGrantId: String(identity.signingGrantId),
       thresholdSessionId: String(identity.thresholdSessionId),
@@ -178,7 +185,9 @@ export function exactEd25519SigningLaneIdentity(
     kind: 'exact_ed25519_signing_lane_identity',
     curve: 'ed25519',
     chainFamily: 'near',
-    accountId: lane.accountId,
+    walletId: toWalletId(lane.walletId),
+    nearAccountId: lane.nearAccountId,
+    ed25519KeyScopeId: lane.ed25519KeyScopeId,
     authMethod: lane.authMethod,
     signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(lane.thresholdSessionId),

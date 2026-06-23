@@ -19,6 +19,7 @@ import { walletSessionJwtFromPersistedEd25519Record } from '../../session/wallet
 import type {
   RequestEmailOtpChallengeArgs,
 } from '../../session/emailOtp/exportRecoveryRuntime';
+import { walletSessionRefFromSession } from '../../interfaces/ecdsaChainTarget';
 import type { ExactNearEd25519ExportLane } from './exportLaneSelection';
 import {
   type EmailOtpNearAccountExportAuthorizationDeps,
@@ -440,14 +441,22 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
           requestExportChallenge: (request) =>
             deps.emailOtpSessions.requestExportChallenge({
               kind: 'near_account_challenge',
-              nearAccountId,
-              chain: 'near',
+              walletSession: walletSessionRefFromSession({
+                walletId: sessionRecord.walletId,
+                walletSessionUserId: sessionRecord.walletId,
+              }),
+	              nearAccountId,
+	              chain: 'near',
               ...(request.routeAuth ? { routeAuth: request.routeAuth } : {}),
               ...(request.authLane ? { authLane: request.authLane } : {}),
             }),
         },
         {
           kind: 'near_account_export_auth',
+          walletSession: walletSessionRefFromSession({
+            walletId: sessionRecord.walletId,
+            walletSessionUserId: sessionRecord.walletId,
+          }),
           nearAccountId,
           chain: 'near',
           publicKey: expectedPublicKey,

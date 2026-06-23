@@ -3,6 +3,9 @@ import {
   buildNearTransactionSigningLane,
 } from '../../../session/operationState/lanes';
 import { SigningSessionIds } from '../../../session/operationState/types';
+import { toAccountId } from '../../../../types/accountIds';
+import { toWalletId } from '../../../interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import type {
   ResolvedRouterAbEd25519WalletSessionState,
 } from './routerAbEd25519WalletSessionState';
@@ -13,6 +16,9 @@ const validSigningMaterial = buildRouterAbEd25519SigningMaterialRef({
   bindingDigest: 'binding',
   clientVerifyingShareB64u: 'client-verifying-share',
 });
+const walletId = toWalletId('frost-vermillion-k7p9m2');
+const nearAccountId = toAccountId('alice.testnet');
+const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
 
 const validWalletSessionState = {
   walletSessionAuth: {
@@ -22,7 +28,9 @@ const validWalletSessionState = {
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   signingLane: buildNearTransactionSigningLane({
-    accountId: 'alice.testnet',
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     authMethod: 'passkey',
     signingGrantId:
       SigningSessionIds.signingGrant('signing-grant-1'),

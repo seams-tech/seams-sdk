@@ -1,10 +1,11 @@
-import { toAccountId } from '@/core/types/accountIds';
-import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
   buildEcdsaLaneBudgetStatusCheck,
@@ -207,8 +208,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
     ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   },
 ): Promise<AvailableSigningLanes> {
-  const walletAccountId = toAccountId(args.walletId);
-  const walletId = String(walletAccountId).trim();
+  const walletId = String(toWalletId(args.walletId)).trim();
   const pushRuntimeEcdsaRecord = async (
     records: AvailableSigningLanesRuntimeEcdsaRecord[],
     seen: Set<string>,
@@ -340,7 +340,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
         }
         return records;
       },
-      listRuntimeEd25519RecordsForAccount: async ({ accountId: recordWalletId }) => {
+      listRuntimeEd25519RecordsForWallet: async ({ walletId: recordWalletId }) => {
         const records: AvailableSigningLanesRuntimeEd25519Record[] = [];
         const seen = new Set<string>();
         const pushRecord = (record: AvailableSigningLanesRuntimeEd25519Record): void => {
@@ -360,6 +360,9 @@ export async function readPersistedAvailableSigningLanesForTargets(
             authMethod,
             curve: 'ed25519',
             chain: 'near',
+            walletId: runtimeRecord.walletId,
+            nearAccountId: runtimeRecord.nearAccountId,
+            ed25519KeyScopeId: runtimeRecord.ed25519KeyScopeId,
             routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
             signingGrantId: String(runtimeRecord.signingGrantId || '').trim(),
@@ -386,7 +389,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
               runtimeRecord.signingGrantId || '',
             ).trim();
             const ecdsaRecord = getThresholdEcdsaSessionRecordByKey(deps.ecdsaSessions, {
-              walletId: toAccountId(runtimeRecord.key.walletId),
+              walletId: toWalletId(runtimeRecord.key.walletId),
               keyHandle,
               authMethod: runtimeRecord.authMethod,
               curve: 'ecdsa',
@@ -499,7 +502,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 ? await deps
                     .getWalletSigningBudgetStatus(
                       buildThresholdBudgetStatusCheck({
-                        owner: ed25519WalletBudgetOwner(walletAccountId),
+                        owner: ed25519WalletBudgetOwner(walletId),
                         signingGrantId,
                         targetThresholdSessionIds: [sessionId],
                       }),

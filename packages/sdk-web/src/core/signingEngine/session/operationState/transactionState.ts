@@ -56,7 +56,7 @@ type TransactionSigningIntentBase = {
 };
 
 type NearEd25519TransactionSigningIntentBase = TransactionSigningIntentBase & {
-  walletId: AccountId;
+  walletId: WalletId;
 };
 
 type EvmFamilyEcdsaTransactionSigningIntentBase = TransactionSigningIntentBase & {

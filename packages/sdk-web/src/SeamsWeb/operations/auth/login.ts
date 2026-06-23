@@ -31,12 +31,10 @@ import {
   toError,
 } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import { isImplicitNearAccountId } from '@shared/utils/near';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
-  getLastSelectedNearAccount,
   getNearAccountProjection,
   resolveNearAccountProfileContinuity,
 } from '@/core/accountData/near/accountProjection';
@@ -141,6 +139,18 @@ import {
 } from '@/core/signingEngine/session/budget/policy';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
+import { isImplicitNearAccountId } from '@shared/utils/near';
+import {
+  buildEmailOtpWalletAuthMethodBinding,
+  buildNoCurrentWalletAuthMethod,
+  buildPasskeyAuthScope,
+  buildPasskeyWalletAuthMethodBinding,
+  buildSelectedCurrentWalletAuthMethod,
+  buildWalletIdentity,
+  parseRpId,
+  type CurrentWalletAuthMethod,
+  type WalletAuthMethodBinding,
+} from '@shared/utils/walletCapabilityBindings';
 import { collectPasskeyLoginAssertion } from '@/SeamsWeb/operations/authMethods/passkey/loginAssertion';
 import {
   collectFreshLocalPasskeyUnlockCredential,
@@ -222,17 +232,11 @@ function resolveLoginWalletUnlockSelection(
   return { mode: 'ed25519_and_ecdsa', ed25519: true, ecdsa: true };
 }
 
-function accountIdFromUnknown(value: unknown): AccountId | null {
-  try {
-    return toAccountId(String(value || '').trim());
-  } catch {
-    return null;
-  }
-}
-
 function walletIdFromUnknown(value: unknown): WalletId | null {
   try {
-    return toWalletId(value);
+    const raw = String(value || '').trim();
+    if (isImplicitNearAccountId(raw)) return null;
+    return toWalletId(raw);
   } catch {
     return null;
   }
@@ -281,27 +285,8 @@ function resolveExplicitWalletSessionIdentity(
     });
   }
 
-  const accountId = accountIdFromUnknown(rawWalletId);
-  if (accountId) {
-    const accountRecord = getStoredThresholdEd25519SessionRecordForAccount(accountId);
-    return resolvedWalletWithNearAccount({
-      walletId: accountRecord?.walletId || toWalletId(accountId),
-      nearAccountId: accountRecord?.nearAccountId || accountId,
-      ed25519Record: accountRecord,
-    });
-  }
-
   const walletId = walletIdFromUnknown(rawWalletId);
   return walletId ? walletOnlySessionIdentity(walletId) : emptyWalletSessionIdentity();
-}
-
-function resolveNearWalletSessionIdentity(nearAccountId: AccountId): ResolvedWalletSessionIdentity {
-  const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-  return resolvedWalletWithNearAccount({
-    walletId: record?.walletId || toWalletId(nearAccountId),
-    nearAccountId: record?.nearAccountId || nearAccountId,
-    ed25519Record: record,
-  });
 }
 
 function resolveLoginWalletBinding(nearAccountId: AccountId): ResolvedLoginWalletBinding {
@@ -323,16 +308,7 @@ function resolveLoginWalletBinding(nearAccountId: AccountId): ResolvedLoginWalle
     };
   }
 
-  if (isImplicitNearAccountId(nearAccountId)) {
-    throw new Error('[login] implicit NEAR account login requires a persisted wallet binding');
-  }
-
-  return {
-    walletId: toWalletId(nearAccountId),
-    nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
-    ed25519Record: null,
-  };
+  throw new Error('[login] Ed25519 login requires a persisted wallet binding');
 }
 
 function buildLoggedOutLoginState(args: {
@@ -347,10 +323,77 @@ function buildLoggedOutLoginState(args: {
     nearAccountId: args.nearAccountId,
     publicKey: null,
     userData: null,
-    authMethod: null,
+    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+    authMethods: [],
     thresholdEcdsaEthereumAddress: args.thresholdEcdsaEthereumAddress,
     thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
   };
+}
+
+function buildAnonymousWalletSession(): WalletSession {
+  const login = buildLoggedOutLoginState({
+    walletId: null,
+    nearAccountId: null,
+    thresholdEcdsaEthereumAddress: null,
+    thresholdEcdsaPublicKeyB64u: null,
+  });
+  return {
+    login,
+    signingSession: null,
+    currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+    authMethods: [],
+    authMethod: null,
+    retention: null,
+    nonceDiagnostics: null,
+  };
+}
+
+function walletAuthMethodBindingFromRecord(
+  record: Awaited<ReturnType<typeof IndexedDBManager.listWalletAuthMethodsForWallet>>[number],
+): WalletAuthMethodBinding | null {
+  const wallet = buildWalletIdentity({ walletId: record.walletId });
+  switch (record.kind) {
+    case 'passkey': {
+      const rpId = parseRpId(record.rpId);
+      if (!rpId.ok) return null;
+      return buildPasskeyWalletAuthMethodBinding({
+        scope: buildPasskeyAuthScope({ wallet, rpId: rpId.value }),
+        credentialIdB64u: record.credentialIdB64u,
+      });
+    }
+    case 'email_otp':
+      return buildEmailOtpWalletAuthMethodBinding({
+        wallet,
+        emailHashHex: record.emailHashHex,
+        registrationAuthorityId: record.registrationAuthorityId,
+      });
+    default:
+      record satisfies never;
+      return null;
+  }
+}
+
+async function readWalletAuthMethodBindingsForSession(
+  walletId: WalletId | null,
+): Promise<readonly WalletAuthMethodBinding[]> {
+  if (!walletId) return [];
+  const records = await IndexedDBManager.listWalletAuthMethodsForWallet(String(walletId)).catch(
+    () => [],
+  );
+  return records
+    .filter((record) => record.status === 'active')
+    .map(walletAuthMethodBindingFromRecord)
+    .filter((binding): binding is WalletAuthMethodBinding => Boolean(binding));
+}
+
+function selectCurrentWalletAuthMethod(args: {
+  authMethods: readonly WalletAuthMethodBinding[];
+  authMethod: WalletAuthMethod | null;
+}): CurrentWalletAuthMethod {
+  if (!args.authMethod) return buildNoCurrentWalletAuthMethod();
+  const matches = args.authMethods.filter((binding) => binding.kind === args.authMethod);
+  if (matches.length !== 1) return buildNoCurrentWalletAuthMethod();
+  return buildSelectedCurrentWalletAuthMethod({ binding: matches[0] });
 }
 
 type LoginUnlockAccountSubject =
@@ -1547,7 +1590,7 @@ export async function unlock(
     await clearFailedUnlockSessionState({
       context,
       nearAccountId,
-      walletId: unlockWalletBinding?.walletId || toWalletId(nearAccountId),
+      walletId: unlockWalletBinding?.walletId || null,
     });
     // Normalize every thrown value through the public login error hooks/events.
     const errorMessage = getUserFriendlyErrorMessage(err, 'login') || 'Login failed';
@@ -1566,14 +1609,16 @@ export async function unlock(
 async function clearFailedUnlockSessionState(args: {
   context: LoginWebContext;
   nearAccountId: AccountId;
-  walletId: WalletId;
+  walletId: WalletId | null;
 }): Promise<void> {
   await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
   try {
     args.context.signingEngine.getNonceCoordinator().clearAll();
   } catch {}
   try {
-    await args.context.signingEngine.clearVolatileWarmSigningMaterial(args.walletId);
+    if (args.walletId) {
+      await args.context.signingEngine.clearVolatileWarmSigningMaterial(args.walletId);
+    }
   } catch {}
   try {
     clearStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
@@ -2733,6 +2778,8 @@ export async function getWalletSession(
   context: WalletSessionWebContext,
   walletId?: WalletId | string,
 ): Promise<WalletSession> {
+  if (!walletId) return buildAnonymousWalletSession();
+
   await context.signingEngine.assertSealedRefreshStartupParity().catch((error: unknown) => {
     console.warn(
       '[WalletSession] sealed refresh startup parity check failed during session read; continuing with cached login state',
@@ -2740,25 +2787,29 @@ export async function getWalletSession(
     );
   });
   const login = await getLoginStateInternal(context, walletId);
-  const signingSession = login?.nearAccountId
+  const signingSession = login?.walletId && login.nearAccountId
     ? await resolveSigningSessionStatusForUi(
         context,
         {
           kind: 'wallet_with_near_account',
-          walletId: login.walletId || toWalletId(login.nearAccountId),
+          walletId: login.walletId,
           nearAccountId: login.nearAccountId,
         },
       ).catch(() => null)
     : null;
   const authMethod: WalletAuthMethod | null =
     signingSession?.authMethod ||
-    login.authMethod ||
+    (login.currentAuthMethod.kind === 'selected' ? login.currentAuthMethod.binding.kind : null) ||
     (login.isLoggedIn && login.publicKey ? 'passkey' : null);
+  const authMethods = login.authMethods;
+  const currentAuthMethod = selectCurrentWalletAuthMethod({ authMethods, authMethod });
   const retention = signingSession?.retention || null;
   const nonceDiagnostics = readWalletSessionNonceDiagnostics(context, login.nearAccountId);
   return {
-    login: { ...login, authMethod },
+    login: { ...login, currentAuthMethod, authMethods },
     signingSession,
+    currentAuthMethod,
+    authMethods,
     authMethod,
     retention,
     nonceDiagnostics,
@@ -3543,23 +3594,12 @@ async function resolveSigningSessionStatusForUi(
 
 async function getLoginStateInternal(
   context: WalletSessionWebContext,
-  walletId?: WalletId | string,
+  walletId: WalletId | string,
 ): Promise<LoginState> {
   const { signingEngine } = context;
   try {
     const lastUser = await signingEngine.getLastUser().catch(() => null);
-    const explicitIdentity = walletId ? resolveExplicitWalletSessionIdentity(walletId) : null;
-    const lastSelectedAccount =
-      explicitIdentity || lastUser?.nearAccountId
-        ? null
-        : await getLastSelectedNearAccount(IndexedDBManager).catch(() => null);
-    const identity =
-      explicitIdentity ||
-      (lastUser?.nearAccountId
-        ? resolveNearWalletSessionIdentity(lastUser.nearAccountId)
-        : lastSelectedAccount?.nearAccountId
-          ? resolveNearWalletSessionIdentity(lastSelectedAccount.nearAccountId)
-          : emptyWalletSessionIdentity());
+    const identity = resolveExplicitWalletSessionIdentity(walletId);
     if (identity.kind !== 'wallet_with_near_account') {
       return buildLoggedOutLoginState({
         walletId: identity.walletId,
@@ -3637,18 +3677,19 @@ async function getLoginStateInternal(
       }
     }
 
+    const authMethod: WalletAuthMethod | null =
+      isLoggedIn && publicKey ? 'passkey' : isLoggedIn ? warmStatusForLogin?.authMethod || null : null;
+    const authMethods = await readWalletAuthMethodBindingsForSession(resolvedWalletId);
+    const currentAuthMethod = selectCurrentWalletAuthMethod({ authMethods, authMethod });
+
     return {
       isLoggedIn,
       walletId: resolvedWalletId,
       nearAccountId: resolvedNearAccountId,
       publicKey,
       userData,
-      authMethod:
-        isLoggedIn && publicKey
-          ? 'passkey'
-          : isLoggedIn
-            ? warmStatusForLogin?.authMethod || null
-            : null,
+      currentAuthMethod,
+      authMethods,
       thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
       thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
     };

@@ -1,4 +1,3 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EmailOtpEnrollmentResult } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
@@ -180,7 +179,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaEnrollmentPorts,
 ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
-  const nearAccountId = toAccountId(args.walletSession.walletId);
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
@@ -257,12 +255,8 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       throw new Error('[SigningEngine][email-otp] registration budget policy is required');
     })();
   const remainingUses = resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
-  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(
-    args.walletSession.walletSessionUserId || nearAccountId,
-  );
-  const walletSessionUserId = toWalletSessionUserId(
-    args.walletSession.walletId || nearAccountId,
-  );
+  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(args.walletSession.walletSessionUserId);
+  const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId);
   const registrationInput = await resolveEmailOtpEcdsaRegistrationBootstrapInput({
     request: args,
     routePlan,

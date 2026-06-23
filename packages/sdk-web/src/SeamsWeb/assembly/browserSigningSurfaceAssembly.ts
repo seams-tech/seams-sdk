@@ -186,20 +186,21 @@ export function createBrowserSigningSurfaceEnginePorts(
         chainTarget: recordArgs.chainTarget,
         source: recordArgs.source,
       }),
-    requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
-      'walletSession' in challengeArgs
-        ? args.emailOtpSessions.requestTransactionSigningChallenge({
-            kind: 'wallet_session_challenge',
-            walletSession: challengeArgs.walletSession,
-            chain: challengeArgs.chain,
-            ...(challengeArgs.authLane ? { authLane: challengeArgs.authLane } : {}),
-          })
-        : args.emailOtpSessions.requestTransactionSigningChallenge({
-            kind: 'near_account_challenge',
-            nearAccountId: challengeArgs.nearAccountId,
-            chain: challengeArgs.chain,
-            ...(challengeArgs.authLane ? { authLane: challengeArgs.authLane } : {}),
-          }),
+	    requestEmailOtpTransactionSigningChallenge: (challengeArgs) =>
+	      'nearAccountId' in challengeArgs
+	        ? args.emailOtpSessions.requestTransactionSigningChallenge({
+	            kind: 'near_account_challenge',
+	            walletSession: challengeArgs.walletSession,
+	            nearAccountId: challengeArgs.nearAccountId,
+	            chain: challengeArgs.chain,
+	            ...(challengeArgs.authLane ? { authLane: challengeArgs.authLane } : {}),
+	          })
+	        : args.emailOtpSessions.requestTransactionSigningChallenge({
+	            kind: 'wallet_session_challenge',
+	            walletSession: challengeArgs.walletSession,
+	            chain: challengeArgs.chain,
+	            ...(challengeArgs.authLane ? { authLane: challengeArgs.authLane } : {}),
+	          }),
     isEmailOtpEd25519WarmupPending: (warmupArgs) =>
       args.emailOtpSessions.isEd25519WarmupPending(warmupArgs),
     waitForPendingEmailOtpEd25519Warmup: (warmupArgs) =>

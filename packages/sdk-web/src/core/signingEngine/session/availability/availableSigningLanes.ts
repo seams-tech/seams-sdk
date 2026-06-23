@@ -1,5 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
+import { ed25519KeyScopeIdFromString, type Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 import {
   decodeJwtPayloadRecord,
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
@@ -147,6 +148,9 @@ export type MissingAvailableEd25519SigningLane = {
   curve: 'ed25519';
   chain: 'near';
   state: 'missing';
+  walletId?: never;
+  nearAccountId?: never;
+  ed25519KeyScopeId?: never;
   authMethod?: never;
   signingGrantId?: never;
   thresholdSessionId?: never;
@@ -161,6 +165,9 @@ export type ConcreteAvailableEd25519SigningLane = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   state: AvailableSigningLaneState;
   signingGrantId: string;
   thresholdSessionId: string;
@@ -308,6 +315,9 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
+  walletId: WalletId;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -348,7 +358,7 @@ export type AvailableSigningLaneDiagnostics = {
 };
 
 export type AvailableSigningLanes = {
-  walletId: AccountId;
+  walletId: WalletId;
   generation: number;
   ecdsa: {
     targets: ThresholdEcdsaChainTarget[];
@@ -373,7 +383,7 @@ export type ConcreteAvailableSigningLane =
   | ConcreteAvailableEd25519SigningLane;
 
 export type ReadAvailableSigningLanesInput = {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   subjectId?: never;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   authMethod?: 'email_otp' | 'passkey';
@@ -382,7 +392,7 @@ export type ReadAvailableSigningLanesInput = {
 
 export type ReadAvailableSigningLanesForSigningInput =
   | {
-      walletId: AccountId | string;
+      walletId: WalletId | string;
       subjectId?: never;
       curve: 'ed25519';
       authMethod?: 'email_otp' | 'passkey';
@@ -422,8 +432,8 @@ export type ReadAvailableSigningLanesPorts = {
   readRuntimeEcdsaClaimsForRecords?: (
     records: AvailableSigningLanesRuntimeEcdsaRecord[],
   ) => Promise<Map<string, AvailableSigningLanesRuntimeClaim | null>>;
-  listRuntimeEd25519RecordsForAccount?: (args: {
-    accountId: string;
+  listRuntimeEd25519RecordsForWallet?: (args: {
+    walletId: string;
   }) => Promise<AvailableSigningLanesRuntimeEd25519Record[]>;
   readRuntimeClaimsForSessions?: (
     sessionIds: string[],
@@ -505,7 +515,6 @@ function nullableNonNegativeInteger(value: unknown): number | null {
 }
 
 export function ed25519LaneCandidateFromAvailableLane(args: {
-  walletId: AccountId | string;
   lane: AvailableEd25519SigningLane;
 }): Ed25519LaneCandidate | null {
   if (!isConcreteAvailableSigningLane(args.lane) || args.lane.curve !== 'ed25519') {
@@ -515,7 +524,9 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
   if (!state) return null;
   return {
     kind: 'lane_candidate',
-    accountId: toAccountId(args.walletId),
+    walletId: args.lane.walletId,
+    nearAccountId: args.lane.nearAccountId,
+    ed25519KeyScopeId: args.lane.ed25519KeyScopeId,
     authMethod: args.lane.authMethod,
     curve: 'ed25519',
     chain: 'near',
@@ -702,7 +713,7 @@ export function ecdsaAvailableLaneCandidatesForTarget(
 }
 
 export function buildReauthAnchorIdentityFromAvailableLane(args: {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane;
@@ -715,7 +726,7 @@ export function buildReauthAnchorIdentityFromAvailableLane(args: {
     lane: args.lane,
   });
   const freshness = buildStepUpFreshnessFromRestoredSealedRecord({
-    walletId: toAccountId(args.walletId),
+    walletId: toWalletId(args.walletId),
     operationId: args.operationId,
     operationFingerprint: args.operationFingerprint,
     laneIdentity: exactSigningLaneIdentity(selectedLane),
@@ -741,12 +752,14 @@ function emptyEd25519Lane(): AvailableEd25519SigningLane {
 }
 
 function selectedLaneFromConcreteAvailableLane(args: {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   lane: ConcreteAvailableSigningLane;
 }): SelectedLane {
   if (args.lane.curve === 'ed25519') {
     return selectedEd25519Lane({
-      accountId: toAccountId(args.walletId),
+      walletId: args.lane.walletId,
+      nearAccountId: args.lane.nearAccountId,
+      ed25519KeyScopeId: args.lane.ed25519KeyScopeId,
       authMethod: args.lane.authMethod,
       signingGrantId: args.lane.signingGrantId,
       thresholdSessionId: args.lane.thresholdSessionId,
@@ -1098,6 +1111,9 @@ function recordToEd25519Lane(args: {
     authMethod: recoveryRecord.authMethod,
     curve: 'ed25519',
     chain: 'near',
+    walletId: toWalletId(recoveryRecord.walletId),
+    nearAccountId: toAccountId(recoveryRecord.nearAccountId),
+    ed25519KeyScopeId: ed25519KeyScopeIdFromString(recoveryRecord.ed25519KeyScopeId),
     // IndexedDB policy fields are lookup hints until authenticated sealed
     // payload metadata or trusted runtime/server status confirms them.
     state: 'restorable',
@@ -1247,6 +1263,9 @@ function runtimeRecordToEd25519Lane(args: {
     authMethod: args.record.authMethod,
     curve: 'ed25519',
     chain: 'near',
+    walletId: args.record.walletId,
+    nearAccountId: args.record.nearAccountId,
+    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
     state: runtimeClaimToLaneState(
       claim,
       hasMatchingDurableLane ? args.durableLane : undefined,
@@ -1808,8 +1827,8 @@ export async function readAvailableSigningLanes(
     }
     runtimeEcdsaRecords.push(record);
   }
-  const rawRuntimeEd25519Records = ports.listRuntimeEd25519RecordsForAccount
-    ? await ports.listRuntimeEd25519RecordsForAccount({ accountId: walletId })
+  const rawRuntimeEd25519Records = ports.listRuntimeEd25519RecordsForWallet
+    ? await ports.listRuntimeEd25519RecordsForWallet({ walletId })
     : [];
   const runtimeEd25519Records: AvailableSigningLanesRuntimeEd25519Record[] = [];
   for (const record of rawRuntimeEd25519Records) {

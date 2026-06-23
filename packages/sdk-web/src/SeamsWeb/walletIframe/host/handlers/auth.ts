@@ -15,7 +15,7 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const options = pmUnlockPayloadToLoginHooksOptions(payload);
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
-        payload.nearAccountId,
+        payload.walletId,
         withProgress(deps, req.requestId, options) as LoginHooksOptions,
       );
       if (deps.respondIfCancelled(req.requestId)) return;

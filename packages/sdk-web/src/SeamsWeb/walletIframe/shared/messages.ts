@@ -463,6 +463,7 @@ export interface PMReconcileTempoNonceLanePayload extends PMTempoNonceLifecycleP
 export type PMExportKeypairUiPayload =
   | {
       kind: 'near';
+      walletSession: WalletSessionRef;
       nearAccount: NearAccountRef;
       options: {
         chain: 'near';
@@ -481,6 +482,7 @@ export type PMExportKeypairUiPayload =
     };
 
 export interface PMExportThresholdEd25519SeedFromHssReportUiPayload {
+  walletId: string;
   nearAccountId: string;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
@@ -504,7 +506,7 @@ export interface PMGetWalletSessionPayload {
 }
 
 export interface PMEmailOtpChallengePayload {
-  nearAccountId: string;
+  walletId: string;
   relayUrl?: string;
   appSessionJwt?: string;
   operation?: WalletEmailOtpLoginOperation;
@@ -523,7 +525,7 @@ export interface PMExchangeGoogleEmailOtpSessionPayload {
 }
 
 export interface PMEnrollEmailOtpPayload {
-  nearAccountId: string;
+  walletId: string;
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
@@ -589,11 +591,12 @@ export interface PMSetThemePayload {
 }
 
 export interface PMHasPasskeyPayload {
-  nearAccountId: string;
+  walletId: string;
 }
 
 export interface PMViewAccessKeysPayload {
-  accountId: string;
+  walletId: string;
+  nearAccountId: string;
 }
 
 export interface PMDeleteDeviceKeyPayload {
@@ -624,11 +627,11 @@ export interface PMStopEmailRecoveryPayload {
 }
 
 export interface PMGetRecoveryEmailsPayload {
-  nearAccountId: string;
+  walletId: string;
 }
 
 export interface PMSetRecoveryEmailsPayload {
-  nearAccountId: string;
+  walletId: string;
   recoveryEmails: string[];
   options: {
     waitUntil?: unknown;
@@ -741,7 +744,6 @@ export type ParentToChildEnvelope =
       {
         ui?: 'modal' | 'inline';
         cameraId?: string;
-        accountId?: string;
         signerSlot?: number;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;

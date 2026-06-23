@@ -40,7 +40,7 @@ import {
   UnlockEventPhase,
 } from '@/core/types/sdkSentEvents';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { ActionType } from '@/core/types/actions';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
@@ -91,6 +91,7 @@ import {
   toWalletId,
   thresholdEcdsaChainTargetFromRequest,
   walletSessionRefFromSession,
+  type NearAccountRef,
   type ThresholdEcdsaChainTarget,
   type WalletId,
   type WalletSessionRef,
@@ -111,6 +112,13 @@ import {
   storeRotatedEmailOtpRecoveryCodes,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  buildNearEd25519SignerBinding,
+  nearAccountBindingFromRaw,
+  type NearAccountBinding,
+  type NearEd25519SignerBinding,
+} from '@shared/utils/walletCapabilityBindings';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
@@ -135,6 +143,60 @@ type InternalEmailOtpEd25519CapabilityArgs = {
   onEvent?: (event: UnlockFlowEvent) => void;
 };
 
+type SeamsWebPrewarmOptions =
+  | {
+      iframe?: boolean;
+      workers?: boolean;
+      walletId?: never;
+      nearAccountId?: never;
+    }
+  | {
+      iframe?: boolean;
+      workers?: boolean;
+      walletId: string;
+      nearAccountId: string;
+    };
+
+function nearAccountBindingKindFromId(nearAccountId: string): NearAccountBinding['kind'] {
+  return nearAccountId.length === 64 && /^[0-9a-f]+$/i.test(nearAccountId)
+    ? 'implicit_near_account'
+    : 'named_near_account';
+}
+
+function requireNearAccountBindingForOperation(args: {
+  walletId: string;
+  nearAccountId: string;
+  operation: string;
+}): NearAccountBinding {
+  const walletId = String(args.walletId || '').trim();
+  const nearAccountId = String(args.nearAccountId || '').trim();
+  if (!walletId || !nearAccountId) {
+    throw new Error(`[SeamsWeb] ${args.operation} requires walletId and nearAccountId`);
+  }
+  const parsed = nearAccountBindingFromRaw({
+    kind: nearAccountBindingKindFromId(nearAccountId),
+    wallet: { walletId },
+    nearAccountId,
+  });
+  if (!parsed.ok) {
+    throw new Error(`[SeamsWeb] ${args.operation} requires a valid NEAR account binding`);
+  }
+  return parsed.value;
+}
+
+function resolvePrewarmNearAccountBinding(
+  opts: SeamsWebPrewarmOptions | undefined,
+): NearAccountBinding | undefined {
+  const walletId = String(opts?.walletId || '').trim();
+  const nearAccountId = String(opts?.nearAccountId || '').trim();
+  if (!walletId && !nearAccountId) return undefined;
+  return requireNearAccountBindingForOperation({
+    walletId,
+    nearAccountId,
+    operation: 'prewarm',
+  });
+}
+
 function requireConcreteEcdsaChainTarget(
   value: unknown,
   operation: string,
@@ -149,12 +211,12 @@ async function resolveEmailOtpEd25519SessionReconstruction(args: {
   walletSession: WalletSessionRef;
   appSessionJwt?: string;
 }): Promise<EmailOtpEd25519SessionReconstructionPlan> {
-  const walletId = toAccountId(args.walletSession.walletId);
+  const walletId = toWalletId(args.walletSession.walletId);
   const keyIdentity = await resolveEmailOtpEd25519KeyIdentity(walletId);
   const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
   const diagnostic = {
     walletId,
-    signerSlot: keyIdentity?.signerSlot || null,
+    signerSlot: keyIdentity?.ed25519Key.signer.signerSlot || null,
     keyIdentitySource: keyIdentity?.source || null,
     hasRelayerKeyId: Boolean(keyIdentity?.ed25519Key.relayerKeyId),
     hasKeyVersion: Boolean(keyIdentity?.ed25519Key.keyVersion),
@@ -193,9 +255,9 @@ async function resolveEmailOtpEd25519SessionReconstruction(args: {
 }
 
 type EmailOtpEd25519KeyIdentity = {
-  signerSlot: number;
   source: 'wallet_profile_signer';
   ed25519Key: {
+    signer: NearEd25519SignerBinding;
     relayerKeyId: string;
     keyVersion: string;
     participantIds: number[];
@@ -230,21 +292,37 @@ function participantIdsFromEmailOtpEd25519SignerMetadata(args: {
 function emailOtpEd25519KeyIdentityFromSigner(
   signer: Awaited<ReturnType<typeof IndexedDBManager.listAccountSigners>>[number],
   source: EmailOtpEd25519KeyIdentity['source'],
+  walletId: WalletId,
 ): EmailOtpEd25519KeyIdentity | null {
   if (signer.signerKind !== SIGNER_KINDS.thresholdEd25519) return null;
   if (signer.signerAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) return null;
   const metadata = signer.metadata || {};
   const relayerKeyId = String(metadata.relayerKeyId || '').trim();
   const keyVersion = String(metadata.keyVersion || '').trim();
+  const nearAccountId = String(metadata.nearAccountId || '').trim();
+  const ed25519KeyScopeId = String(metadata.ed25519KeyScopeId || '').trim();
   const participantIds = participantIdsFromEmailOtpEd25519SignerMetadata({
     relayerKeyId,
     metadata,
   });
-  if (!relayerKeyId || !keyVersion || !participantIds.length) return null;
-  return {
+  if (!relayerKeyId || !keyVersion || !nearAccountId || !ed25519KeyScopeId || !participantIds.length) {
+    return null;
+  }
+  const account = nearAccountBindingFromRaw({
+    kind: nearAccountBindingKindFromId(nearAccountId),
+    wallet: { walletId },
+    nearAccountId,
+  });
+  if (!account.ok) return null;
+  const signerBinding = buildNearEd25519SignerBinding({
+    account: account.value,
+    ed25519KeyScopeId: ed25519KeyScopeIdFromString(ed25519KeyScopeId),
     signerSlot: signer.signerSlot,
+  });
+  return {
     source,
     ed25519Key: {
+      signer: signerBinding,
       relayerKeyId,
       keyVersion,
       participantIds,
@@ -255,9 +333,10 @@ function emailOtpEd25519KeyIdentityFromSigner(
 function findEmailOtpEd25519KeyIdentityFromSigners(
   signers: Awaited<ReturnType<typeof IndexedDBManager.listAccountSigners>>,
   source: EmailOtpEd25519KeyIdentity['source'],
+  walletId: WalletId,
 ): EmailOtpEd25519KeyIdentity | null {
   for (const signer of signers.slice().sort((left, right) => left.signerSlot - right.signerSlot)) {
-    const identity = emailOtpEd25519KeyIdentityFromSigner(signer, source);
+    const identity = emailOtpEd25519KeyIdentityFromSigner(signer, source, walletId);
     if (identity) return identity;
   }
   return null;
@@ -281,7 +360,7 @@ function accountSignerDiagnosticSummary(
 }
 
 async function resolveEmailOtpEd25519KeyIdentity(
-  walletId: AccountId,
+  walletId: WalletId,
 ): Promise<EmailOtpEd25519KeyIdentity | null> {
   const walletProfileSigners = await IndexedDBManager.listAccountSignersByProfile({
     profileId: String(walletId),
@@ -290,6 +369,7 @@ async function resolveEmailOtpEd25519KeyIdentity(
   const walletProfileIdentity = findEmailOtpEd25519KeyIdentityFromSigners(
     walletProfileSigners,
     'wallet_profile_signer',
+    walletId,
   );
   if (walletProfileIdentity) return walletProfileIdentity;
 
@@ -453,7 +533,7 @@ export class SeamsWeb {
           await this.rotateEmailOtpRecoveryCodesDomain(args),
       },
       devices: {
-        viewAccessKeyList: async (accountId) => await this.viewAccessKeyListDomain(accountId),
+        viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
         deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
       },
       keys: {
@@ -570,28 +650,26 @@ export class SeamsWeb {
    * - When workers=true, warms local critical resources (nonce, IndexedDB, workers) without touching iframe.
    * - When both are false/omitted, does nothing.
    */
-  async prewarm(opts?: {
-    iframe?: boolean;
-    workers?: boolean;
-    nearAccountId?: string;
-  }): Promise<void> {
+  async prewarm(opts?: SeamsWebPrewarmOptions): Promise<void> {
     const iframe = !!opts?.iframe;
     const workers = !!opts?.workers;
-    const nearAccountId = opts?.nearAccountId;
+    const nearAccountBinding = resolvePrewarmNearAccountBinding(opts);
 
     const tasks: Promise<unknown>[] = [];
 
     if (iframe) {
       // initWalletIframe also calls the browser signing surface warmup internally.
-      tasks.push(this.initWalletIframe(nearAccountId));
+      tasks.push(this.initWalletIframe(nearAccountBinding?.wallet.walletId));
     } else if (workers) {
       // Warm local-only resources without touching the iframe.
       // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
       const shouldAvoidLocalUserState = this.walletIframe.shouldUseWalletIframe();
+      const accountContext =
+        nearAccountBinding && !shouldAvoidLocalUserState
+          ? { kind: 'near_account_bound' as const, account: nearAccountBinding }
+          : { kind: 'none' as const };
       tasks.push(
-        this.signingEngine.warmCriticalResources(
-          shouldAvoidLocalUserState ? undefined : nearAccountId,
-        ),
+        this.signingEngine.warmCriticalResources(accountContext),
       );
     }
 
@@ -604,14 +682,18 @@ export class SeamsWeb {
   }
 
   /**
-   * View all access keys for a given account
-   * @param accountId - NEAR account ID to view access keys for
-   * @returns Promise resolving to access key list
    */
-  private async viewAccessKeyListDomain(accountId: string): Promise<AccessKeyList> {
+  private async viewAccessKeyListDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+  }): Promise<AccessKeyList> {
+    const accountId = String(args.nearAccount.accountId);
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(accountId);
-      return await router.viewAccessKeyList(accountId);
+      const router = await this.walletIframe.requireRouter(args.walletSession.walletId);
+      return await router.viewAccessKeyList({
+        walletId: args.walletSession.walletId,
+        nearAccountId: accountId,
+      });
     }
     return this.nearClient.viewAccessKeyList(accountId);
   }
@@ -650,9 +732,7 @@ export class SeamsWeb {
           walletId: walletRouterId ?? null,
         });
         const res = await router.registerWallet(args);
-        const registeredWalletId = res.success
-          ? String(res.walletId || res.nearAccountId || '').trim()
-          : '';
+        const registeredWalletId = res.success ? String(res.walletId || '').trim() : '';
         if (registeredWalletId) {
           void (async () => {
             try {
@@ -785,14 +865,14 @@ export class SeamsWeb {
     };
   }
 
-  private emailOtpRegistrationFlowId(nearAccountId: string, challengeId?: string): string {
-    const accountPart = String(nearAccountId || 'unknown-account').trim() || 'unknown-account';
+  private emailOtpRegistrationFlowId(walletId: string, challengeId?: string): string {
+    const accountPart = String(walletId || 'unknown-wallet').trim() || 'unknown-wallet';
     const challengePart = String(challengeId || 'active').trim() || 'active';
     return `email-otp-registration:${accountPart}:${challengePart}`;
   }
 
-  private emailOtpUnlockFlowId(nearAccountId: string, challengeId?: string): string {
-    const accountPart = String(nearAccountId || 'unknown-account').trim() || 'unknown-account';
+  private emailOtpUnlockFlowId(walletId: string, challengeId?: string): string {
+    const accountPart = String(walletId || 'unknown-wallet').trim() || 'unknown-wallet';
     const challengePart = String(challengeId || 'active').trim() || 'active';
     return `email-otp-unlock:${accountPart}:${challengePart}`;
   }
@@ -994,27 +1074,27 @@ export class SeamsWeb {
   }
 
   private async requestEmailOtpChallengeDomain(args: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult> {
-    const flowId = this.emailOtpUnlockFlowId(args.nearAccountId);
+    const flowId = this.emailOtpUnlockFlowId(args.walletId);
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: args.walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED,
       status: 'running',
     });
     try {
       if (this.walletIframe.shouldUseWalletIframe()) {
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const router = await this.walletIframe.requireRouter(args.walletId);
         const result = await router.requestEmailOtpChallenge(args);
         this.emitEmailOtpUnlockEvent(args.onEvent, {
-          flowId: this.emailOtpUnlockFlowId(args.nearAccountId, result.challengeId),
-          accountId: args.nearAccountId,
+          flowId: this.emailOtpUnlockFlowId(args.walletId, result.challengeId),
+          accountId: args.walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
           status: 'succeeded',
@@ -1024,13 +1104,13 @@ export class SeamsWeb {
       }
       const result = await requestEmailOtpChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-        walletId: String(args.nearAccountId || '').trim(),
+        walletId: String(args.walletId || '').trim(),
         ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         ...(args.operation ? { operation: args.operation } : {}),
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
-        flowId: this.emailOtpUnlockFlowId(args.nearAccountId, result.challengeId),
-        accountId: args.nearAccountId,
+        flowId: this.emailOtpUnlockFlowId(args.walletId, result.challengeId),
+        accountId: args.walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
         status: 'succeeded',
@@ -1041,7 +1121,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: args.walletId,
         authMethod: 'email_otp',
         error: e,
       });
@@ -1050,26 +1130,26 @@ export class SeamsWeb {
   }
 
   private async requestEmailOtpEnrollmentChallengeDomain(args: {
-    nearAccountId: string;
+    walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult> {
-    const flowId = this.emailOtpRegistrationFlowId(args.nearAccountId);
+    const flowId = this.emailOtpRegistrationFlowId(args.walletId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: args.walletId,
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED,
       status: 'running',
     });
     try {
       if (this.walletIframe.shouldUseWalletIframe()) {
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const router = await this.walletIframe.requireRouter(args.walletId);
         const result = await router.requestEmailOtpEnrollmentChallenge(args);
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId: this.emailOtpRegistrationFlowId(args.nearAccountId, result.challengeId),
-          accountId: args.nearAccountId,
+          flowId: this.emailOtpRegistrationFlowId(args.walletId, result.challengeId),
+          accountId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT,
           status: 'succeeded',
@@ -1079,12 +1159,12 @@ export class SeamsWeb {
       }
       const result = await requestEmailOtpEnrollmentChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-        walletId: String(args.nearAccountId || '').trim(),
+        walletId: String(args.walletId || '').trim(),
         ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
-        flowId: this.emailOtpRegistrationFlowId(args.nearAccountId, result.challengeId),
-        accountId: args.nearAccountId,
+        flowId: this.emailOtpRegistrationFlowId(args.walletId, result.challengeId),
+        accountId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT,
         status: 'succeeded',
@@ -1095,7 +1175,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpRegistrationFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: args.walletId,
         authMethod: 'email_otp',
         error: e,
       });
@@ -1265,7 +1345,7 @@ export class SeamsWeb {
   }
 
   private async enrollEmailOtpDomain(args: {
-    nearAccountId: string;
+    walletId: string;
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
@@ -1274,10 +1354,10 @@ export class SeamsWeb {
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EnrollEmailOtpInternalResult | EmailOtpBackedUpEnrollmentResult> {
-    const flowId = this.emailOtpRegistrationFlowId(args.nearAccountId, args.challengeId);
+    const flowId = this.emailOtpRegistrationFlowId(args.walletId, args.challengeId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: args.walletId,
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
       status: 'running',
@@ -1291,14 +1371,14 @@ export class SeamsWeb {
             '[SeamsWeb] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
           );
         }
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const router = await this.walletIframe.requireRouter(args.walletId);
         const iframeArgs = { ...args };
         delete iframeArgs.clientSecret32;
         delete iframeArgs.onEvent;
         const result = await router.enrollEmailOtp(iframeArgs);
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -1311,7 +1391,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
           status: 'running',
@@ -1319,7 +1399,7 @@ export class SeamsWeb {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: args.walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
           status: 'succeeded',
@@ -1329,7 +1409,7 @@ export class SeamsWeb {
         return result;
       }
       const result = await this.signingEngine.enrollEmailOtpInternal({
-        walletId: toWalletId(args.nearAccountId),
+        walletId: toWalletId(args.walletId),
         otpCode: args.otpCode,
         ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
         ...(args.challengeId ? { challengeId: args.challengeId } : {}),
@@ -1339,7 +1419,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -1352,7 +1432,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
         status: 'running',
@@ -1360,7 +1440,7 @@ export class SeamsWeb {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: args.walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
         status: 'succeeded',
@@ -1372,7 +1452,7 @@ export class SeamsWeb {
       const e = toError(error);
       this.emitEmailOtpRegistrationFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: args.walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
@@ -1477,7 +1557,10 @@ export class SeamsWeb {
     if (providedJwt) return providedJwt;
     const walletId = toWalletId(args.walletId);
     const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-    const walletSessionUserId = String(session.login.walletId || walletId).trim();
+    const walletSessionUserId = String(session.login.walletId || '').trim();
+    if (walletSessionUserId !== String(walletId)) {
+      throw new Error('[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session');
+    }
     return await this.signingEngine.resolveEmailOtpAppSessionJwt({
       walletSession: walletSessionRefFromSession({
         walletId,
@@ -1485,6 +1568,25 @@ export class SeamsWeb {
       }),
       relayUrl: args.relayUrl,
     });
+  }
+
+  private async activateEmailOtpWalletAfterUnlock(args: {
+    walletId: WalletId;
+    signer?: NearEd25519SignerBinding;
+  }): Promise<void> {
+    if (args.signer) {
+      await this.signingEngine
+        .activateAuthenticatedWalletState({
+          walletId: args.signer.account.wallet.walletId,
+          nearAccountId: toAccountId(args.signer.account.nearAccountId),
+          nearClient: this.nearClient,
+        })
+        .catch(() => undefined);
+      return;
+    }
+    const preferences = this.signingEngine.getUserPreferences();
+    preferences.setCurrentWallet(args.walletId);
+    await preferences.reloadUserSettings().catch(() => undefined);
   }
 
   private async loginWithEmailOtpEd25519CapabilityDomain(
@@ -1512,13 +1614,10 @@ export class SeamsWeb {
         ...args,
         ed25519SessionReconstruction,
       });
-      await this.signingEngine
-        .activateAuthenticatedWalletState({
-          walletId,
-          nearAccountId: toAccountId(walletId),
-          nearClient: this.nearClient,
-        })
-        .catch(() => undefined);
+      await this.activateEmailOtpWalletAfterUnlock({
+        walletId,
+        signer: ed25519SessionReconstruction.ed25519Key.signer,
+      });
       await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
@@ -1631,13 +1730,14 @@ export class SeamsWeb {
         ed25519SessionReconstruction,
         onProgress: markWorkerProgress,
       });
-      await this.signingEngine
-        .activateAuthenticatedWalletState({
-          walletId,
-          nearAccountId: toAccountId(walletId),
-          nearClient: this.nearClient,
-        })
-        .catch(() => undefined);
+      await this.activateEmailOtpWalletAfterUnlock({
+        walletId,
+        signer:
+          ed25519SessionReconstruction.kind === 'reconstruct' ||
+          ed25519SessionReconstruction.reason === 'missing_runtime_policy_scope'
+            ? ed25519SessionReconstruction.ed25519Key.signer
+            : undefined,
+      });
       await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
@@ -1968,6 +2068,7 @@ export class SeamsWeb {
     }
     try {
       await this.signingEngine.getNonceCoordinator().prefetchNearContext({
+        kind: 'initialized_state',
         nearClient: this.nearClient,
       });
     } catch {}
@@ -1993,6 +2094,7 @@ export class SeamsWeb {
       input.kind === 'near'
         ? {
             kind: 'near' as const,
+            walletSession: input.walletSession,
             nearAccount: input.nearAccount,
             options: {
               ...resolvedOptions,
@@ -2005,12 +2107,7 @@ export class SeamsWeb {
             walletSession: input.walletSession,
             options: resolvedOptions,
           };
-    const routerAccountId =
-      resolvedInput.kind === 'near'
-        ? resolvedInput.nearAccount.accountId
-        : String(
-            resolvedInput.walletSession.walletSessionUserId || resolvedInput.walletSession.walletId,
-          ).trim();
+    const routerAccountId = String(resolvedInput.walletSession.walletId || '').trim();
     if (!routerAccountId) {
       throw new Error('[SeamsWeb] key export requires wallet session user context');
     }
@@ -2025,7 +2122,8 @@ export class SeamsWeb {
   }
 
   private async exportThresholdEd25519SeedFromHssReportDomain(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
     finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
     expectedPublicKey: string;
@@ -2035,15 +2133,17 @@ export class SeamsWeb {
       onEvent?: KeyExportHooksOptions['onEvent'];
     };
   }): Promise<void> {
+    const nearAccountId = String(args.nearAccount.accountId);
     const resolvedOptions = {
       ...args.options,
       theme: args.options.theme ?? this.theme,
     };
 
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      const router = await this.walletIframe.requireRouter(args.walletSession.walletId);
       await router.exportThresholdEd25519SeedFromHssReport({
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletSession.walletId,
+        nearAccountId,
         preparedSession: args.preparedSession,
         finalizedReport: args.finalizedReport,
         expectedPublicKey: args.expectedPublicKey,
@@ -2053,7 +2153,7 @@ export class SeamsWeb {
     }
 
     await this.signingEngine.exportThresholdEd25519SeedFromHssReport({
-      nearAccountId: toAccountId(args.nearAccountId),
+      nearAccountId: toAccountId(nearAccountId),
       preparedSession: args.preparedSession,
       finalizedReport: args.finalizedReport,
       expectedPublicKey: args.expectedPublicKey,
@@ -2069,7 +2169,10 @@ export class SeamsWeb {
   ): Promise<ActionResult> {
     const accountId = String(args.nearAccount.accountId);
     // Validate that we're not deleting the last key
-    const keysView = await this.viewAccessKeyListDomain(accountId);
+    const keysView = await this.viewAccessKeyListDomain({
+      walletSession: args.walletSession,
+      nearAccount: args.nearAccount,
+    });
     if (keysView.keys.length <= 1) {
       throw new Error('Cannot delete the last access key from an account');
     }

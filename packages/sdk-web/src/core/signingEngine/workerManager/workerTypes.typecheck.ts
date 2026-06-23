@@ -364,10 +364,10 @@ const emailOtpBootstrapWorkerRequest: EmailOtpWorkerOperationRequestEnvelope = {
 };
 void emailOtpBootstrapWorkerRequest;
 
-// @ts-expect-error worker request envelope binds each operation to its exact payload type.
 const emailOtpBootstrapWorkerRequestWithoutStrictPayload: EmailOtpWorkerOperationRequestEnvelope = {
   id: 'request-2',
   type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
+  // @ts-expect-error worker request envelope binds each operation to its exact payload type.
   payload: {
     relayUrl: 'https://relay.example',
     walletId: 'wallet.testnet',

@@ -274,9 +274,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
   return {
     PM_REQUEST_EMAIL_OTP_CHALLENGE: async (req: Req<'PM_REQUEST_EMAIL_OTP_CHALLENGE'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, relayUrl, appSessionJwt, operation } = req.payload!;
+      const { walletId, relayUrl, appSessionJwt, operation } = req.payload!;
       const result = await pm.auth.requestEmailOtpChallenge({
-        nearAccountId,
+        walletId,
         ...(relayUrl ? { relayUrl } : {}),
         ...(appSessionJwt ? { appSessionJwt } : {}),
         ...(operation ? { operation } : {}),
@@ -288,9 +288,9 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       req: Req<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'>,
     ) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, relayUrl, appSessionJwt } = req.payload!;
+      const { walletId, relayUrl, appSessionJwt } = req.payload!;
       const result = await pm.registration.requestEmailOtpEnrollmentChallenge({
-        nearAccountId,
+        walletId,
         ...(relayUrl ? { relayUrl } : {}),
         ...(appSessionJwt ? { appSessionJwt } : {}),
       });
@@ -407,10 +407,14 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
         respondOkResult(deps, req.requestId, result);
         return;
       }
+      const walletId = String(rawPayload.walletId || '').trim();
+      if (!walletId) {
+        throw new Error('PM_ENROLL_EMAIL_OTP requires walletId');
+      }
       const backedUpEnrollment = await storeEmailOtpRecoveryCodeBackupInIframe({
         pm,
         result,
-        walletId: String(rawPayload.walletId || rawPayload.nearAccountId || '').trim(),
+        walletId,
         relayUrl: typeof rawPayload.relayUrl === 'string' ? rawPayload.relayUrl : undefined,
         appSessionJwt:
           typeof rawPayload.appSessionJwt === 'string' ? rawPayload.appSessionJwt : undefined,

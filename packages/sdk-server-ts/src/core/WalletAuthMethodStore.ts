@@ -28,12 +28,11 @@ export interface WalletAuthMethodStore {
   }): Promise<WalletAuthMethodRecord | null>;
   getEmailOtp(input: {
     walletId: string;
-    rpId: string;
     emailHashHex: string;
   }): Promise<WalletAuthMethodRecord | null>;
   listForWallet(input: {
     walletId: string;
-    rpId: string;
+    rpId?: string;
   }): Promise<WalletAuthMethodRecord[]>;
 }
 
@@ -54,7 +53,7 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
 function walletAuthMethodId(record: WalletAuthMethodRecord): string {
   return record.kind === 'passkey'
     ? `passkey:${record.rpId}:${record.credentialIdB64u}`
-    : `email_otp:${record.walletId}:${record.rpId}:${record.emailHashHex}`;
+    : `email_otp:${record.walletId}:${record.emailHashHex}`;
 }
 
 export function resolveWalletAuthMethodStoreNamespace(
@@ -82,7 +81,6 @@ export function normalizeWalletAuthMethod(
     (kind !== 'passkey' && kind !== 'email_otp') ||
     (status !== 'active' && status !== 'revoked') ||
     !walletId ||
-    !rpId ||
     !Number.isSafeInteger(createdAtMs) ||
     !Number.isSafeInteger(updatedAtMs)
   ) {
@@ -92,7 +90,7 @@ export function normalizeWalletAuthMethod(
     const credentialIdB64u = trimString(raw.credentialIdB64u);
     const credentialPublicKeyB64u = trimString(raw.credentialPublicKeyB64u);
     const counter = Math.floor(Number(raw.counter));
-    if (!credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
+    if (!rpId || !credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
       return null;
     }
     return {
@@ -108,6 +106,7 @@ export function normalizeWalletAuthMethod(
       updatedAtMs,
     };
   }
+  if (rpId) return null;
   const emailHashHex = trimString(raw.emailHashHex);
   const registrationAuthorityId = trimString(raw.registrationAuthorityId);
   if (!emailHashHex || !registrationAuthorityId) return null;
@@ -116,7 +115,6 @@ export function normalizeWalletAuthMethod(
     kind: 'email_otp',
     status,
     walletId,
-    rpId,
     emailHashHex,
     registrationAuthorityId,
     createdAtMs,
@@ -169,7 +167,7 @@ export async function putWalletAuthMethodWithExecutor(input: {
     [
       input.namespace,
       record.walletId,
-      record.rpId,
+      record.kind === 'passkey' ? record.rpId : null,
       record.kind,
       record.status,
       walletAuthMethodId(record),
@@ -205,22 +203,22 @@ class InMemoryWalletAuthMethodStore implements WalletAuthMethodStore {
 
   async getEmailOtp(input: {
     walletId: string;
-    rpId: string;
     emailHashHex: string;
   }): Promise<WalletAuthMethodRecord | null> {
     return (
-      this.records.get(
-        `${this.namespace}email_otp:${input.walletId}:${input.rpId}:${input.emailHashHex}`,
-      ) || null
+      this.records.get(`${this.namespace}email_otp:${input.walletId}:${input.emailHashHex}`) ||
+      null
     );
   }
 
   async listForWallet(input: {
     walletId: string;
-    rpId: string;
+    rpId?: string;
   }): Promise<WalletAuthMethodRecord[]> {
     return [...this.records.values()].filter(
-      (record) => record.walletId === input.walletId && record.rpId === input.rpId,
+      (record) =>
+        record.walletId === input.walletId &&
+        (record.kind === 'email_otp' || !input.rpId || record.rpId === input.rpId),
     );
   }
 }
@@ -260,7 +258,6 @@ class PostgresWalletAuthMethodStore implements WalletAuthMethodStore {
 
   async getEmailOtp(input: {
     walletId: string;
-    rpId: string;
     emailHashHex: string;
   }): Promise<WalletAuthMethodRecord | null> {
     const pool = await this.poolPromise;
@@ -271,24 +268,26 @@ class PostgresWalletAuthMethodStore implements WalletAuthMethodStore {
         WHERE namespace = $1 AND wallet_auth_method_id = $2
         LIMIT 1
       `,
-      [this.input.namespace, `email_otp:${input.walletId}:${input.rpId}:${input.emailHashHex}`],
+      [this.input.namespace, `email_otp:${input.walletId}:${input.emailHashHex}`],
     );
     return normalizeWalletAuthMethod(result.rows[0]?.record_json);
   }
 
   async listForWallet(input: {
     walletId: string;
-    rpId: string;
+    rpId?: string;
   }): Promise<WalletAuthMethodRecord[]> {
     const pool = await this.poolPromise;
     const result = await pool.query(
       `
         SELECT record_json
         FROM wallet_auth_methods
-        WHERE namespace = $1 AND wallet_id = $2 AND rp_id = $3
+        WHERE namespace = $1
+          AND wallet_id = $2
+          AND (kind = 'email_otp' OR $3::text IS NULL OR rp_id = $3)
         ORDER BY created_at_ms ASC
       `,
-      [this.input.namespace, input.walletId, input.rpId],
+      [this.input.namespace, input.walletId, input.rpId || null],
     );
     return result.rows
       .map((row) => normalizeWalletAuthMethod(row.record_json))
@@ -316,8 +315,8 @@ class CloudflareDurableObjectWalletAuthMethodStore
     return `${this.input.prefix}auth-method:${id}`;
   }
 
-  private walletIndexKey(input: { walletId: string; rpId: string }): string {
-    return `${this.input.prefix}wallet-index:${input.rpId}:${input.walletId}`;
+  private walletIndexKey(input: { walletId: string; rpId?: string }): string {
+    return `${this.input.prefix}wallet-index:${input.rpId || '*'}:${input.walletId}`;
   }
 
   private async request<T>(body: unknown): Promise<T> {
@@ -334,14 +333,24 @@ class CloudflareDurableObjectWalletAuthMethodStore
 
   async put(record: WalletAuthMethodRecord): Promise<void> {
     const key = this.key(walletAuthMethodId(record));
-    const indexKey = this.walletIndexKey(record);
+    const indexKey = this.walletIndexKey({
+      walletId: record.walletId,
+      ...(record.kind === 'passkey' ? { rpId: record.rpId } : {}),
+    });
+    const allWalletIndexKey = this.walletIndexKey({ walletId: record.walletId });
     const current = await this.request<{ value?: unknown }>({ op: 'get', key: indexKey });
     const keys = Array.isArray(current?.value)
       ? current.value.filter((value): value is string => typeof value === 'string' && value.length > 0)
       : [];
     const nextKeys = keys.includes(key) ? keys : [...keys, key];
+    const allCurrent = await this.request<{ value?: unknown }>({ op: 'get', key: allWalletIndexKey });
+    const allKeys = Array.isArray(allCurrent?.value)
+      ? allCurrent.value.filter((value): value is string => typeof value === 'string' && value.length > 0)
+      : [];
+    const nextAllKeys = allKeys.includes(key) ? allKeys : [...allKeys, key];
     await this.request({ op: 'set', key, value: record });
     await this.request({ op: 'set', key: indexKey, value: nextKeys });
+    await this.request({ op: 'set', key: allWalletIndexKey, value: nextAllKeys });
   }
 
   async getPasskey(input: {
@@ -357,23 +366,22 @@ class CloudflareDurableObjectWalletAuthMethodStore
 
   async getEmailOtp(input: {
     walletId: string;
-    rpId: string;
     emailHashHex: string;
   }): Promise<WalletAuthMethodRecord | null> {
     const result = await this.request<{ value?: unknown }>({
       op: 'get',
-      key: this.key(`email_otp:${input.walletId}:${input.rpId}:${input.emailHashHex}`),
+      key: this.key(`email_otp:${input.walletId}:${input.emailHashHex}`),
     });
     return normalizeWalletAuthMethod(result?.value);
   }
 
   async listForWallet(input: {
     walletId: string;
-    rpId: string;
+    rpId?: string;
   }): Promise<WalletAuthMethodRecord[]> {
     const current = await this.request<{ value?: unknown }>({
       op: 'get',
-      key: this.walletIndexKey(input),
+      key: this.walletIndexKey({ walletId: input.walletId }),
     });
     const keys = Array.isArray(current?.value)
       ? current.value.filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -382,7 +390,12 @@ class CloudflareDurableObjectWalletAuthMethodStore
     for (const key of keys) {
       const result = await this.request<{ value?: unknown }>({ op: 'get', key });
       const record = normalizeWalletAuthMethod(result?.value);
-      if (record) records.push(record);
+      if (
+        record &&
+        (record.kind === 'email_otp' || !input.rpId || record.rpId === input.rpId)
+      ) {
+        records.push(record);
+      }
     }
     return records;
   }

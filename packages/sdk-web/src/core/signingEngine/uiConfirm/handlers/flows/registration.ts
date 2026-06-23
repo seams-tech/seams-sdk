@@ -11,7 +11,12 @@ import {
   isUserCancelledUserConfirm,
   ERROR_MESSAGES,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
-import { getNearAccountId, getIntentDigest, getRegisterAccountPayload } from './adapters/request';
+import {
+  getNearAccountId,
+  getWalletId,
+  getIntentDigest,
+  getRegisterAccountPayload,
+} from './adapters/request';
 import {
   isSerializedRegistrationCredential,
   serializeRegistrationCredentialWithPRF,
@@ -26,40 +31,41 @@ function roundDurationMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
-function derivePasskeyRegistrationIntendedUserName(nearAccountId: string): string {
-  const baseUsername = nearAccountId.split('.')[0]?.trim() || nearAccountId;
+function derivePasskeyRegistrationIntendedUserName(walletId: string): string {
+  const baseUsername = walletId.split('.')[0]?.trim() || walletId;
   return baseUsername;
 }
 
 function buildPasskeyRegistrationConfirmDisplay(args: {
-  nearAccountId: string;
+  walletId: string;
+  nearAccountId?: string;
   rpId: string;
   signerSlot: number;
 }): PasskeyRegistrationConfirmDisplay {
   return {
     kind: 'passkey_registration_confirm_display_v1',
-    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.nearAccountId),
-    accountId: args.nearAccountId,
+    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.walletId),
+    accountId: args.walletId,
     rpId: args.rpId,
     signerSlot: args.signerSlot,
   };
 }
 
 function buildPasskeyRegistrationCredentialArgs(args: {
-  nearAccountId: string;
+  walletId: string;
   challengeB64u: string;
   signerSlot?: number;
 }): {
-  nearAccountId: string;
+  walletId: string;
   challengeB64u: string;
   signerSlot?: number;
   intendedUserName: string;
 } {
   return {
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     challengeB64u: args.challengeB64u,
     signerSlot: args.signerSlot,
-    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.nearAccountId),
+    intendedUserName: derivePasskeyRegistrationIntendedUserName(args.walletId),
   };
 }
 
@@ -117,6 +123,7 @@ export async function handleRegistrationFlow(
     transactionSummary,
     theme,
   });
+  const walletId = getWalletId(request);
   const nearAccountId = getNearAccountId(request);
 
   try {
@@ -145,6 +152,7 @@ export async function handleRegistrationFlow(
     const securityContext: UserConfirmSecurityContext = {
       rpId,
       passkeyRegistration: buildPasskeyRegistrationConfirmDisplay({
+        walletId,
         nearAccountId,
         rpId,
         signerSlot: initialSignerSlot,
@@ -186,7 +194,7 @@ export async function handleRegistrationFlow(
       try {
         credential = await adapters.webauthn.createRegistrationCredential(
           buildPasskeyRegistrationCredentialArgs({
-            nearAccountId,
+            walletId,
             challengeB64u,
             signerSlot,
           }),
@@ -212,14 +220,14 @@ export async function handleRegistrationFlow(
           getRegisterAccountPayload(request).signerSlot = nextSignerSlot;
           request.intentDigest =
             request.type === 'registerAccount'
-              ? `register:${nearAccountId}:${nextSignerSlot}`
-              : `device2-register:${nearAccountId}:${nextSignerSlot}`;
+              ? `register:${walletId}:${nextSignerSlot}`
+              : `device2-register:${walletId}:${nextSignerSlot}`;
 
           challengeB64u = await computeBoundIntentDigestB64u();
 
           credential = await adapters.webauthn.createRegistrationCredential(
             buildPasskeyRegistrationCredentialArgs({
-              nearAccountId,
+              walletId,
               challengeB64u,
               signerSlot: nextSignerSlot,
             }),

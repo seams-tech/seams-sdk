@@ -1109,7 +1109,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             })
           : null
         : null;
-    const accountId = String(ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '').trim();
+    const walletId = String(ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '').trim();
     const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
       .trim()
       .toLowerCase();
@@ -1190,7 +1190,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           }
         : undefined;
     return {
-      ...(accountId ? { walletId: accountId } : {}),
+      ...(walletId ? { walletId } : {}),
       ...(ed25519Record?.signingRootId ? { signingRootId: ed25519Record.signingRootId } : {}),
       ...(ed25519Record?.signingRootVersion
         ? { signingRootVersion: ed25519Record.signingRootVersion }
@@ -2275,6 +2275,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   ) {
     return requestRegistrationCredentialConfirmationOnMainThread({
       ctx: this.getContext(),
+      walletId: params.walletId,
       nearAccountId: params.nearAccountId,
       signerSlot: params.signerSlot,
       confirmerText: params.confirmerText,

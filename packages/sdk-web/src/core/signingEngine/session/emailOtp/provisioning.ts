@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -31,6 +30,8 @@ import type {
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/session/persistence/records';
+import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
 import { markRouterAbEd25519WorkerMaterialRuntimeValidated } from '../routerAbSigningWalletSession';
 import {
@@ -68,6 +69,7 @@ export type EmailOtpThresholdEd25519ProvisioningResult = {
 };
 
 export type EmailOtpEd25519SessionReconstructionKey = {
+  signer: NearEd25519SignerBinding;
   relayerKeyId: string;
   keyVersion: string;
   participantIds: number[];
@@ -93,7 +95,6 @@ export type EmailOtpEd25519SessionReconstructionPlan =
     };
 
 type EmailOtpEd25519CommonArgs = {
-  nearAccountId: AccountId | string;
   relayUrl: string;
   rpId: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -175,9 +176,12 @@ export async function reconstructEmailOtpEd25519Session(args: {
     thresholdSessionId: string,
   ) => ThresholdEd25519SessionRecord | null;
   registerSigningSession: (record: BuildCurrentSealedSessionRecordInput) => Promise<void>;
-}): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
+  }): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
   const input = args.input;
-  const nearAccountId = toAccountId(input.nearAccountId);
+  const signer = input.ed25519Key.signer;
+  const walletId = toWalletId(signer.account.wallet.walletId);
+  const nearAccountId = toAccountId(signer.account.nearAccountId);
+  const ed25519KeyScopeId = String(signer.ed25519KeyScopeId || '').trim();
   const relayerUrl = String(input.relayUrl || '').trim();
   const rpId = String(input.rpId || '').trim();
   const recoveryCodeSecret32B64u = String(input.recoveryCodeSecret32B64u || '').trim();
@@ -205,6 +209,11 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'Email OTP threshold-ed25519 session reconstruction requires canonical runtime scope',
     );
   }
+  if (!ed25519KeyScopeId) {
+    throw new Error(
+      'Email OTP threshold-ed25519 session reconstruction requires Ed25519 key scope',
+    );
+  }
   if (!signingGrantId) {
     throw new Error(
       'Email OTP threshold-ed25519 session reconstruction requires wallet session identity',
@@ -230,15 +239,20 @@ export async function reconstructEmailOtpEd25519Session(args: {
     derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   };
   const clientInputs = await deriveThresholdEd25519HssClientInputsFromEmailOtpRecoveryCode({
-    sessionId: `email-otp-ed25519-reconstruction:${String(nearAccountId)}`,
+    sessionId: [
+      'email-otp-ed25519-reconstruction',
+      String(walletId),
+      String(nearAccountId),
+      ed25519KeyScopeId,
+    ].join(':'),
     ...context,
     recoveryCodeSecret32B64u,
     workerCtx,
   });
   const { policy } = await buildEd25519SessionPolicy({
-    walletId: String(nearAccountId),
+    walletId: String(walletId),
     nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
+    ed25519KeyScopeId,
     rpId,
     relayerKeyId,
     runtimePolicyScope,
@@ -301,7 +315,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     signingRootVersion,
     expiresAtMs,
     nearAccountId: String(nearAccountId),
-    signerSlot: 1,
+    signerSlot: signer.signerSlot,
     relayerKeyId,
     keyVersion,
     participantIds,
@@ -364,9 +378,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
     parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
   await args.persistWarmSessionEd25519Capability({
     kind: 'jwt_email_otp',
-    walletId: String(nearAccountId),
+    walletId: String(walletId),
     nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
+    ed25519KeyScopeId,
     rpId,
     relayerUrl,
     relayerKeyId,
@@ -407,7 +421,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     transport: {
       curve: 'ed25519',
       authMethod: 'email_otp',
-      walletId: String(nearAccountId),
+      walletId: String(walletId),
       relayerUrl,
       signingGrantId,
       walletSessionJwt: jwt,

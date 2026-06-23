@@ -49,17 +49,31 @@ export type WalletAuthDomainDeps = {
   initWalletIframe: (walletId?: string) => Promise<void>;
 };
 
+async function requireNearAccountForWallet(
+  deps: WalletAuthDomainDeps,
+  walletId: string,
+): Promise<AccountId> {
+  const session = await getWalletSessionCore(deps.getContext(), walletId);
+  const nearAccountId = session.login.nearAccountId ? String(session.login.nearAccountId) : '';
+  if (!nearAccountId) {
+    throw new Error('wallet-scoped auth requires a resolved NEAR account binding');
+  }
+  return toAccountId(nearAccountId);
+}
+
 export async function unlockDomain(
   deps: WalletAuthDomainDeps,
-  nearAccountId: string,
+  walletId: string,
   options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
+  const resolvedWalletId = String(walletId || '').trim();
+  if (!resolvedWalletId) throw new Error('unlock requires walletId');
   if (deps.walletIframe.shouldUseWalletIframe()) {
     try {
-      const router = await deps.walletIframe.requireRouter(nearAccountId);
+      const router = await deps.walletIframe.requireRouter(resolvedWalletId);
       const result = await router.unlock(
         walletIframeUnlockRequestFromLoginHooks({
-          nearAccountId,
+          walletId: resolvedWalletId,
           options,
         }),
       );
@@ -72,7 +86,7 @@ export async function unlockDomain(
       // Best-effort warm-up after successful unlock (non-blocking).
       void (async () => {
         try {
-          await deps.initWalletIframe(nearAccountId);
+          await deps.initWalletIframe(resolvedWalletId);
         } catch {}
       })();
       await options?.afterCall?.(true, result);
@@ -85,20 +99,26 @@ export async function unlockDomain(
     }
   }
 
-  const result = await unlockCore(deps.getContext(), toAccountId(nearAccountId), options);
+  const nearAccountId = await requireNearAccountForWallet(deps, resolvedWalletId);
+  const result = await unlockCore(deps.getContext(), nearAccountId, options);
+  let activatedWalletId: string | null = null;
   if (result?.success) {
     // Promote authenticated account to current-user state only after unlock succeeds.
-    const walletSession = await getWalletSessionCore(deps.getContext(), nearAccountId).catch(() => null);
-    const walletId = toWalletId(walletSession?.login.walletId || nearAccountId);
+    const walletSession = await getWalletSessionCore(deps.getContext(), resolvedWalletId).catch(() => null);
+    if (!walletSession?.login.walletId) {
+      throw new Error('unlock requires resolved wallet identity');
+    }
+    const walletId = toWalletId(walletSession.login.walletId);
+    activatedWalletId = String(walletId);
     await deps.signingEngine.activateAuthenticatedWalletState({
       walletId,
-      nearAccountId: toAccountId(nearAccountId),
+      nearAccountId,
       nearClient: deps.nearClient,
     });
   }
   // Best-effort warm-up after successful unlock (non-blocking).
   try {
-    void deps.initWalletIframe(nearAccountId);
+    void deps.initWalletIframe(activatedWalletId || undefined);
   } catch {}
 
   return result;
@@ -131,15 +151,17 @@ export async function getWalletSessionDomain(
 
 export async function hasPasskeyCredentialDomain(
   deps: WalletAuthDomainDeps,
-  nearAccountId: AccountId,
+  walletId: string,
 ): Promise<boolean> {
+  const resolvedWalletId = String(walletId || '').trim();
+  if (!resolvedWalletId) return false;
   if (deps.walletIframe.shouldUseWalletIframe()) {
     const router = await deps.walletIframe.requireRouter();
-    return await router.hasPasskeyCredential(nearAccountId);
+    return await router.hasPasskeyCredential(resolvedWalletId);
   }
 
-  const baseAccountId = toAccountId(nearAccountId);
-  return await deps.signingEngine.hasPasskeyCredential(baseAccountId);
+  const nearAccountId = await requireNearAccountForWallet(deps, resolvedWalletId);
+  return await deps.signingEngine.hasPasskeyCredential(nearAccountId);
 }
 
 export async function getRecentUnlocksDomain(

@@ -76,7 +76,7 @@ type ExportPrivateKeyDisplayEntry =
     };
 
 type ThresholdEcdsaExportViewerBaseArgs = {
-  nearAccountId: AccountId;
+  walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   publicKeyHex: string;
   variant?: 'drawer' | 'modal';
@@ -136,16 +136,16 @@ export async function requestEmailOtpKeyExportAuthorization(
 ): Promise<ExportEmailOtpStepUpAuthorization>;
 export async function requestEmailOtpKeyExportAuthorization(
   deps: EmailOtpNearAccountExportAuthorizationDeps,
-  args: {
-    kind: 'near_account_export_auth';
-    nearAccountId: AccountId;
-    chain: 'near';
-    publicKey: string;
-    curve: 'ed25519';
-    routeAuth?: AppOrWalletSessionAuth;
-    authLane?: EmailOtpAuthLane;
-    walletSession?: never;
-  },
+	  args: {
+	    kind: 'near_account_export_auth';
+	    walletSession: WalletSessionRef;
+	    nearAccountId: AccountId;
+	    chain: 'near';
+	    publicKey: string;
+	    curve: 'ed25519';
+	    routeAuth?: AppOrWalletSessionAuth;
+	    authLane?: EmailOtpAuthLane;
+	  },
 ): Promise<ExportEmailOtpStepUpAuthorization>;
 export async function requestEmailOtpKeyExportAuthorization(
   deps:
@@ -161,23 +161,26 @@ export async function requestEmailOtpKeyExportAuthorization(
         routeAuth?: AppOrWalletSessionAuth;
         authLane?: EmailOtpAuthLane;
       }
-    | {
-        kind: 'near_account_export_auth';
-        nearAccountId: AccountId;
-        chain: 'near';
-        publicKey: string;
-        curve: 'ed25519';
-        routeAuth?: AppOrWalletSessionAuth;
-        authLane?: EmailOtpAuthLane;
-        walletSession?: never;
-      },
+	    | {
+	        kind: 'near_account_export_auth';
+	        walletSession: WalletSessionRef;
+	        nearAccountId: AccountId;
+	        chain: 'near';
+	        publicKey: string;
+	        curve: 'ed25519';
+	        routeAuth?: AppOrWalletSessionAuth;
+	        authLane?: EmailOtpAuthLane;
+	      },
 ): Promise<ExportEmailOtpStepUpAuthorization> {
   const accountIdForUi =
     args.kind === 'wallet_session_export_auth'
       ? args.walletSession.walletSessionUserId
       : args.nearAccountId;
   const authorization = await requestEmailOtpExportAuthorizationValue({
-    nearAccountId: accountIdForUi,
+    identity:
+      args.kind === 'wallet_session_export_auth'
+        ? { kind: 'wallet_session', walletId: accountIdForUi }
+        : { kind: 'near_account', nearAccountId: accountIdForUi },
     chain: args.chain,
     publicKey: args.publicKey,
     curve: args.curve,
@@ -195,10 +198,11 @@ export async function requestEmailOtpKeyExportAuthorization(
             challengeRequest,
           );
         }
-        const challengeRequest: EmailOtpNearAccountExportChallengeArgs = {
-          kind: 'near_account_challenge',
-          nearAccountId: args.nearAccountId,
-          chain: args.chain,
+	        const challengeRequest: EmailOtpNearAccountExportChallengeArgs = {
+	          kind: 'near_account_challenge',
+	          walletSession: args.walletSession,
+	          nearAccountId: args.nearAccountId,
+	          chain: args.chain,
           ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
           ...(args.authLane ? { authLane: args.authLane } : {}),
         };
@@ -366,7 +370,10 @@ export async function requestThresholdEcdsaExportAuthorization(
   },
 ): Promise<ExportPasskeyStepUpAuthorization> {
   const chain = args.chainTarget.kind;
-  const accountIdForUi = toAccountId(args.walletSessionUserId);
+  const walletIdForUi = String(args.walletSessionUserId || '').trim();
+  if (!walletIdForUi) {
+    throw new Error('[SigningEngine][export] missing ECDSA export wallet session user id');
+  }
   return await requestPasskeyExportAuthorization(deps, {
     walletSessionUserId: args.walletSessionUserId,
     intent: 'ecdsa_export',
@@ -380,7 +387,7 @@ export async function requestThresholdEcdsaExportAuthorization(
       type: decryptPrivateKeyWithPrfType,
       summary: {
         operation: 'Export Private Key',
-        accountId: accountIdForUi,
+        accountId: walletIdForUi,
         publicKey: args.publicKey,
         warning:
           chain === 'tempo'
@@ -388,10 +395,10 @@ export async function requestThresholdEcdsaExportAuthorization(
             : 'Confirm to reveal your EVM private key export.',
       },
       payload: {
-        nearAccountId: accountIdForUi,
+        nearAccountId: walletIdForUi,
         publicKey: args.publicKey,
       },
-      intentDigest: `export-keys:${accountIdForUi}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
+      intentDigest: `export-keys:${walletIdForUi}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
     },
   });
 }
@@ -427,12 +434,12 @@ export async function showThresholdEcdsaExportViewer(
     type: showSecurePrivateKeyUiType,
     summary: {
       operation: 'Export Private Key',
-      accountId: args.nearAccountId,
+      accountId: args.walletId,
       publicKey: args.publicKeyHex,
       warning: 'Anyone with your private key can fully control your account. Never share it.',
     },
     payload: {
-      nearAccountId: args.nearAccountId,
+      nearAccountId: args.walletId,
       viewerSessionId: args.viewerSessionId,
       publicKey: args.publicKeyHex,
       keys,
@@ -447,7 +454,7 @@ export async function showThresholdEcdsaExportViewer(
               : KeyExportEventPhase.STEP_05_VIEWER_CLOSED,
           status: event === 'opened' ? 'waiting_for_user' : 'succeeded',
           flowId: args.flowId,
-          accountId: String(args.nearAccountId),
+          accountId: String(args.walletId),
           interaction: {
             kind: 'key_export_viewer',
             overlay: event === 'opened' ? 'show' : 'hide',
@@ -459,14 +466,14 @@ export async function showThresholdEcdsaExportViewer(
             phase: KeyExportEventPhase.STEP_06_COMPLETED,
             status: 'succeeded',
             flowId: args.flowId,
-            accountId: String(args.nearAccountId),
+            accountId: String(args.walletId),
             interaction: { kind: 'none', overlay: 'hide' },
             data: { chain, curve: 'ecdsa' },
           });
         }
       },
     },
-    intentDigest: `export-keys:${args.nearAccountId}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
+    intentDigest: `export-keys:${args.walletId}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
   });
 }
 
@@ -496,7 +503,12 @@ async function requestPasskeyExportAuthorization(
       },
 ): Promise<ExportPasskeyStepUpAuthorization> {
   const accountIdForUi =
-    args.curve === 'ecdsa' ? toAccountId(args.walletSessionUserId) : args.nearAccountId;
+    args.curve === 'ecdsa'
+      ? String(args.walletSessionUserId || '').trim()
+      : String(args.nearAccountId);
+  if (!accountIdForUi) {
+    throw new Error('[SigningEngine][export] missing export account identity');
+  }
   emitKeyExportEvent(args.onEvent, {
     phase: KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED,
     status: 'waiting_for_user',

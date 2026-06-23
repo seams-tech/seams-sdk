@@ -187,17 +187,53 @@ async function readJsonObject(response: Response): Promise<Record<string, unknow
   }
 }
 
+export type ManagedRegistrationFlowGrantIdentity =
+  | {
+      kind: 'near_account';
+      nearAccountId: string;
+      walletId?: never;
+    }
+  | {
+      kind: 'wallet';
+      walletId: string;
+      nearAccountId?: never;
+    }
+  | {
+      kind: 'none';
+      nearAccountId?: never;
+      walletId?: never;
+    };
+
+function managedRegistrationGrantSubjectPayload(
+  identity: ManagedRegistrationFlowGrantIdentity,
+): { newAccountId: string } | Record<string, never> {
+  switch (identity.kind) {
+    case 'near_account': {
+      const nearAccountId = String(identity.nearAccountId || '').trim();
+      return nearAccountId ? { newAccountId: nearAccountId } : {};
+    }
+    case 'wallet': {
+      const walletId = String(identity.walletId || '').trim();
+      return walletId ? { newAccountId: walletId } : {};
+    }
+    case 'none':
+      return {};
+    default: {
+      const exhaustive: never = identity;
+      return exhaustive;
+    }
+  }
+}
+
 async function requestManagedRegistrationFlowGrant(args: {
   relayerUrl: string;
   publishableKey: string;
   environmentId: string;
-  nearAccountId?: string;
-  walletId?: string;
+  identity: ManagedRegistrationFlowGrantIdentity;
   rpId: string;
 }): Promise<ManagedRegistrationFlowGrant> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const bootstrapGrantUrl = joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
-  const subjectId = String(args.nearAccountId || args.walletId || '').trim();
   const brokerResponse = await fetchWithRegistrationTimeout({
     url: bootstrapGrantUrl,
     operation: 'Managed registration flow grant',
@@ -209,7 +245,7 @@ async function requestManagedRegistrationFlowGrant(args: {
       },
       body: JSON.stringify({
         environmentId: args.environmentId,
-        ...(subjectId ? { newAccountId: subjectId } : {}),
+        ...managedRegistrationGrantSubjectPayload(args.identity),
         rpId: args.rpId,
         flow: 'registration_v1',
         clientContext: buildManagedClientContext(),
@@ -267,8 +303,7 @@ async function requestManagedRegistrationFlowGrant(args: {
 
 export async function createManagedRegistrationFlowGrant(args: {
   context: RegistrationTransportConfigContext;
-  nearAccountId?: string;
-  walletId?: string;
+  identity: ManagedRegistrationFlowGrantIdentity;
   rpId: string;
 }): Promise<ManagedRegistrationFlowGrant> {
   const registrationTransport = resolveRegistrationTransport(args.context);
@@ -280,10 +315,7 @@ export async function createManagedRegistrationFlowGrant(args: {
     relayerUrl: registrationTransport.relayerUrl,
     publishableKey: registrationTransport.publishableKey,
     environmentId: registrationTransport.environmentId,
-    ...(String(args.nearAccountId || '').trim()
-      ? { nearAccountId: String(args.nearAccountId || '').trim() }
-      : {}),
-    ...(String(args.walletId || '').trim() ? { walletId: String(args.walletId || '').trim() } : {}),
+    identity: args.identity,
     rpId: String(args.rpId || '').trim(),
   });
   console.debug('[Registration] managed registration flow grant issued', {
