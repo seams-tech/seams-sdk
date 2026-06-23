@@ -1,5 +1,7 @@
 import {
+  implicitNearAccountProvisioning,
   normalizeWalletAuthMethodTarget,
+  sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type RegistrationAuthMethodInput,
   type RegistrationAuthority,
@@ -15,6 +17,7 @@ import {
   parseOrgId,
   parseProviderSubject,
 } from './domainIds';
+import { parseNamedNearAccountId } from './near';
 
 function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
   if (!result.ok) throw new Error('invalid type fixture domain id');
@@ -26,6 +29,7 @@ const challengeSubjectId = unwrapDomainId(parseChallengeSubjectId('google:alice'
 const emailOtpChallengeId = unwrapDomainId(parseEmailOtpChallengeId('challenge'));
 const orgId = unwrapDomainId(parseOrgId('org_test'));
 const appSessionVersion = unwrapDomainId(parseAppSessionVersion('app-session-v1'));
+const namedNearAccountId = unwrapDomainId(parseNamedNearAccountId('alice.testnet'));
 
 const passkeyAuthMethod = {
   kind: 'passkey',
@@ -61,15 +65,55 @@ const ecdsaOnlySelection = {
 const ed25519OnlySelection = {
   mode: 'ed25519_only',
   ed25519: {
+    accountProvisioning: implicitNearAccountProvisioning(),
+    signerSlot: 1,
+    participantIds: [1, 2],
+    keyPurpose: 'near_tx',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    derivationVersion: 1,
+  },
+} satisfies RegistrationSignerSelection;
+
+const sponsoredNamedEd25519OnlySelection = {
+  mode: 'ed25519_only',
+  ed25519: {
+    accountProvisioning: sponsoredNamedNearAccountProvisioning(namedNearAccountId),
+    signerSlot: 1,
+    participantIds: [1, 2],
+    keyPurpose: 'near_tx',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    derivationVersion: 1,
+  },
+} satisfies RegistrationSignerSelection;
+
+const ed25519WithLegacyNearAccountId: RegistrationSignerSelection = {
+  mode: 'ed25519_only',
+  ed25519: {
+    // @ts-expect-error registration Ed25519 specs use accountProvisioning, not nearAccountId.
     nearAccountId: 'alice.testnet',
     signerSlot: 1,
     participantIds: [1, 2],
     keyPurpose: 'near_tx',
     keyVersion: 'threshold-ed25519-hss-v1',
     derivationVersion: 1,
+  },
+};
+void ed25519WithLegacyNearAccountId;
+
+const ed25519WithLegacyCreateBoolean: RegistrationSignerSelection = {
+  mode: 'ed25519_only',
+  ed25519: {
+    accountProvisioning: implicitNearAccountProvisioning(),
+    signerSlot: 1,
+    participantIds: [1, 2],
+    keyPurpose: 'near_tx',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    derivationVersion: 1,
+    // @ts-expect-error registration Ed25519 specs cannot carry legacy createNearAccount.
     createNearAccount: true,
   },
-} satisfies RegistrationSignerSelection;
+};
+void ed25519WithLegacyCreateBoolean;
 
 void ({
   version: 'registration_intent_v1',
@@ -95,6 +139,15 @@ void ({
   rpId: 'wallet.example.test',
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519OnlySelection,
+  nonceB64u: 'nonce',
+} satisfies RegistrationIntentV1);
+
+void ({
+  version: 'registration_intent_v1',
+  walletId: walletIdFromString('alice.testnet'),
+  rpId: 'wallet.example.test',
+  authMethod: passkeyAuthMethod,
+  signerSelection: sponsoredNamedEd25519OnlySelection,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1);
 

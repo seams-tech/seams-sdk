@@ -28,10 +28,19 @@ export type EmailRecoveryPreparedThresholdEd25519Record = {
   session?: ThresholdEd25519BootstrapSession;
 };
 
+export type EmailRecoveryResolvedWalletBinding = {
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
+  rpId: string;
+  signerSlot: number;
+};
+
 export type EmailRecoveryPreparationRecord = {
   version: 'email_recovery_preparation_v1';
   requestId: string;
   accountId: string;
+  walletBinding: EmailRecoveryResolvedWalletBinding;
   rpId: string;
   signerSlot: number;
   credentialIdB64u: string;
@@ -93,11 +102,17 @@ function parseParticipantIds(raw: unknown): number[] | undefined {
 function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSession | undefined {
   if (!isObject(raw)) return undefined;
   const sessionKind = toOptionalTrimmedString(raw.sessionKind);
+  const walletId = toOptionalTrimmedString(raw.walletId);
+  const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
+  const ed25519KeyScopeId = toOptionalTrimmedString(raw.ed25519KeyScopeId);
   const thresholdSessionId = toOptionalTrimmedString(raw.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(raw.signingGrantId);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
   if (
     (sessionKind !== 'jwt' && sessionKind !== 'cookie') ||
+    !walletId ||
+    !nearAccountId ||
+    !ed25519KeyScopeId ||
     !thresholdSessionId ||
     !signingGrantId ||
     !expiresAtMs
@@ -111,6 +126,9 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   const jwt = toOptionalTrimmedString(raw.jwt);
   return {
     sessionKind,
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     thresholdSessionId,
     signingGrantId,
     expiresAtMs,
@@ -122,6 +140,25 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
       : {}),
     ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     ...(jwt ? { jwt } : {}),
+  };
+}
+
+function parseEmailRecoveryResolvedWalletBinding(
+  raw: unknown,
+): EmailRecoveryResolvedWalletBinding | null {
+  if (!isObject(raw)) return null;
+  const walletId = toOptionalTrimmedString(raw.walletId);
+  const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
+  const ed25519KeyScopeId = toOptionalTrimmedString(raw.ed25519KeyScopeId);
+  const rpId = toOptionalTrimmedString(raw.rpId);
+  const signerSlot = parsePositiveInteger(raw.signerSlot);
+  if (!walletId || !nearAccountId || !ed25519KeyScopeId || !rpId || !signerSlot) return null;
+  return {
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
+    rpId,
+    signerSlot,
   };
 }
 
@@ -223,6 +260,7 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
   const version = toOptionalTrimmedString(raw.version);
   const requestId = toOptionalTrimmedString(raw.requestId);
   const accountId = toOptionalTrimmedString(raw.accountId);
+  const walletBinding = parseEmailRecoveryResolvedWalletBinding(raw.walletBinding);
   const rpId = toOptionalTrimmedString(raw.rpId);
   const signerSlot = parsePositiveInteger(raw.signerSlot);
   const credentialIdB64u = toOptionalTrimmedString(raw.credentialIdB64u);
@@ -236,6 +274,7 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
     version !== 'email_recovery_preparation_v1' ||
     !requestId ||
     !accountId ||
+    !walletBinding ||
     !rpId ||
     !signerSlot ||
     !credentialIdB64u ||
@@ -252,6 +291,7 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
     version: 'email_recovery_preparation_v1',
     requestId,
     accountId,
+    walletBinding,
     rpId,
     signerSlot,
     credentialIdB64u,

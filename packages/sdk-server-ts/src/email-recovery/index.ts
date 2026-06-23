@@ -8,6 +8,7 @@ import { coerceLogger, type NormalizedLogger } from '../core/logger';
 import type { EmailRecoveryRequest, EmailRecoveryResult, EmailRecoveryServiceDeps } from './types';
 
 export * from './emailEncryptor';
+export * from './emailParsers';
 export * from './testHelpers';
 export * from './types';
 

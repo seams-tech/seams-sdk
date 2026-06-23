@@ -334,7 +334,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
       participantIds: request.participantIds,
     });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
-      nearAccountId: request.walletId,
+      userId: request.walletId,
       rpId: request.rpId,
       expectedChallenge,
       expected_origin: expectedOrigin,

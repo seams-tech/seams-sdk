@@ -32,6 +32,7 @@ export type WalletEd25519SignerRecord = {
   rpId: string;
   signerId: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   signerSlot: number;
   publicKey: string;
   relayerKeyId: string;

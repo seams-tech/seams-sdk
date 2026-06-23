@@ -24,6 +24,8 @@ import type {
   EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
+  RegistrationNearAccountProvisioning,
+  ResolvedRegistrationNearAccount,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
@@ -85,6 +87,53 @@ export interface ThresholdEd25519HssCanonicalContext {
   participantIds: number[];
   derivationVersion: number;
 }
+
+export type ThresholdEd25519RegistrationAccountScope =
+  | {
+      kind: 'generated_implicit_registration_scope';
+      walletId: string;
+      rpId: string;
+      intentDigestB64u: string;
+      signingRootId: string;
+      ed25519KeyScopeId: string;
+      signerSlot: number;
+      keyPurpose: string;
+      keyVersion: string;
+      derivationVersion: number;
+      participantIds: number[];
+      requestedAccountId?: never;
+      nearAccountId?: never;
+    }
+  | {
+      kind: 'sponsored_named_registration_scope';
+      walletId: string;
+      rpId: string;
+      intentDigestB64u: string;
+      signingRootId: string;
+      ed25519KeyScopeId: string;
+      signerSlot: number;
+      keyPurpose: string;
+      keyVersion: string;
+      derivationVersion: number;
+      participantIds: number[];
+      requestedAccountId: string;
+      nearAccountId?: never;
+    }
+  | {
+      kind: 'known_account_registration_scope';
+      walletId: string;
+      rpId: string;
+      intentDigestB64u: string;
+      signingRootId: string;
+      ed25519KeyScopeId: string;
+      signerSlot: number;
+      keyPurpose: string;
+      keyVersion: string;
+      derivationVersion: number;
+      participantIds: number[];
+      nearAccountId: string;
+      requestedAccountId?: never;
+    };
 
 export interface ThresholdEd25519HssClientInputs {
   contextBindingB64u: string;
@@ -160,7 +209,7 @@ export interface ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest {
 }
 
 export interface ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest {
-  new_account_id: string;
+  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   rp_id: string;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
@@ -587,6 +636,7 @@ export type WalletAddSignerFinalizeResponse =
       rpId: string;
       ed25519?: {
         nearAccountId: string;
+        ed25519KeyScopeId: string;
         publicKey: string;
         relayerKeyId: string;
         keyVersion: string;
@@ -770,7 +820,7 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssFinalizeDeriveRelayerVerifyingShareMs'
   | 'registrationHssFinalizeKeyStorePutMs'
   | 'registrationEcdsaBootstrapVerifyMs'
-  | 'nearAccountCreateMs'
+  | 'sponsoredNearAccountCreateMs'
   | 'registrationKeygenMs'
   | 'registrationEmailOtpEnrollmentPlanMs'
   | 'relaySessionMintMs'
@@ -895,9 +945,12 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId: string;
+      accountProvisioning: RegistrationNearAccountProvisioning;
+      resolvedAccount: ResolvedRegistrationNearAccount;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519?: {
+      ed25519: {
         nearAccountId: string;
+        ed25519KeyScopeId: string;
         publicKey: string;
         relayerKeyId: string;
         keyVersion: string;
@@ -910,6 +963,18 @@ export type WalletRegistrationFinalizeResponse =
       ecdsa?: {
         walletKeys: WalletRegistrationEcdsaWalletKey[];
       };
+    }
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ecdsa: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      ed25519?: never;
     }
   | {
       ok: true;
@@ -929,6 +994,9 @@ export type WalletRegistrationFinalizeResponse =
 
 export type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;
@@ -954,7 +1022,7 @@ export interface ThresholdEd25519HssPrepareWithSessionRequest {
 }
 
 export interface ThresholdEd25519HssPrepareForRegistrationRequest {
-  new_account_id: string;
+  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   rp_id: string;
   context: ThresholdEd25519HssCanonicalContext;
 }
@@ -965,7 +1033,7 @@ export interface ThresholdEd25519HssRespondWithSessionRequest {
 }
 
 export interface ThresholdEd25519HssRespondForRegistrationRequest {
-  new_account_id: string;
+  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   rp_id: string;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
@@ -1044,14 +1112,24 @@ export interface ThresholdEd25519HssFinalizeWithSessionRequest {
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
 }
 
+export type ThresholdEd25519HssFinalizeAccountResolution =
+  | {
+      kind: 'registration_provisioning';
+      accountProvisioning: RegistrationNearAccountProvisioning;
+      nearAccountId?: never;
+    }
+  | {
+      kind: 'known_account';
+      nearAccountId: string;
+      accountProvisioning?: never;
+    };
+
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
-  new_account_id: string;
+  registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
   rp_id: string;
   ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
-  account_provisioning?: {
-    mode: 'create_if_missing';
-  };
+  accountResolution: ThresholdEd25519HssFinalizeAccountResolution;
 }
 
 export type ThresholdEd25519HssFinalizeWithSessionResponse =
@@ -1069,6 +1147,7 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
   | {
       ok: true;
       publicKey: string;
+      nearAccountId: string;
       relayerKeyId: string;
       finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
       finalizeReportTimings?: {
@@ -1081,11 +1160,6 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
         deriveSeedKeypairMs: number;
         deriveRelayerVerifyingShareMs: number;
         keyStorePutMs: number;
-      };
-      accountProvisioning?: {
-        mode: 'create_if_missing';
-        status: 'created' | 'already_ready';
-        transactionHash?: string;
       };
     }
   | {
@@ -1401,87 +1475,6 @@ export interface AccountCreationResult {
   message?: string;
 }
 
-// WebAuthn registration credential structure
-export interface WebAuthnRegistrationCredential {
-  id: string;
-  rawId: string; // base64-encoded
-  type: string;
-  authenticatorAttachment: string | null;
-  response: {
-    clientDataJSON: string;
-    attestationObject: string;
-    transports: string[];
-  };
-  // PRF outputs are not sent to the Router API server.
-  clientExtensionResults: null;
-}
-
-// Interface for atomic account creation and registration
-export interface CreateAccountAndRegisterRequest {
-  new_account_id: string;
-  /**
-   * Signer slot used during registration.
-   *
-   * This is used to deterministically derive the registration WebAuthn challenge
-   * in WebAuthn-only mode (e.g. `sha256("register:${accountId}:${signerSlot}")`).
-   */
-  signer_slot?: number;
-  threshold_ed25519?: {
-    key_version: string;
-    recovery_export_capable: boolean;
-    public_key: string;
-    relayer_key_id: string;
-    session_policy: Omit<Ed25519SessionPolicy, 'relayerKeyId'> & {
-      relayerKeyId?: string;
-    };
-    session_kind: 'jwt' | 'cookie';
-  };
-  /**
-   * WebAuthn RP ID used for the registration ceremony (e.g. `wallet.example.com`).
-   *
-   * This is required for standard WebAuthn verification on the relay.
-   */
-  rp_id: string;
-  webauthn_registration: WebAuthnRegistrationCredential;
-  /**
-   * Expected origin policy for strict WebAuthn verification.
-   *
-   * Routers populate this from the request `Origin` header.
-   */
-  expected_origin: string;
-  authenticator_options?: AuthenticatorOptions;
-}
-
-// Result type for atomic account creation and registration
-export interface CreateAccountAndRegisterResult {
-  success: boolean;
-  code?: string;
-  transactionHash?: string;
-  thresholdEd25519?: {
-    keyVersion: string;
-    recoveryExportCapable: true;
-    relayerKeyId: string;
-    publicKey: string;
-    clientParticipantId?: number;
-    relayerParticipantId?: number;
-    participantIds?: number[];
-    session?: {
-      sessionKind: 'jwt' | 'cookie';
-      thresholdSessionId: string;
-      signingGrantId: string;
-      expiresAtMs: number;
-      expiresAt?: string;
-      participantIds?: number[];
-      remainingUses?: number;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      jwt?: string;
-    };
-  };
-  error?: string;
-  message?: string;
-  contractResult?: any; // FinalExecutionOutcome
-}
-
 // Runtime-tested NEAR error types
 export interface NearActionErrorKind {
   AccountAlreadyExists?: {
@@ -1581,7 +1574,9 @@ export type ThresholdEd25519Purpose = 'near_tx' | 'nep461_delegate' | 'nep413' |
 
 export type Ed25519SessionPolicy = {
   version: 'threshold_session_v1';
+  walletId: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   relayerKeyId: string;
   thresholdSessionId: string;
@@ -1609,6 +1604,9 @@ export interface ThresholdEd25519SessionResponse {
   ok: boolean;
   code?: string;
   message?: string;
+  walletId?: string;
+  nearAccountId?: string;
+  ed25519KeyScopeId?: string;
   thresholdSessionId?: string;
   signingGrantId?: string;
   /** Server-enforced expiry (ms since epoch). */

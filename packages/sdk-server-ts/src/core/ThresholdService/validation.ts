@@ -232,7 +232,9 @@ export function toThresholdEcdsaPrefixFromBase(
 }
 
 export type ParsedThresholdEd25519KeyRecord = {
+  walletId: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   publicKey: string;
   relayerSigningShareB64u: string;
@@ -245,7 +247,9 @@ export function parseThresholdEd25519KeyRecord(
   raw: unknown,
 ): ParsedThresholdEd25519KeyRecord | null {
   if (!isObject(raw)) return null;
+  const walletId = toOptionalString(raw.walletId);
   const nearAccountId = toOptionalString(raw.nearAccountId);
+  const ed25519KeyScopeId = toOptionalString(raw.ed25519KeyScopeId);
   const rpId = toOptionalString(raw.rpId);
   const publicKey = toOptionalString(raw.publicKey);
   const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
@@ -253,7 +257,9 @@ export function parseThresholdEd25519KeyRecord(
   const keyVersion = toOptionalString(raw.keyVersion);
   const recoveryExportCapable = raw.recoveryExportCapable === true ? (true as const) : false;
   if (
+    !walletId ||
     !nearAccountId ||
+    !ed25519KeyScopeId ||
     !rpId ||
     !publicKey ||
     !relayerSigningShareB64u ||
@@ -263,7 +269,9 @@ export function parseThresholdEd25519KeyRecord(
   )
     return null;
   return {
+    walletId,
     nearAccountId,
+    ed25519KeyScopeId,
     rpId,
     publicKey,
     relayerSigningShareB64u,
@@ -868,6 +876,9 @@ export type ParsedEd25519WalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   userId: string;
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   participantIds: number[];
   walletBudgetBinding?: {
@@ -893,6 +904,9 @@ export function parseEd25519WalletSessionRecord(
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const userId = toOptionalString(raw.userId);
+  const walletId = toOptionalString(raw.walletId);
+  const nearAccountId = toOptionalString(raw.nearAccountId);
+  const ed25519KeyScopeId = toOptionalString(raw.ed25519KeyScopeId);
   const rpId = toOptionalString(raw.rpId);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -901,11 +915,15 @@ export function parseEd25519WalletSessionRecord(
   const walletBudgetBinding = parseWalletBudgetBinding(raw.walletBudgetBinding);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !userId || !rpId) return null;
+  if (!relayerKeyId || !userId || !walletId || !nearAccountId || !ed25519KeyScopeId || !rpId)
+    return null;
   return {
     expiresAtMs,
     relayerKeyId,
     userId,
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     rpId,
     participantIds,
     ...(walletBudgetBinding ? { walletBudgetBinding } : {}),
@@ -1089,6 +1107,8 @@ type Ed25519WalletSessionClaimKind =
 export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionClaimKind> = {
   sub: string;
   walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   kind: Kind;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -1134,6 +1154,10 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   if (kind !== expectedKind) return null;
   const sub = toOptionalString(raw.sub);
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
+  const nearAccountId = toOptionalString((raw as { nearAccountId?: unknown }).nearAccountId);
+  const ed25519KeyScopeId = toOptionalString(
+    (raw as { ed25519KeyScopeId?: unknown }).ed25519KeyScopeId,
+  );
   const thresholdSessionId = toOptionalString(
     (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
   );
@@ -1144,6 +1168,8 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     !sub ||
     !walletId ||
     walletId !== sub ||
+    !nearAccountId ||
+    !ed25519KeyScopeId ||
     !thresholdSessionId ||
     !signingGrantId ||
     !relayerKeyId ||
@@ -1159,6 +1185,8 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
   const out: Ed25519WalletSessionClaimsForKind<Kind> = {
     sub,
     walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     kind: expectedKind,
     thresholdSessionId,
     signingGrantId,

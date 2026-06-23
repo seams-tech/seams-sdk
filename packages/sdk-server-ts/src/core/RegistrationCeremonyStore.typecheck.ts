@@ -1,5 +1,7 @@
 import {
   addAuthMethodIntentGrantFromString,
+  ed25519KeyScopeIdFromWalletId,
+  implicitNearAccountProvisioning,
   registrationIntentGrantFromString,
   walletIdFromString,
   type AddAuthMethodIntentV1,
@@ -45,13 +47,12 @@ const intent = {
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: {
-      nearAccountId: 'alice.testnet',
+      accountProvisioning: implicitNearAccountProvisioning(),
       signerSlot: 1,
       participantIds: [1, 2],
       keyPurpose: 'near_tx',
       keyVersion: 'threshold-ed25519-hss-v1',
       derivationVersion: 1,
-      createNearAccount: true,
     },
   },
   nonceB64u: 'nonce',
@@ -150,12 +151,14 @@ const preparationBase = {
   ed25519Scope: {
     walletId: String(intent.walletId),
     rpId: intent.rpId,
+    registrationIntentDigestB64u: allocatedIntent.digestB64u,
     authMethodKind: intent.authMethod.kind,
     expectedOrigin: 'https://wallet.example.test',
     orgId: allocatedIntent.orgId,
     signingRootId: 'project:env',
     signingRootVersion: 'default',
-    nearAccountId: intent.signerSelection.ed25519.nearAccountId,
+    ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(intent.walletId),
+    signerSlot: intent.signerSelection.ed25519.signerSlot,
     keyPurpose: intent.signerSelection.ed25519.keyPurpose,
     keyVersion: intent.signerSelection.ed25519.keyVersion,
     derivationVersion: intent.signerSelection.ed25519.derivationVersion,

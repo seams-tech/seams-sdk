@@ -27,7 +27,9 @@ export interface ThresholdEd25519PrivateCosignProtocolDriver {
 }
 
 export type ThresholdEd25519RegistrationKeygenRequest = {
+  walletId: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   keyVersion: string;
   recoveryExportCapable: true;

@@ -28,6 +28,8 @@ export type WebAuthnCredentialBindingRecord = {
   rpId: string;
   credentialIdB64u: string;
   userId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   signerSlot: number;
   /** NEAR ed25519 public key (e.g. `ed25519:...`). In threshold-signer mode, this is the group public key. */
   publicKey: string;
@@ -88,6 +90,8 @@ function parseWebAuthnCredentialBindingRecord(
   const rpId = toOptionalTrimmedString(raw.rpId);
   const credentialIdB64u = toOptionalTrimmedString(raw.credentialIdB64u);
   const userId = toOptionalTrimmedString(raw.userId);
+  const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
+  const ed25519KeyScopeId = toOptionalTrimmedString(raw.ed25519KeyScopeId);
   const publicKey = toOptionalTrimmedString(raw.publicKey);
   const signerSlotRaw = (raw as { signerSlot?: unknown }).signerSlot;
   const signerSlot =
@@ -98,7 +102,8 @@ function parseWebAuthnCredentialBindingRecord(
   const updatedAtMs = typeof updatedAtMsRaw === 'number' ? updatedAtMsRaw : Number(updatedAtMsRaw);
 
   if (version !== 'webauthn_credential_binding_v1') return null;
-  if (!rpId || !credentialIdB64u || !userId || !publicKey) return null;
+  if (!rpId || !credentialIdB64u || !userId || !nearAccountId || !ed25519KeyScopeId || !publicKey)
+    return null;
   if (!Number.isFinite(signerSlot) || signerSlot < 1) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
@@ -142,6 +147,8 @@ function parseWebAuthnCredentialBindingRecord(
     rpId,
     credentialIdB64u,
     userId,
+    nearAccountId,
+    ed25519KeyScopeId,
     signerSlot: Math.floor(signerSlot),
     publicKey,
     ...(relayerKeyId ? { relayerKeyId } : {}),

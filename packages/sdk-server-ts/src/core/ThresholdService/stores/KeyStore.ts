@@ -294,7 +294,9 @@ async function redisGetString(client: RedisTcpClient, key: string): Promise<stri
 }
 
 export type ThresholdEd25519KeyRecord = {
+  walletId: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   publicKey: string;
   relayerSigningShareB64u: string;

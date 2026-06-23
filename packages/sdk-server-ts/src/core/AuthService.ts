@@ -72,8 +72,6 @@ import type {
   CreateAddSignerIntentResponse,
   CreateRegistrationIntentRequest,
   CreateRegistrationIntentResponse,
-  CreateAccountAndRegisterRequest,
-  CreateAccountAndRegisterResult,
   OidcExchangeIssuerConfig,
   ThresholdRuntimePolicyScope,
   EcdsaHssClientBootstrapRequest,
@@ -108,6 +106,7 @@ import type {
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
   SignerWasmModuleSupplier,
+  ThresholdEd25519RegistrationAccountScope,
 } from './types';
 import { registrationPreparationIdFromString } from './types';
 import {
@@ -198,22 +197,31 @@ import {
   computeAddAuthMethodIntentDigestB64u,
   addSignerIntentGrantFromString,
   computeAddSignerIntentDigestB64u,
+  computeRegistrationEd25519KeyScopeId,
   computeRegistrationIntentDigestB64u,
   normalizeAddAuthMethodInput,
   normalizeEmailOtpRegistrationProof,
   normalizeNearAccountOwnershipProofV1,
   normalizeRegistrationAuthMethodInput,
   registrationIntentGrantFromString,
+  ed25519KeyScopeIdFromString,
   serializeNearAccountOwnershipProofMessageV1,
   walletIdFromString,
   type AddAuthMethodIntentV1,
   type AddSignerIntentV1,
   type AddSignerSelection,
+  type Ed25519KeyScopeId,
   type NearAccountOwnershipProofV1,
   type RegistrationAuthority,
   type RegistrationIntentV1,
+  type RegistrationNearAccountProvisioning,
   type RegistrationSignerSelection,
+  type ResolvedRegistrationNearAccount,
+  type RegisterWalletInput,
+  type ThresholdEcdsaRegistrationSpec,
+  type ThresholdEd25519RegistrationSpec,
 } from '@shared/utils/registrationIntent';
+import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
@@ -360,6 +368,7 @@ import {
 import {
   createEmailRecoveryPreparationStore,
   type EmailRecoveryPreparationStore,
+  type EmailRecoveryResolvedWalletBinding,
 } from './EmailRecoveryPreparationStore';
 import {
   createNearPublicKeyStore,
@@ -704,6 +713,8 @@ type RegistrationAuthorityPersistenceInput = {
   now: number;
   ed25519?: {
     signerSlot: number;
+    nearAccountId: string;
+    ed25519KeyScopeId: string;
     publicKey: string;
     relayerKeyId: string;
     keyVersion: string;
@@ -719,6 +730,60 @@ type RegistrationAuthorityPersistenceRecords = Pick<
   RegistrationPersistenceRecords,
   'webAuthnAuthenticators' | 'credentialBindings' | 'walletAuthMethods'
 >;
+
+type KnownAccountEd25519KeyScopeId = Ed25519KeyScopeId & {
+  readonly __knownAccountEd25519KeyScopeIdBrand: unique symbol;
+};
+
+type WalletRegistrationEd25519KeyScopeId = Ed25519KeyScopeId & {
+  readonly __walletRegistrationEd25519KeyScopeIdBrand: unique symbol;
+};
+
+type ResolvedEd25519SignerBinding =
+  | {
+      kind: 'known_account_add_signer';
+      walletId: WalletId;
+      nearAccountId: string;
+      ed25519KeyScopeId: KnownAccountEd25519KeyScopeId;
+    }
+  | {
+      kind: 'wallet_registration';
+      walletId: WalletId;
+      nearAccountId: string;
+      ed25519KeyScopeId: WalletRegistrationEd25519KeyScopeId;
+    };
+
+function knownAccountEd25519SignerBindingFromScope(input: {
+  walletId: WalletId;
+  scope: Extract<
+    ThresholdEd25519RegistrationAccountScope,
+    { kind: 'known_account_registration_scope' }
+  >;
+}): ResolvedEd25519SignerBinding {
+  return {
+    kind: 'known_account_add_signer',
+    walletId: input.walletId,
+    nearAccountId: input.scope.nearAccountId,
+    ed25519KeyScopeId: ed25519KeyScopeIdFromString(
+      input.scope.ed25519KeyScopeId,
+    ) as KnownAccountEd25519KeyScopeId,
+  };
+}
+
+function walletRegistrationEd25519SignerBinding(input: {
+  walletId: WalletId;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
+}): ResolvedEd25519SignerBinding {
+  return {
+    kind: 'wallet_registration',
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    ed25519KeyScopeId: ed25519KeyScopeIdFromString(
+      input.ed25519KeyScopeId,
+    ) as WalletRegistrationEd25519KeyScopeId,
+  };
+}
 
 function thresholdEcdsaKeyInventorySelectorFromRaw(
   raw: Record<string, unknown>,
@@ -882,6 +947,9 @@ type ThresholdEd25519RegistrationInput = {
 
 type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;
@@ -975,6 +1043,298 @@ function normalizePositiveInteger(raw: unknown, fallback: number): number {
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : fallback;
 }
 
+type RegistrationIntentWalletResolution =
+  | {
+      ok: true;
+      walletId: WalletId;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      code: 'invalid_body' | 'wallet_id_collision';
+      message: string;
+      walletId?: never;
+    };
+
+function normalizeRegistrationNearAccountProvisioning(
+  raw: unknown,
+): RegistrationNearAccountProvisioning | null {
+  if (!isObject(raw)) return null;
+  const kind = toOptionalTrimmedString(raw.kind);
+  switch (kind) {
+    case 'implicit_account':
+      if (
+        Object.prototype.hasOwnProperty.call(raw, 'requestedAccountId') ||
+        Object.prototype.hasOwnProperty.call(raw, 'sponsor')
+      ) {
+        return null;
+      }
+      return {
+        kind: 'implicit_account',
+        accountIdSource: 'ed25519_public_key',
+      };
+    case 'sponsored_named_account': {
+      if (Object.prototype.hasOwnProperty.call(raw, 'accountIdSource')) return null;
+      const parsed = parseNamedNearAccountId(raw.requestedAccountId);
+      if (!parsed.ok) return null;
+      return {
+        kind: 'sponsored_named_account',
+        requestedAccountId: parsed.value,
+        sponsor: 'relayer',
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function normalizeRegistrationEd25519Spec(
+  value: Record<string, unknown> | null,
+): ThresholdEd25519RegistrationSpec | null {
+  if (!value) return null;
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'nearAccountId') ||
+    Object.prototype.hasOwnProperty.call(value, 'createNearAccount')
+  ) {
+    return null;
+  }
+  const accountProvisioning = normalizeRegistrationNearAccountProvisioning(
+    value.accountProvisioning,
+  );
+  const keyPurpose = toOptionalTrimmedString(value.keyPurpose);
+  const keyVersion = toOptionalTrimmedString(value.keyVersion);
+  const derivationVersion = Number(value.derivationVersion);
+  const participantIds = Array.isArray(value.participantIds)
+    ? value.participantIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+  if (
+    !accountProvisioning ||
+    !keyPurpose ||
+    !keyVersion ||
+    !Number.isInteger(derivationVersion) ||
+    derivationVersion < 1 ||
+    participantIds.length === 0
+  ) {
+    return null;
+  }
+  return {
+    accountProvisioning,
+    signerSlot: normalizePositiveInteger(value.signerSlot, 1),
+    participantIds,
+    keyPurpose,
+    keyVersion,
+    derivationVersion,
+  };
+}
+
+function normalizeRegistrationEcdsaSpec(
+  value: Record<string, unknown> | null,
+): ThresholdEcdsaRegistrationSpec | null {
+  if (!value) return null;
+  const participantIds = Array.isArray(value.participantIds)
+    ? value.participantIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+  const chainTargets = Array.isArray(value.chainTargets) ? value.chainTargets : [];
+  if (participantIds.length === 0 || chainTargets.length === 0) return null;
+  return { participantIds, chainTargets };
+}
+
+function sponsoredNamedRegistrationAccountId(
+  provisioning: RegistrationNearAccountProvisioning,
+): string | null {
+  switch (provisioning.kind) {
+    case 'implicit_account':
+      return null;
+    case 'sponsored_named_account':
+      return String(provisioning.requestedAccountId);
+    default: {
+      const exhaustive: never = provisioning;
+      return exhaustive;
+    }
+  }
+}
+
+function resolvedRegistrationNearAccount(input: {
+  accountProvisioning: RegistrationNearAccountProvisioning;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
+  sponsoredTransactionHash?: string;
+}):
+  | { ok: true; value: ResolvedRegistrationNearAccount }
+  | { ok: false; code: string; message: string } {
+  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(input.ed25519KeyScopeId);
+  switch (input.accountProvisioning.kind) {
+    case 'implicit_account': {
+      const parsed = parseImplicitNearAccountId(input.nearAccountId);
+      if (!parsed.ok) {
+        return { ok: false, code: 'internal', message: parsed.message };
+      }
+      return {
+        ok: true,
+        value: {
+          kind: 'implicit_account',
+          nearAccountId: parsed.value,
+          ed25519KeyScopeId,
+        },
+      };
+    }
+    case 'sponsored_named_account': {
+      const parsed = parseNamedNearAccountId(input.nearAccountId);
+      if (!parsed.ok) {
+        return { ok: false, code: 'internal', message: parsed.message };
+      }
+      const transactionHash = toOptionalTrimmedString(input.sponsoredTransactionHash);
+      if (!transactionHash) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Sponsored named registration missing account creation transaction hash',
+        };
+      }
+      return {
+        ok: true,
+        value: {
+          kind: 'sponsored_named_account',
+          nearAccountId: parsed.value,
+          ed25519KeyScopeId,
+          transactionHash,
+        },
+      };
+    }
+    default:
+      return assertNever(input.accountProvisioning);
+  }
+}
+
+function thresholdEd25519RegistrationAccountScope(input: {
+  walletId: WalletId;
+  rpId: string;
+  intentDigestB64u: string;
+  signingRootId: string;
+  ed25519KeyScopeId: string;
+  signerSlot: number;
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
+  participantIds: number[];
+  accountProvisioning: RegistrationNearAccountProvisioning;
+}): ThresholdEd25519RegistrationAccountScope {
+  const common = {
+    walletId: String(input.walletId),
+    rpId: input.rpId,
+    intentDigestB64u: input.intentDigestB64u,
+    signingRootId: input.signingRootId,
+    ed25519KeyScopeId: String(input.ed25519KeyScopeId),
+    signerSlot: input.signerSlot,
+    keyPurpose: input.keyPurpose,
+    keyVersion: input.keyVersion,
+    derivationVersion: input.derivationVersion,
+    participantIds: [...input.participantIds],
+  };
+  switch (input.accountProvisioning.kind) {
+    case 'implicit_account':
+      return {
+        kind: 'generated_implicit_registration_scope',
+        ...common,
+      };
+    case 'sponsored_named_account':
+      return {
+        kind: 'sponsored_named_registration_scope',
+        ...common,
+        requestedAccountId: String(input.accountProvisioning.requestedAccountId),
+      };
+    default:
+      return assertNever(input.accountProvisioning);
+  }
+}
+
+function thresholdEd25519KnownAccountRegistrationScope(input: {
+  walletId: WalletId;
+  rpId: string;
+  intentDigestB64u: string;
+  signingRootId: string;
+  nearAccountId: string;
+  signerSlot: number;
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
+  participantIds: number[];
+}): Extract<
+  ThresholdEd25519RegistrationAccountScope,
+  { kind: 'known_account_registration_scope' }
+> {
+  const nearAccountId = String(input.nearAccountId);
+  return {
+    kind: 'known_account_registration_scope',
+    walletId: String(input.walletId),
+    rpId: input.rpId,
+    intentDigestB64u: input.intentDigestB64u,
+    signingRootId: input.signingRootId,
+    ed25519KeyScopeId: nearAccountId,
+    signerSlot: input.signerSlot,
+    keyPurpose: input.keyPurpose,
+    keyVersion: input.keyVersion,
+    derivationVersion: input.derivationVersion,
+    participantIds: [...input.participantIds],
+    nearAccountId,
+  };
+}
+
+function registrationIntentSigningRootId(input: {
+  signingRootId?: string;
+  intent: RegistrationIntentV1;
+}): string {
+  return (
+    toOptionalTrimmedString(input.signingRootId) ||
+    (input.intent.runtimePolicyScope ? deriveSigningRootId(input.intent.runtimePolicyScope) : '')
+  );
+}
+
+function registrationIntentSigningRootVersion(input: {
+  signingRootVersion?: string;
+  intent: RegistrationIntentV1;
+}): string {
+  return (
+    toOptionalTrimmedString(input.signingRootVersion) ||
+    toOptionalTrimmedString(input.intent.runtimePolicyScope?.signingRootVersion) ||
+    'default'
+  );
+}
+
+async function registrationIntentEd25519KeyScopeId(input: {
+  signingRootId?: string;
+  signingRootVersion?: string;
+  intent: RegistrationIntentV1;
+}): Promise<Ed25519KeyScopeId> {
+  if (input.intent.signerSelection.mode === 'ecdsa_only') {
+    throw new Error('Ed25519 registration key scope requires an Ed25519 signer selection');
+  }
+  return await computeRegistrationEd25519KeyScopeId({
+    walletId: input.intent.walletId,
+    rpId: input.intent.rpId,
+    signingRootId: registrationIntentSigningRootId({
+      signingRootId: input.signingRootId,
+      intent: input.intent,
+    }),
+    signingRootVersion: registrationIntentSigningRootVersion({
+      signingRootVersion: input.signingRootVersion,
+      intent: input.intent,
+    }),
+    ed25519: input.intent.signerSelection.ed25519,
+  });
+}
+
+function addSignerIntentSigningRootId(input: {
+  signingRootId?: string;
+  intent: AddSignerIntentV1;
+}): string {
+  return (
+    toOptionalTrimmedString(input.signingRootId) ||
+    (input.intent.runtimePolicyScope ? deriveSigningRootId(input.intent.runtimePolicyScope) : '')
+  );
+}
+
 function normalizeRegistrationSignerSelection(
   raw: unknown,
 ): { ok: true; value: RegistrationSignerSelection } | { ok: false; code: string; message: string } {
@@ -985,48 +1345,8 @@ function normalizeRegistrationSignerSelection(
   const ed25519Raw = isObject(raw.ed25519) ? raw.ed25519 : null;
   const ecdsaRaw = isObject(raw.ecdsa) ? raw.ecdsa : null;
 
-  const normalizeEd25519 = (value: Record<string, unknown> | null) => {
-    if (!value) return null;
-    const nearAccountId = toOptionalTrimmedString(value.nearAccountId);
-    const keyPurpose = toOptionalTrimmedString(value.keyPurpose);
-    const keyVersion = toOptionalTrimmedString(value.keyVersion);
-    const derivationVersion = Number(value.derivationVersion);
-    const participantIds = Array.isArray(value.participantIds)
-      ? value.participantIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
-      : [];
-    if (
-      !nearAccountId ||
-      !keyPurpose ||
-      !keyVersion ||
-      !Number.isInteger(derivationVersion) ||
-      derivationVersion < 1 ||
-      participantIds.length === 0
-    ) {
-      return null;
-    }
-    return {
-      nearAccountId,
-      signerSlot: normalizePositiveInteger(value.signerSlot, 1),
-      participantIds,
-      keyPurpose,
-      keyVersion,
-      derivationVersion,
-      createNearAccount: value.createNearAccount !== false,
-    };
-  };
-
-  const normalizeEcdsa = (value: Record<string, unknown> | null) => {
-    if (!value) return null;
-    const participantIds = Array.isArray(value.participantIds)
-      ? value.participantIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
-      : [];
-    const chainTargets = Array.isArray(value.chainTargets) ? value.chainTargets : [];
-    if (participantIds.length === 0 || chainTargets.length === 0) return null;
-    return { participantIds, chainTargets };
-  };
-
-  const ed25519 = normalizeEd25519(ed25519Raw);
-  const ecdsa = normalizeEcdsa(ecdsaRaw);
+  const ed25519 = normalizeRegistrationEd25519Spec(ed25519Raw);
+  const ecdsa = normalizeRegistrationEcdsaSpec(ecdsaRaw);
   switch (mode) {
     case 'ed25519_only':
       return ed25519
@@ -1380,6 +1700,56 @@ async function resolveExistingThresholdEd25519Binding(args: {
   });
 }
 
+function parseBoundaryWalletId(raw: unknown): string | null {
+  const value = toOptionalTrimmedString(raw);
+  if (!value) return null;
+  try {
+    return String(walletIdFromString(value));
+  } catch {
+    return null;
+  }
+}
+
+function resolvedEd25519WalletBindingFromCredentialBinding(args: {
+  binding: WebAuthnCredentialBindingRecord;
+  signerSlot?: number;
+}): EmailRecoveryResolvedWalletBinding {
+  return {
+    walletId: args.binding.userId,
+    nearAccountId: args.binding.nearAccountId,
+    ed25519KeyScopeId: args.binding.ed25519KeyScopeId,
+    rpId: args.binding.rpId,
+    signerSlot:
+      Number.isSafeInteger(args.signerSlot) && Number(args.signerSlot) > 0
+        ? Math.floor(Number(args.signerSlot))
+        : args.binding.signerSlot,
+  };
+}
+
+function resolveThresholdEd25519SessionPolicyForBinding(args: {
+  requestedSessionPolicy: Record<string, unknown>;
+  binding: EmailRecoveryResolvedWalletBinding;
+  relayerKeyId: string;
+  fallbackRuntimePolicyScope?: ThresholdRuntimePolicyScope;
+}): { sessionPolicy: Record<string, unknown>; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
+  const runtimePolicyScope =
+    normalizeThresholdRuntimePolicyScope(args.requestedSessionPolicy.runtimePolicyScope) ||
+    args.fallbackRuntimePolicyScope;
+  const sessionPolicy = {
+    ...args.requestedSessionPolicy,
+    walletId: args.binding.walletId,
+    nearAccountId: args.binding.nearAccountId,
+    ed25519KeyScopeId: args.binding.ed25519KeyScopeId,
+    rpId: args.binding.rpId,
+    relayerKeyId: args.relayerKeyId,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+  return {
+    sessionPolicy,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+}
+
 type EcdsaWalletKeyBuildResult =
   | { ok: true; walletKeys: WalletRegistrationEcdsaWalletKey[] }
   | { ok: false; code: 'incomplete_ecdsa_wallet_key'; message: string };
@@ -1505,10 +1875,16 @@ function toEcdsaHssClientBootstrapRequest(
 
 function validateThresholdEd25519SessionPolicyBindings(args: {
   requestedSessionPolicy: Record<string, unknown>;
+  expectedWalletId: string;
   expectedRelayerKeyId: string;
   expectedNearAccountId: string;
+  expectedEd25519KeyScopeId: string;
   expectedRpId: string;
 }): string | null {
+  const requestedPolicyWalletId = String(args.requestedSessionPolicy.walletId || '').trim();
+  if (requestedPolicyWalletId && requestedPolicyWalletId !== args.expectedWalletId) {
+    return 'threshold_ed25519.session_policy.walletId mismatch';
+  }
   const requestedPolicyRelayerKeyId = String(args.requestedSessionPolicy.relayerKeyId || '').trim();
   if (requestedPolicyRelayerKeyId && requestedPolicyRelayerKeyId !== args.expectedRelayerKeyId) {
     return 'threshold_ed25519.session_policy.relayerKeyId mismatch';
@@ -1519,6 +1895,15 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
   if (requestedPolicyNearAccountId && requestedPolicyNearAccountId !== args.expectedNearAccountId) {
     return 'threshold_ed25519.session_policy.nearAccountId mismatch';
   }
+  const requestedPolicyEd25519KeyScopeId = String(
+    args.requestedSessionPolicy.ed25519KeyScopeId || '',
+  ).trim();
+  if (
+    requestedPolicyEd25519KeyScopeId &&
+    requestedPolicyEd25519KeyScopeId !== args.expectedEd25519KeyScopeId
+  ) {
+    return 'threshold_ed25519.session_policy.ed25519KeyScopeId mismatch';
+  }
   const requestedPolicyRpId = String(args.requestedSessionPolicy.rpId || '').trim();
   if (requestedPolicyRpId && requestedPolicyRpId !== args.expectedRpId) {
     return 'threshold_ed25519.session_policy.rpId mismatch';
@@ -1527,6 +1912,9 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
 }
 
 function toThresholdEd25519BootstrapSession(session: {
+  walletId?: unknown;
+  nearAccountId?: unknown;
+  ed25519KeyScopeId?: unknown;
   thresholdSessionId?: unknown;
   signingGrantId?: unknown;
   expiresAtMs?: unknown;
@@ -1537,6 +1925,9 @@ function toThresholdEd25519BootstrapSession(session: {
   routerAbNormalSigning?: unknown;
   jwt?: unknown;
 }): ThresholdEd25519BootstrapSession | null {
+  const walletId = String(session.walletId || '').trim();
+  const nearAccountId = String(session.nearAccountId || '').trim();
+  const ed25519KeyScopeId = String(session.ed25519KeyScopeId || '').trim();
   const thresholdSessionId = String(session.thresholdSessionId || '').trim();
   const signingGrantId = String(session.signingGrantId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
@@ -1544,10 +1935,21 @@ function toThresholdEd25519BootstrapSession(session: {
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     session.routerAbNormalSigning,
   );
-  if (!thresholdSessionId || !signingGrantId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
+  if (
+    !walletId ||
+    !nearAccountId ||
+    !ed25519KeyScopeId ||
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0
+  )
     return null;
   return {
     sessionKind: 'jwt',
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     thresholdSessionId,
     signingGrantId,
     expiresAtMs: Number(expiresAtMs),
@@ -1616,10 +2018,7 @@ const SIGNER_WASM_PACKAGE_DIST_PATH = '../wasm/near_signer/pkg/wasm_signer_worke
 const SIGNER_WASM_SOURCE_PATH = '../../../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
 
 function getSignerWasmUrls(logger: NormalizedLogger): URL[] {
-  const paths = [
-    SIGNER_WASM_PACKAGE_DIST_PATH,
-    SIGNER_WASM_SOURCE_PATH,
-  ];
+  const paths = [SIGNER_WASM_PACKAGE_DIST_PATH, SIGNER_WASM_SOURCE_PATH];
   const resolved: URL[] = [];
   const baseUrl = import.meta.url;
 
@@ -2567,7 +2966,9 @@ export class AuthService {
     sub?: string;
     email?: string;
     accountMode?: unknown;
+    appSessionVersion?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    restartRegistrationOffer?: unknown;
   }): Promise<string> {
     const providerSubject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
     if (!providerSubject) {
@@ -3604,6 +4005,101 @@ export class AuthService {
     return this.walletStore;
   }
 
+  private async createAvailableGeneratedWalletId(input: {
+    rpId: string;
+    expiresAtMs: number;
+  }): Promise<RegistrationIntentWalletResolution> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const walletId = createWalletId();
+      const existing = await this.getWalletStore().getWallet({ walletId });
+      if (existing) continue;
+      const reserved = await this.getRegistrationCeremonyStore().reserveGeneratedWalletId({
+        rpId: input.rpId,
+        walletId,
+        expiresAtMs: input.expiresAtMs,
+      });
+      if (reserved) {
+        return { ok: true, walletId };
+      }
+    }
+    return {
+      ok: false,
+      code: 'wallet_id_collision',
+      message: 'Unable to allocate an unused generated walletId',
+    };
+  }
+
+  private async resolveGenericRegistrationWalletId(input: {
+    wallet: RegisterWalletInput | undefined;
+    rpId: string;
+    expiresAtMs: number;
+  }): Promise<RegistrationIntentWalletResolution> {
+    if (!input.wallet || input.wallet.kind === 'server_generated') {
+      return await this.createAvailableGeneratedWalletId(input);
+    }
+    if (input.wallet.kind === 'provided') {
+      try {
+        return {
+          ok: true,
+          walletId: walletIdFromString(String(input.wallet.walletId || '').trim()),
+        };
+      } catch {
+        return { ok: false, code: 'invalid_body', message: 'walletId is required' };
+      }
+    }
+    return { ok: false, code: 'invalid_body', message: 'wallet.kind is unsupported' };
+  }
+
+  private async resolveRegistrationIntentWalletId(input: {
+    wallet: RegisterWalletInput | undefined;
+    signerSelection: RegistrationSignerSelection;
+    rpId: string;
+    expiresAtMs: number;
+  }): Promise<RegistrationIntentWalletResolution> {
+    if (input.signerSelection.mode === 'ecdsa_only') {
+      return await this.resolveGenericRegistrationWalletId(input);
+    }
+    const provisioning = input.signerSelection.ed25519.accountProvisioning;
+    switch (provisioning.kind) {
+      case 'implicit_account': {
+        if (input.wallet?.kind === 'provided') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'implicit account registration requires server_generated wallet allocation',
+          };
+        }
+        return await this.createAvailableGeneratedWalletId(input);
+      }
+      case 'sponsored_named_account': {
+        if (input.wallet?.kind !== 'provided') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'sponsored named registration requires a provided walletId',
+          };
+        }
+        const walletId = String(input.wallet.walletId || '').trim();
+        if (!walletId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'walletId is required',
+          };
+        }
+        return { ok: true, walletId: walletIdFromString(walletId) };
+      }
+      default: {
+        const exhaustive: never = provisioning;
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: `unsupported account provisioning: ${String(exhaustive)}`,
+        };
+      }
+    }
+  }
+
   private getWalletAuthMethodStore(): WalletAuthMethodStore {
     if (this.walletAuthMethodStoreInitialized && this.walletAuthMethodStore) {
       return this.walletAuthMethodStore;
@@ -4275,9 +4771,8 @@ export class AuthService {
     try {
       const signingSessionSealKeyVersion = parseSigningSessionSealKeyVersion(keyVersionRaw);
       const keyVersion = formatSigningSessionSealKeyVersionForWire(signingSessionSealKeyVersion);
-      const signingSessionSealShamirPrimeB64u = parseSigningSessionSealShamirPrimeB64u(
-        shamirPrimeB64u,
-      );
+      const signingSessionSealShamirPrimeB64u =
+        parseSigningSessionSealShamirPrimeB64u(shamirPrimeB64u);
       const shamirPrime = formatSigningSessionSealShamirPrimeB64uForWire(
         signingSessionSealShamirPrimeB64u,
       );
@@ -5631,20 +6126,20 @@ export class AuthService {
         return { ok: false, code: 'invalid_body', message: 'authMethod is required' };
       }
 
-      const wallet = input.request?.wallet;
-      const walletId =
-        wallet?.kind === 'provided'
-          ? walletIdFromString(String(wallet.walletId || '').trim())
-          : createWalletId();
-      if (!walletId) {
-        return { ok: false, code: 'invalid_body', message: 'walletId is required' };
-      }
+      const expiresAtMs = Date.now() + 5 * 60_000;
+      const wallet = await this.resolveRegistrationIntentWalletId({
+        wallet: input.request?.wallet,
+        signerSelection: signerSelection.value,
+        rpId,
+        expiresAtMs,
+      });
+      if (!wallet.ok) return wallet;
 
       const runtimePolicyScope =
         input.runtimePolicyScope || inferRuntimePolicyScopeFromSigningRoot(input);
       const intent: RegistrationIntentV1 = {
         version: 'registration_intent_v1',
-        walletId,
+        walletId: wallet.walletId,
         rpId,
         authMethod,
         signerSelection: signerSelection.value,
@@ -5653,7 +6148,6 @@ export class AuthService {
       };
       const digestB64u = await computeRegistrationIntentDigestB64u(intent);
       const grant = registrationIntentGrantFromString(`rig_${randomBase64Url(32)}`);
-      const expiresAtMs = Date.now() + 5 * 60_000;
       await this.getRegistrationCeremonyStore().putIntent({
         kind: 'intent_allocated',
         grant,
@@ -5888,15 +6382,17 @@ export class AuthService {
     return { ok: true };
   }
 
-  private resolveEd25519RegistrationPrepareScope(input: {
+  private async resolveEd25519RegistrationPrepareScope(input: {
     intent: RegistrationIntentV1;
+    registrationIntentDigestB64u: string;
     orgId: string;
     signingRootId: string;
     signingRootVersion: string;
     expectedOrigin: string;
-  }):
+  }): Promise<
     | { ok: true; scope: StoredEd25519RegistrationPrepareScope }
-    | { ok: false; code: string; message: string } {
+    | { ok: false; code: string; message: string }
+  > {
     const selection = input.intent.signerSelection;
     if (selection.mode === 'ecdsa_only') {
       return {
@@ -5906,17 +6402,24 @@ export class AuthService {
       };
     }
     const ed25519 = selection.ed25519;
+    const ed25519KeyScopeId = await registrationIntentEd25519KeyScopeId({
+      intent: input.intent,
+      signingRootId: input.signingRootId,
+      signingRootVersion: input.signingRootVersion,
+    });
     return {
       ok: true,
       scope: {
         walletId: input.intent.walletId,
         rpId: input.intent.rpId,
+        registrationIntentDigestB64u: input.registrationIntentDigestB64u,
         authMethodKind: input.intent.authMethod.kind,
         expectedOrigin: input.expectedOrigin,
         orgId: input.orgId,
         signingRootId: input.signingRootId,
         signingRootVersion: input.signingRootVersion,
-        nearAccountId: ed25519.nearAccountId,
+        ed25519KeyScopeId,
+        signerSlot: ed25519.signerSlot,
         keyPurpose: ed25519.keyPurpose,
         keyVersion: ed25519.keyVersion,
         derivationVersion: ed25519.derivationVersion,
@@ -5927,6 +6430,7 @@ export class AuthService {
 
   private async prepareEd25519RegistrationHss(input: {
     scope: StoredEd25519RegistrationPrepareScope;
+    accountProvisioning: RegistrationNearAccountProvisioning;
   }) {
     const threshold = this.getThresholdSigningService();
     if (!threshold) {
@@ -5941,11 +6445,23 @@ export class AuthService {
       signingRootId: input.scope.signingRootId,
       signingRootVersion: input.scope.signingRootVersion,
       request: {
-        new_account_id: input.scope.nearAccountId,
+        registrationAccountScope: thresholdEd25519RegistrationAccountScope({
+          walletId: walletIdFromString(input.scope.walletId),
+          rpId: input.scope.rpId,
+          intentDigestB64u: input.scope.registrationIntentDigestB64u,
+          signingRootId: input.scope.signingRootId,
+          ed25519KeyScopeId: input.scope.ed25519KeyScopeId,
+          signerSlot: input.scope.signerSlot,
+          keyPurpose: input.scope.keyPurpose,
+          keyVersion: input.scope.keyVersion,
+          derivationVersion: input.scope.derivationVersion,
+          participantIds: input.scope.participantIds,
+          accountProvisioning: input.accountProvisioning,
+        }),
         rp_id: input.scope.rpId,
         context: {
           signingRootId: input.scope.signingRootId,
-          nearAccountId: input.scope.nearAccountId,
+          nearAccountId: input.scope.ed25519KeyScopeId,
           keyPurpose: input.scope.keyPurpose,
           keyVersion: input.scope.keyVersion,
           participantIds: input.scope.participantIds,
@@ -6020,18 +6536,24 @@ export class AuthService {
         storedIntent.signingRootVersion ||
         storedIntent.intent.runtimePolicyScope?.signingRootVersion ||
         'default';
-      const scopeResult = this.resolveEd25519RegistrationPrepareScope({
+      const scopeResult = await this.resolveEd25519RegistrationPrepareScope({
         intent: storedIntent.intent,
+        registrationIntentDigestB64u: storedIntent.digestB64u,
         orgId: storedIntent.orgId,
         signingRootId,
         signingRootVersion,
         expectedOrigin: toOptionalTrimmedString(storedIntent.expectedOrigin) || '',
       });
       if (!scopeResult.ok) return scopeResult;
+      const ed25519Selection = storedIntent.intent.signerSelection.ed25519;
       const prepared = await measureRegistrationRouteTiming(
         routeTimings,
         'registrationPreauthHssPrepareMs',
-        () => this.prepareEd25519RegistrationHss({ scope: scopeResult.scope }),
+        () =>
+          this.prepareEd25519RegistrationHss({
+            scope: scopeResult.scope,
+            accountProvisioning: ed25519Selection.accountProvisioning,
+          }),
       );
       if (!prepared.ok) {
         return {
@@ -6229,8 +6751,9 @@ export class AuthService {
             message: preparedHss.message,
           };
         }
-        const preparedScopeResult = this.resolveEd25519RegistrationPrepareScope({
+        const preparedScopeResult = await this.resolveEd25519RegistrationPrepareScope({
           intent: intentPreview.intent,
+          registrationIntentDigestB64u: intentPreview.digestB64u,
           orgId: intentPreview.orgId,
           signingRootId: signingRootId || '',
           signingRootVersion,
@@ -6531,6 +7054,11 @@ export class AuthService {
             message: 'Ed25519 HSS response already recorded',
           };
         }
+        const ed25519KeyScopeId = await registrationIntentEd25519KeyScopeId({
+          intent: ceremony.intent,
+          signingRootId: ceremony.signingRootId,
+          signingRootVersion: ceremony.signingRootVersion,
+        });
         const ed25519 = ceremony.intent.signerSelection.ed25519;
         const responded = await measureRegistrationRouteTiming(
           routeTimings,
@@ -6539,7 +7067,22 @@ export class AuthService {
             threshold.ed25519Hss.respondForRegistration({
               orgId: ceremony.orgId,
               request: {
-                new_account_id: ed25519.nearAccountId,
+                registrationAccountScope: thresholdEd25519RegistrationAccountScope({
+                  walletId: ceremony.intent.walletId,
+                  rpId: ceremony.intent.rpId,
+                  intentDigestB64u: ceremony.digestB64u,
+                  signingRootId: registrationIntentSigningRootId({
+                    signingRootId: ceremony.signingRootId,
+                    intent: ceremony.intent,
+                  }),
+                  ed25519KeyScopeId,
+                  signerSlot: ed25519.signerSlot,
+                  keyPurpose: ed25519.keyPurpose,
+                  keyVersion: ed25519.keyVersion,
+                  derivationVersion: ed25519.derivationVersion,
+                  participantIds: ed25519.participantIds,
+                  accountProvisioning: ed25519.accountProvisioning,
+                }),
                 rp_id: ceremony.intent.rpId,
                 ceremonyHandle: preparedEd25519.ceremonyHandle,
                 clientRequest: requestEd25519.clientRequest,
@@ -6708,6 +7251,11 @@ export class AuthService {
     }
     const requestEd25519 = request.ed25519;
     const preparedEd25519 = ceremony.signerState;
+    const ed25519KeyScopeId = await registrationIntentEd25519KeyScopeId({
+      intent: ceremony.intent,
+      signingRootId: ceremony.signingRootId,
+      signingRootVersion: ceremony.signingRootVersion,
+    });
     const ed25519 = ceremony.intent.signerSelection.ed25519;
     const responded = await measureRegistrationRouteTiming(
       routeTimings,
@@ -6716,7 +7264,22 @@ export class AuthService {
         threshold.ed25519Hss.respondForRegistration({
           orgId: ceremony.orgId,
           request: {
-            new_account_id: ed25519.nearAccountId,
+            registrationAccountScope: thresholdEd25519RegistrationAccountScope({
+              walletId: ceremony.intent.walletId,
+              rpId: ceremony.intent.rpId,
+              intentDigestB64u: ceremony.digestB64u,
+              signingRootId: registrationIntentSigningRootId({
+                signingRootId: ceremony.signingRootId,
+                intent: ceremony.intent,
+              }),
+              ed25519KeyScopeId,
+              signerSlot: ed25519.signerSlot,
+              keyPurpose: ed25519.keyPurpose,
+              keyVersion: ed25519.keyVersion,
+              derivationVersion: ed25519.derivationVersion,
+              participantIds: ed25519.participantIds,
+              accountProvisioning: ed25519.accountProvisioning,
+            }),
             rp_id: ceremony.intent.rpId,
             ceremonyHandle: preparedEd25519.ceremonyHandle,
             clientRequest: requestEd25519.clientRequest,
@@ -6879,6 +7442,8 @@ export class AuthService {
                 rpId: input.rpId,
                 credentialIdB64u: input.authority.credentialIdB64u,
                 userId: input.walletId,
+                nearAccountId: input.ed25519.nearAccountId,
+                ed25519KeyScopeId: input.ed25519.ed25519KeyScopeId,
                 signerSlot: input.ed25519.signerSlot,
                 publicKey: input.ed25519.publicKey,
                 relayerKeyId: input.ed25519.relayerKeyId,
@@ -7142,22 +7707,22 @@ export class AuthService {
   }
 
   private buildWalletEd25519SignerRecord(input: {
-    walletId: WalletId;
     rpId: string;
-    nearAccountId: string;
+    binding: ResolvedEd25519SignerBinding;
     signerSlot: number;
     keygen: Extract<ThresholdEd25519RegistrationKeygenResult, { ok: true }>;
     now: number;
   }): WalletSignerRecord {
     return {
       version: 'wallet_signer_ed25519_v1',
-      walletId: input.walletId,
+      walletId: input.binding.walletId,
       rpId: input.rpId,
       signerId: buildWalletEd25519SignerId({
-        nearAccountId: input.nearAccountId,
+        nearAccountId: input.binding.nearAccountId,
         signerSlot: input.signerSlot,
       }),
-      nearAccountId: input.nearAccountId,
+      nearAccountId: input.binding.nearAccountId,
+      ed25519KeyScopeId: input.binding.ed25519KeyScopeId,
       signerSlot: input.signerSlot,
       publicKey: input.keygen.publicKey,
       relayerKeyId: input.keygen.relayerKeyId,
@@ -7678,6 +8243,11 @@ export class AuthService {
         };
       }
       const ed25519 = ceremony.intent.signerSelection.ed25519;
+      const ed25519KeyScopeId = await registrationIntentEd25519KeyScopeId({
+        intent: ceremony.intent,
+        signingRootId: ceremony.signingRootId,
+        signingRootVersion: ceremony.signingRootVersion,
+      });
       const combinedSignerState = ceremony.signerState;
       const ed25519FinalizeRequest = request.ed25519;
       const finalized = await measureRegistrationRouteTiming(
@@ -7687,10 +8257,29 @@ export class AuthService {
           threshold.ed25519Hss.finalizeForRegistration({
             orgId: ceremony.orgId,
             request: {
-              new_account_id: ed25519.nearAccountId,
+              registrationAccountScope: thresholdEd25519RegistrationAccountScope({
+                walletId: ceremony.intent.walletId,
+                rpId: ceremony.intent.rpId,
+                intentDigestB64u: ceremony.digestB64u,
+                signingRootId: registrationIntentSigningRootId({
+                  signingRootId: ceremony.signingRootId,
+                  intent: ceremony.intent,
+                }),
+                ed25519KeyScopeId,
+                signerSlot: ed25519.signerSlot,
+                keyPurpose: ed25519.keyPurpose,
+                keyVersion: ed25519.keyVersion,
+                derivationVersion: ed25519.derivationVersion,
+                participantIds: ed25519.participantIds,
+                accountProvisioning: ed25519.accountProvisioning,
+              }),
               rp_id: ceremony.intent.rpId,
               ceremonyHandle: combinedSignerState.ed25519.ceremonyHandle,
               evaluationResult: ed25519FinalizeRequest.evaluationResult,
+              accountResolution: {
+                kind: 'registration_provisioning',
+                accountProvisioning: ed25519.accountProvisioning,
+              },
             },
           }),
       );
@@ -7730,13 +8319,17 @@ export class AuthService {
       });
       if (!walletKeyResult.ok) return walletKeyResult;
 
-      if (ed25519.createNearAccount) {
+      const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
+        ed25519.accountProvisioning,
+      );
+      let sponsoredTransactionHash: string | undefined;
+      if (sponsoredNamedAccountId) {
         const created = await measureRegistrationRouteTiming(
           routeTimings,
-          'nearAccountCreateMs',
+          'sponsoredNearAccountCreateMs',
           () =>
             this.createAccount({
-              accountId: ed25519.nearAccountId,
+              accountId: sponsoredNamedAccountId,
               publicKey: finalized.publicKey,
             }),
         );
@@ -7747,7 +8340,15 @@ export class AuthService {
             message: created.error || created.message || 'Failed to create NEAR account',
           };
         }
+        sponsoredTransactionHash = created.transactionHash;
       }
+      const resolvedAccount = resolvedRegistrationNearAccount({
+        accountProvisioning: ed25519.accountProvisioning,
+        nearAccountId: finalized.nearAccountId,
+        ed25519KeyScopeId,
+        sponsoredTransactionHash,
+      });
+      if (!resolvedAccount.ok) return resolvedAccount;
 
       const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
       if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
@@ -7762,7 +8363,9 @@ export class AuthService {
         'registrationKeygenMs',
         () =>
           schemeAny.registration.keygenFromRegistrationMaterial({
-            nearAccountId: ed25519.nearAccountId,
+            walletId: ceremony.intent.walletId,
+            nearAccountId: finalized.nearAccountId,
+            ed25519KeyScopeId,
             rpId: ceremony.intent.rpId,
             keyVersion: ed25519.keyVersion,
             recoveryExportCapable: true,
@@ -7811,8 +8414,10 @@ export class AuthService {
         const requestedPolicy = requestedSessionPolicy as Record<string, unknown>;
         const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
           requestedSessionPolicy: requestedPolicy,
+          expectedWalletId: String(ceremony.intent.walletId),
           expectedRelayerKeyId: keygen.relayerKeyId,
-          expectedNearAccountId: ed25519.nearAccountId,
+          expectedNearAccountId: finalized.nearAccountId,
+          expectedEd25519KeyScopeId: ed25519KeyScopeId,
           expectedRpId: ceremony.intent.rpId,
         });
         if (policyBindingError) {
@@ -7823,12 +8428,16 @@ export class AuthService {
           'relaySessionMintMs',
           () =>
             threshold.mintEd25519SessionFromRegistration({
-              nearAccountId: ed25519.nearAccountId,
+              walletId: String(ceremony.intent.walletId),
+              nearAccountId: finalized.nearAccountId,
+              ed25519KeyScopeId,
               rpId: ceremony.intent.rpId,
               relayerKeyId: keygen.relayerKeyId,
               sessionPolicy: {
                 ...requestedPolicy,
-                nearAccountId: ed25519.nearAccountId,
+                walletId: String(ceremony.intent.walletId),
+                nearAccountId: finalized.nearAccountId,
+                ed25519KeyScopeId,
                 rpId: ceremony.intent.rpId,
                 relayerKeyId: keygen.relayerKeyId,
                 ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -7869,6 +8478,8 @@ export class AuthService {
         now,
         ed25519: {
           signerSlot: ed25519.signerSlot,
+          nearAccountId: finalized.nearAccountId,
+          ed25519KeyScopeId,
           publicKey: keygen.publicKey,
           relayerKeyId: keygen.relayerKeyId,
           keyVersion: keygen.keyVersion,
@@ -7881,9 +8492,12 @@ export class AuthService {
       });
       const walletSigners = [
         this.buildWalletEd25519SignerRecord({
-          walletId: ceremony.intent.walletId,
           rpId: ceremony.intent.rpId,
-          nearAccountId: ed25519.nearAccountId,
+          binding: walletRegistrationEd25519SignerBinding({
+            walletId: ceremony.intent.walletId,
+            nearAccountId: finalized.nearAccountId,
+            ed25519KeyScopeId,
+          }),
           signerSlot: ed25519.signerSlot,
           keygen,
           now,
@@ -7931,9 +8545,12 @@ export class AuthService {
         ok: true,
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
+        accountProvisioning: ed25519.accountProvisioning,
+        resolvedAccount: resolvedAccount.value,
         registrationDiagnostics: finalizeDiagnostics(),
         ed25519: {
-          nearAccountId: ed25519.nearAccountId,
+          nearAccountId: finalized.nearAccountId,
+          ed25519KeyScopeId,
           publicKey: keygen.publicKey,
           relayerKeyId: keygen.relayerKeyId,
           keyVersion: keygen.keyVersion,
@@ -8109,6 +8726,11 @@ export class AuthService {
       };
     }
     const ed25519 = ceremony.intent.signerSelection.ed25519;
+    const ed25519KeyScopeId = await registrationIntentEd25519KeyScopeId({
+      intent: ceremony.intent,
+      signingRootId: ceremony.signingRootId,
+      signingRootVersion: ceremony.signingRootVersion,
+    });
     const ed25519SignerState = ceremony.signerState;
     const ed25519FinalizeRequest = request.ed25519;
     const finalized = await measureRegistrationRouteTiming(
@@ -8118,10 +8740,29 @@ export class AuthService {
         threshold.ed25519Hss.finalizeForRegistration({
           orgId: ceremony.orgId,
           request: {
-            new_account_id: ed25519.nearAccountId,
+            registrationAccountScope: thresholdEd25519RegistrationAccountScope({
+            walletId: ceremony.intent.walletId,
+            rpId: ceremony.intent.rpId,
+            intentDigestB64u: ceremony.digestB64u,
+            signingRootId: registrationIntentSigningRootId({
+              signingRootId: ceremony.signingRootId,
+              intent: ceremony.intent,
+            }),
+            ed25519KeyScopeId,
+            signerSlot: ed25519.signerSlot,
+            keyPurpose: ed25519.keyPurpose,
+            keyVersion: ed25519.keyVersion,
+            derivationVersion: ed25519.derivationVersion,
+            participantIds: ed25519.participantIds,
+            accountProvisioning: ed25519.accountProvisioning,
+          }),
             rp_id: ceremony.intent.rpId,
             ceremonyHandle: ed25519SignerState.ceremonyHandle,
             evaluationResult: ed25519FinalizeRequest.evaluationResult,
+            accountResolution: {
+              kind: 'registration_provisioning',
+              accountProvisioning: ed25519.accountProvisioning,
+            },
           },
         }),
     );
@@ -8136,13 +8777,17 @@ export class AuthService {
       pushRegistrationHssFinalizeTimingEntries(routeTimings, finalized.finalizeReportTimings);
     }
 
-    if (ed25519.createNearAccount) {
+    const sponsoredNamedAccountId = sponsoredNamedRegistrationAccountId(
+      ed25519.accountProvisioning,
+    );
+    let sponsoredTransactionHash: string | undefined;
+    if (sponsoredNamedAccountId) {
       const created = await measureRegistrationRouteTiming(
         routeTimings,
-        'nearAccountCreateMs',
+        'sponsoredNearAccountCreateMs',
         () =>
           this.createAccount({
-            accountId: ed25519.nearAccountId,
+            accountId: sponsoredNamedAccountId,
             publicKey: finalized.publicKey,
           }),
       );
@@ -8153,7 +8798,15 @@ export class AuthService {
           message: created.error || created.message || 'Failed to create NEAR account',
         };
       }
+      sponsoredTransactionHash = created.transactionHash;
     }
+    const resolvedAccount = resolvedRegistrationNearAccount({
+      accountProvisioning: ed25519.accountProvisioning,
+      nearAccountId: finalized.nearAccountId,
+      ed25519KeyScopeId,
+      sponsoredTransactionHash,
+    });
+    if (!resolvedAccount.ok) return resolvedAccount;
 
     const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
     if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
@@ -8165,7 +8818,9 @@ export class AuthService {
     }
     const keygen = await measureRegistrationRouteTiming(routeTimings, 'registrationKeygenMs', () =>
       schemeAny.registration.keygenFromRegistrationMaterial({
-        nearAccountId: ed25519.nearAccountId,
+        walletId: ceremony.intent.walletId,
+        nearAccountId: finalized.nearAccountId,
+        ed25519KeyScopeId,
         rpId: ceremony.intent.rpId,
         keyVersion: ed25519.keyVersion,
         recoveryExportCapable: true,
@@ -8214,8 +8869,10 @@ export class AuthService {
       const requestedPolicy = requestedSessionPolicy as Record<string, unknown>;
       const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
         requestedSessionPolicy: requestedPolicy,
+        expectedWalletId: String(ceremony.intent.walletId),
         expectedRelayerKeyId: keygen.relayerKeyId,
-        expectedNearAccountId: ed25519.nearAccountId,
+        expectedNearAccountId: finalized.nearAccountId,
+        expectedEd25519KeyScopeId: ed25519KeyScopeId,
         expectedRpId: ceremony.intent.rpId,
       });
       if (policyBindingError) {
@@ -8223,12 +8880,16 @@ export class AuthService {
       }
       const session = await measureRegistrationRouteTiming(routeTimings, 'relaySessionMintMs', () =>
         threshold.mintEd25519SessionFromRegistration({
-          nearAccountId: ed25519.nearAccountId,
+          walletId: String(ceremony.intent.walletId),
+          nearAccountId: finalized.nearAccountId,
+          ed25519KeyScopeId,
           rpId: ceremony.intent.rpId,
           relayerKeyId: keygen.relayerKeyId,
           sessionPolicy: {
             ...requestedPolicy,
-            nearAccountId: ed25519.nearAccountId,
+            walletId: String(ceremony.intent.walletId),
+            nearAccountId: finalized.nearAccountId,
+            ed25519KeyScopeId,
             rpId: ceremony.intent.rpId,
             relayerKeyId: keygen.relayerKeyId,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -8269,6 +8930,8 @@ export class AuthService {
       now,
       ed25519: {
         signerSlot: ed25519.signerSlot,
+        nearAccountId: finalized.nearAccountId,
+        ed25519KeyScopeId,
         publicKey: keygen.publicKey,
         relayerKeyId: keygen.relayerKeyId,
         keyVersion: keygen.keyVersion,
@@ -8281,9 +8944,12 @@ export class AuthService {
     });
     const walletSigners = [
       this.buildWalletEd25519SignerRecord({
-        walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
-        nearAccountId: ed25519.nearAccountId,
+        binding: walletRegistrationEd25519SignerBinding({
+          walletId: ceremony.intent.walletId,
+          nearAccountId: finalized.nearAccountId,
+          ed25519KeyScopeId,
+        }),
         signerSlot: ed25519.signerSlot,
         keygen,
         now,
@@ -8323,9 +8989,12 @@ export class AuthService {
       ok: true,
       walletId: ceremony.intent.walletId,
       rpId: ceremony.intent.rpId,
+      accountProvisioning: ed25519.accountProvisioning,
+      resolvedAccount: resolvedAccount.value,
       registrationDiagnostics: finalizeDiagnostics(),
       ed25519: {
-        nearAccountId: ed25519.nearAccountId,
+        nearAccountId: finalized.nearAccountId,
+        ed25519KeyScopeId,
         publicKey: keygen.publicKey,
         relayerKeyId: keygen.relayerKeyId,
         keyVersion: keygen.keyVersion,
@@ -8534,7 +9203,21 @@ export class AuthService {
           ...(signingRootId ? { signingRootId } : {}),
           ...(signingRootVersion ? { signingRootVersion } : {}),
           request: {
-            new_account_id: ed25519.nearAccountId,
+            registrationAccountScope: thresholdEd25519KnownAccountRegistrationScope({
+              walletId: storedIntent.intent.walletId,
+              rpId: storedIntent.intent.rpId,
+              intentDigestB64u: storedIntent.digestB64u,
+              signingRootId: addSignerIntentSigningRootId({
+                signingRootId: storedIntent.signingRootId,
+                intent: storedIntent.intent,
+              }),
+              nearAccountId: ed25519.nearAccountId,
+              signerSlot: ed25519.signerSlot,
+              keyPurpose: ed25519.keyPurpose,
+              keyVersion: ed25519.keyVersion,
+              derivationVersion: ed25519.derivationVersion,
+              participantIds: ed25519.participantIds,
+            }),
             rp_id: storedIntent.intent.rpId,
             context: {
               signingRootId: signingRootId || '',
@@ -9218,7 +9901,21 @@ export class AuthService {
       const responded = await threshold.ed25519Hss.respondForRegistration({
         orgId: ceremony.orgId,
         request: {
-          new_account_id: ed25519.nearAccountId,
+          registrationAccountScope: thresholdEd25519KnownAccountRegistrationScope({
+            walletId: ceremony.intent.walletId,
+            rpId: ceremony.intent.rpId,
+            intentDigestB64u: ceremony.digestB64u,
+            signingRootId: addSignerIntentSigningRootId({
+              signingRootId: ceremony.signingRootId,
+              intent: ceremony.intent,
+            }),
+            nearAccountId: ed25519.nearAccountId,
+            signerSlot: ed25519.signerSlot,
+            keyPurpose: ed25519.keyPurpose,
+            keyVersion: ed25519.keyVersion,
+            derivationVersion: ed25519.derivationVersion,
+            participantIds: ed25519.participantIds,
+          }),
           rp_id: ceremony.intent.rpId,
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           clientRequest: request.ed25519.clientRequest,
@@ -9338,13 +10035,36 @@ export class AuthService {
         };
       }
       const ed25519 = ceremony.intent.signerSelection.ed25519;
+      const registrationAccountScope = thresholdEd25519KnownAccountRegistrationScope({
+        walletId: ceremony.intent.walletId,
+        rpId: ceremony.intent.rpId,
+        intentDigestB64u: ceremony.digestB64u,
+        signingRootId: addSignerIntentSigningRootId({
+          signingRootId: ceremony.signingRootId,
+          intent: ceremony.intent,
+        }),
+        nearAccountId: ed25519.nearAccountId,
+        signerSlot: ed25519.signerSlot,
+        keyPurpose: ed25519.keyPurpose,
+        keyVersion: ed25519.keyVersion,
+        derivationVersion: ed25519.derivationVersion,
+        participantIds: ed25519.participantIds,
+      });
+      const ed25519Binding = knownAccountEd25519SignerBindingFromScope({
+        walletId: ceremony.intent.walletId,
+        scope: registrationAccountScope,
+      });
       const finalized = await threshold.ed25519Hss.finalizeForRegistration({
         orgId: ceremony.orgId,
         request: {
-          new_account_id: ed25519.nearAccountId,
+          registrationAccountScope,
           rp_id: ceremony.intent.rpId,
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           evaluationResult: request.ed25519.evaluationResult,
+          accountResolution: {
+            kind: 'known_account',
+            nearAccountId: ed25519Binding.nearAccountId,
+          },
         },
       });
       if (!finalized.ok) {
@@ -9357,7 +10077,7 @@ export class AuthService {
 
       if (ed25519.mode === 'create_near_account') {
         const created = await this.createAccount({
-          accountId: ed25519.nearAccountId,
+          accountId: ed25519Binding.nearAccountId,
           publicKey: finalized.publicKey,
         });
         if (!created.success) {
@@ -9378,7 +10098,9 @@ export class AuthService {
         };
       }
       const keygen = await schemeAny.registration.keygenFromRegistrationMaterial({
-        nearAccountId: ed25519.nearAccountId,
+        walletId: ed25519Binding.walletId,
+        nearAccountId: ed25519Binding.nearAccountId,
+        ed25519KeyScopeId: ed25519Binding.ed25519KeyScopeId,
         rpId: ceremony.intent.rpId,
         keyVersion: ed25519.keyVersion,
         recoveryExportCapable: true,
@@ -9412,20 +10134,26 @@ export class AuthService {
         const requestedPolicy = requestedSessionPolicy as Record<string, unknown>;
         const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
           requestedSessionPolicy: requestedPolicy,
+          expectedWalletId: String(ed25519Binding.walletId),
           expectedRelayerKeyId: keygen.relayerKeyId,
-          expectedNearAccountId: ed25519.nearAccountId,
+          expectedNearAccountId: ed25519Binding.nearAccountId,
+          expectedEd25519KeyScopeId: ed25519Binding.ed25519KeyScopeId,
           expectedRpId: ceremony.intent.rpId,
         });
         if (policyBindingError) {
           return { ok: false, code: 'invalid_body', message: policyBindingError };
         }
         const session = await threshold.mintEd25519SessionFromRegistration({
-          nearAccountId: ed25519.nearAccountId,
+          walletId: String(ed25519Binding.walletId),
+          nearAccountId: ed25519Binding.nearAccountId,
+          ed25519KeyScopeId: ed25519Binding.ed25519KeyScopeId,
           rpId: ceremony.intent.rpId,
           relayerKeyId: keygen.relayerKeyId,
           sessionPolicy: {
             ...requestedPolicy,
-            nearAccountId: ed25519.nearAccountId,
+            walletId: String(ed25519Binding.walletId),
+            nearAccountId: ed25519Binding.nearAccountId,
+            ed25519KeyScopeId: ed25519Binding.ed25519KeyScopeId,
             rpId: ceremony.intent.rpId,
             relayerKeyId: keygen.relayerKeyId,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -9460,7 +10188,9 @@ export class AuthService {
           version: 'webauthn_credential_binding_v1',
           rpId: ceremony.intent.rpId,
           credentialIdB64u: ceremony.auth.credentialIdB64u,
-          userId: ceremony.intent.walletId,
+          userId: ed25519Binding.walletId,
+          nearAccountId: ed25519Binding.nearAccountId,
+          ed25519KeyScopeId: ed25519Binding.ed25519KeyScopeId,
           signerSlot: ed25519.signerSlot,
           publicKey: keygen.publicKey,
           relayerKeyId: keygen.relayerKeyId,
@@ -9475,15 +10205,14 @@ export class AuthService {
         });
       }
       const wallet = this.buildWalletRecord({
-        walletId: ceremony.intent.walletId,
+        walletId: ed25519Binding.walletId,
         rpId: ceremony.intent.rpId,
         now: signerWriteNow,
       });
       const walletSigners = [
         this.buildWalletEd25519SignerRecord({
-          walletId: ceremony.intent.walletId,
           rpId: ceremony.intent.rpId,
-          nearAccountId: ed25519.nearAccountId,
+          binding: ed25519Binding,
           signerSlot: ed25519.signerSlot,
           keygen,
           now: signerWriteNow,
@@ -9505,10 +10234,11 @@ export class AuthService {
 
       return {
         ok: true,
-        walletId: ceremony.intent.walletId,
+        walletId: ed25519Binding.walletId,
         rpId: ceremony.intent.rpId,
         ed25519: {
-          nearAccountId: ed25519.nearAccountId,
+          nearAccountId: ed25519Binding.nearAccountId,
+          ed25519KeyScopeId: ed25519Binding.ed25519KeyScopeId,
           publicKey: keygen.publicKey,
           relayerKeyId: keygen.relayerKeyId,
           keyVersion: keygen.keyVersion,
@@ -9585,418 +10315,6 @@ export class AuthService {
   }
 
   /**
-   * Create a new NEAR subaccount and register a WebAuthn authenticator in relay-private storage.
-   *
-   * Notes:
-   * - WebAuthn-only: the registration challenge is derived deterministically from `{ accountId, signer_slot }`.
-   * - Contract-free: no on-chain WebAuthn verifier is used.
-   */
-  async createAccountAndRegisterUser(
-    request: CreateAccountAndRegisterRequest,
-  ): Promise<CreateAccountAndRegisterResult> {
-    await this._ensureSignerAndRelayerAccount();
-
-    return this.queueTransaction(async () => {
-      try {
-        const registrationStartedAt = Date.now();
-        const registrationTimings: Record<string, number> = {};
-        const accountId = String(request?.new_account_id || '').trim();
-        if (!isValidAccountId(accountId))
-          throw new Error(`Invalid account ID format: ${accountId}`);
-
-        const relayerAccount = String(this.config.relayerAccount || '').trim();
-        const expectedSuffix = relayerAccount ? `.${relayerAccount}` : '';
-        if (!relayerAccount || !expectedSuffix || !accountId.endsWith(expectedSuffix)) {
-          throw new Error(
-            `new_account_id must be a subaccount of relayerAccount (${relayerAccount})`,
-          );
-        }
-
-        const thresholdEd25519Registration = parseThresholdEd25519RegistrationInput(
-          (request as any)?.threshold_ed25519,
-        );
-        const thresholdEd25519SessionPolicy = thresholdEd25519Registration.sessionPolicy;
-        const thresholdEd25519SessionKind = thresholdEd25519Registration.sessionKind;
-        let thresholdKeygen: Extract<
-          ThresholdEd25519RegistrationKeygenResult,
-          { ok: true }
-        > | null = null;
-        let thresholdEd25519Session: ThresholdEd25519BootstrapSession | null = null;
-
-        const rpId = String(
-          (request as unknown as { rp_id?: unknown; rpId?: unknown })?.rp_id ??
-            (request as unknown as { rpId?: unknown })?.rpId ??
-            '',
-        ).trim();
-        if (!rpId) throw new Error('Missing rp_id');
-        if ('threshold_ecdsa' in (request as unknown as Record<string, unknown>)) {
-          throw new Error(
-            'threshold_ecdsa registration bootstrap has been removed; use /wallets/register/*',
-          );
-        }
-
-        if (thresholdEd25519Registration.relayerKeyId) {
-          if (!thresholdEd25519SessionPolicy || typeof thresholdEd25519SessionPolicy !== 'object') {
-            throw new Error('threshold_ed25519.session_policy is required');
-          }
-          if (thresholdEd25519SessionKind !== 'jwt') {
-            throw new Error('threshold_ed25519.session_kind must be jwt');
-          }
-          if (
-            !thresholdEd25519Registration.keyVersion ||
-            !thresholdEd25519Registration.publicKey ||
-            !thresholdEd25519Registration.relayerKeyId
-          ) {
-            throw new Error('threshold_ed25519 registration material is incomplete');
-          }
-          if (thresholdEd25519Registration.recoveryExportCapable !== true) {
-            throw new Error('threshold_ed25519.recovery_export_capable must be true');
-          }
-        }
-        const thresholdService = this.getThresholdSigningService();
-        if (thresholdEd25519Registration.relayerKeyId && !thresholdService) {
-          throw new Error('threshold signing is not configured on this server');
-        }
-
-        if (thresholdEd25519Registration.relayerKeyId) {
-          const thresholdEd25519KeygenStartedAt = Date.now();
-          const schemeAny = thresholdService!.getSchemeModule(
-            THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          );
-          if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
-            throw new Error(
-              `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
-            );
-          }
-          const out = await schemeAny.registration.keygenFromRegistrationMaterial({
-            nearAccountId: accountId,
-            rpId,
-            keyVersion: thresholdEd25519Registration.keyVersion,
-            recoveryExportCapable: true,
-            publicKey: thresholdEd25519Registration.publicKey,
-            relayerKeyId: thresholdEd25519Registration.relayerKeyId,
-          });
-          if (!out.ok) {
-            throw new Error(out.message || 'threshold-ed25519 registration keygen failed');
-          }
-          thresholdKeygen = out;
-          logDuration(
-            registrationTimings,
-            'thresholdEd25519RegistrationMaterialMs',
-            thresholdEd25519KeygenStartedAt,
-          );
-        }
-
-        const { publicKey: newPublicKey, expectedPublicKeys } = normalizeBootstrapPublicKeys({
-          publicKey: String(thresholdKeygen?.publicKey || '').trim(),
-        });
-        if (!newPublicKey) {
-          throw new Error('threshold_ed25519 registration key material is required');
-        }
-
-        const signerSlot = (() => {
-          const raw =
-            (request as unknown as { signer_slot?: unknown; signerSlot?: unknown })?.signer_slot ??
-            (request as unknown as { signerSlot?: unknown })?.signerSlot ??
-            1;
-          const n = typeof raw === 'number' ? raw : Number(raw);
-          return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
-        })();
-
-        const expectedOrigin = String(
-          (request as unknown as { expected_origin?: unknown; expectedOrigin?: unknown })
-            ?.expected_origin ??
-            (request as unknown as { expectedOrigin?: unknown })?.expectedOrigin ??
-            '',
-        ).trim();
-
-        const cred = request.webauthn_registration as any;
-        if (!cred || typeof cred !== 'object') throw new Error('Missing webauthn_registration');
-
-        // 1) Verify the registration ceremony (standard WebAuthn) off-chain.
-        const expectedIntent = `register:${accountId}:${signerSlot}`;
-        const expectedChallenge = base64UrlEncode(await sha256BytesUtf8(expectedIntent));
-
-        const clientData = parseClientDataJsonBase64url(
-          String(cred.response?.clientDataJSON || ''),
-        );
-        if (clientData.type !== 'webauthn.create') {
-          throw new Error(
-            'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)',
-          );
-        }
-        if (clientData.challenge !== expectedChallenge) {
-          throw new Error('Registration challenge mismatch');
-        }
-        const originHost = originHostnameOrEmpty(clientData.origin);
-        if (!isHostWithinRpId(originHost, rpId)) {
-          throw new Error('WebAuthn origin is not within rpId');
-        }
-
-        const mod = await loadSimpleWebAuthnServer();
-        const verifyRegistrationResponse = mod.verifyRegistrationResponse;
-        if (typeof verifyRegistrationResponse !== 'function') {
-          throw new Error('WebAuthn registration verifier is unavailable in this runtime');
-        }
-
-        const expectedOriginStrict = toOptionalTrimmedString(expectedOrigin);
-        if (!expectedOriginStrict) {
-          throw new Error('expected_origin is required for WebAuthn registration verification');
-        }
-        const verification = await verifyRegistrationResponse({
-          response: cred,
-          expectedChallenge,
-          expectedOrigin: expectedOriginStrict,
-          expectedRPID: rpId,
-          requireUserVerification: false,
-        });
-        if (!verification?.verified) {
-          throw new Error('Registration verification failed');
-        }
-
-        // 2) Create the on-chain account as a subaccount of the relayer signer.
-        // In the lite architecture, account creation is done directly (no WebAuthn contract call).
-        const accountExists = await this.checkAccountExists(accountId);
-        if (accountExists) {
-          throw new Error(`Account ${accountId} already exists. Cannot create duplicate account.`);
-        }
-
-        const actions: ActionArgsWasm[] = [
-          {
-            action_type: ActionType.CreateAccount,
-          },
-          {
-            action_type: ActionType.Transfer,
-            deposit: String(this.config.accountInitialBalance),
-          },
-          buildFullAccessAddKeyAction(newPublicKey),
-        ];
-        actions.forEach(validateActionArgsWasm);
-
-        const { nextNonce, blockHash } = await this.fetchTxContext(
-          relayerAccount,
-          this.relayerPublicKey,
-        );
-        const signed = await this.signWithPrivateKey({
-          nearPrivateKey: this.config.relayerPrivateKey,
-          signerAccountId: relayerAccount,
-          receiverId: accountId,
-          nonce: nextNonce,
-          blockHash,
-          actions,
-        });
-        // Reach execution quickly, then perform one authoritative final key-visibility check.
-        const atomicRegistrationBroadcastStartedAt = Date.now();
-        const result = await this.nearClient.sendTransaction(
-          signed,
-          ACCOUNT_CREATE_BROADCAST_WAIT_UNTIL,
-        );
-        this.logger.info(
-          `Atomic registration account creation for ${accountId} reached ${ACCOUNT_CREATE_BROADCAST_WAIT_UNTIL} in ${
-            Date.now() - atomicRegistrationBroadcastStartedAt
-          }ms`,
-        );
-        logDuration(
-          registrationTimings,
-          'nearAccountCreateBroadcastMs',
-          atomicRegistrationBroadcastStartedAt,
-        );
-        const atomicRegistrationKeyCheckStartedAt = Date.now();
-        const bootstrapKeysVerified = await this.verifyAccountAccessKeysPresent(
-          accountId,
-          expectedPublicKeys,
-          ACCOUNT_CREATE_FAST_KEY_VISIBILITY_CHECK,
-        );
-        this.logger.info(
-          `Atomic registration account creation for ${accountId} key visibility verified=${bootstrapKeysVerified} in ${
-            Date.now() - atomicRegistrationKeyCheckStartedAt
-          }ms`,
-        );
-        logDuration(
-          registrationTimings,
-          'nearAccessKeyVisibilityMs',
-          atomicRegistrationKeyCheckStartedAt,
-        );
-        if (!bootstrapKeysVerified) {
-          this.logger.warn(
-            `Atomic registration committed for ${accountId} before the operational access key was visible on final state; scheduling background audit`,
-          );
-          this.scheduleAccountAccessKeyVisibilityAudit({
-            accountId,
-            expectedPublicKeys,
-            contextLabel: `Atomic registration account creation for ${accountId}`,
-          });
-        }
-
-        // 3) Persist the authenticator privately on the relay.
-        const credentialIdB64u = String(
-          verification?.registrationInfo?.credential?.id || '',
-        ).trim();
-        const credentialPublicKey = verification?.registrationInfo?.credential?.publicKey as
-          | Uint8Array
-          | undefined;
-        const counter = verification?.registrationInfo?.credential?.counter as number | undefined;
-
-        if (!credentialIdB64u || !credentialPublicKey) {
-          throw new Error(
-            'Registration verification did not return credential public key material',
-          );
-        }
-
-        const store = this.getWebAuthnAuthenticatorStore();
-        const now = Date.now();
-        const authenticatorStoreStartedAt = Date.now();
-        await store.put(accountId, {
-          version: 'webauthn_authenticator_v1',
-          credentialIdB64u,
-          credentialPublicKeyB64u: base64UrlEncode(credentialPublicKey),
-          counter: Number.isFinite(counter) && counter! >= 0 ? Math.floor(counter!) : 0,
-          createdAtMs: now,
-          updatedAtMs: now,
-        });
-        logDuration(registrationTimings, 'authenticatorStoreMs', authenticatorStoreStartedAt);
-
-        // 4) Persist passkey→account binding for sync/link/recovery flows.
-        // This is relay-private storage (no on-chain authenticator registry dependence).
-        const bindingStore = this.getWebAuthnCredentialBindingStore();
-        const binding: WebAuthnCredentialBindingRecord = {
-          version: 'webauthn_credential_binding_v1',
-          rpId,
-          credentialIdB64u,
-          userId: accountId,
-          signerSlot,
-          publicKey: newPublicKey,
-          ...(thresholdKeygen ? { relayerKeyId: thresholdKeygen.relayerKeyId } : {}),
-          ...(thresholdKeygen ? { keyVersion: thresholdKeygen.keyVersion } : {}),
-          ...(thresholdKeygen
-            ? { recoveryExportCapable: thresholdKeygen.recoveryExportCapable }
-            : {}),
-          ...(thresholdKeygen ? { clientParticipantId: thresholdKeygen.clientParticipantId } : {}),
-          ...(thresholdKeygen
-            ? { relayerParticipantId: thresholdKeygen.relayerParticipantId }
-            : {}),
-          ...(thresholdKeygen ? { participantIds: thresholdKeygen.participantIds } : {}),
-          ...(normalizeThresholdRuntimePolicyScope(
-            (thresholdEd25519SessionPolicy as Record<string, unknown> | undefined)
-              ?.runtimePolicyScope,
-          )
-            ? {
-                runtimePolicyScope: normalizeThresholdRuntimePolicyScope(
-                  (thresholdEd25519SessionPolicy as Record<string, unknown> | undefined)
-                    ?.runtimePolicyScope,
-                ),
-              }
-            : {}),
-          createdAtMs: now,
-          updatedAtMs: now,
-        };
-        const bindingStoreStartedAt = Date.now();
-        await bindingStore.put(binding);
-        logDuration(registrationTimings, 'credentialBindingStoreMs', bindingStoreStartedAt);
-
-        if (thresholdKeygen && thresholdEd25519SessionPolicy) {
-          const thresholdEd25519SessionStartedAt = Date.now();
-          const requestedThresholdEd25519PolicyRelayerKeyId = String(
-            (thresholdEd25519SessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
-          ).trim();
-          if (
-            requestedThresholdEd25519PolicyRelayerKeyId &&
-            requestedThresholdEd25519PolicyRelayerKeyId !== thresholdKeygen.relayerKeyId
-          ) {
-            throw new Error('threshold_ed25519.session_policy.relayerKeyId mismatch');
-          }
-          const thresholdEd25519PolicyWithRelayerKeyId = {
-            ...(thresholdEd25519SessionPolicy as Record<string, unknown>),
-            relayerKeyId: thresholdKeygen.relayerKeyId,
-          } as any;
-          const session = await thresholdService!.mintEd25519SessionFromRegistration({
-            nearAccountId: accountId,
-            rpId,
-            relayerKeyId: thresholdKeygen.relayerKeyId,
-            sessionPolicy: thresholdEd25519PolicyWithRelayerKeyId,
-          });
-          if (
-            !session.ok ||
-            !session.thresholdSessionId ||
-            !Number.isFinite(Number(session.expiresAtMs))
-          ) {
-            throw new Error(
-              session.message ||
-                session.code ||
-                'threshold-ed25519 registration session bootstrap failed',
-            );
-          }
-          const normalizedSession = toThresholdEd25519BootstrapSession(session);
-          if (!normalizedSession) {
-            throw new Error('threshold-ed25519 registration session bootstrap failed');
-          }
-          thresholdEd25519Session = normalizedSession;
-          logDuration(
-            registrationTimings,
-            'thresholdEd25519SessionMintMs',
-            thresholdEd25519SessionStartedAt,
-          );
-        }
-
-        // Best-effort: persist NEAR public key metadata for UI surfaces.
-        // This is not required for account correctness, so keep it off the blocking path.
-        void (async () => {
-          const nearPublicKeyMetadataStartedAt = Date.now();
-          const recorded = await this.recordNearPublicKeyMetadata({
-            userId: accountId,
-            publicKey: newPublicKey,
-            kind: 'threshold',
-            signerSlot,
-            rpId,
-            credentialIdB64u,
-            source: 'atomic registration NEAR public key metadata persistence',
-          });
-          if (recorded.ok) {
-            this.logger.info('[AuthService] atomic registration async persistence', {
-              nearAccountId: accountId,
-              nearPublicKeyMetadataMs: Date.now() - nearPublicKeyMetadataStartedAt,
-            });
-          }
-        })();
-
-        this.logger.info(`Registration completed: ${result.transaction.hash}`);
-        this.logger.info('[AuthService] atomic registration timings', {
-          nearAccountId: accountId,
-          ...registrationTimings,
-          totalMs: Date.now() - registrationStartedAt,
-        });
-        return {
-          success: true,
-          transactionHash: result.transaction.hash,
-          ...(thresholdKeygen
-            ? {
-                thresholdEd25519: {
-                  keyVersion: thresholdKeygen.keyVersion,
-                  recoveryExportCapable: thresholdKeygen.recoveryExportCapable,
-                  relayerKeyId: thresholdKeygen.relayerKeyId,
-                  publicKey: newPublicKey,
-                  clientParticipantId: thresholdKeygen.clientParticipantId,
-                  relayerParticipantId: thresholdKeygen.relayerParticipantId,
-                  participantIds: thresholdKeygen.participantIds,
-                  ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
-                },
-              }
-            : {}),
-          message: `Account ${accountId} created and registered successfully`,
-        };
-      } catch (error: any) {
-        this.logger.error(`Atomic registration failed for ${request.new_account_id}:`, error);
-        const msg = errorMessage(error) || 'Unknown atomic registration error';
-        return {
-          success: false,
-          error: msg,
-          message: `Failed to create and register account ${request.new_account_id}: ${msg}`,
-        };
-      }
-    }, `atomic create and register ${request.new_account_id}`);
-  }
-
-  /**
    * Standard WebAuthn assertion verification for lite flows.
    *
    * This verifies:
@@ -10010,7 +10328,7 @@ export class AuthService {
    * - Replay protection is handled by upstream protocol bindings (e.g., unique sessionPolicyDigest32 via sessionId).
    */
   async verifyWebAuthnAuthenticationLite(input: {
-    nearAccountId: string;
+    userId: string;
     rpId: string;
     expectedChallenge: string;
     webauthn_authentication: WebAuthnAuthenticationCredential;
@@ -10019,18 +10337,18 @@ export class AuthService {
     try {
       await this._ensureSignerAndRelayerAccount();
 
-      const nearAccountId = String(input.nearAccountId || '').trim();
+      const userId = String(input.userId || '').trim();
       const rpId = String(input.rpId || '').trim();
       const expectedChallenge = String(input.expectedChallenge || '').trim();
       const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
       const cred = input.webauthn_authentication as any;
 
-      if (!nearAccountId)
+      if (!userId)
         return {
           success: false,
           verified: false,
           code: 'invalid_body',
-          message: 'Missing nearAccountId',
+          message: 'Missing userId',
         };
       if (!rpId)
         return { success: false, verified: false, code: 'invalid_body', message: 'Missing rpId' };
@@ -10103,7 +10421,7 @@ export class AuthService {
       const credentialIdB64u = base64UrlEncode(credentialIDBytes);
 
       const store = this.getWebAuthnAuthenticatorStore();
-      const matched = await store.get(nearAccountId, credentialIdB64u);
+      const matched = await store.get(userId, credentialIdB64u);
       if (!matched) {
         return {
           success: false,
@@ -10188,9 +10506,9 @@ export class AuthService {
       // Note: some authenticators do not implement counters (always 0); in that case, replay defense must come from one-time challenges.
       if (newCounter !== null) {
         try {
-          const latest = await store.get(nearAccountId, credentialIdB64u);
+          const latest = await store.get(userId, credentialIdB64u);
           if (latest && newCounter > latest.counter) {
-            await store.put(nearAccountId, {
+            await store.put(userId, {
               ...latest,
               credentialPublicKeyB64u: matched.credentialPublicKeyB64u,
               counter: newCounter,
@@ -10212,7 +10530,7 @@ export class AuthService {
       const msg = errorMessage(e) || 'Verification failed';
       this.logger.error('[webauthn] verifyWebAuthnAuthenticationLite internal error', {
         message: msg,
-        nearAccountId: String(input?.nearAccountId || ''),
+        userId: String(input?.userId || ''),
         rpId: String(input?.rpId || ''),
       });
       return { success: false, verified: false, code: 'internal', message: msg };
@@ -10440,7 +10758,7 @@ export class AuthService {
         };
       }
       const verification = await this.verifyWebAuthnAuthenticationLite({
-        nearAccountId: record.userId,
+        userId: record.userId,
         rpId: record.rpId,
         expectedChallenge: record.challengeB64u,
         webauthn_authentication: request?.webauthn_authentication as any,
@@ -14362,6 +14680,7 @@ export class AuthService {
     challengeId?: string;
     challengeB64u?: string;
     credentialIds?: string[];
+    walletBinding?: EmailRecoveryResolvedWalletBinding;
     expiresAtMs?: number;
     code?: string;
     message?: string;
@@ -14369,9 +14688,10 @@ export class AuthService {
     try {
       const rpId = String(request?.rp_id || '').trim();
       if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
-      const expectedUserId = toOptionalTrimmedString(request?.account_id);
-      if (expectedUserId && !isValidAccountId(expectedUserId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid account_id' };
+      const expectedUserIdRaw = toOptionalTrimmedString(request?.account_id);
+      const expectedUserId = expectedUserIdRaw ? parseBoundaryWalletId(expectedUserIdRaw) : null;
+      if (expectedUserIdRaw && !expectedUserId) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid wallet account_id' };
       }
 
       const ttlMsRaw = request?.ttlMs ?? request?.ttl_ms;
@@ -14395,6 +14715,7 @@ export class AuthService {
       const challengeId = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
       const challengeB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
       let credentialIds: string[] | undefined;
+      let walletBinding: EmailRecoveryResolvedWalletBinding | undefined;
 
       if (expectedUserId) {
         const bindingStore = this.getWebAuthnCredentialBindingStore();
@@ -14406,6 +14727,14 @@ export class AuthService {
           };
         }
         const bindings = await bindingStore.listByUserId({ userId: expectedUserId, rpId });
+        const resolvedBinding = bindings.find((binding) => {
+          return Boolean(binding.userId && binding.nearAccountId && binding.ed25519KeyScopeId);
+        });
+        if (resolvedBinding) {
+          walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({
+            binding: resolvedBinding,
+          });
+        }
         const seen = new Set<string>();
         credentialIds = [];
         for (const binding of bindings) {
@@ -14432,6 +14761,7 @@ export class AuthService {
         challengeId,
         challengeB64u,
         ...(credentialIds ? { credentialIds } : {}),
+        ...(walletBinding ? { walletBinding } : {}),
         expiresAtMs,
       };
     } catch (e: unknown) {
@@ -14609,6 +14939,10 @@ export class AuthService {
     ok: boolean;
     verified?: boolean;
     accountId?: string;
+    walletId?: string;
+    nearAccountId?: string;
+    ed25519KeyScopeId?: string;
+    walletBinding?: EmailRecoveryResolvedWalletBinding;
     rpId?: string;
     signerSlot?: number;
     publicKey?: string;
@@ -14710,7 +15044,7 @@ export class AuthService {
         };
       }
       const verification = await this.verifyWebAuthnAuthenticationLite({
-        nearAccountId: binding.userId,
+        userId: binding.userId,
         rpId: binding.rpId,
         expectedChallenge: challenge.challengeB64u,
         webauthn_authentication: request?.webauthn_authentication as any,
@@ -14756,6 +15090,7 @@ export class AuthService {
               : {}),
           }
         : undefined;
+      const walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({ binding });
 
       let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
       if (thresholdEd25519SessionPolicy) {
@@ -14778,14 +15113,21 @@ export class AuthService {
           };
         }
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const runtimePolicyScope =
-          normalizeThresholdRuntimePolicyScope(requestedSessionPolicy.runtimePolicyScope) ||
-          normalizeThresholdRuntimePolicyScope(binding.runtimePolicyScope);
-        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+        const resolvedSessionPolicy = resolveThresholdEd25519SessionPolicyForBinding({
           requestedSessionPolicy,
+          binding: walletBinding,
+          relayerKeyId,
+          fallbackRuntimePolicyScope: normalizeThresholdRuntimePolicyScope(
+            binding.runtimePolicyScope,
+          ),
+        });
+        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+          requestedSessionPolicy: resolvedSessionPolicy.sessionPolicy,
+          expectedWalletId: walletBinding.walletId,
           expectedRelayerKeyId: relayerKeyId,
-          expectedNearAccountId: binding.userId,
-          expectedRpId: binding.rpId,
+          expectedNearAccountId: walletBinding.nearAccountId,
+          expectedEd25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+          expectedRpId: walletBinding.rpId,
         });
         if (policyBindingError) {
           return {
@@ -14797,16 +15139,12 @@ export class AuthService {
         }
 
         const session = await thresholdService.mintEd25519SessionFromRegistration({
-          nearAccountId: binding.userId,
-          rpId: binding.rpId,
+          walletId: walletBinding.walletId,
+          nearAccountId: walletBinding.nearAccountId,
+          ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+          rpId: walletBinding.rpId,
           relayerKeyId,
-          sessionPolicy: {
-            ...requestedSessionPolicy,
-            nearAccountId: binding.userId,
-            rpId: binding.rpId,
-            relayerKeyId,
-            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          } as any,
+          sessionPolicy: resolvedSessionPolicy.sessionPolicy as any,
         });
         if (
           !session.ok ||
@@ -14835,9 +15173,13 @@ export class AuthService {
       return {
         ok: true,
         verified: true,
-        accountId: binding.userId,
-        rpId: binding.rpId,
-        signerSlot: binding.signerSlot,
+        accountId: walletBinding.walletId,
+        walletId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        walletBinding,
+        rpId: walletBinding.rpId,
+        signerSlot: walletBinding.signerSlot,
         publicKey: binding.publicKey,
         ...(binding.relayerKeyId ? { relayerKeyId: binding.relayerKeyId } : {}),
         credentialIdB64u,
@@ -15345,8 +15687,10 @@ export class AuthService {
           existingRuntimePolicyScope;
         const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
           requestedSessionPolicy,
+          expectedWalletId: existingThresholdEd25519Binding.userId,
           expectedRelayerKeyId: keygen.relayerKeyId,
-          expectedNearAccountId: accountId,
+          expectedNearAccountId: existingThresholdEd25519Binding.nearAccountId,
+          expectedEd25519KeyScopeId: existingThresholdEd25519Binding.ed25519KeyScopeId,
           expectedRpId: rpId,
         });
         if (policyBindingError) {
@@ -15358,12 +15702,16 @@ export class AuthService {
         }
 
         const session = await threshold.mintEd25519SessionFromRegistration({
-          nearAccountId: accountId,
+          walletId: existingThresholdEd25519Binding.userId,
+          nearAccountId: existingThresholdEd25519Binding.nearAccountId,
+          ed25519KeyScopeId: existingThresholdEd25519Binding.ed25519KeyScopeId,
           rpId,
           relayerKeyId: keygen.relayerKeyId,
           sessionPolicy: {
             ...requestedSessionPolicy,
-            nearAccountId: accountId,
+            walletId: existingThresholdEd25519Binding.userId,
+            nearAccountId: existingThresholdEd25519Binding.nearAccountId,
+            ed25519KeyScopeId: existingThresholdEd25519Binding.ed25519KeyScopeId,
             rpId,
             relayerKeyId: keygen.relayerKeyId,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -15422,6 +15770,8 @@ export class AuthService {
         rpId,
         credentialIdB64u,
         userId: accountId,
+        nearAccountId: existingThresholdEd25519Binding.nearAccountId,
+        ed25519KeyScopeId: existingThresholdEd25519Binding.ed25519KeyScopeId,
         signerSlot,
         publicKey: keygen.publicKey,
         relayerKeyId: keygen.relayerKeyId,
@@ -15614,6 +15964,10 @@ export class AuthService {
     | {
         ok: true;
         accountId: string;
+        walletId: string;
+        nearAccountId: string;
+        ed25519KeyScopeId: string;
+        walletBinding: EmailRecoveryResolvedWalletBinding;
         requestId: string;
         signerSlot: number;
         credentialIdB64u: string;
@@ -15642,9 +15996,10 @@ export class AuthService {
       }
       await this._ensureSignerAndRelayerAccount();
 
-      const accountId = String(request?.account_id ?? request?.accountId ?? '').trim();
-      if (!accountId || !isValidAccountId(accountId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
+      const accountIdRaw = toOptionalTrimmedString(request?.account_id ?? request?.accountId);
+      const accountId = accountIdRaw ? parseBoundaryWalletId(accountIdRaw) : null;
+      if (!accountId) {
+        return { ok: false, code: 'invalid_body', message: 'Invalid wallet accountId' };
       }
 
       const requestId = String(request?.request_id ?? request?.requestId ?? '').trim();
@@ -15809,6 +16164,10 @@ export class AuthService {
           message: 'Existing threshold-ed25519 binding is incomplete',
         };
       }
+      const walletBinding = resolvedEd25519WalletBindingFromCredentialBinding({
+        binding: existingThresholdEd25519Binding,
+        signerSlot,
+      });
       const ecdsaRuntimePolicyScope =
         ecdsaPrepareSpec.value.runtimePolicyScope || existingRuntimePolicyScope;
       const signingRootId =
@@ -15827,7 +16186,7 @@ export class AuthService {
       }
       const ecdsaPrepare = await this.prepareEcdsaRegistrationStartPayload({
         registrationCeremonyId: `email_recovery_${randomBase64Url(16)}`,
-        walletId: walletIdFromString(accountId),
+        walletId: walletIdFromString(walletBinding.walletId),
         rpId,
         signingRootId,
         signingRootVersion,
@@ -15838,14 +16197,19 @@ export class AuthService {
       let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
       if (thresholdEd25519SessionPolicy) {
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const runtimePolicyScope =
-          normalizeThresholdRuntimePolicyScope(requestedSessionPolicy.runtimePolicyScope) ||
-          existingRuntimePolicyScope;
-        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+        const resolvedSessionPolicy = resolveThresholdEd25519SessionPolicyForBinding({
           requestedSessionPolicy,
+          binding: walletBinding,
+          relayerKeyId: keygen.relayerKeyId,
+          fallbackRuntimePolicyScope: existingRuntimePolicyScope,
+        });
+        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
+          requestedSessionPolicy: resolvedSessionPolicy.sessionPolicy,
+          expectedWalletId: walletBinding.walletId,
           expectedRelayerKeyId: keygen.relayerKeyId,
-          expectedNearAccountId: accountId,
-          expectedRpId: rpId,
+          expectedNearAccountId: walletBinding.nearAccountId,
+          expectedEd25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+          expectedRpId: walletBinding.rpId,
         });
         if (policyBindingError) {
           return {
@@ -15856,16 +16220,12 @@ export class AuthService {
         }
 
         const session = await threshold.mintEd25519SessionFromRegistration({
-          nearAccountId: accountId,
-          rpId,
+          walletId: walletBinding.walletId,
+          nearAccountId: walletBinding.nearAccountId,
+          ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+          rpId: walletBinding.rpId,
           relayerKeyId: keygen.relayerKeyId,
-          sessionPolicy: {
-            ...requestedSessionPolicy,
-            nearAccountId: accountId,
-            rpId,
-            relayerKeyId: keygen.relayerKeyId,
-            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          } as any,
+          sessionPolicy: resolvedSessionPolicy.sessionPolicy as any,
         });
         if (
           !session.ok ||
@@ -15907,9 +16267,10 @@ export class AuthService {
       await this.getEmailRecoveryPreparationStore().put({
         version: 'email_recovery_preparation_v1',
         requestId,
-        accountId,
-        rpId,
-        signerSlot,
+        accountId: walletBinding.walletId,
+        walletBinding,
+        rpId: walletBinding.rpId,
+        signerSlot: walletBinding.signerSlot,
         credentialIdB64u,
         credentialPublicKeyB64u: base64UrlEncode(credentialPublicKey),
         counter: Number.isFinite(counter) && counter! >= 0 ? Math.floor(counter!) : 0,
@@ -15931,9 +16292,13 @@ export class AuthService {
 
       return {
         ok: true,
-        accountId,
+        accountId: walletBinding.walletId,
+        walletId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        walletBinding,
         requestId,
-        signerSlot,
+        signerSlot: walletBinding.signerSlot,
         credentialIdB64u,
         thresholdEd25519: {
           relayerKeyId: keygen.relayerKeyId,
@@ -15967,6 +16332,10 @@ export class AuthService {
     | {
         ok: true;
         accountId: string;
+        walletId: string;
+        nearAccountId: string;
+        ed25519KeyScopeId: string;
+        walletBinding: EmailRecoveryResolvedWalletBinding;
         requestId: string;
         signerSlot: number;
         credentialIdB64u: string;
@@ -16068,9 +16437,10 @@ export class AuthService {
       }
 
       const now = Date.now();
+      const walletBinding = preparation.walletBinding;
       const recoveryDeadlineEpochSeconds = Math.floor(preparation.expiresAtMs / 1000);
       const recoveryEmailPayload = buildRecoveryEmailPayload({
-        nearAccountId: preparation.accountId,
+        nearAccountId: walletBinding.nearAccountId,
         recoverySessionId: requestId,
         newNearPublicKey: preparation.thresholdEd25519.publicKey,
         newEvmOwnerAddress,
@@ -16082,7 +16452,7 @@ export class AuthService {
       const recoveryEmailBody = buildRecoveryEmailBody(recoveryEmailPayload);
 
       const authStore = this.getWebAuthnAuthenticatorStore();
-      await authStore.put(preparation.accountId, {
+      await authStore.put(walletBinding.walletId, {
         version: 'webauthn_authenticator_v1',
         credentialIdB64u: preparation.credentialIdB64u,
         credentialPublicKeyB64u: preparation.credentialPublicKeyB64u,
@@ -16096,8 +16466,10 @@ export class AuthService {
         version: 'webauthn_credential_binding_v1',
         rpId: preparation.rpId,
         credentialIdB64u: preparation.credentialIdB64u,
-        userId: preparation.accountId,
-        signerSlot: preparation.signerSlot,
+        userId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        signerSlot: walletBinding.signerSlot,
         publicKey: preparation.thresholdEd25519.publicKey,
         relayerKeyId: preparation.thresholdEd25519.relayerKeyId,
         keyVersion: preparation.thresholdEd25519.keyVersion,
@@ -16119,9 +16491,9 @@ export class AuthService {
 
       const recoverySessionRecord = buildPreparedRecoverySessionRecord({
         sessionId: requestId,
-        userId: preparation.accountId,
-        nearAccountId: preparation.accountId,
-        signerSlot: preparation.signerSlot,
+        userId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        signerSlot: walletBinding.signerSlot,
         newNearPublicKey: preparation.thresholdEd25519.publicKey,
         newEvmOwnerAddress,
         recoveryDeadlineEpochSeconds,
@@ -16160,9 +16532,13 @@ export class AuthService {
 
       return {
         ok: true,
-        accountId: preparation.accountId,
+        accountId: walletBinding.walletId,
+        walletId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        walletBinding,
         requestId,
-        signerSlot: preparation.signerSlot,
+        signerSlot: walletBinding.signerSlot,
         credentialIdB64u: preparation.credentialIdB64u,
         thresholdEd25519: preparation.thresholdEd25519,
         ecdsa: {

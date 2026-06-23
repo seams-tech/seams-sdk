@@ -105,7 +105,7 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
         }
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session: ctx.opts.session,
-          userId: result.accountId,
+          userId: sessionInfo.walletId,
           rpId: (req.body || {}).rp_id,
           relayerKeyId: result.thresholdEd25519?.relayerKeyId,
           sessionInfo,

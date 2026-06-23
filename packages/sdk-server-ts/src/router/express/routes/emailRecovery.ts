@@ -32,7 +32,7 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
     }
     const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
-      userId: result.accountId,
+      userId: sessionInfo.walletId,
       rpId,
       relayerKeyId: result.thresholdEd25519?.relayerKeyId,
       sessionInfo,

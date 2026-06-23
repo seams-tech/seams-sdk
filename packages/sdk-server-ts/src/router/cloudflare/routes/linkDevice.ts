@@ -111,7 +111,7 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
     }
     const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
-      userId: result.accountId,
+      userId: sessionInfo.walletId,
       rpId: (body as Record<string, unknown>).rp_id,
       relayerKeyId: result.thresholdEd25519.relayerKeyId,
       sessionInfo,

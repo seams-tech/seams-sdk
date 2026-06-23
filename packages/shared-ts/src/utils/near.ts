@@ -5,6 +5,18 @@
  * modules (`validation`, `errors`, `encoders`, etc.) stay chain-agnostic.
  */
 
+import { base58Decode } from './base58';
+
+export type ImplicitNearAccountId = string & {
+  readonly __implicitNearAccountIdBrand: unique symbol;
+};
+
+export type NamedNearAccountId = string & {
+  readonly __namedNearAccountIdBrand: unique symbol;
+};
+
+export type NearAccountId = ImplicitNearAccountId | NamedNearAccountId;
+
 export interface NearAccountValidationOptions {
   /** Restrict to specific suffixes (e.g., ['testnet', 'near']) */
   allowedSuffixes?: string[];
@@ -47,11 +59,16 @@ export function validateNearAccountId(
     return { valid: false, error: 'Account ID must be a non-empty string' };
   }
 
+  if (isImplicitNearAccountId(nearAccountId)) {
+    return { valid: true };
+  }
+
   const parts = nearAccountId.split('.');
   if (parts.length < 2) {
     return {
       valid: false,
-      error: 'Account ID must contain at least one dot (e.g., username.testnet)',
+      error:
+        'Account ID must be a named account containing a dot or a 64-character implicit account hex ID',
     };
   }
 
@@ -111,6 +128,83 @@ export function isValidAccountId(accountId: unknown): accountId is string {
   if (typeof accountId !== 'string') return false;
   if (!accountId || accountId.length < 2 || accountId.length > 64) return false;
   return /^[a-z0-9_.-]+$/.test(accountId);
+}
+
+export type NearAccountIdParseResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: 'missing' | 'invalid'; message: string };
+
+export function isImplicitNearAccountId(value: unknown): value is ImplicitNearAccountId {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+}
+
+export function compactImplicitNearAccountId(value: unknown): string | null {
+  if (!isImplicitNearAccountId(value)) return null;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+export function parseImplicitNearAccountId(
+  raw: unknown,
+): NearAccountIdParseResult<ImplicitNearAccountId> {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) {
+    return { ok: false, code: 'missing', message: 'implicit NEAR account ID is required' };
+  }
+  if (!isImplicitNearAccountId(value)) {
+    return {
+      ok: false,
+      code: 'invalid',
+      message: 'implicit NEAR account ID must be 64 lowercase hex characters',
+    };
+  }
+  return { ok: true, value };
+}
+
+export function parseNamedNearAccountId(
+  raw: unknown,
+): NearAccountIdParseResult<NamedNearAccountId> {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) {
+    return { ok: false, code: 'missing', message: 'named NEAR account ID is required' };
+  }
+  if (isImplicitNearAccountId(value) || !isValidAccountId(value) || !value.includes('.')) {
+    return {
+      ok: false,
+      code: 'invalid',
+      message: 'named NEAR account ID must be a valid named account containing a dot',
+    };
+  }
+  return { ok: true, value: value as NamedNearAccountId };
+}
+
+export function parseNearAccountId(raw: unknown): NearAccountIdParseResult<NearAccountId> {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) {
+    return { ok: false, code: 'missing', message: 'NEAR account ID is required' };
+  }
+  if (isImplicitNearAccountId(value)) {
+    return { ok: true, value };
+  }
+  return parseNamedNearAccountId(value);
+}
+
+function bytesToLowerHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function deriveImplicitNearAccountIdFromEd25519PublicKey(
+  publicKey: string,
+): ImplicitNearAccountId {
+  const normalized = ensureEd25519Prefix(publicKey);
+  const encoded = normalized.startsWith('ed25519:') ? normalized.slice('ed25519:'.length) : '';
+  if (!encoded) {
+    throw new Error('Ed25519 public key is required');
+  }
+  const decoded = base58Decode(encoded);
+  if (decoded.length !== 32) {
+    throw new Error('Ed25519 public key must decode to 32 bytes');
+  }
+  return bytesToLowerHex(decoded) as ImplicitNearAccountId;
 }
 
 /**

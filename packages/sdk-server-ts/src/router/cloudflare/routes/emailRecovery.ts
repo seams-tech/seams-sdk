@@ -57,7 +57,7 @@ export async function handleEmailRecoveryPrepare(
     }
     const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
-      userId: result.accountId,
+      userId: sessionInfo.walletId,
       rpId:
         ctx.pathname === '/email-recovery/prepare'
           ? (body as Record<string, unknown>).rp_id

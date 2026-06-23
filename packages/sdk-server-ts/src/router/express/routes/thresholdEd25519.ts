@@ -50,102 +50,17 @@ function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolea
   );
 }
 
-async function resolveEmailOtpRegistrationHssAuth(args: {
-  ctx: ExpressRelayContext;
-  headers: Request['headers'];
-  body: Record<string, unknown>;
-}): Promise<
-  | {
-      ok: true;
-      appSessionClaims: NonNullable<ReturnType<typeof parseAppSessionClaims>>;
-      runtimePolicyScope: NonNullable<
-        NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope']
-      >;
-    }
-  | { ok: false; code: string; message: string }
-> {
-  const session = args.ctx.opts.session;
-  if (!session) return { ok: false, code: 'sessions_disabled', message: 'Sessions are disabled' };
-  const parsed = await session.parse(args.headers || {});
-  if (!parsed.ok) return { ok: false, code: 'unauthorized', message: 'Missing app session' };
-  const appSessionClaims = parseAppSessionClaims(parsed.claims);
-  if (!appSessionClaims) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Email OTP registration requires app session auth',
-    };
-  }
-  if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
-    return { ok: false, code: 'unauthorized', message: 'App session is expired' };
-  }
-  const validated = await args.ctx.service.validateAppSessionVersion({
-    userId: appSessionClaims.sub,
-    appSessionVersion: appSessionClaims.appSessionVersion,
-  });
-  if (!validated.ok) return { ok: false, code: 'unauthorized', message: validated.message };
-
-  const walletId = String(args.body.new_account_id || '').trim();
-  const registrationAttemptId = String(args.body.registrationAttemptId || '').trim();
-  if (String(appSessionClaims.walletId || '').trim() !== walletId) {
-    return { ok: false, code: 'unauthorized', message: 'Email OTP registration wallet mismatch' };
-  }
-  if (
-    String(appSessionClaims.googleEmailOtpRegistrationAttemptId || '').trim() !==
-    registrationAttemptId
-  ) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Email OTP registration attempt mismatch',
-    };
-  }
-  const runtimePolicyScope = appSessionClaims.runtimePolicyScope;
-  if (!runtimePolicyScope?.orgId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'Email OTP registration requires runtime policy scope',
-    };
-  }
-  return { ok: true, appSessionClaims, runtimePolicyScope };
-}
-
-async function signEmailOtpRegistrationEd25519SessionJwt(args: {
-  ctx: ExpressRelayContext;
-  nearAccountId: string;
-  rpId: string;
-  relayerKeyId: string;
-  sessionResult: Record<string, unknown>;
-  participantIds: number[];
-  runtimePolicyScope: NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope'];
-}): Promise<string> {
-  const thresholdSessionId = String(args.sessionResult.thresholdSessionId || '').trim();
-  const signingGrantId = String(args.sessionResult.signingGrantId || '').trim();
-  const expiresAtMs = Number(args.sessionResult.expiresAtMs);
-  if (!thresholdSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
-    throw new Error('threshold-ed25519 session bootstrap returned incomplete session state');
-  }
-  const signed = await signRouterAbEd25519WalletSessionJwt({
-    session: args.ctx.opts.session,
-    userId: args.nearAccountId,
-    rpId: args.rpId,
-    relayerKeyId: args.relayerKeyId,
-    sessionInfo: {
-      sessionKind: 'jwt',
-      thresholdSessionId,
-      signingGrantId,
-      expiresAtMs,
-      participantIds: args.participantIds,
-      runtimePolicyScope: args.runtimePolicyScope,
-      routerAbNormalSigning: args.sessionResult.routerAbNormalSigning,
-    },
-    fallbackParticipantIds: args.participantIds,
-    requireJwtErrorMessage: 'threshold_ed25519.session_kind must be jwt',
-    invalidPayloadErrorMessage: 'invalid thresholdEd25519 session payload for jwt signing',
-  });
-  if (!signed.ok) throw new Error(signed.message);
-  return signed.jwt;
+function rejectLegacyEmailOtpRegistrationHssRequest(): {
+  ok: false;
+  code: 'invalid_body';
+  message: string;
+} {
+  return {
+    ok: false,
+    code: 'invalid_body',
+    message:
+      'Router A/B email_otp_registration HSS requests are no longer supported; use wallet registration with explicit accountProvisioning.',
+  };
 }
 
 function publicEd25519WalletSessionResult<T extends { thresholdSessionId?: string }>(result: T): T {
@@ -382,12 +297,14 @@ export function registerThresholdEd25519Routes(
           };
         }
 
-        const userId = String((body as any).sessionPolicy?.nearAccountId || '').trim();
-        if (!userId) {
+        const walletId = String(result.walletId || '').trim();
+        const nearAccountId = String(result.nearAccountId || '').trim();
+        const ed25519KeyScopeId = String(result.ed25519KeyScopeId || '').trim();
+        if (!walletId || !nearAccountId || !ed25519KeyScopeId) {
           return {
             ok: false,
             code: 'internal',
-            message: 'threshold session missing sessionPolicy.nearAccountId',
+            message: 'threshold session missing walletId/nearAccountId/ed25519KeyScopeId',
           };
         }
         const rpId = String((body as any).sessionPolicy?.rpId || '').trim();
@@ -416,11 +333,14 @@ export function registerThresholdEd25519Routes(
         }
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session,
-          userId,
+          userId: walletId,
           rpId,
           relayerKeyId,
           sessionInfo: {
             sessionKind: 'jwt',
+            walletId,
+            nearAccountId,
+            ed25519KeyScopeId,
             thresholdSessionId,
             signingGrantId: result.signingGrantId,
             expiresAtMs: thresholdExpiresAtMs,
@@ -513,21 +433,7 @@ export function registerThresholdEd25519Routes(
           };
         }
         if (isEmailOtpRegistrationHssRequest(body)) {
-          const auth = await resolveEmailOtpRegistrationHssAuth({
-            ctx,
-            headers: req.headers,
-            body,
-          });
-          if (!auth.ok) return auth;
-          return (threshold.ed25519Hss as any).prepareForRegistration({
-            orgId: auth.runtimePolicyScope.orgId,
-            signingRootId:
-              body.context && typeof body.context === 'object' && !Array.isArray(body.context)
-                ? String((body.context as Record<string, unknown>).signingRootId || '').trim()
-                : undefined,
-            signingRootVersion: auth.runtimePolicyScope.signingRootVersion,
-            request: body as any,
-          });
+          return rejectLegacyEmailOtpRegistrationHssRequest();
         }
         if (parseSessionKind(body) === 'cookie') {
           return {
@@ -579,90 +485,7 @@ export function registerThresholdEd25519Routes(
           };
         }
         if (isEmailOtpRegistrationHssRequest(body)) {
-          const auth = await resolveEmailOtpRegistrationHssAuth({
-            ctx,
-            headers: req.headers,
-            body,
-          });
-          if (!auth.ok) return auth;
-          const finalized = await (threshold.ed25519Hss as any).finalizeForRegistration({
-            orgId: auth.runtimePolicyScope.orgId,
-            request: body as any,
-          });
-          if (!finalized.ok) return finalized;
-          const nearAccountId = String(body.new_account_id || '').trim();
-          const rpId = String(body.rp_id || '').trim();
-          const publicKey = String(finalized.publicKey || '').trim();
-          const created = await ctx.service.createAccount({
-            accountId: nearAccountId,
-            publicKey,
-          });
-          if (!created.success) {
-            return {
-              ok: false,
-              code: 'account_creation_failed',
-              message: created.error || created.message || 'Failed to create NEAR account',
-            };
-          }
-          const keyVersion =
-            body.context && typeof body.context === 'object' && !Array.isArray(body.context)
-              ? String((body.context as Record<string, unknown>).keyVersion || '').trim()
-              : '';
-          const participantIds =
-            body.context && typeof body.context === 'object' && !Array.isArray(body.context)
-              ? ((body.context as Record<string, unknown>).participantIds as number[] | undefined)
-              : undefined;
-          let sessionResult: Record<string, unknown> | null = null;
-          const sessionPolicy = body.sessionPolicy as Record<string, unknown> | undefined;
-          if (sessionPolicy) {
-            const minted = await (threshold as any).mintEd25519SessionFromRegistration({
-              nearAccountId,
-              rpId,
-              relayerKeyId: finalized.relayerKeyId,
-              sessionPolicy: {
-                ...sessionPolicy,
-                nearAccountId,
-                rpId,
-                relayerKeyId: finalized.relayerKeyId,
-                runtimePolicyScope: auth.runtimePolicyScope,
-              },
-            });
-            if (!minted.ok) return minted;
-            const jwt = await signEmailOtpRegistrationEd25519SessionJwt({
-              ctx,
-              nearAccountId,
-              rpId,
-              relayerKeyId: finalized.relayerKeyId,
-              sessionResult: minted as Record<string, unknown>,
-              participantIds: Array.isArray(minted.participantIds)
-                ? minted.participantIds
-                : Array.isArray(participantIds)
-                  ? participantIds
-                  : [],
-              runtimePolicyScope: auth.runtimePolicyScope,
-            });
-            sessionResult = {
-              ...minted,
-              sessionKind: 'jwt',
-              jwt,
-              runtimePolicyScope: auth.runtimePolicyScope,
-            };
-          }
-          const recorded = await ctx.service.recordGoogleEmailOtpRegistrationAttemptPublicKey({
-            registrationAttemptId: body.registrationAttemptId,
-            walletId: nearAccountId,
-            finalizedPublicKey: publicKey,
-          });
-          if (!recorded.ok) return recorded;
-          return {
-            ok: true,
-            publicKey,
-            relayerKeyId: finalized.relayerKeyId,
-            finalizedReport: finalized.finalizedReport,
-            keyVersion,
-            recoveryExportCapable: true,
-            ...(sessionResult ? { session: sessionResult } : {}),
-          };
+          return rejectLegacyEmailOtpRegistrationHssRequest();
         }
         if (parseSessionKind(body) === 'cookie') {
           return {
@@ -706,16 +529,7 @@ export function registerThresholdEd25519Routes(
           };
         }
         if (isEmailOtpRegistrationHssRequest(body)) {
-          const auth = await resolveEmailOtpRegistrationHssAuth({
-            ctx,
-            headers: req.headers,
-            body,
-          });
-          if (!auth.ok) return auth;
-          return (threshold.ed25519Hss as any).respondForRegistration({
-            orgId: auth.runtimePolicyScope.orgId,
-            request: body as any,
-          });
+          return rejectLegacyEmailOtpRegistrationHssRequest();
         }
         if (parseSessionKind(body) === 'cookie') {
           return {

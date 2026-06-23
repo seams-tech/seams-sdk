@@ -9,8 +9,10 @@ import type {
 } from './domainIds';
 import { parseWalletId } from './domainIds';
 import { base64UrlEncode } from './encoders';
+import type { ImplicitNearAccountId, NamedNearAccountId } from './near';
 
 export type { WalletId } from './domainIds';
+export type { ImplicitNearAccountId, NamedNearAccountId, NearAccountId } from './near';
 
 export type RegistrationIntentGrant = string & {
   readonly __registrationIntentGrantBrand: unique symbol;
@@ -22,6 +24,14 @@ export type AddAuthMethodIntentGrant = string & {
 
 export type AddSignerIntentGrant = string & {
   readonly __addSignerIntentGrantBrand: unique symbol;
+};
+
+export type GeneratedImplicitWalletId = WalletId & {
+  readonly __generatedImplicitWalletIdBrand: unique symbol;
+};
+
+export type Ed25519KeyScopeId = string & {
+  readonly __ed25519KeyScopeIdBrand: unique symbol;
 };
 
 export type RegisterWalletInput =
@@ -43,29 +53,31 @@ export type PasskeyRegistrationAuthMethodInput = {
   appSessionJwt?: never;
 };
 
-export type EmailOtpRegistrationAuthMethodInput = {
-  kind: 'email_otp';
-  proofKind: 'otp_challenge';
-  email: string;
-  otpCode: string;
-  appSessionJwt: string;
-  challengeId?: string;
-  googleEmailOtpRegistrationAttemptId?: never;
-  googleEmailOtpRegistrationOfferId?: never;
-  googleEmailOtpRegistrationCandidateId?: never;
-  authenticatorOptions?: never;
-} | {
-  kind: 'email_otp';
-  proofKind: 'google_sso_registration';
-  email: string;
-  appSessionJwt: string;
-  googleEmailOtpRegistrationAttemptId: string;
-  googleEmailOtpRegistrationOfferId: string;
-  googleEmailOtpRegistrationCandidateId: string;
-  otpCode?: never;
-  challengeId?: never;
-  authenticatorOptions?: never;
-};
+export type EmailOtpRegistrationAuthMethodInput =
+  | {
+      kind: 'email_otp';
+      proofKind: 'otp_challenge';
+      email: string;
+      otpCode: string;
+      appSessionJwt: string;
+      challengeId?: string;
+      googleEmailOtpRegistrationAttemptId?: never;
+      googleEmailOtpRegistrationOfferId?: never;
+      googleEmailOtpRegistrationCandidateId?: never;
+      authenticatorOptions?: never;
+    }
+  | {
+      kind: 'email_otp';
+      proofKind: 'google_sso_registration';
+      email: string;
+      appSessionJwt: string;
+      googleEmailOtpRegistrationAttemptId: string;
+      googleEmailOtpRegistrationOfferId: string;
+      googleEmailOtpRegistrationCandidateId: string;
+      otpCode?: never;
+      challengeId?: never;
+      authenticatorOptions?: never;
+    };
 
 export type RegistrationAuthMethodInput =
   | PasskeyRegistrationAuthMethodInput
@@ -244,14 +256,41 @@ export type WalletAuthMethodRecord =
       counter?: never;
     };
 
+export type RegistrationNearAccountProvisioning =
+  | {
+      kind: 'implicit_account';
+      accountIdSource: 'ed25519_public_key';
+      requestedAccountId?: never;
+      sponsor?: never;
+    }
+  | {
+      kind: 'sponsored_named_account';
+      requestedAccountId: NamedNearAccountId;
+      sponsor: 'relayer';
+      accountIdSource?: never;
+    };
+
+export type ResolvedRegistrationNearAccount =
+  | {
+      kind: 'implicit_account';
+      nearAccountId: ImplicitNearAccountId;
+      ed25519KeyScopeId: Ed25519KeyScopeId;
+      transactionHash?: never;
+    }
+  | {
+      kind: 'sponsored_named_account';
+      nearAccountId: NamedNearAccountId;
+      ed25519KeyScopeId: Ed25519KeyScopeId;
+      transactionHash: string;
+    };
+
 export type ThresholdEd25519RegistrationSpec = {
-  nearAccountId: string;
+  accountProvisioning: RegistrationNearAccountProvisioning;
   signerSlot: number;
   participantIds: number[];
   keyPurpose: string;
   keyVersion: string;
   derivationVersion: number;
-  createNearAccount: boolean;
 };
 
 export type ThresholdEcdsaRegistrationSpec = {
@@ -375,6 +414,151 @@ export function walletIdFromString(value: string): WalletId {
   return parsed.value;
 }
 
+export type GeneratedImplicitWalletIdParseResult =
+  | { ok: true; value: GeneratedImplicitWalletId }
+  | {
+      ok: false;
+      error: {
+        code: 'missing' | 'invalid';
+        message: string;
+      };
+    };
+
+const GENERATED_IMPLICIT_WALLET_ID_PATTERN = /^[a-z]+-[a-z]+-[a-z0-9]{6}$/;
+
+export function parseGeneratedImplicitWalletId(
+  raw: unknown,
+): GeneratedImplicitWalletIdParseResult {
+  const parsed = parseWalletId(raw);
+  if (!parsed.ok) return parsed;
+  const value = String(parsed.value);
+  if (!GENERATED_IMPLICIT_WALLET_ID_PATTERN.test(value)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message:
+          'generated implicit walletId must match the word-word-suffix generated format',
+      },
+    };
+  }
+  return { ok: true, value: parsed.value as GeneratedImplicitWalletId };
+}
+
+export function requireGeneratedImplicitWalletId(value: unknown): GeneratedImplicitWalletId {
+  const parsed = parseGeneratedImplicitWalletId(value);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
+}
+
+export function ed25519KeyScopeIdFromString(value: string): Ed25519KeyScopeId {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    throw new Error('ed25519KeyScopeId is required');
+  }
+  return normalized as Ed25519KeyScopeId;
+}
+
+export function ed25519KeyScopeIdFromWalletId(walletId: WalletId): Ed25519KeyScopeId {
+  return ed25519KeyScopeIdFromString(String(walletId));
+}
+
+export type GeneratedImplicitKeyScopeDigestInput = {
+  kind: 'generated_implicit_ed25519_key_scope_v1';
+  walletId: GeneratedImplicitWalletId;
+  rpId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  signerSlot: number;
+  participantIds: readonly number[];
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
+};
+
+export async function computeGeneratedImplicitEd25519KeyScopeId(
+  input: GeneratedImplicitKeyScopeDigestInput,
+): Promise<Ed25519KeyScopeId> {
+  const canonical = alphabetizeStringify({
+    kind: input.kind,
+    walletId: String(input.walletId),
+    rpId: input.rpId,
+    signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
+    signerSlot: input.signerSlot,
+    participantIds: [...input.participantIds],
+    keyPurpose: input.keyPurpose,
+    keyVersion: input.keyVersion,
+    derivationVersion: input.derivationVersion,
+  });
+  const digest = base64UrlEncode(await sha256BytesUtf8(canonical));
+  return ed25519KeyScopeIdFromString(`ed25519ks_${digest}`);
+}
+
+export async function computeRegistrationEd25519KeyScopeId(input: {
+  walletId: WalletId;
+  rpId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  ed25519: ThresholdEd25519RegistrationSpec;
+}): Promise<Ed25519KeyScopeId> {
+  switch (input.ed25519.accountProvisioning.kind) {
+    case 'implicit_account':
+      return await computeGeneratedImplicitEd25519KeyScopeId({
+        kind: 'generated_implicit_ed25519_key_scope_v1',
+        walletId: requireGeneratedImplicitWalletId(input.walletId),
+        rpId: input.rpId,
+        signingRootId: input.signingRootId,
+        signingRootVersion: input.signingRootVersion,
+        signerSlot: input.ed25519.signerSlot,
+        participantIds: input.ed25519.participantIds,
+        keyPurpose: input.ed25519.keyPurpose,
+        keyVersion: input.ed25519.keyVersion,
+        derivationVersion: input.ed25519.derivationVersion,
+      });
+    case 'sponsored_named_account':
+      return ed25519KeyScopeIdFromWalletId(input.walletId);
+    default: {
+      const exhaustive: never = input.ed25519.accountProvisioning;
+      return exhaustive;
+    }
+  }
+}
+
+export function implicitNearAccountProvisioning(): RegistrationNearAccountProvisioning {
+  return {
+    kind: 'implicit_account',
+    accountIdSource: 'ed25519_public_key',
+  };
+}
+
+export function sponsoredNamedNearAccountProvisioning(
+  requestedAccountId: NamedNearAccountId,
+): RegistrationNearAccountProvisioning {
+  return {
+    kind: 'sponsored_named_account',
+    requestedAccountId,
+    sponsor: 'relayer',
+  };
+}
+
+export function registrationProvisioningScopeKey(
+  provisioning: RegistrationNearAccountProvisioning,
+): string {
+  switch (provisioning.kind) {
+    case 'implicit_account':
+      return 'implicit_account';
+    case 'sponsored_named_account':
+      return `sponsored_named_account:${String(provisioning.requestedAccountId)}`;
+    default: {
+      const exhaustive: never = provisioning;
+      return exhaustive;
+    }
+  }
+}
+
 export function registrationIntentGrantFromString(value: string): RegistrationIntentGrant {
   return String(value || '').trim() as RegistrationIntentGrant;
 }
@@ -411,9 +595,7 @@ export async function computeRegistrationIntentDigestB64u(
   return base64UrlEncode(await sha256BytesUtf8(serializeRegistrationIntentV1(intent)));
 }
 
-export async function computeAddSignerIntentDigestB64u(
-  intent: AddSignerIntentV1,
-): Promise<string> {
+export async function computeAddSignerIntentDigestB64u(intent: AddSignerIntentV1): Promise<string> {
   return base64UrlEncode(await sha256BytesUtf8(serializeAddSignerIntentV1(intent)));
 }
 
@@ -463,7 +645,11 @@ export function normalizeRegistrationAuthMethodInput(
     const proofKind = trimString(raw.proofKind);
     const email = trimString(raw.email);
     const appSessionJwt = trimString(raw.appSessionJwt);
-    if (!email || !appSessionJwt || Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')) {
+    if (
+      !email ||
+      !appSessionJwt ||
+      Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')
+    ) {
       return null;
     }
     if (proofKind === 'otp_challenge') {
@@ -490,9 +676,7 @@ export function normalizeRegistrationAuthMethodInput(
       const googleEmailOtpRegistrationAttemptId = trimString(
         raw.googleEmailOtpRegistrationAttemptId,
       );
-      const googleEmailOtpRegistrationOfferId = trimString(
-        raw.googleEmailOtpRegistrationOfferId,
-      );
+      const googleEmailOtpRegistrationOfferId = trimString(raw.googleEmailOtpRegistrationOfferId);
       const googleEmailOtpRegistrationCandidateId = trimString(
         raw.googleEmailOtpRegistrationCandidateId,
       );
@@ -580,9 +764,7 @@ export function normalizeWalletAuthMethodTarget(raw: unknown): WalletAuthMethodT
   return null;
 }
 
-export function normalizeEmailOtpRegistrationProof(
-  raw: unknown,
-): EmailOtpRegistrationProof | null {
+export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegistrationProof | null {
   if (!isRecord(raw)) return null;
   const version = trimString(raw.version);
   const proofKind = trimString(raw.proofKind);
@@ -626,9 +808,7 @@ export function normalizeEmailOtpRegistrationProof(
     };
   }
   if (proofKind === 'google_sso_registration') {
-    const googleEmailOtpRegistrationAttemptId = trimString(
-      raw.googleEmailOtpRegistrationAttemptId,
-    );
+    const googleEmailOtpRegistrationAttemptId = trimString(raw.googleEmailOtpRegistrationAttemptId);
     const googleEmailOtpRegistrationOfferId = trimString(raw.googleEmailOtpRegistrationOfferId);
     const googleEmailOtpRegistrationCandidateId = trimString(
       raw.googleEmailOtpRegistrationCandidateId,

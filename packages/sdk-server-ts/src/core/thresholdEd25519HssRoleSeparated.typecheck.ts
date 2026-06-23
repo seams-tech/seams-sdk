@@ -3,6 +3,7 @@ import type {
   ThresholdEd25519HssRoleSeparatedRespondResponse,
   ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
+  ThresholdEd25519RegistrationAccountScope,
   WalletRegistrationFinalizeRequest,
   WalletRegistrationHssRespondRequest,
 } from './types';
@@ -68,15 +69,30 @@ void ({
   },
 } satisfies ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest);
 
+const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScope = {
+  kind: 'sponsored_named_registration_scope',
+  walletId: 'alice.near',
+  rpId: 'wallet.example.test',
+  intentDigestB64u: 'intent-digest',
+  signingRootId: 'project:env',
+  ed25519KeyScopeId: 'alice.near',
+  signerSlot: 1,
+  keyPurpose: 'near-ed25519',
+  keyVersion: 'v1',
+  derivationVersion: 1,
+  participantIds: [1, 2],
+  requestedAccountId: 'alice.near',
+};
+
 void ({
-  new_account_id: 'alice.near',
+  registrationAccountScope: sponsoredRegistrationAccountScope,
   rp_id: 'wallet.example.test',
   ceremonyHandle: 'ceremony',
   clientRequest: serverVisibleClientRequest,
 } satisfies ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest);
 
 void ({
-  new_account_id: 'alice.near',
+  registrationAccountScope: sponsoredRegistrationAccountScope,
   rp_id: 'wallet.example.test',
   ceremonyHandle: 'ceremony',
   clientRequest: {

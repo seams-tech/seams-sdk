@@ -103,6 +103,8 @@ export type SealedSigningSessionEcdsaRestoreMetadata = {
 };
 
 export type SealedSigningSessionEd25519RestoreMetadata = {
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   relayerKeyId: string;
   participantIds: number[];

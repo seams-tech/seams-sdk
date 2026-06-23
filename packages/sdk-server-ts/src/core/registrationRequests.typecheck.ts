@@ -6,6 +6,7 @@ import type {
 } from './types';
 import {
   addAuthMethodIntentGrantFromString,
+  implicitNearAccountProvisioning,
   registrationIntentGrantFromString,
   walletIdFromString,
   type AddAuthMethodIntentV1,
@@ -23,13 +24,12 @@ const registrationIntent = {
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: {
-      nearAccountId: 'alice.testnet',
+      accountProvisioning: implicitNearAccountProvisioning(),
       signerSlot: 1,
       participantIds: [1, 2],
       keyPurpose: 'near_tx',
       keyVersion: 'threshold-ed25519-hss-v1',
       derivationVersion: 1,
-      createNearAccount: true,
     },
   },
   nonceB64u: 'nonce',

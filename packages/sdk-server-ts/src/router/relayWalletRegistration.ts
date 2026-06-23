@@ -77,6 +77,7 @@ import {
   normalizeWalletAuthMethodTarget,
   registrationIntentGrantFromString,
   walletIdFromString,
+  type RegistrationNearAccountProvisioning,
   type AddSignerIntentV1,
   type AddAuthMethodIntentV1,
   type AddSignerSelection,
@@ -84,6 +85,7 @@ import {
   type RegistrationSignerSelection,
   type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
+import { parseNamedNearAccountId } from '@shared/utils/near';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   normalizeRuntimePolicyScope,
@@ -148,6 +150,7 @@ function requireWebAuthnExpectedOrigin(
 
 type Ed25519SessionCarrier = {
   ok: true;
+  walletId: string;
   rpId: string;
   ed25519?: {
     nearAccountId: string;
@@ -363,13 +366,16 @@ async function attachEd25519WalletSessionJwt(
   }
   const signed = await signRouterAbEd25519WalletSessionJwt({
     session: input.services.session,
-    userId: ed25519.nearAccountId,
+    userId: String(result.walletId),
     rpId: result.rpId,
     relayerKeyId: ed25519.relayerKeyId,
     sessionInfo: {
       ...session,
       sessionKind: 'jwt',
       thresholdSessionId: session.thresholdSessionId,
+      walletId: session.walletId,
+      nearAccountId: session.nearAccountId,
+      ed25519KeyScopeId: session.ed25519KeyScopeId,
       runtimePolicyScope: session.runtimePolicyScope,
       routerAbNormalSigning: session.routerAbNormalSigning,
     },
@@ -556,6 +562,70 @@ function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> 
   };
 }
 
+function parseRegistrationNearAccountProvisioning(
+  raw: unknown,
+): ParseResult<RegistrationNearAccountProvisioning> {
+  if (!isPlainObject(raw)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration Ed25519 accountProvisioning is required',
+    };
+  }
+  const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
+  switch (kind) {
+    case 'implicit_account':
+      if (
+        Object.prototype.hasOwnProperty.call(raw, 'requestedAccountId') ||
+        Object.prototype.hasOwnProperty.call(raw, 'sponsor')
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'implicit account provisioning cannot include sponsored account fields',
+        };
+      }
+      return {
+        ok: true,
+        value: {
+          kind: 'implicit_account',
+          accountIdSource: 'ed25519_public_key',
+        },
+      };
+    case 'sponsored_named_account': {
+      if (Object.prototype.hasOwnProperty.call(raw, 'accountIdSource')) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'sponsored account provisioning cannot include implicit account fields',
+        };
+      }
+      const parsed = parseNamedNearAccountId(raw.requestedAccountId);
+      if (!parsed.ok) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: parsed.message,
+        };
+      }
+      return {
+        ok: true,
+        value: {
+          kind: 'sponsored_named_account',
+          requestedAccountId: parsed.value,
+          sponsor: 'relayer',
+        },
+      };
+    }
+    default:
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration Ed25519 accountProvisioning kind is unsupported',
+      };
+  }
+}
+
 function parseRegistrationSignerSelection(raw: unknown): ParseResult<RegistrationSignerSelection> {
   if (!isPlainObject(raw)) {
     return {
@@ -577,20 +647,30 @@ function parseRegistrationSignerSelection(raw: unknown): ParseResult<Registratio
         message: 'registration Ed25519 spec is required',
       };
     }
-    const nearAccountId =
-      typeof ed25519.nearAccountId === 'string' ? ed25519.nearAccountId.trim() : '';
+    if (
+      Object.prototype.hasOwnProperty.call(ed25519, 'nearAccountId') ||
+      Object.prototype.hasOwnProperty.call(ed25519, 'createNearAccount')
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration Ed25519 spec cannot include legacy account fields',
+      };
+    }
+    const accountProvisioning = parseRegistrationNearAccountProvisioning(
+      ed25519.accountProvisioning,
+    );
+    if (!accountProvisioning.ok) return accountProvisioning;
     const signerSlot = Math.floor(Number(ed25519.signerSlot));
     const keyPurpose = typeof ed25519.keyPurpose === 'string' ? ed25519.keyPurpose.trim() : '';
     const keyVersion = typeof ed25519.keyVersion === 'string' ? ed25519.keyVersion.trim() : '';
     const derivationVersion = Math.floor(Number(ed25519.derivationVersion));
-    const createNearAccount = Boolean(ed25519.createNearAccount);
     const participantIds = parseParticipantIds(
       ed25519.participantIds,
       'registration Ed25519 participantIds',
     );
     if (!participantIds.ok) return participantIds;
     if (
-      !nearAccountId ||
       !Number.isFinite(signerSlot) ||
       signerSlot < 1 ||
       !keyPurpose ||
@@ -607,13 +687,12 @@ function parseRegistrationSignerSelection(raw: unknown): ParseResult<Registratio
     return {
       ok: true,
       value: {
-        nearAccountId,
+        accountProvisioning: accountProvisioning.value,
         signerSlot,
         participantIds: participantIds.value,
         keyPurpose,
         keyVersion,
         derivationVersion,
-        createNearAccount,
       },
     };
   };
@@ -2311,7 +2390,7 @@ export async function handleRelayWalletAddSignerStart(
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
-      nearAccountId: walletId,
+      userId: walletId,
       rpId: parsedBody.value.intent.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
@@ -2493,7 +2572,7 @@ export async function handleRelayWalletAddAuthMethodStart(
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
-      nearAccountId: walletId,
+      userId: walletId,
       rpId: parsedBody.value.intent.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
@@ -2572,7 +2651,7 @@ export async function handleRelayWalletRevokeAuthMethod(
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
-      nearAccountId: walletId,
+      userId: walletId,
       rpId: parsedBody.value.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
@@ -2631,7 +2710,7 @@ export async function handleRelayWalletEcdsaKeyFactsInventory(
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
-      nearAccountId: walletId,
+      userId: walletId,
       rpId: parsedBody.value.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,

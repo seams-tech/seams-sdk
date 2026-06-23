@@ -34,6 +34,9 @@ export type Ed25519WalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   userId: string;
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   rpId: string;
   participantIds: number[];
   walletBudgetBinding?: WalletSigningBudgetBinding;

@@ -78,7 +78,7 @@ export async function handleSyncAccount(ctx: CloudflareRelayContext): Promise<Re
       }
       const signed = await signRouterAbEd25519WalletSessionJwt({
         session: ctx.opts.session,
-        userId: result.accountId,
+        userId: sessionInfo.walletId,
         rpId: result.rpId,
         relayerKeyId: result.thresholdEd25519.relayerKeyId,
         sessionInfo,

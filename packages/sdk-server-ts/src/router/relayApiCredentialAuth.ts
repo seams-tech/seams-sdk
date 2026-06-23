@@ -40,6 +40,42 @@ function inferEnvIdFromEnvironmentId(input: {
   return undefined;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readTrimmedString(record: Record<string, unknown>, field: string): string {
+  const value = record[field];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractSponsoredRequestedAccountId(
+  signerSelection: Record<string, unknown>,
+): string {
+  const ed25519 = asRecord(signerSelection.ed25519);
+  if (!ed25519) return '';
+  const accountProvisioning = asRecord(ed25519.accountProvisioning);
+  if (!accountProvisioning) return '';
+  if (readTrimmedString(accountProvisioning, 'kind') !== 'sponsored_named_account') return '';
+  return readTrimmedString(accountProvisioning, 'requestedAccountId');
+}
+
+function extractRegistrationBootstrapRequestedAccountId(body: unknown): string {
+  const bodyRecord = asRecord(body);
+  if (!bodyRecord) return '';
+  const signerSelection = asRecord(bodyRecord.signerSelection);
+  const sponsoredRequestedAccountId = signerSelection
+    ? extractSponsoredRequestedAccountId(signerSelection)
+    : '';
+  if (sponsoredRequestedAccountId) return sponsoredRequestedAccountId;
+  return (
+    readTrimmedString(bodyRecord, 'newAccountId') ||
+    readTrimmedString(bodyRecord, 'new_account_id') ||
+    readTrimmedString(bodyRecord, 'walletId')
+  );
+}
+
 interface ResolvePublishableKeyApiCredentialAuthInput {
   environmentId?: string | null;
   headers: HeaderRecord;
@@ -284,29 +320,8 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         message: `${redeemResult.code}: ${redeemResult.message}`,
       };
     }
-    const bodyRecord =
-      input.body && typeof input.body === 'object' && !Array.isArray(input.body)
-        ? (input.body as Record<string, unknown>)
-        : {};
-    const signerSelection =
-      bodyRecord.signerSelection &&
-      typeof bodyRecord.signerSelection === 'object' &&
-      !Array.isArray(bodyRecord.signerSelection)
-        ? (bodyRecord.signerSelection as Record<string, unknown>)
-        : {};
-    const ed25519 =
-      signerSelection.ed25519 &&
-      typeof signerSelection.ed25519 === 'object' &&
-      !Array.isArray(signerSelection.ed25519)
-        ? (signerSelection.ed25519 as Record<string, unknown>)
-        : {};
-    const requestedAccountId = String(
-      bodyRecord.walletId ||
-        bodyRecord.new_account_id ||
-        bodyRecord.newAccountId ||
-        ed25519.nearAccountId ||
-        '',
-    ).trim();
+    const bodyRecord = asRecord(input.body) || {};
+    const requestedAccountId = extractRegistrationBootstrapRequestedAccountId(bodyRecord);
     const requestedRpId = String(bodyRecord.rp_id || bodyRecord.rpId || '').trim();
     if (
       (redeemResult.record.newAccountId &&
