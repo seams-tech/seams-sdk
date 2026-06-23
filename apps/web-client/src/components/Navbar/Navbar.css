@@ -361,11 +361,11 @@ html[data-w3a-theme='dark'] .navbar-static__brand-logo.seams-logo-icon--transpar
 }
 
 .navbar-static__access-pane.is-before {
-  transform: translateX(-80px);
+  transform: translateX(-16px);
 }
 
 .navbar-static__access-pane.is-after {
-  transform: translateX(80px);
+  transform: translateX(16px);
 }
 
 .navbar-static__access-panel {
