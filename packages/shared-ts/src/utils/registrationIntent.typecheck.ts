@@ -236,7 +236,6 @@ void ({
   kind: 'email_otp',
   proofKind: 'otp_challenge',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   providerSubject,
   challengeSubjectId,
   email: 'alice@example.test',
@@ -256,7 +255,6 @@ const emailOtpAuthorityMissingChallengeSubject: RegistrationAuthority = {
   kind: 'email_otp',
   proofKind: 'otp_challenge',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   providerSubject,
   email: 'alice@example.test',
   emailHashHex: '00',
@@ -276,12 +274,25 @@ void ({
   kind: 'email_otp',
   status: 'active',
   walletId: walletIdFromString('wallet_alice'),
-  rpId: 'wallet.example.test',
   emailHashHex: '00',
   registrationAuthorityId: 'challenge',
   createdAtMs: 1,
   updatedAtMs: 1,
 } satisfies WalletAuthMethodRecord);
+
+const emailOtpAuthMethodWithRpId = {
+  version: 'wallet_auth_method_v1',
+  kind: 'email_otp',
+  status: 'active',
+  walletId: walletIdFromString('wallet_alice'),
+  emailHashHex: '00',
+  registrationAuthorityId: 'challenge',
+  createdAtMs: 1,
+  updatedAtMs: 1,
+  rpId: 'wallet.example.test',
+  // @ts-expect-error Email OTP auth-method records do not carry passkey RP scope.
+} satisfies WalletAuthMethodRecord;
+void emailOtpAuthMethodWithRpId;
 
 void ({
   kind: 'passkey',

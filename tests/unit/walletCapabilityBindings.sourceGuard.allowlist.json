@@ -1,0 +1,112 @@
+{
+  "allow": [
+    {
+      "file": "packages/shared-ts/src/utils/registrationIntent.ts",
+      "pattern": "as-ed25519-key-scope",
+      "reason": "Boundary brand constructor for Ed25519KeyScopeId.",
+      "disposition": "permanent-boundary: shared domain parser constructs the brand after validation."
+    },
+    {
+      "file": "packages/sdk-server-ts/src/core/AuthService.ts",
+      "pattern": "as-wallet-id",
+      "reason": "Server boundary parser normalizes verified wallet id strings.",
+      "disposition": "permanent-boundary: server request/service boundary normalizes raw wallet ids."
+    },
+    {
+      "file": "packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts",
+      "pattern": "as-wallet-id",
+      "reason": "Persistence boundary parser normalizes stored wallet id strings.",
+      "disposition": "permanent-boundary: registration persistence boundary normalizes stored wallet ids."
+    },
+    {
+      "file": "packages/sdk-server-ts/src/core/WalletStore.ts",
+      "pattern": "as-wallet-id",
+      "reason": "Persistence boundary parser normalizes wallet store keys.",
+      "disposition": "permanent-boundary: wallet store boundary normalizes durable wallet keys."
+    },
+    {
+      "file": "packages/sdk-web/src/SeamsWeb/SeamsWeb.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "Public recovery/result compatibility field; wallet-scoped domain input remains walletId.",
+      "disposition": "remove-with-next-public-api-major: delete retained accountId result/event compatibility."
+    },
+    {
+      "file": "packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "Public sync compatibility field preserved at the result/event boundary.",
+      "disposition": "remove-with-next-public-api-major: delete retained sync accountId compatibility."
+    },
+    {
+      "file": "packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "Public recovery event compatibility field preserved at the result/event boundary.",
+      "disposition": "remove-with-next-public-api-major: delete retained recovery accountId compatibility."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "Existing Ed25519 lane port names accountId; Refactor 79 owns exact lane field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "Existing exact-lane identity uses accountId for wallet-scoped lane owner; Refactor 79 owns field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "Existing signing-session auth lane identity uses accountId for wallet owner; Refactor 79 owns field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "ECDSA exact-lane compatibility field; Refactor 79 owns canonical field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "ECDSA exact-lane compatibility field; Refactor 79 owns canonical field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "ECDSA exact-lane compatibility field; Refactor 79 owns canonical field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "ECDSA exact-lane compatibility field; Refactor 79 owns canonical field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts",
+      "pattern": "account-id-from-wallet-id",
+      "reason": "ECDSA exact-lane compatibility field; Refactor 79 owns canonical field rename.",
+      "disposition": "owned-by-refactor-79: exact signing-lane identity renames wallet owner fields."
+    },
+    {
+      "file": "packages/shared-ts/src/utils/walletCapabilityBindings.ts",
+      "pattern": "inline-near-account-binding",
+      "reason": "Shared capability builder module constructs NearAccountBinding branches after typed inputs are provided.",
+      "disposition": "permanent-boundary: shared builders are the approved construction boundary for wallet capability bindings."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts",
+      "pattern": "core-optional-identity-field",
+      "reason": "Boundary parser accepts raw wallet-session values from public/iframe inputs before normalizing to WalletSessionRef.",
+      "disposition": "permanent-boundary: interface parser is the approved raw input normalization boundary."
+    },
+    {
+      "file": "packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/nonceMetrics.ts",
+      "pattern": "core-optional-identity-field",
+      "reason": "Diagnostics event metadata does not drive command identity or signing authorization.",
+      "disposition": "permanent-boundary: diagnostics-only payload may omit display metadata."
+    }
+  ]
+}

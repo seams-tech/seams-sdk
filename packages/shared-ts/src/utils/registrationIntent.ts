@@ -141,7 +141,6 @@ export type RegistrationAuthority =
       kind: 'email_otp';
       proofKind: 'otp_challenge';
       walletId: WalletId;
-      rpId: string;
       /** OIDC provider subject from the app-session JWT that requested the OTP. */
       providerSubject: ProviderSubject;
       /** Challenge owner verified against the OTP challenge record. */
@@ -164,6 +163,7 @@ export type RegistrationAuthority =
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;
+      rpId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
       googleEmailOtpRegistrationCandidateId?: never;
@@ -172,7 +172,6 @@ export type RegistrationAuthority =
       kind: 'email_otp';
       proofKind: 'google_sso_registration';
       walletId: WalletId;
-      rpId: string;
       providerSubject: ProviderSubject;
       email: string;
       emailHashHex: string;
@@ -191,6 +190,7 @@ export type RegistrationAuthority =
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;
+      rpId?: never;
     };
 
 export type EmailOtpRegistrationProof =
@@ -246,11 +246,11 @@ export type WalletAuthMethodRecord =
       kind: 'email_otp';
       status: 'active' | 'revoked';
       walletId: WalletId;
-      rpId: string;
       emailHashHex: string;
       registrationAuthorityId: string;
       createdAtMs: number;
       updatedAtMs: number;
+      rpId?: never;
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;

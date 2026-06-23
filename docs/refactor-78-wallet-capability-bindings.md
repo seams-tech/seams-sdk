@@ -52,8 +52,10 @@ Those bugs survive normal tests because many fixtures use named accounts where
 ## Design Principles
 
 - `WalletIdentity` is the durable wallet identity and carries only `walletId`.
-- `rpId` is passkey/WebAuthn scope metadata. It belongs on passkey credential,
-  passkey registration, and passkey session records only.
+- `rpId` is not wallet identity. It belongs on passkey/WebAuthn credential,
+  registration, and session records. Existing ECDSA key identity also carries
+  `rpId` as part of the current canonical lane/key namespace; Refactor 79
+  replaces that with a dedicated key namespace field.
 - Wallet auth methods are additive capabilities. A wallet can have passkey,
   Email OTP, both, or future auth methods without changing wallet identity.
 - NEAR account binding is a wallet capability.
@@ -61,7 +63,7 @@ Those bugs survive normal tests because many fixtures use named accounts where
   account.
 - ECDSA signing is wallet-scoped and lane-scoped.
 - Recovery and Email OTP enrollment are wallet-scoped unless a specific flow
-  states a NEAR dependency.
+  states a NEAR or ECDSA exact-lane dependency.
 - Core functions accept the narrowest capability object required by the
   operation.
 - Raw strings are parsed once at request, persistence, iframe, and UI state
@@ -152,6 +154,15 @@ type WalletAuthMethodBinding =
       wallet: WalletIdentity;
       emailHashHex: string;
       registrationAuthorityId: string;
+    };
+
+type CurrentWalletAuthMethod =
+  | {
+      kind: 'none';
+    }
+  | {
+      kind: 'selected';
+      binding: WalletAuthMethodBinding;
     };
 
 type NearAccountBinding =
@@ -312,6 +323,10 @@ Builder invariants:
 - `WalletAuthMethodBinding.kind` is branch-specific. The passkey branch requires
   `rpId`; the Email OTP branch rejects `rpId` and carries Email OTP identity
   fields instead.
+- `CurrentWalletAuthMethod` carries the selected concrete auth-method binding.
+  It must not collapse back to a raw auth-method enum.
+- React and public-session parsers must validate that a selected current auth
+  method matches one entry in `authMethods`.
 - Passkey boundaries validate the expected RP scope before minting or consuming
   passkey credentials.
 - `walletId` is always provided by the wallet/profile/session boundary.
@@ -406,7 +421,7 @@ type ReactLoginState =
       walletId: null;
       nearAccountId: null;
       nearPublicKey: null;
-      currentAuthMethod: null;
+      currentAuthMethod: { kind: 'none' };
       authMethods: readonly [];
     }
   | {
@@ -414,7 +429,7 @@ type ReactLoginState =
       walletId: WalletId;
       nearAccountId: NearAccountId | null;
       nearPublicKey: string | null;
-      currentAuthMethod: WalletAuthMethod | null;
+      currentAuthMethod: CurrentWalletAuthMethod;
       authMethods: readonly WalletAuthMethodBinding[];
       thresholdEcdsaEthereumAddress?: string | null;
       thresholdEcdsaPublicKeyB64u?: string | null;
@@ -442,6 +457,14 @@ Public and iframe APIs must reject ambiguous runtime calls when the requested
 operation needs a wallet binding and the caller provides only a NEAR account ID.
 Published TypeScript types, runtime validators, and iframe message parsers must
 agree on that rejection.
+
+Selected-wallet restore is an explicit wallet-id restore path. React
+`refreshLoginState()` and wallet-iframe lifecycle startup may read
+`preferences.getCurrentWalletId()` only as a stored `WalletIdentity`; they must
+not derive a wallet from `nearAccountId`, current NEAR account state, or account
+projection fallback. Iframe preference handlers may fetch a wallet session only
+when the message payload carries an explicit `walletId`, and that lookup remains
+wallet-keyed.
 
 ## Persistence Model
 
@@ -517,6 +540,9 @@ the repository boundary.
   - `NearAccountBinding` without wallet identity;
   - `PasskeyAuthScope` without `rpId`;
   - Email OTP auth-method bindings with `rpId`;
+  - `currentAuthMethod` modeled as `WalletAuthMethod | null`;
+  - selected current auth methods without a concrete
+    `WalletAuthMethodBinding`;
   - auth-method state modeled as a single exclusive method when multiple active
     auth methods should be representable;
   - implicit account IDs in the named NEAR account branch;
@@ -582,8 +608,15 @@ depends on capability records.
 - Add `walletId` to React `LoginState`.
 - Add registered auth-method capability state to logged-in React `LoginState`.
   Passkey capabilities include `rpId`; Email OTP capabilities do not.
+- Change React `currentAuthMethod` to `CurrentWalletAuthMethod`, where the
+  selected branch carries a concrete `WalletAuthMethodBinding`.
+- Validate session refresh and iframe refresh results so `currentAuthMethod`
+  either has `kind: 'none'` or references one concrete entry in `authMethods`.
 - Update `useLoginStateRefresher`, `useWalletIframeLifecycle`, and
   `useSeamsContextValue` so successful session reads store wallet identity.
+- Add selected-wallet restore tests proving no-argument React/iframe refresh
+  restores only `preferences.getCurrentWalletId()` and never falls back through
+  `nearAccountId`.
 - Update `AccountMenuButton` to compute:
   - `walletIdentity` from `loginState.walletId`;
   - `passkeyAuthScope` from the selected passkey auth-method capability only
@@ -638,19 +671,21 @@ depends on capability records.
 
 ### Phase 3a: Email OTP Session And Companion Capability Flows
 
-Email OTP is wallet-scoped except where a specific NEAR Ed25519 signer is being
-used. Update all companion-session and warmup paths so they consume capability
-bindings.
+Email OTP auth is wallet-scoped except where a specific NEAR Ed25519 signer or
+ECDSA exact lane is being used. Update all companion-session and warmup paths so
+they consume capability bindings.
 
 - Update Email OTP Ed25519 warmup to require `NearEd25519SignerBinding` and
   `WalletIdentity` when selecting companion ECDSA capability records.
 - Update Email OTP ECDSA login, enrollment, refresh, publication, and sealed
-  session registry paths to use `WalletIdentity`.
+  session registry paths to use `WalletIdentity` for wallet ownership and
+  Refactor 79 exact-lane identity for ECDSA authority.
 - Update app-session JWT cache helpers so the cache key and wallet-session
   subject are wallet-scoped and never recovered from `nearAccountId`.
 - Update email-otp worker request/result payloads so wallet-scoped fields are
-  named `walletId`, NEAR fields are named `nearAccountId`, and Ed25519 fields
-  include `ed25519KeyScopeId`.
+  named `walletId`, NEAR fields are named `nearAccountId`, Ed25519 fields
+  include `ed25519KeyScopeId`, and ECDSA key namespace fields are carried only
+  inside exact-lane/key material.
 - Add tests with `walletId !== nearAccountId` for:
   - Email OTP challenge issuance;
   - Email OTP login;
@@ -725,7 +760,8 @@ bindings.
   - passkey/WebAuthn APIs take `{ walletId, rpId }` or a normalized
     `PasskeyAuthScope`;
   - Email OTP APIs take wallet identity plus Email OTP provider/challenge
-    identity, never `rpId`;
+    identity. They do not take `rpId`; Refactor 79 ECDSA exact-lane/key identity
+    carries the ECDSA key namespace separately;
   - NEAR-scoped APIs take `{ walletSession, nearAccount }` or a normalized
     `NearAccountBinding`;
   - Ed25519 signer APIs take a normalized signer binding.
@@ -925,7 +961,9 @@ packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts
 - A wallet can be logged in with `walletId !== nearAccountId`.
 - Wallet identity carries `walletId`; passkey/WebAuthn flows validate `rpId`
   through `PasskeyAuthScope` or passkey credential/session records.
-- Email OTP auth records and flows do not require or carry `rpId`.
+- Email OTP auth-method records and Email OTP auth bindings do not require or
+  carry `rpId`. Refactor 79 owns the ECDSA lane/key namespace migration away
+  from `rpId`.
 - Recovery-code status, display, and rotation use `walletId`.
 - ECDSA export and signing lane selection use `walletId`, never
   `nearAccountId`.
@@ -936,7 +974,8 @@ packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts
 - Passkey login warmup can restore and mint Ed25519 and ECDSA sessions for an
   implicit wallet where all three identities differ by role.
 - Email OTP login, enrollment, Ed25519 warmup, and ECDSA companion-session paths
-  use wallet bindings and split-identity fixtures.
+  use wallet bindings and split-identity fixtures. ECDSA authority reads use
+  Refactor 79 exact-lane identity.
 - Budget status, available lane listing, and UI-confirm sealed restore metadata
   use capability bindings.
 - Public results and events define whether `walletId`, `nearAccountId`, or
@@ -969,6 +1008,8 @@ pnpm -C tests test:unit
 - Capability binding types exist and are used by core identity-sensitive paths.
 - React login state exposes `walletId` independently from `nearAccountId` and
   represents passkey and Email OTP as additive auth-method capabilities.
+- React `currentAuthMethod` is a discriminated union whose selected branch
+  carries a `WalletAuthMethodBinding`.
 - Wallet-scoped commands cannot be called with only a NEAR account ID.
 - NEAR-scoped commands cannot run without a NEAR account binding.
 - Ed25519 HSS/session/export commands cannot run without an Ed25519 signer

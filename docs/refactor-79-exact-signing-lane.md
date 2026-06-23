@@ -8,8 +8,9 @@ Related plans:
 
 - [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
 - [refactor-76-branded-keys.md](./refactor-76-branded-keys.md)
-- [refactor-80-switch-case.md](./refactor-80-switch-case.md)
 - [refactor-77-near-implicit-accounts.md](./refactor-77-near-implicit-accounts.md)
+- [refactor-78-wallet-capability-bindings.md](./refactor-78-wallet-capability-bindings.md)
+- [refactor-80-switch-case.md](./refactor-80-switch-case.md)
 
 ## Goal
 
@@ -38,7 +39,7 @@ Several recent regressions came from broad selection surfaces:
 
 - stale records could be selected after a rollback or replacement path;
 - records with the same broad identity could differ by `signingGrantId`,
-  `thresholdSessionId`, chain target, auth method, or material binding;
+  `thresholdSessionId`, chain target, auth binding, or material binding;
 - `updatedAtMs` and first-candidate fallback made authority selection depend on
   incidental ordering;
 - diagnostics and display helpers looked similar to signing admission helpers.
@@ -63,9 +64,39 @@ packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentit
 This refactor hardens that module and removes parallel exact-lane terminology.
 Do not add another public `ExactSigningLaneIdentity` module.
 
+Exact lane identity must separate auth principal identity from key identity.
+`rpId` is passkey/WebAuthn auth scope, not wallet identity and not an ECDSA key
+namespace. Email OTP lanes use Email OTP holder identity. ECDSA key identity
+uses the wallet key namespace, key facts, signing root, and public identity.
+
 Target shape:
 
 ```ts
+type SigningLaneAuthBinding =
+  | {
+      kind: 'passkey';
+      rpId: RpId;
+      credentialIdB64u: string;
+    }
+  | {
+      kind: 'email_otp';
+      providerSubjectId: string;
+      rpId?: never;
+      credentialIdB64u?: never;
+    };
+
+type EvmFamilyEcdsaKeyIdentity = {
+  walletId: WalletId;
+  walletKeyId: WalletKeyId;
+  keyScope: EvmFamilyKeyScope;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  participantIds: readonly ParticipantId[];
+  thresholdOwnerAddress: ThresholdOwnerAddress;
+  rpId?: never;
+};
+
 type ExactSigningLaneIdentity =
   | ExactEd25519SigningLaneIdentity
   | ExactEcdsaSigningLaneIdentity;
@@ -77,7 +108,7 @@ type ExactEd25519SigningLaneIdentity = {
   walletId: WalletId;
   nearAccountId: NamedNearAccountId | ImplicitNearAccountId;
   ed25519KeyScopeId: Ed25519KeyScopeId;
-  authMethod: 'passkey' | 'email_otp';
+  auth: SigningLaneAuthBinding;
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
@@ -87,7 +118,7 @@ type ExactEcdsaSigningLaneIdentity = {
   curve: 'ecdsa';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   walletId: WalletId;
-  authMethod: 'passkey' | 'email_otp';
+  auth: SigningLaneAuthBinding;
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -96,8 +127,10 @@ type ExactEcdsaSigningLaneIdentity = {
 };
 ```
 
-`EvmFamilyEcdsaKeyFingerprint` is a diagnostic summary field. Authority reads
-use the full ECDSA key identity plus `keyHandle`.
+`authMethod` is derived from `auth.kind` for display, analytics, and compatibility
+payloads. Authority keys use `auth`. `EvmFamilyEcdsaKeyFingerprint` is a
+diagnostic summary field. Authority reads use the full ECDSA key identity plus
+`keyHandle`.
 
 Boundary lookup result:
 
@@ -123,7 +156,9 @@ Use one public vocabulary for lane identity:
 | Term | Meaning | Authority-bearing |
 | --- | --- | --- |
 | `WalletId` | Durable wallet/profile id from `@shared/utils/domainIds` | yes |
+| `WalletKeyId` | Durable wallet key id from `@shared/signing-lanes` | yes for ECDSA key identity |
 | `nearAccountId` | Protocol NEAR account id, named or implicit | yes for Ed25519 |
+| `SigningLaneAuthBinding` | Branch-specific holder principal for passkey or Email OTP | yes |
 | `SelectedLane` | User/session selected lane without planning fields | yes only after exact identity is built |
 | `ExactSigningLaneIdentity` | Canonical signing/export/restore/budget identity | yes |
 | `NearTransactionSigningLane` / `EcdsaTransactionSigningLane` | Operation-ready lane with storage/source/readiness metadata | yes |
@@ -140,6 +175,10 @@ Cleanup rules:
   id brands from Refactor 78.
 - ECDSA public facts fingerprints are summaries. They cannot replace full key
   identity in authority reads.
+- `authMethod` is a derived label. It must not be the only auth identity in an
+  authority key.
+- `rpId` appears only in passkey/WebAuthn auth bindings. ECDSA key identity
+  uses `WalletKeyId` and signing-root facts.
 - `SigningLaneReference` stays separate from threshold-session identity. It
   identifies wallet-key/lane-share custody state.
 
@@ -179,6 +218,7 @@ High-priority files:
 ```text
 packages/sdk-web/src/core/signingEngine/session/persistence/records.ts
 packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
+packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts
 packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts
 packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts
 packages/sdk-web/src/core/signingEngine/session/operationState/types.ts
@@ -205,6 +245,9 @@ packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts
 packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts
 packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts
 packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts
@@ -221,7 +264,10 @@ Important tests:
 ```text
 tests/unit/refactor74LegacyFallbacks.guard.unit.test.ts
 tests/unit/walletScopedLookups.guard.unit.test.ts
+tests/unit/refactor79ExactSigningLane.guard.unit.test.ts
 packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts
+tests/unit/evmFamilyEcdsaIdentity.unit.test.ts
+tests/unit/emailOtpEcdsaSigningSessionAuth.unit.test.ts
 tests/unit/ecdsaRoleLocalRecords.unit.test.ts
 tests/unit/ecdsaSelection.restorable.unit.test.ts
 tests/unit/exportLaneSelection.unit.test.ts
@@ -263,6 +309,11 @@ Guard categories:
   - new `ExactSigningLaneIdentity` exports outside the canonical module;
 - no `walletId: AccountId` in signing-lane identity or planning types after
   Refactor 78 wallet id brands are available.
+- no ECDSA key identity authority path reads or writes `key.rpId`;
+- no Email OTP ECDSA login, enrollment, publication, restore, or export path
+  calls `requireRpId(...)`;
+- `rpId` in ECDSA files is allowed only in passkey auth bindings, WebAuthn
+  boundary parsing, or named ECDSA key-identity migration parsers.
 
 Initial guard should classify existing allowed hits:
 
@@ -278,6 +329,8 @@ Required guard updates:
 - include `signEvmFamily/ecdsaSelection.ts` in the authority-selector scan;
 - extend `walletScopedLookups.guard.unit.test.ts` so exact-lane and planning
   structs use `WalletId` for `walletId`;
+- extend source guards so exact ECDSA key identity builders reject `rpId` and
+  require `walletKeyId`;
 - add an allowlist comment for each remaining broad lookup that names the
   boundary role: display, repair, request parsing, or persistence parsing.
 
@@ -295,6 +348,12 @@ Tasks:
   `nearAccountId`, and `ed25519KeyScopeId`;
 - update `ExactEcdsaSigningLaneIdentity` to use `WalletId`, require
   `keyHandle`, and keep full `EvmFamilyEcdsaKeyIdentity`;
+- update `EvmFamilyEcdsaKeyIdentity` so it carries `walletKeyId` and rejects
+  `rpId`;
+- add `SigningLaneAuthBinding` and replace exact-lane `authMethod` authority
+  fields with branch-specific `auth`;
+- keep `authMethod` only as a derived display or compatibility field at
+  boundaries;
 - remove public `ExactEcdsaLaneIdentity` and `ExactEcdsaRuntimeLaneRef` exports
   from `session/persistence/records.ts` after consumers use the canonical type;
 - reconcile `SelectedEcdsaLane`, `EcdsaSigningSessionPlanningLane`,
@@ -315,6 +374,9 @@ Builder rules:
 - broad object spreads cannot construct exact identity objects;
 - core functions accept exact identity types or transaction lanes that can build
   the same exact identity.
+- passkey auth bindings require `rpId` and `credentialIdB64u`;
+- Email OTP auth bindings require `providerSubjectId` and reject `rpId`;
+- ECDSA key identity builders require `walletKeyId` and reject `rpId`.
 
 Type fixtures:
 
@@ -329,9 +391,14 @@ Fixtures should reject:
 - missing Ed25519 `walletId`;
 - missing Ed25519 `nearAccountId`;
 - missing Ed25519 `ed25519KeyScopeId`;
+- exact identity with `authMethod` as the only auth field;
+- passkey auth binding without `rpId`;
+- Email OTP auth binding with `rpId`;
 - ECDSA identity without `chainTarget`;
 - ECDSA identity without full `key`;
 - ECDSA identity without `keyHandle`;
+- ECDSA key identity without `walletKeyId`;
+- ECDSA key identity with `rpId`;
 - Ed25519 identity with ECDSA fields;
 - `walletId: AccountId` in ECDSA identity fixtures;
 - generic `string` cast into branded IDs outside a boundary builder.
@@ -404,19 +471,21 @@ Strengthen `upsert*` paths so authority records cannot accumulate silently.
 Ed25519:
 
 - canonical lane key includes `walletId`, `nearAccountId`,
-  `ed25519KeyScopeId`, auth method, signing grant, threshold session, and curve;
+  `ed25519KeyScopeId`, auth binding, signing grant, threshold session, and
+  curve;
 - material-bearing records include material binding digest in the durable
   restore identity when available;
-- writing a new current lane for the same wallet/auth/curve/signing grant must
-  replace the old current lane explicitly;
+- writing a new current lane for the same wallet/auth binding/curve/signing
+  grant must replace the old current lane explicitly;
 - writing two records for the same exact lane with conflicting material facts
   must throw or return a typed boundary failure.
 
 ECDSA:
 
-- canonical lane key includes wallet, auth method, signing grant, threshold
+- canonical lane key includes wallet, auth binding, signing grant, threshold
   session, chain target, key handle, full key identity, and curve;
-- shared EVM-family key identity checks stay active;
+- shared EVM-family key identity checks stay active and compare `walletKeyId`,
+  signing root, participants, threshold key id, and owner address;
 - target-specific writes delete replaced current passkey lanes through one
   named replacement helper;
 - Email OTP session-lifetime lanes may coexist only when their exact identities
@@ -434,6 +503,40 @@ Tests:
   `walletId` through `toAccountId`;
 - sponsored named wallet fixture still stores matching `walletId` and
   `nearAccountId` where the provisioning mode requires it.
+
+## Phase 3a: Replace ECDSA RP Key Namespace
+
+Current ECDSA key identity uses `rpId` as part of the key namespace. That makes
+Email OTP-only and future-auth wallets depend on a passkey/WebAuthn concept.
+
+Target:
+
+- add `walletKeyId` to `EvmFamilyEcdsaKeyIdentity`, `EvmFamilyEcdsaWalletKey`,
+  and session bootstrap key context;
+- remove `rpId` from ECDSA key identity, ECDSA key comparisons, exact ECDSA lane
+  canonicalization, and ECDSA key fingerprints;
+- keep `rpId` only in `PasskeyEcdsaAuthBinding` and passkey/WebAuthn transport
+  boundaries;
+- update Email OTP ECDSA login, enrollment, publication, restore, and companion
+  session flows so they resolve `walletKeyId` from bootstrap/key records instead
+  of calling `requireRpId(...)`;
+- compatibility parsers may read old persisted ECDSA key records with `rpId`,
+  then normalize immediately to a `walletKeyId`-backed key identity or fail with
+  a typed migration error;
+- do not synthesize `walletKeyId` from `rpId`; derive it from `WalletKeyRecord`,
+  signing-root metadata, or a named migration parser with tests and deletion
+  notes.
+
+Tests:
+
+- Email OTP-only ECDSA enrollment, login, publication, restore, and export work
+  without `rpId`;
+- passkey ECDSA signing still validates `rpId` through passkey auth binding;
+- exact ECDSA lane identity rejects `key.rpId`;
+- two ECDSA records with the same `walletId` and different `walletKeyId` are
+  distinct exact identities;
+- compatibility parser rejects old ECDSA records when `walletKeyId` cannot be
+  recovered.
 
 ## Phase 4: Remove Best-Candidate Selection From Transaction Signing
 
@@ -573,7 +676,7 @@ Rules:
 - duplicate restore material returns `duplicate_records`;
 - restore retry keeps the original exact identity.
 - sealed-session filters include `signingGrantId`, `thresholdSessionId`,
-  auth method, curve, and ECDSA `chainTarget`;
+  auth binding, curve, and ECDSA `chainTarget`;
 - sealed-session read and lease APIs return typed duplicate results;
 - `readRecordByThresholdSessionId(...)` cannot select the last matching record in
   authority paths;
@@ -652,7 +755,7 @@ Target:
 - if payload lacks exact identity, return typed boundary error;
 - display-only fallback may show diagnostics and repair prompts;
 - signing material selection does not read broad records by threshold session.
-- payloads that touch signing material include `walletId`, auth method, curve,
+- payloads that touch signing material include `walletId`, auth binding, curve,
   signing grant id, threshold session id, and branch-specific fields;
 - Ed25519 payloads include `nearAccountId` and `ed25519KeyScopeId`;
 - ECDSA payloads include `chainTarget`, `keyHandle`, and full key identity or a
@@ -730,6 +833,9 @@ Validation matrix:
 pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
 pnpm -C tests exec playwright test --reporter=line unit/refactor74LegacyFallbacks.guard.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/walletScopedLookups.guard.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/refactor79ExactSigningLane.guard.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/evmFamilyEcdsaIdentity.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/emailOtpEcdsaSigningSessionAuth.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/ecdsaRoleLocalRecords.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/ecdsaSelection.restorable.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/exportLaneSelection.unit.test.ts
@@ -765,7 +871,8 @@ Browser evidence after implementation:
 - `ExactSigningLaneIdentity` is the only public exact-lane authority type.
 - Exact Ed25519 identity separates `walletId`, `nearAccountId`, and
   `ed25519KeyScopeId`.
-- Exact ECDSA identity uses `WalletId`, `keyHandle`, and full key identity.
+- Exact ECDSA identity uses `WalletId`, `keyHandle`, `WalletKeyId`, and full key
+  identity without `rpId`.
 - Persistence writes enforce uniqueness or return typed duplicate errors.
 - Broad threshold-session reads are absent from authority-bearing paths.
 - Candidate ranking and timestamp tie-breakers are absent from authority-bearing
