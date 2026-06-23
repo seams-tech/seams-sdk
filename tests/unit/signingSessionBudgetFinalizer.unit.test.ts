@@ -42,6 +42,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 type ReservedSuccessInput = Extract<SigningSessionBudgetSuccessInput, { kind: 'reserved_success' }>;
 type UnreservedSuccessInput = Extract<
@@ -53,12 +54,18 @@ type ExternallyConsumedSuccessInput = Extract<
   { kind: 'externally_consumed_success' }
 >;
 
+const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
+const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
+const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+
 function makeLane(args?: {
   signingGrantId?: string;
   thresholdSessionId?: string;
 }): NearTransactionSigningLane {
   return buildNearTransactionSigningLane({
-    accountId: toAccountId('alice.testnet'),
+    walletId: NEAR_WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
     authMethod: 'passkey',
     signingGrantId: SigningSessionIds.signingGrant(
       args?.signingGrantId || 'wallet-session-1',
@@ -83,7 +90,7 @@ function makeSpend(args?: {
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(
       args?.operationFingerprint || 'fingerprint-1',
     ),
-    walletId: lane.accountId,
+    walletId: NEAR_WALLET_ID,
     signingGrantId: lane.signingGrantId,
     lane,
     thresholdSessionIds: [lane.thresholdSessionId],
@@ -757,7 +764,7 @@ test.describe('budget coordinator reserved success handling', () => {
           kind: 'externally_consumed_success',
           spend: {
             operationId: SigningSessionIds.signingOperation('observation-only'),
-            walletId: toAccountId(String(walletBudgetOwnerId(args.owner))),
+            walletId: toWalletId(String(walletBudgetOwnerId(args.owner))),
             signingGrantId: SigningSessionIds.signingGrant(
               args.signingGrantId,
             ),

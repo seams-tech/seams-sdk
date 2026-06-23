@@ -133,7 +133,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
               socialLogin: {
                 google: async () => {
                   const challenge = await pm.auth.requestEmailOtpChallenge({
-                    nearAccountId: accountId,
+                    walletId: accountId,
                     relayUrl: relayerUrl,
                     appSessionJwt,
                   });
@@ -157,7 +157,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
                           const loginResult = await pm.auth.loginWithEmailOtpEcdsaCapability({
                             walletSession: {
                               walletId: accountId,
-                              userId: accountId,
+                              walletSessionUserId: accountId,
                             },
                             chainTarget: {
                               kind: 'tempo',

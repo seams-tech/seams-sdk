@@ -34,18 +34,51 @@ function nearCommandSubject(walletIdRaw: string, nearAccountIdRaw = walletIdRaw)
   };
 }
 
+function base64UrlEncodeJsonFixture(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
+  return `${base64UrlEncodeJsonFixture({ alg: 'none', typ: 'JWT' })}.${base64UrlEncodeJsonFixture(payload)}.fixture`;
+}
+
+function buildRouterAbEd25519WalletSessionJwtFixture(args: {
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  relayerKeyId: string;
+}): string {
+  return buildUnsignedJwtFixture({
+    kind: 'router_ab_ed25519_wallet_session_v1',
+    sub: args.walletId,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: args.relayerKeyId,
+    rpId: 'example.localhost',
+    participantIds: [1, 2],
+  });
+}
+
 function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
   walletId?: string;
   nearAccountId: string;
+  ed25519KeyScopeId?: string;
   signingGrantId: string;
   thresholdSessionId: string;
   expiresAtMs: number;
   status: SigningSessionStatus;
 }) {
   const walletId = args.walletId || args.nearAccountId;
+  const ed25519KeyScopeId = args.ed25519KeyScopeId || walletId;
   const record = {
     walletId,
     nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId,
     rpId: 'example.localhost',
     relayerUrl: 'https://relay.example.test',
     relayerKeyId: 'ed25519:relayer-key-id',
@@ -187,17 +220,28 @@ test.describe('near signing session selection', () => {
   test('plans passkey Ed25519 sealed pending material as warm-session repair without reauth', async () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = 'pending-material-passkey-ed25519.testnet';
+    const walletId = nearAccountId;
+    const ed25519KeyScopeId = nearAccountId;
     const signingGrantId = 'wallet-pending-material-passkey-ed25519';
     const thresholdSessionId = 'threshold-pending-material-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
+    const relayerKeyId = 'ed25519:pending-material-relayer-key';
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId,
+      nearAccountId,
+      ed25519KeyScopeId,
+      thresholdSessionId,
+      signingGrantId,
+      relayerKeyId,
+    });
     persistWarmSessionEd25519Capability({
       kind: 'jwt_passkey' as const,
-      walletId: nearAccountId as any,
+      walletId: walletId as any,
       nearAccountId: nearAccountId as any,
-      ed25519KeyScopeId: nearAccountId,
+      ed25519KeyScopeId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
-      relayerKeyId: 'ed25519:pending-material-relayer-key',
+      relayerKeyId,
       participantIds: [1, 2],
       sessionKind: 'jwt' as const,
       sessionId: thresholdSessionId,
@@ -219,7 +263,7 @@ test.describe('near signing session selection', () => {
       materialKeyId: parseEd25519WorkerMaterialKeyId('pending-material-key-id'),
       materialCreatedAtMs: Date.now(),
       keyVersion: 'kek-s-test',
-      jwt: 'router-ab-ed25519-pending-material-wallet-session-jwt',
+      jwt: walletSessionJwt,
       runtimePolicyScope: {
         orgId: 'org-pending-material',
         projectId: 'project-pending-material',
@@ -268,17 +312,28 @@ test.describe('near signing session selection', () => {
   test('plans passkey Ed25519 auth-only pending material as reauth instead of warm repair', async () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = 'auth-only-pending-passkey-ed25519.testnet';
+    const walletId = nearAccountId;
+    const ed25519KeyScopeId = nearAccountId;
     const signingGrantId = 'wallet-auth-only-pending-passkey-ed25519';
     const thresholdSessionId = 'threshold-auth-only-pending-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
+    const relayerKeyId = 'ed25519:auth-only-pending-relayer-key';
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId,
+      nearAccountId,
+      ed25519KeyScopeId,
+      thresholdSessionId,
+      signingGrantId,
+      relayerKeyId,
+    });
     persistWarmSessionEd25519Capability({
       kind: 'jwt_passkey' as const,
-      walletId: nearAccountId as any,
+      walletId: walletId as any,
       nearAccountId: nearAccountId as any,
-      ed25519KeyScopeId: nearAccountId,
+      ed25519KeyScopeId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
-      relayerKeyId: 'ed25519:auth-only-pending-relayer-key',
+      relayerKeyId,
       participantIds: [1, 2],
       sessionKind: 'jwt' as const,
       sessionId: thresholdSessionId,
@@ -286,7 +341,7 @@ test.describe('near signing session selection', () => {
       expiresAtMs,
       remainingUses: 2,
       signerSlot: 1,
-      jwt: 'router-ab-ed25519-auth-only-pending-wallet-session-jwt',
+      jwt: walletSessionJwt,
       runtimePolicyScope: {
         orgId: 'org-auth-only-pending',
         projectId: 'project-auth-only-pending',
@@ -334,14 +389,27 @@ test.describe('near signing session selection', () => {
 
   test('fails closed when restored passkey Ed25519 material cannot be refreshed', async () => {
     const nearAccountId = 'refresh-failed-passkey-ed25519.testnet';
+    const walletId = nearAccountId;
+    const ed25519KeyScopeId = nearAccountId;
     const signingGrantId = 'wallet-refresh-failed-passkey-ed25519';
     const thresholdSessionId = 'threshold-refresh-failed-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
-    const record = {
+    const relayerKeyId = 'ed25519:refresh-failed-relayer-key';
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId,
       nearAccountId,
+      ed25519KeyScopeId,
+      thresholdSessionId,
+      signingGrantId,
+      relayerKeyId,
+    });
+    const record = {
+      walletId,
+      nearAccountId,
+      ed25519KeyScopeId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
-      relayerKeyId: 'ed25519:refresh-failed-relayer-key',
+      relayerKeyId,
       participantIds: [1, 2],
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
@@ -363,8 +431,8 @@ test.describe('near signing session selection', () => {
       materialKeyId: parseEd25519WorkerMaterialKeyId('refresh-failed-material-key-id'),
       materialCreatedAtMs: Date.now(),
       keyVersion: 'kek-s-test',
-      jwt: 'router-ab-ed25519-refresh-failed-wallet-session-jwt',
-      walletSessionJwt: 'router-ab-ed25519-refresh-failed-wallet-session-jwt',
+      jwt: walletSessionJwt,
+      walletSessionJwt,
       runtimePolicyScope: {
         orgId: 'org-refresh-failed',
         projectId: 'project-refresh-failed',
@@ -524,8 +592,16 @@ test.describe('near signing session selection', () => {
     expect(walletId).not.toBe(nearAccountId);
     expect(context.walletId).toBe(walletId);
     expect(context.nearAccountId).toBe(nearAccountId);
-    expect(String(context.lane.accountId)).toBe(walletId);
-    expect(String(context.coordinatorInput.lane.accountId)).toBe(walletId);
+    expect(String(context.lane.walletId)).toBe(walletId);
+    expect(String(context.lane.nearAccountId)).toBe(nearAccountId);
+    expect(String(context.lane.ed25519KeyScopeId)).toBe(walletId);
+    expect(context.coordinatorInput.lane.curve).toBe('ed25519');
+    if (context.coordinatorInput.lane.curve !== 'ed25519') {
+      throw new Error('expected Ed25519 coordinator lane');
+    }
+    expect(String(context.coordinatorInput.lane.walletId)).toBe(walletId);
+    expect(String(context.coordinatorInput.lane.nearAccountId)).toBe(nearAccountId);
+    expect(String(context.coordinatorInput.lane.ed25519KeyScopeId)).toBe(walletId);
   });
 
   test('retains prior same-account Ed25519 worker material when minting a new login session', () => {

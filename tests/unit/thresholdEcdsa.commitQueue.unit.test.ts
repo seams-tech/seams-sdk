@@ -152,6 +152,38 @@ test.describe('threshold ECDSA commit queue gate', () => {
     await expect(first).resolves.toBe('first-ok');
   });
 
+  test('formats generated wallet ids in queue errors without NEAR account validation', async () => {
+    const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('frost-vermillion-k7p9m2');
+    const blocker = deferred<void>();
+
+    const first = withThresholdEcdsaCommitQueue({
+      queueByKey,
+      queueKey: 'session:tempo:tsess-1',
+      walletId,
+      enabled: true,
+      maxQueueLength: 1,
+      task: async () => {
+        await blocker.promise;
+        return 'first-ok';
+      },
+    });
+
+    await expect(
+      withThresholdEcdsaCommitQueue({
+        queueByKey,
+        queueKey: 'session:tempo:tsess-1',
+        walletId,
+        enabled: true,
+        maxQueueLength: 1,
+        task: async () => 'second-ok',
+      }),
+    ).rejects.toThrow('frost-vermillion-k7p9m2');
+
+    blocker.resolve();
+    await expect(first).resolves.toBe('first-ok');
+  });
+
   test('fails queued requests with commit_queue_timeout before task start', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
     const walletId = toWalletId('alice.testnet');

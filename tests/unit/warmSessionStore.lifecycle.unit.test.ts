@@ -152,8 +152,7 @@ test.describe('WarmSessionStore lifecycle', () => {
 
     expect(status).toMatchObject({
       sessionId: ed25519Record.thresholdSessionId,
-      status: 'exhausted',
-      remainingUses: 0,
+      status: 'not_found',
       authMethod: 'email_otp',
       retention: 'session',
     });

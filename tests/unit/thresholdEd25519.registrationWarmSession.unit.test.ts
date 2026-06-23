@@ -98,9 +98,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const keyMaterialBrandsMod = await import(paths.keyMaterialBrands);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
-        const nearAccountId = 'registration-alice.testnet';
-        const walletId = nearAccountId;
-        const ed25519KeyScopeId = nearAccountId;
+        const walletId = 'frost-vermillion-k7p9m2';
+        const nearAccountId = 'a'.repeat(64);
+        const ed25519KeyScopeId = 'ed25519-scope-frost-vermillion-k7p9m2';
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -244,7 +244,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
           });
 
-          const walletSession = await loginMod.getWalletSession(context, nearAccountId);
+          const walletSession = await loginMod.getWalletSession(context, walletId);
           const storedRecord =
             sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
               'registration-session-1',
@@ -253,6 +253,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           return {
             hydrateCalls,
             warmSessionActive,
+            walletSessionWalletId: walletSession.login?.walletId ?? null,
+            walletSessionNearAccountId: walletSession.login?.nearAccountId ?? null,
             walletSession,
             storedRecordSessionId: storedRecord?.thresholdSessionId || null,
           };
@@ -271,8 +273,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     expect(result.hydrateCalls).toBe(1);
     expect(result.warmSessionActive).toBe(true);
     expect(result.storedRecordSessionId).toBe('registration-session-1');
+    expect(result.walletSessionWalletId).toBe('frost-vermillion-k7p9m2');
+    expect(result.walletSessionNearAccountId).toBe('a'.repeat(64));
     expect(result.walletSession.login?.isLoggedIn).toBe(true);
-    expect(result.walletSession.login?.nearAccountId).toBe('registration-alice.testnet');
+    expect(result.walletSession.login?.nearAccountId).toBe('a'.repeat(64));
     expect(result.walletSession.signingSession?.status).toBe('active');
     expect(result.walletSession.signingSession?.sessionId).toBe('registration-session-1');
   });
@@ -287,7 +291,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
         const now = Date.now();
+        const walletId = 'frost-reconstruct-k7p9m2';
         const nearAccountId = 'registration-reconstruct.testnet';
+        const ed25519KeyScopeId = 'ed25519-scope-frost-reconstruct-k7p9m2';
         const thresholdSessionId = 'registration-session-reconstruct';
         const runtimePolicyScope = {
           orgId: 'org-registration',
@@ -306,7 +312,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         try {
           sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+            walletId,
             nearAccountId,
+            ed25519KeyScopeId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-reconstruct',
@@ -390,7 +398,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 },
               },
             },
+            walletId,
             nearAccountId,
+            ed25519KeyScopeId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-reconstruct',
@@ -451,9 +461,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const indexedDbMod = await import(paths.indexedDb);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
-        const nearAccountId = 'registration-parity.testnet';
-        const walletId = nearAccountId;
-        const ed25519KeyScopeId = nearAccountId;
+        const walletId = 'frost-parity-k7p9m2';
+        const nearAccountId = 'b'.repeat(64);
+        const ed25519KeyScopeId = 'ed25519-scope-frost-parity-k7p9m2';
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -596,10 +606,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
           });
 
-          const walletSession = await loginMod.getWalletSession(context, nearAccountId);
+          const walletSession = await loginMod.getWalletSession(context, walletId);
 
           return {
             isLoggedIn: walletSession.login?.isLoggedIn ?? false,
+            walletId: walletSession.login?.walletId ?? null,
+            nearAccountId: walletSession.login?.nearAccountId ?? null,
             signingSessionStatus: walletSession.signingSession?.status ?? null,
             sessionId: walletSession.signingSession?.sessionId ?? null,
           };
@@ -616,6 +628,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     );
 
     expect(result.isLoggedIn).toBe(true);
+    expect(result.walletId).toBe('frost-parity-k7p9m2');
+    expect(result.nearAccountId).toBe('b'.repeat(64));
     expect(result.signingSessionStatus).toBe('active');
     expect(result.sessionId).toBe('registration-session-parity');
   });

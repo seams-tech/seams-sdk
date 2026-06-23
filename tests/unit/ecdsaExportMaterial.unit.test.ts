@@ -484,7 +484,7 @@ test.describe('ECDSA export material', () => {
         },
       },
       {
-        walletSessionUserId: String(WALLET_ID),
+        walletId: String(WALLET_ID),
         exportLane,
         material,
         options: {},

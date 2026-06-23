@@ -6,13 +6,20 @@ import {
   waitFor,
   captureOverlay,
 } from './harness';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  nearAccountRefFromAccountId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
 const STICKY_NEAR_ACCOUNT = nearAccountRefFromAccountId('sticky.testnet');
+const STICKY_WALLET_SESSION = walletSessionRefFromSession({
+  walletId: 'sticky.testnet',
+  walletSessionUserId: 'sticky.testnet',
+});
 
 const stickyResponseScript = String.raw`
       const originalAdoptPort = adoptPort;
@@ -157,6 +164,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource,
         routerPath,
         stickyNearAccount,
+        stickyWalletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
@@ -176,6 +184,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
 
           const stickyPromise = router.exportKeypairWithUI({
             kind: 'near',
+            walletSession: stickyWalletSession,
             nearAccount: stickyNearAccount,
             options: {
               chain: 'near',
@@ -215,6 +224,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
         stickyNearAccount: STICKY_NEAR_ACCOUNT,
+        stickyWalletSession: STICKY_WALLET_SESSION,
       },
     );
 
@@ -238,6 +248,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource,
         routerPath,
         stickyNearAccount,
+        stickyWalletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
@@ -257,6 +268,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
 
           await router.exportKeypairWithUI({
             kind: 'near',
+            walletSession: stickyWalletSession,
             nearAccount: stickyNearAccount,
             options: {
               chain: 'near',
@@ -312,6 +324,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
         stickyNearAccount: STICKY_NEAR_ACCOUNT,
+        stickyWalletSession: STICKY_WALLET_SESSION,
       },
     );
 

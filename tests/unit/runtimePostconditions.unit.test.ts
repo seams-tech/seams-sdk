@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -22,8 +23,14 @@ import {
   buildVerifiedEcdsaPublicFacts,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = 'runtime-postconditions.testnet';
+const ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
+const ED25519_NEAR_ACCOUNT_ID = toAccountId('runtime-postconditions.testnet');
+const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString(
+  'scope-frost-vermillion-k7p9m2',
+);
 const TARGET: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
   chainId: 42431,
@@ -61,6 +68,9 @@ function ed25519Lane(
     authMethod,
     curve: 'ed25519',
     chain: 'near',
+    walletId: ED25519_WALLET_ID,
+    nearAccountId: ED25519_NEAR_ACCOUNT_ID,
+    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
     state: options.state ?? 'ready',
     signingGrantId: `wss-ed25519-${suffix}`,
     thresholdSessionId: `tsess-ed25519-${suffix}`,
@@ -132,7 +142,7 @@ function availableLanes(
   const arcEcdsa = ecdsaLane(`${suffix}-arc`, ARC_TARGET, authMethod, options);
   const ed25519 = ed25519Lane(suffix, authMethod, options);
   return {
-    walletId: toAccountId(WALLET_ID),
+    walletId: toWalletId(WALLET_ID),
     generation: 1,
     ecdsa: {
       targets: [TARGET, ARC_TARGET],

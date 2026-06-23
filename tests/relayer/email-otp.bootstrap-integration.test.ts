@@ -623,6 +623,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const enrolled = await enrollEmailOtpWallet({
       relayUrl,
       walletId: 'alice.testnet',
+      userId: 'alice.testnet',
       challengeId: enrollOtp.challengeId,
       otpCode: enrollOtp.otpCode,
       shamirPrimeB64u: SHAMIR_PRIME_B64U,
@@ -757,6 +758,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const enrolled = await enrollEmailOtpWallet({
         relayUrl: srv.baseUrl,
         walletId: 'alice.testnet',
+        userId: 'alice.testnet',
         challengeId: enrollOtp.challengeId,
         otpCode: enrollOtp.otpCode,
         shamirPrimeB64u: SHAMIR_PRIME_B64U,
@@ -902,6 +904,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const result = await enrollEmailOtpWallet({
         relayUrl: srv.baseUrl,
         walletId: 'alice.testnet',
+        userId: 'alice.testnet',
         challengeId: enrollOtp.challengeId,
         otpCode: enrollOtp.otpCode,
         shamirPrimeB64u: SHAMIR_PRIME_B64U,

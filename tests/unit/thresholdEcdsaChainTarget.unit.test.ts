@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '@/core/types/accountIds';
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfiguredRequest,
@@ -8,12 +7,13 @@ import {
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaSessionRecordKeysEqual,
   thresholdEcdsaLaneKey,
+  toWalletId,
   type ThresholdEcdsaSessionRecordKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): ThresholdEcdsaSessionRecordKey {
   return {
-    walletId: toAccountId('wallet-1.testnet'),
+    walletId: toWalletId('wallet-1.testnet'),
     keyHandle: 'ehss-key-arc',
     authMethod: 'email_otp',
     curve: 'ecdsa',

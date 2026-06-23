@@ -25,6 +25,36 @@ const IMPORT_PATHS = {
     '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
 } as const;
 
+function base64UrlEncodeJsonFixture(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
+  return `${base64UrlEncodeJsonFixture({ alg: 'none', typ: 'JWT' })}.${base64UrlEncodeJsonFixture(payload)}.fixture`;
+}
+
+function buildRouterAbEd25519WalletSessionJwtFixture(args: {
+  walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
+  thresholdSessionId: string;
+  signingGrantId: string;
+  relayerKeyId: string;
+}): string {
+  return buildUnsignedJwtFixture({
+    kind: 'router_ab_ed25519_wallet_session_v1',
+    sub: args.walletId,
+    walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: args.relayerKeyId,
+    rpId: 'example.localhost',
+    participantIds: [1, 2],
+  });
+}
+
 test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -39,6 +69,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const nearAccountId = 'alice.testnet';
         const common = {
           nearAccountId,
+          walletId: nearAccountId,
+          ed25519KeyScopeId: nearAccountId,
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'rk-ed25519',
@@ -90,7 +122,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           });
 
           const records =
-            storeMod.listStoredThresholdEd25519SessionRecordsForAccount(nearAccountId);
+            storeMod.listStoredThresholdEd25519SessionRecordsForWallet(nearAccountId);
           return {
             records: records.map(
               (record: {
@@ -155,8 +187,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('resolves canonical Router A/B-ready state from the warm-session record', async ({
     page,
   }) => {
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'canonical-threshold-session',
+      signingGrantId: 'canonical-wallet-session',
+      relayerKeyId: 'rk-1',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, walletSessionJwt }) => {
         const helperMod = await import(paths.routerAbEd25519WalletSessionState);
         const routerAbMod = await import(paths.routerAbWalletSessionCredential);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
@@ -165,6 +205,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         storeMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'rk-1',
@@ -183,7 +225,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'canonical-threshold-session',
           signingGrantId: 'canonical-wallet-session',
-          walletSessionJwt: 'jwt-canonical',
+          walletSessionJwt,
           routerAbNormalSigning: {
             kind: 'router_ab_ed25519_normal_signing_v1',
             signingWorkerId: 'signing-worker-canonical',
@@ -232,7 +274,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, walletSessionJwt },
     );
 
     expect(result).toEqual({
@@ -252,8 +294,103 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       signingWorkerId: 'signing-worker-canonical',
       credential: {
         kind: 'jwt',
-        walletSessionJwt: 'jwt-canonical',
+        walletSessionJwt,
       },
+    });
+  });
+
+  test('accepts Router A/B Ed25519 signing when wallet and NEAR identities differ', async ({
+    page,
+  }) => {
+    const walletId = 'frost-vermillion-k7p9m2';
+    const nearAccountId = 'a'.repeat(64);
+    const ed25519KeyScopeId = 'wallet-scope-frost-vermillion-k7p9m2';
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId,
+      nearAccountId,
+      ed25519KeyScopeId,
+      thresholdSessionId: 'implicit-threshold-session',
+      signingGrantId: 'implicit-wallet-session',
+      relayerKeyId: 'rk-implicit',
+    });
+
+    const result = await page.evaluate(
+      async ({ paths, walletId, nearAccountId, ed25519KeyScopeId, walletSessionJwt }) => {
+        const helperMod = await import(paths.routerAbEd25519WalletSessionState);
+        const routerAbMod = await import(paths.routerAbWalletSessionCredential);
+        const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
+        const storeMod = await import(paths.thresholdSessionStore);
+
+        storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        storeMod.upsertStoredThresholdEd25519SessionRecord({
+          nearAccountId,
+          walletId,
+          ed25519KeyScopeId,
+          rpId: 'example.localhost',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-implicit',
+          participantIds: [1, 2],
+          runtimePolicyScope: {
+            orgId: 'org-a',
+            projectId: 'proj-a',
+            envId: 'env-a',
+            signingRootVersion: 'default',
+          },
+          clientVerifyingShareB64u: 'client-verifying-share',
+          ed25519WorkerMaterialHandle: 'ed25519-worker-material:implicit-threshold-session:binding',
+          ed25519WorkerMaterialBindingDigest: 'binding',
+          signerSlot: 1,
+          keyVersion: 'threshold-ed25519-hss-v1',
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'implicit-threshold-session',
+          signingGrantId: 'implicit-wallet-session',
+          walletSessionJwt,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: 'signing-worker-implicit',
+          },
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          source: 'registration',
+        });
+
+        try {
+          const signingSessionCoordinator = capabilityReaderMod.createWarmSessionCapabilityReader();
+          const resolved = helperMod.resolveRouterAbEd25519WalletSessionStateFromCurrentRecord(
+            signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
+              'implicit-threshold-session',
+            ),
+          );
+          if (!resolved) throw new Error('implicit Ed25519 session did not resolve');
+          const readyState = routerAbMod.requireRouterAbEd25519NormalSigningReadyState({
+            state: resolved,
+            thresholdSessionId: 'implicit-threshold-session',
+            nearAccountId,
+            thresholdKeyMaterial: {
+              nearAccountId,
+              publicKey: 'ed25519:implicit-public-key',
+            },
+          });
+          return {
+            signingLaneWalletId: resolved.signingLane.walletId,
+            nearAccountId: readyState.nearAccountId,
+            thresholdSessionId: readyState.thresholdSessionId,
+            signingGrantId: readyState.signingGrantId,
+            walletSessionJwt: readyState.credential.walletSessionJwt,
+          };
+        } finally {
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        }
+      },
+      { paths: IMPORT_PATHS, walletId, nearAccountId, ed25519KeyScopeId, walletSessionJwt },
+    );
+
+    expect(result).toEqual({
+      signingLaneWalletId: walletId,
+      nearAccountId,
+      thresholdSessionId: 'implicit-threshold-session',
+      signingGrantId: 'implicit-wallet-session',
+      walletSessionJwt,
     });
   });
 
@@ -299,6 +436,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               kind: 'router_ab_ed25519_wallet_session_v1',
               sub: 'alice.testnet',
               walletId: 'alice.testnet',
+              nearAccountId: 'alice.testnet',
+              ed25519KeyScopeId: 'alice.testnet',
               thresholdSessionId: input.sessionId,
               signingGrantId: input.grantId,
               relayerKeyId: 'rk-1',
@@ -311,6 +450,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -481,6 +622,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           kind: 'router_ab_ed25519_wallet_session_v1',
           sub: 'alice.testnet',
           walletId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           thresholdSessionId,
           signingGrantId,
           relayerKeyId: 'rk-1',
@@ -535,6 +678,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -821,6 +966,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               kind: 'router_ab_ed25519_wallet_session_v1',
               sub: 'alice.testnet',
               walletId: 'alice.testnet',
+              nearAccountId: 'alice.testnet',
+              ed25519KeyScopeId: 'alice.testnet',
               thresholdSessionId: input.sessionId,
               signingGrantId: input.grantId,
               relayerKeyId: 'rk-1',
@@ -833,6 +980,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -976,8 +1125,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('validates unvalidated Ed25519 runtime handle hints before requiring restore', async ({
     page,
   }) => {
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'runtime-threshold-session',
+      signingGrantId: 'runtime-signing-grant',
+      relayerKeyId: 'rk-1',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, walletSessionJwt }) => {
         const readinessMod = await import(paths.ed25519SigningMaterialReadiness);
         const signingSessionMod = await import(paths.routerAbSigningWalletSession);
         const bindingMod = await import(paths.workerMaterialBinding);
@@ -1015,6 +1172,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -1036,7 +1195,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'runtime-threshold-session',
             signingGrantId: 'runtime-signing-grant',
-            walletSessionJwt: 'jwt-runtime',
+            walletSessionJwt,
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-runtime',
@@ -1109,7 +1268,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, walletSessionJwt },
     );
 
     expect(result).toEqual({
@@ -1127,8 +1286,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('prepares passkey unseal authorization for restore-available Ed25519 material', async ({
     page,
   }) => {
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'restore-auth-threshold-session',
+      signingGrantId: 'restore-auth-signing-grant',
+      relayerKeyId: 'rk-1',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, walletSessionJwt }) => {
         const authorizationMod = await import(paths.ed25519MaterialRestoreAuthorization);
         const bindingMod = await import(paths.workerMaterialBinding);
         const signerWorkerTypes = await import(paths.signerWorkerTypes);
@@ -1162,6 +1329,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -1186,7 +1355,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'restore-auth-threshold-session',
             signingGrantId: 'restore-auth-signing-grant',
-            walletSessionJwt: 'jwt-restore-auth',
+            walletSessionJwt,
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-restore-auth',
@@ -1288,7 +1457,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, walletSessionJwt },
     );
 
     expect(result).toEqual({
@@ -1309,8 +1478,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('accepts opaque Email OTP recovery-code unseal authorization for restore-available Ed25519 material', async ({
     page,
   }) => {
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'email-restore-auth-threshold-session',
+      signingGrantId: 'email-restore-auth-signing-grant',
+      relayerKeyId: 'rk-1',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, walletSessionJwt }) => {
         const authorizationMod = await import(paths.ed25519MaterialRestoreAuthorization);
         const clientSecretSourceMod = await import(paths.emailOtpClientSecretSource);
         const bindingMod = await import(paths.workerMaterialBinding);
@@ -1340,6 +1517,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -1364,7 +1543,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'email-restore-auth-threshold-session',
             signingGrantId: 'email-restore-auth-signing-grant',
-            walletSessionJwt: 'jwt-email-restore-auth',
+            walletSessionJwt,
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-email-restore-auth',
@@ -1431,7 +1610,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, walletSessionJwt },
     );
 
     expect(result).toEqual({
@@ -1455,8 +1634,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('rejects Router A/B-ready state without a persisted Ed25519 client verifier', async ({
     page,
   }) => {
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'partial-threshold-session',
+      signingGrantId: 'partial-wallet-session',
+      relayerKeyId: 'rk-1',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, walletSessionJwt }) => {
         const helperMod = await import(paths.routerAbEd25519WalletSessionState);
         const signingSessionMod = await import(paths.routerAbSigningWalletSession);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
@@ -1466,6 +1653,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -1481,7 +1670,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'partial-threshold-session',
             signingGrantId: 'partial-wallet-session',
-            walletSessionJwt: 'jwt-partial',
+            walletSessionJwt,
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-canonical',
@@ -1503,7 +1692,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, walletSessionJwt },
     );
 
     expect(result.resolved).toBe(false);
@@ -1516,8 +1705,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('rejects runtime validation for material hints without Ed25519 material identity', async ({
     page,
   }) => {
+    const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'missing-material-identity-session',
+      signingGrantId: 'missing-material-identity-grant',
+      relayerKeyId: 'rk-1',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, walletSessionJwt }) => {
         const helperMod = await import(paths.routerAbEd25519WalletSessionState);
         const signingSessionMod = await import(paths.routerAbSigningWalletSession);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
@@ -1527,6 +1724,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
+            ed25519KeyScopeId: 'alice.testnet',
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-1',
@@ -1544,7 +1743,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'missing-material-identity-session',
             signingGrantId: 'missing-material-identity-grant',
-            walletSessionJwt: 'jwt-missing-material-identity',
+            walletSessionJwt,
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
               signingWorkerId: 'signing-worker-canonical',
@@ -1568,7 +1767,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, walletSessionJwt },
     );
 
     expect(result.marked).toBe(false);
@@ -1582,8 +1781,16 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   test('prefers the Ed25519 record when ECDSA shares the same threshold session id', async ({
     page,
   }) => {
+    const ed25519WalletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
+      thresholdSessionId: 'shared-session-id',
+      signingGrantId: 'shared-wallet-session',
+      relayerKeyId: 'rk-ed25519',
+    });
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, ed25519WalletSessionJwt }) => {
         const helperMod = await import(paths.routerAbEd25519WalletSessionState);
         const routerAbMod = await import(paths.routerAbWalletSessionCredential);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
@@ -1599,6 +1806,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         storeMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'rk-ed25519',
@@ -1606,7 +1815,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'shared-session-id',
           signingGrantId: 'shared-wallet-session',
-          walletSessionJwt: 'jwt-ed25519',
+          walletSessionJwt: ed25519WalletSessionJwt,
           clientVerifyingShareB64u: 'client-verifying-share-ed25519',
           ed25519WorkerMaterialHandle: 'ed25519-worker-material:shared-session-id:binding',
           ed25519WorkerMaterialBindingDigest: 'binding',
@@ -1785,7 +1994,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllThresholdEcdsaSessionRecords(ecdsaStoreDeps);
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, ed25519WalletSessionJwt },
     );
 
     expect(result).toEqual({
@@ -1795,7 +2004,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
       signingGrantId: 'shared-wallet-session',
       credential: {
         kind: 'jwt',
-        walletSessionJwt: 'jwt-ed25519',
+        walletSessionJwt: ed25519WalletSessionJwt,
       },
     });
   });
@@ -1811,6 +2020,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId,
+            walletId: nearAccountId,
+            ed25519KeyScopeId: nearAccountId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-ed25519',
@@ -1890,6 +2101,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               kind: 'router_ab_ed25519_wallet_session_v1',
               sub: nearAccountId,
               walletId: nearAccountId,
+              nearAccountId,
+              ed25519KeyScopeId: nearAccountId,
               thresholdSessionId: input.sessionId,
               signingGrantId: input.grantId,
               relayerKeyId: 'rk-ed25519',
@@ -1901,6 +2114,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId,
+            walletId: nearAccountId,
+            ed25519KeyScopeId: nearAccountId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-ed25519',
@@ -2017,6 +2232,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         try {
           const upserted = storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId,
+            walletId: nearAccountId,
+            ed25519KeyScopeId: nearAccountId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-ed25519',
@@ -2055,7 +2272,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               signingGrantId: 'stale-wallet-session',
               thresholdSessionId: 'stale-threshold-session',
             }),
-            listed: storeMod.listStoredThresholdEd25519SessionRecordsForAccount(nearAccountId),
+            listed: storeMod.listStoredThresholdEd25519SessionRecordsForWallet(nearAccountId),
           };
         } finally {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -2082,6 +2299,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         const baseRecord = {
           nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'rk-1',
@@ -2165,6 +2384,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
 
         const makeBaseRecord = (thresholdSessionId: string): Record<string, unknown> => ({
           nearAccountId: `${thresholdSessionId}.testnet`,
+          walletId: `${thresholdSessionId}.testnet`,
+          ed25519KeyScopeId: `${thresholdSessionId}.testnet`,
           rpId: 'example.localhost',
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'rk-1',

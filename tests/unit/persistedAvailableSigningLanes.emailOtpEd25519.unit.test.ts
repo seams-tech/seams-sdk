@@ -5,6 +5,7 @@ import {
   clearAllStoredThresholdEd25519SessionRecords,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 
 const WALLET_ID = 'email-otp-ed25519-lane.testnet';
 const RUNTIME_POLICY_SCOPE = {
@@ -20,6 +21,34 @@ const ECDSA_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   networkSlug: 'tempo-testnet',
 });
 
+function jsonB64u(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function testEd25519WalletSessionJwt(args: {
+  thresholdSessionId: string;
+  signingGrantId: string;
+}): string {
+  return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    sub: WALLET_ID,
+    walletId: WALLET_ID,
+    nearAccountId: WALLET_ID,
+    ed25519KeyScopeId: WALLET_ID,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    relayerKeyId: 'rk-email-otp-ed25519',
+    rpId: 'localhost',
+    thresholdExpiresAtMs: Date.now() + 120_000,
+    participantIds: [1, 2],
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    routerAbNormalSigning: {
+      kind: 'router_ab_ed25519_normal_signing_v1',
+      signingWorkerId: 'signing-worker-email-otp-ed25519',
+    },
+  })}.sig`;
+}
+
 test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
   test.afterEach(() => {
     clearAllStoredThresholdEd25519SessionRecords();
@@ -33,7 +62,9 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
 
     clearAllStoredThresholdEd25519SessionRecords();
     upsertStoredThresholdEd25519SessionRecord({
+      walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
+      ed25519KeyScopeId: WALLET_ID,
       rpId: 'localhost',
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
@@ -53,7 +84,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       signingGrantId,
-      walletSessionJwt: 'jwt-ed25519-registration',
+      walletSessionJwt: testEd25519WalletSessionJwt({ thresholdSessionId, signingGrantId }),
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 1,
       emailOtpAuthContext: {
@@ -111,7 +142,9 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
 
     clearAllStoredThresholdEd25519SessionRecords();
     upsertStoredThresholdEd25519SessionRecord({
+      walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
+      ed25519KeyScopeId: WALLET_ID,
       rpId: 'localhost',
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
@@ -134,7 +167,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       signingGrantId,
-      walletSessionJwt: 'jwt-ed25519-registration',
+      walletSessionJwt: testEd25519WalletSessionJwt({ thresholdSessionId, signingGrantId }),
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 2,
       emailOtpAuthContext: {
@@ -188,7 +221,9 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
 
     clearAllStoredThresholdEd25519SessionRecords();
     upsertStoredThresholdEd25519SessionRecord({
+      walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
+      ed25519KeyScopeId: WALLET_ID,
       rpId: 'localhost',
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
@@ -203,7 +238,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       thresholdSessionKind: 'jwt',
       thresholdSessionId,
       signingGrantId,
-      walletSessionJwt: 'jwt-ed25519-registration',
+      walletSessionJwt: testEd25519WalletSessionJwt({ thresholdSessionId, signingGrantId }),
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 3,
       emailOtpAuthContext: {

@@ -27,9 +27,8 @@ test.describe('wallet auth-method binding normalization', () => {
         kind: 'email_otp',
         status: 'active',
         walletId: 'wallet_alice',
-        rpId: 'wallet.example.test',
         emailHashHex: 'abc123',
-        challengeId: 'challenge',
+        registrationAuthorityId: 'challenge',
         createdAtMs: 1,
         updatedAtMs: 2,
       }),
@@ -39,14 +38,13 @@ test.describe('wallet auth-method binding normalization', () => {
     });
   });
 
-  test('rejects missing Email OTP challenge ids', () => {
+  test('rejects missing Email OTP registration authority ids', () => {
     expect(
       normalizeWalletAuthMethod({
         version: 'wallet_auth_method_v1',
         kind: 'email_otp',
         status: 'active',
         walletId: 'wallet_alice',
-        rpId: 'wallet.example.test',
         emailHashHex: 'abc123',
         createdAtMs: 1,
         updatedAtMs: 2,
@@ -75,6 +73,19 @@ test.describe('wallet auth-method binding normalization', () => {
         status: 'active',
         walletId: 'wallet_alice',
         rpId: 'wallet.example.test',
+        emailHashHex: 'abc123',
+        registrationAuthorityId: 'challenge',
+        createdAtMs: 1,
+        updatedAtMs: 2,
+      }),
+    ).toBeNull();
+
+    expect(
+      normalizeWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
+        kind: 'email_otp',
+        status: 'active',
+        walletId: 'wallet_alice',
         credentialIdB64u: 'credential',
         credentialPublicKeyB64u: 'public-key',
         counter: 0,

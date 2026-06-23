@@ -7,7 +7,7 @@ import {
 test('wallet iframe PM_UNLOCK forwards explicit unlock options', () => {
   const payload = buildPMUnlockPayload({
     kind: 'custom_options',
-    nearAccountId: 'alice.testnet',
+    walletId: 'alice.testnet',
     options: {
       signerSlot: 2,
       session: {
@@ -33,7 +33,7 @@ test('wallet iframe PM_UNLOCK forwards explicit unlock options', () => {
 
   expect(payload).toEqual({
     kind: 'custom_options',
-    nearAccountId: 'alice.testnet',
+    walletId: 'alice.testnet',
     options: {
       kind: 'pm_unlock_options_v1',
       signerSlot: { kind: 'value', value: 2 },

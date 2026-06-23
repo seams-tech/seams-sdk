@@ -34,12 +34,18 @@ import {
   buildSigningBudgetReservationIdentity,
   signingBudgetReservationKey,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const tempoChainTarget = { kind: 'tempo', chainId: 4242, networkSlug: 'tempo-test' } as const;
+const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
+const NEAR_ACCOUNT_ID = toAccountId('freshness-alice.testnet');
+const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
 
 function makeNearLane(args?: { thresholdSessionId?: string }) {
   return buildNearTransactionSigningLane({
-    accountId: toAccountId('freshness-alice.testnet'),
+    walletId: NEAR_WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
     authMethod: 'passkey',
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-near'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
@@ -89,7 +95,7 @@ test.describe('step-up freshness identity', () => {
     const operation = makeOperation();
 
     const satisfied = buildFreshStepUpSatisfied({
-      walletId: lane.accountId,
+      walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity,
       projection: { kind: 'known', version: 'projection-1' },
@@ -145,7 +151,7 @@ test.describe('step-up freshness identity', () => {
     const operation = makeOperation();
 
     const required = buildFreshStepUpRequired({
-      walletId: sourceLane.accountId,
+      walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity: exactSigningLaneIdentity(sourceLane),
       projection: { kind: 'known', version: 'projection-1' },
@@ -251,12 +257,15 @@ test.describe('step-up freshness identity', () => {
 
   test('builds an Ed25519 reauth anchor from an expired available lane', () => {
     const anchor = buildReauthAnchorIdentityFromAvailableLane({
-      walletId: 'freshness-alice.testnet',
+      walletId: NEAR_WALLET_ID,
       ...makeOperation(),
       lane: {
         authMethod: 'passkey',
         curve: 'ed25519',
         chain: 'near',
+        walletId: NEAR_WALLET_ID,
+        nearAccountId: NEAR_ACCOUNT_ID,
+        ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
         state: 'expired',
         source: 'durable_sealed_record',
         signingGrantId: 'wallet-session-near',
@@ -289,7 +298,7 @@ test.describe('step-up freshness identity', () => {
     const operation = makeOperation();
 
     const satisfied = buildStepUpFreshnessFromTrustedBudgetStatus({
-      walletId: lane.accountId,
+      walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity,
       observedAtMs: 1_800_000_000_000,
@@ -302,7 +311,7 @@ test.describe('step-up freshness identity', () => {
       },
     });
     const required = buildStepUpFreshnessFromTrustedBudgetStatus({
-      walletId: lane.accountId,
+      walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity,
       observedAtMs: 1_800_000_000_000,
@@ -371,7 +380,7 @@ test.describe('step-up freshness identity', () => {
     const laneIdentity = exactSigningLaneIdentity(lane);
     const operation = makeOperation();
     const satisfied = buildFreshStepUpSatisfied({
-      walletId: lane.accountId,
+      walletId: NEAR_WALLET_ID,
       ...operation,
       laneIdentity,
       projection: { kind: 'known', version: 'projection-1' },
@@ -402,7 +411,7 @@ test.describe('step-up freshness identity', () => {
         intent: {
           curve: 'ed25519',
           chain: 'near',
-          walletId: lane.accountId,
+          walletId: NEAR_WALLET_ID,
           authSelectionPolicy: { kind: 'explicit', authMethod: 'passkey' },
           operationUsesNeeded: 1,
         },
@@ -440,7 +449,7 @@ test.describe('budget reservation identity', () => {
     const operation = makeOperation();
     const baseSpend = {
       ...operation,
-      walletId: lane.accountId,
+      walletId: NEAR_WALLET_ID,
       signingGrantId: lane.signingGrantId,
       thresholdSessionIds: [lane.thresholdSessionId],
       backingMaterialSessionIds: [],

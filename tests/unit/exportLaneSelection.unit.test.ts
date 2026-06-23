@@ -7,6 +7,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -22,6 +23,13 @@ import {
   buildVerifiedEcdsaPublicFacts,
   type EvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildNamedNearAccountBinding,
+  buildNearEd25519SignerBinding,
+  buildWalletIdentity,
+} from '@shared/utils/walletCapabilityBindings';
+import { parseNamedNearAccountId } from '@shared/utils/near';
+import { ed25519KeyScopeIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -40,6 +48,21 @@ const TEMPO_TARGET: ThresholdEcdsaChainTarget = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 };
+
+function namedNearAccountIdForTest(value: string) {
+  const parsed = parseNamedNearAccountId(value);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
+}
+
+const NEAR_EXPORT_SIGNER = buildNearEd25519SignerBinding({
+  account: buildNamedNearAccountBinding({
+    wallet: buildWalletIdentity({ walletId: walletIdFromString(WALLET_ID) }),
+    nearAccountId: namedNearAccountIdForTest(WALLET_ID),
+  }),
+  ed25519KeyScopeId: ed25519KeyScopeIdFromString(WALLET_ID),
+  signerSlot: 0,
+});
 
 type EcdsaLaneOverrides = Partial<ConcreteAvailableEcdsaSigningLane> & {
   ecdsaThresholdKeyId?: string;
@@ -147,7 +170,7 @@ function availableLanes(
 ): AvailableSigningLanes {
   const targetKey = thresholdEcdsaChainTargetKey(EVM_TARGET);
   return {
-    walletId: toAccountId(WALLET_ID),
+    walletId: toWalletId(WALLET_ID),
     generation: 1,
     ecdsa: {
       targets: [EVM_TARGET],
@@ -193,7 +216,7 @@ function depsForTargets(
     readPersistedAvailableSigningLanesForTargets: async () => {
       const targets = [EVM_TARGET, TEMPO_TARGET];
       return {
-        walletId: toAccountId(WALLET_ID),
+        walletId: toWalletId(WALLET_ID),
         generation: 1,
         ecdsa: {
           targets,
@@ -245,6 +268,9 @@ function ed25519Lane(
     authMethod: 'passkey',
     curve: 'ed25519',
     chain: 'near',
+    walletId: NEAR_EXPORT_SIGNER.account.wallet.walletId,
+    nearAccountId: NEAR_EXPORT_SIGNER.account.nearAccountId,
+    ed25519KeyScopeId: NEAR_EXPORT_SIGNER.ed25519KeyScopeId,
     state: 'restorable',
     signingGrantId: 'wallet-ed25519-session-1',
     thresholdSessionId: 'threshold-ed25519-session-1',
@@ -290,7 +316,7 @@ test.describe('Ed25519 export lane selection', () => {
         ],
         restoreCalls,
       ),
-      { nearAccountId: toAccountId(WALLET_ID) },
+      { signer: NEAR_EXPORT_SIGNER },
     );
 
     expect(selected.authMethod).toBe('email_otp');
@@ -313,7 +339,7 @@ test.describe('Ed25519 export lane selection', () => {
         ],
         restoreCalls,
       ),
-      { nearAccountId: toAccountId(WALLET_ID) },
+      { signer: NEAR_EXPORT_SIGNER },
     );
 
     expect(selected.authMethod).toBe('passkey');
@@ -339,7 +365,7 @@ test.describe('Ed25519 export lane selection', () => {
         ],
         restoreCalls,
       ),
-      { nearAccountId: toAccountId(WALLET_ID) },
+      { signer: NEAR_EXPORT_SIGNER },
     );
 
     expect(selected.authMethod).toBe('email_otp');

@@ -281,11 +281,15 @@ export function seedEd25519WarmSessionRecord(
   const signingGrantId = args.signingGrantId || `wsess-${String(args.thresholdSessionId).trim()}`;
   const relayerKeyId = args.relayerKeyId || 'rk-ed25519';
   const participantIds = args.participantIds || [1, 2];
+  const walletId = String(args.walletId || args.nearAccountId);
+  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || args.nearAccountId);
   const walletSessionJwt =
     args.walletSessionJwt === ''
       ? ''
       : toFixtureEd25519WalletSessionJwt(args.walletSessionJwt || '', {
+          walletId,
           nearAccountId: args.nearAccountId,
+          ed25519KeyScopeId,
           sessionId: args.thresholdSessionId,
           signingGrantId,
           relayerKeyId,
@@ -293,7 +297,9 @@ export function seedEd25519WarmSessionRecord(
           runtimePolicyScope,
         });
   const record = upsertStoredThresholdEd25519SessionRecord({
+    walletId,
     nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId,
     rpId: args.rpId || 'wallet.example.test',
     relayerUrl: args.relayerUrl || 'https://relay.example',
     relayerKeyId,
@@ -343,7 +349,9 @@ export function seedEd25519WarmSessionRecord(
 function toFixtureEd25519WalletSessionJwt(
   token: string,
   args: {
+    walletId: string;
     nearAccountId: string;
+    ed25519KeyScopeId: string;
     sessionId: string;
     signingGrantId: string;
     relayerKeyId: string;
@@ -355,12 +363,14 @@ function toFixtureEd25519WalletSessionJwt(
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(
     JSON.stringify({
-      sub: args.nearAccountId,
-      walletId: args.nearAccountId,
+      sub: args.walletId,
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      ed25519KeyScopeId: args.ed25519KeyScopeId,
       kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
       thresholdSessionId: args.sessionId,
       signingGrantId: args.signingGrantId,
-      subjectId: args.nearAccountId,
+      subjectId: args.walletId,
       relayerKeyId: args.relayerKeyId,
       rpId: 'wallet.example.test',
       thresholdExpiresAtMs: Date.now() + 120_000,

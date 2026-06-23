@@ -24,6 +24,9 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
     const confirmationSource = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation.ts',
     );
+    const emailOtpExportPromptSource = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization.ts',
+    );
     const ecdsaExportSource = readRepoFile(
       'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
     );
@@ -39,6 +42,21 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
     }
     if (ecdsaExportSource.includes("kind: 'near_account_export_auth'")) {
       offenders.push('ECDSA export flow still requests near_account_export_auth');
+    }
+    if (/toAccountId\([^)]*(?:walletId|walletSessionUserId)[^)]*\)/.test(confirmationSource)) {
+      offenders.push('ECDSA export confirmation coerces wallet identity through toAccountId');
+    }
+    if (/toAccountId\([^)]*(?:walletId|walletSessionUserId)[^)]*\)/.test(ecdsaExportSource)) {
+      offenders.push('ECDSA export flow coerces wallet identity through toAccountId');
+    }
+    if (/\bnearAccountId:\s*toAccountId\([^)]*walletId[^)]*\)/.test(ecdsaExportSource)) {
+      offenders.push('ECDSA export viewer receives wallet id through nearAccountId conversion');
+    }
+    if (/requestEmailOtpExportAuthorization\(args:\s*\{\s*nearAccountId:/m.test(emailOtpExportPromptSource)) {
+      offenders.push('Email OTP export prompt helper still accepts only nearAccountId identity');
+    }
+    if (/requestEmailOtpExportAuthorizationValue\(\{\s*nearAccountId:/m.test(confirmationSource)) {
+      offenders.push('Email OTP ECDSA export still passes wallet identity as nearAccountId');
     }
 
     expect(offenders, offenders.join('\n')).toEqual([]);

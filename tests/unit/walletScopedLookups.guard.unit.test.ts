@@ -27,17 +27,6 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/sdk-web/src
 
 test.describe('wallet-scoped lookup guards', () => {
   test('production wallet paths do not resolve wallet ids through NEAR projection helpers', () => {
-    const allowedToAccountIdWalletFiles = new Set([
-      'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
-      'packages/sdk-web/src/core/signingEngine/session/public.ts',
-      'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
-      'packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts',
-      'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts',
-      'packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts',
-      'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts',
-      'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
-    ]);
     const forbiddenGlobal = [
       'buildNearAccountRefs(walletId)',
       'buildNearProfileId(walletId)',
@@ -54,14 +43,48 @@ test.describe('wallet-scoped lookup guards', () => {
           violations.push(`${relativePath} contains ${token}`);
         }
       }
-      if (
-        source.includes('toAccountId(args.walletId)') &&
-        !allowedToAccountIdWalletFiles.has(relativePath)
-      ) {
-        violations.push(`${relativePath} contains toAccountId(args.walletId)`);
+      if (/walletId\s*:\s*toAccountId\s*\([^)]*walletId[^)]*\)/.test(source)) {
+        violations.push(`${relativePath} assigns a NEAR-projected value to walletId`);
       }
     }
 
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  test('ECDSA wallet-scoped files reject NEAR account projections for wallet identity', () => {
+    const ecdsaWalletScopedFiles = [
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
+      'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/commitQueue.ts',
+      'packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
+    ];
+    const forbiddenPatterns = [
+      /toAccountId\s*\([^)]*walletId[^)]*\)/,
+      /walletId\s*:\s*AccountId(?:\s*\|\s*string)?[;,]/,
+    ];
+    const violations: string[] = [];
+
+    for (const relativePath of ecdsaWalletScopedFiles) {
+      const source = readRepoFile(relativePath);
+      for (const pattern of forbiddenPatterns) {
+        if (pattern.test(source)) {
+          violations.push(`${relativePath} matches ${pattern}`);
+        }
+      }
+    }
+
+    const reauthSource = readRepoFile(
+      'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
+    );
+    const reauthStart = reauthSource.indexOf(
+      'export function buildReauthAnchorIdentityFromAvailableLane',
+    );
+    const reauthEnd = reauthSource.indexOf('\nfunction emptyEd25519Lane', reauthStart);
+    const reauthBody = reauthSource.slice(reauthStart, reauthEnd);
+
+    expect(reauthStart).toBeGreaterThanOrEqual(0);
+    expect(reauthEnd).toBeGreaterThan(reauthStart);
+    expect(reauthBody).not.toMatch(/toAccountId\s*\([^)]*walletId[^)]*\)/);
     expect(violations, violations.join('\n')).toEqual([]);
   });
 

@@ -91,7 +91,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           },
           {
             kind: 'key_enrollment_bootstrap',
-            walletId: 'alice.testnet',
+            walletId: 'frost-vermillion-k7p9m2',
             chainTarget: TEST_CHAIN_TARGET,
             relayerUrl: 'https://relay.example',
             authKind: 'passkey_prf_b64u',
@@ -251,7 +251,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
               ethereumAddress: ownerAddress,
               relayerVerifyingShareB64u: serverPublicKey33B64u,
               participantIds,
-              sessionId: body.sessionId,
+              thresholdSessionId: body.sessionId,
               signingGrantId: body.signingGrantId,
               expiresAtMs,
               expiresAt: new Date(expiresAtMs).toISOString(),

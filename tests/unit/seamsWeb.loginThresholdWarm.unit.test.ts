@@ -4,6 +4,7 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
+  clearStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForAccount,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
@@ -639,6 +640,8 @@ async function withMockedMostRecentProjection<T>(
   },
 ): Promise<T> {
   const mockNearAccountId = String(options?.nearAccountId || ACCOUNT_ID);
+  const mockNearAccount = toAccountId(mockNearAccountId);
+  let seededWalletBinding = false;
   const continuityPort = IndexedDBManager as unknown as {
     getProfileContinuitySnapshot?: unknown;
   };
@@ -684,6 +687,34 @@ async function withMockedMostRecentProjection<T>(
       : { chainAccounts: [] };
   };
   signerPort.listAccountSignersByProfile = async () => resolveMockAccountSigners();
+  if (!getStoredThresholdEd25519SessionRecordForAccount(mockNearAccount)) {
+    seededWalletBinding = true;
+    upsertStoredThresholdEd25519SessionRecord({
+      walletId: mockNearAccountId,
+      nearAccountId: mockNearAccount,
+      ed25519KeyScopeId: mockNearAccountId,
+      rpId: 'example.localhost',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'rk-1',
+      participantIds: [1, 2],
+      signerSlot: 1,
+      thresholdSessionKind: 'jwt',
+      thresholdSessionId: `binding-only-ed25519-session:${mockNearAccountId}`,
+      signingGrantId: WALLET_SIGNING_SESSION_ID,
+      walletSessionJwt: 'binding-only-ed25519-jwt',
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 0,
+      runtimePolicyScope: LOGIN_RUNTIME_POLICY_SCOPE,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'signing-worker-local',
+      },
+      signingRootId: 'proj_local:dev',
+      signingRootVersion: 'default',
+      keyVersion: ED25519_KEY_VERSION,
+      source: 'login',
+    });
+  }
   profileLookupPort.resolveProfileAccountContext = async (accountRef: {
     chainIdKey: string;
     accountAddress: string;
@@ -713,6 +744,16 @@ async function withMockedMostRecentProjection<T>(
   try {
     return await fn();
   } finally {
+    const seededRecord = seededWalletBinding
+      ? getStoredThresholdEd25519SessionRecordForAccount(mockNearAccount)
+      : null;
+    if (
+      seededRecord &&
+      String(seededRecord.thresholdSessionId || '') ===
+        `binding-only-ed25519-session:${mockNearAccountId}`
+    ) {
+      clearStoredThresholdEd25519SessionRecordForAccount(mockNearAccount);
+    }
     continuityPort.getProfileContinuitySnapshot = originalContinuity;
     profileLookupPort.resolveProfileAccountContext = originalProfileLookup;
     keyMaterialPort.getKeyMaterial = originalKeyMaterial;
@@ -721,11 +762,77 @@ async function withMockedMostRecentProjection<T>(
 }
 
 test.describe('unlock threshold warm-session requirements', () => {
+  test('anonymous wallet-session read does not restore a prior NEAR profile', async () => {
+    let lastUserReads = 0;
+    const context = createBaseContext({
+      signingEngine: {
+        getLastUser: async () => {
+          lastUserReads += 1;
+          return {
+            nearAccountId: 'alice.testnet',
+            signerSlot: 1,
+            operationalPublicKey: 'ed25519:alice',
+          };
+        },
+      },
+    });
+
+    const session = await getWalletSession(context);
+
+    expect(lastUserReads).toBe(0);
+    expect(session.login.isLoggedIn).toBe(false);
+    expect(session.login.walletId).toBeNull();
+    expect(session.login.nearAccountId).toBeNull();
+    expect(session.signingSession).toBeNull();
+  });
+
+  test('wallet-session read rejects implicit NEAR account id as a wallet id', async () => {
+    const now = Date.now();
+    clearAllStoredThresholdEd25519SessionRecords();
+    upsertStoredThresholdEd25519SessionRecord({
+      walletId: toWalletId(IMPLICIT_WALLET_ID),
+      nearAccountId: IMPLICIT_NEAR_ACCOUNT_ID,
+      ed25519KeyScopeId: IMPLICIT_ED25519_KEY_SCOPE_ID,
+      rpId: 'example.localhost',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'rk-1',
+      participantIds: [1, 2],
+      thresholdSessionKind: 'jwt',
+      thresholdSessionId: 'implicit-ed25519-session',
+      signingGrantId: 'implicit-ed25519-grant',
+      walletSessionJwt: 'jwt-implicit-ed25519',
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      runtimePolicyScope: LOGIN_RUNTIME_POLICY_SCOPE,
+      routerAbNormalSigning: {
+        kind: 'router_ab_ed25519_normal_signing_v1',
+        signingWorkerId: 'signing-worker-local',
+      },
+      signingRootId: 'proj_local:dev',
+      signingRootVersion: 'default',
+      source: 'login',
+    });
+    const context = createBaseContext();
+
+    try {
+      const session = await getWalletSession(context, IMPLICIT_NEAR_ACCOUNT_ID);
+
+      expect(session.login.isLoggedIn).toBe(false);
+      expect(session.login.walletId).toBeNull();
+      expect(session.login.nearAccountId).toBeNull();
+      expect(session.signingSession).toBeNull();
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
+  });
+
   test('does not report logged in when only a pending Ed25519 session record exists', async () => {
     const now = Date.now();
     clearAllStoredThresholdEd25519SessionRecords();
     upsertStoredThresholdEd25519SessionRecord({
+      walletId: ACCOUNT_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ACCOUNT_ID,
       rpId: 'example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',
@@ -2413,7 +2520,9 @@ test.describe('unlock threshold warm-session requirements', () => {
     const inventoryLedger: string[] = [];
     clearAllStoredThresholdEd25519SessionRecords();
     upsertStoredThresholdEd25519SessionRecord({
+      walletId: ACCOUNT_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ACCOUNT_ID,
       rpId: 'example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',
@@ -3394,7 +3503,9 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     clearAllStoredThresholdEd25519SessionRecords();
     upsertStoredThresholdEd25519SessionRecord({
+      walletId: ACCOUNT_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ACCOUNT_ID,
       rpId: 'wallet.example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',

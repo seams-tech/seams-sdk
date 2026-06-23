@@ -58,6 +58,7 @@ function makePreparedLinkDeviceService() {
   return makeFakeAuthService({
     prepareLinkDevice: async () => ({
       ok: true,
+      walletId: 'alice.testnet',
       accountId: 'alice.testnet',
       signerSlot: 7,
       credentialIdB64u: 'cred-b64u',
@@ -67,6 +68,8 @@ function makePreparedLinkDeviceService() {
         keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
         recoveryExportCapable: true,
         participantIds: [1, 2],
+        nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         session: {
           sessionKind: 'jwt',
           walletId: 'alice.testnet',

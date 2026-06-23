@@ -428,7 +428,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
           const unlockResult = await router.unlock({
             kind: 'default_options',
-            nearAccountId: accountId,
+            walletId: accountId,
           });
 
           return {
@@ -499,7 +499,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
 
           const unlockResult = await router.unlock({
             kind: 'custom_options',
-            nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
             options: {
               signerSlot: 2,
               session: {

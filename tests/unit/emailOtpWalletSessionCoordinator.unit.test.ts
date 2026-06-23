@@ -40,6 +40,10 @@ import type { EmailOtpEd25519SessionReconstructionPlan } from '@/core/signingEng
 import { selectEmailOtpEcdsaRecordForEd25519Signing } from '@/core/signingEngine/session/emailOtp/companionSessions';
 import { computeEcdsaHssRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  nearEd25519SignerBindingFromRaw,
+  type NearEd25519SignerBinding,
+} from '@shared/utils/walletCapabilityBindings';
 
 const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_SIGNING_SESSION_SEAL_KEY_VERSION = parseSigningSessionSealKeyVersion(
@@ -59,6 +63,22 @@ const TEST_WALLET_SESSION = walletSessionRefFromSession({
   walletId: 'alice.testnet',
   walletSessionUserId: 'alice.testnet',
 });
+const TEST_ED25519_KEY_SCOPE_ID = 'ed25519-scope-email-otp-test';
+function requireTestEd25519SignerBinding(): NearEd25519SignerBinding {
+  const parsed = nearEd25519SignerBindingFromRaw({
+    account: {
+      kind: 'named_near_account',
+      wallet: { walletId: TEST_WALLET_SESSION.walletId },
+      nearAccountId: 'alice.testnet',
+    },
+    ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+    signerSlot: 0,
+  });
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+const TEST_ED25519_SIGNER = requireTestEd25519SignerBinding();
 const TEST_ECDSA_BACKEND_BINDING = {
   relayerKeyId: 'relayer-key',
   clientVerifyingShareB64u: 'verifying-share',
@@ -822,6 +842,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     const challenge = await coordinator.requestTransactionSigningChallenge({
       kind: 'near_account_challenge',
+      walletSession: TEST_WALLET_SESSION,
       nearAccountId: 'alice.testnet',
       chain: 'near',
       authLane: {
@@ -867,6 +888,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     const challenge = await coordinator.requestTransactionSigningChallenge({
       kind: 'near_account_challenge',
+      walletSession: TEST_WALLET_SESSION,
       nearAccountId: 'alice.testnet',
       chain: 'near',
     });
@@ -911,7 +933,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
 
     await expect(
       requestEmailOtpExportAuthorization({
-        nearAccountId: 'alice.testnet',
+        identity: { kind: 'near_account', nearAccountId: 'alice.testnet' },
         chain: 'evm',
         publicKey: '02'.padEnd(66, '1'),
         curve: 'ecdsa',
@@ -919,6 +941,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           requestChallenge: async () =>
             await coordinator.requestExportChallenge({
               kind: 'near_account_challenge',
+              walletSession: TEST_WALLET_SESSION,
               nearAccountId: 'alice.testnet',
               chain: 'evm',
               authLane: {
@@ -999,6 +1022,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     await expect(
       coordinator.requestTransactionSigningChallenge({
         kind: 'near_account_challenge',
+        walletSession: TEST_WALLET_SESSION,
         nearAccountId: 'alice.testnet',
         chain: 'near',
         routeAuth: { kind: 'app_session', jwt },
@@ -1134,6 +1158,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       otpCode: '123456',
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
+        walletId: TEST_SUBJECT_ID,
+        nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         thresholdSessionId: 'old-session',
         signingGrantId: 'wallet-session-ed25519',
         curve: 'ed25519',
@@ -1141,6 +1168,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         rpId: '',
         relayerKeyId: 'relayer-key',
         keyVersion: 'v1',
+        signerSlot: 0,
         participantIds: [1, 2],
         thresholdSessionKind: 'jwt',
         walletSessionJwt,
@@ -1152,6 +1180,13 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           envId: 'dev',
           signingRootVersion: 'root',
         },
+        emailOtpAuthContext: {
+          policy: 'per_operation',
+          retention: 'single_use',
+          reason: 'sign',
+          authMethod: 'email_otp',
+          authSubjectId: 'alice.testnet',
+        },
         source: 'email_otp',
       } as any,
     });
@@ -1159,14 +1194,22 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     expect(result.sessionId).toBe('ed-session');
     expect(ed25519ReconstructionCalls).toHaveLength(1);
     expect(ed25519ReconstructionCalls[0]).toMatchObject({
-      nearAccountId: 'alice.testnet',
       relayUrl: 'https://relay.example',
       rpId: 'localhost',
       recoveryCodeSecret32B64u: 'prf-first-ecdsa-login',
       routeAuth: { kind: 'wallet_session', jwt: expect.any(String) },
       ed25519Key: {
+        signer: {
+          account: {
+            kind: 'named_near_account',
+            wallet: { walletId: 'alice.testnet' },
+            nearAccountId: 'alice.testnet',
+          },
+          ed25519KeyScopeId: 'alice.testnet',
+          signerSlot: 0,
+        },
         relayerKeyId: 'relayer-key',
-        keyVersion: 'threshold-ed25519-hss-v1',
+        keyVersion: 'v1',
         participantIds: [1, 2],
       },
       remainingUses: 1,
@@ -1221,6 +1264,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       expectedPublicKey: 'ed25519:public',
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
+        walletId: TEST_SUBJECT_ID,
+        nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         thresholdSessionId: 'ed25519-restored-session',
         signingGrantId: 'signing-grant-1',
         relayerUrl: 'https://relay.example',
@@ -1233,6 +1279,13 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         runtimePolicyScope,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 4,
+        emailOtpAuthContext: {
+          policy: 'session',
+          retention: 'session',
+          reason: 'login',
+          authMethod: 'email_otp',
+          authSubjectId: 'alice.testnet',
+        },
         source: 'email_otp',
       } as any,
     });
@@ -1931,6 +1984,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
           retention: 'session',
           reason: 'login',
           authMethod: 'email_otp',
+          authSubjectId: 'alice.testnet',
         },
         updatedAtMs: Date.now(),
         source: 'email_otp',
@@ -3109,6 +3163,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         kind: 'defer',
         reason: 'missing_runtime_policy_scope',
         ed25519Key: {
+          signer: TEST_ED25519_SIGNER,
           relayerKeyId: 'ed25519-relayer-key',
           keyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
@@ -3120,7 +3175,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     expect(reconstructionCalls).toHaveLength(1);
     expect(reconstructionCalls[0]).toMatchObject({
       kind: 'session_ed25519_reconstruction',
-      nearAccountId: 'alice.testnet',
       relayUrl: 'https://relay.example',
       rpId: 'localhost',
       recoveryCodeSecret32B64u: 'prf-first-ecdsa-login',
@@ -3130,6 +3184,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       },
       runtimePolicyScope,
       ed25519Key: {
+        signer: TEST_ED25519_SIGNER,
         relayerKeyId: 'ed25519-relayer-key',
         keyVersion: 'threshold-ed25519-hss-v1',
         participantIds: [1, 2],
@@ -3195,6 +3250,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         kind: 'defer',
         reason: 'missing_runtime_policy_scope',
         ed25519Key: {
+          signer: TEST_ED25519_SIGNER,
           relayerKeyId: 'ed25519-relayer-key',
           keyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
@@ -3212,6 +3268,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       },
       runtimePolicyScope,
       ed25519Key: {
+        signer: TEST_ED25519_SIGNER,
         relayerKeyId: 'ed25519-relayer-key',
         keyVersion: 'threshold-ed25519-hss-v1',
         participantIds: [1, 2],

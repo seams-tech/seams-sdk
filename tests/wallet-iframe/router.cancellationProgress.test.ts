@@ -99,7 +99,7 @@ test.describe('WalletIframeRouter cancellation progress', () => {
         const unlock = await runAndCancel('unlock', () =>
           router.unlock({
             kind: 'custom_options',
-            nearAccountId: 'alice.testnet',
+            walletId: 'alice.testnet',
             options: { onEvent: (event: any) => events.unlock.push(event) },
           }),
         );

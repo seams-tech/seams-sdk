@@ -8,8 +8,11 @@ import {
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '@/core/types/accountIds';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   type EvmFamilyEcdsaKeyHandle,
@@ -34,6 +37,11 @@ import {
 } from '@shared/utils/sessionTokens';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
+export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
+export const AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
+export const AVAILABLE_LANES_ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString(
+  'scope-frost-vermillion-k7p9m2',
+);
 export const AVAILABLE_LANES_ECDSA_RP_ID = 'wallet.example.localhost';
 export const AVAILABLE_LANES_EXPIRES_AT_MS = 2_000_000_000_000;
 export const AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U =
@@ -309,7 +317,7 @@ export async function readAvailableLanesFixture(args: {
           return Boolean(record.ecdsaRestore?.chainTarget);
         }),
       listRuntimeEcdsaLanesForWallet: async () => args.runtimeEcdsaRecords || [],
-      listRuntimeEd25519RecordsForAccount: async () => args.runtimeEd25519Records || [],
+      listRuntimeEd25519RecordsForWallet: async () => args.runtimeEd25519Records || [],
       readRuntimeEcdsaClaimsForRecords: async (records) => {
         const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
         for (const record of records) {

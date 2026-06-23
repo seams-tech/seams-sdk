@@ -14,9 +14,43 @@ import type {
   PMGoogleEmailOtpWalletAuthWireFlow,
 } from '@/SeamsWeb/walletIframe/shared/messages';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  buildEmailOtpWalletAuthMethodBinding,
+  buildSelectedCurrentWalletAuthMethod,
+  buildWalletIdentity,
+  type WalletAuthMethodBinding,
+} from '@shared/utils/walletCapabilityBindings';
+import type { WalletSession } from '@/core/types/seams';
 
 function walletId(value: string) {
   return walletIdFromString(value);
+}
+
+function emailOtpAuthMethodBinding(value: { walletId?: string } = {}): WalletAuthMethodBinding {
+  return buildEmailOtpWalletAuthMethodBinding({
+    wallet: buildWalletIdentity({ walletId: walletId(value.walletId ?? 'alice.testnet') }),
+    emailHashHex: 'email-hash',
+    registrationAuthorityId: 'google-email-otp',
+  });
+}
+
+function emailOtpWalletSession(value: { walletId?: string } = {}): WalletSession {
+  const binding = emailOtpAuthMethodBinding(value);
+  const resolvedWalletId = walletId(value.walletId ?? 'alice.testnet');
+  return {
+    login: {
+      isLoggedIn: true,
+      walletId: resolvedWalletId,
+      nearAccountId: resolvedWalletId,
+      publicKey: null,
+      userData: null,
+      currentAuthMethod: buildSelectedCurrentWalletAuthMethod({ binding }),
+      authMethods: [binding],
+    },
+    signingSession: null,
+    currentAuthMethod: buildSelectedCurrentWalletAuthMethod({ binding }),
+    authMethods: [binding],
+  };
 }
 
 function submitSuccess(value: {
@@ -26,16 +60,7 @@ function submitSuccess(value: {
   return {
     walletId: walletId(value.walletId ?? 'alice.testnet'),
     mode: value.mode ?? 'login',
-    session: {
-      login: {
-        isLoggedIn: true,
-        walletId: walletId(value.walletId ?? 'alice.testnet'),
-        nearAccountId: walletId(value.walletId ?? 'alice.testnet'),
-        publicKey: null,
-        userData: null,
-      },
-      signingSession: null,
-    },
+    session: emailOtpWalletSession(value),
   };
 }
 
@@ -45,16 +70,7 @@ function registrationCompleted(value: {
   return {
     walletId: walletId(value.walletId ?? 'alice.testnet'),
     mode: 'register',
-    session: {
-      login: {
-        isLoggedIn: true,
-        walletId: walletId(value.walletId ?? 'alice.testnet'),
-        nearAccountId: walletId(value.walletId ?? 'alice.testnet'),
-        publicKey: null,
-        userData: null,
-      },
-      signingSession: null,
-    },
+    session: emailOtpWalletSession(value),
   };
 }
 

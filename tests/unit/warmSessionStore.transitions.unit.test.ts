@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
 import {
   buildNearTransactionSigningLane,
@@ -102,6 +103,9 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
 
     const accountId = toAccountId('transition-ed25519-pending.testnet');
     const walletId = toWalletId(accountId);
+    const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
+      'scope-transition-ed25519-pending',
+    );
     const sessionId = 'ed25519-pending-material-session';
     const signingGrantId = 'wsess-ed25519-pending-material';
     const expiresAtMs = Date.now() + 120_000;
@@ -150,7 +154,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       kind: 'fresh_ed25519_provisioning',
       walletId,
       nearAccountId: accountId,
-      ed25519KeyScopeId: accountId,
+      ed25519KeyScopeId,
       relayerKeyId: 'rk-ed25519-pending-material',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -168,7 +172,9 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     });
 
     const lane = buildNearTransactionSigningLane({
-      accountId,
+      walletId,
+      nearAccountId: accountId,
+      ed25519KeyScopeId,
       authMethod: 'passkey',
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),

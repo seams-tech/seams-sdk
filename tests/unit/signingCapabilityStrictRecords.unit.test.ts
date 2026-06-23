@@ -74,7 +74,9 @@ function makeTestWalletSessionJwt(payload: Record<string, unknown>): string {
 
 function makeLane() {
   return buildNearTransactionSigningLane({
-    accountId,
+    walletId: ed25519WalletId,
+    nearAccountId: accountId,
+    ed25519KeyScopeId,
     authMethod: 'passkey',
     signingGrantId,
     thresholdSessionId,
@@ -115,7 +117,10 @@ function makeEd25519Record(
     signingGrantId,
     walletSessionJwt: makeTestWalletSessionJwt({
       kind: 'router_ab_ed25519_wallet_session_v1',
-      sub: accountId,
+      sub: ed25519WalletId,
+      walletId: ed25519WalletId,
+      nearAccountId: accountId,
+      ed25519KeyScopeId,
       thresholdSessionId,
       signingGrantId,
       version: 1,
@@ -365,7 +370,10 @@ test.describe('selected signing capability strict persisted records', () => {
     const refreshedRecord = makeEd25519Record({
       walletSessionJwt: makeTestWalletSessionJwt({
         kind: 'router_ab_ed25519_wallet_session_v1',
-        sub: accountId,
+        sub: ed25519WalletId,
+        walletId: ed25519WalletId,
+        nearAccountId: accountId,
+        ed25519KeyScopeId,
         thresholdSessionId,
         signingGrantId,
         version: 2,

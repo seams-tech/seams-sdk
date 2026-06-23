@@ -251,6 +251,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     });
 
     coordinator.initializeNearAccessKey({
+      walletId: lane.walletId,
       accountId: lane.accountId,
       publicKey: lane.publicKey,
     });
@@ -263,6 +264,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
 
     const switchedLane = createNearLane({ publicKey: 'ed25519:other-key' });
     coordinator.initializeNearAccessKey({
+      walletId: switchedLane.walletId,
       accountId: switchedLane.accountId,
       publicKey: switchedLane.publicKey,
     });

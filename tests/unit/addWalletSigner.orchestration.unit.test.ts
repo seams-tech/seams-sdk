@@ -213,6 +213,8 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
 
 function ed25519WalletSessionJwt(args: {
   walletId: string;
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   sessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
@@ -223,6 +225,8 @@ function ed25519WalletSessionJwt(args: {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     sub: args.walletId,
     walletId: args.walletId,
+    nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
     thresholdSessionId: args.sessionId,
     signingGrantId: args.signingGrantId,
     relayerKeyId: args.relayerKeyId,
@@ -944,6 +948,8 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 	            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
 	            jwt: ed25519WalletSessionJwt({
 	              walletId: responseWalletId,
+	              nearAccountId,
+	              ed25519KeyScopeId,
 	              sessionId: thresholdSessionId,
 	              signingGrantId,
 	              relayerKeyId: 'relayer-ed25519',
@@ -1219,7 +1225,7 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
     ]);
     expect(captures.bootstrapGrantBody).not.toHaveProperty('newAccountId');
     expect(captures.registrationCredentialArgs).toMatchObject({
-      nearAccountId: WALLET_SUBJECT_ID,
+      walletId: WALLET_SUBJECT_ID,
       challengeB64u: captures.digest,
     });
     expectSingleRegistrationTouchIdPrompt(captures);
@@ -1405,7 +1411,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       '/wallets/register/finalize',
     ]);
     expect(captures.registrationCredentialArgs).toMatchObject({
-      nearAccountId: 'combined.testnet',
+      walletId: 'combined.testnet',
       challengeB64u: captures.digest,
     });
     expectSingleRegistrationTouchIdPrompt(captures);
@@ -1791,6 +1797,8 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
 	            routerAbNormalSigning: ROUTER_AB_NORMAL_SIGNING,
 	            jwt: ed25519WalletSessionJwt({
 	              walletId: WALLET_SUBJECT_ID,
+	              nearAccountId: 'later.testnet',
+	              ed25519KeyScopeId: 'later.testnet',
 	              sessionId: thresholdSessionId,
 	              signingGrantId,
 	              relayerKeyId: 'relayer-ed25519',

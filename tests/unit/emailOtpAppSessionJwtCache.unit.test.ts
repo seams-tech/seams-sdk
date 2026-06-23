@@ -4,6 +4,7 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   EmailOtpAppSessionJwtCache,
   emailOtpRefreshIdentity,
@@ -30,9 +31,13 @@ function base64UrlJson(value: unknown): string {
 }
 
 function makeIdentity() {
-  const walletId = toAccountId('wallet.testnet');
+  const walletId = toWalletId('wallet.testnet');
+  const nearAccountId = toAccountId('wallet.testnet');
+  const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-wallet-testnet');
   const lane = buildNearTransactionSigningLane({
-    accountId: walletId,
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     authMethod: 'email_otp',
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
