@@ -315,7 +315,7 @@ Acceptance:
 - [x] Remove public `SeamsWeb.registerPasskeyInternal`.
 - [x] Remove public `SeamsWebIframe.registerPasskeyInternal`.
 - [x] Route wallet-iframe registration confirmation overrides through
-      `registerPasskey(..., { confirmationConfig })`.
+      `registerPasskey({ confirmationConfig })`.
 - [x] Rename the private passkey-registration implementation helper away from
       the legacy `registerPasskeyInternal` symbol.
 - [x] Update tests and helpers to use the public `registerPasskey` API with

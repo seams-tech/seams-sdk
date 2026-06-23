@@ -69,7 +69,7 @@ The app calls the ordinary registration API from an app-domain control:
 
 ```tsx
 function handleCreatePasskeyClick(): void {
-  void seams.registration.registerPasskey(accountId);
+  void seams.registration.registerPasskey();
 }
 
 <AppDomainButton onClick={handleCreatePasskeyClick}>Create with Passkey</AppDomainButton>;
@@ -694,7 +694,6 @@ export type RegistrationActivationButtonPresentation =
     };
 
 export type CreatePasskeyRegistrationActivationSurfaceArgs = {
-  nearAccountId: string;
   options?: RegistrationHooksOptions;
   presentation: RegistrationActivationButtonPresentation;
 };
@@ -706,8 +705,8 @@ states while keeping the wallet-origin click target in the iframe.
 
 Public API naming rules:
 
-- The direct registration API is `seams.registration.registerPasskey(accountId,
-  options)`.
+- The direct registration API is `seams.registration.registerPasskey(options)`
+  for implicit NEAR registration.
 - The activation-surface API is
   `seams.registration.createPasskeyRegistrationActivationSurface(args)`.
 - Do not document or add a parallel `registerPasskeyAccount()` API unless the
@@ -727,7 +726,6 @@ Replace the current optional `button` payload with required `presentation`.
 ```ts
 export interface PMRegistrationActivationPreparePayload {
   activationId: string;
-  nearAccountId: string;
   expiresAtMs: number;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
@@ -1109,8 +1107,7 @@ confirmation modal in wallet iframe mode.
 
 Required guarantees:
 
-- normal `PM_REGISTER` continues to strip caller-supplied
-  `walletIframeActivation`
+- activation prepare strips caller-supplied `walletIframeActivation`
 - `determineConfirmationConfig` continues to clamp iframe registration without
   iframe-minted activation proof
 - activation ids are unguessable, short-lived, and single-use
@@ -1189,7 +1186,7 @@ instead of adding an ad hoc lifecycle state bag in the view.
       during iframe passkey registration.
 - [x] Keep existing tests that prove normal iframe registration is clamped.
 - [x] Keep existing tests that prove caller-supplied activation proofs are
-      stripped from `PM_REGISTER`.
+      stripped from activation prepare.
 
 ### Phase 1: Types And Protocol
 
@@ -1351,7 +1348,7 @@ instead of adding an ad hoc lifecycle state bag in the view.
       without `walletIframeActivation`.
 - [x] Unit: `determineConfirmationConfig` skips only with iframe activation
       proof.
-- [x] Unit: `PM_REGISTER` strips caller-supplied activation proofs.
+- [x] Unit: activation prepare injects iframe-owned activation proofs.
 - [x] Unit: activation button mints the proof and uses `skipClick`.
 - [x] Unit: duplicate click starts registration once.
 - [x] Unit: expiry rejects before WebAuthn.
@@ -1441,7 +1438,7 @@ Browser validation matrix:
       Direct API calls remain supported:
 
       ```tsx
-      <button onClick={() => void seams.registration.registerPasskey(accountId)}>
+      <button onClick={() => void seams.registration.registerPasskey()}>
         Create with Passkey
       </button>
       ```

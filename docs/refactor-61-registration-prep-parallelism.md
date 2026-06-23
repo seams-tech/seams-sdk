@@ -685,12 +685,8 @@ type WalletIframeRegistrationActivationSurface = {
 };
 
 type CreatePasskeyRegistrationActivationSurfaceArgs = {
-  nearAccountId: string;
   options?: RegistrationHooksOptions;
-  button?: {
-    label?: string;
-    busyLabel?: string;
-  };
+  presentation: RegistrationActivationButtonPresentation;
 };
 ```
 
@@ -698,8 +694,8 @@ Candidate API entrypoint:
 
 ```ts
 const surface = seams.registration.createPasskeyRegistrationActivationSurface({
-  nearAccountId,
   options,
+  presentation,
 });
 surface.mount(buttonContainer);
 ```
@@ -708,8 +704,8 @@ Notes:
 
 - The app controls placement, but the rendered button and click handler live
   inside the wallet iframe.
-- The existing `registerPasskey(nearAccountId, options)` API remains the
-  fallback imperative path and keeps the current modal confirmation behavior.
+- The existing `registerPasskey(options)` API remains the fallback imperative
+  path and keeps the current modal confirmation behavior.
 - Invalid states should be unrepresentable with a discriminated state union; no
   optional identity/session fields in the activation start path.
 
@@ -720,8 +716,8 @@ type WalletIframeRegistrationActivationRequest =
   | {
       type: 'PM_REGISTRATION_ACTIVATION_PREPARE';
       activationId: string;
-      nearAccountId: string;
       options: SerializableRegistrationHooksOptions;
+      presentation: RegistrationActivationButtonPresentation;
       expiresAtMs: number;
     }
   | {

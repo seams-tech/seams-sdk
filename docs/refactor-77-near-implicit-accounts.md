@@ -9,7 +9,7 @@ Related plans:
 - [router-a-b-SPEC.md](./router-a-b-SPEC.md)
 - [refactor-64-optimize-registration-2.md](./refactor-64-optimize-registration-2.md)
 - [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md)
-- [refactor-77-switch-case.md](./refactor-77-switch-case.md)
+- [refactor-80-switch-case.md](./refactor-80-switch-case.md)
 
 ## Goal
 
@@ -191,11 +191,10 @@ type RegistrationWalletIdentityRequest =
     };
 ```
 
-The route parser must construct `sponsored_named_wallet.walletId` from
-`requestedAccountId` and reject a separate caller-provided wallet ID that does
-not match the requested named account. For `generated_implicit_wallet`, the
-server allocates `GeneratedImplicitWalletId` and rejects caller-provided wallet
-IDs.
+The route parser must require `sponsored_named_wallet.walletId` as the durable
+wallet identity and require `requestedAccountId` as the NEAR account to sponsor.
+Those IDs may differ. For `generated_implicit_wallet`, the server allocates
+`GeneratedImplicitWalletId` and rejects caller-provided wallet IDs.
 
 Use branch-specific pre-finalize HSS scopes:
 
@@ -351,8 +350,8 @@ Identity vocabulary after this refactor:
 - `ed25519KeyScopeId` is the stable HSS/PRF domain input for the Ed25519 key.
   It is persisted with the wallet signer and reused for later signing sessions.
 - For sponsored named registration, `walletId`, `nearAccountId`, and
-  `ed25519KeyScopeId` may all resolve to the same named account string. The code
-  must still carry them as distinct fields.
+  `ed25519KeyScopeId` may all resolve to the same named account string, and they
+  may also be distinct. The code must still carry them as distinct fields.
 
 Registration session requests must be draft-shaped until the server resolves the
 account:
@@ -420,7 +419,7 @@ user starts registration
   -> user completes Passkey or Email OTP authority proof
   -> HSS respond/finalize returns Ed25519 public key
   -> server dispatches CreateAccount + Transfer + AddKey through relayer
-  -> server stores wallet/profile and signer binding under requested named account ID
+  -> server stores wallet/profile under walletId and signer binding under requested named account ID
   -> client persists wallet state with walletId, nearAccountId, and ed25519KeyScopeId
   -> registration returns named account ID and creation transaction hash
 ```
@@ -482,11 +481,11 @@ Server-side changes:
       provisioning.
 - [ ] Add `deriveImplicitNearAccountIdFromEd25519PublicKey(publicKey)` in shared
       code.
-- [ ] Add a server-side generated implicit wallet/key-scope allocator using the
+- [x] Add a server-side generated implicit wallet/key-scope allocator using the
       hosted Email OTP readable-name pattern with a higher-entropy suffix such as
       `frost-vermillion-k7p9m2`.
-- [ ] Reserve generated wallet IDs with a collision check before intent creation.
-- [ ] Add reservation TTL and reroll semantics for generated wallet IDs.
+- [x] Reserve generated wallet IDs with a collision check before intent creation.
+- [x] Add reservation TTL and reroll semantics for generated wallet IDs.
 - [ ] Validate generated wallet IDs separately from NEAR account IDs.
 - [ ] Add unit tests for:
   - valid `ed25519:<base58>` public key to implicit account ID;
@@ -505,27 +504,27 @@ Acceptance:
 
 ### Phase 2: Registration Intent Shape
 
-- [ ] Replace `ThresholdEd25519RegistrationSpec.nearAccountId` and
+- [x] Replace `ThresholdEd25519RegistrationSpec.nearAccountId` and
       `createNearAccount` with `accountProvisioning`.
-- [ ] Add `RegistrationEd25519KeyScope` to prepared registration state.
-- [ ] For implicit server-generated registration, allocate `walletId` and
+- [x] Add `RegistrationEd25519KeyScope` to prepared registration state.
+- [x] For implicit server-generated registration, allocate `walletId` and
       `ed25519KeyScopeId` after participant IDs are normalized and before intent
       signing.
-- [ ] For sponsored named registration, require
+- [x] For sponsored named registration, require
       `accountProvisioning.requestedAccountId` and use it as the named
       `nearAccountId`.
-- [ ] Reject implicit registration requests with caller-provided wallet IDs.
-- [ ] Reject sponsored named registration requests whose wallet ID differs from
-      `requestedAccountId`.
-- [ ] Add `implicit_account` and `sponsored_named_account` registration type
+- [x] Reject implicit registration requests with caller-provided wallet IDs.
+- [x] Reject sponsored named registration requests without a provided durable
+      wallet ID; the wallet ID may differ from `requestedAccountId`.
+- [x] Add `implicit_account` and `sponsored_named_account` registration type
       fixtures.
-- [ ] Update registration intent digest fixtures so the provisioning branch is
+- [x] Update registration intent digest fixtures so the provisioning branch is
       part of the signed intent.
-- [ ] Include generated implicit wallet ID and key-scope data in the signed
+- [x] Include generated implicit wallet ID and key-scope data in the signed
       intent digest.
-- [ ] Update route parsers in `relayWalletRegistration.ts` and `AuthService.ts`
+- [x] Update route parsers in `relayWalletRegistration.ts` and `AuthService.ts`
       to parse both provisioning branches.
-- [ ] Reject old boolean registration Ed25519 shapes at request boundaries.
+- [x] Reject old boolean registration Ed25519 shapes at request boundaries.
 - [ ] Keep `AddSignerSelection` separate. Audit it in this phase and convert any
       account-creation mode to the same provisioning union if it remains needed.
 
@@ -543,14 +542,14 @@ Acceptance:
 
 ### Phase 3: HSS Registration Scope
 
-- [ ] Introduce `ThresholdEd25519RegistrationAccountScope`.
-- [ ] Rename registration HSS/PRF domain inputs from `nearAccountId` to
+- [x] Introduce `ThresholdEd25519RegistrationAccountScope`.
+- [x] Rename registration HSS/PRF domain inputs from `nearAccountId` to
       `ed25519KeyScopeId`.
-- [ ] Replace registration HSS `new_account_id` request fields with
+- [x] Replace registration HSS `new_account_id` request fields with
       `registrationAccountScope` and `ed25519KeyScopeId`.
-- [ ] Update `parseThresholdEd25519HssCanonicalContext()` so registration context
+- [x] Update `parseThresholdEd25519HssCanonicalContext()` so registration context
       accepts both implicit and sponsored named scope branches.
-- [ ] Update client HSS input derivation:
+- [x] Update client HSS input derivation:
   - implicit branch uses generated `ed25519KeyScopeId` as the
     PRF/domain-separation input;
   - sponsored branch uses `sponsored_named_registration_scope` including the
@@ -563,9 +562,9 @@ Acceptance:
 - [ ] Update server threshold PRF and HSS WASM schemas:
   - `thresholdPrfWasm.ts`;
   - `ed25519HssWasm.ts`.
-- [ ] Update server HSS prepare/respond/finalize scope validation to compare the
+- [x] Update server HSS prepare/respond/finalize scope validation to compare the
       full branch-specific registration scope.
-- [ ] Ensure HSS finalized output returns the public key before account
+- [x] Ensure HSS finalized output returns the public key before account
       resolution.
 
 Acceptance:
@@ -582,20 +581,22 @@ Acceptance:
 
 ### Phase 4: Server Finalize And Persistence
 
-- [ ] Switch over `accountProvisioning` in wallet registration finalize.
-- [ ] For `implicit_account`, derive `ResolvedRegistrationNearAccount` from
+- [x] Switch over `accountProvisioning` in wallet registration finalize.
+- [x] For `implicit_account`, derive `ResolvedRegistrationNearAccount` from
       `finalized.publicKey` and skip `createAccount()`.
-- [ ] For `sponsored_named_account`, call `createAccount()` with the requested
+- [x] For `sponsored_named_account`, call `createAccount()` with the requested
       named account ID and finalized public key.
-- [ ] Extract shared provisioning resolution used by combined and Ed25519-only
+- [x] Extract shared provisioning resolution used by combined and Ed25519-only
       finalize paths.
-- [ ] Rename route timing from generic `nearAccountCreateMs` to a branch-specific
+- [x] Rename route timing from generic `nearAccountCreateMs` to a branch-specific
       `sponsoredNearAccountCreateMs`.
-- [ ] Pass `walletId`, `nearAccountId`, and `ed25519KeyScopeId` into
+- [x] Pass `walletId`, `nearAccountId`, and `ed25519KeyScopeId` into
       `keygenFromRegistrationMaterial()` and persistence.
+- [x] Persist `walletId`, `nearAccountId`, and `ed25519KeyScopeId` in signer
+      records, warm sessions, and signing-session authorization.
 - [ ] Update identity linking so wallet identity and NEAR signer identity are
       separate records for implicit accounts.
-- [ ] Complete session policy drafts after account resolution and validate the
+- [x] Complete session policy drafts after account resolution and validate the
       returned session against `walletId`, `nearAccountId`, and
       `ed25519KeyScopeId`.
 - [ ] Update rollback semantics by branch:

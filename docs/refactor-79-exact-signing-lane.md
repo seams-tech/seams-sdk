@@ -8,8 +8,8 @@ Related plans:
 
 - [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
 - [refactor-76-branded-keys.md](./refactor-76-branded-keys.md)
-- [refactor-77-switch-case.md](./refactor-77-switch-case.md)
-- [refactor-78-near-implicit-accounts.md](./refactor-78-near-implicit-accounts.md)
+- [refactor-80-switch-case.md](./refactor-80-switch-case.md)
+- [refactor-77-near-implicit-accounts.md](./refactor-77-near-implicit-accounts.md)
 
 ## Goal
 

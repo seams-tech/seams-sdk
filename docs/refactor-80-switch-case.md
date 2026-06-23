@@ -9,7 +9,7 @@ Related plans:
 - [refactor-74-login-no-hss.md](./refactor-74-login-no-hss.md)
 - [refactor-75-simplify-ed25519.md](./refactor-75-simplify-ed25519.md)
 - [refactor-76-branded-keys.md](./refactor-76-branded-keys.md)
-- [refactor-78-near-implicit-accounts.md](./refactor-78-near-implicit-accounts.md)
+- [refactor-77-near-implicit-accounts.md](./refactor-77-near-implicit-accounts.md)
 - [refactor-79-exact-signing-lane.md](./refactor-79-exact-signing-lane.md)
 
 ## Goal
