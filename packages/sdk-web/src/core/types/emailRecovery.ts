@@ -44,7 +44,10 @@ export type PendingEmailRecoveryStatus =
   | 'error';
 
 export type PendingEmailRecovery = {
-  accountId: AccountId;
+  accountId: string;
+  walletId: string;
+  nearAccountId: AccountId;
+  ed25519KeyScopeId: string;
   signerSlot: number;
   requestId: string;
   recoverySessionId: RecoverySubjectBinding['recoverySessionId'];

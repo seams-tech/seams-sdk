@@ -33,7 +33,9 @@ import {
 } from '../keyMaterialBrands';
 
 type PersistWarmSessionEd25519CapabilityIdentity = {
+  walletId: string;
   nearAccountId: AccountId;
+  ed25519KeyScopeId: string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -348,6 +350,14 @@ export function persistWarmSessionEd25519Capability(
     String(signingRootBinding?.signingRootVersion || '').trim();
   const authMethod = args.kind === 'jwt_email_otp' ? 'email_otp' : 'passkey';
   const source = args.source;
+  const walletId = nonEmptyString(args.walletId);
+  const ed25519KeyScopeId = nonEmptyString(args.ed25519KeyScopeId);
+  if (!walletId) {
+    throw new Error('Missing walletId for warm threshold-ed25519 capability');
+  }
+  if (!ed25519KeyScopeId) {
+    throw new Error('Missing ed25519KeyScopeId for warm threshold-ed25519 capability');
+  }
   const retainedMaterial =
     !clientVerifyingShareB64u &&
     !ed25519WorkerMaterialBindingDigest &&
@@ -367,7 +377,9 @@ export function persistWarmSessionEd25519Capability(
       : { kind: 'none' as const };
 
   const record = upsertStoredThresholdEd25519SessionRecord({
+    walletId,
     nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId,
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
@@ -439,7 +451,7 @@ export function persistWarmSessionEd25519Capability(
     throw new Error('Failed to persist warm threshold-ed25519 capability');
   }
   publishResolvedIdentity({
-    walletId: record.nearAccountId,
+    walletId: record.walletId,
     authMethod,
     curve: 'ed25519',
     chain: 'near',

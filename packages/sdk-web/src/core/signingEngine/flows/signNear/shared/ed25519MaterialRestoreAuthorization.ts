@@ -87,7 +87,7 @@ async function resolveWarmSessionRestoreAuthorization(args: {
   }
   const sessionId = nonEmptyString(args.record.thresholdSessionId);
   const signingGrantId = nonEmptyString(args.record.signingGrantId);
-  const walletId = nonEmptyString(args.record.nearAccountId);
+  const walletId = nonEmptyString(args.record.walletId);
   const materialBindingDigest = nonEmptyString(args.record.ed25519WorkerMaterialBindingDigest);
   if (!sessionId || !signingGrantId || !walletId || !materialBindingDigest) {
     return unavailableRestoreAuthorization();

@@ -485,6 +485,8 @@ function normalizeEd25519RestoreMetadata(
       ? (value as Record<string, unknown>)
       : null;
   if (!obj) return undefined;
+  const nearAccountId = normalizeOptionalNonEmptyString(obj.nearAccountId);
+  const ed25519KeyScopeId = normalizeOptionalNonEmptyString(obj.ed25519KeyScopeId);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
   const sessionKindRaw = String(obj.sessionKind || '').trim();
@@ -509,6 +511,8 @@ function normalizeEd25519RestoreMetadata(
   const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   if (
+    !nearAccountId ||
+    !ed25519KeyScopeId ||
     !rpId ||
     !relayerKeyId ||
     !sessionKind ||
@@ -520,6 +524,8 @@ function normalizeEd25519RestoreMetadata(
   }
   const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   return {
+    nearAccountId,
+    ed25519KeyScopeId,
     rpId,
     relayerKeyId,
     participantIds,
@@ -548,6 +554,12 @@ function ed25519WorkerMaterialMissingFields(value: unknown): string[] {
       ? (value as Record<string, unknown>)
       : {};
   const missing: string[] = [];
+  if (!normalizeOptionalNonEmptyString(obj.nearAccountId)) {
+    missing.push('nearAccountId');
+  }
+  if (!normalizeOptionalNonEmptyString(obj.ed25519KeyScopeId)) {
+    missing.push('ed25519KeyScopeId');
+  }
   if (!normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u)) {
     missing.push('clientVerifyingShareB64u');
   }

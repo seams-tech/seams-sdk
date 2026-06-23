@@ -34,6 +34,8 @@ type RawEcdsaRestoreMetadata = {
 };
 
 type RawEd25519RestoreMetadata = {
+  nearAccountId?: unknown;
+  ed25519KeyScopeId?: unknown;
   rpId?: unknown;
   relayerKeyId?: unknown;
   participantIds?: unknown;
@@ -42,6 +44,12 @@ type RawEd25519RestoreMetadata = {
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: unknown;
   clientVerifyingShareB64u?: unknown;
+  ed25519WorkerMaterialBindingDigest?: unknown;
+  sealedWorkerMaterialRef?: unknown;
+  sealedWorkerMaterialB64u?: unknown;
+  materialFormatVersion?: unknown;
+  materialKeyId?: unknown;
+  materialCreatedAtMs?: unknown;
   signerSlot?: unknown;
   routerAbNormalSigning?: unknown;
 };
@@ -122,9 +130,18 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
 
 type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   curve: 'ed25519';
+  nearAccountId: string;
+  ed25519KeyScopeId: string;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: readonly number[];
+  clientVerifyingShareB64u?: string;
+  ed25519WorkerMaterialBindingDigest?: string;
+  sealedWorkerMaterialRef?: string;
+  sealedWorkerMaterialB64u?: string;
+  materialFormatVersion?: string;
+  materialKeyId?: string;
+  materialCreatedAtMs?: number;
   signerSlot: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
@@ -162,12 +179,11 @@ export type EmailOtpEcdsaCompanionEd25519Recovery = Ed25519SealedRecoveryRecordB
 
 export type PasskeyEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
-    authMethod: 'passkey';
-    rpId: string;
-    xClientBaseB64u?: never;
-    clientVerifyingShareB64u?: never;
-    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-  };
+	    authMethod: 'passkey';
+	    rpId: string;
+	    xClientBaseB64u?: never;
+	    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+	  };
 
 export type EmailOtpEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase &
   SealedRecoveryWalletSessionAuthCarrier & {
@@ -202,6 +218,38 @@ function normalizeParticipantIds(value: unknown): number[] {
   return value
     .map((participantId) => Math.floor(Number(participantId)))
     .filter((participantId) => Number.isFinite(participantId) && participantId > 0);
+}
+
+function normalizedEd25519WorkerMaterialFields(
+  restore: RawEd25519RestoreMetadata,
+): Pick<
+  Ed25519SealedRecoveryRecordBase,
+  | 'clientVerifyingShareB64u'
+  | 'ed25519WorkerMaterialBindingDigest'
+  | 'sealedWorkerMaterialRef'
+  | 'sealedWorkerMaterialB64u'
+  | 'materialFormatVersion'
+  | 'materialKeyId'
+  | 'materialCreatedAtMs'
+> {
+  const clientVerifyingShareB64u = normalizeNonEmptyString(restore.clientVerifyingShareB64u);
+  const ed25519WorkerMaterialBindingDigest = normalizeNonEmptyString(
+    restore.ed25519WorkerMaterialBindingDigest,
+  );
+  const sealedWorkerMaterialRef = normalizeNonEmptyString(restore.sealedWorkerMaterialRef);
+  const sealedWorkerMaterialB64u = normalizeNonEmptyString(restore.sealedWorkerMaterialB64u);
+  const materialFormatVersion = normalizeNonEmptyString(restore.materialFormatVersion);
+  const materialKeyId = normalizeNonEmptyString(restore.materialKeyId);
+  const materialCreatedAtMs = Math.floor(Number(restore.materialCreatedAtMs) || 0);
+  return {
+    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    ...(ed25519WorkerMaterialBindingDigest ? { ed25519WorkerMaterialBindingDigest } : {}),
+    ...(sealedWorkerMaterialRef ? { sealedWorkerMaterialRef } : {}),
+    ...(sealedWorkerMaterialB64u ? { sealedWorkerMaterialB64u } : {}),
+    ...(materialFormatVersion ? { materialFormatVersion } : {}),
+    ...(materialKeyId ? { materialKeyId } : {}),
+    ...(materialCreatedAtMs > 0 ? { materialCreatedAtMs } : {}),
+  };
 }
 
 function normalizeRawObject<TValue extends object>(value: unknown): Partial<TValue> | null {
@@ -447,13 +495,14 @@ export function normalizeSealedRecoveryRecord(
       ed25519Restore
     ) {
       const companionRpId = normalizeNonEmptyString(ed25519Restore.rpId);
+      const companionNearAccountId = normalizeNonEmptyString(ed25519Restore.nearAccountId);
+      const companionEd25519KeyScopeId = normalizeNonEmptyString(
+        ed25519Restore.ed25519KeyScopeId,
+      );
       const companionRelayerKeyId = normalizeNonEmptyString(ed25519Restore.relayerKeyId);
       const companionParticipantIds = normalizeParticipantIds(ed25519Restore.participantIds);
       const companionXClientBaseB64u = normalizeNonEmptyString(ed25519Restore.xClientBaseB64u);
-      const companionClientVerifyingShareB64u = normalizeNonEmptyString(
-        ed25519Restore.clientVerifyingShareB64u,
-      );
-      const companionSignerSlot = Math.floor(Number(ed25519Restore.signerSlot) || 0);
+	      const companionSignerSlot = Math.floor(Number(ed25519Restore.signerSlot) || 0);
       const companionRouterAbNormalSigning = parseRouterAbEd25519NormalSigningState(
         ed25519Restore.routerAbNormalSigning,
       );
@@ -472,13 +521,14 @@ export function normalizeSealedRecoveryRecord(
       }
       if (
         companionRpId &&
+        companionNearAccountId &&
+        companionEd25519KeyScopeId &&
         companionRelayerKeyId &&
         companionParticipantIds.length &&
         companionSignerSlot > 0 &&
-        !companionXClientBaseB64u &&
-        !companionClientVerifyingShareB64u &&
-        companionWalletSessionAuth
-      ) {
+	        !companionXClientBaseB64u &&
+	        companionWalletSessionAuth
+	      ) {
         const companionRuntimePolicyScope = resolveRuntimePolicyScope({
           rawRuntimePolicyScope: ed25519Restore.runtimePolicyScope,
           rawWalletSessionJwt: ed25519Restore.walletSessionJwt,
@@ -501,8 +551,11 @@ export function normalizeSealedRecoveryRecord(
           ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
             ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
             : {}),
-          relayerUrl,
-          rpId: companionRpId,
+	          relayerUrl,
+	          nearAccountId: companionNearAccountId,
+	          ed25519KeyScopeId: companionEd25519KeyScopeId,
+	          ...normalizedEd25519WorkerMaterialFields(ed25519Restore),
+	          rpId: companionRpId,
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
           signerSlot: companionSignerSlot,
@@ -598,12 +651,13 @@ export function normalizeSealedRecoveryRecord(
   const thresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ed25519);
   const restore = ed25519Restore;
   const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
+  const nearAccountId = normalizeNonEmptyString(restore?.nearAccountId);
+  const ed25519KeyScopeId = normalizeNonEmptyString(restore?.ed25519KeyScopeId);
   const relayerKeyId = normalizeNonEmptyString(restore?.relayerKeyId);
   const rpId = normalizeNonEmptyString(restore?.rpId);
   const participantIds = normalizeParticipantIds(restore?.participantIds);
   const xClientBaseB64u = normalizeNonEmptyString(restore?.xClientBaseB64u);
-  const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
-  const signerSlot = Math.floor(Number(restore?.signerSlot) || 0);
+	  const signerSlot = Math.floor(Number(restore?.signerSlot) || 0);
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
     restore?.routerAbNormalSigning,
   );
@@ -611,14 +665,15 @@ export function normalizeSealedRecoveryRecord(
   if (!thresholdSessionId) return reject(raw, 'missing_identity');
   if (
     !restore ||
+    !nearAccountId ||
+    !ed25519KeyScopeId ||
     !rpId ||
     !relayerUrl ||
     !relayerKeyId ||
-    !participantIds.length ||
-    signerSlot <= 0 ||
-    xClientBaseB64u ||
-    clientVerifyingShareB64u
-  ) {
+	    !participantIds.length ||
+	    signerSlot <= 0 ||
+	    xClientBaseB64u
+	  ) {
     return reject(raw, 'missing_restore_metadata');
   }
   const walletSessionAuth = normalizeWalletSessionAuthFromStoredRestoreOrReject({
@@ -737,8 +792,11 @@ export function normalizeSealedRecoveryRecord(
           ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
             ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
             : {}),
-          relayerUrl,
-          rpId,
+	          relayerUrl,
+	          nearAccountId,
+	          ed25519KeyScopeId,
+	          ...normalizedEd25519WorkerMaterialFields(restore),
+	          rpId,
           relayerKeyId,
           participantIds,
           signerSlot,
@@ -764,8 +822,11 @@ export function normalizeSealedRecoveryRecord(
           ...(normalizeNonEmptyString(raw.shamirPrimeB64u)
             ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
             : {}),
-          relayerUrl,
-          rpId,
+	          relayerUrl,
+	          nearAccountId,
+	          ed25519KeyScopeId,
+	          ...normalizedEd25519WorkerMaterialFields(restore),
+	          rpId,
           relayerKeyId,
           participantIds,
           signerSlot,

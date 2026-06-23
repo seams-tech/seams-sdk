@@ -88,7 +88,6 @@ import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/sign
 import type { EnrollEmailOtpInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { LoginWithEmailOtpEd25519CapabilityInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import {
-  nearAccountRefFromAccountId,
   toWalletId,
   thresholdEcdsaChainTargetFromRequest,
   walletSessionRefFromSession,
@@ -99,20 +98,14 @@ import {
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
-import {
-  parseThresholdRuntimePolicyScopeFromJwt,
-} from '@/core/signingEngine/threshold/sessionPolicy';
-import type {
-  EmailOtpEd25519SessionReconstructionPlan,
-} from '@/core/signingEngine/session/emailOtp/provisioning';
+import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { EmailOtpEd25519SessionReconstructionPlan } from '@/core/signingEngine/session/emailOtp/provisioning';
 import {
   exchangeGoogleEmailOtpSession,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
-import {
-  beginGoogleEmailOtpWalletAuth,
-} from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
+import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import {
   getEmailOtpRecoveryCodeStatus,
   storeRotatedEmailOtpRecoveryCodes,
@@ -152,12 +145,10 @@ function requireConcreteEcdsaChainTarget(
   return thresholdEcdsaChainTargetFromRequest(value);
 }
 
-async function resolveEmailOtpEd25519SessionReconstruction(
-  args: {
-    walletSession: WalletSessionRef;
-    appSessionJwt?: string;
-  },
-): Promise<EmailOtpEd25519SessionReconstructionPlan> {
+async function resolveEmailOtpEd25519SessionReconstruction(args: {
+  walletSession: WalletSessionRef;
+  appSessionJwt?: string;
+}): Promise<EmailOtpEd25519SessionReconstructionPlan> {
   const walletId = toAccountId(args.walletSession.walletId);
   const keyIdentity = await resolveEmailOtpEd25519KeyIdentity(walletId);
   const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
@@ -174,13 +165,10 @@ async function resolveEmailOtpEd25519SessionReconstruction(
   if (keyIdentity) {
     const ed25519Key = keyIdentity.ed25519Key;
     if (!runtimePolicyScope) {
-      console.warn(
-        '[SeamsWeb][email-otp] Ed25519 reconstruction deferred before unlock',
-        {
-          ...diagnostic,
-          reason: 'missing_runtime_policy_scope',
-        },
-      );
+      console.warn('[SeamsWeb][email-otp] Ed25519 reconstruction deferred before unlock', {
+        ...diagnostic,
+        reason: 'missing_runtime_policy_scope',
+      });
       return {
         kind: 'defer',
         reason: 'missing_runtime_policy_scope',
@@ -194,13 +182,10 @@ async function resolveEmailOtpEd25519SessionReconstruction(
     };
   }
 
-  console.warn(
-    '[SeamsWeb][email-otp] Ed25519 reconstruction deferred before unlock',
-    {
-      ...diagnostic,
-      reason: 'missing_ed25519_key_identity',
-    },
-  );
+  console.warn('[SeamsWeb][email-otp] Ed25519 reconstruction deferred before unlock', {
+    ...diagnostic,
+    reason: 'missing_ed25519_key_identity',
+  });
   return {
     kind: 'defer',
     reason: 'missing_ed25519_key_identity',
@@ -403,8 +388,7 @@ export class SeamsWeb {
                   rpId: prepareArgs.rpId,
                   appSessionJwt: prepareArgs.appSessionJwt,
                 }),
-              registerWallet: async (registerArgs) =>
-                await this.registerWalletDomain(registerArgs),
+              registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
               startWalletRegistrationPrecompute: (registerArgs) => {
                 if (this.walletIframe.shouldUseWalletIframe()) {
                   return {
@@ -453,8 +437,7 @@ export class SeamsWeb {
       registration: {
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
         registerWallet: async (args) => await this.registerWalletDomain(args),
-        registerPasskey: async (nearAccountId, options) =>
-          await this.registerPasskeyDomain(nearAccountId, options),
+        registerPasskey: async (options) => await this.registerPasskeyDomain(options),
         createPasskeyRegistrationActivationSurface: (args) =>
           this.createPasskeyRegistrationActivationSurfaceDomain(args),
         requestEmailOtpEnrollmentChallenge: async (args) =>
@@ -471,8 +454,7 @@ export class SeamsWeb {
       },
       devices: {
         viewAccessKeyList: async (accountId) => await this.viewAccessKeyListDomain(accountId),
-        deleteDeviceKey: async (accountId, publicKeyToDelete, options) =>
-          await this.deleteDeviceKeyDomain(accountId, publicKeyToDelete, options),
+        deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
       },
       keys: {
         exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
@@ -660,23 +642,21 @@ export class SeamsWeb {
   ): Promise<RegistrationResult> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       try {
-        const nearAccountId =
-          args.signerSelection.mode === 'ed25519_only' ||
-          args.signerSelection.mode === 'ed25519_and_ecdsa'
-            ? args.signerSelection.ed25519.nearAccountId
-            : undefined;
-        const router = await this.walletIframe.requireRouter(nearAccountId);
+        const walletRouterId =
+          args.wallet.kind === 'provided' ? String(args.wallet.walletId) : undefined;
+        const router = await this.walletIframe.requireRouter(walletRouterId);
         this.emitWalletIframeTransportTimingSummary({
           operation: 'registerWallet',
-          walletId:
-            nearAccountId ??
-            (args.wallet.kind === 'provided' ? String(args.wallet.walletId) : null),
+          walletId: walletRouterId ?? null,
         });
         const res = await router.registerWallet(args);
-        if (nearAccountId) {
+        const registeredWalletId = res.success
+          ? String(res.walletId || res.nearAccountId || '').trim()
+          : '';
+        if (registeredWalletId) {
           void (async () => {
             try {
-              await this.initWalletIframe(nearAccountId);
+              await this.initWalletIframe(registeredWalletId);
             } catch {}
           })();
         }
@@ -725,62 +705,26 @@ export class SeamsWeb {
     });
   }
 
-  /**
-   * Register a new passkey for the given NEAR account ID
-   * Uses AccountId for on-chain operations and PRF salt derivation
-   */
   private async registerPasskeyDomain(
-    nearAccountId: string,
     options: RegistrationHooksOptions = {},
   ): Promise<RegistrationResult> {
-    // In wallet-iframe mode, always run inside the wallet origin (no app-origin fallback).
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      try {
-        const router = await this.walletIframe.requireRouter(nearAccountId);
-        this.emitWalletIframeTransportTimingSummary({
-          operation: 'registerPasskey',
-          walletId: nearAccountId,
-        });
-        const confirmationConfig = options?.confirmationConfig;
-        const res = await router.registerPasskey({
-          nearAccountId,
-          confirmationConfig,
-          options: {
-            onEvent: options?.onEvent,
-            ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
-            ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
-          },
-        });
-        // Opportunistically warm resources (non-blocking)
-        void (async () => {
-          try {
-            await this.initWalletIframe(nearAccountId);
-          } catch {}
-        })();
-        await options?.afterCall?.(true, res);
-        return res;
-      } catch (error: unknown) {
-        const e = toError(error);
-        await options?.onError?.(e);
-        await options?.afterCall?.(false);
-        throw e;
-      }
+    if (typeof options === 'string') {
+      throw new Error(
+        '[SeamsWeb] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
+      );
     }
-    const accountId = toAccountId(nearAccountId);
     const rpId = this.signingEngine.getRpId();
     if (!rpId) {
       throw new Error('Missing rpId for relay registration');
     }
     return await this.registerWalletDomain({
       wallet: {
-        kind: 'provided',
-        walletId: walletIdFromString(String(accountId)),
+        kind: 'server_generated',
       },
       rpId,
       authMethod: { kind: 'passkey' },
       signerSelection: buildNearWalletRegistrationSignerSelection({
         configs: this.configs,
-        nearAccountId: String(accountId),
         options,
       }),
       options,
@@ -791,9 +735,7 @@ export class SeamsWeb {
     args: Parameters<RegistrationCapability['createPasskeyRegistrationActivationSurface']>[0],
   ): ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']> {
     if (!this.walletIframe.shouldUseWalletIframe()) {
-      throw new Error(
-        '[SeamsWeb] Registration activation surfaces require wallet iframe mode.',
-      );
+      throw new Error('[SeamsWeb] Registration activation surfaces require wallet iframe mode.');
     }
     type Surface = ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']>;
     type SurfaceState = ReturnType<Surface['state']>;
@@ -809,20 +751,21 @@ export class SeamsWeb {
         } catch {}
       }
     };
-    void this.initWalletIframe(args.nearAccountId).catch(() => {});
+    void this.initWalletIframe().catch(() => {});
     return {
       kind: 'wallet_iframe_registration_activation_surface_v1',
       mount: (target: HTMLElement) => {
         void (async () => {
           try {
             if (disposed) return;
-            const router = await this.walletIframe.requireRouter(args.nearAccountId);
+            const router = await this.walletIframe.requireRouter();
             if (disposed) return;
             inner = router.createPasskeyRegistrationActivationSurface(args);
             inner.onStateChange(setState);
             inner.mount(target);
           } catch (error) {
-            const message = error instanceof Error ? error.message : 'Registration activation failed';
+            const message =
+              error instanceof Error ? error.message : 'Registration activation failed';
             setState({ kind: 'failed', activationId: '', error: message });
           }
         })();
@@ -1464,9 +1407,7 @@ export class SeamsWeb {
     });
   }
 
-  async showEmailOtpRecoveryCodesForAccountMenu(args: {
-    walletId: string;
-  }) {
+  async showEmailOtpRecoveryCodesForAccountMenu(args: { walletId: string }) {
     return await this.showEmailOtpRecoveryCodesDomain({
       walletId: args.walletId,
     });
@@ -1536,7 +1477,7 @@ export class SeamsWeb {
     if (providedJwt) return providedJwt;
     const walletId = toWalletId(args.walletId);
     const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-    const walletSessionUserId = String(session.login.nearAccountId || walletId).trim();
+    const walletSessionUserId = String(session.login.walletId || walletId).trim();
     return await this.signingEngine.resolveEmailOtpAppSessionJwt({
       walletSession: walletSessionRefFromSession({
         walletId,
@@ -1561,8 +1502,7 @@ export class SeamsWeb {
       ...(args.challengeId ? { requestId: args.challengeId } : {}),
     });
     try {
-      const ed25519SessionReconstruction =
-        await resolveEmailOtpEd25519SessionReconstruction(args);
+      const ed25519SessionReconstruction = await resolveEmailOtpEd25519SessionReconstruction(args);
       if (ed25519SessionReconstruction.kind !== 'reconstruct') {
         throw new Error(
           `[SeamsWeb][email-otp] Ed25519-only login cannot reconstruct signing session: ${ed25519SessionReconstruction.reason}`,
@@ -1574,6 +1514,7 @@ export class SeamsWeb {
       });
       await this.signingEngine
         .activateAuthenticatedWalletState({
+          walletId,
           nearAccountId: toAccountId(walletId),
           nearClient: this.nearClient,
         })
@@ -1681,8 +1622,7 @@ export class SeamsWeb {
         if (workerProgressPhases.has(input.phase)) return;
         this.emitEmailOtpUnlockEvent(args.onEvent, input);
       };
-      const ed25519SessionReconstruction =
-        await resolveEmailOtpEd25519SessionReconstruction(args);
+      const ed25519SessionReconstruction = await resolveEmailOtpEd25519SessionReconstruction(args);
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
@@ -1693,6 +1633,7 @@ export class SeamsWeb {
       });
       await this.signingEngine
         .activateAuthenticatedWalletState({
+          walletId,
           nearAccountId: toAccountId(walletId),
           nearClient: this.nearClient,
         })
@@ -2124,10 +2065,9 @@ export class SeamsWeb {
    * Delete a device key from an account
    */
   private async deleteDeviceKeyDomain(
-    accountId: string,
-    publicKeyToDelete: string,
-    options: ActionHooksOptions,
+    args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
   ): Promise<ActionResult> {
+    const accountId = String(args.nearAccount.accountId);
     // Validate that we're not deleting the last key
     const keysView = await this.viewAccessKeyListDomain(accountId);
     if (keysView.keys.length <= 1) {
@@ -2136,21 +2076,22 @@ export class SeamsWeb {
 
     // Find the key to delete
     const keyToDelete = keysView.keys.find(
-      (k: { public_key: string }) => k.public_key === publicKeyToDelete,
+      (k: { public_key: string }) => k.public_key === args.publicKeyToDelete,
     );
     if (!keyToDelete) {
-      throw new Error(`Access key ${publicKeyToDelete} not found on account ${accountId}`);
+      throw new Error(`Access key ${args.publicKeyToDelete} not found on account ${accountId}`);
     }
 
     // Use NEAR signer executeAction with DeleteKey action
     return this.near.executeAction({
-      nearAccount: nearAccountRefFromAccountId(accountId),
+      walletSession: args.walletSession,
+      nearAccount: args.nearAccount,
       receiverId: accountId,
       actionArgs: {
         type: ActionType.DeleteKey,
-        publicKey: publicKeyToDelete,
+        publicKey: args.publicKeyToDelete,
       },
-      options: options,
+      options: args.options,
     });
   }
 }

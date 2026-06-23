@@ -30,13 +30,16 @@ export type EmailOtpEd25519RestorePurpose = RestorePersistedEd25519SessionPurpos
 };
 
 export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
-  accountId: string;
+  walletId: string;
   record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
 }): ThresholdEd25519SessionRecord | null {
   const existing = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
     args.purpose.thresholdSessionId,
   );
+  if (String(args.walletId || '').trim() !== String(args.record.walletId || '').trim()) {
+    return null;
+  }
   if (
     existing?.source === 'email_otp' &&
     existing.emailOtpAuthContext?.retention === 'session' &&
@@ -45,7 +48,9 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
     return existing;
   }
   return upsertStoredThresholdEd25519SessionRecord({
-    nearAccountId: args.accountId,
+    walletId: args.record.walletId,
+    nearAccountId: args.record.nearAccountId,
+    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
     rpId: args.record.rpId,
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
@@ -77,7 +82,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
 }
 
 export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
-  accountId: string;
+  walletId: string;
   record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
   getThresholdEcdsaSessionRecordByThresholdSessionId: (
@@ -112,7 +117,8 @@ export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
     })
     .catch((error) => {
       console.warn('[EmailOtpSession] exact-purpose Ed25519 sealed restore failed', {
-        accountId: args.accountId,
+        walletId: args.walletId,
+        nearAccountId: args.record.nearAccountId,
         thresholdSessionId: args.purpose.thresholdSessionId,
         ecdsaThresholdSessionId,
         error: error instanceof Error ? error.message : String(error || 'unknown error'),

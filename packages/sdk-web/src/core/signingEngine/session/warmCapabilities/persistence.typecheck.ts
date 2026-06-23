@@ -13,7 +13,9 @@ import {
 } from '../keyMaterialBrands';
 
 const commonArgs = {
+  walletId: 'alice.testnet',
   nearAccountId: toAccountId('alice.testnet'),
+  ed25519KeyScopeId: 'alice.testnet',
   rpId: 'example.test',
   relayerUrl: 'https://relayer.test',
   relayerKeyId: 'relayer-key-1',
@@ -58,6 +60,44 @@ void persistWarmSessionEd25519Capability({
 void persistWarmSessionEd25519Capability({
   kind: 'jwt_passkey',
   ...commonArgs,
+  sessionKind: 'jwt',
+  jwt: 'jwt-token',
+  source: 'login',
+});
+
+// @ts-expect-error Warm-session persistence requires an explicit wallet identity.
+void persistWarmSessionEd25519Capability({
+  kind: 'jwt_passkey',
+  nearAccountId: toAccountId('alice.testnet'),
+  ed25519KeyScopeId: 'alice.testnet',
+  rpId: 'example.test',
+  relayerUrl: 'https://relayer.test',
+  relayerKeyId: 'relayer-key-1',
+  participantIds: [1, 2],
+  sessionId: 'threshold-session-1',
+  signingGrantId: 'wallet-session-1',
+  expiresAtMs: 1_900_000_000_000,
+  remainingUses: 2,
+  signerSlot: 1,
+  sessionKind: 'jwt',
+  jwt: 'jwt-token',
+  source: 'login',
+});
+
+// @ts-expect-error Warm-session persistence requires an explicit Ed25519 key scope.
+void persistWarmSessionEd25519Capability({
+  kind: 'jwt_passkey',
+  walletId: 'alice.testnet',
+  nearAccountId: toAccountId('alice.testnet'),
+  rpId: 'example.test',
+  relayerUrl: 'https://relayer.test',
+  relayerKeyId: 'relayer-key-1',
+  participantIds: [1, 2],
+  sessionId: 'threshold-session-1',
+  signingGrantId: 'wallet-session-1',
+  expiresAtMs: 1_900_000_000_000,
+  remainingUses: 2,
+  signerSlot: 1,
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',

@@ -1,7 +1,9 @@
 import {
   walletSessionRefFromSession,
+  nearAccountRefFromAccountId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
   ExecuteEvmFamilyTransactionArgs,
@@ -70,7 +72,6 @@ void validEcdsaBootstrapInput;
 const validNearEmailOtpRegistrationInput: Parameters<
   NearSignerCapability['registerNearWallet']
 >[0] = {
-  nearAccountId: 'alice.testnet',
   authMethod: {
     kind: 'email_otp',
     proofKind: 'otp_challenge',
@@ -80,6 +81,23 @@ const validNearEmailOtpRegistrationInput: Parameters<
   },
 };
 void validNearEmailOtpRegistrationInput;
+
+declare const signedNearTransaction: SignedTransaction;
+
+// @ts-expect-error Public NEAR broadcast requires wallet session and account subject.
+const invalidNearSendTransactionMissingSubject: Parameters<
+  NearSignerCapability['sendTransaction']
+>[0] = {
+  signedTransaction: signedNearTransaction,
+};
+void invalidNearSendTransactionMissingSubject;
+
+const validNearSendTransactionInput: Parameters<NearSignerCapability['sendTransaction']>[0] = {
+  walletSession,
+  nearAccount: nearAccountRefFromAccountId('wallet.testnet'),
+  signedTransaction: signedNearTransaction,
+};
+void validNearSendTransactionInput;
 
 const validEvmEmailOtpRegistrationInput: Parameters<
   EvmSignerCapability['registerEvmWallet']

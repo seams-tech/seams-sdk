@@ -14,10 +14,13 @@ import type { TxDisplayModel } from '../../interfaces/display';
 import { buildNearDisplayModel } from '../../chains/near/display';
 import type {
   OrchestrateIntentDigestSigningConfirmationParams,
+  OrchestrateNearSignatureOnlySigningConfirmationParams,
+  OrchestrateNearTransactionSigningConfirmationParams,
   OrchestrateSigningConfirmationParams,
   RequestUserConfirmationBridge,
   SigningConfirmationChain,
   SigningConfirmationResultIntentDigest,
+  SigningConfirmationResultSignatureOnly,
   SigningConfirmationResultWithTxContext,
   UiConfirmRequestBridgeContext,
 } from '../../stepUpConfirmation/confirmOperation';
@@ -104,17 +107,25 @@ export async function orchestrateSigningConfirmation(
   params: OrchestrateIntentDigestSigningConfirmationParams,
 ): Promise<SigningConfirmationResultIntentDigest>;
 export async function orchestrateSigningConfirmation(
-  params: Exclude<
-    OrchestrateSigningConfirmationParams,
-    OrchestrateIntentDigestSigningConfirmationParams
-  >,
+  params: OrchestrateNearTransactionSigningConfirmationParams,
 ): Promise<SigningConfirmationResultWithTxContext>;
 export async function orchestrateSigningConfirmation(
-  params: OrchestrateSigningConfirmationParams,
-): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest>;
+  params: OrchestrateNearSignatureOnlySigningConfirmationParams,
+): Promise<SigningConfirmationResultSignatureOnly>;
 export async function orchestrateSigningConfirmation(
   params: OrchestrateSigningConfirmationParams,
-): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest> {
+): Promise<
+  | SigningConfirmationResultWithTxContext
+  | SigningConfirmationResultIntentDigest
+  | SigningConfirmationResultSignatureOnly
+>;
+export async function orchestrateSigningConfirmation(
+  params: OrchestrateSigningConfirmationParams,
+): Promise<
+  | SigningConfirmationResultWithTxContext
+  | SigningConfirmationResultIntentDigest
+  | SigningConfirmationResultSignatureOnly
+> {
   const { sessionId } = params;
   const requestUserConfirmation = resolveRequestUserConfirmationBridge(params.ctx);
   const effectiveSigningAuthMode = signingAuthModeFromSigningAuthPlan(params.signingAuthPlan);
@@ -174,6 +185,7 @@ export async function orchestrateSigningConfirmation(
           type: UserConfirmationType.SIGN_TRANSACTION,
           summary: summaryBase,
           payload: {
+            walletId: params.walletId,
             txSigningRequests,
             intentDigest: PENDING_INTENT_DIGEST,
             displayModel: eagerDisplayModel,
@@ -210,6 +222,7 @@ export async function orchestrateSigningConfirmation(
         type: UserConfirmationType.SIGN_TRANSACTION,
         summary,
         payload: {
+          walletId: params.walletId,
           txSigningRequests,
           intentDigest,
           displayModel,
@@ -268,6 +281,7 @@ export async function orchestrateSigningConfirmation(
         type: UserConfirmationType.SIGN_TRANSACTION,
         summary,
         payload: {
+          walletId: params.walletId,
           txSigningRequests,
           intentDigest,
           displayModel,
@@ -299,6 +313,7 @@ export async function orchestrateSigningConfirmation(
         type: UserConfirmationType.SIGN_NEP413_MESSAGE,
         summary,
         payload: {
+          walletId: params.walletId,
           nearAccountId: params.nearAccountId,
           ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
           message: params.message,
@@ -376,6 +391,16 @@ export async function orchestrateSigningConfirmation(
   }
 
   if (params.kind === 'intentDigest') {
+    return {
+      sessionId,
+      intentDigest: decision.intentDigest || intentDigest,
+      credential: decision.credential,
+      otpCode: decision.otpCode,
+      emailOtpChallengeId: decision.emailOtpChallengeId,
+    };
+  }
+
+  if (params.kind === 'delegate' || params.kind === 'nep413') {
     return {
       sessionId,
       intentDigest: decision.intentDigest || intentDigest,

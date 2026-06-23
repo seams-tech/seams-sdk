@@ -1,4 +1,4 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type {
@@ -85,7 +85,7 @@ export async function getWarmThresholdEd25519SessionStatus(
   const signingGrantId = String(record?.signingGrantId || '').trim();
   const budgetStatusCheck = signingGrantId
     ? buildWalletBudgetStatusCheckForSession({
-        owner: ed25519WalletBudgetOwner(toAccountId(nearAccountId)),
+        owner: ed25519WalletBudgetOwner(record?.walletId || nearAccountId),
         signingGrantId,
       })
     : null;

@@ -1,5 +1,9 @@
 import type { ActionHooksOptions } from '@/core/types/sdkSentEvents';
 import { toAccountId } from '@/core/types/accountIds';
+import {
+  nearAccountRefFromAccountId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 
@@ -66,10 +70,18 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
 
     PM_DELETE_DEVICE_KEY: async (req: Req<'PM_DELETE_DEVICE_KEY'>) => {
       const pm = deps.getSeamsWeb();
-      const { accountId, publicKeyToDelete, options } = req.payload!;
-      const result = await pm.devices.deleteDeviceKey(accountId, publicKeyToDelete, {
-        ...withProgress(deps, req.requestId, options || {}),
-      } as ActionHooksOptions);
+      const { walletId, nearAccountId, publicKeyToDelete, options } = req.payload!;
+      const result = await pm.devices.deleteDeviceKey({
+        walletSession: walletSessionRefFromSession({
+          walletId,
+          walletSessionUserId: walletId,
+        }),
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+        publicKeyToDelete,
+        options: {
+          ...withProgress(deps, req.requestId, options || {}),
+        } as ActionHooksOptions,
+      });
       if (deps.respondIfCancelled(req.requestId)) return;
       respondOkResult(deps, req.requestId, result);
     },

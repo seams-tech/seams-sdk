@@ -11,6 +11,7 @@ import type { RegistrationResult } from '@/core/types/seams';
 import {
   isRegistrationActivationButtonInteractionState,
   type PMExecuteActionPayload,
+  type PMSendTxPayload,
   type RegistrationActivationButtonInteractionState,
   type PMRegistrationActivationPreparePayload,
 } from '../../shared/messages';
@@ -19,7 +20,10 @@ import type {
   RegistrationActivationButtonCssProperty,
   RegistrationActivationButtonPresentation,
 } from '@/SeamsWeb/publicApi/types';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  nearAccountRefFromAccountId,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { SEAMS_PASSKEY_REGISTRATION_BTN_ID } from '@/core/signingEngine/uiConfirm/ui/registry';
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -33,6 +37,14 @@ import type { ActionArgs } from '@/core/types';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress } from './shared';
 
+function walletSessionFromWalletId(walletIdRaw: unknown) {
+  const walletId = toWalletId(walletIdRaw);
+  return {
+    walletId,
+    walletSessionUserId: String(walletId),
+  };
+}
+
 function normalizeSignedTransaction(
   candidate: SignedTransaction | PlainSignedTransactionLike | undefined,
 ): SignedTransaction | PlainSignedTransactionLike | undefined {
@@ -40,11 +52,14 @@ function normalizeSignedTransaction(
     try {
       const borsh = extractBorshBytesFromPlainSignedTx(candidate);
       const nonceLease = (candidate as { nonceLease?: NonceLeaseRef }).nonceLease;
+      const serverDispatch = (candidate as { serverDispatch?: SignedTransaction['serverDispatch'] })
+        .serverDispatch;
       return SignedTransaction.fromPlain({
         transaction: candidate.transaction,
         signature: candidate.signature,
         borsh_bytes: borsh,
         ...(nonceLease ? { nonceLease } : {}),
+        ...(serverDispatch ? { serverDispatch } : {}),
       });
     } catch {
       return candidate;
@@ -425,25 +440,6 @@ function focusRegistrationActivationButton(container: HTMLElement): void {
 
 export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
-    PM_REGISTER: async (req: Req<'PM_REGISTER'>) => {
-      const pm = deps.getSeamsWeb();
-      const { nearAccountId, options, confirmationConfig } = req.payload!;
-      if (deps.respondIfCancelled(req.requestId)) return;
-
-      const hooksOptions = withProgress(
-        deps,
-        req.requestId,
-        registrationOptionsWithoutActivation(options),
-      ) as RegistrationHooksOptions;
-      const result: RegistrationResult = await pm.registration.registerPasskey(nearAccountId, {
-        ...hooksOptions,
-        ...(confirmationConfig ? { confirmationConfig } : {}),
-      });
-
-      if (deps.respondIfCancelled(req.requestId)) return;
-      respondOkResult(deps, req.requestId, result);
-    },
-
     PM_REGISTRATION_ACTIVATION_PREPARE: async (req: Req<'PM_REGISTRATION_ACTIVATION_PREPARE'>) => {
       const pm = deps.getSeamsWeb();
       const payload = req.payload!;
@@ -482,7 +478,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
                 req.requestId,
                 registrationOptionsWithoutActivation(payload.options),
               ) as RegistrationHooksOptions;
-              const result = await pm.registration.registerPasskey(payload.nearAccountId, {
+              const result = await pm.registration.registerPasskey({
                 ...hooksOptions,
                 confirmationConfig: {
                   ...(payload.confirmationConfig || {}),
@@ -623,8 +619,9 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_TX_WITH_ACTIONS: async (req: Req<'PM_SIGN_TX_WITH_ACTIONS'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, transaction, options } = req.payload!;
+      const { walletId, nearAccountId, transaction, options } = req.payload!;
       const result = await pm.near.signTransactionWithActions({
+        walletSession: walletSessionFromWalletId(walletId),
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
         transaction,
         options: {
@@ -638,8 +635,9 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_AND_SEND_TX: async (req: Req<'PM_SIGN_AND_SEND_TX'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, transaction, options } = req.payload!;
+      const { walletId, nearAccountId, transaction, options } = req.payload!;
       const result = await pm.near.signAndSendTransaction({
+        walletSession: walletSessionFromWalletId(walletId),
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
         receiverId: transaction.receiverId,
         actions: transaction.actions,
@@ -654,8 +652,11 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SEND_TRANSACTION: async (req: Req<'PM_SEND_TRANSACTION'>) => {
       const pm = deps.getSeamsWeb();
-      const { signedTransaction, options } = req.payload || {};
+      const { walletId, nearAccountId, signedTransaction, options } =
+        req.payload || ({} as Partial<PMSendTxPayload>);
       const result = await pm.near.sendTransaction({
+        walletSession: walletSessionFromWalletId(walletId),
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         signedTransaction: normalizeSignedTransaction(signedTransaction) as SignedTransaction,
         options: {
           ...withProgress(deps, req.requestId, options || {}),
@@ -668,9 +669,10 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_EXECUTE_ACTION: async (req: Req<'PM_EXECUTE_ACTION'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, receiverId, actionArgs, options } =
+      const { walletId, nearAccountId, receiverId, actionArgs, options } =
         req.payload || ({} as Partial<PMExecuteActionPayload>);
       const result = await pm.near.executeAction({
+        walletSession: walletSessionFromWalletId(walletId),
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
         receiverId: receiverId as string,
         actionArgs: (actionArgs as ActionArgs | ActionArgs[])!,
@@ -684,8 +686,9 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_DELEGATE_ACTION: async (req: Req<'PM_SIGN_DELEGATE_ACTION'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, delegate, options } = req.payload!;
+      const { walletId, nearAccountId, delegate, options } = req.payload!;
       const result = await pm.near.signDelegateAction({
+        walletSession: walletSessionFromWalletId(walletId),
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
         delegate,
         options: {
@@ -698,8 +701,9 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_NEP413: async (req: Req<'PM_SIGN_NEP413'>) => {
       const pm = deps.getSeamsWeb();
-      const { nearAccountId, params, options } = req.payload!;
+      const { walletId, nearAccountId, params, options } = req.payload!;
       const result = await pm.near.signNEP413Message({
+        walletSession: walletSessionFromWalletId(walletId),
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
         params,
         options: {

@@ -1,9 +1,11 @@
-import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SelectedEcdsaLaneInput } from './laneIdentity';
 import type { EvmFamilyEcdsaKeyIdentity } from './evmFamilyEcdsaIdentity';
 
-declare const walletId: AccountId;
+declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const key: EvmFamilyEcdsaKeyIdentity;
 

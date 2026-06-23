@@ -1,4 +1,4 @@
-import { toAccountId } from '@/core/types/accountIds';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
   createEmailRecoveryFlowEvent,
   EmailRecoveryFlowEventPhase,
@@ -29,7 +29,12 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '@/utils/emailRecovery';
 import { restoreLocalLoginState } from '@/SeamsWeb/operations/session/restoreLocalLoginState';
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  ed25519KeyScopeIdFromString,
+  walletIdFromString,
+  type Ed25519KeyScopeId,
+  type WalletId,
+} from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -51,6 +56,10 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  assertSameRecoveryResolvedWalletBinding,
+  parseRecoveryResolvedWalletBindingFromResponse,
+} from './recoveryWalletBinding';
 
 /**
  * SeamsWeb email recovery call graph:
@@ -238,32 +247,32 @@ export class EmailRecoveryDomain {
   }
 
   async syncAccount(args: {
-    accountId?: string;
+    walletId?: string;
     options?: SyncAccountHooksOptions;
   }): Promise<SyncAccountResult> {
-    const accountId = args?.accountId ? toAccountId(args.accountId) : null;
+    const walletId = args?.walletId ? walletIdFromString(args.walletId) : null;
 
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args?.accountId);
+      const router = await this.walletIframe.requireRouter(args?.walletId);
       // Router support is wired in the wallet origin; keep app-origin thin.
       return await router.syncAccount({
-        ...(accountId ? { accountId: String(accountId) } : {}),
+        ...(walletId ? { walletId: String(walletId) } : {}),
         onEvent: args?.options?.onEvent,
       });
     }
 
-    return await syncAccountCore(this.getContext(), accountId, args?.options);
+    return await syncAccountCore(this.getContext(), walletId ? String(walletId) : null, args?.options);
   }
 
   async startEmailRecovery(args: {
-    accountId: string;
+    walletId: string;
     options?: EmailRecoveryFlowOptions;
   }): Promise<{ mailtoUrl: string; nearPublicKey: string }> {
-    const accountId = toAccountId(args.accountId);
+    const walletId = walletIdFromString(args.walletId);
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(String(accountId));
+      const router = await this.walletIframe.requireRouter(String(walletId));
       return await router.startEmailRecovery({
-        accountId: String(accountId),
+        walletId: String(walletId),
         onEvent: args.options?.onEvent,
         options: {
           ...(args.options?.confirmerText ? { confirmerText: args.options.confirmerText } : {}),
@@ -275,19 +284,19 @@ export class EmailRecoveryDomain {
     }
 
     this.emailRecoveryOptions = args.options;
-    return await this.startEmailRecoveryLocal({ accountId: String(accountId) });
+    return await this.startEmailRecoveryLocal({ walletId: String(walletId) });
   }
 
   async finalizeEmailRecovery(args: {
-    accountId: string;
+    walletId: string;
     nearPublicKey?: string;
     options?: EmailRecoveryFlowOptions;
   }): Promise<void> {
-    const accountId = toAccountId(args.accountId);
+    const walletId = walletIdFromString(args.walletId);
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(String(accountId));
+      const router = await this.walletIframe.requireRouter(String(walletId));
       await router.finalizeEmailRecovery({
-        accountId: String(accountId),
+        walletId: String(walletId),
         nearPublicKey: args.nearPublicKey,
         onEvent: args.options?.onEvent,
       });
@@ -296,16 +305,16 @@ export class EmailRecoveryDomain {
 
     this.emailRecoveryOptions = args.options;
     await this.finalizeEmailRecoveryLocal({
-      accountId: String(accountId),
+      walletId: String(walletId),
       nearPublicKey: args.nearPublicKey,
     });
   }
 
-  async cancelEmailRecovery(args?: { accountId?: string; nearPublicKey?: string }): Promise<void> {
+  async cancelEmailRecovery(args?: { walletId?: string; nearPublicKey?: string }): Promise<void> {
     if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args?.accountId);
+      const router = await this.walletIframe.requireRouter(args?.walletId);
       await router.stopEmailRecovery({
-        ...(args?.accountId ? { accountId: String(args.accountId) } : {}),
+        ...(args?.walletId ? { walletId: String(args.walletId) } : {}),
         ...(args?.nearPublicKey ? { nearPublicKey: String(args.nearPublicKey) } : {}),
       });
       return;
@@ -358,11 +367,11 @@ export class EmailRecoveryDomain {
   }
 
   private async startEmailRecoveryLocal(args: {
-    accountId: string;
+    walletId: string;
   }): Promise<{ mailtoUrl: string; nearPublicKey: string }> {
     try {
       const context = this.getContext();
-      const nearAccountId = toAccountId(args.accountId);
+      const walletId = walletIdFromString(args.walletId);
       const relayerUrl = String(context.configs?.network?.relayer?.url || '').trim();
       if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
 
@@ -371,14 +380,14 @@ export class EmailRecoveryDomain {
 
       const requestId = generateEmailRecoveryRequestId();
       const initialSignerSlot = 1;
-      const flowId = this.emailRecoveryFlowId(String(nearAccountId), requestId);
+      const flowId = this.emailRecoveryFlowId(String(walletId), requestId);
 
       this.emailRecoveryCancelled = false;
 
       this.emitEmailRecoveryEvent({
         flowId,
         requestId,
-        accountId: String(nearAccountId),
+        accountId: String(walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_01_STARTED,
         status: 'started',
       });
@@ -386,7 +395,7 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId,
         requestId,
-        accountId: String(nearAccountId),
+        accountId: String(walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED,
         status: 'waiting_for_user',
         interaction: { kind: 'passkey_create', overlay: 'show' },
@@ -394,7 +403,7 @@ export class EmailRecoveryDomain {
 
       const registrationSession =
         await context.signingEngine.requestRegistrationCredentialConfirmation({
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           signerSlot: initialSignerSlot,
           confirmerText: this.emailRecoveryOptions?.confirmerText,
           confirmationConfigOverride: this.emailRecoveryOptions?.confirmationConfig,
@@ -405,7 +414,7 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId,
         requestId,
-        accountId: String(nearAccountId),
+        accountId: String(walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED,
         status: 'succeeded',
         interaction: { kind: 'passkey_create', overlay: 'hide' },
@@ -426,7 +435,7 @@ export class EmailRecoveryDomain {
         throw new Error('Threshold warm-session defaults are disabled for email recovery');
       }
       const thresholdWarmSessionRequest = buildThresholdWarmSessionRequestEnvelope({
-        nearAccountId: String(nearAccountId),
+        walletId: String(walletId),
         rpId,
         requestedPolicy: thresholdWarmPolicy,
       });
@@ -452,7 +461,7 @@ export class EmailRecoveryDomain {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          account_id: String(nearAccountId),
+          account_id: String(walletId),
           request_id: requestId,
           signer_slot: signerSlot,
           threshold_ed25519: thresholdWarmSessionRequest,
@@ -475,6 +484,13 @@ export class EmailRecoveryDomain {
             prepareError ||
             `email-recovery/prepare failed (HTTP ${prepareResp.status})`,
         );
+      }
+      const preparedWalletBinding = parseRecoveryResolvedWalletBindingFromResponse(
+        prepareObj as Record<string, unknown>,
+        'email-recovery/prepare',
+      );
+      if (String(preparedWalletBinding.walletId) !== String(walletId)) {
+        throw new Error('email-recovery/prepare returned a wallet binding for a different wallet');
       }
 
       const prepareEcdsaSection = isObject(prepareObj.ecdsa) ? prepareObj.ecdsa : null;
@@ -511,6 +527,15 @@ export class EmailRecoveryDomain {
             `email-recovery/ecdsa/respond failed (HTTP ${ecdsaResp.status})`,
         );
       }
+      const recoveredWalletBinding = parseRecoveryResolvedWalletBindingFromResponse(
+        ecdsaObj as Record<string, unknown>,
+        'email-recovery/ecdsa/respond',
+      );
+      assertSameRecoveryResolvedWalletBinding(
+        preparedWalletBinding,
+        recoveredWalletBinding,
+        'email-recovery/ecdsa/respond',
+      );
 
       const thresholdSection = isObject(ecdsaObj.thresholdEd25519) ? ecdsaObj.thresholdEd25519 : {};
       const ecdsaResult = isObject(ecdsaObj.ecdsa) ? ecdsaObj.ecdsa : {};
@@ -563,7 +588,7 @@ export class EmailRecoveryDomain {
       const clientParticipantId = Number(thresholdSection.clientParticipantId);
       const relayerParticipantId = Number(thresholdSection.relayerParticipantId);
       await context.signingEngine.storeUserData({
-        nearAccountId,
+        nearAccountId: recoveredWalletBinding.nearAccountId,
         signerSlot,
         operationalPublicKey: thresholdPublicKey,
         lastUpdated: Date.now(),
@@ -574,13 +599,13 @@ export class EmailRecoveryDomain {
         version: 2,
       });
       await context.signingEngine.storeAuthenticator({
-        nearAccountId,
+        nearAccountId: recoveredWalletBinding.nearAccountId,
         credentialId,
         credentialPublicKey,
         transports: Array.isArray(credential.response?.transports)
           ? credential.response.transports
           : [],
-        name: `Passkey for ${String(nearAccountId)}`,
+        name: `Passkey for ${String(recoveredWalletBinding.walletId)}`,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
         signerSlot,
@@ -593,7 +618,7 @@ export class EmailRecoveryDomain {
       const thresholdKeyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
       const thresholdKeyMaterialCreatedAtMs = Date.now();
       await storeThresholdEd25519KeyMaterial({
-        nearAccountId,
+        nearAccountId: recoveredWalletBinding.nearAccountId,
         signerSlot,
         signerId: thresholdPublicKey,
         publicKey: thresholdPublicKey,
@@ -610,7 +635,9 @@ export class EmailRecoveryDomain {
       });
       await hydrateThresholdWarmSessionFromRelay({
         context,
-        nearAccountId,
+        walletId: String(recoveredWalletBinding.walletId),
+        nearAccountId: recoveredWalletBinding.nearAccountId,
+        ed25519KeyScopeId: String(recoveredWalletBinding.ed25519KeyScopeId),
         relayerUrl,
         rpId,
         relayerKeyId,
@@ -625,7 +652,9 @@ export class EmailRecoveryDomain {
       await reconstructThresholdEd25519SigningMaterialFromWarmSession({
         context,
         credential,
-        nearAccountId,
+        walletId: String(recoveredWalletBinding.walletId),
+        nearAccountId: recoveredWalletBinding.nearAccountId,
+        ed25519KeyScopeId: recoveredWalletBinding.ed25519KeyScopeId,
         rpId,
         relayerUrl,
         relayerKeyId,
@@ -638,12 +667,15 @@ export class EmailRecoveryDomain {
           : undefined,
       });
       await context.signingEngine.storeWalletEcdsaSignerRecords({
-        walletId: walletIdFromString(String(nearAccountId)),
+        walletId: recoveredWalletBinding.walletId,
         walletKeys,
       });
 
       this.pendingEmailRecovery = {
-        accountId: nearAccountId,
+        accountId: String(recoveredWalletBinding.walletId),
+        walletId: String(recoveredWalletBinding.walletId),
+        nearAccountId: recoveredWalletBinding.nearAccountId,
+        ed25519KeyScopeId: String(recoveredWalletBinding.ed25519KeyScopeId),
         signerSlot,
         requestId,
         recoverySessionId,
@@ -664,7 +696,7 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId,
         requestId,
-        accountId: String(nearAccountId),
+        accountId: String(recoveredWalletBinding.walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT,
         status: 'succeeded',
         interaction: { kind: 'email_recovery_link', overlay: 'hide' },
@@ -683,7 +715,7 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId,
         requestId,
-        accountId: String(nearAccountId),
+        accountId: String(recoveredWalletBinding.walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING,
         status: 'waiting_for_user',
         interaction: { kind: 'email_recovery_link', overlay: 'hide' },
@@ -699,8 +731,8 @@ export class EmailRecoveryDomain {
       const error = err instanceof Error ? err : new Error(String(err || 'Unknown error'));
       this.emailRecoveryOptions?.onError?.(error);
       this.emitEmailRecoveryEvent({
-        flowId: this.emailRecoveryFlowId(args.accountId),
-        accountId: String(args.accountId),
+        flowId: this.emailRecoveryFlowId(args.walletId),
+        accountId: String(args.walletId),
         phase: EmailRecoveryFlowEventPhase.FAILED,
         status: 'failed',
         interaction: { kind: 'passkey_create', overlay: 'hide' },
@@ -711,49 +743,53 @@ export class EmailRecoveryDomain {
   }
 
   private async finalizeEmailRecoveryLocal(args: {
-    accountId: string;
+    walletId: string;
     nearPublicKey?: string;
   }): Promise<void> {
-    let failureFlowId = this.emailRecoveryFlowId(args.accountId, args.nearPublicKey);
+    let failureFlowId = this.emailRecoveryFlowId(args.walletId, args.nearPublicKey);
     let failureRequestId: string | undefined;
     try {
       const context = this.getContext();
-      const accountId = toAccountId(args.accountId);
+      const walletId = walletIdFromString(args.walletId);
       const nearPublicKey = String(args.nearPublicKey || '').trim();
       const store = this.getPendingEmailRecoveryStore();
-      const storedPending = await store?.get?.(accountId, nearPublicKey || undefined);
-      const pending = storedPending || this.pendingEmailRecovery;
+      const storedPending = await store?.get?.(String(walletId), nearPublicKey || undefined);
+      const memoryPending =
+        this.pendingEmailRecovery?.walletId === String(walletId) ? this.pendingEmailRecovery : null;
+      const pending = storedPending || memoryPending;
       this.pendingEmailRecovery = pending || null;
+      if (!pending) {
+        throw new Error(`Missing pending email recovery for wallet ${String(walletId)}`);
+      }
+      const nearAccountId = pending.nearAccountId;
       const targetPk = String(nearPublicKey || pending?.nearPublicKey || '').trim();
       if (!targetPk) {
         throw new Error('Missing nearPublicKey to finalize email recovery');
       }
       const requestId = String(pending?.requestId || '').trim() || undefined;
-      const flowId = this.emailRecoveryFlowId(String(accountId), requestId || targetPk);
+      const flowId = this.emailRecoveryFlowId(String(walletId), requestId || targetPk);
       failureFlowId = flowId;
       failureRequestId = requestId;
-
-      if (pending) {
-        this.emitEmailRecoveryEvent({
-          flowId,
-          ...(requestId ? { requestId } : {}),
-          accountId: String(accountId),
-          phase: EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING,
-          status: 'running',
-          interaction: { kind: 'email_recovery_link', overlay: 'hide' },
-          data: {
-            nearPublicKey: targetPk,
-            recoverySessionId: pending.recoverySessionId,
-            pendingStatus: pending.status,
-          },
-        });
-        await this.setPendingEmailRecoveryStatus(store, pending, 'awaiting-add-key');
-      }
 
       this.emitEmailRecoveryEvent({
         flowId,
         ...(requestId ? { requestId } : {}),
-        accountId: String(accountId),
+        accountId: String(walletId),
+        phase: EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING,
+        status: 'running',
+        interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+        data: {
+          nearPublicKey: targetPk,
+          recoverySessionId: pending.recoverySessionId,
+          pendingStatus: pending.status,
+        },
+      });
+      await this.setPendingEmailRecoveryStatus(store, pending, 'awaiting-add-key');
+
+      this.emitEmailRecoveryEvent({
+        flowId,
+        ...(requestId ? { requestId } : {}),
+        accountId: String(walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED,
         status: 'running',
         data: { nearPublicKey: targetPk },
@@ -770,7 +806,7 @@ export class EmailRecoveryDomain {
 
       while (Date.now() - startedAt < maxMs) {
         if (this.emailRecoveryCancelled) throw new Error('cancelled');
-        const list = await context.nearClient.viewAccessKeyList(String(accountId));
+        const list = await context.nearClient.viewAccessKeyList(String(nearAccountId));
         const keys = Array.isArray(list?.keys) ? list.keys : [];
         found = keys.some((key) => {
           if (!isObject(key)) return false;
@@ -787,7 +823,7 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId,
         ...(requestId ? { requestId } : {}),
-        accountId: String(accountId),
+        accountId: String(walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED,
         status: 'succeeded',
         data: { nearPublicKey: targetPk },
@@ -797,33 +833,38 @@ export class EmailRecoveryDomain {
         min: 1,
         fallback: 1,
       });
-      if (pending) {
-        await this.setPendingEmailRecoveryStatus(store, pending, 'finalizing');
-      }
-      await this.tryAutoLoginAfterRecovery({ accountId, signerSlot, flowId, requestId });
+      await this.setPendingEmailRecoveryStatus(store, pending, 'finalizing');
+      await this.tryAutoLoginAfterRecovery({
+        walletId,
+        nearAccountId,
+        ed25519KeyScopeId: ed25519KeyScopeIdFromString(String(pending.ed25519KeyScopeId)),
+        signerSlot,
+        flowId,
+        requestId,
+      });
 
       this.emitEmailRecoveryEvent({
         flowId,
         ...(requestId ? { requestId } : {}),
-        accountId: String(accountId),
+        accountId: String(walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_07_COMPLETED,
         status: 'succeeded',
       });
 
       if (pending?.nearPublicKey) {
         await this.setPendingEmailRecoveryStatus(store, pending, 'complete');
-        await store?.clear?.(accountId, pending.nearPublicKey);
+        await store?.clear?.(String(walletId), pending.nearPublicKey);
       }
       this.pendingEmailRecovery = null;
     } catch (err: unknown) {
       const message = errorMessage(err) || 'Email recovery finalize failed';
       const error = err instanceof Error ? err : new Error(message);
-      await this.markPendingEmailRecoveryError(args.accountId, args.nearPublicKey).catch(() => {});
+      await this.markPendingEmailRecoveryError(args.walletId, args.nearPublicKey).catch(() => {});
       this.emailRecoveryOptions?.onError?.(error);
       this.emitEmailRecoveryEvent({
         flowId: failureFlowId,
         ...(failureRequestId ? { requestId: failureRequestId } : {}),
-        accountId: String(args.accountId),
+        accountId: String(args.walletId),
         phase: EmailRecoveryFlowEventPhase.FAILED,
         status: 'failed',
         error: { message },
@@ -833,14 +874,15 @@ export class EmailRecoveryDomain {
   }
 
   private async tryAutoLoginAfterRecovery(args: {
-    accountId: string;
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    ed25519KeyScopeId: Ed25519KeyScopeId;
     signerSlot: number;
     flowId: string;
     requestId?: string;
   }): Promise<void> {
     const context = this.getContext();
     try {
-      const nearAccountId = toAccountId(String(args.accountId));
       const signerSlot = coerceSignerSlot(args.signerSlot, {
         min: 1,
         fallback: 1,
@@ -849,24 +891,26 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId: args.flowId,
         ...(args.requestId ? { requestId: args.requestId } : {}),
-        accountId: String(nearAccountId),
+        accountId: String(args.walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED,
         status: 'running',
       });
 
       const restored = await restoreLocalLoginState({
         context,
-        nearAccountId,
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        ed25519KeyScopeId: args.ed25519KeyScopeId,
         signerSlot,
       });
       if (!restored.isLoggedIn) {
-        throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);
+        throw new Error(`Auto-login did not mark ${String(args.nearAccountId)} as logged in`);
       }
 
       this.emitEmailRecoveryEvent({
         flowId: args.flowId,
         ...(args.requestId ? { requestId: args.requestId } : {}),
-        accountId: String(nearAccountId),
+        accountId: String(args.walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_SUCCEEDED,
         status: 'succeeded',
       });
@@ -875,7 +919,7 @@ export class EmailRecoveryDomain {
       this.emitEmailRecoveryEvent({
         flowId: args.flowId,
         ...(args.requestId ? { requestId: args.requestId } : {}),
-        accountId: String(args.accountId),
+        accountId: String(args.walletId),
         phase: EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED,
         status: 'skipped',
         data: { autoUnlockFailed: true, reason: message },
@@ -894,36 +938,36 @@ export class EmailRecoveryDomain {
   }
 
   private async markPendingEmailRecoveryError(
-    accountIdInput: string,
+    walletIdInput: string,
     nearPublicKeyInput?: string,
   ): Promise<void> {
-    const accountId = toAccountId(accountIdInput);
+    const walletId = String(walletIdFromString(walletIdInput));
     const nearPublicKey = String(nearPublicKeyInput || '').trim();
     const store = this.getPendingEmailRecoveryStore();
     const pending =
-      this.pendingEmailRecovery || (await store?.get?.(accountId, nearPublicKey || undefined));
+      this.pendingEmailRecovery || (await store?.get?.(walletId, nearPublicKey || undefined));
     if (!pending) return;
     await this.setPendingEmailRecoveryStatus(store, pending, 'error');
   }
 
   private async cancelEmailRecoveryLocal(args?: {
-    accountId?: string;
+    walletId?: string;
     nearPublicKey?: string;
   }): Promise<void> {
     this.emailRecoveryCancelled = true;
     this.pendingEmailRecovery = null;
-    const accountIdForEvent = args?.accountId ? String(args.accountId) : undefined;
+    const walletIdForEvent = args?.walletId ? String(args.walletId) : undefined;
     this.emitEmailRecoveryEvent({
-      flowId: this.emailRecoveryFlowId(accountIdForEvent, args?.nearPublicKey),
-      ...(accountIdForEvent ? { accountId: accountIdForEvent } : {}),
+      flowId: this.emailRecoveryFlowId(walletIdForEvent, args?.nearPublicKey),
+      ...(walletIdForEvent ? { accountId: walletIdForEvent } : {}),
       phase: EmailRecoveryFlowEventPhase.CANCELLED,
       status: 'cancelled',
       interaction: { kind: 'email_recovery_link', overlay: 'hide' },
     });
     try {
-      const accountId = args?.accountId ? toAccountId(args.accountId) : null;
-      if (accountId) {
-        await this.getPendingEmailRecoveryStore()?.clear?.(accountId, args?.nearPublicKey);
+      const walletId = args?.walletId ? String(walletIdFromString(args.walletId)) : null;
+      if (walletId) {
+        await this.getPendingEmailRecoveryStore()?.clear?.(walletId, args?.nearPublicKey);
       }
     } catch {}
   }

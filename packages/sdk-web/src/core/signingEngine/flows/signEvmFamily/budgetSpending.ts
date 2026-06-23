@@ -1,5 +1,4 @@
 import { createSigningSessionBudgetFinalizer } from '../../session/budget/budgetFinalizer';
-import { toAccountId } from '@/core/types/accountIds';
 import type {
   BudgetFinalizationSpend,
   SigningSessionBudgetReserveResult,
@@ -56,7 +55,7 @@ function buildEvmFamilyBudgetFinalization(
     ...(args.operation.operationFingerprint
       ? { operationFingerprint: args.operation.operationFingerprint }
       : {}),
-    walletId: toAccountId(args.walletSession.walletId),
+    walletId: toWalletId(args.walletSession.walletId),
     signingGrantId: args.finalizedSigningLane.signingGrantId,
     lane: args.finalizedSigningLane,
     thresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],

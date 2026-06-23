@@ -3,6 +3,7 @@ import type { SeamsWeb } from '@/SeamsWeb';
 import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
+import { compactImplicitNearAccountId } from '@shared/utils/near';
 import type { StoredAccountOption } from '../types';
 
 async function discoverRelayerAccountFromHealthz(relayUrl: string): Promise<string | null> {
@@ -63,6 +64,8 @@ export interface UseAccountInputReturn extends AccountInputState {
 export function extractUsernameFromAccountId(accountId: string | null | undefined): string {
   const normalized = String(accountId || '').trim();
   if (!normalized) return '';
+  const compactImplicit = compactImplicitNearAccountId(normalized);
+  if (compactImplicit) return compactImplicit;
   return normalized.split('.')[0] || '';
 }
 

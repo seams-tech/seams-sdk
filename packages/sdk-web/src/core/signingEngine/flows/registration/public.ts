@@ -4,6 +4,7 @@ import type {
   StoreUserDataInput,
 } from '@/core/accountData/near/nearAccountData.types';
 import type { AccountId } from '@/core/types/accountIds';
+import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -118,6 +119,7 @@ export function setLastUser(
 export function activateAuthenticatedWalletState(
   deps: RegistrationPublicDeps,
   args: {
+    walletId: WalletId;
     nearAccountId: AccountId;
     nearClient?: NearClient;
   },

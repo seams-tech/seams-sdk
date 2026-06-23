@@ -140,6 +140,7 @@ import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
+  RegistrationNearAccountProvisioning,
   RegistrationSignerSelection,
   WalletId,
 } from '@shared/utils/registrationIntent';
@@ -200,11 +201,25 @@ export type SignTempoArgs = {
   };
 };
 
-export type RegisterNearWalletArgs = {
-  nearAccountId: string;
+export type RegisterNearImplicitWalletArgs = {
+  accountProvisioning?: Extract<RegistrationNearAccountProvisioning, { kind: 'implicit_account' }>;
+  nearAccountId?: never;
+  wallet?: never;
   authMethod?: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
+
+export type RegisterNearSponsoredWalletArgs = {
+  accountProvisioning: Extract<RegistrationNearAccountProvisioning, { kind: 'sponsored_named_account' }>;
+  wallet: Extract<RegisterWalletInput, { kind: 'provided' }>;
+  nearAccountId?: never;
+  authMethod?: RegistrationAuthMethodInput;
+  options?: RegistrationHooksOptions;
+};
+
+export type RegisterNearWalletArgs =
+  | RegisterNearImplicitWalletArgs
+  | RegisterNearSponsoredWalletArgs;
 
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
@@ -627,10 +642,7 @@ export interface RegistrationCapability {
     signerSelection: RegistrationSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
-  registerPasskey(
-    nearAccountId: string,
-    options?: RegistrationHooksOptions,
-  ): Promise<RegistrationResult>;
+  registerPasskey(options?: RegistrationHooksOptions): Promise<RegistrationResult>;
   createPasskeyRegistrationActivationSurface(
     args: CreatePasskeyRegistrationActivationSurfaceArgs,
   ): WalletIframeRegistrationActivationSurface;
@@ -677,7 +689,6 @@ export type WalletIframeRegistrationActivationSurface = {
 };
 
 export type CreatePasskeyRegistrationActivationSurfaceArgs = {
-  nearAccountId: string;
   options?: RegistrationHooksOptions;
   presentation: RegistrationActivationButtonPresentation;
 };
@@ -737,6 +748,7 @@ export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;
 
   executeAction(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
@@ -744,6 +756,7 @@ export interface NearSignerCapability {
   }): Promise<ActionResult>;
 
   signAndSendTransaction(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     receiverId: string;
     actions: ActionArgs[];
@@ -751,17 +764,21 @@ export interface NearSignerCapability {
   }): Promise<ActionResult>;
 
   signTransactionWithActions(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     transaction: TransactionInput;
     options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult>;
 
   sendTransaction(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
     signedTransaction: SignedTransaction;
     options?: SendTransactionHooksOptions;
   }): Promise<ActionResult>;
 
   signDelegateAction(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
@@ -776,6 +793,7 @@ export interface NearSignerCapability {
   }): Promise<DelegateRelayResult>;
 
   signAndSendDelegateAction(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     relayerUrl: string;
@@ -784,6 +802,7 @@ export interface NearSignerCapability {
   }): Promise<SignAndSendDelegateActionResult>;
 
   signNEP413Message(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions;
@@ -823,22 +842,22 @@ export interface RecoveryCapability {
   }): Promise<ActionResult>;
 
   syncAccount(args: {
-    accountId?: string;
+    walletId?: string;
     options?: SyncAccountHooksOptions;
   }): Promise<SyncAccountResult>;
 
   startEmailRecovery(args: {
-    accountId: string;
+    walletId: string;
     options?: EmailRecoveryFlowOptions;
   }): Promise<{ mailtoUrl: string; nearPublicKey: string }>;
 
   finalizeEmailRecovery(args: {
-    accountId: string;
+    walletId: string;
     nearPublicKey?: string;
     options?: EmailRecoveryFlowOptions;
   }): Promise<void>;
 
-  cancelEmailRecovery(args?: { accountId?: string; nearPublicKey?: string }): Promise<void>;
+  cancelEmailRecovery(args?: { walletId?: string; nearPublicKey?: string }): Promise<void>;
 
   getEmailOtpRecoveryCodeStatus(args: {
     walletId: string;
@@ -867,11 +886,12 @@ export interface DevicesCapability {
 
   viewAccessKeyList(accountId: string): Promise<AccessKeyList>;
 
-  deleteDeviceKey(
-    accountId: string,
-    publicKeyToDelete: string,
-    options: ActionHooksOptions,
-  ): Promise<ActionResult>;
+  deleteDeviceKey(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
+    publicKeyToDelete: string;
+    options: ActionHooksOptions;
+  }): Promise<ActionResult>;
 }
 
 export type ThresholdEd25519SeedExportUiOptions = {

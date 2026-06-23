@@ -1,12 +1,12 @@
 import { isObject } from '@shared/utils/validation';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import type { AccountId } from '../../../types/accountIds';
 import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '../../interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
@@ -109,7 +109,7 @@ function resolveProfileContinuityEcdsaKeyHandle(metadata: Record<string, unknown
 }
 
 function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
-  nearAccountId: AccountId;
+  walletId: WalletId;
   metadata: Record<string, unknown>;
   keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -125,7 +125,7 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
   try {
     toThresholdEcdsaPublicKeyB64u(thresholdEcdsaPublicKeyB64u);
     return buildEvmFamilyEcdsaWalletKey({
-      walletId: keyFacts.walletId || args.nearAccountId,
+      walletId: keyFacts.walletId || args.walletId,
       rpId: keyFacts.rpId || args.metadata.rpId,
       keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
@@ -145,7 +145,7 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
 }
 
 export function parseProfileContinuityEcdsaWarmKey(args: {
-  nearAccountId: AccountId;
+  walletId: WalletId;
   configuredTargets: readonly ThresholdEcdsaChainTarget[];
   signer: AccountSignerRecord;
 }): ProfileContinuityEcdsaWarmKeyParseResult {
@@ -191,7 +191,7 @@ export function parseProfileContinuityEcdsaWarmKey(args: {
     };
   }
   const walletKey = parseProfileContinuityEvmFamilyEcdsaWalletKey({
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     metadata,
     keyHandle: keyHandleResolution.keyHandle,
     chainTarget,
@@ -214,7 +214,7 @@ export function parseProfileContinuityEcdsaWarmKey(args: {
 }
 
 function parseThresholdEcdsaKeyIdentityRecord(args: {
-  nearAccountId: AccountId;
+  walletId: WalletId;
   rpId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   raw: unknown;
@@ -235,9 +235,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   const ownerAddress = normalizeEvmOwnerAddress(raw.ownerAddress);
   const keyWalletId = String(rawKey.walletId || rawKey.walletSessionUserId || '').trim();
   const rawKeySubjectId = String(rawKey.subjectId || '').trim();
-  const expectedKeySubjectId = String(
-    walletIdFromWalletProfile({ walletId: args.nearAccountId }),
-  );
+  const expectedKeySubjectId = String(walletIdFromWalletProfile({ walletId: args.walletId }));
   const keyRpId = String(rawKey.rpId || '').trim();
   const thresholdEcdsaPublicKeyB64u = String(
     rawKey.thresholdEcdsaPublicKeyB64u || raw.thresholdEcdsaPublicKeyB64u || '',
@@ -251,7 +249,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     !ownerAddress ||
     !accountAddress ||
     !thresholdOwnerAddress ||
-    keyWalletId !== String(args.nearAccountId) ||
+    keyWalletId !== String(args.walletId) ||
     (rawKeySubjectId && rawKeySubjectId !== expectedKeySubjectId) ||
     keyRpId !== args.rpId ||
     thresholdOwnerAddress !== ownerAddress
@@ -277,7 +275,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       accountAddress,
       ownerAddress,
       walletKey: buildEvmFamilyEcdsaWalletKey({
-        walletId: args.nearAccountId,
+        walletId: args.walletId,
         rpId: args.rpId,
         keyHandle: canonicalKeyHandle,
         chainTarget,
@@ -295,7 +293,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
 }
 
 export function parseThresholdEcdsaKeyIdentityTargets(args: {
-  nearAccountId: AccountId;
+  walletId: WalletId;
   rpId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   records: readonly unknown[];
@@ -303,7 +301,7 @@ export function parseThresholdEcdsaKeyIdentityTargets(args: {
   const entries: ThresholdEcdsaKeyIdentityInventoryEntry[] = [];
   for (const raw of args.records) {
     const parsed = parseThresholdEcdsaKeyIdentityRecord({
-      nearAccountId: args.nearAccountId,
+      walletId: args.walletId,
       rpId: args.rpId,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       raw,

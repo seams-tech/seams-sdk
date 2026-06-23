@@ -1,12 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { UnlockEventPhase } from '@/core/types/sdkSentEvents';
-import type {
-  AccountInputState,
-  LoginState,
-  RegistrationResult,
-  SeamsContextType,
-} from '../types';
+import type { AccountInputState, LoginState, RegistrationResult, SeamsContextType } from '../types';
 import type { ThemeName } from '@/core/types/seams';
 import type { DevicesCapability } from '@/SeamsWeb';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
@@ -98,20 +93,18 @@ export function useSeamsContextValue(args: {
   );
 
   const registerPasskey: SeamsContextType['registerPasskey'] = useCallback(
-    async (nearAccountId, options) => {
-      const result: RegistrationResult = await seamsWithSdkFlow.registration.registerPasskey(
-        nearAccountId,
-        {
-          ...options,
-          onError: (error) => {
-            lock();
-            return options?.onError?.(error);
-          },
+    async (options) => {
+      const result: RegistrationResult = await seamsWithSdkFlow.registration.registerPasskey({
+        ...options,
+        onError: (error) => {
+          lock();
+          return options?.onError?.(error);
         },
-      );
+      });
 
-      if (result?.success) {
-        await refreshLoginState(nearAccountId);
+      const walletId = result?.success ? String(result.walletId || '').trim() : '';
+      if (result?.success && walletId) {
+        await refreshLoginState(walletId);
         await refreshAccountData();
       }
       return result;
@@ -131,13 +124,9 @@ export function useSeamsContextValue(args: {
           },
         },
       });
-      const nearAccountId =
-        args.signerSelection.mode === 'ed25519_only' ||
-        args.signerSelection.mode === 'ed25519_and_ecdsa'
-          ? args.signerSelection.ed25519.nearAccountId
-          : '';
-      if (result?.success && nearAccountId) {
-        await refreshLoginState(nearAccountId);
+      const walletId = result?.success ? String(result.walletId || '') : '';
+      if (result?.success && walletId) {
+        await refreshLoginState(walletId);
         await refreshAccountData();
       }
       return result;

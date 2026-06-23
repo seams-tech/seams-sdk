@@ -1,10 +1,10 @@
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '../../interfaces/ecdsaChainTarget';
 import {
   deriveEvmFamilyKeyFingerprint,
@@ -205,13 +205,13 @@ function mapProfileBlockedReason(
 }
 
 export function parseActiveEcdsaSignerRecordForUnlock(args: {
-  walletId: AccountId;
+  walletId: WalletId;
   configuredTargets: readonly ThresholdEcdsaChainTarget[];
   signer: AccountSignerRecord;
 }): ParsedEcdsaUnlockSignerRecord {
   const signer = args.signer;
   const parsed = parseProfileContinuityEcdsaWarmKey({
-    nearAccountId: args.walletId,
+    walletId: args.walletId,
     configuredTargets: args.configuredTargets,
     signer: args.signer,
   });

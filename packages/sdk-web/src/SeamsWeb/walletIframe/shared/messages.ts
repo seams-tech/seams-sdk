@@ -53,7 +53,6 @@ export type ParentToChildType =
   | 'PM_SET_CONFIG'
   | 'PM_CANCEL'
   // SeamsWeb API surface
-  | 'PM_REGISTER'
   | 'PM_REGISTRATION_ACTIVATION_PREPARE'
   | 'PM_REGISTRATION_ACTIVATION_CANCEL'
   | 'PM_REGISTRATION_ACTIVATION_FOCUS'
@@ -158,17 +157,8 @@ export interface PMCancelPayload {
   requestId?: string; // when omitted, host may attempt best-effort global cancel (close UIs)
 }
 
-export interface PMRegisterPayload {
-  nearAccountId: string;
-  uiMode?: 'modal' | 'drawer';
-  // Optional per-call confirmation override
-  confirmationConfig?: Partial<ConfirmationConfig>;
-  options?: Record<string, unknown>;
-}
-
 export interface PMRegistrationActivationPreparePayload {
   activationId: string;
-  nearAccountId: string;
   expiresAtMs: number;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
@@ -356,6 +346,7 @@ export type PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult =
   PMGoogleEmailOtpWalletAuthWireResult<GoogleEmailOtpWalletAuthRegistrationCompleted>;
 
 export interface PMSignTxPayload {
+  walletId: string;
   nearAccountId: string;
   transaction: TransactionInput;
   options: {
@@ -367,6 +358,7 @@ export interface PMSignTxPayload {
 }
 
 export interface PMSignAndSendTxPayload {
+  walletId: string;
   nearAccountId: string;
   transaction: TransactionInput;
   options: {
@@ -386,11 +378,14 @@ export interface PMSignAndSendTxPayload {
 }
 
 export interface PMSendTxPayload {
+  walletId: string;
+  nearAccountId: string;
   signedTransaction: SignedTransaction; // SignedTransaction-like
   options?: Record<string, unknown>;
 }
 
 export interface PMExecuteActionPayload {
+  walletId: string;
   nearAccountId: string;
   receiverId: string;
   actionArgs: ActionArgs | ActionArgs[];
@@ -404,6 +399,7 @@ export interface PMExecuteActionPayload {
 }
 
 export interface PMSignDelegateActionPayload {
+  walletId: string;
   nearAccountId: string;
   delegate: DelegateActionInput;
   options: {
@@ -415,6 +411,7 @@ export interface PMSignDelegateActionPayload {
 }
 
 export interface PMSignNep413Payload {
+  walletId: string;
   nearAccountId: string;
   params: { message: string; recipient: string; state?: string };
   options: {
@@ -600,7 +597,8 @@ export interface PMViewAccessKeysPayload {
 }
 
 export interface PMDeleteDeviceKeyPayload {
-  accountId: string;
+  walletId: string;
+  nearAccountId: string;
   publicKeyToDelete: string;
   options: {
     [key: string]: unknown;
@@ -608,7 +606,7 @@ export interface PMDeleteDeviceKeyPayload {
 }
 
 export interface PMStartEmailRecoveryPayload {
-  accountId: string;
+  walletId: string;
   options?: {
     confirmerText?: { title?: string; body?: string };
     confirmationConfig?: Partial<ConfirmationConfig>;
@@ -616,12 +614,12 @@ export interface PMStartEmailRecoveryPayload {
 }
 
 export interface PMFinalizeEmailRecoveryPayload {
-  accountId: string;
+  walletId: string;
   nearPublicKey?: string;
 }
 
 export interface PMStopEmailRecoveryPayload {
-  accountId?: string;
+  walletId?: string;
   nearPublicKey?: string;
 }
 
@@ -657,7 +655,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PING'>
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
-  | RpcEnvelope<'PM_REGISTER', PMRegisterPayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_PREPARE', PMRegistrationActivationPreparePayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_CANCEL', PMRegistrationActivationCancelPayload>
   | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_FOCUS', PMRegistrationActivationFocusPayload>
@@ -753,7 +750,7 @@ export type ParentToChildEnvelope =
       }
     >
   | RpcEnvelope<'PM_STOP_DEVICE2_LINKING_FLOW'>
-  | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { accountId?: string }>
+  | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>
   | RpcEnvelope<'PM_START_EMAIL_RECOVERY', PMStartEmailRecoveryPayload>
   | RpcEnvelope<'PM_FINALIZE_EMAIL_RECOVERY', PMFinalizeEmailRecoveryPayload>
   | RpcEnvelope<'PM_STOP_EMAIL_RECOVERY', PMStopEmailRecoveryPayload>;

@@ -39,9 +39,10 @@ import {
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
 import type {
-  NearAccountRef,
+  NearCommandSubject,
   ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { classifyRouterAbEd25519PersistedSigningRecord } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { SigningSessionStatus } from '@/core/types/seams';
 
@@ -54,7 +55,8 @@ export type NearSigningSessionAuthPlan = {
 };
 export type NearSigningSessionAuthContext = {
   sessionId: string;
-  accountId: string;
+  walletId: string;
+  nearAccountId: string;
   lane: NearTransactionSigningLane;
   coordinatorInput: ResolveSigningSessionAuthPlanFromReadinessInput;
 };
@@ -286,12 +288,13 @@ export function createNearSigningSessionCoordinator(
 
 export async function resolveNearSigningSessionAuthContext(args: {
   warmSessionReader: NearWarmSessionReader;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   operationLabel: string;
   requiredSignatureUses?: number;
 }): Promise<NearSigningSessionAuthContext> {
-  const accountId = String(args.nearAccount.accountId || '').trim();
-  const warmSession = await args.warmSessionReader.getWarmSession(accountId);
+  const walletId = toWalletId(args.commandSubject.walletSession.walletId);
+  const nearAccountId = String(args.commandSubject.nearAccount.accountId || '').trim();
+  const warmSession = await args.warmSessionReader.getWarmSession(walletId);
   const capability = warmSession.capabilities.ed25519;
   const record = capability.record;
   const sessionId = String(record?.thresholdSessionId || '').trim();
@@ -306,7 +309,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
   const lane =
     record?.source === 'email_otp'
       ? buildNearTransactionSigningLane({
-          accountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -314,7 +317,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
           sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
         })
       : buildNearTransactionSigningLane({
-          accountId,
+          accountId: walletId,
           authMethod: 'passkey',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -326,7 +329,7 @@ export async function resolveNearSigningSessionAuthContext(args: {
 
   const readiness = await resolvePlannerReadinessForEd25519({
     warmSessionReader: args.warmSessionReader,
-    nearAccountId: accountId,
+    nearAccountId,
     capability,
     sessionId,
     requiredSignatureUses: args.requiredSignatureUses,
@@ -358,7 +361,8 @@ export async function resolveNearSigningSessionAuthContext(args: {
   };
   return {
     sessionId,
-    accountId,
+    walletId,
+    nearAccountId,
     lane,
     coordinatorInput,
   };
@@ -368,14 +372,14 @@ export function buildNearSigningSessionAuthPlan(args: {
   context: NearSigningSessionAuthContext;
   resolvedSigningSession: ResolveSigningSessionAuthPlanFromReadinessResult;
 }): NearSigningSessionAuthPlan {
-  const { sessionId, accountId, lane } = args.context;
+  const { sessionId, walletId, lane } = args.context;
   const resolvedSigningSession = args.resolvedSigningSession;
   const plan = resolvedSigningSession.signingSessionPlan;
 
   if (plan.kind !== SigningSessionPlanKind.NotReady) {
     const signingAuthPlan = signingAuthPlanFromSigningSessionPlan({
       plan,
-      accountId,
+      accountId: walletId,
       intent: SigningOperationIntent.TransactionSign,
       curve: 'ed25519',
       expiresAtMs: resolvedSigningSession.expiresAtMs,
@@ -1164,7 +1168,7 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   }
   try {
     const result = await args.warmSessionReader.restorePersistedSessionForSigning({
-      walletId: args.nearAccountId,
+      walletId: record.walletId,
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',

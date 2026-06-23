@@ -2,6 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import {
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningSessionIds,
@@ -78,7 +79,7 @@ export type SelectedEcdsaLane = BaseSelectedLane & {
   chain: 'evm' | 'tempo';
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
-  walletId: AccountId;
+  walletId: WalletId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
 };
@@ -95,7 +96,7 @@ export type SelectedEd25519LaneInput = {
 export type SelectedEcdsaLaneInput = {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: unknown;
-  walletId: AccountId;
+  walletId: WalletId;
   authMethod: SigningAuthMethod;
   signingGrantId: unknown;
   thresholdSessionId: unknown;
@@ -167,7 +168,7 @@ export type Ed25519LaneCandidate = BaseLaneCandidate & {
 type BaseEcdsaLaneCandidate = BaseLaneCandidate & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
-  walletId: AccountId;
+  walletId: WalletId;
   key: EvmFamilyEcdsaKeyIdentity;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;

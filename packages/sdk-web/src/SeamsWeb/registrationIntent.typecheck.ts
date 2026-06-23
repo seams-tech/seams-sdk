@@ -1,4 +1,5 @@
 import {
+  implicitNearAccountProvisioning,
   walletIdFromString,
   type AddSignerIntentV1,
   type AddSignerSelection,
@@ -12,13 +13,12 @@ import {
 } from '@shared/utils/registrationIntent';
 
 const ed25519Spec = {
-  nearAccountId: 'alice.testnet',
+  accountProvisioning: implicitNearAccountProvisioning(),
   signerSlot: 1,
   participantIds: [1, 2],
   keyPurpose: 'near_tx',
   keyVersion: 'threshold-ed25519-hss-v1',
   derivationVersion: 1,
-  createNearAccount: true,
 } satisfies ThresholdEd25519RegistrationSpec;
 
 const ecdsaSpec = {
@@ -140,12 +140,11 @@ void ({
 } satisfies RegistrationSignerSelection);
 
 void ({
-  nearAccountId: 'alice.testnet',
+  accountProvisioning: implicitNearAccountProvisioning(),
   participantIds: [1, 2],
   keyPurpose: 'near_tx',
   keyVersion: 'threshold-ed25519-hss-v1',
   derivationVersion: 1,
-  createNearAccount: true,
   // @ts-expect-error Ed25519 registration requires explicit signerSlot
 } satisfies ThresholdEd25519RegistrationSpec);
 

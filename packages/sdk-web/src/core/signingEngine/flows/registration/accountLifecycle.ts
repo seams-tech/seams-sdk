@@ -1,5 +1,6 @@
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { WalletId } from '@shared/utils/registrationIntent';
+import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
@@ -63,6 +64,7 @@ export type StoredRegistrationData = {
 export type StoreWalletEd25519RegistrationInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
+  ed25519KeyScopeId: string;
   credential: WebAuthnRegistrationCredential;
   signerSlot: number;
   operationalPublicKey: string;
@@ -84,6 +86,7 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
 export type StoreWalletEd25519SignerRecordInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
+  ed25519KeyScopeId: string;
   credential: WebAuthnAuthenticationCredential;
   signerSlot: number;
   operationalPublicKey: string;
@@ -422,9 +425,10 @@ export async function setLastUser(
 
 export async function activateAuthenticatedWalletState(
   deps: RegistrationAccountLifecycleDeps,
-  args: { nearAccountId: AccountId; nearClient?: NearClient },
+  args: { walletId: WalletId; nearAccountId: AccountId; nearClient?: NearClient },
 ): Promise<void> {
   const accountId = toAccountId(args.nearAccountId);
+  const walletId = toWalletId(args.walletId);
 
   // Set as last profile/signer slot for future sessions, preferring the existing pointer.
   let signerSlotToUse = await getLastLoggedInSignerSlot(
@@ -446,7 +450,7 @@ export async function activateAuthenticatedWalletState(
   }
 
   // Set as current user for immediate use
-  deps.userPreferencesManager.setCurrentWallet(toWalletId(accountId));
+  deps.userPreferencesManager.setCurrentWallet(walletId);
   // Ensure confirmation preferences are loaded before callers read them (best-effort)
   await deps.userPreferencesManager.reloadUserSettings().catch(() => undefined);
 
@@ -522,7 +526,10 @@ export async function storeAuthenticator(
 }
 
 export function extractUsername(nearAccountId: AccountId): string {
-  return String(nearAccountId).split('.')[0] || '';
+  const normalized = String(nearAccountId).trim();
+  const compactImplicit = compactImplicitNearAccountId(normalized);
+  if (compactImplicit) return compactImplicit;
+  return normalized.split('.')[0] || '';
 }
 
 function passkeyAuthMethod(args: {
@@ -665,6 +672,12 @@ function keyMaterialForSignerActivation(args: {
   };
   if (signerKind === SIGNER_KINDS.thresholdEd25519) {
     record.payload = {
+      walletId: requireStoreWalletString(metadata.walletId, 'walletId'),
+      nearAccountId: requireStoreWalletString(metadata.nearAccountId, 'nearAccountId'),
+      ed25519KeyScopeId: requireStoreWalletString(
+        metadata.ed25519KeyScopeId,
+        'ed25519KeyScopeId',
+      ),
       relayerKeyId: requireStoreWalletString(metadata.relayerKeyId, 'relayerKeyId'),
       keyVersion: requireStoreWalletString(metadata.keyVersion, 'keyVersion'),
     };
@@ -689,6 +702,10 @@ export async function storeWalletEd25519RegistrationData(
     throw new Error('SeamsWalletDB: walletId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
+  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
+  if (!ed25519KeyScopeId) {
+    throw new Error('SeamsWalletDB: ed25519KeyScopeId is required');
+  }
   const credentialPublicKey = await deps.extractCosePublicKey(args.credential.response.attestationObject);
   const passkeyCredential = {
     id: args.credential.id,
@@ -698,6 +715,7 @@ export async function storeWalletEd25519RegistrationData(
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
+    ed25519KeyScopeId,
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
@@ -829,9 +847,14 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     throw new Error('SeamsWalletDB: walletId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
+  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
+  if (!ed25519KeyScopeId) {
+    throw new Error('SeamsWalletDB: ed25519KeyScopeId is required');
+  }
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
+    ed25519KeyScopeId,
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
@@ -944,6 +967,10 @@ export async function finalizeWalletEd25519SignerRegistration(
     throw new Error('SeamsWalletDB: walletId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
+  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
+  if (!ed25519KeyScopeId) {
+    throw new Error('SeamsWalletDB: ed25519KeyScopeId is required');
+  }
   const passkeyCredential = {
     id: args.credential.id,
     rawId: credentialId,
@@ -951,6 +978,7 @@ export async function finalizeWalletEd25519SignerRegistration(
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
+    ed25519KeyScopeId,
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,

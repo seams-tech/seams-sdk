@@ -442,7 +442,7 @@ export class EmailOtpSealedRestoreOrchestrator {
       }
       if (args.record.curve === 'ed25519') {
         return await this.restoreEd25519SealedRecordForAccount({
-          accountId: args.walletId,
+          walletId: args.walletId,
           record: args.record,
           purpose: args.purpose,
         });
@@ -584,7 +584,7 @@ export class EmailOtpSealedRestoreOrchestrator {
   }
 
   private async restoreEd25519SealedRecordForAccount(args: {
-    accountId: string;
+    walletId: string;
     record: EmailOtpEd25519SealedRecoveryRecord;
     purpose: EmailOtpEd25519RestorePurpose;
   }): Promise<RestoreSealedRecordResult> {

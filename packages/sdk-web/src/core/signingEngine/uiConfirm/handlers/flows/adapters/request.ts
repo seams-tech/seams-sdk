@@ -157,6 +157,17 @@ export function getNearAccountId(request: UserConfirmRequest): string {
   }
 }
 
+export function getWalletId(request: UserConfirmRequest): string {
+  switch (request.type) {
+    case UserConfirmationType.SIGN_TRANSACTION:
+      return String(getSignTransactionPayload(request).walletId || '').trim();
+    case UserConfirmationType.SIGN_NEP413_MESSAGE:
+      return String((request.payload as SignNep413Payload).walletId || '').trim();
+    default:
+      return getNearAccountId(request);
+  }
+}
+
 export function getTxCount(request: UserConfirmRequest): number {
   return request.type === UserConfirmationType.SIGN_TRANSACTION
     ? getSignTransactionPayload(request).txSigningRequests?.length || 1

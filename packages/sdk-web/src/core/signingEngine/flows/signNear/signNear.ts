@@ -27,7 +27,7 @@ import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { signNearWithUiConfirm } from './nearSigningFlow';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
 import {
-  getStoredThresholdEd25519SessionRecordForLane,
+  getStoredThresholdEd25519SessionRecordForWallet,
   upsertStoredThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../../session/persistence/records';
@@ -57,7 +57,7 @@ import {
   buildNearTransactionSigningLane,
   type NearTransactionSigningLane,
 } from '../../session/operationState/lanes';
-import { type NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { type NearCommandSubject } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   isSigningSessionBudgetAdmissionBlockedError,
   SigningSessionCoordinator,
@@ -130,7 +130,7 @@ export type SignNep413MessagePayload = {
   recipient: string;
   nonce: string;
   state: string | null;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   signerSlot?: number;
   title?: string;
   body?: string;
@@ -147,7 +147,7 @@ export type SignNep413MessageResult = {
 };
 
 export type SignTransactionWithActionsInput = {
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   transaction: TransactionInputWasm;
   rpcCall: RpcCallPayload;
   signerSlot?: number;
@@ -165,7 +165,7 @@ type NearTransactionPublicSigningOptions = Pick<
 >;
 
 export type SignDelegateActionInput = {
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
   signerSlot?: number;
@@ -402,11 +402,11 @@ function emitNearSigningEvent(
 }
 
 function buildNearTransactionSigningLaneForSelectedLane(args: {
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   record: ThresholdEd25519SessionRecord;
   selectedLane: SelectedEd25519Lane;
 }) {
-  const nearAccountId = args.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   const sessionId = String(args.selectedLane.thresholdSessionId || '').trim();
   const signingGrantId = String(args.selectedLane.signingGrantId || '').trim();
   if (!sessionId) {
@@ -419,7 +419,7 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
   }
   if (args.record.source === 'email_otp') {
     return buildNearTransactionSigningLane({
-      accountId: nearAccountId,
+      accountId: walletId,
       authMethod: 'email_otp',
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -429,7 +429,7 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
     });
   }
   return buildNearTransactionSigningLane({
-    accountId: nearAccountId,
+    accountId: walletId,
     authMethod: 'passkey',
     signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -517,7 +517,7 @@ function resolveEd25519PasskeyStorageSource(
 
 async function resolveNearTransactionPlannerReadiness(args: {
   preConfirmDeps: NearTransactionPreConfirmSigningDeps;
-  nearAccount: NearAccountRef;
+  nearAccount: NearCommandSubject['nearAccount'];
   record: ThresholdEd25519SessionRecord;
   requiredSignatureUses?: number;
 }): Promise<{
@@ -655,7 +655,7 @@ async function resolveNearTransactionPlannerReadiness(args: {
 async function resolveNearTransactionWalletAuth(args: {
   deps: NearSigningApiDeps;
   confirmedDeps: NearTransactionConfirmedSigningDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   preparedOperation: PreparedNearEd25519Operation;
   operationId: SigningOperationId;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -674,15 +674,16 @@ async function resolveNearTransactionWalletAuth(args: {
     reason: 'near_transaction_auth_planning',
   });
 
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
   const authInput = {
-    accountId: args.nearAccount.accountId,
+    accountId: nearAccountId,
     intent: SigningOperationIntent.TransactionSign,
     curve: 'ed25519' as const,
   };
   const plan = preparedOperation.signingSessionPlan;
   if (plan.kind === SigningSessionPlanKind.NotReady) {
     console.warn('[SigningEngine][near][ed25519] transaction auth planning not ready', {
-      nearAccountId: args.nearAccount.accountId,
+      nearAccountId,
       authMethod: lane.authMethod,
       reason: plan.reason,
       readiness: preparedOperation.readiness.status,
@@ -725,7 +726,7 @@ async function resolveNearTransactionWalletAuth(args: {
     if (typeof args.confirmedDeps.requestEmailOtpTransactionSigningChallenge !== 'function') {
       throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
     }
-    emitNearSigningEvent(args.onEvent, args.nearAccount.accountId, {
+    emitNearSigningEvent(args.onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
       status: 'running',
       message: 'Sending Email OTP for transaction authorization',
@@ -747,7 +748,7 @@ async function resolveNearTransactionWalletAuth(args: {
         }) || emailOtpEd25519AuthLaneFromRecord(record)
       : undefined;
     const challenge = await args.confirmedDeps.requestEmailOtpTransactionSigningChallenge({
-      nearAccountId: args.nearAccount.accountId,
+      nearAccountId,
       chain: 'near',
       ...(authLane ? { authLane } : {}),
     });
@@ -755,7 +756,7 @@ async function resolveNearTransactionWalletAuth(args: {
     if (!challengeId) {
       throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
     }
-    emitNearSigningEvent(args.onEvent, args.nearAccount.accountId, {
+    emitNearSigningEvent(args.onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
       status: 'waiting_for_user',
       message: 'Email OTP challenge ready',
@@ -801,7 +802,7 @@ async function resolveNearTransactionWalletAuth(args: {
           }) || emailOtpEd25519AuthLaneFromRecord(record);
         const emailOtpAuthentication =
           await args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning({
-            nearAccountId: args.nearAccount.accountId,
+            nearAccountId,
             challengeId: resolvedChallengeId,
             otpCode: authorization.otpCode,
             record,
@@ -841,12 +842,13 @@ function resolvePreparedSigningRequestSessionId(args: {
 
 function resolveAdHocSigningRequestSessionId(args: {
   deps: NearSigningApiDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
 }): string {
-  const nearAccountId = args.nearAccount.accountId;
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   if (typeof args.deps.resolveThresholdEd25519SessionId === 'function') {
     const canonical = String(
-      args.deps.resolveThresholdEd25519SessionId(nearAccountId) || '',
+      args.deps.resolveThresholdEd25519SessionId(walletId) || '',
     ).trim();
     if (canonical) return canonical;
   }
@@ -927,7 +929,7 @@ function requirePasskeyReconnectThresholdEd25519SessionRecord(args: {
 
 function buildNearPasskeyEd25519Reconnect(args: {
   deps: NearSigningApiDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   ctx: ReturnType<NearSigningApiDeps['getSignerWorkerContext']>;
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   operationId: SigningOperationId;
@@ -965,7 +967,9 @@ function buildNearPasskeyEd25519Reconnect(args: {
         throw new Error('[SigningEngine] missing signing grant id for passkey Ed25519 reauth');
       }
       const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
-        nearAccountId: args.nearAccount.accountId,
+        walletId: String(thresholdSessionRecord.walletId),
+        nearAccountId: args.commandSubject.nearAccount.accountId,
+        ed25519KeyScopeId: String(thresholdSessionRecord.ed25519KeyScopeId),
         rpId,
         relayerKeyId: thresholdSessionRecord.relayerKeyId,
         ...(thresholdSessionRecord.runtimePolicyScope
@@ -997,7 +1001,7 @@ function buildNearPasskeyEd25519Reconnect(args: {
             requiredSignatureUses,
           });
       const refreshed = await args.deps.reconnectPasskeyEd25519CapabilityForSigning!({
-        nearAccountId: args.nearAccount.accountId,
+        nearAccountId: args.commandSubject.nearAccount.accountId,
         record: thresholdSessionRecord,
         policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
           credential: authorization.credential,
@@ -1050,10 +1054,10 @@ function authMethodForThresholdEd25519Record(
 function thresholdEd25519RecordMatchesSelectedLane(args: {
   record: ThresholdEd25519SessionRecord;
   selectedLane: SelectedEd25519Lane;
-  nearAccountId: AccountId;
+  walletId: AccountId | string;
 }): boolean {
   return (
-    String(args.record.nearAccountId || '').trim() === String(args.nearAccountId || '').trim() &&
+    String(args.record.walletId || '').trim() === String(args.walletId || '').trim() &&
     authMethodForThresholdEd25519Record(args.record) === args.selectedLane.authMethod &&
     String(args.record.thresholdSessionId || '').trim() ===
       String(args.selectedLane.thresholdSessionId || '').trim() &&
@@ -1065,14 +1069,14 @@ function thresholdEd25519RecordMatchesSelectedLane(args: {
 function selectNearEd25519TransactionCandidate(args: {
   availableLanes: AvailableSigningLanes | null;
   authSelectionPolicy: TransactionAuthSelectionPolicy | null;
-  nearAccountId: AccountId;
+  walletId: AccountId | string;
   currentRuntimeLane?: AvailableEd25519SigningLane | null;
 }): NearEd25519SelectedTransactionLane | null {
   const authSelectionPolicy = args.authSelectionPolicy || null;
   if (!authSelectionPolicy) return null;
 
   const intentState = receiveTransactionIntent({
-    walletId: args.nearAccountId,
+    walletId: args.walletId,
     curve: 'ed25519',
     chain: 'near',
     authSelectionPolicy,
@@ -1134,7 +1138,7 @@ function hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(
 
 function verifiedRuntimeNearEd25519AvailableLanes(args: {
   availableLanes: AvailableSigningLanes | null;
-  nearAccountId: AccountId;
+  walletId: AccountId | string;
 }): NearEd25519AvailableLane[] {
   const runtimeLanes: NearEd25519AvailableLane[] = [];
   for (const lane of args.availableLanes?.candidates.ed25519.near || []) {
@@ -1144,13 +1148,15 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
     const signingGrantId = String(lane.signingGrantId || '').trim();
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
     if (!signingGrantId || !thresholdSessionId) continue;
-    const runtimeRecord = getStoredThresholdEd25519SessionRecordForLane({
-      nearAccountId: args.nearAccountId,
-      authMethod: lane.authMethod,
-      signingGrantId,
-      thresholdSessionId,
-    });
+    const runtimeRecord = getStoredThresholdEd25519SessionRecordForWallet(args.walletId);
     if (!runtimeRecord) continue;
+    if (
+      authMethodForThresholdEd25519Record(runtimeRecord) !== lane.authMethod ||
+      String(runtimeRecord.signingGrantId || '').trim() !== signingGrantId ||
+      String(runtimeRecord.thresholdSessionId || '').trim() !== thresholdSessionId
+    ) {
+      continue;
+    }
     runtimeLanes.push(lane as NearEd25519AvailableLane);
   }
   return runtimeLanes;
@@ -1158,10 +1164,11 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
 
 async function selectSelectedEd25519LaneFromAvailableLanes(args: {
   deps: NearSigningApiDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   availableLanes: AvailableSigningLanes | null;
 }): Promise<NearEd25519SelectedTransactionLane | null> {
-  const nearAccountId = args.nearAccount.accountId;
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   const selectByAuthMethod = (
     authMethod: 'email_otp' | 'passkey',
     currentRuntimeLane?: NearEd25519AvailableLane | null,
@@ -1169,13 +1176,13 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
     selectNearEd25519TransactionCandidate({
       availableLanes: args.availableLanes,
       authSelectionPolicy: { kind: 'account_class', authMethod },
-      nearAccountId,
+      walletId,
       ...(currentRuntimeLane ? { currentRuntimeLane } : {}),
     });
 
   const runtimeLanes = verifiedRuntimeNearEd25519AvailableLanes({
     availableLanes: args.availableLanes,
-    nearAccountId,
+    walletId,
   });
   if (runtimeLanes.length === 1) {
     const runtimeLane = runtimeLanes[0]!;
@@ -1188,6 +1195,7 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
 
   const accountSelectedAuthMethod = await args.deps
     .resolveAccountAuthMethodForSigning?.({
+      walletId,
       nearAccountId,
       curve: 'ed25519',
       chain: 'near',
@@ -1228,6 +1236,7 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
 function assertNearEd25519SelectedLaneMatchesRecord(args: {
   selectedLane: SelectedEd25519Lane | null;
   record: ThresholdEd25519SessionRecord | null;
+  walletId: AccountId | string;
   nearAccountId: AccountId;
 }): void {
   if (!args.selectedLane || !args.record) return;
@@ -1235,7 +1244,7 @@ function assertNearEd25519SelectedLaneMatchesRecord(args: {
     thresholdEd25519RecordMatchesSelectedLane({
       record: args.record,
       selectedLane: args.selectedLane,
-      nearAccountId: args.nearAccountId,
+      walletId: args.walletId,
     })
   ) {
     return;
@@ -1247,20 +1256,15 @@ function assertNearEd25519SelectedLaneMatchesRecord(args: {
 
 function readNearEd25519RuntimeRecordForSelectedLane(args: {
   selectedLane: SelectedEd25519Lane | null;
-  nearAccountId: AccountId;
+  walletId: AccountId | string;
 }): ThresholdEd25519SessionRecord | null {
   if (!args.selectedLane) return null;
-  const record = getStoredThresholdEd25519SessionRecordForLane({
-    nearAccountId: args.nearAccountId,
-    authMethod: args.selectedLane.authMethod,
-    signingGrantId: args.selectedLane.signingGrantId,
-    thresholdSessionId: args.selectedLane.thresholdSessionId,
-  });
+  const record = getStoredThresholdEd25519SessionRecordForWallet(args.walletId);
   if (!record) return null;
   return thresholdEd25519RecordMatchesSelectedLane({
     record,
     selectedLane: args.selectedLane,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   })
     ? record
     : null;
@@ -1276,7 +1280,7 @@ function publishNearEd25519RuntimeIdentityForRecord(
   // material while the current tab still has a runtime lane that must be
   // selectable for step-up auth after exhaustion.
   publishResolvedIdentity({
-    walletId: String(record.nearAccountId),
+    walletId: String(record.walletId),
     authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
     curve: 'ed25519',
     chain: 'near',
@@ -1287,10 +1291,11 @@ function publishNearEd25519RuntimeIdentityForRecord(
 
 async function readNearEd25519AvailableSigningLanes(args: {
   deps: NearSigningApiDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   authMethod: 'email_otp' | 'passkey' | null;
 }): Promise<AvailableSigningLanes | null> {
-  const nearAccountId = args.nearAccount.accountId;
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   if (typeof args.deps.readAvailableSigningLanesForSigning !== 'function') {
     throw new Error(
       '[SigningEngine][near] transaction signing requires available signing lanes reader',
@@ -1298,7 +1303,7 @@ async function readNearEd25519AvailableSigningLanes(args: {
   }
   return await args.deps
     .readAvailableSigningLanesForSigning({
-      walletId: nearAccountId,
+      walletId,
       curve: 'ed25519',
       ...(args.authMethod ? { authMethod: args.authMethod } : {}),
     })
@@ -1313,11 +1318,12 @@ async function readNearEd25519AvailableSigningLanes(args: {
 
 async function restoreNearEd25519SelectedSigningSession(args: {
   deps: NearSigningApiDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   selectedLane: SelectedEd25519Lane | null;
   candidate: Ed25519LaneCandidate | null;
 }): Promise<void> {
-  const nearAccountId = args.nearAccount.accountId;
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   if (typeof args.deps.restorePersistedSessionForSigning !== 'function') return;
   const selectedLane = args.selectedLane;
   if (!selectedLane) {
@@ -1351,7 +1357,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     }
   }
   await args.deps.restorePersistedSessionForSigning({
-    walletId: nearAccountId,
+    walletId,
     authMethod: selectedLane.authMethod,
     curve: 'ed25519',
     chain: 'near',
@@ -1363,19 +1369,20 @@ async function restoreNearEd25519SelectedSigningSession(args: {
 
 async function prepareNearEd25519TransactionOperation(args: {
   deps: NearSigningApiDeps;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   signingSessionCoordinator: SigningSessionCoordinator;
   ed25519Warmup?: NearEd25519Warmup;
   availableLanes?: AvailableSigningLanes | null;
   selectedLane: NearEd25519SelectedTransactionLane;
   operationUsesNeeded: number;
 }): Promise<NearEd25519TransactionOperationPrepareResult> {
-  const nearAccountId = args.nearAccount.accountId;
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
   const selectedSessionLane = args.selectedLane.lane;
   await restoreNearEd25519SelectedSigningSession({
     deps: args.deps,
-    nearAccount: args.nearAccount,
+    commandSubject: args.commandSubject,
     selectedLane: selectedSessionLane,
     candidate: args.selectedLane.candidate,
   });
@@ -1384,19 +1391,20 @@ async function prepareNearEd25519TransactionOperation(args: {
   });
   const recordForLifecycle = readNearEd25519RuntimeRecordForSelectedLane({
     selectedLane: selectedSessionLane,
-    nearAccountId,
+    walletId,
   });
   publishNearEd25519RuntimeIdentityForRecord(recordForLifecycle);
   assertNearEd25519SelectedLaneMatchesRecord({
     selectedLane: selectedSessionLane,
     record: recordForLifecycle,
+    walletId,
     nearAccountId,
   });
   if (!selectedSessionLane || !recordForLifecycle) {
     throw new Error('[SigningEngine][near] signing session is not ready: missing_session');
   }
   const lane = buildNearTransactionSigningLaneForSelectedLane({
-    nearAccount: args.nearAccount,
+    commandSubject: args.commandSubject,
     record: recordForLifecycle,
     selectedLane: selectedSessionLane,
   });
@@ -1411,7 +1419,7 @@ async function prepareNearEd25519TransactionOperation(args: {
       signingSessionCoordinator: args.signingSessionCoordinator,
       hasUiConfirm: () => Boolean(args.deps.getSignerWorkerContext().touchConfirm),
     },
-    nearAccount: args.nearAccount,
+    nearAccount: args.commandSubject.nearAccount,
     record: recordForLifecycle,
     requiredSignatureUses: operationUsesNeeded,
   });
@@ -1476,12 +1484,13 @@ async function prepareNearEd25519TransactionOperation(args: {
 async function prepareNearEd25519TransactionSigningSession(args: {
   deps: NearSigningApiDeps;
   input: SignTransactionWithActionsInput;
-  nearAccount: NearAccountRef;
+  commandSubject: NearCommandSubject;
   signingSessionCoordinator: SigningSessionCoordinator;
   operationId: SigningOperationId;
   forceFreshAuth?: boolean;
 }): Promise<PreparedNearEd25519TransactionSigningSession> {
-  const nearAccountId = args.nearAccount.accountId;
+  const nearAccountId = args.commandSubject.nearAccount.accountId;
+  const walletId = args.commandSubject.walletSession.walletId;
   const operationUsesNeeded = requiredNearTransactionSignatureUses(args.input.transaction);
   const hasPendingEmailOtpEd25519Warmup = (): boolean =>
     args.deps.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true;
@@ -1507,12 +1516,12 @@ async function prepareNearEd25519TransactionSigningSession(args: {
       : undefined;
   const availableLanes = await readNearEd25519AvailableSigningLanes({
     deps: args.deps,
-    nearAccount: args.nearAccount,
+    commandSubject: args.commandSubject,
     authMethod: null,
   });
   const selectedLane = await selectSelectedEd25519LaneFromAvailableLanes({
     deps: args.deps,
-    nearAccount: args.nearAccount,
+    commandSubject: args.commandSubject,
     availableLanes,
   });
   if (!selectedLane) {
@@ -1533,7 +1542,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
 
   const preparedTransaction = await prepareTransactionSigningOperation({
     intent: {
-      walletId: String(nearAccountId),
+      walletId: String(walletId),
       curve: 'ed25519',
       chain: 'near',
       authSelectionPolicy: initialAuthSelectionPolicy,
@@ -1549,7 +1558,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
       prepare: async () => {
         const lifecycle = await prepareNearEd25519TransactionOperation({
           deps: args.deps,
-          nearAccount: args.nearAccount,
+          commandSubject: args.commandSubject,
           signingSessionCoordinator: args.signingSessionCoordinator,
           availableLanes,
           selectedLane,
@@ -1579,7 +1588,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
       loginWithEmailOtpEd25519CapabilityForSigning:
         args.deps.loginWithEmailOtpEd25519CapabilityForSigning,
     },
-    nearAccount: args.nearAccount,
+    commandSubject: args.commandSubject,
     preparedOperation,
     operationId: args.operationId,
     onEvent: args.input.onEvent,
@@ -1617,7 +1626,8 @@ export async function signTransactionWithActions(
     signingSessionCoordinator?: SigningSessionCoordinator;
   } = {},
 ): Promise<SignTransactionResult> {
-  const nearAccountId = toAccountId(args.nearAccount.accountId);
+  const nearAccount = args.commandSubject.nearAccount;
+  const nearAccountId = toAccountId(nearAccount.accountId);
   const publicOptions: NearTransactionPublicSigningOptions = {
     signerSlot: args.signerSlot,
     confirmationConfigOverride: args.confirmationConfigOverride,
@@ -1636,7 +1646,7 @@ export async function signTransactionWithActions(
   const preparedSigningSession = await prepareNearEd25519TransactionSigningSession({
     deps,
     input: args,
-    nearAccount: args.nearAccount,
+    commandSubject: args.commandSubject,
     signingSessionCoordinator,
     operationId: confirmationOperationId,
     forceFreshAuth: attempt.forceFreshAuth === true,
@@ -1659,7 +1669,7 @@ export async function signTransactionWithActions(
         const ctx = deps.getSignerWorkerContext();
         const passkeyEd25519Reconnect = buildNearPasskeyEd25519Reconnect({
           deps,
-          nearAccount: args.nearAccount,
+          commandSubject: args.commandSubject,
           ctx,
           thresholdSessionRecord,
           operationId: confirmationOperationId,
@@ -1680,7 +1690,8 @@ export async function signTransactionWithActions(
         };
         const payload: NearTransactionWithActionsPayload = {
           ctx,
-          nearAccount: args.nearAccount,
+          commandSubject: args.commandSubject,
+          nearAccount,
           transaction: args.transaction,
           rpcCall: args.rpcCall,
           signerSlot: publicOptions.signerSlot,
@@ -1759,7 +1770,8 @@ export async function signDelegateAction(
   deps: NearSigningApiDeps,
   args: SignDelegateActionInput,
 ): Promise<SignDelegateActionResult> {
-  const nearAccountId = toAccountId(args.nearAccount.accountId);
+  const nearAccount = args.commandSubject.nearAccount;
+  const nearAccountId = toAccountId(nearAccount.accountId);
   const normalizedRpcCall: RpcCallPayload = {
     nearRpcUrl: args.rpcCall.nearRpcUrl || deps.nearRpcUrl,
     nearAccountId,
@@ -1768,7 +1780,7 @@ export async function signDelegateAction(
   try {
     const activeSessionId = resolveAdHocSigningRequestSessionId({
       deps,
-      nearAccount: args.nearAccount,
+      commandSubject: args.commandSubject,
     });
     console.debug('[SigningEngine][delegate] session created', { sessionId: activeSessionId });
     return await withThresholdEd25519CommitQueue({
@@ -1782,7 +1794,8 @@ export async function signDelegateAction(
           kind: 'delegateAction',
           payload: {
             ctx,
-            nearAccount: args.nearAccount,
+            commandSubject: args.commandSubject,
+            nearAccount,
             delegate: args.delegate,
             rpcCall: normalizedRpcCall,
             signingSessionCoordinator: deps.signingSessionCoordinator,
@@ -1807,10 +1820,11 @@ export async function signNEP413Message(
   payload: SignNep413MessagePayload,
 ): Promise<SignNep413MessageResult> {
   try {
-    const nearAccountId = toAccountId(payload.nearAccount.accountId);
+    const nearAccount = payload.commandSubject.nearAccount;
+    const nearAccountId = toAccountId(nearAccount.accountId);
     const activeSessionId = resolveAdHocSigningRequestSessionId({
       deps,
-      nearAccount: payload.nearAccount,
+      commandSubject: payload.commandSubject,
     });
     const result = await withThresholdEd25519CommitQueue({
       deps,
@@ -1823,7 +1837,8 @@ export async function signNEP413Message(
           kind: 'nep413',
           payload: {
             ctx,
-            nearAccount: payload.nearAccount,
+            commandSubject: payload.commandSubject,
+            nearAccount,
             signingSessionCoordinator: deps.signingSessionCoordinator,
             payload: {
               message: payload.message,

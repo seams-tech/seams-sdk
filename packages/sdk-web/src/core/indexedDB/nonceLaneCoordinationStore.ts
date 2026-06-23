@@ -71,6 +71,7 @@ export function createIndexedDBNonceLaneCoordinationStore(
         expiresAtMs: record.expiresAtMs,
         updatedAtMs: record.updatedAtMs,
         family: 'near',
+        walletId: record.walletId,
         accountId: record.accountId,
         publicKey: record.publicKey,
       };

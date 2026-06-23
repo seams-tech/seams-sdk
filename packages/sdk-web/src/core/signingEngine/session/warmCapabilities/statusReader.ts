@@ -5,6 +5,7 @@ import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
+  getStoredThresholdEd25519SessionRecordForAccount,
   thresholdEcdsaSessionRecordReadModel,
 } from '../persistence/records';
 import { selectedEcdsaLane, type ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
@@ -392,10 +393,10 @@ export function createWarmSessionStatusReader(
   }
 
   async function getEd25519SigningSessionStatusForRecord(args: {
-    nearAccountId: AccountId;
     record: ReturnType<typeof readWarmSessionCapabilityRecordsForWallet>['ed25519'];
   }): Promise<SigningSessionStatus | null> {
     const record = args.record;
+    if (!record) return null;
     const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
     if (!normalizedThresholdSessionId) return null;
     const walletSessionJwt = walletSessionJwtFromPersistedWarmSessionRecord(record);
@@ -411,7 +412,7 @@ export function createWarmSessionStatusReader(
       };
     }
     const records = {
-      ...readWarmSessionCapabilityRecordsForWallet(args.nearAccountId),
+      ...readWarmSessionCapabilityRecordsForWallet(record.walletId),
       ed25519: record,
     };
     const { ed25519Claim } = await readWalletScopedClaimsForRecords(records);
@@ -432,10 +433,9 @@ export function createWarmSessionStatusReader(
   async function getEd25519SigningSessionStatus(
     nearAccountId: AccountId,
   ): Promise<SigningSessionStatus | null> {
-    const records = readWarmSessionCapabilityRecordsForWallet(nearAccountId);
+    const accountRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
     return await getEd25519SigningSessionStatusForRecord({
-      nearAccountId,
-      record: records.ed25519,
+      record: accountRecord,
     });
   }
 
@@ -457,7 +457,6 @@ export function createWarmSessionStatusReader(
       };
     }
     return await getEd25519SigningSessionStatusForRecord({
-      nearAccountId: args.nearAccountId,
       record,
     });
   }

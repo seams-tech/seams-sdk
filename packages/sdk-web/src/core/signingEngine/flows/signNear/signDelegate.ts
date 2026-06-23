@@ -78,7 +78,7 @@ import {
 } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
-import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
+import type { NearDelegateActionPayload } from '../../interfaces/near';
 import {
   finalizeThresholdEd25519DelegateSignatureResult,
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
@@ -108,6 +108,7 @@ function emitNearSigningEvent(
 
 export async function runNearDelegateActionSigning({
   ctx,
+  commandSubject,
   nearAccount,
   delegate,
   rpcCall,
@@ -118,19 +119,7 @@ export async function runNearDelegateActionSigning({
   sessionId: providedSessionId,
   signerSlot,
   signingSessionCoordinator,
-}: {
-  ctx: NearSigningRuntimeDeps;
-  nearAccount: NearAccountRef;
-  delegate: DelegateActionInput;
-  rpcCall: RpcCallPayload;
-  signingSessionCoordinator: SigningSessionCoordinator;
-  onEvent?: (update: SigningFlowEvent) => void;
-  confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  title?: string;
-  body?: string;
-  sessionId?: string;
-  signerSlot?: number;
-}): Promise<{
+}: NearDelegateActionPayload): Promise<{
   signedDelegate: WasmSignedDelegate;
   hash: string;
   nearAccountId: AccountId;
@@ -158,7 +147,7 @@ export async function runNearDelegateActionSigning({
   const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({
     warmSessionReader,
     requiredSignatureUses,
-    nearAccount,
+    commandSubject,
     operationLabel: 'delegate signing',
   });
   const resolvedSigningSession = {
@@ -279,14 +268,15 @@ export async function runNearDelegateActionSigning({
     signingSessionPlan: resolvedSigningSession.signingSessionPlan,
     signingOperation,
     runtime: touchConfirm,
-    request: {
-      ctx: { touchConfirm },
-      sessionId,
-      chain: 'near',
-      kind: 'delegate',
-      ...confirmationAuthPayload,
-      nearAccountId,
-      delegate: delegateSigningPayloads.confirmationDelegate,
+      request: {
+        ctx: { touchConfirm },
+        sessionId,
+        chain: 'near',
+        kind: 'delegate',
+        ...confirmationAuthPayload,
+        walletId: String(signingSessionAuthPlan.lane.accountId),
+        nearAccountId,
+        delegate: delegateSigningPayloads.confirmationDelegate,
       rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
       confirmationConfigOverride: confirmationConfigForSigningAuthPlan({

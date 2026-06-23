@@ -127,6 +127,7 @@ export type EvmNonceLane = {
 export type NearNonceLane = {
   family: 'near';
   networkKey: string;
+  walletId: string;
   accountId: string;
   publicKey: string;
 };
@@ -218,6 +219,7 @@ export type NonceLaneCoordinationRecord =
     })
   | (NonceLaneCoordinationRecordBase & {
       family: 'near';
+      walletId: string;
       accountId: string;
       publicKey: string;
     });
@@ -363,7 +365,7 @@ export type NonceCoordinator = {
     nearClient?: NearClient;
     force?: boolean;
   }): Promise<{ context: TransactionContext; leases: NonceLease[] }>;
-  initializeNearAccessKey(input: { accountId: string; publicKey: string }): void;
+  initializeNearAccessKey(input: { walletId?: string; accountId: string; publicKey: string }): void;
   getActiveNearPublicKey(): string | null;
   fetchNearContext(input: {
     lane: NearNonceLane;

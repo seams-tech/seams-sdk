@@ -15,12 +15,36 @@ import type { AccountId } from '@/core/types/accountIds';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { emitNearSigningEvent } from './signingEventHelpers';
+import { resolveNearCommandSubject } from './commandSubject';
 
-function resolveSignedTransactionAccountId(signedTransaction: SignedTransaction): string {
+function signedTransactionSignerId(signedTransaction: SignedTransaction): string {
   const tx = signedTransaction.transaction as { signerId?: unknown };
-  return String(tx.signerId || 'unknown');
+  const signerId = String(tx.signerId || '').trim();
+  if (!signerId) {
+    throw new Error('Signed transaction is missing signerId');
+  }
+  return signerId;
+}
+
+function assertSignedTransactionSubject(args: {
+  signedTransaction: SignedTransaction;
+  nearAccountId: AccountId;
+}): void {
+  const signerId = signedTransactionSignerId(args.signedTransaction);
+  if (signerId !== String(args.nearAccountId)) {
+    throw new Error(
+      `Signed transaction signerId ${signerId} does not match NEAR account ${String(args.nearAccountId)}`,
+    );
+  }
+}
+
+function assertSignedTransactionReadiness(signedTransaction: SignedTransaction): void {
+  if (signedTransaction.serverDispatch || signedTransaction.nonceLease) return;
+  throw new Error(
+    'near.sendTransaction requires an SDK-produced signed transaction with nonce readiness',
+  );
 }
 
 async function yieldForUiPaint(): Promise<void> {
@@ -45,6 +69,7 @@ async function yieldForUiPaint(): Promise<void> {
 export async function executeAction(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   receiverId: AccountId;
   actionArgs: ActionArgs | ActionArgs[];
   options: ActionHooksOptions;
@@ -55,6 +80,7 @@ export async function executeAction(args: {
     return executeActionInternal({
       context: args.context,
       nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       receiverId: args.receiverId,
       actionArgs: args.actionArgs,
       options: args.options,
@@ -77,12 +103,14 @@ export async function executeAction(args: {
 export async function signAndSendTransaction(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   transactionInput: TransactionInput;
   options: SignAndSendTransactionHooksOptions;
 }): Promise<ActionResult> {
   return signAndSendTransactionInternal({
     context: args.context,
     nearAccountId: args.nearAccountId,
+    walletSession: args.walletSession,
     transactionInput: args.transactionInput,
     options: args.options,
     confirmationConfigOverride: args.options.confirmationConfig,
@@ -101,6 +129,7 @@ export async function signAndSendTransaction(args: {
 export async function signTransactionWithActions(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   transactionInput: TransactionInput;
   options: SignTransactionHooksOptions;
 }): Promise<SignTransactionResult> {
@@ -108,6 +137,7 @@ export async function signTransactionWithActions(args: {
     return signTransactionWithActionsInternal({
       context: args.context,
       nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       transactionInput: args.transactionInput,
       options: args.options,
       confirmationConfigOverride: args.options.confirmationConfig,
@@ -149,19 +179,27 @@ export async function signTransactionWithActions(args: {
  * ```
  *
  * sendTransaction centrally reports nonce lifecycle for transactions produced by
- * the coordinator-backed signing flow. Transactions without a nonce lease are
- * treated as externally managed; there is no local reservation to reconcile.
+ * the coordinator-backed signing flow. Direct broadcast requires the nonce lease
+ * created during confirmation; server-dispatched results are returned without
+ * rebroadcasting.
  */
 export async function sendTransaction({
   context,
+  nearAccountId,
+  walletSession,
   signedTransaction,
   options,
 }: {
   context: NearSigningWebContext;
+  nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   signedTransaction: SignedTransaction;
   options?: SendTransactionHooksOptions;
 }): Promise<ActionResult> {
-  const accountId = resolveSignedTransactionAccountId(signedTransaction);
+  const commandSubject = resolveNearCommandSubject({ nearAccountId, walletSession });
+  const accountId = commandSubject.nearAccount.accountId;
+  assertSignedTransactionSubject({ signedTransaction, nearAccountId: accountId });
+  assertSignedTransactionReadiness(signedTransaction);
   const nonceLease = signedTransaction.nonceLease;
   emitNearSigningEvent(options?.onEvent, accountId, {
     phase: SigningEventPhase.STEP_12_BROADCAST_STARTED,
@@ -315,6 +353,7 @@ export async function sendTransaction({
 export async function executeActionInternal({
   context,
   nearAccountId,
+  walletSession,
   receiverId,
   actionArgs,
   options,
@@ -322,6 +361,7 @@ export async function executeActionInternal({
 }: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   receiverId: AccountId;
   actionArgs: ActionArgs | ActionArgs[];
   options?: ActionHooksOptions;
@@ -336,6 +376,7 @@ export async function executeActionInternal({
     const signedTx = await signTransactionWithActionsInternal({
       context,
       nearAccountId,
+      walletSession,
       transactionInput: {
         receiverId,
         actions,
@@ -346,6 +387,8 @@ export async function executeActionInternal({
 
     const txResult = await sendTransaction({
       context,
+      nearAccountId,
+      walletSession,
       signedTransaction: signedTx.signedTransaction,
       options: { onEvent, onError, waitUntil },
     });
@@ -379,12 +422,14 @@ export async function executeActionInternal({
 export async function signAndSendTransactionInternal({
   context,
   nearAccountId,
+  walletSession,
   transactionInput,
   options,
   confirmationConfigOverride,
 }: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   transactionInput: TransactionInput;
   options?: SignAndSendTransactionHooksOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
@@ -393,6 +438,7 @@ export async function signAndSendTransactionInternal({
     const signedTx = await signTransactionWithActionsInternal({
       context,
       nearAccountId,
+      walletSession,
       transactionInput,
       options,
       confirmationConfigOverride,
@@ -400,6 +446,8 @@ export async function signAndSendTransactionInternal({
 
     const txResult = await sendTransaction({
       context,
+      nearAccountId,
+      walletSession,
       signedTransaction: signedTx.signedTransaction,
       options: {
         onEvent: options?.onEvent,
@@ -435,12 +483,14 @@ export async function signAndSendTransactionInternal({
 export async function signTransactionWithActionsInternal({
   context,
   nearAccountId,
+  walletSession,
   transactionInput,
   options,
   confirmationConfigOverride,
 }: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   transactionInput: TransactionInput;
   options?: Omit<ActionHooksOptions, 'afterCall'>;
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
@@ -478,7 +528,7 @@ export async function signTransactionWithActionsInternal({
       chain: 'near',
       kind: 'transactionWithActions',
       args: {
-        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+        commandSubject: resolveNearCommandSubject({ nearAccountId, walletSession }),
         transaction: transactionInputWasm,
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),

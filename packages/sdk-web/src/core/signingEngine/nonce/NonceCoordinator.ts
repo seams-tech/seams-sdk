@@ -613,7 +613,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return resolved;
   };
 
-  const initializeNearAccessKey = (input: { accountId: string; publicKey: string }): void => {
+  const initializeNearAccessKey = (input: {
+    walletId?: string;
+    accountId: string;
+    publicKey: string;
+  }): void => {
     initializeNearAccessKeyState({ state: nearState, ...input });
   };
 
@@ -654,6 +658,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     force?: boolean;
   }): Promise<TransactionContext> => {
     initializeNearAccessKey({
+      walletId: input.lane.walletId,
       accountId: input.lane.accountId,
       publicKey: input.lane.publicKey,
     });
@@ -1051,6 +1056,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     async reserveNearContext(input) {
       return await withLaneLock(input.lane, async () => {
         initializeNearAccessKey({
+          walletId: input.lane.walletId,
           accountId: input.lane.accountId,
           publicKey: input.lane.publicKey,
         });
@@ -1412,6 +1418,7 @@ function buildNearCoordinationRecord(
     updatedAtMs: args.updatedAtMs,
     runtimeId: args.runtimeId,
     family: 'near',
+    walletId: lease.lane.walletId,
     accountId: lease.lane.accountId,
     publicKey: lease.lane.publicKey,
   };

@@ -28,7 +28,6 @@ export const validIframeButtonPresentation: RegistrationActivationButtonPresenta
 };
 
 export const validActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
-  nearAccountId: 'alice.testnet',
   presentation: validOutlineOverlayPresentation,
 };
 
@@ -51,5 +50,5 @@ export const invalidIncompleteIframeButtonPresentation: RegistrationActivationBu
 
 // @ts-expect-error activation surfaces require an explicit presentation contract.
 export const invalidActivationSurfaceArgs: CreatePasskeyRegistrationActivationSurfaceArgs = {
-  nearAccountId: 'alice.testnet',
+  options: {},
 };

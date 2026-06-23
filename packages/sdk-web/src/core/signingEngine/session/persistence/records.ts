@@ -40,10 +40,12 @@ import {
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaLaneKey,
+  toWalletId,
   type ThresholdEcdsaSessionRecordKey,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ed25519KeyScopeIdFromString, type Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 import {
   buildPasskeyEcdsaAuthBinding,
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -62,6 +64,11 @@ import {
   type VerifiedEcdsaPublicFacts,
 } from '../identity/evmFamilyEcdsaIdentity';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
+import {
+  exactSigningLaneIdentityKey,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactSigningLaneIdentityKey,
+} from '../identity/exactSigningLaneIdentity';
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
@@ -84,7 +91,7 @@ export type ThresholdEcdsaSessionAuthMetadata = {
 };
 
 type ThresholdEcdsaSessionRecordCore = {
-  walletId: AccountId;
+  walletId: WalletId;
   // Compatibility boundary only; current records persist rpId in authMetadata.
   rpId?: string;
   authMetadata: ThresholdEcdsaSessionAuthMetadata;
@@ -163,33 +170,23 @@ export type PositiveRemainingUses = number & {
   readonly __brand: 'PositiveRemainingUses';
 };
 
-export type ExactEcdsaLaneIdentity = {
-  kind: 'exact_ecdsa_lane_identity';
-  walletId: AccountId;
-  authMethod: 'email_otp' | 'passkey';
-  chainTarget: ThresholdEcdsaChainTarget;
-  key: EvmFamilyEcdsaKeyIdentity;
-  signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdEcdsaSessionId;
-};
-
-export type ExactEcdsaRuntimeLaneRef = {
-  kind: 'exact_ecdsa_runtime_lane_ref';
+export type EcdsaEmailOtpRuntimeLaneRef = {
+  kind: 'ecdsa_email_otp_runtime_lane_ref';
   laneKey: ThresholdEcdsaRuntimeLaneKey;
-  exactIdentity: ExactEcdsaLaneIdentity;
+  exactIdentity: ExactEcdsaSigningLaneIdentity;
   expectedUpdatedAtMs: number;
 };
 
 export type ConsumableEmailOtpEcdsaLane = {
   kind: 'consumable_email_otp_ecdsa_lane';
-  laneRef: ExactEcdsaRuntimeLaneRef;
+  laneRef: EcdsaEmailOtpRuntimeLaneRef;
   remainingUses: 1;
   consumedAtMs: null;
 };
 
 export type SessionEmailOtpEcdsaLane = {
   kind: 'session_email_otp_ecdsa_lane';
-  laneRef: ExactEcdsaRuntimeLaneRef;
+  laneRef: EcdsaEmailOtpRuntimeLaneRef;
   remainingUses: PositiveRemainingUses;
   consumedAtMs?: never;
 };
@@ -229,6 +226,7 @@ export type ConsumeSingleUseEmailOtpEcdsaLaneResult =
         | 'updated_at_mismatch'
         | 'remaining_uses_mismatch'
         | 'wallet_mismatch'
+        | 'key_handle_mismatch'
         | 'key_identity_mismatch'
         | 'auth_method_mismatch'
         | 'chain_target_mismatch'
@@ -236,8 +234,66 @@ export type ConsumeSingleUseEmailOtpEcdsaLaneResult =
         | 'retention_mismatch';
     };
 
+type ExactEcdsaSigningLaneMismatchReason = Extract<
+  ConsumeSingleUseEmailOtpEcdsaLaneResult,
+  { kind: 'stale_record' }
+>['reason'];
+
+type ThresholdEcdsaExactRecordStore = 'persisted_session_store' | 'runtime_memory';
+
+type ThresholdEcdsaExactRecordCandidateSummaryBase = {
+  store: ThresholdEcdsaExactRecordStore;
+  laneKey: ThresholdEcdsaRuntimeLaneKey;
+  source: ThresholdEcdsaSessionStoreSource;
+  walletId: WalletId;
+  authMethod: 'email_otp' | 'passkey';
+  chainTargetKey: string;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  updatedAtMs: number;
+};
+
+export type ThresholdEcdsaExactRecordCandidateSummary =
+  | (ThresholdEcdsaExactRecordCandidateSummaryBase & {
+      kind: 'exact_ecdsa_record_candidate';
+      match: 'exact_identity';
+      exactIdentityKey: ExactSigningLaneIdentityKey;
+      mismatchReason?: never;
+    })
+  | (ThresholdEcdsaExactRecordCandidateSummaryBase & {
+      kind: 'broad_ecdsa_record_candidate_mismatch';
+      match: 'broad_identity_mismatch';
+      exactIdentityKey: ExactSigningLaneIdentityKey;
+      mismatchReason: ExactEcdsaSigningLaneMismatchReason;
+    })
+  | (ThresholdEcdsaExactRecordCandidateSummaryBase & {
+      kind: 'invalid_ecdsa_record_candidate';
+      match: 'invalid_record_identity';
+      exactIdentityKey?: never;
+      mismatchReason: 'key_identity_mismatch';
+    });
+
+export type ReadExactThresholdEcdsaSessionRecordResult =
+  | {
+      kind: 'found';
+      identity: ExactEcdsaSigningLaneIdentity;
+      record: ThresholdEcdsaSessionRecord;
+    }
+  | {
+      kind: 'not_found';
+      identity: ExactEcdsaSigningLaneIdentity;
+    }
+  | {
+      kind: 'duplicate_records';
+      identity: ExactEcdsaSigningLaneIdentity;
+      candidateSummaries: readonly ThresholdEcdsaExactRecordCandidateSummary[];
+    };
+
 export type ThresholdEd25519SessionRecord = {
+  walletId: WalletId;
   nearAccountId: AccountId;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -317,7 +373,7 @@ export type ThresholdEcdsaSessionRecordReadModel = {
 
 export type ThresholdEcdsaRuntimeRecordCandidate = {
   source: 'runtime_session_record';
-  walletId: AccountId;
+  walletId: WalletId;
   key: EvmFamilyEcdsaKeyIdentity;
   routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
@@ -483,6 +539,26 @@ function thresholdEcdsaRecordMatchesLookupKey(args: {
   );
 }
 
+function thresholdEcdsaRecordMatchesExactBroadIdentity(args: {
+  record: ThresholdEcdsaSessionRecord;
+  identity: ExactEcdsaSigningLaneIdentity;
+}): boolean {
+  try {
+    return (
+      String(toWalletId(args.record.walletId)) === String(args.identity.walletId) &&
+      String(args.record.keyHandle) === String(args.identity.keyHandle) &&
+      thresholdEcdsaAuthMethodForRecord(args.record) === args.identity.authMethod &&
+      thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.identity.chainTarget) &&
+      String(SigningSessionIds.signingGrant(args.record.signingGrantId)) ===
+        String(args.identity.signingGrantId) &&
+      String(SigningSessionIds.thresholdEcdsaSession(args.record.thresholdSessionId)) ===
+        String(args.identity.thresholdSessionId)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function thresholdEcdsaRuntimeRecordCandidateLaneKey(
   candidate: ThresholdEcdsaRuntimeRecordCandidate,
 ): string {
@@ -595,6 +671,8 @@ export class ThresholdSessionStoreInvalidRecordError extends Error {
 const inMemoryEcdsaRecordsByLane = new Map<string, ThresholdEcdsaSessionRecord>();
 const inMemoryEd25519RecordsByAccount = new Map<string, ThresholdEd25519SessionRecord>();
 const inMemoryEd25519AccountBySessionId = new Map<string, string>();
+const inMemoryEd25519RecordsByWallet = new Map<string, ThresholdEd25519SessionRecord>();
+const inMemoryEd25519WalletBySessionId = new Map<string, string>();
 const inMemoryEd25519RecordsByLane = new Map<string, ThresholdEd25519SessionRecord>();
 const inMemoryEd25519LaneBySessionId = new Map<string, string>();
 
@@ -784,6 +862,41 @@ function indexedThresholdEcdsaRecords(args: {
     if (record) records.push(record);
   }
   return records;
+}
+
+type IndexedThresholdEcdsaExactRecordCandidate = {
+  store: ThresholdEcdsaExactRecordStore;
+  laneKey: ThresholdEcdsaRuntimeLaneKey;
+  record: ThresholdEcdsaSessionRecord;
+};
+
+function indexedThresholdEcdsaRecordCandidatesByThresholdSessionId(args: {
+  recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
+  index: ThresholdEcdsaRuntimeRecordIndex;
+  store: ThresholdEcdsaExactRecordStore;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+}): IndexedThresholdEcdsaExactRecordCandidate[] {
+  const laneKeys = args.index.laneKeysByThresholdSessionId.get(
+    ecdsaIndexKey([args.thresholdSessionId]),
+  );
+  const candidates: IndexedThresholdEcdsaExactRecordCandidate[] = [];
+  for (const record of indexedThresholdEcdsaRecords({
+    recordsByLane: args.recordsByLane,
+    laneKeys,
+  })) {
+    if (
+      String(SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId)) !==
+      String(args.thresholdSessionId)
+    ) {
+      continue;
+    }
+    candidates.push({
+      store: args.store,
+      laneKey: getThresholdEcdsaSessionLaneKeyForRecord(record),
+      record,
+    });
+  }
+  return candidates;
 }
 
 function listAllThresholdEcdsaRecords(
@@ -1017,7 +1130,7 @@ function normalizeStoredVerifiedPublicFacts(args: {
 
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const walletId = toAccountId(String(obj.walletId || '').trim());
+  const walletId = toWalletId(String(obj.walletId || '').trim());
   const authMetadata = normalizeThresholdEcdsaSessionAuthMetadata(obj.authMetadata);
   const rpId = authMetadata?.rpId || normalizeOptionalNonEmptyString(obj.rpId) || '';
   const relayerUrl = String(obj.relayerUrl || '').trim();
@@ -1259,6 +1372,10 @@ function normalizeThresholdEcdsaEmailOtpAuthContext(
 function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd25519SessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
+  const walletId = toWalletId(String(obj.walletId || obj.nearAccountId || '').trim());
+  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
+    String(obj.ed25519KeyScopeId || obj.nearAccountId || '').trim(),
+  );
   const rpId = String(obj.rpId || '').trim();
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -1337,7 +1454,9 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   }
 
   return {
+    walletId,
     nearAccountId,
+    ed25519KeyScopeId,
     rpId,
     relayerUrl,
     relayerKeyId,
@@ -1370,13 +1489,19 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
 
 function rememberInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRecord): void {
   const accountKey = String(record.nearAccountId || '').trim();
+  const walletKey = String(record.walletId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-  if (!accountKey || !thresholdSessionId) return;
+  if (!accountKey || !walletKey || !thresholdSessionId) return;
 
   const previous = inMemoryEd25519RecordsByAccount.get(accountKey);
   const previousSessionId = String(previous?.thresholdSessionId || '').trim();
   if (previousSessionId && previousSessionId !== thresholdSessionId) {
     inMemoryEd25519AccountBySessionId.delete(previousSessionId);
+  }
+  const previousWallet = inMemoryEd25519RecordsByWallet.get(walletKey);
+  const previousWalletSessionId = String(previousWallet?.thresholdSessionId || '').trim();
+  if (previousWalletSessionId && previousWalletSessionId !== thresholdSessionId) {
+    inMemoryEd25519WalletBySessionId.delete(previousWalletSessionId);
   }
 
   // The account index tracks the default lane; the lane/session indexes retain
@@ -1384,6 +1509,8 @@ function rememberInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionR
   // each other's planned material.
   inMemoryEd25519RecordsByAccount.set(accountKey, record);
   inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
+  inMemoryEd25519RecordsByWallet.set(walletKey, record);
+  inMemoryEd25519WalletBySessionId.set(thresholdSessionId, walletKey);
 
   const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
   if (!laneKey) return;
@@ -1402,6 +1529,17 @@ function getInMemoryThresholdEd25519SessionRecordForAccount(
   try {
     const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
     return inMemoryEd25519RecordsByAccount.get(accountKey) || null;
+  } catch {
+    return null;
+  }
+}
+
+function getInMemoryThresholdEd25519SessionRecordForWallet(
+  walletIdRaw: WalletId | string,
+): ThresholdEd25519SessionRecord | null {
+  try {
+    const walletKey = String(toWalletId(walletIdRaw)).trim();
+    return inMemoryEd25519RecordsByWallet.get(walletKey) || null;
   } catch {
     return null;
   }
@@ -1427,6 +1565,20 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
     inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
   }
 
+  const indexedWalletKey = String(
+    inMemoryEd25519WalletBySessionId.get(thresholdSessionId) || '',
+  ).trim();
+  if (indexedWalletKey) {
+    const indexedWalletRecord = inMemoryEd25519RecordsByWallet.get(indexedWalletKey) || null;
+    if (
+      indexedWalletRecord &&
+      String(indexedWalletRecord.thresholdSessionId || '').trim() === thresholdSessionId
+    ) {
+      return indexedWalletRecord;
+    }
+    inMemoryEd25519WalletBySessionId.delete(thresholdSessionId);
+  }
+
   const indexedAccountKey = String(
     inMemoryEd25519AccountBySessionId.get(thresholdSessionId) || '',
   ).trim();
@@ -1447,11 +1599,18 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
     return record;
   }
 
+  for (const [walletKey, record] of inMemoryEd25519RecordsByWallet.entries()) {
+    if (String(record.thresholdSessionId || '').trim() !== thresholdSessionId) continue;
+    inMemoryEd25519WalletBySessionId.set(thresholdSessionId, walletKey);
+    return record;
+  }
+
   return null;
 }
 
 function forgetInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRecord): void {
   const accountKey = String(record.nearAccountId || '').trim();
+  const walletKey = String(record.walletId || '').trim();
   const thresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionId);
   if (accountKey) {
     const currentAccountRecord = inMemoryEd25519RecordsByAccount.get(accountKey) || null;
@@ -1467,6 +1626,21 @@ function forgetInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRec
     inMemoryEd25519AccountBySessionId.get(thresholdSessionId) === accountKey
   ) {
     inMemoryEd25519AccountBySessionId.delete(thresholdSessionId);
+  }
+  if (walletKey) {
+    const currentWalletRecord = inMemoryEd25519RecordsByWallet.get(walletKey) || null;
+    if (
+      currentWalletRecord &&
+      String(currentWalletRecord.thresholdSessionId || '').trim() === thresholdSessionId
+    ) {
+      inMemoryEd25519RecordsByWallet.delete(walletKey);
+    }
+  }
+  if (
+    thresholdSessionId &&
+    inMemoryEd25519WalletBySessionId.get(thresholdSessionId) === walletKey
+  ) {
+    inMemoryEd25519WalletBySessionId.delete(thresholdSessionId);
   }
   const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
   if (laneKey) {
@@ -1746,25 +1920,31 @@ function isSelectedEcdsaLane(
   return (input as { kind?: unknown }).kind === 'selected_lane';
 }
 
-export function toExactEcdsaLaneIdentity(
+export function toExactEcdsaSigningLaneIdentity(
   input: ThresholdEcdsaSessionRecord | SelectedEcdsaLane,
-): ExactEcdsaLaneIdentity {
+): ExactEcdsaSigningLaneIdentity {
   if (isSelectedEcdsaLane(input)) {
     return {
-      kind: 'exact_ecdsa_lane_identity',
-      walletId: input.walletId,
+      kind: 'exact_ecdsa_signing_lane_identity',
+      curve: 'ecdsa',
+      chainFamily: input.chainTarget.kind,
+      walletId: toWalletId(input.walletId),
       authMethod: input.authMethod,
       chainTarget: input.chainTarget,
+      keyHandle: input.keyHandle,
       key: input.key,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
     };
   }
   return {
-    kind: 'exact_ecdsa_lane_identity',
-    walletId: input.walletId,
+    kind: 'exact_ecdsa_signing_lane_identity',
+    curve: 'ecdsa',
+    chainFamily: input.chainTarget.kind,
+    walletId: toWalletId(input.walletId),
     authMethod: thresholdEcdsaAuthMethodForRecord(input),
     chainTarget: input.chainTarget,
+    keyHandle: toEvmFamilyEcdsaKeyHandle(input.keyHandle),
     key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: input,
       rpId: thresholdEcdsaRecordRpId(input),
@@ -1774,11 +1954,175 @@ export function toExactEcdsaLaneIdentity(
   };
 }
 
-function toExactEcdsaRuntimeLaneRef(record: ThresholdEcdsaSessionRecord): ExactEcdsaRuntimeLaneRef {
+function thresholdEcdsaExactRecordCandidateSummaryBase(
+  candidate: IndexedThresholdEcdsaExactRecordCandidate,
+): ThresholdEcdsaExactRecordCandidateSummaryBase {
+  const record = candidate.record;
   return {
-    kind: 'exact_ecdsa_runtime_lane_ref',
+    store: candidate.store,
+    laneKey: candidate.laneKey,
+    source: record.source,
+    walletId: toWalletId(record.walletId),
+    authMethod: thresholdEcdsaAuthMethodForRecord(record),
+    chainTargetKey: thresholdEcdsaChainTargetKey(record.chainTarget),
+    keyHandle: toEvmFamilyEcdsaKeyHandle(record.keyHandle),
+    signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
+    updatedAtMs: normalizedUpdatedAtMs(record),
+  };
+}
+
+function exactThresholdEcdsaRecordCandidateSummary(args: {
+  candidate: IndexedThresholdEcdsaExactRecordCandidate;
+  identity: ExactEcdsaSigningLaneIdentity;
+}): ThresholdEcdsaExactRecordCandidateSummary {
+  const base = thresholdEcdsaExactRecordCandidateSummaryBase(args.candidate);
+  let actualIdentity: ExactEcdsaSigningLaneIdentity;
+  try {
+    actualIdentity = toExactEcdsaSigningLaneIdentity(args.candidate.record);
+  } catch {
+    return {
+      ...base,
+      kind: 'invalid_ecdsa_record_candidate',
+      match: 'invalid_record_identity',
+      mismatchReason: 'key_identity_mismatch',
+    };
+  }
+
+  const actualIdentityKey = exactSigningLaneIdentityKey(actualIdentity);
+  const mismatchReason = exactEcdsaLaneIdentityMismatchReason({
+    expected: args.identity,
+    actual: actualIdentity,
+  });
+  if (mismatchReason) {
+    return {
+      ...base,
+      kind: 'broad_ecdsa_record_candidate_mismatch',
+      match: 'broad_identity_mismatch',
+      exactIdentityKey: actualIdentityKey,
+      mismatchReason,
+    };
+  }
+  return {
+    ...base,
+    kind: 'exact_ecdsa_record_candidate',
+    match: 'exact_identity',
+    exactIdentityKey: actualIdentityKey,
+  };
+}
+
+type ExactThresholdEcdsaRecordMatch = {
+  record: ThresholdEcdsaSessionRecord;
+  summary: Extract<
+    ThresholdEcdsaExactRecordCandidateSummary,
+    { match: 'exact_identity' }
+  >;
+};
+
+function readExactThresholdEcdsaSessionRecordCandidates(args: {
+  deps: ThresholdEcdsaSessionStoreDeps;
+  identity: ExactEcdsaSigningLaneIdentity;
+}): IndexedThresholdEcdsaExactRecordCandidate[] {
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(
+    args.identity.thresholdSessionId,
+  );
+  return [
+    ...indexedThresholdEcdsaRecordCandidatesByThresholdSessionId({
+      recordsByLane: args.deps.recordsByLane,
+      index: getThresholdEcdsaRuntimeRecordIndex(args.deps),
+      store: 'persisted_session_store',
+      thresholdSessionId,
+    }),
+    ...indexedThresholdEcdsaRecordCandidatesByThresholdSessionId({
+      recordsByLane: inMemoryEcdsaRecordsByLane,
+      index: inMemoryEcdsaRecordIndex,
+      store: 'runtime_memory',
+      thresholdSessionId,
+    }),
+  ].filter((candidate) =>
+    thresholdEcdsaRecordMatchesExactBroadIdentity({
+      record: candidate.record,
+      identity: args.identity,
+    }),
+  );
+}
+
+function keepPreferredExactThresholdEcdsaRecordMatch(args: {
+  existing: ExactThresholdEcdsaRecordMatch | null;
+  incoming: ExactThresholdEcdsaRecordMatch;
+}): ExactThresholdEcdsaRecordMatch {
+  if (!args.existing) return args.incoming;
+  if (
+    args.existing.summary.store === 'runtime_memory' &&
+    args.incoming.summary.store === 'persisted_session_store'
+  ) {
+    return args.incoming;
+  }
+  return args.existing;
+}
+
+export function readExactThresholdEcdsaSessionRecord(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  identity: ExactEcdsaSigningLaneIdentity,
+): ReadExactThresholdEcdsaSessionRecordResult {
+  const exactMatchesByLaneKey = new Map<
+    ThresholdEcdsaRuntimeLaneKey,
+    ExactThresholdEcdsaRecordMatch
+  >();
+  const duplicateSummaries: ThresholdEcdsaExactRecordCandidateSummary[] = [];
+
+  for (const candidate of readExactThresholdEcdsaSessionRecordCandidates({ deps, identity })) {
+    const summary = exactThresholdEcdsaRecordCandidateSummary({ candidate, identity });
+    if (summary.match !== 'exact_identity') {
+      duplicateSummaries.push(summary);
+      continue;
+    }
+    const existing = exactMatchesByLaneKey.get(summary.laneKey) || null;
+    exactMatchesByLaneKey.set(
+      summary.laneKey,
+      keepPreferredExactThresholdEcdsaRecordMatch({
+        existing,
+        incoming: {
+          record: candidate.record,
+          summary,
+        },
+      }),
+    );
+  }
+
+  if (duplicateSummaries.length > 0) {
+    const exactSummaries = [...exactMatchesByLaneKey.values()].map((match) => match.summary);
+    return {
+      kind: 'duplicate_records',
+      identity,
+      candidateSummaries: [...exactSummaries, ...duplicateSummaries],
+    };
+  }
+
+  switch (exactMatchesByLaneKey.size) {
+    case 0:
+      return { kind: 'not_found', identity };
+    case 1: {
+      const selected = exactMatchesByLaneKey.values().next();
+      if (selected.done) return { kind: 'not_found', identity };
+      return { kind: 'found', identity, record: selected.value.record };
+    }
+    default:
+      return {
+        kind: 'duplicate_records',
+        identity,
+        candidateSummaries: [...exactMatchesByLaneKey.values()].map((match) => match.summary),
+      };
+  }
+}
+
+function toEcdsaEmailOtpRuntimeLaneRef(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaEmailOtpRuntimeLaneRef {
+  return {
+    kind: 'ecdsa_email_otp_runtime_lane_ref',
     laneKey: deriveThresholdEcdsaRuntimeLaneKey(record),
-    exactIdentity: toExactEcdsaLaneIdentity(record),
+    exactIdentity: toExactEcdsaSigningLaneIdentity(record),
     expectedUpdatedAtMs: normalizedUpdatedAtMs(record),
   };
 }
@@ -1789,7 +2133,7 @@ export function emailOtpEcdsaPostSignMaterialFromRecord(
   if (record.source !== 'email_otp') return null;
   if (record.emailOtpAuthContext?.authMethod !== 'email_otp') return null;
   const remainingUses = Math.floor(Number(record.remainingUses) || 0);
-  const laneRef = toExactEcdsaRuntimeLaneRef(record);
+  const laneRef = toEcdsaEmailOtpRuntimeLaneRef(record);
   if (record.emailOtpAuthContext.retention === 'single_use') {
     if (remainingUses !== 1 || normalizedConsumedAtMs(record) !== null) return null;
     return {
@@ -1830,7 +2174,7 @@ function pickPreferredThresholdEcdsaSessionRecord(
 }
 
 type EcdsaRecordFromBootstrapArgsBase = {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   signingSessionSeal?: {
@@ -1857,7 +2201,7 @@ type BuildEcdsaRecordFromBootstrapArgs = EcdsaRecordFromBootstrapArgs & {
 function buildEcdsaRecordFromBootstrap(
   args: BuildEcdsaRecordFromBootstrapArgs,
 ): ThresholdEcdsaSessionRecord {
-  const accountId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const keyHandle = String(keyRef.keyHandle || '').trim();
   if (!keyHandle) {
@@ -1928,7 +2272,7 @@ function buildEcdsaRecordFromBootstrap(
   });
 
   return normalizeThresholdEcdsaSessionRecord({
-    walletId: accountId,
+    walletId,
     authMetadata: { rpId: args.bootstrap.keygen.rpId },
     chainTarget: args.chainTarget,
     relayerUrl: keyRef.relayerUrl,
@@ -2129,12 +2473,12 @@ export function upsertRestoredThresholdEcdsaSessionRecord(
 export function listThresholdEcdsaSessionRecordsForWalletTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
 ): ThresholdEcdsaSessionRecord[] {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
   const recordsByLane = new Map<string, ThresholdEcdsaSessionRecord>();
   for (const record of listAllThresholdEcdsaRecords(deps)) {
@@ -2152,12 +2496,12 @@ export function listThresholdEcdsaSessionRecordsForWalletTarget(
 export function getThresholdEcdsaSessionRecordForWalletTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     source: ThresholdEcdsaSessionStoreSource;
   },
 ): ThresholdEcdsaSessionRecord {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const candidates = listThresholdEcdsaSessionRecordsForWalletTarget(deps, {
     ...args,
     walletId,
@@ -2277,9 +2621,9 @@ export function getPasskeyThresholdEcdsaKeyRefForSigning(
 
 export function clearThresholdEcdsaSessionRecordForWallet(
   deps: ThresholdEcdsaSessionStoreDeps,
-  walletId: AccountId | string,
+  walletId: WalletId | string,
 ): void {
-  const normalizedWalletId = toAccountId(walletId);
+  const normalizedWalletId = toWalletId(walletId);
   const walletKey = String(normalizedWalletId);
   const indexKey = ecdsaIndexKey([walletKey]);
   const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
@@ -2297,12 +2641,12 @@ export function clearThresholdEcdsaSessionRecordForWallet(
 export function clearThresholdEcdsaSessionRecordForWalletTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
 ): void {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
   for (const record of listAllThresholdEcdsaRecords(deps)) {
     if (String(record.walletId) !== String(walletId)) continue;
@@ -2320,12 +2664,12 @@ export function clearThresholdEcdsaSessionRecordForWalletTarget(
 export function clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     keyHandle: EvmFamilyEcdsaKeyHandle | string;
   },
 ): number {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const keyHandle = normalizeOptionalNonEmptyString(args.keyHandle);
   if (!keyHandle) return 0;
   let removed = 0;
@@ -2371,12 +2715,12 @@ export function clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTar
 }
 
 export function clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle(args: {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
 }): number {
   let walletId = '';
   try {
-    walletId = String(toAccountId(args.walletId)).trim();
+    walletId = String(toWalletId(args.walletId)).trim();
   } catch {
     return 0;
   }
@@ -2399,13 +2743,16 @@ export function clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle(args: 
 }
 
 function exactEcdsaLaneIdentityMismatchReason(args: {
-  expected: ExactEcdsaLaneIdentity;
-  actual: ExactEcdsaLaneIdentity;
+  expected: ExactEcdsaSigningLaneIdentity;
+  actual: ExactEcdsaSigningLaneIdentity;
 }): Extract<ConsumeSingleUseEmailOtpEcdsaLaneResult, { kind: 'stale_record' }>['reason'] | null {
   if (String(args.actual.walletId) !== String(args.expected.walletId)) return 'wallet_mismatch';
   if (args.actual.authMethod !== args.expected.authMethod) return 'auth_method_mismatch';
   if (!thresholdEcdsaChainTargetsEqual(args.actual.chainTarget, args.expected.chainTarget)) {
     return 'chain_target_mismatch';
+  }
+  if (String(args.actual.keyHandle) !== String(args.expected.keyHandle)) {
+    return 'key_handle_mismatch';
   }
   if (
     String(args.actual.signingGrantId) !== String(args.expected.signingGrantId) ||
@@ -2471,9 +2818,9 @@ export function consumeSingleUseEmailOtpEcdsaLane(
   if (storedLaneKey !== laneKey) {
     return staleSingleUseEmailOtpEcdsaLaneResult({ laneKey, reason: 'lane_key_mismatch' });
   }
-  let storedIdentity: ExactEcdsaLaneIdentity;
+  let storedIdentity: ExactEcdsaSigningLaneIdentity;
   try {
-    storedIdentity = toExactEcdsaLaneIdentity(record);
+    storedIdentity = toExactEcdsaSigningLaneIdentity(record);
   } catch {
     return staleSingleUseEmailOtpEcdsaLaneResult({ laneKey, reason: 'key_identity_mismatch' });
   }
@@ -2601,7 +2948,9 @@ export function getThresholdEcdsaSessionRecordByThresholdSessionId(
 }
 
 export function upsertStoredThresholdEd25519SessionRecord(args: {
+  walletId?: WalletId | string;
   nearAccountId: AccountId | string;
+  ed25519KeyScopeId?: Ed25519KeyScopeId | string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -2631,8 +2980,15 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   source?: ThresholdEd25519SessionStoreSource;
 }): ThresholdEd25519SessionRecord | null {
   if (isRawOnlyEd25519ClientBaseInput(args)) return null;
+  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toWalletId(args.walletId || nearAccountId);
+  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
+    String(args.ed25519KeyScopeId || nearAccountId).trim(),
+  );
   const record = normalizeThresholdEd25519SessionRecord({
-    nearAccountId: toAccountId(args.nearAccountId),
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
@@ -2728,7 +3084,9 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
   const existing = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
   if (!existing) return null;
   return upsertStoredThresholdEd25519SessionRecord({
+    walletId: existing.walletId,
     nearAccountId: existing.nearAccountId,
+    ed25519KeyScopeId: existing.ed25519KeyScopeId,
     rpId: existing.rpId,
     relayerUrl: existing.relayerUrl,
     relayerKeyId: existing.relayerKeyId,
@@ -2797,12 +3155,32 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
   return null;
 }
 
+export function getStoredThresholdEd25519SessionRecordForWallet(
+  walletIdRaw: WalletId | string,
+): ThresholdEd25519SessionRecord | null {
+  const inMemory = getInMemoryThresholdEd25519SessionRecordForWallet(walletIdRaw);
+  if (inMemory) return inMemory;
+  return null;
+}
+
 export function listStoredThresholdEd25519SessionRecordsForAccount(
   nearAccountIdRaw: AccountId | string,
 ): ThresholdEd25519SessionRecord[] {
   try {
     const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
     const record = accountKey ? inMemoryEd25519RecordsByAccount.get(accountKey) || null : null;
+    return record ? [record] : [];
+  } catch {
+    return [];
+  }
+}
+
+export function listStoredThresholdEd25519SessionRecordsForWallet(
+  walletIdRaw: WalletId | string,
+): ThresholdEd25519SessionRecord[] {
+  try {
+    const walletKey = String(toWalletId(walletIdRaw)).trim();
+    const record = walletKey ? inMemoryEd25519RecordsByWallet.get(walletKey) || null : null;
     return record ? [record] : [];
   } catch {
     return [];
@@ -2838,7 +3216,7 @@ export function listStoredThresholdEd25519SessionLaneRecordsForAccount(
 }
 
 export function listStoredThresholdEcdsaSessionRecordsForWallet(
-  walletIdRaw: AccountId | string,
+  walletIdRaw: WalletId | string,
   filter: {
     chainTarget?: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -2846,7 +3224,7 @@ export function listStoredThresholdEcdsaSessionRecordsForWallet(
 ): ThresholdEcdsaSessionRecord[] {
   let walletKey = '';
   try {
-    walletKey = String(toAccountId(walletIdRaw)).trim();
+    walletKey = String(toWalletId(walletIdRaw)).trim();
   } catch {
     return [];
   }
@@ -2915,9 +3293,9 @@ function ecdsaRuntimeLaneFromRecord(args: {
 
 export function listThresholdEcdsaRuntimeLanesForWallet(
   deps: ThresholdEcdsaSessionStoreDeps,
-  walletIdRaw: AccountId | string,
+  walletIdRaw: WalletId | string,
 ): ThresholdEcdsaRuntimeRecordCandidate[] {
-  const walletId = toAccountId(walletIdRaw);
+  const walletId = toWalletId(walletIdRaw);
   const lanes: ThresholdEcdsaRuntimeRecordCandidate[] = [];
   const seen = new Set<string>();
   const indexKey = ecdsaIndexKey([String(walletId)]);
@@ -2988,13 +3366,13 @@ export function getStoredThresholdEd25519SessionRecordForLane(args: {
   return null;
 }
 
-export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
-  nearAccountId: AccountId;
+export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
+  walletId: WalletId;
   thresholdSessionId?: string;
   uses?: number;
   nowMs?: number;
 }): ThresholdEd25519SessionRecord | null {
-  const record = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+  const record = getStoredThresholdEd25519SessionRecordForWallet(args.walletId);
   if (!record || record.source !== 'email_otp' || !record.emailOtpAuthContext) return null;
   const expectedSessionId = String(args.thresholdSessionId || '').trim();
   const actualSessionId = String(record.thresholdSessionId || '').trim();
@@ -3006,7 +3384,9 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
   const remainingUses = Math.max(0, Math.floor(Number(record.remainingUses) || 0) - uses);
   const retainMaterial = record.emailOtpAuthContext.retention !== 'single_use';
   return upsertStoredThresholdEd25519SessionRecord({
+    walletId: record.walletId,
     nearAccountId: record.nearAccountId,
+    ed25519KeyScopeId: record.ed25519KeyScopeId,
     rpId: record.rpId,
     relayerUrl: record.relayerUrl,
     relayerKeyId: record.relayerKeyId,
@@ -3068,9 +3448,8 @@ export function clearStoredThresholdEd25519SessionRecordForAccount(
   nearAccountIdRaw: AccountId | string,
 ): void {
   const inMemory = getInMemoryThresholdEd25519SessionRecordForAccount(nearAccountIdRaw);
-  const inMemorySessionId = String(inMemory?.thresholdSessionId || '').trim();
-  if (inMemorySessionId) {
-    inMemoryEd25519AccountBySessionId.delete(inMemorySessionId);
+  if (inMemory) {
+    forgetInMemoryThresholdEd25519Record(inMemory);
   }
   try {
     const nearAccountId = toAccountId(nearAccountIdRaw);
@@ -3093,15 +3472,17 @@ export function clearStoredThresholdEd25519SessionRecordForAccount(
 export function clearAllStoredThresholdEd25519SessionRecords(): void {
   inMemoryEd25519RecordsByAccount.clear();
   inMemoryEd25519AccountBySessionId.clear();
+  inMemoryEd25519RecordsByWallet.clear();
+  inMemoryEd25519WalletBySessionId.clear();
   inMemoryEd25519RecordsByLane.clear();
   inMemoryEd25519LaneBySessionId.clear();
 }
 
 export function getStoredThresholdEcdsaSessionRecordForWalletChain(args: {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   chain: ThresholdEcdsaChainTarget['kind'];
 }): ThresholdEcdsaSessionRecord | null {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   let selected: ThresholdEcdsaSessionRecord | null = null;
   for (const record of indexedThresholdEcdsaRecords({
     recordsByLane: inMemoryEcdsaRecordsByLane,

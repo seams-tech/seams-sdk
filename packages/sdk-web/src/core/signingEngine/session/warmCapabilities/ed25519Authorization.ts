@@ -21,7 +21,9 @@ export type WarmEd25519SigningSessionAuthorization = {
   kind: 'warm_ed25519_signing_session_authorized';
   curve: 'ed25519';
   authMethod: WalletAuthMethod;
+  walletId: string;
   nearAccountId: AccountId;
+  ed25519KeyScopeId: string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -47,7 +49,9 @@ export type WarmEd25519SigningSessionAuthorization = {
 
 export type WarmEd25519SigningSessionAuthorizationFailureReason =
   | 'missing_record'
+  | 'wallet_mismatch'
   | 'account_mismatch'
+  | 'key_scope_mismatch'
   | 'auth_method_mismatch'
   | 'cookie_session'
   | 'missing_wallet_session_jwt'
@@ -138,7 +142,9 @@ function activePrfClaimFromStatus(args: {
 
 export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
   record: ThresholdEd25519SessionRecord | null | undefined;
+  walletId: string;
   nearAccountId: AccountId | string;
+  ed25519KeyScopeId: string;
   authMethod: WalletAuthMethod;
   signingSessionStatus: SigningSessionStatus | null | undefined;
   nowMs?: number;
@@ -146,12 +152,33 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
   const record = args.record;
   if (!record) return { ok: false, reason: 'missing_record', details: {} };
 
+  const expectedWalletId = nonEmptyString(args.walletId);
+  if (nonEmptyString(record.walletId) !== expectedWalletId) {
+    return {
+      ok: false,
+      reason: 'wallet_mismatch',
+      details: { expectedWalletId, recordWalletId: record.walletId },
+    };
+  }
+
   const expectedNearAccountId = nonEmptyString(args.nearAccountId);
   if (nonEmptyString(record.nearAccountId) !== expectedNearAccountId) {
     return {
       ok: false,
       reason: 'account_mismatch',
       details: { expectedNearAccountId, recordNearAccountId: record.nearAccountId },
+    };
+  }
+
+  const expectedEd25519KeyScopeId = nonEmptyString(args.ed25519KeyScopeId);
+  if (nonEmptyString(record.ed25519KeyScopeId) !== expectedEd25519KeyScopeId) {
+    return {
+      ok: false,
+      reason: 'key_scope_mismatch',
+      details: {
+        expectedEd25519KeyScopeId,
+        recordEd25519KeyScopeId: record.ed25519KeyScopeId,
+      },
     };
   }
 
@@ -225,7 +252,9 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
       kind: 'warm_ed25519_signing_session_authorized',
       curve: 'ed25519',
       authMethod,
+      walletId: record.walletId,
       nearAccountId: record.nearAccountId,
+      ed25519KeyScopeId: record.ed25519KeyScopeId,
       rpId: record.rpId,
       relayerUrl: record.relayerUrl,
       relayerKeyId: record.relayerKeyId,

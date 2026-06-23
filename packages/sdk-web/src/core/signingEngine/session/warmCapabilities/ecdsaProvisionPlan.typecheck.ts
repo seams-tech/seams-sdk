@@ -1,6 +1,8 @@
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
-import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -110,7 +112,7 @@ const invalidReconnectKeyRefThresholdSessionAuth = {
 } satisfies ThresholdEcdsaSecp256k1KeyRef;
 void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
-  walletId: toAccountId('alice.testnet'),
+  walletId: toWalletId('alice.testnet'),
   authMetadata: { rpId: 'example.localhost' },
   chainTarget,
   relayerUrl: 'https://relayer.test',

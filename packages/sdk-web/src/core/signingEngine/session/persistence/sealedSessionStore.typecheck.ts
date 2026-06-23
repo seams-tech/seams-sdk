@@ -28,8 +28,10 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
   signingGrantId: 'wsess-ed25519',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
-  ed25519Restore: {
-    rpId: 'wallet.example.localhost',
+	  ed25519Restore: {
+	    nearAccountId: 'wallet.testnet',
+	    ed25519KeyScopeId: 'wallet.testnet',
+	    rpId: 'wallet.example.localhost',
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],
     sessionKind: 'cookie',

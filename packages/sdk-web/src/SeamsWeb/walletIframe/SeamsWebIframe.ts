@@ -23,10 +23,11 @@ import { signingSessionSealInputFromReadonly } from './shared/signingSessionSeal
 import { walletIframeUnlockRequestFromLoginHooks } from './shared/unlockOptions';
 import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type {
-  NearAccountRef,
-  ThresholdEcdsaChainTarget,
-  WalletSessionRef,
+import {
+  toWalletId,
+  type NearAccountRef,
+  type ThresholdEcdsaChainTarget,
+  type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
@@ -101,9 +102,13 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb';
 import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
-import { toAccountId } from '@/core/types/accountIds';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import {
+  implicitNearAccountProvisioning,
+  type RegisterWalletInput,
+} from '@shared/utils/registrationIntent';
+import {
+  buildNearWalletRegistrationSignerSelection,
+} from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 
 export class SeamsWebIframe {
   readonly configs: SeamsConfigsReadonly;
@@ -232,8 +237,7 @@ export class SeamsWebIframe {
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
-      registerPasskey: async (nearAccountId, options) =>
-        await this.registerPasskeyDomain(nearAccountId, options),
+      registerPasskey: async (options) => await this.registerPasskeyDomain(options),
       createPasskeyRegistrationActivationSurface: (args) =>
         this.router.createPasskeyRegistrationActivationSurface(args),
       requestEmailOtpEnrollmentChallenge: async (args) =>
@@ -267,18 +271,32 @@ export class SeamsWebIframe {
 
     this.near = {
       registerNearWallet: async (args) => {
-        const accountId = toAccountId(args.nearAccountId);
         const rpId = this.resolveRegistrationRpId('near.registerNearWallet');
+        const accountProvisioning =
+          args.accountProvisioning?.kind === 'sponsored_named_account'
+            ? args.accountProvisioning
+            : args.accountProvisioning || implicitNearAccountProvisioning();
+        let wallet: RegisterWalletInput;
+        switch (accountProvisioning.kind) {
+          case 'implicit_account':
+            wallet = { kind: 'server_generated' };
+            break;
+          case 'sponsored_named_account':
+            if (!args.wallet) {
+              throw new Error('[SeamsWebIframe][near] sponsored NEAR registration requires a provided walletId');
+            }
+            wallet = args.wallet;
+            break;
+          default:
+            throw new Error('[SeamsWebIframe][near] unsupported NEAR account provisioning branch');
+        }
         return await this.registration.registerWallet({
-          wallet: {
-            kind: 'provided',
-            walletId: walletIdFromString(String(accountId)),
-          },
+          wallet,
           rpId,
           authMethod: args.authMethod || { kind: 'passkey' as const },
           signerSelection: buildNearWalletRegistrationSignerSelection({
             configs: this.configs,
-            nearAccountId: String(accountId),
+            accountProvisioning,
             options: args.options || {},
           }),
           options: args.options,
@@ -287,14 +305,14 @@ export class SeamsWebIframe {
       executeAction: async (args) => await this.executeActionDomain(args),
       signAndSendTransaction: async (args) => {
         return await this.signAndSendTransactionDomain({
+          walletSession: args.walletSession,
           nearAccount: args.nearAccount,
           receiverId: args.receiverId,
           actions: args.actions,
           options: args.options,
         });
       },
-      signTransactionWithActions: async (args) =>
-        await this.signTransactionWithActionsDomain(args),
+      signTransactionWithActions: async (args) => await this.signTransactionWithActionsDomain(args),
       sendTransaction: async (args) => await this.sendTransactionDomain(args),
       signDelegateAction: async (args) => await this.signDelegateActionDomain(args),
       sendDelegateActionViaRelayer: async (args) =>
@@ -353,14 +371,14 @@ export class SeamsWebIframe {
       syncAccount: async (args) => {
         await this.requireRouterReady();
         return await this.router.syncAccount({
-          ...(args?.accountId ? { accountId: args.accountId } : {}),
+          ...(args?.walletId ? { walletId: args.walletId } : {}),
           onEvent: args?.options?.onEvent,
         });
       },
       startEmailRecovery: async (args) => {
         await this.requireRouterReady();
         return await this.router.startEmailRecovery({
-          accountId: args.accountId,
+          walletId: args.walletId,
           onEvent: args.options?.onEvent,
           options: {
             ...(args.options?.confirmerText ? { confirmerText: args.options.confirmerText } : {}),
@@ -373,7 +391,7 @@ export class SeamsWebIframe {
       finalizeEmailRecovery: async (args) => {
         await this.requireRouterReady();
         await this.router.finalizeEmailRecovery({
-          accountId: args.accountId,
+          walletId: args.walletId,
           ...(args.nearPublicKey ? { nearPublicKey: args.nearPublicKey } : {}),
           onEvent: args.options?.onEvent,
         });
@@ -419,8 +437,7 @@ export class SeamsWebIframe {
         });
       },
       viewAccessKeyList: async (accountId) => await this.viewAccessKeyListDomain(accountId),
-      deleteDeviceKey: async (accountId, publicKeyToDelete, options) =>
-        await this.deleteDeviceKeyDomain(accountId, publicKeyToDelete, options),
+      deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
     };
     this.keys = {
       exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
@@ -507,33 +524,14 @@ export class SeamsWebIframe {
   }
 
   private async registerPasskeyDomain(
-    nearAccountId: string,
     options: RegistrationHooksOptions = {},
   ): Promise<RegistrationResult> {
-    try {
-      // Route the registration request to the iframe via WalletIframeRouter
-      // This will:
-      // - Create a unique request ID
-      // - Send PM_REGISTER message to iframe
-      // - Show overlay for WebAuthn activation
-      // - Bridge progress events back to onEvent callback
-      const res = await this.router.registerPasskey({
-        nearAccountId,
-        confirmationConfig: options?.confirmationConfig,
-        options: {
-          onEvent: options?.onEvent,
-          ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
-          ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
-        }, // Bridge progress events from iframe to parent
-      });
-      await options?.afterCall?.(true, res);
-      return res;
-    } catch (err: unknown) {
-      const e = toError(err);
-      await options?.onError?.(e);
-      await options?.afterCall?.(false, undefined, e);
-      throw e;
+    if (typeof options === 'string') {
+      throw new Error(
+        '[SeamsWebIframe] registration.registerPasskey no longer accepts a NEAR account id; call registration.registerPasskey(options) for implicit NEAR registration or registerWallet(...) with explicit sponsored accountProvisioning.',
+      );
     }
+    return await this.near.registerNearWallet({ options });
   }
 
   private async registerWalletDomain(
@@ -605,6 +603,7 @@ export class SeamsWebIframe {
     if (!this.router.isReady()) {
       const login: LoginState = {
         isLoggedIn: false,
+        walletId: walletId ? toWalletId(walletId) : null,
         nearAccountId: null,
         publicKey: null,
         userData: null,
@@ -612,6 +611,10 @@ export class SeamsWebIframe {
       return { login, signingSession: null };
     }
     return await this.router.getWalletSession(walletId);
+  }
+
+  private resolveNearSigningWalletId(args: { walletSession: WalletSessionRef }): string {
+    return String(args.walletSession.walletId);
   }
 
   private async prefillRouterAbEcdsaHssPresignaturePoolDomain(args: {
@@ -644,11 +647,13 @@ export class SeamsWebIframe {
   }
 
   private async signTransactionWithActionsDomain(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     transaction: TransactionInput;
     options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult> {
     try {
+      const walletId = this.resolveNearSigningWalletId(args);
       // Route transaction signing to iframe
       // This will:
       // - Send PM_SIGN_TX_WITH_ACTIONS message to iframe
@@ -656,6 +661,7 @@ export class SeamsWebIframe {
       // - Handle transaction signing in secure iframe context
       // - Bridge progress events back to parent
       const res = await this.router.signTransactionWithActions({
+        walletId,
         nearAccountId: args.nearAccount.accountId,
         transaction: args.transaction,
         options: {
@@ -676,12 +682,15 @@ export class SeamsWebIframe {
   }
 
   private async signNEP413MessageDomain(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions;
   }): Promise<SignNEP413MessageResult> {
     try {
+      const walletId = this.resolveNearSigningWalletId(args);
       const res = await this.router.signNep413Message({
+        walletId,
         nearAccountId: args.nearAccount.accountId,
         message: args.params.message,
         recipient: args.params.recipient,
@@ -704,6 +713,7 @@ export class SeamsWebIframe {
   }
 
   private async signDelegateActionDomain(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
@@ -711,7 +721,9 @@ export class SeamsWebIframe {
     const options = args.options;
     try {
       await this.requireRouterReady();
+      const walletId = this.resolveNearSigningWalletId(args);
       const res = (await this.router.signDelegateAction({
+        walletId,
         nearAccountId: args.nearAccount.accountId,
         delegate: args.delegate,
         options: {
@@ -756,6 +768,7 @@ export class SeamsWebIframe {
   }
 
   private async signAndSendDelegateActionDomain(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     relayerUrl: string;
@@ -779,6 +792,7 @@ export class SeamsWebIframe {
     let signResult: SignDelegateActionResult;
     try {
       signResult = await this.signDelegateActionDomain({
+        walletSession: args.walletSession,
         nearAccount,
         delegate,
         options: signOptions as DelegateActionHooksOptions,
@@ -1007,35 +1021,37 @@ export class SeamsWebIframe {
     return this.router.viewAccessKeyList(accountId);
   }
   private async deleteDeviceKeyDomain(
-    accountId: string,
-    publicKeyToDelete: string,
-    options: ActionHooksOptions,
+    args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
   ): Promise<ActionResult> {
     try {
       const res = await this.router.deleteDeviceKey({
-        accountId,
-        publicKeyToDelete,
+        walletId: String(args.walletSession.walletId),
+        nearAccountId: String(args.nearAccount.accountId),
+        publicKeyToDelete: args.publicKeyToDelete,
         options: {
-          onEvent: options?.onEvent,
+          onEvent: args.options?.onEvent,
         },
       });
-      await options?.afterCall?.(true, res);
+      await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
       const e = toError(err);
-      await options?.onError?.(e);
-      await options?.afterCall?.(false, undefined, e);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }
   private async executeActionDomain(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
     options: ActionHooksOptions;
   }): Promise<ActionResult> {
     try {
+      const walletId = this.resolveNearSigningWalletId(args);
       const res = await this.router.executeAction({
+        walletId,
         nearAccountId: args.nearAccount.accountId,
         receiverId: args.receiverId,
         actionArgs: args.actionArgs,
@@ -1051,13 +1067,18 @@ export class SeamsWebIframe {
     }
   }
   private async sendTransactionDomain(args: {
+    walletSession: WalletSessionRef;
+    nearAccount: NearAccountRef;
     signedTransaction: SignedTransaction;
     options?: SendTransactionHooksOptions;
   }): Promise<ActionResult> {
     // Route via iframe router with PROGRESS bridging
     const options = args.options;
     try {
+      const walletId = this.resolveNearSigningWalletId(args);
       const res = await this.router.sendTransaction({
+        walletId,
+        nearAccountId: args.nearAccount.accountId,
         signedTransaction: args.signedTransaction,
         options: {
           onEvent: options?.onEvent,
@@ -1097,6 +1118,7 @@ export class SeamsWebIframe {
   }
 
   private async signAndSendTransactionDomain(args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     receiverId: string;
     actions: ActionArgs[];
@@ -1104,7 +1126,9 @@ export class SeamsWebIframe {
   }): Promise<ActionResult> {
     const options = args.options;
     try {
+      const walletId = this.resolveNearSigningWalletId(args);
       const res = await this.router.signAndSendTransaction({
+        walletId,
         nearAccountId: args.nearAccount.accountId,
         transaction: {
           receiverId: args.receiverId,

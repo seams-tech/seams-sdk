@@ -37,8 +37,8 @@ export function createSigningSessionCoordinatorPort(args: {
         chainTarget,
         ...(source ? { source } : {}),
       }),
-    markThresholdEd25519EmailOtpSessionConsumedForAccount:
-      createArgs.markThresholdEd25519EmailOtpSessionConsumedForAccount,
+    markThresholdEd25519EmailOtpSessionConsumedForWallet:
+      createArgs.markThresholdEd25519EmailOtpSessionConsumedForWallet,
   });
 }
 

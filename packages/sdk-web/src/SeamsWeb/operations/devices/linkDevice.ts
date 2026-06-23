@@ -30,7 +30,7 @@ import { DEFAULT_WAIT_STATUS } from '@/core/types/rpc';
 import { ActionType, type ActionArgsWasm } from '@/core/types/actions';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { ed25519KeyScopeIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -650,6 +650,8 @@ export class LinkDeviceFlow {
     );
     const thresholdKeyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
     const thresholdKeyMaterialCreatedAtMs = Date.now();
+    const linkWalletId = walletIdFromString(String(nearAccountId));
+    const linkEd25519KeyScopeId = ed25519KeyScopeIdFromString(String(nearAccountId));
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
       signerSlot: resolvedSignerSlot,
@@ -668,7 +670,9 @@ export class LinkDeviceFlow {
     });
     await hydrateThresholdWarmSessionFromRelay({
       context: this.context,
+      walletId: String(linkWalletId),
       nearAccountId,
+      ed25519KeyScopeId: String(linkEd25519KeyScopeId),
       relayerUrl,
       rpId,
       relayerKeyId,
@@ -683,7 +687,9 @@ export class LinkDeviceFlow {
     await reconstructThresholdEd25519SigningMaterialFromWarmSession({
       context: this.context,
       credential,
+      walletId: String(linkWalletId),
       nearAccountId,
+      ed25519KeyScopeId: linkEd25519KeyScopeId,
       rpId,
       relayerUrl,
       relayerKeyId,
@@ -728,12 +734,17 @@ export class LinkDeviceFlow {
       const ecdsaResult = isObject(ecdsaObj.ecdsa) ? ecdsaObj.ecdsa : {};
       const walletKeys = parseLinkDeviceEcdsaWalletKeys(ecdsaResult.walletKeys);
       await this.context.signingEngine.storeWalletEcdsaSignerRecords({
-        walletId: walletIdFromString(String(nearAccountId)),
+        walletId: linkWalletId,
         walletKeys,
       });
     }
     // Auto-login: set last-user + warm login state so the device is immediately usable.
-    await this.attemptAutoLogin({ nearAccount, signerSlot: resolvedSignerSlot });
+    await this.attemptAutoLogin({
+      nearAccount,
+      walletId: linkWalletId,
+      ed25519KeyScopeId: linkEd25519KeyScopeId,
+      signerSlot: resolvedSignerSlot,
+    });
 
     if (this.session?.tempPrivateKey) {
       this.session.tempPrivateKey = '';
@@ -762,6 +773,8 @@ export class LinkDeviceFlow {
    */
   private async attemptAutoLogin(input: {
     nearAccount: NearAccountRef;
+    walletId: ReturnType<typeof walletIdFromString>;
+    ed25519KeyScopeId: ReturnType<typeof ed25519KeyScopeIdFromString>;
     signerSlot: number;
   }): Promise<void> {
     try {
@@ -785,7 +798,9 @@ export class LinkDeviceFlow {
 
       const restored = await restoreLocalLoginState({
         context: this.context,
+        walletId: input.walletId,
         nearAccountId,
+        ed25519KeyScopeId: input.ed25519KeyScopeId,
         signerSlot,
       });
       if (!restored.isLoggedIn) {

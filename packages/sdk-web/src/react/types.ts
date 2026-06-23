@@ -32,7 +32,10 @@ import type {
 } from '../core/types/seams';
 import type { DeviceLinkingQRData, StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
 import type { AccessKeyList } from '../core/rpcClients/near/NearClient';
-import type { NearAccountRef } from '../core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  NearAccountRef,
+  WalletSessionRef,
+} from '../core/signingEngine/interfaces/ecdsaChainTarget';
 
 // === React states types ===
 
@@ -140,10 +143,7 @@ export interface SeamsContextType {
   // Registration and wallet unlock functions
   addWalletSigner: RegistrationCapability['addWalletSigner'];
   registerWallet: RegistrationCapability['registerWallet'];
-  registerPasskey: (
-    nearAccountId: string,
-    options?: RegistrationHooksOptions,
-  ) => Promise<RegistrationResult>;
+  registerPasskey: (options?: RegistrationHooksOptions) => Promise<RegistrationResult>;
   unlock: (
     nearAccountId: string,
     options?: LoginHooksOptions,
@@ -152,6 +152,7 @@ export interface SeamsContextType {
 
   // Execute actions
   executeAction: (args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs;
@@ -160,6 +161,7 @@ export interface SeamsContextType {
 
   // NEP-413 message signing
   signNEP413Message: (args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options?: SignNEP413HooksOptions;
@@ -167,6 +169,7 @@ export interface SeamsContextType {
 
   // Delegate action signing (NEP-461)
   signDelegateAction: (args: {
+    walletSession: WalletSessionRef;
     nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options?: DelegateActionHooksOptions;

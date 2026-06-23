@@ -15,7 +15,7 @@ import {
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getThresholdEcdsaSessionRecordByKey,
-  listStoredThresholdEd25519SessionRecordsForAccount,
+  listStoredThresholdEd25519SessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionStoreDeps,
@@ -340,7 +340,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
         }
         return records;
       },
-      listRuntimeEd25519RecordsForAccount: async ({ accountId: recordAccountId }) => {
+      listRuntimeEd25519RecordsForAccount: async ({ accountId: recordWalletId }) => {
         const records: AvailableSigningLanesRuntimeEd25519Record[] = [];
         const seen = new Set<string>();
         const pushRecord = (record: AvailableSigningLanesRuntimeEd25519Record): void => {
@@ -349,8 +349,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
           seen.add(identityKey);
           records.push(record);
         };
-        for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForAccount(
-          recordAccountId,
+        for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForWallet(
+          recordWalletId,
         )) {
           const authMethod =
             runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';

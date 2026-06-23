@@ -1,5 +1,8 @@
 import type { SeamsWeb } from '@/SeamsWeb';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  nearAccountRefFromAccountId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SignAndSendTransactionHooksOptions } from '@/core/types/sdkSentEvents';
 import {
   type ActionResult,
@@ -20,6 +23,7 @@ export type StructuredValue =
 export type UiActionArgs = Record<string, StructuredValue>;
 
 type SignAndSendArgs = UiActionArgs & {
+  walletId?: string;
   nearAccountId?: string;
   receiverId?: string;
   actions?: ActionArgs[];
@@ -50,12 +54,14 @@ export async function runWalletUiAction<T extends PmActionName>(
   switch (action) {
     case 'signAndSendTransaction': {
       const input = args as SignAndSendArgs;
+      const walletId = toTrimmedString(input.walletId);
       const nearAccountId = toTrimmedString(input.nearAccountId);
       const receiverId = toTrimmedString(input.receiverId);
-      if (!nearAccountId || !receiverId || !Array.isArray(input.actions)) {
-        throw new Error('nearAccountId, receiverId, and actions required');
+      if (!walletId || !nearAccountId || !receiverId || !Array.isArray(input.actions)) {
+        throw new Error('walletId, nearAccountId, receiverId, and actions required');
       }
       return (await pm.near.signAndSendTransaction({
+        walletSession: walletSessionRefFromSession({ walletId, walletSessionUserId: walletId }),
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
         receiverId,
         actions: input.actions,

@@ -26,7 +26,7 @@ export type ProvisionThresholdEd25519SessionDeps = {
 
 function sealTransportForProvisionedEd25519Session(args: {
   source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
-  nearAccountId: string;
+  walletId: string;
   relayerUrl: string;
   signingGrantId: string;
   walletSessionJwt: string;
@@ -34,7 +34,7 @@ function sealTransportForProvisionedEd25519Session(args: {
   if (args.source === 'login') return undefined;
   return {
     curve: 'ed25519',
-    walletId: args.nearAccountId,
+    walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     signingGrantId: args.signingGrantId,
     ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
@@ -67,6 +67,8 @@ export async function provisionThresholdEd25519Session(
     touchIdPrompt: deps.touchIdPrompt,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
+    walletId: args.walletId,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
     ...(args.auth ? { auth: args.auth } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
@@ -113,7 +115,9 @@ export async function provisionThresholdEd25519Session(
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
   persist({
     kind: 'jwt_passkey',
+    walletId: args.walletId,
     nearAccountId,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
     rpId: deps.touchIdPrompt.getRpId(),
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
@@ -135,7 +139,7 @@ export async function provisionThresholdEd25519Session(
   if (prfFirstB64u) {
     const transport = sealTransportForProvisionedEd25519Session({
       source,
-      nearAccountId: String(nearAccountId),
+      walletId: args.walletId,
       relayerUrl,
       signingGrantId,
       walletSessionJwt: jwt,

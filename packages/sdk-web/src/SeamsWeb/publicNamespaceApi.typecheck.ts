@@ -27,6 +27,7 @@ void seams.auth.unlock('alice.testnet');
 void seams.auth.getWalletSession('alice.testnet');
 
 void seams.near.signNEP413Message({
+  walletSession,
   nearAccount,
   params: {
     message: 'Sign in to Seams',
@@ -65,7 +66,18 @@ void seams.tempo.signTempo({
   },
 });
 
+void seams.recovery.syncAccount({ walletId: 'frost-vermillion-k7p9m2' });
+// @ts-expect-error syncAccount identifies a wallet, not a NEAR account-shaped accountId.
 void seams.recovery.syncAccount({ accountId: 'alice.testnet' });
+void seams.recovery.startEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
+// @ts-expect-error startEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
+void seams.recovery.startEmailRecovery({ accountId: 'alice.testnet' });
+void seams.recovery.finalizeEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
+// @ts-expect-error finalizeEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
+void seams.recovery.finalizeEmailRecovery({ accountId: 'alice.testnet' });
+void seams.recovery.cancelEmailRecovery({ walletId: 'frost-vermillion-k7p9m2' });
+// @ts-expect-error cancelEmailRecovery identifies a wallet, not a NEAR account-shaped accountId.
+void seams.recovery.cancelEmailRecovery({ accountId: 'alice.testnet' });
 void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet' });
 void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet' });
 // @ts-expect-error public recovery status reads cannot accept plaintext recovery codes.
@@ -76,6 +88,20 @@ void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet', rec
 void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet', recoveryKey: 'secret-code' });
 
 void seams.devices.stopDevice2LinkingFlow();
+void seams.devices.deleteDeviceKey({
+  walletSession,
+  nearAccount,
+  publicKeyToDelete: 'ed25519:11111111111111111111111111111111',
+  options: {},
+});
+// @ts-expect-error deleting a NEAR access key requires the wallet session subject.
+void seams.devices.deleteDeviceKey({
+  nearAccount,
+  publicKeyToDelete: 'ed25519:11111111111111111111111111111111',
+  options: {},
+});
+// @ts-expect-error deleting a NEAR access key no longer accepts raw account id arguments.
+void seams.devices.deleteDeviceKey('alice.testnet', 'ed25519:11111111111111111111111111111111', {});
 
 void seams.keys.exportKeypairWithUI({
   kind: 'near',

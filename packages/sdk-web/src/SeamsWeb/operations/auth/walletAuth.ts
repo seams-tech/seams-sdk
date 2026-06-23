@@ -88,7 +88,10 @@ export async function unlockDomain(
   const result = await unlockCore(deps.getContext(), toAccountId(nearAccountId), options);
   if (result?.success) {
     // Promote authenticated account to current-user state only after unlock succeeds.
+    const walletSession = await getWalletSessionCore(deps.getContext(), nearAccountId).catch(() => null);
+    const walletId = toWalletId(walletSession?.login.walletId || nearAccountId);
     await deps.signingEngine.activateAuthenticatedWalletState({
+      walletId,
       nearAccountId: toAccountId(nearAccountId),
       nearClient: deps.nearClient,
     });
@@ -123,10 +126,7 @@ export async function getWalletSessionDomain(
     return session;
   }
 
-  return await getWalletSessionCore(
-    deps.getContext(),
-    walletId ? toAccountId(walletId) : undefined,
-  );
+  return await getWalletSessionCore(deps.getContext(), walletId);
 }
 
 export async function hasPasskeyCredentialDomain(

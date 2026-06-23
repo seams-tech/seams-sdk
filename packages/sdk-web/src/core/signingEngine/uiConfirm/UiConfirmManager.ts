@@ -64,8 +64,11 @@ import type { UserConfirmProgressEvent } from '../stepUpConfirmation/types';
 import { handlePromptFromWorker } from './handlers/handlePromptFromWorker';
 import { orchestrateSigningConfirmation } from './handlers/flowOrchestrator';
 import type {
+  OrchestrateNearSignatureOnlySigningConfirmationParams,
+  OrchestrateNearTransactionSigningConfirmationParams,
   OrchestrateSigningConfirmationParams,
   SigningConfirmationResultIntentDigest,
+  SigningConfirmationResultSignatureOnly,
   SigningConfirmationResultWithTxContext,
 } from '../stepUpConfirmation/confirmOperation';
 import type { ThresholdEd25519WorkerMaterialCredentialAuthorization } from '@/core/types/signer-worker';
@@ -192,6 +195,8 @@ function firstSigningSessionSealKeyVersion(
 
 function ed25519SealedWorkerMaterialMissingFields(
   value: {
+    nearAccountId?: unknown;
+    ed25519KeyScopeId?: unknown;
     clientVerifyingShareB64u?: unknown;
     ed25519WorkerMaterialBindingDigest?: unknown;
     sealedWorkerMaterialRef?: unknown;
@@ -203,6 +208,12 @@ function ed25519SealedWorkerMaterialMissingFields(
   } | null | undefined,
 ): string[] {
   const missing: string[] = [];
+  if (!String(value?.nearAccountId || '').trim()) {
+    missing.push('nearAccountId');
+  }
+  if (!String(value?.ed25519KeyScopeId || '').trim()) {
+    missing.push('ed25519KeyScopeId');
+  }
   if (!String(value?.clientVerifyingShareB64u || '').trim()) {
     missing.push('clientVerifyingShareB64u');
   }
@@ -1098,9 +1109,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             })
           : null
         : null;
-    const accountId = String(
-      ed25519Record?.nearAccountId || ecdsaRecord?.walletId || args.walletId || '',
-    ).trim();
+    const accountId = String(ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '').trim();
     const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
       .trim()
       .toLowerCase();
@@ -1134,7 +1143,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       console.warn('[UiConfirm] skipping Ed25519 durable restore metadata without worker material', {
         thresholdSessionId: args.thresholdSessionId,
         curve: args.curve,
-        walletId: String(ed25519Record.nearAccountId || args.walletId || '').trim(),
+        walletId: String(ed25519Record.walletId || args.walletId || '').trim(),
         source: ed25519Record.source,
         missingFields: ed25519MaterialMissingFields,
         hasRuntimeMaterialHandle: Boolean(
@@ -1155,6 +1164,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ed25519Record && ed25519SignerSlot > 0 && ed25519MaterialMissingFields.length === 0
         ? {
             rpId: ed25519Record.rpId,
+            nearAccountId: ed25519Record.nearAccountId,
+            ed25519KeyScopeId: ed25519Record.ed25519KeyScopeId,
             relayerKeyId: ed25519Record.relayerKeyId,
             participantIds: ed25519Record.participantIds,
             ...persistedRestoreWalletSessionAuthFields(ed25519Record),
@@ -1354,7 +1365,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               args.record.authMethod === 'passkey' &&
               args.record.curve === 'ed25519'
             ? await restorePasskeyEd25519SealedRecordForAccount({
-                accountId: args.walletId,
+                walletId: args.walletId,
                 record: args.record,
                 purpose: { ...args.purpose, authMethod: 'passkey' },
                 transport,
@@ -2240,11 +2251,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     params: Extract<OrchestrateSigningConfirmationParams, { kind: 'intentDigest' }>,
   ): Promise<SigningConfirmationResultIntentDigest>;
   async orchestrateSigningConfirmation(
-    params: Exclude<OrchestrateSigningConfirmationParams, { kind: 'intentDigest' }>,
+    params: OrchestrateNearTransactionSigningConfirmationParams,
   ): Promise<SigningConfirmationResultWithTxContext>;
   async orchestrateSigningConfirmation(
+    params: OrchestrateNearSignatureOnlySigningConfirmationParams,
+  ): Promise<SigningConfirmationResultSignatureOnly>;
+  async orchestrateSigningConfirmation(
     params: OrchestrateSigningConfirmationParams,
-  ): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest> {
+  ): Promise<
+    | SigningConfirmationResultWithTxContext
+    | SigningConfirmationResultIntentDigest
+    | SigningConfirmationResultSignatureOnly
+  > {
     return orchestrateSigningConfirmation(params);
   }
 

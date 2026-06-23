@@ -271,6 +271,7 @@ export type NonceLaneLeaseStoreRecord =
     })
   | (NonceLaneLeaseStoreRecordBase & {
       family: 'near';
+      walletId?: string;
       accountId: string;
       publicKey: string;
     });

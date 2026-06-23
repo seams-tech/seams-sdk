@@ -16,6 +16,7 @@ import {
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { sponsoredNamedRegistrationProvisioningFromAccountId } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import {
   disposeWalletRegistrationPrecompute,
   type WalletRegistrationPrecomputeHandle,
@@ -52,9 +53,7 @@ import {
 
 const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000;
 
-type GoogleEmailOtpWalletRegistrationArgs = Parameters<
-  RegistrationCapability['registerWallet']
->[0];
+type GoogleEmailOtpWalletRegistrationArgs = Parameters<RegistrationCapability['registerWallet']>[0];
 
 type GoogleEmailOtpWalletRegistrationPrecompute =
   | {
@@ -124,9 +123,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     rpId: string;
     appSessionJwt: string;
   }): Promise<EmailOtpRegistrationEnrollmentMaterial>;
-  registerWallet(
-    args: GoogleEmailOtpWalletRegistrationArgs,
-  ): Promise<RegistrationResult>;
+  registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
   startWalletRegistrationPrecompute(
     args: GoogleEmailOtpWalletRegistrationArgs,
   ): GoogleEmailOtpWalletRegistrationPrecompute;
@@ -257,21 +254,13 @@ function requireEmail(exchange: GoogleEmailOtpSessionExchangeResult): string {
 
 function parseOptionalExpiresAtMs(value?: number | string): number {
   const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Date.parse(value)
-        : NaN;
+    typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
   return Number.isFinite(parsed) && parsed > Date.now() ? parsed : Date.now() + DEFAULT_FLOW_TTL_MS;
 }
 
 function requireRegistrationExpiresAtMs(value: unknown): number {
   const parsed =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Date.parse(value)
-        : NaN;
+    typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
   if (!Number.isFinite(parsed) || parsed <= Date.now()) {
     throw new Error('Google Email OTP registration offer is expired or missing expiry');
   }
@@ -446,9 +435,7 @@ async function loginWithConfiguredTargets(args: {
     otpCode: args.otpCode,
     ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
     ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
-    ...(args.input.emailOtpAuthPolicy
-      ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy }
-      : {}),
+    ...(args.input.emailOtpAuthPolicy ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy } : {}),
     ...(args.input.onEvent
       ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
       : {}),
@@ -685,7 +672,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     authMethod: registrationAuthMethod,
     signerSelection: buildNearWalletRegistrationSignerSelection({
       configs: deps.configs,
-      nearAccountId: args.state.walletId,
+      accountProvisioning: sponsoredNamedRegistrationProvisioningFromAccountId(args.state.walletId),
       options: registrationOptions,
       ecdsaChainTargets: requiredTargets,
     }),

@@ -40,8 +40,7 @@ export function createBrowserRecoveryPublicDeps(args: {
     emailOtpSessions: args.emailOtpSessions,
     keyMaterialStore: args.keyMaterialStore,
     warmSessionPolicy: {
-      getWarmSession: (nearAccountId) =>
-        args.warmSigning.capabilityReader.getWarmSession(nearAccountId),
+      getWarmSession: (walletId) => args.warmSigning.capabilityReader.getWarmSession(walletId),
       resolveExactEcdsaRecord: (recordArgs) =>
         args.warmSigning.statusReader.resolveExactEcdsaRecord(recordArgs),
     },

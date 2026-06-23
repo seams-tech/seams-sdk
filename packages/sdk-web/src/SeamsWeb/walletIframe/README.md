@@ -66,7 +66,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 #### 4. **Shared Communication Protocol**
 
 - **`shared/messages.ts`** - Defines the typed message protocol:
-  - Parent-to-child message types (PM_REGISTER, PM_UNLOCK, etc.)
+  - Parent-to-child message types (PM_REGISTER_WALLET, PM_UNLOCK, etc.)
   - Child-to-parent response types (PROGRESS, PM_RESULT, ERROR)
   - Payload interfaces for all message types
   - `ProgressPayload` (`WalletFlowEvent`) for real-time public flow updates
@@ -123,10 +123,13 @@ The callback chain follows this flow:
 
 - Acts as a proxy/wrapper around the WalletIframeRouter
 - Handles hook callbacks (`afterCall`, `onError`, `onEvent`)
-- For example, in `registerPasskey()`:
+- For example, in `registerWallet()`:
   ```typescript
-  const res = await this.client.registerPasskey({
-    nearAccountId,
+  const res = await this.client.registerWallet({
+    wallet,
+    rpId,
+    authMethod,
+    signerSelection,
     options: { onEvent: options?.onEvent },
   });
   ```
@@ -136,12 +139,12 @@ The callback chain follows this flow:
 - Manages the iframe and MessagePort communication
 - Posts messages to the iframe host via `this.post()` method
 - Handles progress events by bridging them back to the caller's `onEvent` callback
-- For example, in `registerPasskey()`:
+- For example, in `registerWallet()`:
   ```typescript
   const res = await this.post<any>(
     {
-      type: 'PM_REGISTER',
-      payload: { nearAccountId: payload.nearAccountId, options: safeOptions },
+      type: 'PM_REGISTER_WALLET',
+      payload: { wallet, rpId, authMethod, signerSelection, options: safeOptions },
     },
     { onProgress: payload.options?.onEvent },
   );

@@ -1262,7 +1262,6 @@ export function usePasskeyAuthMenuController(
   );
 
   const activationRefreshLoginState = runtime.refreshLoginState;
-  const activationTargetAccountId = runtime.targetAccountId;
   const onRegistrationActivationSurfaceStateChange = React.useCallback(
     (state: RegistrationActivationSurfaceState) => {
       switch (state.kind) {
@@ -1286,18 +1285,17 @@ export function usePasskeyAuthMenuController(
             setWaitingReason(null);
             return;
           }
-          const accountId = String(
-            result.nearAccountId || latestValueRef.current || activationTargetAccountId || '',
-          ).trim();
+          const walletId = String(result.walletId || '').trim();
+          const displayAccountId = String(result.nearAccountId || walletId).trim();
           setMethodError('');
           setWaiting(false);
           setWaitingReason(null);
           closeLinkDeviceView('flow');
           setMode(AuthMenuMode.Login);
-          if (accountId) {
-            const username = extractUsernameFromAccountId(accountId);
+          if (walletId) {
+            const username = extractUsernameFromAccountId(displayAccountId);
             if (username) setCurrentValue(username);
-            void activationRefreshLoginState(accountId).catch(() => {});
+            void activationRefreshLoginState(walletId).catch(() => {});
           }
           return;
         }
@@ -1326,7 +1324,6 @@ export function usePasskeyAuthMenuController(
     },
     [
       activationRefreshLoginState,
-      activationTargetAccountId,
       closeLinkDeviceView,
       setCurrentValue,
       setMode,

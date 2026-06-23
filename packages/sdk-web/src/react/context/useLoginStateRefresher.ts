@@ -48,10 +48,12 @@ export function useLoginStateRefresher(args: {
         const session = await seams.auth.getWalletSession(walletId);
         const { login: ls } = session;
         if (isWalletSessionReadyForUi({ session })) {
-          if (ls.nearAccountId) {
+          if (ls.walletId) {
             try {
-              seams.preferences.setCurrentWallet(toWalletId(ls.nearAccountId));
+              seams.preferences.setCurrentWallet(toWalletId(ls.walletId));
             } catch {}
+          }
+          if (ls.nearAccountId) {
             syncInputUsernameFromAccountId(setInputUsername, ls.nearAccountId);
           }
           setLoginState((prevState) => ({

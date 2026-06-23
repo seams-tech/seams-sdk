@@ -1,10 +1,6 @@
 import { useMemo } from 'react';
 import type { SeamsWeb } from '@/SeamsWeb';
-import type {
-  AuthCapability,
-  RecoveryCapability,
-  RegistrationCapability,
-} from '@/SeamsWeb';
+import type { AuthCapability, RecoveryCapability, RegistrationCapability } from '@/SeamsWeb';
 import {
   type LoginHooksOptions,
   UnlockEventPhase,
@@ -80,10 +76,9 @@ export function useSeamsWithSdkFlow(args: {
     };
 
     const registerPasskeyWithSdkFlow: RegisterPasskeyFn = async (
-      nearAccountId: string,
       options?: RegistrationHooksOptions,
     ) => {
-      const seq = beginSdkFlow('register', nearAccountId);
+      const seq = beginSdkFlow('register');
       const wrappedOptions: RegistrationHooksOptions = {
         ...options,
         onEvent: (event: RegistrationFlowEvent) => {
@@ -111,16 +106,15 @@ export function useSeamsWithSdkFlow(args: {
         },
       };
 
-      return await seams.registration.registerPasskey(nearAccountId, wrappedOptions);
+      return await seams.registration.registerPasskey(wrappedOptions);
     };
 
     const registerWalletWithSdkFlow: RegisterWalletFn = async (registerWalletArgs) => {
-      const nearAccountId =
-        registerWalletArgs.signerSelection.mode === 'ed25519_only' ||
-        registerWalletArgs.signerSelection.mode === 'ed25519_and_ecdsa'
-          ? registerWalletArgs.signerSelection.ed25519.nearAccountId
+      const walletLabel =
+        registerWalletArgs.wallet.kind === 'provided'
+          ? String(registerWalletArgs.wallet.walletId)
           : undefined;
-      const seq = beginSdkFlow('register', nearAccountId);
+      const seq = beginSdkFlow('register', walletLabel);
       const options = registerWalletArgs.options;
       const wrappedOptions: RegistrationHooksOptions = {
         ...options,
@@ -195,8 +189,8 @@ export function useSeamsWithSdkFlow(args: {
     };
 
     const syncAccountWithSdkFlow: SyncAccountFn = async (args) => {
-      const accountId = String(args?.accountId || '').trim();
-      const seq = beginSdkFlow('sync', accountId || undefined);
+      const walletId = String(args?.walletId || '').trim();
+      const seq = beginSdkFlow('sync', walletId || undefined);
       const wrappedOptions: SyncAccountHooksOptions = {
         ...args?.options,
         onEvent: (event: AccountSyncFlowEvent) => {
@@ -225,7 +219,7 @@ export function useSeamsWithSdkFlow(args: {
       };
 
       return await seams.recovery.syncAccount({
-        ...(args?.accountId ? { accountId: args.accountId } : {}),
+        ...(args?.walletId ? { walletId: args.walletId } : {}),
         options: wrappedOptions,
       });
     };

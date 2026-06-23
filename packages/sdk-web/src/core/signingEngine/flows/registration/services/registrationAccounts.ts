@@ -5,6 +5,7 @@ import type {
 } from '@/core/accountData/near/nearAccountData.types';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
+import type { WalletId } from '@shared/utils/registrationIntent';
 import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import {
   getAllUsers,
@@ -29,6 +30,7 @@ import {
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 
 export type ActivateAuthenticatedWalletStateInput = {
+  walletId: WalletId;
   nearAccountId: AccountId;
   nearClient?: NearClient;
 };

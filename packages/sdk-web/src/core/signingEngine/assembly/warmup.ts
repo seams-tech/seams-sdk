@@ -5,6 +5,7 @@ import type { ProfileAccountContextPort } from '@/core/indexedDB/profileAccountP
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
 import { getLastLoggedInSignerSlot } from '../webauthnAuth/device/signerSlot';
 
 export type WorkerResourceWarmupStorePort = ProfileAccountContextPort &
@@ -20,10 +21,11 @@ export type WorkerResourceWarmupDeps = {
   prewarmWorkers: () => Promise<void>;
   shouldPrewarmWorkers: (workerBaseOrigin: string) => boolean;
   prewarmUiConfirmUi: () => Promise<void>;
-  activateAuthenticatedWalletState: (
-    nearAccountId: AccountId,
-    nearClient?: NearClient,
-  ) => Promise<void>;
+  activateAuthenticatedWalletState: (args: {
+    walletId: WalletId;
+    nearAccountId: AccountId;
+    nearClient?: NearClient;
+  }) => Promise<void>;
 };
 
 export type WorkerResourceWarmupDiagnostics = {
@@ -61,7 +63,11 @@ export async function warmCriticalResources(
   const accountId = nearAccountId ? toAccountId(nearAccountId) : null;
   const authenticatedWalletStateMs = accountId
     ? await measureBestEffortWarmupStep(() =>
-        deps.activateAuthenticatedWalletState(accountId, deps.nearClient),
+        deps.activateAuthenticatedWalletState({
+          walletId: toWalletId(accountId),
+          nearAccountId: accountId,
+          nearClient: deps.nearClient,
+        }),
       )
     : 0;
 

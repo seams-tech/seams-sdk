@@ -65,6 +65,7 @@ export type OrchestrateNearTransactionSigningConfirmationParams =
     OrchestrateSigningConfirmationAuthParams & {
       chain: 'near';
       kind: 'transaction';
+      walletId: string;
       txSigningRequests: TransactionInputWasm[];
       rpcCall: RpcCallPayload;
       nearPublicKeyStr?: string;
@@ -77,6 +78,7 @@ export type OrchestrateNearDelegateSigningConfirmationParams =
     OrchestrateSigningConfirmationAuthParams & {
       chain: 'near';
       kind: 'delegate';
+      walletId: string;
       nearAccountId: string;
       title?: string;
       body?: string;
@@ -96,6 +98,7 @@ export type OrchestrateNearNep413SigningConfirmationParams =
     OrchestrateSigningConfirmationAuthParams & {
       chain: 'near';
       kind: 'nep413';
+      walletId: string;
       nearAccountId: string;
       nearPublicKeyStr?: string;
       message: string;
@@ -122,6 +125,10 @@ export type OrchestrateSigningConfirmationParams =
   | OrchestrateNearNep413SigningConfirmationParams
   | OrchestrateIntentDigestSigningConfirmationParams;
 
+export type OrchestrateNearSignatureOnlySigningConfirmationParams =
+  | OrchestrateNearDelegateSigningConfirmationParams
+  | OrchestrateNearNep413SigningConfirmationParams;
+
 export interface SigningConfirmationResultWithTxContext {
   sessionId: string;
   transactionContext: TransactionContext;
@@ -140,30 +147,44 @@ export interface SigningConfirmationResultIntentDigest {
   emailOtpChallengeId?: string;
 }
 
+export interface SigningConfirmationResultSignatureOnly {
+  sessionId: string;
+  intentDigest: string;
+  credential?: SerializableCredential;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
+}
+
 export type ConfirmSigningOperationRuntime = {
   orchestrateSigningConfirmation(
     params: OrchestrateIntentDigestSigningConfirmationParams,
   ): Promise<SigningConfirmationResultIntentDigest>;
   orchestrateSigningConfirmation(
-    params: Exclude<
-      OrchestrateSigningConfirmationParams,
-      OrchestrateIntentDigestSigningConfirmationParams
-    >,
+    params: OrchestrateNearTransactionSigningConfirmationParams,
   ): Promise<SigningConfirmationResultWithTxContext>;
+  orchestrateSigningConfirmation(
+    params: OrchestrateNearSignatureOnlySigningConfirmationParams,
+  ): Promise<SigningConfirmationResultSignatureOnly>;
 };
 
 export type ConfirmSigningOperationParams = OrchestrateSigningConfirmationParams;
 export type ConfirmIntentDigestSigningOperationRequest =
   OrchestrateIntentDigestSigningConfirmationParams;
-export type ConfirmTransactionSigningOperationRequest = Exclude<
-  OrchestrateSigningConfirmationParams,
-  OrchestrateIntentDigestSigningConfirmationParams
->;
+export type ConfirmTransactionSigningOperationRequest =
+  OrchestrateNearTransactionSigningConfirmationParams;
+export type ConfirmSignatureOnlySigningOperationRequest =
+  OrchestrateNearSignatureOnlySigningConfirmationParams;
 export type ConfirmIntentDigestSigningOperationResult = SigningConfirmationResultIntentDigest;
 export type ConfirmTransactionSigningOperationResult = SigningConfirmationResultWithTxContext;
+export type ConfirmSignatureOnlySigningOperationResult =
+  SigningConfirmationResultSignatureOnly;
+export type ConfirmNearStepUpSigningOperationResult =
+  | ConfirmTransactionSigningOperationResult
+  | ConfirmSignatureOnlySigningOperationResult;
 export type ConfirmSigningOperationResult =
   | SigningConfirmationResultWithTxContext
-  | SigningConfirmationResultIntentDigest;
+  | SigningConfirmationResultIntentDigest
+  | SigningConfirmationResultSignatureOnly;
 
 function assertSigningConfirmationAuthRoute(request: OrchestrateSigningConfirmationParams): void {
   if (
@@ -199,6 +220,11 @@ export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: ConfirmTransactionSigningOperationRequest;
 }): Promise<SigningConfirmationResultWithTxContext>;
+
+export async function confirmSigningOperation(args: {
+  runtime: ConfirmSigningOperationRuntime;
+  request: ConfirmSignatureOnlySigningOperationRequest;
+}): Promise<SigningConfirmationResultSignatureOnly>;
 
 export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;

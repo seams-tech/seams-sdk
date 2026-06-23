@@ -4,7 +4,6 @@ type WalletHostRequest<T extends ParentToChildType> = ParentToChildEnvelope & { 
 
 export type BootWalletRequestType = 'PING' | 'PM_SET_CONFIG' | 'PM_CANCEL';
 export type NearWalletRequestType =
-  | 'PM_REGISTER'
   | 'PM_REGISTRATION_ACTIVATION_PREPARE'
   | 'PM_REGISTRATION_ACTIVATION_CANCEL'
   | 'PM_REGISTRATION_ACTIVATION_FOCUS'
@@ -133,7 +132,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_CANCEL':
       return { kind: 'boot', type: request.type, request };
 
-    case 'PM_REGISTER':
     case 'PM_REGISTRATION_ACTIVATION_PREPARE':
     case 'PM_REGISTRATION_ACTIVATION_CANCEL':
     case 'PM_REGISTRATION_ACTIVATION_FOCUS':

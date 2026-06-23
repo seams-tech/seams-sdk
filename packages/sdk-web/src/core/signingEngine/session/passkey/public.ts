@@ -8,11 +8,10 @@ import type { ProvisionWarmEd25519CapabilityResult } from '../warmCapabilities/t
 import type { WarmSessionEnvelope } from '../warmCapabilities/types';
 import { provisionWarmEd25519Capability } from './ed25519Provisioner';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
+import type { WalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type PasskeyPublicDeps = {
-  getWarmSession: (
-    nearAccountId: ProvisionWarmEd25519CapabilityArgs['nearAccountId'],
-  ) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: WalletId | string) => Promise<WarmSessionEnvelope>;
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
@@ -31,7 +30,7 @@ export async function connectEd25519Session(
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   return await provisionWarmEd25519Capability(
     {
-      getWarmSession: (nearAccountId) => deps.getWarmSession(nearAccountId),
+      getWarmSession: (walletId) => deps.getWarmSession(walletId),
       provisionThresholdEd25519Session: async (provisionArgs) =>
         await deps.provisionThresholdEd25519Session(provisionArgs),
     },

@@ -10,7 +10,7 @@ import {
   getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetOperation,
   listThresholdEcdsaKeyRefsForWalletTarget as listThresholdEcdsaKeyRefsForWalletTargetOperation,
   listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetOperation,
-  markThresholdEd25519EmailOtpSessionConsumedForAccount as markThresholdEd25519EmailOtpSessionConsumedForAccountOperation,
+  markThresholdEd25519EmailOtpSessionConsumedForWallet as markThresholdEd25519EmailOtpSessionConsumedForWalletOperation,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapOperation,
   type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
@@ -125,10 +125,11 @@ export function createBrowserSigningSurfaceEnginePorts(
         args.getRegistrationPublicDeps(),
         attestationObjectBase64url,
       ),
-    activateAuthenticatedWalletState: (nearAccountId: AccountId, nearClientArg?: NearClient) =>
+    activateAuthenticatedWalletState: (activationArgs) =>
       registrationPublic.activateAuthenticatedWalletState(args.getRegistrationPublicDeps(), {
-        nearAccountId,
-        nearClient: nearClientArg,
+        walletId: activationArgs.walletId,
+        nearAccountId: activationArgs.nearAccountId,
+        nearClient: activationArgs.nearClient,
       }),
     persistThresholdEcdsaBootstrapForWalletTarget: (persistArgs) =>
       persistThresholdEcdsaBootstrapForWalletTargetOperation({
@@ -241,8 +242,8 @@ export function createBrowserSigningSurfaceEnginePorts(
       ),
     consumeSingleUseEmailOtpEcdsaLane: (command) =>
       consumeSingleUseEmailOtpEcdsaLaneOperation(args.warmSigning.ecdsaSessions, command),
-    markThresholdEd25519EmailOtpSessionConsumedForAccount: (markArgs) =>
-      markThresholdEd25519EmailOtpSessionConsumedForAccountOperation(markArgs),
+    markThresholdEd25519EmailOtpSessionConsumedForWallet: (markArgs) =>
+      markThresholdEd25519EmailOtpSessionConsumedForWalletOperation(markArgs),
     clearThresholdEcdsaSessionRecordForWalletTarget: (clearArgs) =>
       clearThresholdEcdsaSessionRecordForWalletTargetOperation(
         args.warmSigning.ecdsaSessions,

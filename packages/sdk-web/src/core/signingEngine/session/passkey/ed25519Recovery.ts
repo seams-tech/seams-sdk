@@ -184,7 +184,9 @@ function retainPasskeyEd25519ReconnectWorkerMaterialFacts(args: {
   }
 
   const updated = upsertStoredThresholdEd25519SessionRecord({
+    walletId: targetRecord.walletId,
     nearAccountId: targetRecord.nearAccountId,
+    ed25519KeyScopeId: targetRecord.ed25519KeyScopeId,
     rpId: targetRecord.rpId,
     relayerUrl: targetRecord.relayerUrl,
     relayerKeyId: targetRecord.relayerKeyId,
@@ -260,7 +262,9 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
   }
   const provisioned = await args.provisionThresholdEd25519Session({
     kind: 'exact_ed25519_provisioning',
+    walletId: String(args.record.walletId),
     nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId: String(args.record.ed25519KeyScopeId),
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source: 'login',
@@ -317,7 +321,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
 }
 
 export async function restorePasskeyEd25519SealedRecordForAccount(args: {
-  accountId: string;
+  walletId: string;
   record: PasskeyEd25519SealedRecoveryRecord;
   purpose: RestorePersistedEd25519SessionPurpose & { authMethod: 'passkey' };
   transport: WarmSessionSealTransportInput;
@@ -341,14 +345,21 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
 }): Promise<WarmSessionStatusResult | null> {
   const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
   const signingGrantId = String(args.purpose.signingGrantId || '').trim();
-  if (!thresholdSessionId || !signingGrantId || !args.shamirPrimeB64u) {
+  if (
+    !thresholdSessionId ||
+    !signingGrantId ||
+    !args.shamirPrimeB64u ||
+    String(args.walletId || '').trim() !== String(args.record.walletId || '').trim()
+  ) {
     return null;
   }
 
   const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
     const walletSessionJwt = sealedRecoveryWalletSessionJwt(args.record.walletSessionAuth);
     upsertStoredThresholdEd25519SessionRecord({
-      nearAccountId: args.accountId,
+      walletId: args.record.walletId,
+      nearAccountId: args.record.nearAccountId,
+      ed25519KeyScopeId: args.record.ed25519KeyScopeId,
       rpId: args.record.rpId,
       relayerUrl: args.record.relayerUrl,
       relayerKeyId: args.record.relayerKeyId,
@@ -370,7 +381,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       source: 'login',
     });
     publishResolvedIdentity({
-      walletId: args.accountId,
+      walletId: args.record.walletId,
       authMethod: 'passkey',
       curve: 'ed25519',
       chain: 'near',

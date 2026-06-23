@@ -7,7 +7,10 @@ import type {
   TransactionBudgetAdmittedState,
   WalletSigningBudgetLifecycle,
 } from '../operationState/transactionState';
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
@@ -41,15 +44,17 @@ const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle');
+
 const accountId = toAccountId('wallet.testnet');
+const walletId = toWalletId('wallet.testnet');
 const ed25519Owner = {
   curve: 'ed25519',
-  accountId,
+  accountId: walletId,
 } satisfies WalletBudgetOwner;
 
 const invalidRawEd25519Owner: WalletBudgetOwner = {
   curve: 'ed25519',
-  // @ts-expect-error shared budget NEAR owner requires normalized AccountId branding.
+  // @ts-expect-error shared Ed25519 budget owner requires normalized WalletId branding.
   accountId: 'wallet.testnet',
 };
 void invalidRawEd25519Owner;
@@ -67,7 +72,7 @@ const invalidWalletBudgetOwnerWithBothBranches: WalletBudgetStatusCheck = {
   // @ts-expect-error shared budget owners cannot carry wrong-branch walletId.
   owner: {
     curve: 'ed25519',
-    accountId,
+    accountId: walletId,
     walletId: ecdsaKey.walletId,
   },
   signingGrantId: 'signing-grant-1',
@@ -76,10 +81,10 @@ void invalidWalletBudgetOwnerWithBothBranches;
 
 const invalidEcdsaOwnerWithAccountId: WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check',
-  // @ts-expect-error ECDSA budget owners cannot carry accountId.
   owner: {
     curve: 'ecdsa',
     walletId: ecdsaKey.walletId,
+    // @ts-expect-error ECDSA budget owners cannot carry accountId.
     accountId,
   },
   signingGrantId: 'signing-grant-1',
@@ -150,7 +155,7 @@ const invalidThresholdSessionBudgetStatusAuth: SigningSessionBudgetStatusAuth = 
 void invalidThresholdSessionBudgetStatusAuth;
 
 const walletBudgetProjection = createWalletBudgetProjection({
-  walletId: accountId,
+  walletId,
   signingGrantId: 'signing-grant-1',
 });
 void walletBudgetProjection;

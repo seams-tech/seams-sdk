@@ -1,12 +1,11 @@
 import { IndexedDBManager } from '../../core/indexedDB';
-import type { AccountId } from '../../core/types/accountIds';
 import type { PendingEmailRecovery } from '../../core/types/emailRecovery';
 
 export interface PendingStore {
-  get(accountId: AccountId, nearPublicKey?: string): Promise<PendingEmailRecovery | null>;
+  get(accountId: string, nearPublicKey?: string): Promise<PendingEmailRecovery | null>;
   set(record: PendingEmailRecovery): Promise<void>;
-  clear(accountId: AccountId, nearPublicKey?: string): Promise<void>;
-  touchIndex(accountId: AccountId, nearPublicKey: string): Promise<void>;
+  clear(accountId: string, nearPublicKey?: string): Promise<void>;
+  touchIndex(accountId: string, nearPublicKey: string): Promise<void>;
 }
 
 type EmailRecoveryPendingStoreOptions = {
@@ -23,15 +22,15 @@ export class EmailRecoveryPendingStore implements PendingStore {
     this.now = options.now ?? Date.now;
   }
 
-  private getPendingIndexKey(accountId: AccountId): string {
+  private getPendingIndexKey(accountId: string): string {
     return `pendingEmailRecovery:${accountId}`;
   }
 
-  private getPendingRecordKey(accountId: AccountId, nearPublicKey: string): string {
+  private getPendingRecordKey(accountId: string, nearPublicKey: string): string {
     return `${this.getPendingIndexKey(accountId)}:${nearPublicKey}`;
   }
 
-  async get(accountId: AccountId, nearPublicKey?: string): Promise<PendingEmailRecovery | null> {
+  async get(accountId: string, nearPublicKey?: string): Promise<PendingEmailRecovery | null> {
     const pendingTtlMs = this.getPendingTtlMs();
     const indexKey = this.getPendingIndexKey(accountId);
     const indexedNearPublicKey = await IndexedDBManager.getAppState<string>(indexKey);
@@ -76,7 +75,7 @@ export class EmailRecoveryPendingStore implements PendingStore {
     await this.touchIndex(record.accountId, nearPublicKey);
   }
 
-  async clear(accountId: AccountId, nearPublicKey?: string): Promise<void> {
+  async clear(accountId: string, nearPublicKey?: string): Promise<void> {
     const indexKey = this.getPendingIndexKey(accountId);
     const idx = await IndexedDBManager
       .getAppState<string>(indexKey)
@@ -94,7 +93,7 @@ export class EmailRecoveryPendingStore implements PendingStore {
     }
   }
 
-  async touchIndex(accountId: AccountId, nearPublicKey: string): Promise<void> {
+  async touchIndex(accountId: string, nearPublicKey: string): Promise<void> {
     await IndexedDBManager
       .setAppState(this.getPendingIndexKey(accountId), nearPublicKey)
       .catch(() => {});

@@ -346,7 +346,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   const base = {
     key,
     keyHandle: record.keyHandle,
-    walletId: toAccountId(key.walletId),
+    walletId: toWalletId(key.walletId),
     signingGrantId: materialLane.signingGrantId,
     thresholdSessionId: materialLane.thresholdSessionId,
   };

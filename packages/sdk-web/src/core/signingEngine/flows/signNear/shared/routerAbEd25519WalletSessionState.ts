@@ -70,7 +70,7 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   const signingLane =
     record.source === 'email_otp'
       ? buildNearTransactionSigningLane({
-          accountId: record.nearAccountId,
+          accountId: record.walletId,
           authMethod: 'email_otp',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
@@ -78,7 +78,7 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
           sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
         })
       : buildNearTransactionSigningLane({
-          accountId: record.nearAccountId,
+          accountId: record.walletId,
           authMethod: 'passkey',
           signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
@@ -179,14 +179,14 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
   const materialHandle = String(args.materialHandle || '').trim();
   if (!thresholdSessionId || !signingGrantId || !relayerUrl || !materialHandle) return;
   const result = await persist({
-    sessionId: thresholdSessionId,
-    transport: {
-      curve: 'ed25519',
-      walletId: String(args.nearAccountId || '').trim(),
-      relayerUrl,
-      signingGrantId,
-      ...(args.walletSessionState.walletSessionAuth.kind === 'wallet_session_jwt'
-        ? { walletSessionJwt: args.walletSessionState.walletSessionAuth.walletSessionJwt }
+        sessionId: thresholdSessionId,
+        transport: {
+          curve: 'ed25519',
+          walletId: String(args.walletSessionState.signingLane.accountId || '').trim(),
+          relayerUrl,
+          signingGrantId,
+          ...(args.walletSessionState.walletSessionAuth.kind === 'wallet_session_jwt'
+            ? { walletSessionJwt: args.walletSessionState.walletSessionAuth.walletSessionJwt }
         : {}),
     },
   }).catch((error: unknown) => {

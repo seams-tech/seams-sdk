@@ -164,6 +164,7 @@ export interface UserConfirmRequest<TPayload = UserConfirmPayload, TSummary = Us
 
 // V2 payloads
 export interface SignTransactionPayload {
+  walletId: string;
   txSigningRequests: TransactionInputWasm[];
   intentDigest: string;
   displayModel?: TxDisplayModel;
@@ -224,6 +225,7 @@ export interface ShowSecurePrivateKeyUiPayload {
 }
 
 export interface SignNep413Payload {
+  walletId: string;
   nearAccountId: string;
   nearPublicKeyStr?: string;
   message: string;

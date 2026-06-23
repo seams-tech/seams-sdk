@@ -1,5 +1,8 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SigningSessionIds } from '../operationState/types';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -18,6 +21,7 @@ import {
 } from './exactSigningLaneIdentity';
 
 const accountId = 'alice.testnet' as AccountId;
+const walletId = toWalletId(accountId);
 const signingGrantId = SigningSessionIds.signingGrant('wallet-session-1');
 const ed25519ThresholdSessionId = SigningSessionIds.thresholdEd25519Session(
   'ed25519-threshold-session-1',
@@ -32,7 +36,7 @@ const evmTarget = {
   networkSlug: 'arc-testnet',
 } as const satisfies ThresholdEcdsaChainTarget;
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
-  walletId: accountId,
+  walletId,
   rpId: 'localhost',
   ecdsaThresholdKeyId: 'ehss-exact-key',
   signingRootId: 'project:dev',
@@ -61,7 +65,7 @@ const ecdsaIdentity = exactEcdsaSigningLaneIdentity({
   sessionOrigin: 'per_operation',
   storageSource: 'email_otp',
   retention: 'single_use',
-  walletId: accountId,
+  walletId,
   authMethod: 'email_otp',
   chainTarget: evmTarget,
   key: ecdsaKey,
@@ -99,9 +103,10 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
   kind: 'exact_ecdsa_signing_lane_identity',
   curve: 'ecdsa',
   chainFamily: 'evm',
-  walletId: accountId,
+  walletId,
   authMethod: 'passkey',
   chainTarget: evmTarget,
+  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   key: ecdsaKey,
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
@@ -114,13 +119,28 @@ const invalidEcdsaWithoutKey: ExactEcdsaSigningLaneIdentity = {
   kind: 'exact_ecdsa_signing_lane_identity',
   curve: 'ecdsa',
   chainFamily: 'evm',
-  walletId: accountId,
+  walletId,
   authMethod: 'passkey',
   chainTarget: evmTarget,
+  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
 };
 void invalidEcdsaWithoutKey;
+
+// @ts-expect-error exact ECDSA identity requires the selected key handle.
+const invalidEcdsaWithoutKeyHandle: ExactEcdsaSigningLaneIdentity = {
+  kind: 'exact_ecdsa_signing_lane_identity',
+  curve: 'ecdsa',
+  chainFamily: 'evm',
+  walletId,
+  authMethod: 'passkey',
+  chainTarget: evmTarget,
+  key: ecdsaKey,
+  signingGrantId,
+  thresholdSessionId: ecdsaThresholdSessionId,
+};
+void invalidEcdsaWithoutKeyHandle;
 
 const keyWithSession: EvmFamilyEcdsaKeyIdentity = {
   ...ecdsaKey,

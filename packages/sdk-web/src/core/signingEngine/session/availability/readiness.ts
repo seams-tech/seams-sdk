@@ -98,8 +98,8 @@ export type SigningGrantReadinessDeps = {
   }) => void;
   updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
   deleteExactSealedSession?: typeof deleteExactSealedSession;
-  markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
-    nearAccountId: AccountId;
+  markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
+    walletId: WalletId;
     thresholdSessionId?: string;
     uses?: number;
   }) => void;
@@ -238,9 +238,9 @@ function toLaneSource(
 function resolveRecordWalletOwnerId(
   record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
 ): WalletBudgetOwner {
-  return 'walletId' in record
+  return 'chainTarget' in record
     ? ecdsaWalletBudgetOwner(toWalletId(record.walletId))
-    : ed25519WalletBudgetOwner(toAccountId(record.nearAccountId));
+    : ed25519WalletBudgetOwner(record.walletId);
 }
 
 export function resolveEmailOtpEcdsaWorkerSessionId(
@@ -406,7 +406,7 @@ export function discoverLanesForWallet(
   deps: SigningGrantReadinessDeps,
   walletId: WalletId,
 ): DiscoveredSigningSessionLane[] {
-  const records = readWarmSessionCapabilityRecordsForWallet(toAccountId(walletId));
+  const records = readWarmSessionCapabilityRecordsForWallet(walletId);
   const lanes: DiscoveredSigningSessionLane[] = [];
   const ed25519Record = records.ed25519;
   if (ed25519Record) {
@@ -1259,8 +1259,8 @@ export async function consumeSigningGrantUse(args: {
       !alreadyConsumedThreshold.has(lane.thresholdSessionId),
   );
   if (ed25519EmailOtpLane && input.owner.curve === 'ed25519') {
-    args.deps.markThresholdEd25519EmailOtpSessionConsumedForAccount?.({
-      nearAccountId: input.owner.accountId,
+    args.deps.markThresholdEd25519EmailOtpSessionConsumedForWallet?.({
+      walletId: input.owner.accountId,
       thresholdSessionId: ed25519EmailOtpLane.thresholdSessionId,
       uses,
     });
@@ -1322,7 +1322,7 @@ export async function clearSigningGrant(args: {
   );
   args.statusOverrides.delete(
     walletOwnerSigningSessionStatusOverrideKey(
-      ed25519WalletBudgetOwner(toAccountId(args.walletId)),
+      ed25519WalletBudgetOwner(args.walletId),
       args.signingGrantId,
     ),
   );

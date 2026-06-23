@@ -1,5 +1,7 @@
-import { toAccountId } from '@/core/types/accountIds';
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
@@ -14,7 +16,7 @@ import {
   type FreshStepUpRequired,
 } from './stepUpFreshness';
 
-const walletId = toAccountId('wallet.testnet');
+const walletId = toWalletId('wallet.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 4242,

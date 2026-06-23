@@ -12,8 +12,9 @@ import { toError } from '@shared/utils/errors';
 import type { WasmSignedDelegate } from '@/core/types/signer-worker';
 import { isObject } from '@shared/utils/validation';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { emitNearSigningEvent } from './signingEventHelpers';
+import { resolveNearCommandSubject } from './commandSubject';
 
 async function yieldForUiPaint(): Promise<void> {
   if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -33,6 +34,7 @@ export interface RelayDelegateRequest {
 export async function signDelegateAction(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   delegate: DelegateActionInput;
   options: DelegateActionHooksOptions;
 }): Promise<SignDelegateActionResult> {
@@ -60,7 +62,10 @@ export async function signDelegateAction(args: {
       chain: 'near',
       kind: 'delegateAction',
       args: {
-        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+        commandSubject: resolveNearCommandSubject({
+          nearAccountId,
+          walletSession: args.walletSession,
+        }),
         delegate: resolvedDelegate,
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),

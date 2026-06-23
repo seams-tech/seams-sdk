@@ -81,7 +81,6 @@ import type {
   SigningFlowEvent,
   AccountSyncFlowEvent,
 } from '@/core/types/sdkSentEvents';
-import type { EcdsaSignerProvisioningDefaults } from '@/core/types/ecdsaSignerProvisioningDefaults';
 import type { WalletIframeTransportDiagnostics } from './transport/IframeTransport';
 import {
   AccountSyncEventPhase,
@@ -105,6 +104,7 @@ import type {
   AppearanceConfigInput,
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
+  LoginState,
   WalletSession,
   RegistrationResult,
   SignDelegateActionResult,
@@ -306,7 +306,7 @@ function createTerminalProgressForRequest(args: {
   const error = { ...(errorCode ? { code: errorCode } : {}), message };
   const common = { flowId, requestId, status, message, error };
   const registrationRequests = new Set<ParentToChildEnvelope['type']>([
-    'PM_REGISTER',
+    'PM_REGISTER_WALLET',
     'PM_REGISTRATION_ACTIVATION_PREPARE',
     'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
     'PM_ENROLL_EMAIL_OTP',
@@ -933,13 +933,10 @@ export class WalletIframeRouter {
         // Progress bus will hide after completion; hide defensively here
         this.hideFrameForActivation();
         if (ok) {
-          const walletId = payload?.result?.nearAccountId;
+          const walletId = payload?.result?.walletId || payload?.result?.nearAccountId;
           void this.getWalletSession(walletId)
             .then(({ login: st }) => {
-              this.emitLoginStatusChanged({
-                isLoggedIn: !!st.isLoggedIn,
-                walletId: st.nearAccountId,
-              });
+              this.emitLoginStatusFromState(st);
             })
             .catch(() => {});
         }
@@ -1115,6 +1112,13 @@ export class WalletIframeRouter {
     }
   }
 
+  private emitLoginStatusFromState(login: LoginState): void {
+    this.emitLoginStatusChanged({
+      isLoggedIn: !!login.isLoggedIn,
+      walletId: login.walletId ? String(login.walletId) : null,
+    });
+  }
+
   private emitPreferencesChanged(payload: PreferencesChangedPayload): void {
     if (!this.listeners.preferencesChanged.size) return;
     for (const cb of Array.from(this.listeners.preferencesChanged)) {
@@ -1149,6 +1153,7 @@ export class WalletIframeRouter {
   // ===== SeamsWeb RPCs =====
 
   async signTransactionWithActions(payload: {
+    walletId: string;
     nearAccountId: string;
     transaction: TransactionInput;
     options: {
@@ -1174,6 +1179,7 @@ export class WalletIframeRouter {
     const res = await this.post<SignTransactionResult>({
       type: 'PM_SIGN_TX_WITH_ACTIONS',
       payload: {
+        walletId: payload.walletId,
         nearAccountId: payload.nearAccountId,
         transaction: payload.transaction,
         options: safeOptions,
@@ -1184,6 +1190,7 @@ export class WalletIframeRouter {
   }
 
   async signDelegateAction(payload: {
+    walletId: string;
     nearAccountId: string;
     delegate: DelegateActionInput;
     options: {
@@ -1207,6 +1214,7 @@ export class WalletIframeRouter {
     const res = await this.post<SignDelegateActionResult>({
       type: 'PM_SIGN_DELEGATE_ACTION',
       payload: {
+        walletId: payload.walletId,
         nearAccountId: payload.nearAccountId,
         delegate: payload.delegate,
         options: safeOptions,
@@ -1214,64 +1222,6 @@ export class WalletIframeRouter {
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
-  }
-
-  async registerPasskey(payload: {
-    nearAccountId: string;
-    confirmationConfig?: Partial<ConfirmationConfig>;
-    options?: {
-      onEvent?: (ev: RegistrationFlowEvent) => void;
-      signerOptions?: EcdsaSignerProvisioningDefaults;
-      confirmerText?: { title?: string; body?: string };
-    };
-  }): Promise<RegistrationResult> {
-    // Step 1: For registration, force fullscreen overlay (not anchored to CTA)
-    // so the TxConfirmer (drawer/modal) has space to render and capture activation.
-    // Lock overlay to fullscreen for the duration of registration
-    this.overlayState.forceFullscreen = true;
-    this.overlayState.controller.setSticky(true);
-    this.overlayState.controller.showFullscreen();
-
-    try {
-      // Optional one-time confirmation override (non-persistent)
-      if (payload.confirmationConfig) {
-        const base = await this.getConfirmationConfig();
-        await this.setConfirmationConfig({ ...base, ...payload.confirmationConfig });
-      }
-
-      // Step 2: Strip non-serializable functions from options (functions can't cross iframe boundary)
-      const safeOptions = removeFunctionsFromOptions(payload.options);
-
-      // Step 3: Send PM_REGISTER message to iframe and wait for response
-      const res = await this.post<RegistrationResult>(
-        {
-          type: 'PM_REGISTER',
-          payload: {
-            nearAccountId: payload.nearAccountId,
-            options: safeOptions,
-            ...(payload.confirmationConfig
-              ? { confirmationConfig: payload.confirmationConfig }
-              : {}),
-          },
-          // Bridge progress events from iframe back to parent callback
-          options: {
-            onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
-          },
-        },
-        { timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS },
-      );
-
-      // Step 4: Update login status after successful registration
-      const { login: st } = await this.getWalletSession(payload.nearAccountId);
-      this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
-
-      return res?.result;
-    } finally {
-      // Step 5: Always release overlay lock and hide when done (success or error)
-      this.overlayState.forceFullscreen = false;
-      this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
-    }
   }
 
   createPasskeyRegistrationActivationSurface(
@@ -1400,7 +1350,6 @@ export class WalletIframeRouter {
                 type: 'PM_REGISTRATION_ACTIVATION_PREPARE',
                 payload: {
                   activationId,
-                  nearAccountId: payload.nearAccountId,
                   expiresAtMs,
                   ...(safeOptions ? { options: safeOptions } : {}),
                   ...(payload.options?.confirmationConfig
@@ -1415,11 +1364,11 @@ export class WalletIframeRouter {
               { timeoutMs: Math.max(1, expiresAtMs - Date.now()) },
             );
             setState({ kind: 'completed', activationId, result: res.result });
-            const { login: st } = await this.getWalletSession(payload.nearAccountId);
-            this.emitLoginStatusChanged({
-              isLoggedIn: !!st.isLoggedIn,
-              walletId: st.nearAccountId,
-            });
+            const walletId = res.result?.success ? String(res.result.walletId || '') : '';
+            if (walletId) {
+              const { login: st } = await this.getWalletSession(walletId);
+              this.emitLoginStatusFromState(st);
+            }
           } catch (error) {
             if (disposed) return;
             const err = toError(error);
@@ -1492,14 +1441,10 @@ export class WalletIframeRouter {
         },
         { timeoutMs: WALLET_IFRAME_REGISTRATION_TIMEOUT_MS },
       );
-      const nearAccountId =
-        payload.signerSelection.mode === 'ed25519_only' ||
-        payload.signerSelection.mode === 'ed25519_and_ecdsa'
-          ? payload.signerSelection.ed25519.nearAccountId
-          : '';
-      if (nearAccountId) {
-        const { login: st } = await this.getWalletSession(nearAccountId);
-        this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+      const walletId = res.result?.success ? String(res.result.walletId || '') : '';
+      if (walletId) {
+        const { login: st } = await this.getWalletSession(walletId);
+        this.emitLoginStatusFromState(st);
       }
       return res.result;
     } finally {
@@ -1579,7 +1524,7 @@ export class WalletIframeRouter {
       const result = res.result;
       if (result.success) {
         const { login: st } = await this.getWalletSession(unlockPayload.nearAccountId);
-        this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+        this.emitLoginStatusFromState(st);
       }
       return result;
     } finally {
@@ -1706,10 +1651,7 @@ export class WalletIframeRouter {
           );
           if (res.result.ok) {
             const { login: st } = await this.getWalletSession(res.result.value.walletId);
-            this.emitLoginStatusChanged({
-              isLoggedIn: !!st.isLoggedIn,
-              walletId: st.nearAccountId,
-            });
+            this.emitLoginStatusFromState(st);
           }
           return res.result;
         },
@@ -1783,7 +1725,7 @@ export class WalletIframeRouter {
         );
         if (res.result.ok) {
           const { login: st } = await this.getWalletSession(res.result.value.walletId);
-          this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+          this.emitLoginStatusFromState(st);
         }
         return res.result;
       },
@@ -1860,7 +1802,7 @@ export class WalletIframeRouter {
       },
     );
     const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+    this.emitLoginStatusFromState(st);
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -1886,7 +1828,7 @@ export class WalletIframeRouter {
       },
     );
     const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+    this.emitLoginStatusFromState(st);
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -1966,7 +1908,7 @@ export class WalletIframeRouter {
       },
     );
     const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
-    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+    this.emitLoginStatusFromState(st);
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -1976,7 +1918,7 @@ export class WalletIframeRouter {
       ok: true,
       result: {
         isLoggedIn: !!st.isLoggedIn,
-        walletId: st.nearAccountId,
+        walletId: st.walletId ? String(st.walletId) : null,
       },
     };
   }
@@ -1988,6 +1930,7 @@ export class WalletIframeRouter {
   }
 
   async signNep413Message(payload: {
+    walletId: string;
     nearAccountId: string;
     message: string;
     recipient: string;
@@ -2011,6 +1954,7 @@ export class WalletIframeRouter {
     const res = await this.post<SignNEP413MessageResult>({
       type: 'PM_SIGN_NEP413',
       payload: {
+        walletId: payload.walletId,
         nearAccountId: payload.nearAccountId,
         params: {
           message: payload.message,
@@ -2167,6 +2111,8 @@ export class WalletIframeRouter {
   }
 
   async signTransactionWithKeyPair(payload: {
+    walletId: string;
+    nearAccountId: string;
     signedTransaction: SignedTransaction;
     options?: {
       onEvent?: (ev: SigningFlowEvent) => void;
@@ -2177,6 +2123,8 @@ export class WalletIframeRouter {
     const res = await this.post<ActionResult>({
       type: 'PM_SEND_TRANSACTION',
       payload: {
+        walletId: payload.walletId,
+        nearAccountId: payload.nearAccountId,
         signedTransaction: payload.signedTransaction,
         options: options,
       },
@@ -2186,6 +2134,7 @@ export class WalletIframeRouter {
   }
 
   async executeAction(payload: {
+    walletId: string;
     nearAccountId: string;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
@@ -2203,6 +2152,7 @@ export class WalletIframeRouter {
     const res = await this.post<ActionResult>({
       type: 'PM_EXECUTE_ACTION',
       payload: {
+        walletId: payload.walletId,
         nearAccountId: payload.nearAccountId,
         receiverId: payload.receiverId,
         actionArgs: payload.actionArgs,
@@ -2214,7 +2164,7 @@ export class WalletIframeRouter {
   }
 
   async setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): Promise<void> {
-    const { nearAccountId: walletId } = (await this.getWalletSession()).login;
+    const { walletId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
       payload: { behavior, walletId },
@@ -2222,7 +2172,7 @@ export class WalletIframeRouter {
   }
 
   async setConfirmationConfig(config: ConfirmationConfig): Promise<void> {
-    const { nearAccountId: walletId } = (await this.getWalletSession()).login;
+    const { walletId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRMATION_CONFIG',
       payload: { config, walletId },
@@ -2308,19 +2258,19 @@ export class WalletIframeRouter {
   }
 
   async syncAccount(payload: {
-    accountId?: string;
+    walletId?: string;
     onEvent?: (ev: AccountSyncFlowEvent) => void;
   }): Promise<SyncAccountResult> {
     const res = await this.post<SyncAccountResult>({
       type: 'PM_SYNC_ACCOUNT_FLOW',
-      payload: { ...(payload?.accountId ? { accountId: payload.accountId } : {}) },
+      payload: { ...(payload?.walletId ? { walletId: payload.walletId } : {}) },
       options: { onProgress: this.wrapOnEvent(payload?.onEvent, isAccountSyncFlowEvent) },
     });
     return res.result as SyncAccountResult;
   }
 
   async startEmailRecovery(payload: {
-    accountId: string;
+    walletId: string;
     onEvent?: (ev: EmailRecoveryFlowEvent) => void;
     options?: {
       confirmerText?: { title?: string; body?: string };
@@ -2330,7 +2280,7 @@ export class WalletIframeRouter {
     const res = await this.post<{ mailtoUrl: string; nearPublicKey: string }>({
       type: 'PM_START_EMAIL_RECOVERY',
       payload: {
-        accountId: payload.accountId,
+        walletId: payload.walletId,
         ...(payload.options ? { options: payload.options } : {}),
       },
       options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoveryFlowEvent) },
@@ -2339,21 +2289,21 @@ export class WalletIframeRouter {
   }
 
   async finalizeEmailRecovery(payload: {
-    accountId: string;
+    walletId: string;
     nearPublicKey?: string;
     onEvent?: (ev: EmailRecoveryFlowEvent) => void;
   }): Promise<void> {
     await this.post<void>({
       type: 'PM_FINALIZE_EMAIL_RECOVERY',
       payload: {
-        accountId: payload.accountId,
+        walletId: payload.walletId,
         ...(payload.nearPublicKey ? { nearPublicKey: payload.nearPublicKey } : {}),
       },
       options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoveryFlowEvent) },
     });
   }
 
-  async stopEmailRecovery(payload?: { accountId?: string; nearPublicKey?: string }): Promise<void> {
+  async stopEmailRecovery(payload?: { walletId?: string; nearPublicKey?: string }): Promise<void> {
     await this.post<void>({
       type: 'PM_STOP_EMAIL_RECOVERY',
       ...(payload ? { payload } : {}),
@@ -2446,6 +2396,7 @@ export class WalletIframeRouter {
   }
 
   async signAndSendTransaction(payload: {
+    walletId: string;
     nearAccountId: string;
     transaction: TransactionInput;
     options: SignAndSendTransactionHooksOptions;
@@ -2462,6 +2413,7 @@ export class WalletIframeRouter {
     const res = await this.post<ActionResult>({
       type: 'PM_SIGN_AND_SEND_TX',
       payload: {
+        walletId: payload.walletId,
         nearAccountId: payload.nearAccountId,
         transaction: payload.transaction,
         options: safeOptions,
@@ -2488,14 +2440,16 @@ export class WalletIframeRouter {
   }
 
   async deleteDeviceKey(payload: {
-    accountId: string;
+    walletId: string;
+    nearAccountId: string;
     publicKeyToDelete: string;
     options: { onEvent?: (ev: SigningFlowEvent) => void };
   }): Promise<ActionResult> {
     const res = await this.post<ActionResult>({
       type: 'PM_DELETE_DEVICE_KEY',
       payload: {
-        accountId: payload.accountId,
+        walletId: payload.walletId,
+        nearAccountId: payload.nearAccountId,
         publicKeyToDelete: payload.publicKeyToDelete,
         options: {},
       },
@@ -2505,6 +2459,8 @@ export class WalletIframeRouter {
   }
 
   async sendTransaction(args: {
+    walletId: string;
+    nearAccountId: string;
     signedTransaction: SignedTransaction;
     options?: SendTransactionHooksOptions;
   }): Promise<ActionResult> {
@@ -2515,6 +2471,8 @@ export class WalletIframeRouter {
     const res = await this.post<ActionResult>({
       type: 'PM_SEND_TRANSACTION',
       payload: {
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
         signedTransaction: args.signedTransaction,
         options: safeOptions,
       },
@@ -2832,7 +2790,6 @@ export class WalletIframeRouter {
       // Operations that require fullscreen overlay for WebAuthn activation
       case 'PM_EXPORT_KEYPAIR_UI':
       case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
-      case 'PM_REGISTER':
       case 'PM_UNLOCK':
       case 'PM_SIGN_AND_SEND_TX':
       case 'PM_EXECUTE_ACTION':

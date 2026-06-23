@@ -4,6 +4,7 @@ import { TransactionContext } from '@/core/types';
 import type { BlockReference, AccessKeyView } from '@near-js/types';
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { isObject } from '@shared/utils/validation';
 import type {
   SerializableCredential,
   UserConfirmRequest,
@@ -45,10 +46,87 @@ import type {
   NonceLease,
   PreparedNonceOperationContext,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
+import {
+  classifyNearExecutionReadiness,
+  type NearExecutionReadiness,
+} from '@/core/signingEngine/nonce/nearNonceLane';
+
+function parseReadinessNonce(raw: unknown, fallback: unknown): bigint {
+  if (typeof raw === 'bigint') return raw;
+  const normalized = String(raw ?? fallback ?? '0').trim();
+  if (!normalized) return 0n;
+  try {
+    return BigInt(normalized);
+  } catch {
+    return 0n;
+  }
+}
+
+function parseNearExecutionReadiness(raw: unknown): NearExecutionReadiness | null {
+  if (!isObject(raw)) return null;
+  const kind = String(raw.kind || '').trim();
+  const walletId = String(raw.walletId || '').trim();
+  const nearAccountId = String(raw.nearAccountId || '').trim();
+  const nearPublicKeyStr = String(raw.nearPublicKeyStr || '').trim();
+  if (!walletId || !nearAccountId || !nearPublicKeyStr) return null;
+  switch (kind) {
+    case 'implicit_unfunded':
+      return {
+        kind,
+        walletId,
+        nearAccountId,
+        nearPublicKeyStr,
+      };
+    case 'access_key_available':
+    case 'sponsored_named_ready':
+      return {
+        kind,
+        walletId,
+        nearAccountId,
+        nearPublicKeyStr,
+        nonce: parseReadinessNonce(raw.nonce, raw.nextNonce),
+        accessKeyNonce: String(raw.accessKeyNonce || '').trim(),
+        nextNonce: String(raw.nextNonce || '').trim(),
+        txBlockHeight: String(raw.txBlockHeight || '').trim(),
+        txBlockHash: String(raw.txBlockHash || '').trim(),
+      };
+    case 'account_lookup_failed':
+      return {
+        kind,
+        walletId,
+        nearAccountId,
+        nearPublicKeyStr,
+        message: String(raw.message || '').trim(),
+      };
+    default:
+      return null;
+  }
+}
+
+function nearExecutionReadinessForContext(input: {
+  walletId: string;
+  nearAccountId: string;
+  nearPublicKeyStr: string;
+  transactionContext: TransactionContext;
+}): NearExecutionReadiness {
+  return classifyNearExecutionReadiness({
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    nearPublicKeyStr: input.nearPublicKeyStr,
+    accessKeyAvailable: true,
+    transactionContext: input.transactionContext,
+  });
+}
+
+function nearExecutionReadinessFromError(error: unknown): NearExecutionReadiness | null {
+  if (!isObject(error)) return null;
+  return parseNearExecutionReadiness(error.readiness);
+}
 
 export async function fetchNearContext(
   ctx: UiConfirmContext,
   opts: {
+    walletId: string;
     nearAccountId: string;
     nearPublicKeyStr?: string;
     txCount: number;
@@ -61,6 +139,7 @@ export async function fetchNearContext(
   transactionContext: TransactionContext | null;
   error?: string;
   details?: string;
+  readiness?: NearExecutionReadiness;
   reservedNonces?: string[];
   nonceLeases?: NonceLease[];
 }> {
@@ -74,6 +153,7 @@ export async function fetchNearContext(
       const txCount = Math.max(1, Math.floor(Number(opts.txCount) || 1));
       if (opts.reserveNonces) {
         const { transactionContext, nonceLeases } = await reserveNearTransactionContext(ctx, {
+          walletId: opts.walletId,
           nearAccountId: opts.nearAccountId,
           nearPublicKeyStr: explicitNearPublicKeyStr,
           count: txCount,
@@ -85,11 +165,18 @@ export async function fetchNearContext(
           transactionContext,
           reservedNonces,
           nonceLeases,
+          readiness: nearExecutionReadinessForContext({
+            walletId: opts.walletId,
+            nearAccountId: opts.nearAccountId,
+            nearPublicKeyStr: explicitNearPublicKeyStr,
+            transactionContext,
+          }),
         };
       }
 
       const transactionContext = await ctx.nonceCoordinator.fetchNearContext({
         lane: createNearNonceLane(ctx, {
+          walletId: opts.walletId,
           nearAccountId: opts.nearAccountId,
           nearPublicKeyStr: explicitNearPublicKeyStr,
         }),
@@ -97,6 +184,12 @@ export async function fetchNearContext(
       });
       return {
         transactionContext,
+        readiness: nearExecutionReadinessForContext({
+          walletId: opts.walletId,
+          nearAccountId: opts.nearAccountId,
+          nearPublicKeyStr: explicitNearPublicKeyStr,
+          transactionContext,
+        }),
       };
     }
 
@@ -107,6 +200,7 @@ export async function fetchNearContext(
         throw new Error('NEAR nonce reservation requires nearPublicKeyStr');
       }
       const { transactionContext, nonceLeases } = await reserveNearTransactionContext(ctx, {
+        walletId: opts.walletId,
         nearAccountId: opts.nearAccountId,
         nearPublicKeyStr,
         count: txCount,
@@ -117,6 +211,12 @@ export async function fetchNearContext(
         transactionContext,
         reservedNonces: nonceLeases.map((lease) => String(lease.nonce)),
         nonceLeases,
+        readiness: nearExecutionReadinessForContext({
+          walletId: opts.walletId,
+          nearAccountId: opts.nearAccountId,
+          nearPublicKeyStr,
+          transactionContext,
+        }),
       };
     }
 
@@ -128,6 +228,7 @@ export async function fetchNearContext(
     }
     const cached = await ctx.nonceCoordinator.fetchNearContext({
       lane: createNearNonceLane(ctx, {
+        walletId: opts.walletId,
         nearAccountId: opts.nearAccountId,
         nearPublicKeyStr,
       }),
@@ -138,13 +239,35 @@ export async function fetchNearContext(
     // `nextNonce` for each other, leading to duplicate nonces (InvalidNonce) under load.
     const transactionContext: TransactionContext = { ...cached };
 
-    return { transactionContext };
+    return {
+      transactionContext,
+      readiness: nearExecutionReadinessForContext({
+        walletId: opts.walletId,
+        nearAccountId: opts.nearAccountId,
+        nearPublicKeyStr,
+        transactionContext,
+      }),
+    };
   } catch (error) {
     if (!allowFallback) {
+      const errorCode =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: unknown }).code || '').trim()
+          : '';
+      const readiness = nearExecutionReadinessFromError(error);
+      const isImplicitUnfunded = errorCode === 'near_implicit_account_unfunded';
+      const isAccountLookupFailed =
+        errorCode === 'near_account_lookup_failed' ||
+        readiness?.kind === 'account_lookup_failed';
       return {
         transactionContext: null,
-        error: 'NEAR_CONTEXT_UNAVAILABLE',
+        error: isImplicitUnfunded
+          ? 'NEAR_IMPLICIT_ACCOUNT_UNFUNDED'
+          : isAccountLookupFailed
+            ? 'NEAR_ACCOUNT_LOOKUP_FAILED'
+            : 'NEAR_CONTEXT_UNAVAILABLE',
         details: errorMessage(error),
+        ...(readiness ? { readiness } : {}),
       };
     }
 
@@ -180,6 +303,7 @@ export async function fetchNearContext(
 async function reserveNearTransactionContext(
   ctx: UiConfirmContext,
   args: {
+    walletId: string;
     nearAccountId: string;
     nearPublicKeyStr: string;
     count: number;
@@ -193,6 +317,7 @@ async function reserveNearTransactionContext(
   }
   const { context, leases } = await ctx.nonceCoordinator.reserveNearContext({
     lane: createNearNonceLane(ctx, {
+      walletId: args.walletId,
       nearAccountId: args.nearAccountId,
       nearPublicKeyStr,
     }),
@@ -209,11 +334,12 @@ async function reserveNearTransactionContext(
 
 function createNearNonceLane(
   ctx: UiConfirmContext,
-  args: { nearAccountId: string; nearPublicKeyStr: string },
+  args: { walletId: string; nearAccountId: string; nearPublicKeyStr: string },
 ) {
   return {
     family: 'near' as const,
     networkKey: resolveNearNonceNetworkKey(ctx),
+    walletId: String(args.walletId || '').trim(),
     accountId: toAccountId(args.nearAccountId),
     publicKey: String(args.nearPublicKeyStr || '').trim(),
   };

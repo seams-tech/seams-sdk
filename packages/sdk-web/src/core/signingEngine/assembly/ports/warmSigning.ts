@@ -36,6 +36,7 @@ import { createEcdsaLoginPrefillClientSigningMaterialSource } from '../../sessio
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type EcdsaRoleLocalReadyRecordStorePorts = {
   recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
@@ -126,8 +127,8 @@ export function createPasskeyPublicDeps(args: {
   walletSessionActivationDeps: WalletSessionActivationDeps;
 }): PasskeyPublicDeps {
   return {
-    getWarmSession: (nearAccountId) =>
-      args.warmSigning.capabilityReader.getWarmSession(nearAccountId),
+    getWarmSession: (walletId) =>
+      args.warmSigning.capabilityReader.getWarmSession(toWalletId(walletId)),
     provisionThresholdEd25519Session: async (provisionArgs) =>
       await provisionThresholdEd25519Session(
         {

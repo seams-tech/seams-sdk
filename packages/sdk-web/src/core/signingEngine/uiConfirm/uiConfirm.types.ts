@@ -19,8 +19,11 @@ import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { ThemeName, ThemeTokenOverridesInput, SeamsChainConfig } from '../../types/seams';
 import type { RegistrationCredentialConfirmationPayload } from '../workerManager/validation';
 import type {
+  OrchestrateNearSignatureOnlySigningConfirmationParams,
+  OrchestrateNearTransactionSigningConfirmationParams,
   OrchestrateSigningConfirmationParams,
   SigningConfirmationResultIntentDigest,
+  SigningConfirmationResultSignatureOnly,
   SigningConfirmationResultWithTxContext,
 } from '../stepUpConfirmation/confirmOperation';
 import type {
@@ -236,8 +239,11 @@ export interface UiConfirmSigningPort {
     params: Extract<OrchestrateSigningConfirmationParams, { kind: 'intentDigest' }>,
   ): Promise<SigningConfirmationResultIntentDigest>;
   orchestrateSigningConfirmation(
-    params: Exclude<OrchestrateSigningConfirmationParams, { kind: 'intentDigest' }>,
+    params: OrchestrateNearTransactionSigningConfirmationParams,
   ): Promise<SigningConfirmationResultWithTxContext>;
+  orchestrateSigningConfirmation(
+    params: OrchestrateNearSignatureOnlySigningConfirmationParams,
+  ): Promise<SigningConfirmationResultSignatureOnly>;
 }
 
 export interface UiConfirmRegistrationPort {

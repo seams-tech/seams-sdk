@@ -14,13 +14,30 @@ export type SignNEP413MessageResult = {
   error?: string;
 };
 
-export type SyncAccountResult = {
-  success: boolean;
-  accountId: string;
-  publicKey: string;
-  message: string;
-  error?: string;
-  loginState?: {
-    isLoggedIn: boolean;
-  };
-};
+export type SyncAccountResult =
+  | {
+      success: true;
+      accountId: string;
+      walletId: string;
+      nearAccountId: string;
+      ed25519KeyScopeId: string;
+      publicKey: string;
+      message: string;
+      loginState: {
+        isLoggedIn: boolean;
+      };
+      error?: never;
+    }
+  | {
+      success: false;
+      accountId: string;
+      publicKey: '';
+      message: string;
+      error: string;
+      loginState: {
+        isLoggedIn: false;
+      };
+      walletId?: never;
+      nearAccountId?: never;
+      ed25519KeyScopeId?: never;
+    };

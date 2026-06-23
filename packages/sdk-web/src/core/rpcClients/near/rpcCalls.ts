@@ -28,7 +28,10 @@ import {
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import { ActionType } from '../../types/actions';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
-import { nearAccountRefFromAccountId } from '../../signingEngine/interfaces/ecdsaChainTarget';
+import {
+  nearAccountRefFromAccountId,
+  toWalletId,
+} from '../../signingEngine/interfaces/ecdsaChainTarget';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -502,12 +505,19 @@ export async function executeDeviceLinkingContractCalls({
 }): Promise<{
   addKeyTxResult: FinalExecutionOutcome;
 }> {
+  const commandSubject = {
+    walletSession: {
+      walletId: toWalletId(device1AccountId),
+      walletSessionUserId: String(device1AccountId),
+    },
+    nearAccount: nearAccountRefFromAccountId(device1AccountId),
+  };
   const signTransaction = () =>
     deps.signNear({
       chain: 'near',
       kind: 'transactionWithActions',
       args: {
-        nearAccount: nearAccountRefFromAccountId(device1AccountId),
+        commandSubject,
         sessionId: secureRandomId('link-device', 32, 'link device signing session IDs'),
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(deps.chains),

@@ -1,9 +1,11 @@
-import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningCapabilityReaderDeps, SigningCapabilityResult } from './lanes';
 
 declare const deps: SigningCapabilityReaderDeps;
-declare const walletId: AccountId;
+declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 
 deps.readEmailOtpEcdsaSessionRecord?.({

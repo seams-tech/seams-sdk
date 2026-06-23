@@ -206,6 +206,7 @@ export type LoginWarmSigningSurface = RuntimeStartupSurface &
 
 export interface RegistrationAccountSurface {
   activateAuthenticatedWalletState(args: {
+    walletId: EcdsaWalletId;
     nearAccountId: AccountId;
     nearClient?: NearClient;
   }): Promise<void>;

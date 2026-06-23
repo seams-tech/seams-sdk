@@ -7,6 +7,8 @@ import type {
   EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
+  RegistrationNearAccountProvisioning,
+  ResolvedRegistrationNearAccount,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
@@ -269,7 +271,7 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssFinalizeDeriveRelayerVerifyingShareMs'
   | 'registrationHssFinalizeKeyStorePutMs'
   | 'registrationEcdsaBootstrapVerifyMs'
-  | 'nearAccountCreateMs'
+  | 'sponsoredNearAccountCreateMs'
   | 'registrationKeygenMs'
   | 'registrationEmailOtpEnrollmentPlanMs'
   | 'relaySessionMintMs'
@@ -399,9 +401,12 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId: string;
+      accountProvisioning: RegistrationNearAccountProvisioning;
+      resolvedAccount: ResolvedRegistrationNearAccount;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
-      ed25519?: {
+      ed25519: {
         nearAccountId: string;
+        ed25519KeyScopeId: string;
         publicKey: string;
         relayerKeyId: string;
         keyVersion: string;
@@ -409,10 +414,13 @@ export type WalletRegistrationFinalizeResponse =
         clientParticipantId?: number;
         relayerParticipantId?: number;
         participantIds?: number[];
-        session?: {
-          sessionKind: 'jwt' | 'cookie';
-          thresholdSessionId: string;
-          signingGrantId: string;
+	        session?: {
+	          sessionKind: 'jwt' | 'cookie';
+	          walletId: string;
+	          nearAccountId: string;
+	          ed25519KeyScopeId: string;
+	          thresholdSessionId: string;
+	          signingGrantId: string;
           expiresAtMs: number;
           expiresAt?: string;
           participantIds?: number[];
@@ -425,6 +433,18 @@ export type WalletRegistrationFinalizeResponse =
       ecdsa?: {
         walletKeys: WalletRegistrationEcdsaWalletKey[];
       };
+    }
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ecdsa: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      ed25519?: never;
     }
   | {
       ok: true;
@@ -1024,7 +1044,7 @@ export type WalletEcdsaKeyFactsInventoryTarget = {
 
 export type WalletEcdsaKeyFactsInventoryAppSessionPolicy = {
   permission: 'ecdsa_key_facts_inventory';
-  walletId: AccountId;
+  walletId: WalletId;
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   expiresAtMs: number;
 };
@@ -1418,7 +1438,7 @@ export async function revokeWalletAuthMethod(args: {
 
 export async function fetchWalletEcdsaKeyFactsInventoryWithAppSession(args: {
   relayerUrl: string;
-  walletId: AccountId;
+  walletId: WalletId;
   rpId: string;
   appSessionJwt: string;
   keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
@@ -1461,7 +1481,7 @@ export async function fetchWalletEcdsaKeyFactsInventoryWithAppSession(args: {
   return {
     ok: true,
     records: parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: args.walletId,
+      walletId: args.walletId,
       rpId,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       records,
@@ -1474,7 +1494,7 @@ export async function fetchWalletEcdsaKeyFactsInventoryWithAppSession(args: {
 
 export async function fetchWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
   relayerUrl: string;
-  walletId: AccountId;
+  walletId: WalletId;
   rpId: string;
   credential: WebAuthnAuthenticationCredential;
   keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
@@ -1515,7 +1535,7 @@ export async function fetchWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
   return {
     ok: true,
     records: parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: args.walletId,
+      walletId: args.walletId,
       rpId,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       records,

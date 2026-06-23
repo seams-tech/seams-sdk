@@ -63,7 +63,7 @@ export type EmailOtpEcdsaSigningBootstrapResult = {
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  resolveThresholdEd25519SessionId?: (nearAccountId: AccountId) => string | null;
+  resolveThresholdEd25519SessionId?: (walletId: WalletId | string) => string | null;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     nearAccountId: AccountId;
     chain: 'near';
@@ -96,6 +96,7 @@ export type NearSigningApiDeps = {
     signingGrantId: string;
   }) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
   resolveAccountAuthMethodForSigning?: (args: {
+    walletId: WalletId;
     nearAccountId: AccountId;
     curve: 'ed25519';
     chain: 'near';

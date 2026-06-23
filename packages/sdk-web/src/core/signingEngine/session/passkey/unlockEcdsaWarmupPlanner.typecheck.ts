@@ -1,4 +1,4 @@
-import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget, WalletId } from '../../interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaWalletKey } from '../identity/evmFamilyEcdsaIdentity';
 import {
   parseActiveEcdsaSignerRecordForUnlock,
@@ -8,12 +8,11 @@ import {
   type KeyFactsInventoryRequiredEcdsaSignerRecord,
   type WalletUnlockSelection,
 } from './unlockEcdsaWarmupPlanner';
-import type { AccountId } from '@/core/types/accountIds';
 import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const walletKey: EvmFamilyEcdsaWalletKey;
-declare const walletId: AccountId;
+declare const walletId: WalletId;
 declare const accountSignerRecord: AccountSignerRecord;
 declare const rawSignerRecord: Record<string, unknown>;
 

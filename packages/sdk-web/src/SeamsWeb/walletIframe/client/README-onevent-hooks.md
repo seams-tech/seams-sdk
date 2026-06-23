@@ -13,8 +13,11 @@ This is the app-facing progress path. Lower-level signer worker progress is priv
 
 ```ts
 // Parent app code
-await walletRouter.registerPasskey({
-  nearAccountId,
+await walletRouter.registerWallet({
+  wallet: { kind: 'server_generated' },
+  rpId,
+  authMethod: { kind: 'passkey' },
+  signerSelection,
   options: {
     onEvent: (ev) => {
       // ev is RegistrationFlowEvent

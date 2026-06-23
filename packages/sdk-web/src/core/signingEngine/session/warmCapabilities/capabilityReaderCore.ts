@@ -1,4 +1,3 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
   resolveEmailOtpAuthLane,
   type EmailOtpAuthLane,
@@ -25,7 +24,11 @@ import {
 } from './readModel';
 import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import { assertWarmSessionEnvelopeInvariant } from './types';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+  type WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   parseSigningSessionSealKeyVersion,
   type SigningSessionSealKeyVersion,
@@ -65,7 +68,7 @@ export type WarmSessionCapabilityReaderCoreDeps = {
 };
 
 export type WarmSessionCapabilityReaderCore = {
-  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEd25519CapabilityState['record'];
@@ -194,7 +197,7 @@ export function createWarmSessionCapabilityReaderCore(
     const lane = selectedEcdsaLane({
       key,
       keyHandle: args.record.keyHandle,
-      walletId: toAccountId(args.record.walletId),
+      walletId: args.record.walletId,
       authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
       signingGrantId: args.record.signingGrantId,
       thresholdSessionId: args.record.thresholdSessionId,
@@ -295,8 +298,8 @@ export function createWarmSessionCapabilityReaderCore(
     };
   }
 
-  async function getWarmSession(walletId: AccountId | string): Promise<WarmSessionEnvelope> {
-    const normalizedWalletId = toAccountId(walletId);
+  async function getWarmSession(walletId: WalletId): Promise<WarmSessionEnvelope> {
+    const normalizedWalletId = toWalletId(walletId);
     const records = readWarmSessionCapabilityRecordsForWallet(normalizedWalletId);
 
     const ed25519Auth = resolveEd25519AuthMaterial(records.ed25519);

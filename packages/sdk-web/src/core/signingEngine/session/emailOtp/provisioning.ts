@@ -236,7 +236,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
     workerCtx,
   });
   const { policy } = await buildEd25519SessionPolicy({
+    walletId: String(nearAccountId),
     nearAccountId,
+    ed25519KeyScopeId: String(nearAccountId),
     rpId,
     relayerKeyId,
     runtimePolicyScope,
@@ -362,7 +364,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
     parseEd25519ClientVerifyingShareB64u(clientVerifyingShareB64uRaw);
   await args.persistWarmSessionEd25519Capability({
     kind: 'jwt_email_otp',
+    walletId: String(nearAccountId),
     nearAccountId,
+    ed25519KeyScopeId: String(nearAccountId),
     rpId,
     relayerUrl,
     relayerKeyId,

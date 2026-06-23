@@ -1,11 +1,15 @@
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/participants';
-import type { RegistrationSignerSelection } from '@shared/utils/registrationIntent';
+import {
+  implicitNearAccountProvisioning,
+  sponsoredNamedNearAccountProvisioning,
+  type RegistrationNearAccountProvisioning,
+  type RegistrationSignerSelection,
+} from '@shared/utils/registrationIntent';
+import { parseNamedNearAccountId } from '@shared/utils/near';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { RegistrationHooksOptions } from '@/core/types/sdkSentEvents';
-import {
-  THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
-} from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import { THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
@@ -15,18 +19,17 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 
 export function buildNearWalletRegistrationSignerSelection(args: {
   configs: SeamsConfigsReadonly;
-  nearAccountId: string;
+  accountProvisioning?: RegistrationNearAccountProvisioning;
   options: RegistrationHooksOptions;
   ecdsaChainTargets?: readonly ThresholdEcdsaChainTarget[];
 }): RegistrationSignerSelection {
   const ed25519 = {
-    nearAccountId: args.nearAccountId,
+    accountProvisioning: args.accountProvisioning ?? implicitNearAccountProvisioning(),
     signerSlot: 1,
     participantIds: [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS],
     keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
     keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
     derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-    createNearAccount: true,
   };
   const ecdsaChainTargets =
     args.ecdsaChainTargets ??
@@ -51,4 +54,14 @@ export function buildNearWalletRegistrationSignerSelection(args: {
       participantIds: [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.participantIds],
     },
   };
+}
+
+export function sponsoredNamedRegistrationProvisioningFromAccountId(
+  nearAccountId: string,
+): RegistrationNearAccountProvisioning {
+  const parsed = parseNamedNearAccountId(nearAccountId);
+  if (!parsed.ok) {
+    throw new Error(parsed.message);
+  }
+  return sponsoredNamedNearAccountProvisioning(parsed.value);
 }

@@ -30,10 +30,10 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
 
     PM_SYNC_ACCOUNT_FLOW: async (req: Req<'PM_SYNC_ACCOUNT_FLOW'>) => {
       const pm = deps.getSeamsWeb();
-      const { accountId } = req.payload || {};
+      const { walletId } = req.payload || {};
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.syncAccount({
-        ...(accountId ? { accountId } : {}),
+        ...(walletId ? { walletId } : {}),
         options: {
           ...withProgress(deps, req.requestId, {}),
         } as SyncAccountHooksOptions,
@@ -44,10 +44,10 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
 
     PM_START_EMAIL_RECOVERY: async (req: Req<'PM_START_EMAIL_RECOVERY'>) => {
       const pm = deps.getSeamsWeb();
-      const { accountId, options } = req.payload!;
+      const { walletId, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.startEmailRecovery({
-        accountId,
+        walletId,
         options: {
           ...withProgress(deps, req.requestId, options || {}),
         },
@@ -58,10 +58,10 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
 
     PM_FINALIZE_EMAIL_RECOVERY: async (req: Req<'PM_FINALIZE_EMAIL_RECOVERY'>) => {
       const pm = deps.getSeamsWeb();
-      const { accountId, nearPublicKey } = req.payload!;
+      const { walletId, nearPublicKey } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       await pm.recovery.finalizeEmailRecovery({
-        accountId,
+        walletId,
         ...(nearPublicKey ? { nearPublicKey } : {}),
         options: {
           ...withProgress(deps, req.requestId, {}),
@@ -73,10 +73,10 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
 
     PM_STOP_EMAIL_RECOVERY: async (req: Req<'PM_STOP_EMAIL_RECOVERY'>) => {
       const pm = deps.getSeamsWeb();
-      const { accountId, nearPublicKey } = req.payload || {};
+      const { walletId, nearPublicKey } = req.payload || {};
       if (deps.respondIfCancelled(req.requestId)) return;
       await pm.recovery.cancelEmailRecovery({
-        ...(accountId ? { accountId } : {}),
+        ...(walletId ? { walletId } : {}),
         ...(nearPublicKey ? { nearPublicKey } : {}),
       });
       if (deps.respondIfCancelled(req.requestId)) return;
@@ -84,4 +84,3 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
   };
 }
-

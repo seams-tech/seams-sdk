@@ -94,7 +94,9 @@ export class WalletIframeCoordinator {
     const walletIframeConfig = this.configs.wallet.iframe;
     const walletOrigin = walletIframeConfig?.origin;
     if (!walletOrigin) {
-      await this.refreshWalletSession(walletId);
+      if (walletId) {
+        await this.refreshWalletSession(walletId);
+      }
       return;
     }
 
@@ -141,7 +143,9 @@ export class WalletIframeCoordinator {
       }
     }
 
-    await this.refreshWalletSession(walletId);
+    if (walletId) {
+      await this.refreshWalletSession(walletId);
+    }
   }
 
   async requireRouter(walletId?: string): Promise<WalletIframeRouter> {

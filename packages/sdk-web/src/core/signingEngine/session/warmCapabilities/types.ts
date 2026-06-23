@@ -244,7 +244,7 @@ export type WarmSessionEcdsaCapabilityState =
   | WarmSessionEcdsaPrfBlockedState;
 
 export type WarmSessionEnvelope = {
-  walletId: AccountId;
+  walletId: WalletId;
   capabilities: {
     ed25519: WarmSessionEd25519CapabilityState;
     ecdsa: {
@@ -256,7 +256,7 @@ export type WarmSessionEnvelope = {
 };
 
 function assertCapabilityStateInvariant(args: {
-  walletId: AccountId;
+  walletId: WalletId;
   label: string;
   capability: WarmSessionEd25519CapabilityState | WarmSessionEcdsaCapabilityState;
 }): void {
@@ -351,7 +351,7 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: lane authMethod does not match record source`,
       );
     }
-  } else if (String(capability.record.nearAccountId) !== String(args.walletId)) {
+  } else if (String(capability.record.walletId) !== String(args.walletId)) {
     throw new Error(
       `[WarmSessionStore] invalid ${args.label} capability: record wallet does not match envelope wallet`,
     );
@@ -494,7 +494,9 @@ export function assertWarmSessionEnvelopeInvariant(
   return envelope;
 }
 type ProvisionWarmEd25519CapabilityCommonArgs = {
+  walletId: string;
   nearAccountId: AccountId | string;
+  ed25519KeyScopeId: string;
   relayerKeyId: string;
   auth?: Ed25519WalletSessionMintAuthorization;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -687,7 +689,7 @@ export type GetWarmEcdsaSigningSessionStatusArgs = Omit<
 };
 
 export type WarmSessionCapabilityReader = {
-  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEd25519CapabilityState['record'];

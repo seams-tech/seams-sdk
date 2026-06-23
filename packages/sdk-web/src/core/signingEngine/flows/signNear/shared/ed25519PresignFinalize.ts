@@ -1,7 +1,6 @@
 import { resolveNearNetwork } from '@/core/config/chains';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAccountData.types';
-import { toAccountId } from '@/core/types/accountIds';
 import {
   WorkerRequestType,
   WorkerResponseType,
@@ -223,9 +222,13 @@ function buildRouterAbNormalSigningScope(args: {
 }): RouterAbNormalSigningScopeV1Wire | null {
   const routerAbState = args.walletSessionState.routerAbNormalSigning;
   if (!routerAbState) return null;
+  const walletId = String(args.walletSessionState.signingLane.accountId || '').trim();
+  if (!walletId) {
+    throw new Error('[SigningEngine][near] Router A/B Ed25519 signing scope is missing wallet id');
+  }
   return {
     request_id: createRouterAbNormalSigningRequestId(args.operationId),
-    account_id: args.nearAccountId,
+    account_id: walletId,
     session_id: args.thresholdSessionId,
     signing_worker_id: routerAbState.signingWorkerId,
   };
@@ -238,11 +241,15 @@ function buildRouterAbPresignPoolRefillScope(args: {
 }): RouterAbNormalSigningScopeV1Wire | null {
   const routerAbState = args.walletSessionState.routerAbNormalSigning;
   if (!routerAbState) return null;
+  const walletId = String(args.walletSessionState.signingLane.accountId || '').trim();
+  if (!walletId) {
+    throw new Error('[SigningEngine][near] Router A/B Ed25519 presign scope is missing wallet id');
+  }
   return {
     request_id: createRouterAbNormalSigningRequestId(
       SigningSessionIds.signingOperation('presign-pool-refill'),
     ),
-    account_id: args.nearAccountId,
+    account_id: walletId,
     session_id: args.thresholdSessionId,
     signing_worker_id: routerAbState.signingWorkerId,
   };
@@ -961,7 +968,7 @@ async function prepareRouterAbEd25519SignatureOnlyBudgetFinalizer(args: {
       spend: {
         operationId: args.operationId,
         operationFingerprint: args.operationFingerprint,
-        walletId: toAccountId(args.nearAccountId),
+        walletId: args.walletSessionState.signingLane.accountId,
         signingGrantId: args.walletSessionState.signingLane.signingGrantId,
         lane: args.walletSessionState.signingLane,
         thresholdSessionIds: [args.walletSessionState.signingLane.thresholdSessionId],

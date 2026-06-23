@@ -4,7 +4,11 @@ import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
@@ -94,7 +98,7 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
-  walletId: AccountId;
+  walletId: WalletId;
   accountId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -119,7 +123,7 @@ export type SelectedEd25519SigningLaneIdentity = BaseSelectedSigningLaneIdentity
 export type SelectedEcdsaSigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
   curve: 'ecdsa';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  walletId: AccountId;
+  walletId: WalletId;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -159,7 +163,7 @@ export type ResolvedEcdsaSigningSessionIdentity = BaseResolvedSigningSessionIden
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  walletId: AccountId;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
@@ -207,7 +211,7 @@ export type Ed25519WalletSigningSpendPlan = {
 export type EcdsaWalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
-  walletId: AccountId;
+  walletId: WalletId;
   signingGrantId: SigningGrantId;
   lane: SelectedEcdsaSigningSessionPlanningLane;
   ecdsaKey?: never;
@@ -285,7 +289,7 @@ export type Ed25519SigningLaneSummary = BaseSigningLaneSummary & {
 
 export type EcdsaSigningLaneSummary = BaseSigningLaneSummary & {
   curve: 'ecdsa';
-  walletId: AccountId;
+  walletId: WalletId;
 };
 
 export type SigningLaneSummary = Ed25519SigningLaneSummary | EcdsaSigningLaneSummary;
@@ -425,8 +429,11 @@ export function normalizeWalletSigningSpendPlan(
     input.operationFingerprint != null
       ? SigningSessionIds.signingOperationFingerprint(input.operationFingerprint)
       : undefined;
-  const laneWalletId = toAccountId(lane.curve === 'ecdsa' ? lane.walletId : lane.accountId);
-  const walletId = toAccountId(input.walletId || laneWalletId);
+  const walletId =
+    lane.curve === 'ecdsa'
+      ? toWalletId(input.walletId || lane.walletId)
+      : toAccountId(input.walletId || lane.accountId);
+  const laneWalletId = lane.curve === 'ecdsa' ? toWalletId(lane.walletId) : toAccountId(lane.accountId);
   if (String(walletId) !== String(laneWalletId)) {
     throw new Error('[SigningSession] wallet signing spend account does not match lane');
   }
@@ -452,12 +459,12 @@ export function normalizeWalletSigningSpendPlan(
     lane.curve === 'ecdsa'
       ? {
           ...lane,
-          walletId,
+          walletId: toWalletId(walletId),
           signingGrantId,
         }
       : {
           ...lane,
-          accountId: walletId,
+          accountId: toAccountId(walletId),
           signingGrantId,
         };
   if (normalizedLane.curve === 'ecdsa') {

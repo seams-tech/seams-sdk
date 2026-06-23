@@ -18,6 +18,12 @@ import type {
   SigningSessionRetention,
   WalletAuthMethod,
 } from '@shared/utils';
+import type {
+  Ed25519KeyScopeId,
+  RegistrationNearAccountProvisioning,
+  ResolvedRegistrationNearAccount,
+  WalletId,
+} from '@shared/utils/registrationIntent';
 
 export type {
   AuthMethod,
@@ -345,6 +351,7 @@ export type SeamsConfigsReadonly = ReadonlyDeep<SeamsConfigsResolved>;
 
 export interface LoginState {
   isLoggedIn: boolean;
+  walletId: WalletId | null;
   nearAccountId: AccountId | null;
   publicKey: string | null;
   userData: ClientUserData | null;
@@ -384,16 +391,35 @@ export interface AppearanceConfig {
   };
 }
 
-export interface RegistrationResult {
-  success: boolean;
-  error?: string;
-  errorCode?: RegistrationErrorCode;
-  operationalPublicKey?: string | null;
-  nearAccountId?: AccountId;
-  transactionId?: string | null;
-  thresholdEcdsaEthereumAddress?: string;
-  thresholdEcdsaPublicKeyB64u?: string;
-}
+export type RegistrationResult =
+  | {
+      success: true;
+      walletId: WalletId;
+      accountProvisioning?: RegistrationNearAccountProvisioning;
+      resolvedAccount?: ResolvedRegistrationNearAccount;
+      ed25519KeyScopeId?: Ed25519KeyScopeId;
+      operationalPublicKey?: string | null;
+      nearAccountId?: AccountId;
+      transactionId?: string | null;
+      thresholdEcdsaEthereumAddress?: string;
+      thresholdEcdsaPublicKeyB64u?: string;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      success: false;
+      error: string;
+      errorCode?: RegistrationErrorCode;
+      walletId?: never;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      ed25519KeyScopeId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
+      thresholdEcdsaEthereumAddress?: never;
+      thresholdEcdsaPublicKeyB64u?: never;
+    };
 
 export type RelaySecretKeyAuthErrorCode =
   | 'secret_key_missing'

@@ -256,13 +256,13 @@ async function showEmailOtpRecoveryCodesInIframe(input: {
 async function storeEmailOtpRecoveryCodeBackupInIframe(input: {
   pm: ReturnType<HandlerDeps['getSeamsWeb']>;
   result: EmailOtpEnrollmentResult;
-  nearAccountId: string;
+  walletId: string;
   relayUrl?: string;
   appSessionJwt?: string;
 }) {
   return await backupEmailOtpRecoveryCodes({
     relayUrl: String(input.relayUrl || '').trim(),
-    walletId: input.nearAccountId,
+    walletId: input.walletId,
     enrollment: input.result,
     storageScope: 'iframe_origin_indexeddb',
     ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
@@ -410,7 +410,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const backedUpEnrollment = await storeEmailOtpRecoveryCodeBackupInIframe({
         pm,
         result,
-        nearAccountId: String(rawPayload.nearAccountId || '').trim(),
+        walletId: String(rawPayload.walletId || rawPayload.nearAccountId || '').trim(),
         relayUrl: typeof rawPayload.relayUrl === 'string' ? rawPayload.relayUrl : undefined,
         appSessionJwt:
           typeof rawPayload.appSessionJwt === 'string' ? rawPayload.appSessionJwt : undefined,
@@ -490,7 +490,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const backedUpEnrollment = await storeEmailOtpRecoveryCodeBackupInIframe({
         pm,
         result: result.enrollment,
-        nearAccountId: walletIdFromPayloadSession(rawPayload.walletSession),
+        walletId: walletIdFromPayloadSession(rawPayload.walletSession),
         relayUrl: typeof rawPayload.relayUrl === 'string' ? rawPayload.relayUrl : undefined,
         appSessionJwt:
           typeof rawPayload.appSessionJwt === 'string' ? rawPayload.appSessionJwt : undefined,

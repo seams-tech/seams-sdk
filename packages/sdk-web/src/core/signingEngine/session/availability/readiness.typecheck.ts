@@ -1,5 +1,5 @@
 import { toAccountId } from '@/core/types/accountIds';
-import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletBudgetOwner } from '../budget/budget';
 import {
   clearSigningGrant,
@@ -11,6 +11,7 @@ import {
 
 declare const walletId: WalletId;
 const accountId = toAccountId('owner.testnet');
+const ed25519WalletId = toWalletId('owner.testnet');
 declare const deps: SigningGrantReadinessDeps;
 declare const statusOverrides: Map<string, SigningGrantStatusOverride>;
 
@@ -23,7 +24,7 @@ void validEcdsaOwner;
 const validReadinessOverride: SigningGrantStatusOverride = {
   owner: {
     curve: 'ed25519',
-    accountId,
+    accountId: ed25519WalletId,
   },
   signingGrantId: 'wallet-session-id',
   status: { sessionId: 'wallet-session-id', status: 'active', remainingUses: 1 },
@@ -35,7 +36,7 @@ void validReadinessOverride;
 const invalidReadinessOverrideWithRawAccountId: SigningGrantStatusOverride = {
   owner: {
     curve: 'ed25519',
-    // @ts-expect-error readiness owners require normalized AccountId branding.
+    // @ts-expect-error readiness owners require normalized WalletId branding.
     accountId: 'owner.testnet',
   },
   signingGrantId: 'wallet-session-id',
@@ -55,10 +56,10 @@ const invalidReadinessOverrideWithWalletId: SigningGrantStatusOverride = {
 };
 void invalidReadinessOverrideWithWalletId;
 
-// @ts-expect-error ECDSA owner cannot carry NEAR account identity.
 const invalidEcdsaOwnerWithAccountId: WalletBudgetOwner = {
   curve: 'ecdsa',
   walletId,
+  // @ts-expect-error ECDSA owner cannot carry NEAR account identity.
   accountId,
 };
 void invalidEcdsaOwnerWithAccountId;

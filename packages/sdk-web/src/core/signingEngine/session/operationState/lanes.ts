@@ -23,7 +23,10 @@ import {
   type ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   BackingMaterialSessionId,
@@ -54,7 +57,7 @@ type BaseEd25519SigningLaneInput = BaseSigningLaneInput & {
 type BaseEcdsaSigningLaneInput = BaseSigningLaneInput & {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: string;
-  walletId: AccountId;
+  walletId: WalletId;
 };
 export type NearTransactionSigningLane = SelectedEd25519Lane & SelectedSigningSessionPlanningLane;
 export type EcdsaTransactionSigningLane = SelectedEcdsaLane & SelectedSigningSessionPlanningLane;
@@ -237,7 +240,7 @@ function signingSessionOriginFromStorageSource(
 type EcdsaPasskeyStorageSource = Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 
 type EcdsaCapabilityLookupArgs = {
-  walletId: AccountId;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   thresholdSessionId: string;

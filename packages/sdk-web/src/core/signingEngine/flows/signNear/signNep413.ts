@@ -55,7 +55,7 @@ import {
 } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
-import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
+import type { NearNep413Payload } from '../../interfaces/near';
 import { tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning } from './shared/ed25519PresignFinalize';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
 import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRestore';
@@ -73,27 +73,11 @@ type RouterAbNearNep413SigningPayload = {
  */
 export async function signNep413Message({
   ctx,
+  commandSubject,
   nearAccount,
   signingSessionCoordinator,
   payload,
-}: {
-  ctx: NearSigningRuntimeDeps;
-  nearAccount: NearAccountRef;
-  signingSessionCoordinator: SigningSessionCoordinator;
-  payload: {
-    message: string;
-    recipient: string;
-    nonce: string;
-    state: string | null;
-    accountId: string;
-    signerSlot?: number;
-    title?: string;
-    body?: string;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    sessionId?: string;
-    nearRpcUrl?: string;
-  };
-}): Promise<{
+}: NearNep413Payload): Promise<{
   success: boolean;
   accountId: string;
   publicKey: string;
@@ -115,7 +99,7 @@ export async function signNep413Message({
     const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({
       warmSessionReader,
       requiredSignatureUses,
-      nearAccount,
+      commandSubject,
       operationLabel: 'NEP-413 signing',
     });
     const resolvedSigningSession = {
@@ -193,14 +177,15 @@ export async function signNep413Message({
       signingSessionPlan: resolvedSigningSession.signingSessionPlan,
       signingOperation,
       runtime: touchConfirm,
-      request: {
-        ctx: { touchConfirm },
-        sessionId,
-        chain: 'near',
-        kind: 'nep413',
-        ...preparedStepUp.confirmationAuthPayload,
-        nearAccountId,
-        nearPublicKeyStr: signingContext.nearPublicKey,
+        request: {
+          ctx: { touchConfirm },
+          sessionId,
+          chain: 'near',
+          kind: 'nep413',
+          ...preparedStepUp.confirmationAuthPayload,
+          walletId: String(signingSessionAuthPlan.lane.accountId),
+          nearAccountId,
+          nearPublicKeyStr: signingContext.nearPublicKey,
         message: payload.message,
         recipient: payload.recipient,
         title: payload.title,

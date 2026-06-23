@@ -11,7 +11,7 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { NearSigningRuntimeDeps } from './runtime';
-import type { NearAccountRef } from './ecdsaChainTarget';
+import type { NearAccountRef, NearCommandSubject } from './ecdsaChainTarget';
 import type {
   EmailOtpStepUpAuthorization,
   PasskeyStepUpAuthorization,
@@ -172,6 +172,7 @@ export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmiss
 
 export type NearTransactionWithActionsPayload = {
   ctx: NearSigningRuntimeDeps;
+  commandSubject: NearCommandSubject;
   nearAccount: NearAccountRef;
   transaction: TransactionInputWasm;
   rpcCall: RpcCallPayload;
@@ -193,6 +194,7 @@ export type NearTransactionWithActionsPayload = {
 
 export type NearDelegateActionPayload = {
   ctx: NearSigningRuntimeDeps;
+  commandSubject: NearCommandSubject;
   nearAccount: NearAccountRef;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
@@ -207,6 +209,7 @@ export type NearDelegateActionPayload = {
 
 export type NearNep413Payload = {
   ctx: NearSigningRuntimeDeps;
+  commandSubject: NearCommandSubject;
   nearAccount: NearAccountRef;
   signingSessionCoordinator: SigningSessionCoordinator;
   payload: {
@@ -220,6 +223,7 @@ export type NearNep413Payload = {
     body?: string;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     sessionId?: string;
+    nearRpcUrl?: string;
   };
 };
 

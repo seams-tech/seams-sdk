@@ -6,8 +6,7 @@ import {
 } from '@/core/types/sdkSentEvents';
 import type { SyncAccountResult } from '@/core/types/sdkPublicResults';
 import type { AccountSyncWebContext } from '@/SeamsWeb/signingSurface/types';
-import type { AccountId, WebAuthnAuthenticationCredential } from '@/core/types';
-import { toAccountId } from '@/core/types/accountIds';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { base64UrlDecode } from '@shared/utils/base64';
@@ -24,7 +23,11 @@ import {
   storeThresholdEd25519KeyMaterial,
 } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { formatEd25519HssKeyVersionForWire } from '@/core/signingEngine/session/keyMaterialBrands';
-import { IndexedDBManager } from '@/core/indexedDB';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseRecoveryResolvedWalletBindingFromResponse,
+  type RecoveryResolvedWalletBinding,
+} from './recoveryWalletBinding';
 
 export type { SyncAccountResult };
 
@@ -36,11 +39,11 @@ function thresholdEd25519SessionFromSyncVerifyResponse(
 
 export async function syncAccount(
   context: AccountSyncWebContext,
-  accountId: AccountId | null,
+  walletId: string | null,
   options?: SyncAccountHooksOptions,
 ): Promise<SyncAccountResult> {
   const onEvent = options?.onEvent;
-  const flowId = `account-sync:${String(accountId || 'discovery')}`;
+  const flowId = `account-sync:${String(walletId || 'discovery')}`;
   const emit = (event: Omit<CreateAccountSyncFlowEventInput, 'flowId'>): void => {
     try {
       onEvent?.(createAccountSyncFlowEvent({ flowId, ...event }));
@@ -52,12 +55,12 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.FAILED,
       status: 'failed',
-      ...(accountId ? { accountId: String(accountId) } : {}),
+      ...(walletId ? { accountId: String(walletId) } : {}),
       error: { code: 'missing_relayer_url', message: 'Missing relayer url' },
     });
     return {
       success: false,
-      accountId: accountId ? String(accountId) : '',
+      accountId: walletId ? String(walletId) : '',
       publicKey: '',
       message: 'Missing relayer url (configs.network.relayer.url)',
       error: 'missing_relayer_url',
@@ -70,12 +73,12 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.FAILED,
       status: 'failed',
-      ...(accountId ? { accountId: String(accountId) } : {}),
+      ...(walletId ? { accountId: String(walletId) } : {}),
       error: { code: 'missing_rp_id', message: 'Missing rpId for WebAuthn sync' },
     });
     return {
       success: false,
-      accountId: accountId ? String(accountId) : '',
+      accountId: walletId ? String(walletId) : '',
       publicKey: '',
       message: 'Missing rpId for WebAuthn sync',
       error: 'missing_rp_id',
@@ -84,12 +87,12 @@ export async function syncAccount(
   }
 
   try {
-    const normalizedRequestedAccountId = accountId ? toAccountId(String(accountId)) : null;
+    const requestedWalletId = walletId ? walletIdFromString(String(walletId)) : null;
 
     emit({
       phase: AccountSyncEventPhase.STEP_01_STARTED,
       status: 'started',
-      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      ...(requestedWalletId ? { accountId: String(requestedWalletId) } : {}),
     });
 
     // 1) Get a relay-minted challenge for discovery.
@@ -98,9 +101,7 @@ export async function syncAccount(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         rp_id: rpId,
-        ...(normalizedRequestedAccountId
-          ? { account_id: String(normalizedRequestedAccountId) }
-          : {}),
+        ...(requestedWalletId ? { account_id: String(requestedWalletId) } : {}),
       }),
     });
     const optionsJsonUnknown: unknown = await optionsResp.json().catch(() => ({}));
@@ -121,6 +122,17 @@ export async function syncAccount(
     if (!challengeId || !challengeB64u) {
       throw new Error('sync-account/options returned invalid challenge');
     }
+    const optionsWalletBinding: RecoveryResolvedWalletBinding | null = isObject(
+      optionsJson.walletBinding,
+    )
+      ? parseRecoveryResolvedWalletBindingFromResponse(
+          optionsJson as Record<string, unknown>,
+          'sync-account/options',
+        )
+      : null;
+    if (requestedWalletId && !optionsWalletBinding) {
+      throw new Error(`No wallet binding found for account ${String(requestedWalletId)}`);
+    }
 
     const credentialIdsFromOptions = Array.isArray(
       (optionsJson as { credentialIds?: unknown }).credentialIds,
@@ -129,27 +141,25 @@ export async function syncAccount(
           .map((id) => String(id || '').trim())
           .filter((id) => id.length > 0)
       : [];
-    if (normalizedRequestedAccountId && credentialIdsFromOptions.length === 0) {
-      throw new Error(
-        `No passkeys found for account ${String(normalizedRequestedAccountId)} on this relay`,
-      );
+    if (requestedWalletId && credentialIdsFromOptions.length === 0) {
+      throw new Error(`No passkeys found for account ${String(requestedWalletId)} on this relay`);
     }
 
     emit({
       phase: AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED,
       status: 'waiting_for_user',
-      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      ...(requestedWalletId ? { accountId: String(requestedWalletId) } : {}),
       interaction: { kind: 'passkey_assert', overlay: 'show' },
     });
 
-    const allowCredentials: WebAuthnAllowCredential[] = normalizedRequestedAccountId
+    const allowCredentials: WebAuthnAllowCredential[] = requestedWalletId
       ? credentialIdsFromOptions.map((id) => ({ id, type: 'public-key', transports: [] }))
       : [];
 
     // Discovery mode intentionally uses an empty `allowCredentials`, letting the browser ask
     // the user to choose any passkey for this `rpId`.
     const credential = await context.signingEngine.getAuthenticationCredentialsSerialized({
-      subjectId: String(accountId || 'account-sync'),
+      subjectId: String(requestedWalletId || 'account-sync'),
       challengeB64u,
       allowCredentials,
       includeSecondPrfOutput: false,
@@ -157,14 +167,14 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_SUCCEEDED,
       status: 'succeeded',
-      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      ...(requestedWalletId ? { accountId: String(requestedWalletId) } : {}),
       interaction: { kind: 'passkey_assert', overlay: 'hide' },
     });
     let thresholdWarmPolicyDraft: ReturnType<typeof createThresholdWarmSessionPolicyDraft> = null;
     let thresholdEd25519SessionRequest: ReturnType<
       typeof buildThresholdWarmSessionRequestEnvelope
     > | null = null;
-    if (normalizedRequestedAccountId) {
+    if (optionsWalletBinding) {
       thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context, {
         kind: 'generated_signing_grant',
       });
@@ -172,7 +182,9 @@ export async function syncAccount(
         throw new Error('Threshold warm-session defaults are disabled for sync bootstrap');
       }
       thresholdEd25519SessionRequest = buildThresholdWarmSessionRequestEnvelope({
-        nearAccountId: String(normalizedRequestedAccountId),
+        walletId: String(optionsWalletBinding.walletId),
+        nearAccountId: String(optionsWalletBinding.nearAccountId),
+        ed25519KeyScopeId: String(optionsWalletBinding.ed25519KeyScopeId),
         rpId,
         requestedPolicy: thresholdWarmPolicyDraft,
       });
@@ -191,7 +203,7 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.STEP_03_RELAY_VERIFY_STARTED,
       status: 'running',
-      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      ...(requestedWalletId ? { accountId: String(requestedWalletId) } : {}),
     });
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
       method: 'POST',
@@ -212,20 +224,18 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.STEP_03_RELAY_VERIFY_SUCCEEDED,
       status: 'succeeded',
-      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      ...(requestedWalletId ? { accountId: String(requestedWalletId) } : {}),
     });
 
-    const syncedAccountId = String(verifyJson.accountId || '').trim();
-    if (!syncedAccountId) {
-      throw new Error('sync-account/verify returned missing accountId');
-    }
-    if (normalizedRequestedAccountId && String(normalizedRequestedAccountId) !== syncedAccountId) {
-      throw new Error(
-        `Selected passkey is not registered for account ${String(normalizedRequestedAccountId)}`,
-      );
+    const resolvedWalletBinding = parseRecoveryResolvedWalletBindingFromResponse(
+      verifyJson as Record<string, unknown>,
+      'sync-account/verify',
+    );
+    if (requestedWalletId && String(requestedWalletId) !== String(resolvedWalletBinding.walletId)) {
+      throw new Error(`Selected passkey is not registered for account ${String(requestedWalletId)}`);
     }
 
-    const signerSlot = coerceSignerSlot(verifyJson.signerSlot, {
+    const signerSlot = coerceSignerSlot(resolvedWalletBinding.signerSlot, {
       min: 1,
       fallback: 1,
     });
@@ -241,9 +251,9 @@ export async function syncAccount(
     const credentialPublicKey = base64UrlDecode(credentialPublicKeyB64u);
 
     // 2) Persist user + authenticator data locally.
-    const normalizedAccountId = toAccountId(syncedAccountId);
+    const normalizedNearAccountId = resolvedWalletBinding.nearAccountId;
     await context.signingEngine.storeUserData({
-      nearAccountId: normalizedAccountId,
+      nearAccountId: normalizedNearAccountId,
       signerSlot,
       operationalPublicKey: publicKey,
       lastUpdated: Date.now(),
@@ -254,11 +264,11 @@ export async function syncAccount(
       version: 2,
     });
     await context.signingEngine.storeAuthenticator({
-      nearAccountId: normalizedAccountId,
+      nearAccountId: normalizedNearAccountId,
       credentialId: String(credential.rawId || ''),
       credentialPublicKey,
       transports: [],
-      name: `Passkey for ${syncedAccountId}`,
+      name: `Passkey for ${String(resolvedWalletBinding.walletId)}`,
       registered: new Date().toISOString(),
       syncedAt: new Date().toISOString(),
       signerSlot,
@@ -267,7 +277,7 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.STEP_04_AUTHENTICATOR_SAVED,
       status: 'succeeded',
-      accountId: syncedAccountId,
+      accountId: String(resolvedWalletBinding.walletId),
       data: { signerSlot },
     });
 
@@ -287,7 +297,7 @@ export async function syncAccount(
       const thresholdKeyMaterialCreatedAtMs = Date.now();
 
       await storeThresholdEd25519KeyMaterial({
-        nearAccountId: normalizedAccountId,
+        nearAccountId: normalizedNearAccountId,
         signerSlot,
         signerId: publicKey,
         publicKey,
@@ -303,18 +313,16 @@ export async function syncAccount(
         timestamp: thresholdKeyMaterialCreatedAtMs,
       });
 
-      if (
-        thresholdWarmPolicyDraft &&
-        normalizedRequestedAccountId &&
-        String(normalizedRequestedAccountId) === String(normalizedAccountId)
-      ) {
+      if (thresholdWarmPolicyDraft && optionsWalletBinding) {
         const thresholdSession = thresholdEd25519SessionFromSyncVerifyResponse(thresholdEd25519);
         if (!thresholdSession) {
           throw new Error('sync-account/verify did not return threshold session bootstrap data');
         }
         await hydrateThresholdWarmSessionFromRelay({
           context,
-          nearAccountId: normalizedAccountId,
+          walletId: String(resolvedWalletBinding.walletId),
+          nearAccountId: normalizedNearAccountId,
+          ed25519KeyScopeId: String(resolvedWalletBinding.ed25519KeyScopeId),
           relayerUrl,
           rpId,
           relayerKeyId,
@@ -329,7 +337,9 @@ export async function syncAccount(
         await reconstructThresholdEd25519SigningMaterialFromWarmSession({
           context,
           credential,
-          nearAccountId: normalizedAccountId,
+          walletId: String(resolvedWalletBinding.walletId),
+          nearAccountId: normalizedNearAccountId,
+          ed25519KeyScopeId: resolvedWalletBinding.ed25519KeyScopeId,
           rpId,
           relayerUrl,
           relayerKeyId,
@@ -344,7 +354,7 @@ export async function syncAccount(
         emit({
           phase: AccountSyncEventPhase.STEP_05_THRESHOLD_SESSION_READY,
           status: 'succeeded',
-          accountId: syncedAccountId,
+          accountId: String(resolvedWalletBinding.walletId),
           authMethod: 'warm_session',
         });
       }
@@ -352,7 +362,9 @@ export async function syncAccount(
 
     const restoredLogin = await restoreLocalLoginState({
       context,
-      nearAccountId: normalizedAccountId,
+      walletId: resolvedWalletBinding.walletId,
+      nearAccountId: normalizedNearAccountId,
+      ed25519KeyScopeId: resolvedWalletBinding.ed25519KeyScopeId,
       signerSlot,
     });
     const isLoggedIn = restoredLogin.isLoggedIn;
@@ -360,12 +372,15 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.STEP_06_COMPLETED,
       status: 'succeeded',
-      accountId: syncedAccountId,
+      accountId: String(resolvedWalletBinding.walletId),
     });
 
     return {
       success: true,
-      accountId: syncedAccountId,
+      accountId: String(resolvedWalletBinding.walletId),
+      walletId: String(resolvedWalletBinding.walletId),
+      nearAccountId: String(resolvedWalletBinding.nearAccountId),
+      ed25519KeyScopeId: String(resolvedWalletBinding.ed25519KeyScopeId),
       publicKey,
       message: 'Account synced successfully',
       loginState: { isLoggedIn },
@@ -375,12 +390,12 @@ export async function syncAccount(
     emit({
       phase: AccountSyncEventPhase.FAILED,
       status: 'failed',
-      ...(accountId ? { accountId: String(accountId) } : {}),
+      ...(walletId ? { accountId: String(walletId) } : {}),
       error: { message: msg },
     });
     return {
       success: false,
-      accountId: accountId ? String(accountId) : '',
+      accountId: walletId ? String(walletId) : '',
       publicKey: '',
       message: msg,
       error: msg,

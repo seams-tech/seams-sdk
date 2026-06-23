@@ -10,6 +10,8 @@ import {
   type ConfirmSigningOperationParams,
   type ConfirmSigningOperationResult,
   type ConfirmSigningOperationRuntime,
+  type ConfirmSignatureOnlySigningOperationRequest,
+  type ConfirmSignatureOnlySigningOperationResult,
   type ConfirmTransactionSigningOperationRequest,
   type ConfirmTransactionSigningOperationResult,
 } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
@@ -36,6 +38,8 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 export type {
   ConfirmIntentDigestSigningOperationRequest,
   ConfirmIntentDigestSigningOperationResult,
+  ConfirmSignatureOnlySigningOperationRequest,
+  ConfirmSignatureOnlySigningOperationResult,
   ConfirmTransactionSigningOperationRequest,
   ConfirmTransactionSigningOperationResult,
 } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
@@ -65,6 +69,10 @@ export function createSigningConfirmationCommandHandler(args: {
 }): () => Promise<ConfirmTransactionSigningOperationResult>;
 export function createSigningConfirmationCommandHandler(args: {
   runtime: ConfirmSigningOperationRuntime;
+  request: ConfirmSignatureOnlySigningOperationRequest;
+}): () => Promise<ConfirmSignatureOnlySigningOperationResult>;
+export function createSigningConfirmationCommandHandler(args: {
+  runtime: ConfirmSigningOperationRuntime;
   request: ConfirmSigningOperationParams;
 }): () => Promise<ConfirmSigningOperationResult>;
 export function createSigningConfirmationCommandHandler(args: {
@@ -90,6 +98,12 @@ export async function runSigningConfirmationCommand(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: ConfirmTransactionSigningOperationRequest;
 }): Promise<ConfirmTransactionSigningOperationResult>;
+export async function runSigningConfirmationCommand(args: {
+  signingSessionPlan: SigningSessionPlan;
+  signingOperation: SigningOperationContext;
+  runtime: ConfirmSigningOperationRuntime;
+  request: ConfirmSignatureOnlySigningOperationRequest;
+}): Promise<ConfirmSignatureOnlySigningOperationResult>;
 export async function runSigningConfirmationCommand(args: {
   signingSessionPlan: SigningSessionPlan;
   signingOperation: SigningOperationContext;

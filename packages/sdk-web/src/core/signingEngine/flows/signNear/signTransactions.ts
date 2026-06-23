@@ -428,14 +428,15 @@ export async function runNearTransactionWithActionsSigning({
     signingSessionPlan: ed25519SigningBoundary.signingSessionPlan,
     signingOperation,
     runtime: touchConfirm,
-    request: {
-      ctx: { touchConfirm },
-      sessionId,
-      chain: 'near',
-      kind: 'transaction',
-      ...confirmationAuthPayload,
-      txSigningRequests: [confirmationTransaction],
-      rpcCall: resolvedRpcCall,
+      request: {
+        ctx: { touchConfirm },
+        sessionId,
+        chain: 'near',
+        kind: 'transaction',
+        ...confirmationAuthPayload,
+        walletId: String(signingLane.accountId),
+        txSigningRequests: [confirmationTransaction],
+        rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
       confirmationConfigOverride: confirmationConfigForSigningAuthPlan({
         signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
@@ -722,7 +723,7 @@ export async function runNearTransactionWithActionsSigning({
     const spend = {
       operationId: confirmationOperationId,
       ...(operationFingerprint ? { operationFingerprint } : {}),
-      walletId: nearAccountId,
+      walletId: buildBudgetSigningLane().accountId,
       signingGrantId: buildBudgetSigningLane().signingGrantId,
       lane: buildBudgetSigningLane(),
       thresholdSessionIds: [operationState.lane.thresholdSessionId],

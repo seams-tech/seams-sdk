@@ -29,7 +29,9 @@ export async function connectEd25519Session(args: {
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   relayerKeyId: string;
+  walletId: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   participantIds?: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
@@ -68,7 +70,9 @@ export async function connectEd25519Session(args: {
   const runtimePolicyScope = args.runtimePolicyScope || appSessionRuntimePolicyScope;
 
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
+    walletId: args.walletId,
     nearAccountId: args.nearAccountId,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
     rpId,
     relayerKeyId: args.relayerKeyId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

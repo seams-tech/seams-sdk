@@ -7,8 +7,9 @@ import type {
 } from '@/core/types/sdkPublicResults';
 import type { AccountId } from '@/core/types/accountIds';
 import { base64Encode } from '@shared/utils/encoders';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { emitNearSigningEvent } from './signingEventHelpers';
+import { resolveNearCommandSubject } from './commandSubject';
 
 export type { SignNEP413MessageParams, SignNEP413MessageResult };
 
@@ -32,6 +33,7 @@ export type { SignNEP413MessageParams, SignNEP413MessageResult };
 export async function signNEP413Message(args: {
   context: NearSigningWebContext;
   nearAccountId: AccountId;
+  walletSession: WalletSessionRef;
   params: SignNEP413MessageParams;
   options: SignNEP413HooksOptions;
 }): Promise<SignNEP413MessageResult> {
@@ -86,7 +88,10 @@ export async function signNEP413Message(args: {
       chain: 'near',
       kind: 'nep413',
       args: {
-        nearAccount: nearAccountRefFromAccountId(nearAccountId),
+        commandSubject: resolveNearCommandSubject({
+          nearAccountId,
+          walletSession: args.walletSession,
+        }),
         message: params.message,
         recipient: params.recipient,
         nonce,

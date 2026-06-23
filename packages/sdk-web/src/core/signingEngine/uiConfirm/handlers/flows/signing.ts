@@ -4,6 +4,7 @@ import type { UserConfirmSecurityContext, TransactionContext } from '@/core/type
 import type { ThemeName } from '@/core/types/seams';
 import type { NonceLease } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
+import type { NearExecutionReadiness } from '@/core/signingEngine/nonce/nearNonceLane';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   UserConfirmationType,
@@ -28,6 +29,7 @@ import {
   getSigningAuthMode,
   getTxCount,
   getSignTransactionPayload,
+  getWalletId,
 } from './adapters/request';
 import { toError } from '@shared/utils/errors';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
@@ -65,6 +67,67 @@ function shouldReserveNearNonceLeases(
   if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) return false;
   if (request.type !== UserConfirmationType.SIGN_TRANSACTION) return false;
   return transactionSummary.type !== 'delegateAction';
+}
+
+type NearContextFetchResult = {
+  transactionContext: TransactionContext | null;
+  error?: string;
+  details?: string;
+  readiness?: NearExecutionReadiness;
+  reservedNonces?: string[];
+  nonceLeases?: NonceLease[];
+};
+
+type NearSigningReadinessMode =
+  | {
+      kind: 'transaction_access_key';
+      reserveNonces: boolean;
+    }
+  | {
+      kind: 'signature_only';
+      reserveNonces?: never;
+    };
+
+function resolveNearSigningReadinessMode(args: {
+  request: SigningUserConfirmRequest;
+  transactionSummary: TransactionSummary;
+}): NearSigningReadinessMode {
+  if (args.request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
+    return { kind: 'signature_only' };
+  }
+  if (
+    args.request.type === UserConfirmationType.SIGN_TRANSACTION &&
+    args.transactionSummary.type === 'delegateAction'
+  ) {
+    return { kind: 'signature_only' };
+  }
+  return {
+    kind: 'transaction_access_key',
+    reserveNonces: shouldReserveNearNonceLeases(args.request, args.transactionSummary),
+  };
+}
+
+function nearRpcFailureMessage(args: {
+  error?: string;
+  details?: string;
+  readiness?: NearExecutionReadiness;
+}): string {
+  if (
+    args.readiness?.kind === 'implicit_unfunded' ||
+    args.error === 'NEAR_IMPLICIT_ACCOUNT_UNFUNDED'
+  ) {
+    return (
+      args.details ||
+      'NEAR implicit account is not funded on-chain. Fund the account before direct NEAR signing.'
+    );
+  }
+  if (
+    args.readiness?.kind === 'account_lookup_failed' ||
+    args.error === 'NEAR_ACCOUNT_LOOKUP_FAILED'
+  ) {
+    return args.details || 'NEAR account access-key lookup failed.';
+  }
+  return args.details ? `${ERROR_MESSAGES.nearRpcFailed}: ${args.details}` : ERROR_MESSAGES.nearRpcFailed;
 }
 
 function normalizeSixDigitOtpCode(value: unknown): string {
@@ -214,20 +277,23 @@ export async function handleTransactionSigningFlow(
     }
     let resolvedChallengeB64u = resolvedIntentDigest;
     resolvedIntentDigestForResponse = resolvedIntentDigest;
-    const reserveNearNonces = shouldReserveNearNonceLeases(request, transactionSummary);
+    const readinessMode = resolveNearSigningReadinessMode({ request, transactionSummary });
 
-    // 1) Start NEAR context fetch + nonce reservation immediately.
-    const nearContextPromise = adapters.near.fetchNearContext({
-      nearAccountId,
-      nearPublicKeyStr: getNearPublicKeyStr(request),
-      txCount: usesNeeded,
-      reserveNonces: reserveNearNonces,
-      allowFallback: false,
-      operationId: request.requestId,
-      operationFingerprint: resolvedIntentDigest || request.requestId,
-    });
+    const nearContextPromise =
+      readinessMode.kind === 'transaction_access_key'
+        ? adapters.near.fetchNearContext({
+            walletId: getWalletId(request),
+            nearAccountId,
+            nearPublicKeyStr: getNearPublicKeyStr(request),
+            txCount: usesNeeded,
+            reserveNonces: readinessMode.reserveNonces,
+            allowFallback: false,
+            operationId: request.requestId,
+            operationFingerprint: resolvedIntentDigest || request.requestId,
+          })
+        : undefined;
 
-    // 2) Mount confirmer immediately (non-blocking) while NEAR context fetch is in flight.
+    // 2) Mount confirmer immediately while any required readiness work is in flight.
     const rpId = adapters.security.getRpId();
     const baseSecurityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
       ? { rpId }
@@ -237,7 +303,7 @@ export async function handleTransactionSigningFlow(
       resolvePromptReady = resolve;
     });
     let decisionResolved = false;
-    let nearContextReady = false;
+    let nearContextReady = readinessMode.kind === 'signature_only';
     let nearContextFailed = false;
     let intentPreparationPending = !!intentPreparation;
     const confirmationReadiness = consumeConfirmationReadiness(request.requestId);
@@ -262,7 +328,7 @@ export async function handleTransactionSigningFlow(
     };
     const promptDecisionPromise = session.promptUser({
       securityContext: baseSecurityContext,
-      loading: true,
+      loading: isConfirmationLoading(),
       onMounted: () => {
         markPromptReady();
         if (confirmationReadinessPending && confirmationReadinessBody) {
@@ -275,15 +341,7 @@ export async function handleTransactionSigningFlow(
     });
     void promptDecisionPromise.finally(markPromptReady);
 
-    let nearRpcResolved:
-      | {
-          transactionContext: TransactionContext | null;
-          error?: string;
-          details?: string;
-          reservedNonces?: string[];
-          nonceLeases?: NonceLease[];
-        }
-      | undefined;
+    let nearRpcResolved: NearContextFetchResult | undefined;
     const applyPreparedIntentData = (prepared: IntentDigestPreparationResult): void => {
       const preparedIntentDigest = String(prepared.intentDigest || '').trim();
       const preparedChallengeB64u = String(prepared.challengeB64u || '').trim();
@@ -354,37 +412,37 @@ export async function handleTransactionSigningFlow(
           });
         });
     }
-    void nearContextPromise.then(async (nearRpc) => {
-      nearRpcResolved = nearRpc;
-      nearContextReady = true;
-      await promptReady;
-      if (!nearRpc.transactionContext) {
-        nearContextFailed = true;
+    if (nearContextPromise) {
+      void nearContextPromise.then(async (nearRpc) => {
+        nearRpcResolved = nearRpc;
+        nearContextReady = true;
+        await promptReady;
+        if (!nearRpc.transactionContext) {
+          nearContextFailed = true;
+          if (decisionResolved) return;
+          session.updateUI({
+            loading: false,
+            errorMessage: nearRpcFailureMessage(nearRpc),
+          });
+          return;
+        }
+        session.setNonceLeases(nearRpc.nonceLeases);
+        const transactionContext: TransactionContext = nearRpc.transactionContext;
+        const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
+          ? {
+              rpId,
+              blockHeight: transactionContext.txBlockHeight,
+              blockHash: transactionContext.txBlockHash,
+            }
+          : undefined;
         if (decisionResolved) return;
+        // Keep confirm disabled until intent preparation also completes.
         session.updateUI({
-          loading: false,
-          errorMessage: nearRpc.details
-            ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}`
-            : ERROR_MESSAGES.nearRpcFailed,
+          securityContext,
+          loading: isConfirmationLoading(),
         });
-        return;
-      }
-      session.setNonceLeases(nearRpc.nonceLeases);
-      const transactionContext: TransactionContext = nearRpc.transactionContext;
-      const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
-        ? {
-            rpId,
-            blockHeight: transactionContext.txBlockHeight,
-            blockHash: transactionContext.txBlockHash,
-          }
-        : undefined;
-      if (decisionResolved) return;
-      // Keep confirm disabled until intent preparation also completes.
-      session.updateUI({
-        securityContext,
-        loading: isConfirmationLoading(),
       });
-    });
+    }
 
     // Ordering matters: resolve user decision first so "Cancel" can close immediately
     // even while context/digest preparation is still running. Confirmed flows wait below.
@@ -399,23 +457,25 @@ export async function handleTransactionSigningFlow(
       });
     }
 
-    const nearRpc = nearRpcResolved || (await nearContextPromise);
-    if (!nearRpc.transactionContext) {
-      console.error('[SigningFlow] fetchNearContext failed', {
-        error: nearRpc.error,
-        details: nearRpc.details,
-      });
-      return session.confirmAndCloseModal({
-        requestId: request.requestId,
-        intentDigest: resolvedIntentDigestForResponse,
-        confirmed: false,
-        error: nearRpc.details
-          ? `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}`
-          : ERROR_MESSAGES.nearRpcFailed,
-      });
+    const nearRpc = nearContextPromise ? nearRpcResolved || (await nearContextPromise) : undefined;
+    let transactionContext: TransactionContext | undefined;
+    if (nearContextPromise) {
+      if (!nearRpc?.transactionContext) {
+        console.error('[SigningFlow] fetchNearContext failed', {
+          error: nearRpc?.error,
+          details: nearRpc?.details,
+          readiness: nearRpc?.readiness,
+        });
+        return session.confirmAndCloseModal({
+          requestId: request.requestId,
+          intentDigest: resolvedIntentDigestForResponse,
+          confirmed: false,
+          error: nearRpcFailureMessage(nearRpc || {}),
+        });
+      }
+      session.setNonceLeases(nearRpc.nonceLeases);
+      transactionContext = nearRpc.transactionContext;
     }
-    session.setNonceLeases(nearRpc.nonceLeases);
-    const transactionContext: TransactionContext = nearRpc.transactionContext;
 
     if (preparedIntentPromise) {
       const prepared = await preparedIntentPromise;
@@ -444,8 +504,8 @@ export async function handleTransactionSigningFlow(
         confirmed: true,
         otpCode: normalizeSixDigitOtpCode(otpCode),
         ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
-        transactionContext,
-        ...(nearRpc.nonceLeases?.length
+        ...(transactionContext ? { transactionContext } : {}),
+        ...(nearRpc?.nonceLeases?.length
           ? {
               nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
             }
@@ -460,8 +520,8 @@ export async function handleTransactionSigningFlow(
         requestId: request.requestId,
         intentDigest: resolvedIntentDigestForResponse,
         confirmed: true,
-        transactionContext,
-        ...(nearRpc.nonceLeases?.length
+        ...(transactionContext ? { transactionContext } : {}),
+        ...(nearRpc?.nonceLeases?.length
           ? {
               nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
             }
@@ -515,8 +575,8 @@ export async function handleTransactionSigningFlow(
       intentDigest: resolvedIntentDigestForResponse,
       confirmed: true,
       credential: serializedCredential,
-      transactionContext,
-      ...(nearRpc.nonceLeases?.length
+      ...(transactionContext ? { transactionContext } : {}),
+      ...(nearRpc?.nonceLeases?.length
         ? {
             nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
           }

@@ -2,7 +2,6 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toAccountId } from '@/core/types/accountIds';
 import { toError } from '@shared/utils/errors';
 import type { TempoSignerCapability, TempoSigningSurface } from '@/SeamsWeb/signingSurface/types';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
@@ -17,7 +16,7 @@ function toLocalTempoBootstrapRequest(
 ): EcdsaBootstrapRequest {
   return {
     kind: 'reuse_warm_ecdsa_bootstrap',
-    walletId: toAccountId(args.walletSession.walletId),
+    walletId: toWalletId(args.walletSession.walletId),
     chainTarget: args.chainTarget,
     source: args.source,
     relayerUrl: args.relayerUrl,

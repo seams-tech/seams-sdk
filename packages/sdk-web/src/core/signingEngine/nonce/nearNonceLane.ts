@@ -3,6 +3,7 @@ import type { NonceLaneStatus } from '@/core/rpcClients/evm/nonceBackend';
 import type { TransactionContext } from '@/core/types/rpc';
 import type { AccessKeyView, BlockResult } from '@near-js/types';
 import { errorMessage } from '@shared/utils/errors';
+import { isImplicitNearAccountId } from '@shared/utils/near';
 import { isObject, isString } from '@shared/utils/validation';
 import {
   NearNonceReconcileReason,
@@ -14,6 +15,7 @@ import { nonceLaneKey } from './nonceLaneKeys';
 import { maxBigint, normalizeBigint, normalizeRequiredString } from './nonceUtils';
 
 export type NearNonceLaneState = {
+  walletId: string | null;
   accountId: string | null;
   publicKey: string | null;
   transactionContext: TransactionContext | null;
@@ -35,8 +37,98 @@ export type NearInFlightNonceRecord = {
   updatedAtMs: number;
 };
 
+export type NearExecutionReadiness =
+  | {
+      kind: 'implicit_unfunded';
+      walletId: string;
+      nearAccountId: string;
+      nearPublicKeyStr: string;
+    }
+  | {
+      kind: 'access_key_available';
+      walletId: string;
+      nearAccountId: string;
+      nearPublicKeyStr: string;
+      nonce: bigint;
+      accessKeyNonce: string;
+      nextNonce: string;
+      txBlockHeight: string;
+      txBlockHash: string;
+    }
+  | {
+      kind: 'sponsored_named_ready';
+      walletId: string;
+      nearAccountId: string;
+      nearPublicKeyStr: string;
+      nonce: bigint;
+      accessKeyNonce: string;
+      nextNonce: string;
+      txBlockHeight: string;
+      txBlockHash: string;
+    }
+  | {
+      kind: 'account_lookup_failed';
+      walletId: string;
+      nearAccountId: string;
+      nearPublicKeyStr: string;
+      message: string;
+    };
+
+function readinessNonceFromTransactionContext(
+  transactionContext: TransactionContext | null | undefined,
+): bigint {
+  const raw = String(
+    transactionContext?.nextNonce ?? transactionContext?.accessKeyInfo?.nonce ?? '0',
+  ).trim();
+  if (!raw) return 0n;
+  try {
+    return BigInt(raw);
+  } catch {
+    return 0n;
+  }
+}
+
+export function classifyNearExecutionReadiness(input: {
+  walletId: string;
+  nearAccountId: string;
+  nearPublicKeyStr: string;
+  accessKeyAvailable: boolean;
+  transactionContext?: TransactionContext | null;
+}): NearExecutionReadiness {
+  const base = {
+    walletId: String(input.walletId || '').trim(),
+    nearAccountId: String(input.nearAccountId || '').trim(),
+    nearPublicKeyStr: String(input.nearPublicKeyStr || '').trim(),
+  };
+  if (!input.accessKeyAvailable && isImplicitNearAccountId(base.nearAccountId)) {
+    return {
+      kind: 'implicit_unfunded',
+      ...base,
+    };
+  }
+  const ready = {
+    ...base,
+    nonce: readinessNonceFromTransactionContext(input.transactionContext),
+    accessKeyNonce: String(input.transactionContext?.accessKeyInfo?.nonce ?? '').trim(),
+    nextNonce: String(input.transactionContext?.nextNonce ?? '').trim(),
+    txBlockHeight: String(input.transactionContext?.txBlockHeight ?? '').trim(),
+    txBlockHash: String(input.transactionContext?.txBlockHash ?? '').trim(),
+  };
+  if (isImplicitNearAccountId(base.nearAccountId)) {
+    return {
+      kind: 'access_key_available',
+      ...ready,
+    };
+  }
+  return {
+    kind: 'sponsored_named_ready',
+    ...ready,
+  };
+}
+
 export function createNearNonceLaneState(): NearNonceLaneState {
   return {
+    walletId: null,
     accountId: null,
     publicKey: null,
     transactionContext: null,
@@ -77,6 +169,7 @@ export function clearNearTransactionContext(state: NearNonceLaneState): void {
 }
 
 export function clearNearAccessKeyState(state: NearNonceLaneState): void {
+  state.walletId = null;
   state.accountId = null;
   state.publicKey = null;
   clearNearTransactionContext(state);
@@ -84,14 +177,24 @@ export function clearNearAccessKeyState(state: NearNonceLaneState): void {
 
 export function initializeNearAccessKeyState(input: {
   state: NearNonceLaneState;
+  walletId?: string;
   accountId: string;
   publicKey: string;
 }): void {
   const accountId = normalizeRequiredString(input.accountId, 'accountId');
   const publicKey = normalizeRequiredString(input.publicKey, 'publicKey');
-  if (input.state.accountId === accountId && input.state.publicKey === publicKey) {
+  const walletId = String(input.walletId || accountId).trim();
+  if (!walletId) {
+    throw new Error('[NonceCoordinator] NEAR access key walletId is required');
+  }
+  if (
+    input.state.walletId === walletId &&
+    input.state.accountId === accountId &&
+    input.state.publicKey === publicKey
+  ) {
     return;
   }
+  input.state.walletId = walletId;
   input.state.accountId = accountId;
   input.state.publicKey = publicKey;
   clearNearTransactionContext(input.state);
@@ -198,6 +301,7 @@ export async function reconcileNearLaneState(input: {
 }): Promise<NonceLaneStatus> {
   initializeNearAccessKeyState({
     state: input.state,
+    walletId: input.lane.walletId,
     accountId: input.lane.accountId,
     publicKey: input.lane.publicKey,
   });
@@ -329,6 +433,50 @@ export function isMissingNearAccessKeyError(message: string): boolean {
   );
 }
 
+export class NearImplicitAccountFundingRequiredError extends Error {
+  readonly code = 'near_implicit_account_unfunded';
+  readonly nearAccountId: string;
+  readonly readiness: NearExecutionReadiness;
+
+  constructor(args: { walletId: string; nearAccountId: string; nearPublicKeyStr: string }) {
+    super(
+      `NEAR implicit account ${args.nearAccountId} has no access key on-chain. Fund the account before direct NEAR signing.`,
+    );
+    this.name = 'NearImplicitAccountFundingRequiredError';
+    this.nearAccountId = args.nearAccountId;
+    this.readiness = classifyNearExecutionReadiness({
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      nearPublicKeyStr: args.nearPublicKeyStr,
+      accessKeyAvailable: false,
+    });
+  }
+}
+
+export class NearAccountLookupFailedError extends Error {
+  readonly code = 'near_account_lookup_failed';
+  readonly nearAccountId: string;
+  readonly readiness: NearExecutionReadiness;
+
+  constructor(args: {
+    walletId: string;
+    nearAccountId: string;
+    nearPublicKeyStr: string;
+    message: string;
+  }) {
+    super(args.message || `NEAR account ${args.nearAccountId} access key lookup failed.`);
+    this.name = 'NearAccountLookupFailedError';
+    this.nearAccountId = args.nearAccountId;
+    this.readiness = {
+      kind: 'account_lookup_failed',
+      walletId: args.walletId,
+      nearAccountId: args.nearAccountId,
+      nearPublicKeyStr: args.nearPublicKeyStr,
+      message: this.message,
+    };
+  }
+}
+
 export async function fetchNearFreshDataForState(input: {
   state: NearNonceLaneState;
   nearClient: NearClient;
@@ -346,6 +494,7 @@ export async function fetchNearFreshDataForState(input: {
   }
 
   const capturedAccountId = state.accountId;
+  const capturedWalletId = state.walletId || capturedAccountId;
   const capturedPublicKey = state.publicKey;
   const requestId = ++state.inflightId;
   const fetchPromise = (async () => {
@@ -383,7 +532,20 @@ export async function fetchNearFreshDataForState(input: {
             } catch (error: unknown) {
               const message = errorMessage(error);
               if (isMissingNearAccessKeyError(message)) {
-                maybeAccessKey = null;
+                if (isImplicitNearAccountId(capturedAccountId)) {
+                  accessKeyError = new NearImplicitAccountFundingRequiredError({
+                    walletId: capturedWalletId,
+                    nearAccountId: capturedAccountId,
+                    nearPublicKeyStr: capturedPublicKey,
+                  });
+                  return;
+                }
+                accessKeyError = new NearAccountLookupFailedError({
+                  walletId: capturedWalletId,
+                  nearAccountId: capturedAccountId,
+                  nearPublicKeyStr: capturedPublicKey,
+                  message,
+                });
                 return;
               }
               accessKeyError = error;

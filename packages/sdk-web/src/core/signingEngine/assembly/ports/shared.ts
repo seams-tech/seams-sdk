@@ -188,8 +188,8 @@ export type CreateSigningEnginePortsArgs = {
   consumeSingleUseEmailOtpEcdsaLane?: (
     command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
-  markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
-    nearAccountId: AccountId;
+  markThresholdEd25519EmailOtpSessionConsumedForWallet?: (args: {
+    walletId: WalletId;
     thresholdSessionId?: string;
     uses?: number;
   }) => void;

@@ -1,5 +1,4 @@
 import type { StrictAccountId } from '@/core/types/accountIds';
-import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -382,7 +381,7 @@ export function isSigningSessionBudgetReservation(
 
 export type Ed25519WalletBudgetOwner = {
   curve: 'ed25519';
-  accountId: StrictAccountId;
+  accountId: WalletId;
   walletId?: never;
 };
 
@@ -991,8 +990,8 @@ export function assertBudgetStatusCheckHasConcreteLaneIdentity(
   }
 }
 
-export function ed25519WalletBudgetOwner(accountId: StrictAccountId): Ed25519WalletBudgetOwner {
-  return { curve: 'ed25519', accountId };
+export function ed25519WalletBudgetOwner(walletId: WalletId | string): Ed25519WalletBudgetOwner {
+  return { curve: 'ed25519', accountId: toWalletId(walletId) };
 }
 
 export function ecdsaWalletBudgetOwner(walletId: WalletId): EcdsaWalletBudgetOwner {
@@ -1004,7 +1003,7 @@ export function walletBudgetOwnerForLane(
 ): WalletBudgetOwner {
   return lane.curve === 'ecdsa'
     ? ecdsaWalletBudgetOwner(toWalletId(lane.walletId))
-    : ed25519WalletBudgetOwner(toAccountId(lane.accountId));
+    : ed25519WalletBudgetOwner(lane.accountId);
 }
 
 export function walletBudgetOwnerId(owner: WalletBudgetOwner): StrictAccountId | WalletId {

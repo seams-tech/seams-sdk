@@ -2,9 +2,14 @@ import { alphabetizeStringify } from '@shared/utils/digests';
 import type { AccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EvmFamilyEcdsaKeyIdentity, WalletId } from './evmFamilyEcdsaIdentity';
+import type {
+  EvmFamilyEcdsaKeyHandle,
+  EvmFamilyEcdsaKeyIdentity,
+  WalletId,
+} from './evmFamilyEcdsaIdentity';
 import type { SelectedEcdsaLane, SelectedEd25519Lane, SelectedLane } from './laneIdentity';
 import {
   SigningSessionIds,
@@ -42,14 +47,14 @@ export type ExactEcdsaSigningLaneIdentity = {
   kind: 'exact_ecdsa_signing_lane_identity';
   curve: 'ecdsa';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  walletId: AccountId;
+  walletId: WalletId;
   authMethod: SigningAuthMethod;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   accountId?: never;
-  keyHandle?: never;
   subjectId?: never;
 };
 
@@ -76,6 +81,7 @@ type CanonicalExactSigningLaneIdentity =
       chainFamily: ThresholdEcdsaChainTarget['kind'];
       walletId: string;
       authMethod: SigningAuthMethod;
+      keyHandle: string;
       chainTarget: {
         key: string;
         kind: ThresholdEcdsaChainTarget['kind'];
@@ -149,6 +155,7 @@ function canonicalExactSigningLaneIdentity(
     chainFamily: identity.chainTarget.kind,
     walletId: String(identity.walletId),
     authMethod: identity.authMethod,
+    keyHandle: String(identity.keyHandle),
     chainTarget: canonicalChainTarget(identity.chainTarget),
     key: canonicalKeyIdentity(identity.key),
     signingGrantId: String(identity.signingGrantId),
@@ -192,9 +199,10 @@ export function exactEcdsaSigningLaneIdentity(
     kind: 'exact_ecdsa_signing_lane_identity',
     curve: 'ecdsa',
     chainFamily: lane.chainTarget.kind,
-    walletId: lane.walletId,
+    walletId: toWalletId(lane.walletId),
     authMethod: lane.authMethod,
     chainTarget: lane.chainTarget,
+    keyHandle: lane.keyHandle,
     key: lane.key,
     signingGrantId: SigningSessionIds.signingGrant(lane.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(lane.thresholdSessionId),

@@ -1,4 +1,3 @@
-import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -97,7 +96,7 @@ function resolveSharedGrantReconnectTtlMs(args: {
 
 function selectPasskeyRoleLocalEcdsaRecord(args: {
   deps: Pick<NoPromptWarmSessionDeps, 'ecdsaSessions'>;
-  walletId: ReturnType<typeof toAccountId>;
+  walletId: ReturnType<typeof toWalletId>;
   request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>;
 }): PasskeyRoleLocalEcdsaRecord | null {
   const records = listThresholdEcdsaSessionRecordsForWalletTarget(args.deps.ecdsaSessions, {
@@ -128,7 +127,7 @@ function selectPasskeyRoleLocalEcdsaRecord(args: {
 
 type NoPromptEcdsaPasskeyPrfFirstClaim = {
   kind: 'claim_no_prompt_ecdsa_prf_first';
-  walletId: ReturnType<typeof toAccountId>;
+  walletId: ReturnType<typeof toWalletId>;
   signingGrantId: string;
   thresholdSessionId: string;
   chainTarget: Extract<
@@ -327,7 +326,7 @@ function sealedRestoreFailureFromError(args: {
 
 async function tryNoPromptWalletSessionReconnect(args: {
   deps: NoPromptWarmSessionDeps;
-  walletId: ReturnType<typeof toAccountId>;
+  walletId: ReturnType<typeof toWalletId>;
   request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>;
   sharedGrant: SharedEd25519WalletSessionGrant;
 }): Promise<ThresholdEcdsaSessionBootstrapResult | null> {
@@ -386,7 +385,7 @@ async function tryNoPromptWalletSessionReconnect(args: {
 
 export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
   deps: NoPromptWarmSessionDeps,
-  walletId: ReturnType<typeof toAccountId>,
+  walletId: ReturnType<typeof toWalletId>,
   request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>,
 ): Promise<ReuseWarmEcdsaBootstrapResult> {
   const chainTarget = request.chainTarget;
@@ -515,7 +514,7 @@ export async function bootstrapWarmEcdsaCapabilityResult(
     deps.ensureSealedRefreshStartupParity,
     parityArgsFromBootstrapRequest(request),
   );
-  const walletId = toAccountId(ecdsaBootstrapWalletId(request));
+  const walletId = toWalletId(ecdsaBootstrapWalletId(request));
   switch (request.kind) {
     case 'reuse_warm_ecdsa_bootstrap': {
       const result = await bootstrapReuseWarmEcdsaCapabilityNoPrompt(

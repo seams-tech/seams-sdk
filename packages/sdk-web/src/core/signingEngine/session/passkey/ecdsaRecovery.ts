@@ -1,4 +1,7 @@
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
@@ -7,7 +10,6 @@ import {
   type PasskeyEcdsaSealedRecoveryRecord,
 } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
-import { toAccountId } from '@/core/types/accountIds';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -129,7 +131,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     }
 
     upsertRestoredThresholdEcdsaSessionRecord({
-      walletId: toAccountId(args.walletId),
+      walletId: toWalletId(args.walletId),
       authMetadata: { rpId: thresholdEcdsaRecordRpId(args.record) },
       chainTarget: args.record.chainTarget,
       relayerUrl: args.record.relayerUrl,

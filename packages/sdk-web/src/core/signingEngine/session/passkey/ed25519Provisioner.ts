@@ -10,9 +10,10 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
+import type { WalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type WarmSessionEd25519ProvisionerDeps = {
-  getWarmSession: (nearAccountId: AccountId) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: WalletId | string) => Promise<WarmSessionEnvelope>;
   provisionThresholdEd25519Session?: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
@@ -20,7 +21,7 @@ export type WarmSessionEd25519ProvisionerDeps = {
 };
 
 function assertPersistedEd25519WarmSessionRecord(args: {
-  nearAccountId: AccountId;
+  walletId: string;
   expectedSessionId: string;
   persistedSessionIdRaw: unknown;
 }): void {
@@ -29,7 +30,7 @@ function assertPersistedEd25519WarmSessionRecord(args: {
     return;
   }
   throw new Error(
-    `[WarmSessionStore] provisioned Ed25519 capability was not persisted for ${args.nearAccountId} (expected sessionId=${args.expectedSessionId}, found=${persistedSessionId || 'missing'})`,
+    `[WarmSessionStore] provisioned Ed25519 capability was not persisted for ${args.walletId} (expected sessionId=${args.expectedSessionId}, found=${persistedSessionId || 'missing'})`,
   );
 }
 
@@ -38,12 +39,16 @@ export async function provisionWarmEd25519Capability(
   args: ProvisionWarmEd25519CapabilityArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) {
+    throw new Error('[WarmSessionStore] walletId is required to provision Ed25519 capability');
+  }
   if (typeof deps.provisionThresholdEd25519Session !== 'function') {
     throw new Error(
       '[WarmSessionStore] provisionThresholdEd25519Session is required to provision Ed25519 capability',
     );
   }
-  const beforeWarmSession = await deps.getWarmSession(nearAccountId);
+  const beforeWarmSession = await deps.getWarmSession(walletId);
   await args.beforeProvision?.();
   args.assertNotCancelled?.();
   const provisioned = await deps.provisionThresholdEd25519Session(args);
@@ -60,9 +65,9 @@ export async function provisionWarmEd25519Capability(
     );
   }
 
-  const afterWarmSession = await deps.getWarmSession(nearAccountId);
+  const afterWarmSession = await deps.getWarmSession(walletId);
   assertPersistedEd25519WarmSessionRecord({
-    nearAccountId,
+    walletId,
     expectedSessionId,
     persistedSessionIdRaw: afterWarmSession.capabilities.ed25519.record?.thresholdSessionId,
   });
@@ -70,7 +75,7 @@ export async function provisionWarmEd25519Capability(
     onTransition: deps.onTransition,
     event: {
       type: 'ed25519_capability_provisioned',
-      walletId: nearAccountId,
+      walletId,
       thresholdSessionId: expectedSessionId,
       before: summarizeWarmSessionTransition(beforeWarmSession),
       after: summarizeWarmSessionTransition(afterWarmSession),

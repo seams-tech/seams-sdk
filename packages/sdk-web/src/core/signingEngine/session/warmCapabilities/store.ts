@@ -1,11 +1,10 @@
-import type { AccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEcdsaSessionRecordForWalletChain,
   listStoredThresholdEcdsaSessionRecordsForWallet,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  getStoredThresholdEd25519SessionRecordForAccount,
+  getStoredThresholdEd25519SessionRecordForWallet,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
@@ -23,10 +22,10 @@ export type WarmSessionStoredCapabilityRecords = {
 };
 
 export function readWarmSessionCapabilityRecordsForWallet(
-  walletId: AccountId,
+  walletId: WalletId,
 ): WarmSessionStoredCapabilityRecords {
   return {
-    ed25519: getStoredThresholdEd25519SessionRecordForAccount(walletId),
+    ed25519: getStoredThresholdEd25519SessionRecordForWallet(walletId),
     ecdsa: {
       evm: getStoredThresholdEcdsaSessionRecordForWalletChain({
         walletId,

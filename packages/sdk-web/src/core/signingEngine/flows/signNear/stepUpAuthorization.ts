@@ -1,5 +1,5 @@
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import type { ConfirmTransactionSigningOperationResult } from '../shared/signingConfirmation';
+import type { ConfirmNearStepUpSigningOperationResult } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
 import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 import type {
   NearEd25519EmailOtpStepUpAuthorization,
@@ -36,7 +36,7 @@ export function buildNearEd25519WarmSessionStepUpAuthorization(
 
 export function buildNearEd25519StepUpAuthorization(args: {
   prepared: NearPreparedStepUpAuth;
-  confirmation: ConfirmTransactionSigningOperationResult;
+  confirmation: ConfirmNearStepUpSigningOperationResult;
   emailOtpMaterialRestoreAuthorization?: NearEd25519EmailOtpMaterialRestoreAuthorization;
 }): NearEd25519StepUpAuthorization {
   if (args.prepared.kind === 'warm_session') {

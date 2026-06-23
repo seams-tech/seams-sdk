@@ -1,6 +1,7 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -127,8 +128,7 @@ export async function restorePersistedSessionsForWallet(
   deps: SessionPublicDeps,
   args: RestorePersistedSessionsForWalletInput,
 ): Promise<RestorePersistedSessionsForWalletResult> {
-  const walletId = String(toAccountId(args.walletId) || '').trim();
-  if (!walletId) return EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT;
+  const walletId = toWalletId(args.walletId);
 
   const authMethods = args.authMethod ? [args.authMethod] : (['email_otp', 'passkey'] as const);
   const results = await Promise.all(

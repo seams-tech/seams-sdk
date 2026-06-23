@@ -33,9 +33,8 @@ const invalidRecoveryRecordWithRawClientBase = {
 } satisfies EmailOtpEd25519SealedRecoveryRecord;
 void invalidRecoveryRecordWithRawClientBase;
 
-const invalidRecoveryRecordWithRawClientVerifier = {
+const validRecoveryRecordWithClientVerifier = {
   ...currentRecord,
-  // @ts-expect-error normalized Email OTP Ed25519 sealed recovery records do not carry raw HSS material.
-  clientVerifyingShareB64u: 'raw-client-verifier',
+  clientVerifyingShareB64u: 'client-verifier',
 } satisfies EmailOtpEd25519SealedRecoveryRecord;
-void invalidRecoveryRecordWithRawClientVerifier;
+void validRecoveryRecordWithClientVerifier;

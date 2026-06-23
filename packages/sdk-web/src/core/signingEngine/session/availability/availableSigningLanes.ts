@@ -42,6 +42,7 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -529,7 +530,7 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
 }
 
 export function ecdsaLaneCandidateFromAvailableLane(args: {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   lane: AvailableEcdsaSigningLane;
 }): EcdsaLaneCandidate | null {
   if (!isConcreteAvailableSigningLane(args.lane) || args.lane.curve !== 'ecdsa') {
@@ -539,7 +540,7 @@ export function ecdsaLaneCandidateFromAvailableLane(args: {
   if (!state) return null;
   const base = {
     kind: 'lane_candidate',
-    walletId: toAccountId(args.walletId),
+    walletId: toWalletId(args.walletId),
     authMethod: args.lane.authMethod,
     curve: 'ecdsa',
     chain: args.lane.chainTarget.kind,
@@ -754,7 +755,7 @@ function selectedLaneFromConcreteAvailableLane(args: {
   return selectedEcdsaLane({
     key: args.lane.key,
     keyHandle: args.lane.publicFacts.keyHandle,
-    walletId: toAccountId(String(args.lane.key.walletId)),
+    walletId: toWalletId(String(args.lane.key.walletId)),
     authMethod: args.lane.authMethod,
     signingGrantId: args.lane.signingGrantId,
     thresholdSessionId: args.lane.thresholdSessionId,
@@ -1652,7 +1653,7 @@ export async function readAvailableSigningLanes(
   input: ReadAvailableSigningLanesInput,
   ports: ReadAvailableSigningLanesPorts,
 ): Promise<AvailableSigningLanes> {
-  const walletId = toAccountId(input.walletId);
+  const walletId = toWalletId(input.walletId);
   const ecdsaTargetsByKey = new Map<string, ThresholdEcdsaChainTarget>();
   for (const chainTarget of input.ecdsaChainTargets) {
     ecdsaTargetsByKey.set(thresholdEcdsaChainTargetKey(chainTarget), chainTarget);

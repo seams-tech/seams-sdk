@@ -125,12 +125,13 @@ const nearLeaseWithBigintNonce: NearNonceLease = {
   state: NonceLeaseState.Reserved,
   reservedAtMs: 1,
   expiresAtMs: 2,
-  lane: {
-    family: 'near',
-    networkKey: 'testnet',
-    accountId: 'wallet.testnet',
-    publicKey: 'ed25519:public-key',
-  },
+	  lane: {
+	    family: 'near',
+	    networkKey: 'testnet',
+	    walletId: 'wallet.testnet',
+	    accountId: 'wallet.testnet',
+	    publicKey: 'ed25519:public-key',
+	  },
   // @ts-expect-error NEAR leases carry RPC string nonces.
   nonce: 7n,
 };

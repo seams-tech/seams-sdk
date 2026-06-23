@@ -1,8 +1,7 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  getStoredThresholdEd25519SessionRecordForAccount,
+  getStoredThresholdEd25519SessionRecordForWallet,
 } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
@@ -29,9 +28,9 @@ export function createNearSigningDeps(args: {
   } = args;
   return {
     nearRpcUrl,
-    resolveThresholdEd25519SessionId: (nearAccountId: AccountId): string | null => {
+    resolveThresholdEd25519SessionId: (walletId: string): string | null => {
       try {
-        const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+        const record = getStoredThresholdEd25519SessionRecordForWallet(walletId);
         const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
         return thresholdSessionId || null;
       } catch {
@@ -77,10 +76,10 @@ export function createNearSigningDeps(args: {
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    resolveAccountAuthMethodForSigning: async ({ nearAccountId }) => {
+    resolveAccountAuthMethodForSigning: async ({ walletId }) => {
       const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
         deps: { walletSignerStore: args.walletSignerStore },
-        walletId: String(nearAccountId),
+        walletId: String(walletId),
         senderSignatureAlgorithm: 'secp256k1',
       });
       return accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';

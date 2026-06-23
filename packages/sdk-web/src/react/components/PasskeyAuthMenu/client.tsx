@@ -28,7 +28,6 @@ const OTP_CODE_LENGTH = 6;
 
 type MountPasskeyRegistrationActivationSurfaceArgs = {
   seamsWeb: SeamsWeb;
-  nearAccountId: string;
   target: HTMLElement;
   onStateChange(state: RegistrationActivationSurfaceState): void;
 };
@@ -37,7 +36,6 @@ function mountPasskeyRegistrationActivationSurface(
   args: MountPasskeyRegistrationActivationSurfaceArgs,
 ): () => void {
   const surface = args.seamsWeb.registration.createPasskeyRegistrationActivationSurface({
-    nearAccountId: args.nearAccountId,
     presentation: {
       kind: 'outline_overlay',
       label: 'Create with Passkey',
@@ -178,11 +176,8 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     if (!iframeRegistrationButtonEnabled) return;
     const target = registrationActivationTargetRef.current;
     if (!target) return;
-    const nearAccountId = String(runtime.targetAccountId || '').trim();
-    if (!nearAccountId) return;
     return mountPasskeyRegistrationActivationSurface({
       seamsWeb: runtime.seamsWeb,
-      nearAccountId,
       target,
       onStateChange: controller.onRegistrationActivationSurfaceStateChange,
     });
@@ -190,7 +185,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     controller.onRegistrationActivationSurfaceStateChange,
     iframeRegistrationButtonEnabled,
     runtime.seamsWeb,
-    runtime.targetAccountId,
   ]);
 
   return (
