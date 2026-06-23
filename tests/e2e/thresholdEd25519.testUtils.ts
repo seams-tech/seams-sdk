@@ -768,9 +768,11 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
       `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
     );
   }
-  const keygen = await schemeAny.registration.keygenFromRegistrationMaterial({
-    nearAccountId: input.nearAccountId,
-    rpId: input.rpId,
+	  const keygen = await schemeAny.registration.keygenFromRegistrationMaterial({
+	    walletId: input.nearAccountId,
+	    nearAccountId: input.nearAccountId,
+	    ed25519KeyScopeId: input.nearAccountId,
+	    rpId: input.rpId,
     keyVersion: input.keyVersion,
     recoveryExportCapable: true,
     publicKey: input.publicKey,
@@ -984,7 +986,7 @@ export function corsHeadersForRoute(route: Route): Record<string, string> {
   };
 }
 
-export async function installCreateAccountAndRegisterUserMock(
+export async function installRegistrationBootstrapMock(
   page: Page,
   input: {
     relayerBaseUrl: string;

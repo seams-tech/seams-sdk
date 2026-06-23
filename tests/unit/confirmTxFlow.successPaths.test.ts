@@ -54,7 +54,68 @@ test.describe('confirmTxFlow – success paths', () => {
           },
         },
       ]);
+      (globalThis as any).__attachTestWebAuthnCredentialStore = (ctx: any) => {
+        const indexedDB = ctx.indexedDB || (ctx.indexedDB = {});
+        const clientDB = indexedDB.clientDB || {};
+        const existingStore = ctx.webauthnCredentialStore || {};
+        const ownFunction = (source: any, methodName: string) => {
+          if (!Object.prototype.hasOwnProperty.call(source, methodName)) return undefined;
+          const method = source[methodName];
+          return typeof method === 'function' ? method.bind(source) : undefined;
+        };
+        const defaultStore = {
+          resolveProfileAccountContext: async ({
+            chainIdKey,
+            accountAddress,
+          }: {
+            chainIdKey: string;
+            accountAddress: string;
+          }) =>
+            (globalThis as any).__buildTestNearProfileAccountContext({
+              chainIdKey,
+              accountAddress,
+            }),
+          listProfileAuthenticators: async () => [
+            { credentialId: 'test-passkey', transports: [] },
+          ],
+          listAccountSigners: async (args: any) => [
+            {
+              signerAuthMethod: 'passkey',
+              metadata: {
+                walletId: String(args?.accountAddress || 'test-wallet'),
+                passkeyCredentialRawId: 'test-passkey',
+              },
+            },
+          ],
+          selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+            authenticatorsForPrompt: authenticators,
+            wrongPasskeyError: undefined,
+          }),
+        };
+        const credentialStore = {
+          resolveProfileAccountContext:
+            ownFunction(existingStore, 'resolveProfileAccountContext') ||
+            ownFunction(clientDB, 'resolveProfileAccountContext') ||
+            defaultStore.resolveProfileAccountContext,
+          listProfileAuthenticators:
+            ownFunction(existingStore, 'listProfileAuthenticators') ||
+            ownFunction(clientDB, 'listProfileAuthenticators') ||
+            defaultStore.listProfileAuthenticators,
+          listAccountSigners:
+            ownFunction(existingStore, 'listAccountSigners') ||
+            ownFunction(clientDB, 'listAccountSigners') ||
+            defaultStore.listAccountSigners,
+          selectProfileAuthenticatorsForPrompt:
+            ownFunction(existingStore, 'selectProfileAuthenticatorsForPrompt') ||
+            ownFunction(clientDB, 'selectProfileAuthenticatorsForPrompt') ||
+            defaultStore.selectProfileAuthenticatorsForPrompt,
+        };
+        ctx.webauthnCredentialStore = credentialStore;
+        indexedDB.clientDB = { ...clientDB, ...credentialStore };
+        return ctx;
+      };
       (globalThis as any).__attachTestNonceCoordinator = async (ctx: any) => {
+        (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         const nonceCoordinatorMod = await import(nonceCoordinatorPath);
         const nearContextFixture = ctx.nearContextFixture || (ctx.nearContextFixture = {});
         if (typeof nearContextFixture.getNonceBlockHashAndHeight !== 'function') {
@@ -208,6 +269,7 @@ test.describe('confirmTxFlow – success paths', () => {
 
         const msgs: any[] = [];
         const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
+        (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         await handle(
           ctx,
           {
@@ -342,6 +404,7 @@ test.describe('confirmTxFlow – success paths', () => {
           const msgs: any[] = [];
           const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
 
+          (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
           await (localOnly.handleLocalOnlyFlow as Function)(ctx, request, worker, {
             confirmationConfig,
             transactionSummary: {},
@@ -657,7 +720,101 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.prf).toBeUndefined();
   });
 
-  test('NEP-413: collects assertion credential and returns tx context without PRF', async ({
+  test('Delegate action: warm-session confirmation skips access-key readiness', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.handle);
+        const types = await import(paths.types);
+        const handle = mod.handlePromptFromWorker as Function;
+
+        let contextFetches = 0;
+        const ctx: any = {
+          userPreferencesManager: {
+            getConfirmationConfig: () => ({
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            }),
+          },
+          nonceCoordinator: {
+            fetchNearContext: async () => {
+              contextFetches += 1;
+              throw new Error('delegate should not fetch NEAR context');
+            },
+          },
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+          },
+        };
+
+        const request = {
+          requestId: 'r-delegate',
+          type: types.UserConfirmationType.SIGN_TRANSACTION,
+          summary: {
+            type: 'delegateAction',
+            receiverId: 'receiver.testnet',
+            delegate: {
+              senderId: 'delegate.testnet',
+              receiverId: 'receiver.testnet',
+              nonce: '7',
+              maxBlockHeight: '999',
+            },
+          },
+          payload: {
+            walletId: 'wallet.testnet',
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'wallet.testnet',
+              intent: 'transaction_sign',
+              sessionId: 'threshold-session-delegate',
+              retention: 'volatile',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 1,
+            },
+            intentDigest: 'delegate-intent',
+            nearPublicKeyStr: 'pk-delegate',
+            txSigningRequests: [{ receiverId: 'receiver.testnet', actions: [] }],
+            rpcCall: {
+              method: 'sign',
+              argsJson: {},
+              nearAccountId: 'delegate.testnet',
+              nearRpcUrl: 'https://rpc.testnet.near.org',
+            },
+          },
+        } as any;
+
+        const msgs: any[] = [];
+        const worker = { postMessage: (m: any) => msgs.push(m) } as unknown as Worker;
+        await handle(
+          ctx,
+          {
+            type: types.UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
+            data: request,
+          },
+          worker,
+        );
+        const resp = msgs[0]?.data;
+        return {
+          confirmed: resp?.confirmed,
+          error: resp?.error,
+          tx: resp?.transactionContext,
+          nonceLeases: resp?.nonceLeases,
+          contextFetches,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.confirmed, result.error || 'unknown error').toBe(true);
+    expect(result.tx).toBeUndefined();
+    expect(result.nonceLeases).toBeUndefined();
+    expect(result.contextFetches).toBe(0);
+  });
+
+  test('NEP-413: collects assertion credential without access-key readiness or PRF', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -667,6 +824,7 @@ test.describe('confirmTxFlow – success paths', () => {
         const handle = mod.handlePromptFromWorker as Function;
 
         const reserved: string[] = [];
+        let contextFetches = 0;
         const ctx: any = {
           userPreferencesManager: {
             getConfirmationConfig: () => ({
@@ -677,6 +835,7 @@ test.describe('confirmTxFlow – success paths', () => {
           },
           nearContextFixture: {
             async getNonceBlockHashAndHeight(_nc: any, _opts?: any) {
+              contextFetches += 1;
               return {
                 nearPublicKeyStr: 'pk-nep413',
                 accessKeyInfo: { nonce: 10 },
@@ -784,14 +943,16 @@ test.describe('confirmTxFlow – success paths', () => {
           prf: resp?.prfOutput,
           tx: resp?.transactionContext,
           reserved,
+          contextFetches,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
-    expect(result.tx?.nextNonce).toBe('11');
+    expect(result.tx).toBeUndefined();
     expect(result.reserved).toEqual([]);
+    expect(result.contextFetches).toBe(0);
     // NEP-413 signing also must not expose PRF output.
     expect(result.prf).toBeUndefined();
   });

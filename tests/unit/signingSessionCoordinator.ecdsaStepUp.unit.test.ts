@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -17,7 +18,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 
-const walletId = toAccountId('ecdsa-step-up-budget.testnet');
+const walletId = toWalletId('ecdsa-step-up-budget.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,

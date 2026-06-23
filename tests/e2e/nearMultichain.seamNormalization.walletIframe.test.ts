@@ -7,7 +7,7 @@ import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
 import {
-  installCreateAccountAndRegisterUserMock,
+  installRegistrationBootstrapMock,
   installFastNearRpcMock,
   makeAuthServiceForThreshold,
   setupManagedThresholdRegistrationHarness,
@@ -46,7 +46,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
         relayUpstream: managedRegistrationHarness.baseUrl,
         logStyle: 'silent',
       });
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installRegistrationBootstrapMock(page, {
         relayerBaseUrl: relayerUrl,
         session: managedRegistrationHarness.session,
         runtimePolicyScope: managedRegistrationHarness.runtimePolicyScope,
@@ -107,7 +107,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
               behavior: 'skipClick',
               autoProceedDelay: 0,
             } as const;
-            const registration = await seams.registration.registerPasskey(accountId, {
+            const registration = await seams.registration.registerPasskey({
               confirmationConfig: confirmationConfig as any,
             });
             if (!registration?.success) {

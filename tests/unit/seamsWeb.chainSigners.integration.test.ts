@@ -105,6 +105,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     });
 
     const result = await signer.executeAction({
+      walletSession: TEST_WALLET_SESSION,
       nearAccount: TEST_NEAR_ACCOUNT,
       receiverId: 'contract.testnet',
       actionArgs: { type: 'FunctionCall', methodName: 'ping' } as any,
@@ -130,6 +131,7 @@ test.describe('SeamsWeb chain signer modules', () => {
 
     await expect(
       signer.executeAction({
+        walletSession: TEST_WALLET_SESSION,
         nearAccount: TEST_NEAR_ACCOUNT,
         receiverId: 'contract.testnet',
         actionArgs: { type: 'FunctionCall', methodName: 'ping' } as any,
@@ -161,6 +163,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     });
 
     const result = await signer.signAndSendTransaction({
+      walletSession: TEST_WALLET_SESSION,
       nearAccount: TEST_NEAR_ACCOUNT,
       receiverId: 'contract.testnet',
       actions: [] as any,
@@ -191,6 +194,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     (signer as any).sendDelegateActionViaRelayer = async () => relayResult;
 
     const combined = await signer.signAndSendDelegateAction({
+      walletSession: TEST_WALLET_SESSION,
       nearAccount: TEST_NEAR_ACCOUNT,
       delegate: { senderId: 'alice.testnet', receiverId: 'contract.testnet', actions: [] } as any,
       relayerUrl: 'https://relay.example.test',

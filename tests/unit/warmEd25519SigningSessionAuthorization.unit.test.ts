@@ -1,10 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
+import {
+  ed25519KeyScopeIdFromString,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
+const WALLET_ID = walletIdFromString('alice-wallet');
+const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('alice-key-scope');
 
 const runtimePolicyScope = {
   orgId: 'org-test',
@@ -33,7 +39,9 @@ function ed25519Record(
   overrides: Partial<ThresholdEd25519SessionRecord> = {},
 ): ThresholdEd25519SessionRecord {
   return {
+    walletId: WALLET_ID,
     nearAccountId: ACCOUNT_ID,
+    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
     rpId: 'localhost',
     relayerUrl: 'https://router.test',
     relayerKeyId: 'near-key-1',
@@ -58,7 +66,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('accepts material-pending passkey unlock authorization', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record(),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -86,7 +96,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
         ed25519WorkerMaterialBindingDigest: 'binding-digest',
         clientVerifyingShareB64u: 'client-verifier',
       }),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -106,7 +118,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('rejects missing Wallet Session JWT before unlock succeeds', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({ walletSessionJwt: undefined }),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -121,7 +135,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('rejects exhausted server budget availability', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record(),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ availableUses: 0 }),
       nowMs: 1_800_000_000_000,
@@ -136,7 +152,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('rejects expired persisted authorization budget', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({ expiresAtMs: 1 }),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -151,7 +169,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('rejects fractional persisted authorization budget fields', () => {
     const remainingUsesResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({ remainingUses: 2.5 }),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -163,7 +183,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
 
     const expiresAtResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({ expiresAtMs: 1_900_000_000_000.5 }),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -177,7 +199,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('rejects fractional live server budget status fields', () => {
     const remainingUsesResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record(),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ remainingUses: 2.5 }),
       nowMs: 1_800_000_000_000,
@@ -189,7 +213,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
 
     const availableUsesResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record(),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ availableUses: 2.5 }),
       nowMs: 1_800_000_000_000,
@@ -201,7 +227,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
 
     const expiresAtResult = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record(),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ expiresAtMs: 1_900_000_000_000.5 }),
       nowMs: 1_800_000_000_000,
@@ -215,7 +243,9 @@ test.describe('warm Ed25519 signing session authorization', () => {
   test('rejects auth-method mismatches', () => {
     const result = parseWarmEd25519SigningSessionAuthorizationFromRecord({
       record: ed25519Record({ source: 'email_otp' }),
+      walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
+      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,

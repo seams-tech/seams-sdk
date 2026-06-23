@@ -1023,8 +1023,8 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });
-  const getWarmSession = (nearAccountId: AccountId | string) =>
-    capabilityReader.getWarmSession(nearAccountId);
+  const getWarmSession = (walletId: string | WalletId) =>
+    capabilityReader.getWarmSession(toWalletId(walletId));
   const claimWarmSessionPrfFirstMaterial = (args: {
     thresholdSessionId: string;
     errorContext: string;

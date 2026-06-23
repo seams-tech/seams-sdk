@@ -1,15 +1,21 @@
 import { expect, test } from '@playwright/test';
 import {
   computeAddSignerIntentDigestB64u,
+  computeRegistrationEd25519KeyScopeId,
   computeRegistrationIntentDigestB64u,
+  implicitNearAccountProvisioning,
+  parseGeneratedImplicitWalletId,
+  requireGeneratedImplicitWalletId,
   serializeAddSignerIntentV1,
   serializeRegistrationIntentV1,
+  sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
   type RuntimePolicyScopeLike,
   type ThresholdEd25519RegistrationSpec,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
 import {
   computeAddSignerIntentDigest,
   computeRegistrationIntentDigest,
@@ -21,15 +27,26 @@ const runtimePolicyScope: RuntimePolicyScopeLike = {
   envId: 'env_1',
   signingRootVersion: 'root_v1',
 };
+const signingRootVersion = 'root_v1';
+
+function namedProvisioning(accountId: string) {
+  const parsed = parseNamedNearAccountId(accountId);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return sponsoredNamedNearAccountProvisioning(parsed.value);
+}
 
 const ed25519Spec: ThresholdEd25519RegistrationSpec = {
-  nearAccountId: 'alice.testnet',
+  accountProvisioning: namedProvisioning('alice.testnet'),
   signerSlot: 1,
   participantIds: [1, 2],
   keyPurpose: 'near_tx',
   keyVersion: 'threshold-ed25519-hss-v1',
   derivationVersion: 1,
-  createNearAccount: true,
+};
+
+const implicitEd25519Spec: ThresholdEd25519RegistrationSpec = {
+  ...ed25519Spec,
+  accountProvisioning: implicitNearAccountProvisioning(),
 };
 
 const baseIntent: RegistrationIntentV1 = {
@@ -44,6 +61,8 @@ const baseIntent: RegistrationIntentV1 = {
   },
   nonceB64u: 'nonce',
 };
+
+const generatedImplicitWalletId = requireGeneratedImplicitWalletId('frost-vermillion-k7p9m2');
 
 const baseAddSignerIntent: AddSignerIntentV1 = {
   version: 'add_signer_intent_v1',
@@ -73,8 +92,7 @@ test.describe('registration intent digest canonicalization', () => {
         ed25519: {
           keyVersion: ed25519Spec.keyVersion,
           participantIds: ed25519Spec.participantIds,
-          createNearAccount: ed25519Spec.createNearAccount,
-          nearAccountId: ed25519Spec.nearAccountId,
+          accountProvisioning: ed25519Spec.accountProvisioning,
           derivationVersion: ed25519Spec.derivationVersion,
           signerSlot: ed25519Spec.signerSlot,
           keyPurpose: ed25519Spec.keyPurpose,
@@ -123,6 +141,13 @@ test.describe('registration intent digest canonicalization', () => {
         signingRootVersion: 'root_v2',
       },
     };
+    const implicitProvisioning: RegistrationIntentV1 = {
+      ...baseIntent,
+      signerSelection: {
+        mode: 'ed25519_only',
+        ed25519: implicitEd25519Spec,
+      },
+    };
     const ecdsaOnly: RegistrationIntentV1 = {
       ...baseIntent,
       signerSelection: {
@@ -137,10 +162,73 @@ test.describe('registration intent digest canonicalization', () => {
     await expect(computeRegistrationIntentDigestB64u(reorderedParticipants)).resolves.not.toBe(
       baseDigest,
     );
+    await expect(computeRegistrationIntentDigestB64u(implicitProvisioning)).resolves.not.toBe(
+      baseDigest,
+    );
     await expect(computeRegistrationIntentDigestB64u(differentRuntimeScope)).resolves.not.toBe(
       baseDigest,
     );
     await expect(computeRegistrationIntentDigestB64u(ecdsaOnly)).resolves.not.toBe(baseDigest);
+  });
+
+  test('derives implicit Ed25519 key scope from pre-finalize registration scope', async () => {
+    const keyScope = await computeRegistrationEd25519KeyScopeId({
+      walletId: generatedImplicitWalletId,
+      rpId: baseIntent.rpId,
+      signingRootId: 'project_1:env_1',
+      signingRootVersion,
+      ed25519: implicitEd25519Spec,
+    });
+    const sameKeyScope = await computeRegistrationEd25519KeyScopeId({
+      walletId: generatedImplicitWalletId,
+      rpId: baseIntent.rpId,
+      signingRootId: 'project_1:env_1',
+      signingRootVersion,
+      ed25519: implicitEd25519Spec,
+    });
+    const differentKeyScope = await computeRegistrationEd25519KeyScopeId({
+      walletId: generatedImplicitWalletId,
+      rpId: baseIntent.rpId,
+      signingRootId: 'project_1:env_2',
+      signingRootVersion,
+      ed25519: implicitEd25519Spec,
+    });
+
+    expect(String(keyScope)).toMatch(/^ed25519ks_[A-Za-z0-9_-]+$/);
+    expect(String(keyScope)).not.toBe(String(generatedImplicitWalletId));
+    expect(sameKeyScope).toBe(keyScope);
+    expect(differentKeyScope).not.toBe(keyScope);
+  });
+
+  test('accepts only generated implicit wallet-id shape for implicit key scope', () => {
+    expect(parseGeneratedImplicitWalletId('frost-vermillion-k7p9m2')).toEqual({
+      ok: true,
+      value: generatedImplicitWalletId,
+    });
+    expect(parseGeneratedImplicitWalletId('alice.testnet')).toMatchObject({
+      ok: false,
+      error: { code: 'invalid' },
+    });
+    expect(parseGeneratedImplicitWalletId('wallet_alice')).toMatchObject({
+      ok: false,
+      error: { code: 'invalid' },
+    });
+    expect(parseGeneratedImplicitWalletId('a'.repeat(64))).toMatchObject({
+      ok: false,
+      error: { code: 'invalid' },
+    });
+  });
+
+  test('keeps sponsored Ed25519 key scope on the durable wallet identity', async () => {
+    await expect(
+      computeRegistrationEd25519KeyScopeId({
+        walletId: baseIntent.walletId,
+        rpId: baseIntent.rpId,
+        signingRootId: 'project_1:env_1',
+        signingRootVersion,
+        ed25519: ed25519Spec,
+      }),
+    ).resolves.toBe(baseIntent.walletId);
   });
 });
 

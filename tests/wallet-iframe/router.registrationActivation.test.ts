@@ -214,7 +214,6 @@ test.describe('WalletIframeRouter registration activation surface', () => {
 
           const states: string[] = [];
           const surface = router.createPasskeyRegistrationActivationSurface({
-            nearAccountId: 'alice.testnet',
             presentation: {
               kind: 'outline_overlay',
               label: 'Create with Passkey',
@@ -393,7 +392,6 @@ test.describe('WalletIframeRouter registration activation surface', () => {
 
           const states: string[] = [];
           const surface = router.createPasskeyRegistrationActivationSurface({
-            nearAccountId: 'alice.testnet',
             presentation: {
               kind: 'outline_overlay',
               label: 'Create with Passkey',

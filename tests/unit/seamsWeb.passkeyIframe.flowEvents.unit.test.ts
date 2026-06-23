@@ -71,7 +71,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
         return;
       }
 
-      if (data.type === 'PM_REGISTER') {
+      if (data.type === 'PM_REGISTER_WALLET') {
         [
           eventBase(requestId, 'registration', 'registration.started', 1, 'started', 'Starting registration'),
           eventBase(requestId, 'registration', 'registration.auth.passkey.create.started', 4, 'waiting_for_user', 'Create your passkey', {
@@ -93,6 +93,7 @@ const WALLET_STUB_PASSKEY_SCRIPT = String.raw`
         ].forEach((payload) => postProgress(requestId, payload));
         postResult(requestId, {
           success: true,
+          walletId: accountId,
           nearAccountId: accountId,
           loggedInNearAccountId: accountId,
         });
@@ -180,7 +181,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           };
         const registration = await withTimeout(
           'registration',
-          pm.registration.registerPasskey('alice.testnet', {
+          pm.registration.registerPasskey({
             onEvent: captureEvent(registrationEvents),
           }),
         );

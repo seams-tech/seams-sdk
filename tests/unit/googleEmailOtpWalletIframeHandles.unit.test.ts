@@ -29,6 +29,7 @@ function submitSuccess(value: {
     session: {
       login: {
         isLoggedIn: true,
+        walletId: walletId(value.walletId ?? 'alice.testnet'),
         nearAccountId: walletId(value.walletId ?? 'alice.testnet'),
         publicKey: null,
         userData: null,
@@ -47,6 +48,7 @@ function registrationCompleted(value: {
     session: {
       login: {
         isLoggedIn: true,
+        walletId: walletId(value.walletId ?? 'alice.testnet'),
         nearAccountId: walletId(value.walletId ?? 'alice.testnet'),
         publicKey: null,
         userData: null,

@@ -18,15 +18,33 @@ import {
   parseEd25519WorkerMaterialKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import {
+  nearAccountRefFromAccountId,
+  toWalletId,
+  type NearCommandSubject,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+
+function nearCommandSubject(walletIdRaw: string, nearAccountIdRaw = walletIdRaw): NearCommandSubject {
+  return {
+    walletSession: {
+      walletId: toWalletId(walletIdRaw),
+      walletSessionUserId: walletIdRaw,
+    },
+    nearAccount: nearAccountRefFromAccountId(nearAccountIdRaw),
+  };
+}
 
 function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
+  walletId?: string;
   nearAccountId: string;
   signingGrantId: string;
   thresholdSessionId: string;
   expiresAtMs: number;
   status: SigningSessionStatus;
 }) {
+  const walletId = args.walletId || args.nearAccountId;
   const record = {
+    walletId,
     nearAccountId: args.nearAccountId,
     rpId: 'example.localhost',
     relayerUrl: 'https://relay.example.test',
@@ -43,7 +61,7 @@ function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
 
   return {
     getWarmSession: async () => ({
-      accountId: args.nearAccountId,
+      accountId: walletId,
       updatedAtMs: Date.now(),
       capabilities: {
         ed25519: {
@@ -98,6 +116,7 @@ test.describe('near signing session selection', () => {
             capability: 'ed25519',
             state: 'auth_missing',
             record: {
+              walletId: nearAccountId,
               nearAccountId,
               rpId: 'example.localhost',
               relayerUrl: 'https://relay.example.test',
@@ -145,7 +164,7 @@ test.describe('near signing session selection', () => {
 
     const context = await resolveNearSigningSessionAuthContext({
       warmSessionReader,
-      nearAccount: { kind: 'named', accountId: nearAccountId as any },
+      commandSubject: nearCommandSubject(nearAccountId),
       operationLabel: 'transaction signing',
       requiredSignatureUses: 1,
     });
@@ -173,7 +192,9 @@ test.describe('near signing session selection', () => {
     const expiresAtMs = Date.now() + 60_000;
     persistWarmSessionEd25519Capability({
       kind: 'jwt_passkey' as const,
+      walletId: nearAccountId as any,
       nearAccountId: nearAccountId as any,
+      ed25519KeyScopeId: nearAccountId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId: 'ed25519:pending-material-relayer-key',
@@ -224,7 +245,7 @@ test.describe('near signing session selection', () => {
 
     const context = await resolveNearSigningSessionAuthContext({
       warmSessionReader,
-      nearAccount: { kind: 'named', accountId: nearAccountId as any },
+      commandSubject: nearCommandSubject(nearAccountId),
       operationLabel: 'transaction signing',
       requiredSignatureUses: 1,
     });
@@ -252,7 +273,9 @@ test.describe('near signing session selection', () => {
     const expiresAtMs = Date.now() + 60_000;
     persistWarmSessionEd25519Capability({
       kind: 'jwt_passkey' as const,
+      walletId: nearAccountId as any,
       nearAccountId: nearAccountId as any,
+      ed25519KeyScopeId: nearAccountId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId: 'ed25519:auth-only-pending-relayer-key',
@@ -289,7 +312,7 @@ test.describe('near signing session selection', () => {
 
     const context = await resolveNearSigningSessionAuthContext({
       warmSessionReader,
-      nearAccount: { kind: 'named', accountId: nearAccountId as any },
+      commandSubject: nearCommandSubject(nearAccountId),
       operationLabel: 'transaction signing',
       requiredSignatureUses: 1,
     });
@@ -401,7 +424,7 @@ test.describe('near signing session selection', () => {
     await expect(
       resolveNearSigningSessionAuthContext({
         warmSessionReader,
-        nearAccount: { kind: 'named', accountId: nearAccountId as any },
+        commandSubject: nearCommandSubject(nearAccountId),
         operationLabel: 'transaction signing',
         requiredSignatureUses: 1,
       }),
@@ -432,7 +455,7 @@ test.describe('near signing session selection', () => {
           projectionVersion: 'projection:server-available-budget-passkey-ed25519',
         },
       }),
-      nearAccount: { kind: 'named', accountId: nearAccountId as any },
+      commandSubject: nearCommandSubject(nearAccountId),
       operationLabel: 'transaction signing',
       requiredSignatureUses: 1,
     });
@@ -460,13 +483,49 @@ test.describe('near signing session selection', () => {
           projectionVersion: 'projection:malformed-active-budget-passkey-ed25519',
         },
       }),
-      nearAccount: { kind: 'named', accountId: nearAccountId as any },
+      commandSubject: nearCommandSubject(nearAccountId),
       operationLabel: 'transaction signing',
       requiredSignatureUses: 1,
     });
 
     expect(context.coordinatorInput.readiness.status).toBe('missing_session');
     expect(context.coordinatorInput.remainingUses).toBe(0);
+  });
+
+  test('uses generated wallet id for implicit NEAR signing lane while preserving NEAR account id', async () => {
+    const walletId = 'frost-vermillion-k7p9m2';
+    const nearAccountId = 'a'.repeat(64);
+    const signingGrantId = 'wallet-implicit-ed25519-direct-signing';
+    const thresholdSessionId = 'threshold-implicit-ed25519-direct-signing';
+    const expiresAtMs = Date.now() + 60_000;
+    const context = await resolveNearSigningSessionAuthContext({
+      warmSessionReader: createStatusBackedPasskeyEd25519WarmSessionReader({
+        walletId,
+        nearAccountId,
+        signingGrantId,
+        thresholdSessionId,
+        expiresAtMs,
+        status: {
+          sessionId: thresholdSessionId,
+          status: 'active',
+          remainingUses: 3,
+          committedRemainingUses: 3,
+          inFlightReservedUses: 0,
+          availableUses: 3,
+          expiresAtMs,
+          projectionVersion: 'projection:implicit-ed25519-direct-signing',
+        },
+      }),
+      commandSubject: nearCommandSubject(walletId, nearAccountId),
+      operationLabel: 'transaction signing',
+      requiredSignatureUses: 1,
+    });
+
+    expect(walletId).not.toBe(nearAccountId);
+    expect(context.walletId).toBe(walletId);
+    expect(context.nearAccountId).toBe(nearAccountId);
+    expect(String(context.lane.accountId)).toBe(walletId);
+    expect(String(context.coordinatorInput.lane.accountId)).toBe(walletId);
   });
 
   test('retains prior same-account Ed25519 worker material when minting a new login session', () => {
@@ -480,7 +539,9 @@ test.describe('near signing session selection', () => {
     } as const;
     const common = {
       kind: 'jwt_passkey' as const,
+      walletId: nearAccountId as any,
       nearAccountId: nearAccountId as any,
+      ed25519KeyScopeId: nearAccountId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId: 'ed25519:retain-material-relayer-key',

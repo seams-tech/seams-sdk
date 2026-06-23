@@ -2,11 +2,13 @@ import { expect, test } from '@playwright/test';
 import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import type { WalletSession } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 
 function makeSession(overrides?: Partial<WalletSession>): WalletSession {
   return {
     login: {
       isLoggedIn: true,
+      walletId: walletIdFromString('alice.testnet'),
       nearAccountId: toAccountId('alice.testnet'),
       publicKey: 'ed25519:abc',
       userData: null,
@@ -52,6 +54,7 @@ test.describe('wallet session readiness gate', () => {
         session: makeSession({
           login: {
             isLoggedIn: false,
+            walletId: walletIdFromString('alice.testnet'),
             nearAccountId: toAccountId('alice.testnet'),
             publicKey: null,
             userData: null,
@@ -65,6 +68,7 @@ test.describe('wallet session readiness gate', () => {
         session: makeSession({
           login: {
             isLoggedIn: true,
+            walletId: walletIdFromString('alice.testnet'),
             nearAccountId: null,
             publicKey: null,
             userData: null,
@@ -80,6 +84,7 @@ test.describe('wallet session readiness gate', () => {
         session: makeSession({
           login: {
             isLoggedIn: true,
+            walletId: walletIdFromString('email-otp.testnet'),
             nearAccountId: toAccountId('email-otp.testnet'),
             publicKey: null,
             userData: null,

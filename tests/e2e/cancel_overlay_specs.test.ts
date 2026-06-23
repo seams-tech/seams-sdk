@@ -89,6 +89,20 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             (window as any).testUtils?.configs?.testReceiverAccountId || 'w3a-v1.testnet';
 
           const events: Record<string, any[]> = {};
+          const registrationSignerSelection = {
+            mode: 'ed25519_only' as const,
+            ed25519: {
+              accountProvisioning: {
+                kind: 'implicit_account' as const,
+                accountIdSource: 'ed25519_public_key' as const,
+              },
+              signerSlot: 1,
+              participantIds: [1, 2],
+              keyPurpose: 'near-ed25519-signing',
+              keyVersion: 'threshold-ed25519-hss-v1',
+              derivationVersion: 1,
+            },
+          };
 
           const flows: Array<{ name: string; run: () => Promise<unknown> }> = [
             {
@@ -111,8 +125,11 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
             {
               name: 'register',
               run: () =>
-                router.registerPasskey({
-                  nearAccountId,
+                router.registerWallet({
+                  wallet: { kind: 'server_generated' },
+                  rpId: 'example.localhost',
+                  authMethod: { kind: 'passkey' },
+                  signerSelection: registrationSignerSelection,
                   options: {
                     onEvent: (evt: any) => {
                       (events.register ||= []).push({
@@ -128,6 +145,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
               name: 'executeAction',
               run: () =>
                 router.executeAction({
+                  walletId: nearAccountId,
                   nearAccountId,
                   receiverId,
                   actionArgs: { type: 'Transfer', amount: '1' } as any,

@@ -372,14 +372,9 @@ test.describe('console API key kinds', () => {
       },
     );
 
-    const router = createRelayRouter(
-      makeFakeAuthService({
-        createAccountAndRegisterUser: async () => ({ success: true, transactionHash: 'tx-123' }),
-      }),
-      {
-        apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
-      },
-    );
+    const router = createRelayRouter(makeFakeAuthService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+    });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
@@ -392,12 +387,16 @@ test.describe('console API key kinds', () => {
         body: JSON.stringify({
           wallet: { kind: 'provided', walletId: 'alice.testnet' },
           rpId: 'example.com',
+          authMethod: { kind: 'passkey' },
           signerSelection: {
             mode: 'ed25519_only',
             ed25519: {
-              nearAccountId: 'alice.testnet',
+              accountProvisioning: {
+                kind: 'sponsored_named_account',
+                requestedAccountId: 'alice.testnet',
+                sponsor: 'relayer',
+              },
               signerSlot: 1,
-              createNearAccount: true,
               keyPurpose: 'ed25519-hss/y_relayer',
               keyVersion: 'threshold-ed25519-hss-v1',
               participantIds: [1, 2],

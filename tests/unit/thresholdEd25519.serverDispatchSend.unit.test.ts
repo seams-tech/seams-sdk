@@ -4,6 +4,7 @@ import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { executeActionInternal, sendTransaction } from '@/SeamsWeb/operations/near/actions';
 import type { SeamsWebContext } from '@/SeamsWeb/signingSurface/types';
 import type { NonceLeaseRef } from '@/core/signingEngine/interfaces/nonceLease';
+import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 test('sendTransaction returns server-dispatched result without rebroadcasting', async () => {
   const nonceEvents: string[] = [];
@@ -39,8 +40,17 @@ test('sendTransaction returns server-dispatched result without rebroadcasting', 
       }),
     },
   } as unknown as SeamsWebContext;
+  const walletSession = walletSessionRefFromSession({
+    walletId: 'alice.testnet',
+    walletSessionUserId: 'alice.testnet',
+  });
 
-  const result = await sendTransaction({ context, signedTransaction });
+  const result = await sendTransaction({
+    context,
+    nearAccountId: 'alice.testnet',
+    walletSession,
+    signedTransaction,
+  });
 
   expect(result).toEqual({
     success: true,
@@ -48,6 +58,44 @@ test('sendTransaction returns server-dispatched result without rebroadcasting', 
     result: { status: 'ok' },
   });
   expect(nonceEvents).toEqual(['accepted', 'finalized']);
+});
+
+test('sendTransaction rejects direct broadcast without nonce readiness', async () => {
+  let broadcastCalled = false;
+  const signedTransaction = new SignedTransaction({
+    transaction: { signerId: 'alice.testnet' } as never,
+    signature: { keyType: 0, signatureData: [1] } as never,
+    borsh_bytes: [2],
+  });
+  const context = {
+    nearClient: {
+      sendTransaction: async () => {
+        broadcastCalled = true;
+        return { transaction: { hash: 'tx-hash' } };
+      },
+    },
+    signingEngine: {
+      getNonceCoordinator: () => ({
+        markBroadcastAccepted: async () => {},
+        markFinalized: async () => {},
+        markBroadcastRejected: async () => {},
+      }),
+    },
+  } as unknown as SeamsWebContext;
+  const walletSession = walletSessionRefFromSession({
+    walletId: 'alice.testnet',
+    walletSessionUserId: 'alice.testnet',
+  });
+
+  await expect(
+    sendTransaction({
+      context,
+      nearAccountId: 'alice.testnet',
+      walletSession,
+      signedTransaction,
+    }),
+  ).rejects.toThrow('nonce readiness');
+  expect(broadcastCalled).toBe(false);
 });
 
 test('executeActionInternal forwards the original signing error to afterCall', async () => {
@@ -69,6 +117,10 @@ test('executeActionInternal forwards the original signing error to afterCall', a
   const result = await executeActionInternal({
     context,
     nearAccountId: 'alice.testnet',
+    walletSession: walletSessionRefFromSession({
+      walletId: 'alice.testnet',
+      walletSessionUserId: 'alice.testnet',
+    }),
     receiverId: 'contract.testnet',
     actionArgs: {
       type: ActionType.Transfer,

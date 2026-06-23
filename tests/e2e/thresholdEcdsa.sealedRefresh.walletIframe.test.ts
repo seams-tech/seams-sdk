@@ -62,7 +62,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskey(accountId, {
+            const registration = await seams.registration.registerPasskey({
               confirmationConfig: confirmationConfig as any,
             });
             if (!registration?.success) {
@@ -326,7 +326,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskey(accountId, {
+            const registration = await seams.registration.registerPasskey({
               confirmationConfig: confirmationConfig as any,
             });
             if (!registration?.success) {
@@ -726,7 +726,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskey(accountId, {
+            const registration = await seams.registration.registerPasskey({
               confirmationConfig: confirmationConfig as any,
             });
             if (!registration?.success) {
@@ -1107,7 +1107,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskey(accountId, {
+            const registration = await seams.registration.registerPasskey({
               confirmationConfig: confirmationConfig as any,
             });
             if (!registration?.success) {
@@ -1495,7 +1495,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             });
 
             seams.preferences.setConfirmationConfig(confirmationConfig as any);
-            const registration = await seams.registration.registerPasskey(accountId, {
+            const registration = await seams.registration.registerPasskey({
               confirmationConfig: confirmationConfig as any,
             });
             if (!registration?.success) {
@@ -1690,7 +1690,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
 
               seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-              const registration = await seams.registration.registerPasskey(accountId, {
+              const registration = await seams.registration.registerPasskey({
                 confirmationConfig: confirmationConfig as any,
               });
               if (!registration?.success) {

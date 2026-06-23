@@ -21,6 +21,16 @@ const ROUTER_AB_NORMAL_SIGNING = {
   kind: 'router_ab_ed25519_normal_signing_v1',
   signingWorkerId: 'signing-worker-local',
 } as const;
+const TEST_WALLET_ID = 'frost-vermillion-k7p9m2';
+const TEST_NEAR_ACCOUNT_ID = 'a'.repeat(64);
+const TEST_ED25519_KEY_SCOPE_ID = 'ed25519ks_test_scope';
+const TEST_WALLET_BINDING = {
+  walletId: TEST_WALLET_ID,
+  nearAccountId: TEST_NEAR_ACCOUNT_ID,
+  ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+  rpId: 'wallet.example.test',
+  signerSlot: 7,
+} as const;
 
 function makeThresholdEd25519PrepareRequest() {
   return {
@@ -31,7 +41,9 @@ function makeThresholdEd25519PrepareRequest() {
     session_kind: 'jwt',
     session_policy: {
       version: 'threshold_session_v1',
-      nearAccountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
+      nearAccountId: TEST_NEAR_ACCOUNT_ID,
+      ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
       rpId: 'wallet.example.test',
       relayerKeyId: 'rk-near',
       thresholdSessionId: 'near-session-1',
@@ -46,7 +58,11 @@ function makePreparedRecoveryService() {
   return makeFakeAuthService({
     prepareEmailRecovery: async () => ({
       ok: true,
-      accountId: 'alice.testnet',
+      accountId: TEST_WALLET_ID,
+      walletId: TEST_WALLET_ID,
+      nearAccountId: TEST_NEAR_ACCOUNT_ID,
+      ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+      walletBinding: TEST_WALLET_BINDING,
       requestId: 'ABC123',
       signerSlot: 7,
       credentialIdB64u: 'cred-b64u',
@@ -58,6 +74,9 @@ function makePreparedRecoveryService() {
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt',
+          walletId: TEST_WALLET_ID,
+          nearAccountId: TEST_NEAR_ACCOUNT_ID,
+          ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
           thresholdSessionId: 'near-session-1',
           signingGrantId: 'signing-grant-1',
           expiresAtMs: Date.now() + 60_000,
@@ -72,7 +91,7 @@ function makePreparedRecoveryService() {
         chainTargets: [{ kind: 'evm' as const, namespace: 'eip155' as const, chainId: 1 }],
         prepare: {
           formatVersion: 'ecdsa-hss-role-local' as const,
-          walletId: 'alice.testnet',
+          walletId: TEST_WALLET_ID,
           rpId: 'wallet.example.test',
           ecdsaThresholdKeyId: 'ecdsa-threshold-key',
           signingRootId: 'root-id',
@@ -90,7 +109,11 @@ function makePreparedRecoveryService() {
     }),
     respondEmailRecoveryEcdsa: async () => ({
       ok: true,
-      accountId: 'alice.testnet',
+      accountId: TEST_WALLET_ID,
+      walletId: TEST_WALLET_ID,
+      nearAccountId: TEST_NEAR_ACCOUNT_ID,
+      ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+      walletBinding: TEST_WALLET_BINDING,
       requestId: 'ABC123',
       signerSlot: 7,
       credentialIdB64u: 'cred-b64u',
@@ -102,6 +125,9 @@ function makePreparedRecoveryService() {
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt' as const,
+          walletId: TEST_WALLET_ID,
+          nearAccountId: TEST_NEAR_ACCOUNT_ID,
+          ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
           thresholdSessionId: 'near-session-1',
           signingGrantId: 'signing-grant-1',
           expiresAtMs: Date.now() + 60_000,
@@ -114,7 +140,7 @@ function makePreparedRecoveryService() {
       ecdsa: {
         bootstrap: {
           formatVersion: 'ecdsa-hss-role-local',
-          walletId: 'alice.testnet',
+          walletId: TEST_WALLET_ID,
           rpId: 'wallet.example.test',
           ecdsaThresholdKeyId: 'ecdsa-threshold-key',
           signingRootId: 'root-id',
@@ -143,7 +169,7 @@ function makePreparedRecoveryService() {
         payloadHash: 'payload-hash',
       },
       recoveryEmail: {
-        subject: 'recover-v1 alice.testnet ABC123',
+        subject: `recover-v1 ${TEST_NEAR_ACCOUNT_ID} ABC123`,
         body: 'body',
         payload: {} as any,
         payloadHash: 'payload-hash',
@@ -169,7 +195,7 @@ test.describe('email-recovery prepare routing', () => {
           Origin: 'https://wallet.example.test',
         },
         body: JSON.stringify({
-          account_id: 'alice.testnet',
+          account_id: TEST_WALLET_ID,
           request_id: 'ABC123',
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
@@ -179,6 +205,9 @@ test.describe('email-recovery prepare routing', () => {
 
       expect(res.status).toBe(200);
       expect(res.json?.thresholdEd25519).toBeTruthy();
+      expect(res.json?.walletId).toBe(TEST_WALLET_ID);
+      expect(res.json?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
+      expect(res.json?.ed25519KeyScopeId).toBe(TEST_ED25519_KEY_SCOPE_ID);
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.ecdsa as any)?.prepare?.thresholdSessionId).toBe('tehss_ABC123');
       expect(res.json?.recoverySession).toBeUndefined();
@@ -202,7 +231,7 @@ test.describe('email-recovery prepare routing', () => {
       headers: { 'Content-Type': 'application/json' },
       ctx,
       body: {
-        account_id: 'alice.testnet',
+        account_id: TEST_WALLET_ID,
         request_id: 'ABC123',
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
@@ -211,6 +240,8 @@ test.describe('email-recovery prepare routing', () => {
     });
 
     expect(res.status).toBe(200);
+    expect(res.json?.walletId).toBe(TEST_WALLET_ID);
+    expect(res.json?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
     expect((res.json?.ecdsa as any)?.prepare?.thresholdSessionId).toBe('tehss_ABC123');
     expect(res.json?.recoverySession).toBeUndefined();
@@ -234,9 +265,11 @@ test.describe('email-recovery prepare routing', () => {
       });
 
       expect(res.status).toBe(200);
+      expect(res.json?.walletId).toBe(TEST_WALLET_ID);
+      expect(res.json?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.recoverySession as any)?.sessionId).toBe('ABC123');
-      expect((res.json?.recoveryEmail as any)?.subject).toContain('alice.testnet');
+      expect((res.json?.recoveryEmail as any)?.subject).toContain(TEST_NEAR_ACCOUNT_ID);
     } finally {
       await srv.close();
     }

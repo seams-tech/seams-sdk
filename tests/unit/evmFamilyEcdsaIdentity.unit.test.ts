@@ -27,7 +27,10 @@ import {
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { parseEcdsaThresholdKeyId } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
-import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
@@ -57,7 +60,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 import { buildReadySecp256k1SigningMaterialFromRecord } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material';
 
-const WALLET_ID = toAccountId('alice.testnet');
+const WALLET_ID = toWalletId('alice.testnet');
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const RP_ID = 'localhost';
@@ -882,7 +885,7 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('rejects ready material when the session record belongs to another wallet', () => {
-    const otherWallet = toAccountId('mallory.testnet');
+    const otherWallet = toWalletId('mallory.testnet');
     const result = resolveReadyEvmFamilyEcdsaMaterial({
       record: makeRecord({
         walletId: otherWallet,
@@ -1260,7 +1263,7 @@ test.describe('EVM-family ECDSA identity', () => {
     };
     const record = makeRecord();
     const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, rpId: RP_ID });
-    const otherWallet = toAccountId('mallory.testnet');
+    const otherWallet = toWalletId('mallory.testnet');
     const otherWalletKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord({ walletId: otherWallet }),
       rpId: RP_ID,

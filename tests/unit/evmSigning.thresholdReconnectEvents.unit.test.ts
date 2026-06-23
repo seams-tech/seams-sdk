@@ -60,7 +60,7 @@ test.describe('EVM family threshold reconnect events', () => {
       ...selectedEcdsaLane({
         key,
         keyHandle: staleRecord.keyHandle,
-        walletId: toAccountId('reconnect-events.testnet'),
+        walletId: toWalletId('reconnect-events.testnet'),
         authMethod: 'passkey',
         signingGrantId,
         thresholdSessionId: staleRecord.thresholdSessionId,

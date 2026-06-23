@@ -63,7 +63,7 @@ test.describe('threshold-ed25519 bootstrap integrity', () => {
         });
 
         const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
-        const reg = await pm.registration.registerPasskey(accountId, {
+        const reg = await pm.registration.registerPasskey({
           signerOptions: {
             tempo: {
               enabled: false,

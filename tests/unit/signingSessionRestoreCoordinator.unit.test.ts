@@ -74,8 +74,10 @@ function makeSealedRecord(args: {
           },
         }
       : {
-          ed25519Restore: {
-            rpId: 'example.com',
+	          ed25519Restore: {
+	            nearAccountId: 'restore.testnet',
+	            ed25519KeyScopeId: 'restore.testnet',
+	            rpId: 'example.com',
             relayerKeyId: 'relayer-key-restore',
             participantIds: [1, 2],
             sessionKind: 'jwt' as const,
@@ -140,8 +142,10 @@ function makeEcdsaRecordWithEd25519Companion(args: {
         ed25519: args.ed25519ThresholdSessionId,
       },
     }),
-    ed25519Restore: {
-      rpId: 'example.com',
+	    ed25519Restore: {
+	      nearAccountId: 'restore.testnet',
+	      ed25519KeyScopeId: 'restore.testnet',
+	      rpId: 'example.com',
       relayerKeyId: 'relayer-key-restore',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -375,8 +379,10 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         listExactSealedSessionsForWallet: async () => [
           {
             ...makeSealedRecord({ curve: 'ed25519' }),
-            ed25519Restore: {
-              rpId: 'example.com',
+	            ed25519Restore: {
+	              nearAccountId: 'restore.testnet',
+	              ed25519KeyScopeId: 'restore.testnet',
+	              rpId: 'example.com',
               relayerKeyId: 'relayer-key-restore',
               participantIds: [1, 2],
               sessionKind: 'jwt',

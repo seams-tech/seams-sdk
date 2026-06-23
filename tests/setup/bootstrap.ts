@@ -1,4 +1,6 @@
 import { Page, type Route } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { printStepLine } from './logging';
 import { installRelayServerProxyShim, installWalletSdkCorsShim } from './cross-origin-headers';
 import type { PasskeyTestConfig } from './types';
@@ -9,6 +11,72 @@ import {
   TEST_BROWSER_IMPORT_MAP_ATTR,
   TEST_BROWSER_IMPORT_MAP_MARKER,
 } from './importMap';
+
+const SERVER_ESM_ROUTE_PATTERN = '**/sdk/esm/server/**';
+
+function resolveRepoRoot(): string {
+  if (process.env.W3A_REPO_ROOT) return process.env.W3A_REPO_ROOT;
+  const cwd = process.cwd();
+  if (fs.existsSync(path.join(cwd, 'packages/sdk-server-ts'))) return cwd;
+  return path.resolve(cwd, '..');
+}
+
+function contentTypeForEsmFixture(filePath: string): string {
+  switch (path.extname(filePath)) {
+    case '.js':
+      return 'application/javascript; charset=utf-8';
+    case '.map':
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.wasm':
+      return 'application/wasm';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function resolveServerEsmFixturePath(url: string): string | null {
+  const parsed = new URL(url);
+  const marker = '/sdk/esm/server/';
+  const markerIndex = parsed.pathname.indexOf(marker);
+  if (markerIndex < 0) return null;
+
+  const rel = decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+  const root = path.join(resolveRepoRoot(), 'packages/sdk-server-ts/dist/esm');
+  const candidate = path.normalize(path.join(root, rel));
+  const normalizedRoot = path.normalize(root);
+  if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}${path.sep}`)) {
+    return null;
+  }
+  return candidate;
+}
+
+async function installServerEsmDynamicModuleRoute(page: Page): Promise<void> {
+  const context = page.context();
+  await context.unroute(SERVER_ESM_ROUTE_PATTERN as any).catch(() => undefined);
+  await context.route(SERVER_ESM_ROUTE_PATTERN as any, async (route) => {
+    const filePath = resolveServerEsmFixturePath(route.request().url());
+    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return route.fulfill({
+        status: 404,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store, max-age=0',
+        },
+        body: JSON.stringify({ error: 'server ESM fixture not found' }),
+      });
+    }
+
+    return route.fulfill({
+      status: 200,
+      path: filePath,
+      headers: {
+        'content-type': contentTypeForEsmFixture(filePath),
+        'cache-control': 'no-store, max-age=0',
+      },
+    });
+  });
+}
 
 async function setupWebAuthnVirtualAuthenticator(page: Page): Promise<string> {
   const client = await page.context().newCDPSession(page);
@@ -42,6 +110,8 @@ export async function injectImportMap(
   page: Page,
   options?: { frontendUrl: string },
 ): Promise<void> {
+  await installServerEsmDynamicModuleRoute(page);
+
   // Import maps must be present in the HTML during parsing (before any module scripts run).
   // The Vite example app includes `<script type="module" src="/src/main.tsx">`, so we inject
   // the import map by rewriting the top-level document HTML during the initial navigation.

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { toAccountId } from '@/core/types/accountIds';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
 import {
   buildNearTransactionSigningLane,
@@ -60,7 +61,9 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
 
     await store.provisionEd25519Capability({
       kind: 'fresh_ed25519_provisioning',
+      walletId: 'transition-ed25519.testnet',
       nearAccountId: 'transition-ed25519.testnet',
+      ed25519KeyScopeId: 'transition-ed25519.testnet',
       relayerKeyId: 'rk-ed25519-transition',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -98,6 +101,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     resetWarmSessionFixtureState(ecdsaStore);
 
     const accountId = toAccountId('transition-ed25519-pending.testnet');
+    const walletId = toWalletId(accountId);
     const sessionId = 'ed25519-pending-material-session';
     const signingGrantId = 'wsess-ed25519-pending-material';
     const expiresAtMs = Date.now() + 120_000;
@@ -144,7 +148,9 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
 
     await store.provisionEd25519Capability({
       kind: 'fresh_ed25519_provisioning',
+      walletId,
       nearAccountId: accountId,
+      ed25519KeyScopeId: accountId,
       relayerKeyId: 'rk-ed25519-pending-material',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -152,7 +158,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       source: 'login',
     });
 
-    const warmSession = await store.getWarmSession(accountId);
+    const warmSession = await store.getWarmSession(walletId);
     expect(warmSession.capabilities.ed25519).toMatchObject({
       state: 'material_pending',
       record: {
@@ -209,7 +215,9 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     await expect(
       store.provisionEd25519Capability({
         kind: 'fresh_ed25519_provisioning',
+        walletId: 'transition-unpersisted.testnet',
         nearAccountId: 'transition-unpersisted.testnet',
+        ed25519KeyScopeId: 'transition-unpersisted.testnet',
         relayerKeyId: 'rk-ed25519-unpersisted',
         participantIds: [1, 2],
         sessionKind: 'jwt',

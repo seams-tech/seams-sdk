@@ -174,7 +174,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskey(accountId, {
+            const registration = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,
@@ -349,7 +349,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskey(accountId, {
+            const registration = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,
@@ -542,7 +542,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskey(accountId, {
+            const registration = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,
@@ -800,7 +800,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskey(accountId, {
+            const registration = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,
@@ -1053,7 +1053,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskey(accountId, {
+            const registration = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,
@@ -1279,7 +1279,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskey(accountId, {
+            const registration = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,

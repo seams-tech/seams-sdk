@@ -3,8 +3,15 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import {
+  ed25519KeyScopeIdFromString,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
 import { toAccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
@@ -35,9 +42,11 @@ import type {
 } from '@/core/signingEngine/session/persistence/records';
 
 const accountId = toAccountId('strict-ed25519-capability.testnet');
+const ed25519WalletId = walletIdFromString('strict-ed25519-wallet');
+const ed25519KeyScopeId = ed25519KeyScopeIdFromString('strict-ed25519-key-scope');
 const signingGrantId = SigningSessionIds.signingGrant('wsess-strict-ed25519');
 const thresholdSessionId = SigningSessionIds.thresholdEd25519Session('tsess-strict-ed25519');
-const ecdsaWalletId = toAccountId('strict-ecdsa-capability.testnet');
+const ecdsaWalletId = toWalletId('strict-ecdsa-capability.testnet');
 const ecdsaSigningGrantId = SigningSessionIds.signingGrant('wsess-strict-ecdsa');
 const ecdsaThresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-strict-ecdsa');
 const ecdsaChainTarget: ThresholdEcdsaChainTarget = {
@@ -77,7 +86,9 @@ function makeEd25519Record(
   overrides: Partial<ThresholdEd25519SessionRecord> = {},
 ): ThresholdEd25519SessionRecord {
   return {
+    walletId: ed25519WalletId,
     nearAccountId: accountId,
+    ed25519KeyScopeId,
     rpId: 'localhost',
     relayerUrl: 'https://router.example.test',
     relayerKeyId: 'ed25519:strict-capability-relayer',

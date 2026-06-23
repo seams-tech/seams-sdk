@@ -56,8 +56,10 @@ function makeEmailOtpEcdsaSealedRecord(
       thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
       participantIds: [1, 2],
     },
-    ed25519Restore: {
-      rpId: 'example.com',
+	    ed25519Restore: {
+	      nearAccountId: 'alice.testnet',
+	      ed25519KeyScopeId: 'alice.testnet',
+	      rpId: 'example.com',
       relayerKeyId: 'relayer-key-ed25519',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -234,8 +236,10 @@ test.describe('sealed recovery method adapters', () => {
       relayerUrl: 'https://relay.example',
       shamirPrimeB64u: 'prime-b64u',
       keyVersion: 'signing-session-seal-kek-test-r1',
-      ed25519Restore: {
-        rpId: 'example.com',
+	      ed25519Restore: {
+	        nearAccountId: 'alice.testnet',
+	        ed25519KeyScopeId: 'alice.testnet',
+	        rpId: 'example.com',
         relayerKeyId: 'relayer-key-ed25519',
         participantIds: [1, 2],
         sessionKind: 'jwt',
@@ -519,8 +523,10 @@ test.describe('sealed recovery method adapters', () => {
       relayerUrl: 'https://relay.example',
       shamirPrimeB64u: 'prime-b64u',
       keyVersion: 'signing-session-seal-kek-test-r1',
-      ed25519Restore: {
-        rpId: 'example.com',
+	      ed25519Restore: {
+	        nearAccountId: 'alice.testnet',
+	        ed25519KeyScopeId: 'alice.testnet',
+	        rpId: 'example.com',
         relayerKeyId: 'relayer-key-ed25519',
         participantIds: [1, 2],
         sessionKind: 'jwt',

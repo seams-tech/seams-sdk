@@ -28,7 +28,7 @@ import {
 import type { BudgetAdmittedOperation } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/transactionState';
 import type { SigningSessionStatus } from '../../packages/sdk-web/src/core/types/seams';
 
-const WALLET_ID = toAccountId('budget-refresh.testnet');
+const WALLET_ID = toWalletId('budget-refresh.testnet');
 const CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,

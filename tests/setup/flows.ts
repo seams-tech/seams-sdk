@@ -166,7 +166,6 @@ export async function registerPasskey(
   const registrationPromise = passkey.withTestUtils(
     (args) => {
       const utils = (window as any).testUtils as TestUtils;
-      const toAccountId = (window as any).toAccountId ?? ((id: string) => id);
       const events: any[] = [];
 
       const confirmVariant = args.confirmVariant ?? 'none';
@@ -177,7 +176,7 @@ export async function registerPasskey(
       try {
         console.log(`[flow:register] invoking registerPasskey for ${args.accountId}`);
         return utils.seams.registration
-          .registerPasskey(toAccountId(args.accountId), {
+          .registerPasskey({
             signerOptions: {
               tempo: {
                 enabled: false,
@@ -198,9 +197,12 @@ export async function registerPasskey(
             confirmationConfig: confirmConfig,
           })
           .then((result: any) => {
+            const resolvedAccountId = String(
+              result?.nearAccountId || result?.resolvedAccount?.accountId || args.accountId,
+            );
             const response: RegistrationFlowResult = {
               success: !!result.success,
-              accountId: args.accountId,
+              accountId: resolvedAccountId,
               events,
               raw: result,
               error: result?.error,
@@ -368,6 +370,10 @@ export async function executeTransfer(
         console.log(`[flow:transfer] executing action for ${args.accountId}`);
         return utils.seams.near
           .executeAction({
+            walletSession: {
+              walletId: args.accountId,
+              walletSessionUserId: args.accountId,
+            } as any,
             nearAccount: { kind: 'named', accountId: toAccountId(args.accountId) },
             receiverId: args.receiverId,
             actionArgs: {

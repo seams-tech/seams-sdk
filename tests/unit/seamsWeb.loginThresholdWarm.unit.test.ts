@@ -9,6 +9,7 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -20,6 +21,9 @@ import {
 } from '@/core/signingEngine/session/keyMaterialBrands';
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
+const IMPLICIT_WALLET_ID = 'frost-vermillion-k7p9m2';
+const IMPLICIT_NEAR_ACCOUNT_ID = toAccountId('a'.repeat(64));
+const IMPLICIT_ED25519_KEY_SCOPE_ID = IMPLICIT_WALLET_ID;
 const TEMPO_ECDSA_THRESHOLD_KEY_ID = 'ehss-login-tempo';
 const EVM_ECDSA_THRESHOLD_KEY_ID = TEMPO_ECDSA_THRESHOLD_KEY_ID;
 const ECDSA_THRESHOLD_KEY_ID = TEMPO_ECDSA_THRESHOLD_KEY_ID;
@@ -233,7 +237,7 @@ function loginReadySigningLanes(args: {
     }),
   );
   return {
-    walletId: toAccountId(String(args.walletId || ACCOUNT_ID)),
+    walletId: toWalletId(String(args.walletId || ACCOUNT_ID)),
     generation: Date.now(),
     ecdsa: {
       targets: [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET],
@@ -257,14 +261,20 @@ function loginReadySigningLanes(args: {
 
 async function persistReadyEd25519WarmRecord(args: {
   sessionId: string;
+  walletId?: string;
+  nearAccountId?: ReturnType<typeof toAccountId>;
+  ed25519KeyScopeId?: string;
   signingGrantId?: string;
   walletSessionJwt?: string;
   expiresAtMs?: number;
   remainingUses?: number;
 }): Promise<void> {
+  const nearAccountId = args.nearAccountId || ACCOUNT_ID;
+  const walletId = args.walletId || String(nearAccountId);
+  const ed25519KeyScopeId = args.ed25519KeyScopeId || String(nearAccountId);
   const materialCreatedAtMs = Date.now();
   const material = await buildRouterAbEd25519WorkerMaterialBinding({
-    nearAccountId: ACCOUNT_ID,
+    nearAccountId,
     signerSlot: 1,
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
@@ -277,7 +287,9 @@ async function persistReadyEd25519WarmRecord(args: {
     createdAtMs: materialCreatedAtMs,
   });
   upsertStoredThresholdEd25519SessionRecord({
-    nearAccountId: ACCOUNT_ID,
+    walletId,
+    nearAccountId,
+    ed25519KeyScopeId,
     rpId: 'example.localhost',
     relayerUrl: 'https://relay.example',
     relayerKeyId: 'rk-1',
@@ -623,8 +635,10 @@ async function withMockedMostRecentProjection<T>(
     includeThresholdEcdsaProfiles?: boolean;
     profileContinuitySnapshot?: Record<string, unknown> | null;
     walletAccountSigners?: Array<Record<string, unknown>>;
+    nearAccountId?: string;
   },
 ): Promise<T> {
+  const mockNearAccountId = String(options?.nearAccountId || ACCOUNT_ID);
   const continuityPort = IndexedDBManager as unknown as {
     getProfileContinuitySnapshot?: unknown;
   };
@@ -675,11 +689,11 @@ async function withMockedMostRecentProjection<T>(
     accountAddress: string;
   }) =>
     accountRef.chainIdKey === 'near:testnet' &&
-    String(accountRef.accountAddress || '').trim() === 'alice.testnet'
-      ? { profileId: 'near-profile:alice.testnet', accountRef }
+    String(accountRef.accountAddress || '').trim() === mockNearAccountId
+      ? { profileId: `near-profile:${mockNearAccountId}`, accountRef }
       : null;
   keyMaterialPort.getKeyMaterial = async () => ({
-    profileId: 'near-profile:alice.testnet',
+    profileId: `near-profile:${mockNearAccountId}`,
     signerSlot: 1,
     chainIdKey: 'near:testnet',
     keyKind: 'threshold_share_v1',
@@ -829,6 +843,189 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect((connectCalls[0]?.auth as Record<string, unknown> | undefined)?.kind).toBe(
       'threshold_session_policy_webauthn',
     );
+  });
+
+  test('implicit passkey unlock warms Ed25519 and ECDSA under the generated wallet id', async () => {
+    clearAllStoredThresholdEd25519SessionRecords();
+    const nearAccountId = IMPLICIT_NEAR_ACCOUNT_ID;
+    const walletId = IMPLICIT_WALLET_ID;
+    const ed25519KeyScopeId = IMPLICIT_ED25519_KEY_SCOPE_ID;
+    await persistReadyEd25519WarmRecord({
+      sessionId: 'implicit-seed-ed25519-session',
+      signingGrantId: 'implicit-seed-ed25519-grant',
+      walletSessionJwt: 'jwt-implicit-seed',
+      walletId,
+      nearAccountId,
+      ed25519KeyScopeId,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 3,
+    });
+
+    const clearCalls: string[] = [];
+    const laneReadCalls: Array<Record<string, unknown>> = [];
+    const listCalls: Array<Record<string, unknown>> = [];
+    const connectCalls: Array<Record<string, unknown>> = [];
+    const bootstrapCalls: Array<Record<string, unknown>> = [];
+    const context = createBaseContext({
+      configs: {
+        registration: {
+          mode: 'managed',
+          environmentId: 'proj_local:dev',
+          publishableKey: 'pk_test_local',
+        },
+      },
+      signingEngine: {
+        getUserBySignerSlot: async () => ({
+          nearAccountId,
+          signerSlot: 1,
+          operationalPublicKey: 'ed25519:implicit',
+        }),
+        getLastUser: async () => ({
+          nearAccountId,
+          signerSlot: 1,
+          operationalPublicKey: 'ed25519:implicit',
+        }),
+        nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-implicit', signerSlot: 1 }],
+        getAuthenticationCredentialsSerialized: async (args: Record<string, unknown>) => {
+          expect(args.subjectId).toBe(String(nearAccountId));
+          return {
+            id: 'cred-implicit',
+            rawId: 'cred-implicit',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: undefined,
+              clientExtensionResults: {},
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: ECDSA_PRF_FIRST_B64U,
+                },
+              },
+            },
+          };
+        },
+        clearVolatileWarmSigningMaterial: async (inputWalletId: unknown) => {
+          clearCalls.push(String(inputWalletId));
+        },
+        listThresholdEcdsaSessionRecordsForWalletTarget: (args: Record<string, unknown>) => {
+          listCalls.push(args);
+          return [];
+        },
+        readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) => {
+          laneReadCalls.push(input);
+          if (bootstrapCalls.length === 0) return null;
+          return loginReadySigningLanes({
+            walletId: input.walletId,
+            authMethod: input.authMethod === 'email_otp' ? 'email_otp' : 'passkey',
+          });
+        },
+        connectEd25519Session: async (args: Record<string, unknown>) => {
+          connectCalls.push(args);
+          await persistReadyEd25519WarmRecord({
+            sessionId: 'implicit-login-ed25519-session',
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
+            walletSessionJwt: 'jwt-implicit-ed25519',
+            walletId,
+            nearAccountId,
+            ed25519KeyScopeId,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+          });
+          return {
+            ok: true,
+            sessionId: 'implicit-login-ed25519-session',
+            signingGrantId: WALLET_SIGNING_SESSION_ID,
+            jwt: 'jwt-implicit-ed25519',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+          };
+        },
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          bootstrapCalls.push(args);
+          const chainTarget =
+            (args.chainTarget as ThresholdEcdsaChainTarget | undefined) || bootstrapChainTarget(args);
+          const ecdsaThresholdKeyId = ecdsaKeyIdForChainTarget(
+            chainTarget as unknown as Record<string, unknown>,
+          );
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: walletId,
+              relayerUrl: 'https://relay.example',
+              keyHandle: ECDSA_KEY_HANDLE,
+              ecdsaThresholdKeyId,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: `implicit-ecdsa-${bootstrapCalls.length}`,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
+              walletSessionJwt: 'jwt-implicit-ecdsa',
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: `implicit-ecdsa-${bootstrapCalls.length}`,
+              signingGrantId: WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-implicit-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+              runtimePolicyScope: LOGIN_RUNTIME_POLICY_SCOPE,
+            },
+            passkeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+            passkeyCredentialIdB64u: 'cred-implicit',
+          };
+        },
+      },
+    });
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () => await unlock(context, nearAccountId),
+        { nearAccountId: String(nearAccountId), profileContinuitySnapshot: null },
+      );
+
+      expect(result.success, String(result.error || '')).toBe(true);
+      expect(connectCalls).toHaveLength(1);
+      expect(connectCalls[0]?.walletId).toBe(walletId);
+      expect(connectCalls[0]?.nearAccountId).toBe(String(nearAccountId));
+      expect(connectCalls[0]?.ed25519KeyScopeId).toBe(ed25519KeyScopeId);
+      expect(clearCalls).toEqual([walletId]);
+      expect(listCalls.length).toBeGreaterThan(0);
+      expect(listCalls.every((call) => String(call.walletId) === walletId)).toBe(true);
+      expect(bootstrapCalls.length).toBeGreaterThan(0);
+      expect(
+        bootstrapCalls.every((call) => {
+          const key = call.key as Record<string, unknown> | undefined;
+          return String(call.walletId || key?.walletId || '') === walletId;
+        }),
+      ).toBe(true);
+      expect(laneReadCalls.some((call) => String(call.walletId) === walletId)).toBe(true);
+      expect(getStoredThresholdEd25519SessionRecordForAccount(nearAccountId)?.walletId).toBe(
+        toWalletId(walletId),
+      );
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
   });
 
   test('returns active signingSession in threshold-signer warm mode', async () => {

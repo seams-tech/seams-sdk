@@ -127,7 +127,7 @@ const DEFAULT_ACTIVATION_PRESENTATION = {
 
 function makeDeps(args: {
   posts: ChildToParentEnvelope[];
-  registerPasskey: (nearAccountId: string, options: any) => Promise<any>;
+  registerPasskey: (options: any) => Promise<any>;
 }) {
   return {
     getSeamsWeb: () =>
@@ -149,7 +149,6 @@ function makeActivationPrepareReq(override?: Partial<any>): any {
     requestId: 'req-activation',
     payload: {
       activationId: 'activation-1',
-      nearAccountId: 'alice.testnet',
       expiresAtMs: Date.now() + 60_000,
       options: {},
       presentation: DEFAULT_ACTIVATION_PRESENTATION,
@@ -200,57 +199,16 @@ test.describe('wallet iframe host registration activation', () => {
     expect(parseRegistrationActivationStartedPayload({})).toBeNull();
   });
 
-  test('PM_REGISTER strips caller-supplied walletIframeActivation proofs', async () => {
-    const posts: ChildToParentEnvelope[] = [];
-    let receivedOptions: any = null;
-    const handlers = createWalletIframeHandlers(
-      makeDeps({
-        posts,
-        registerPasskey: async (_nearAccountId, options) => {
-          receivedOptions = options;
-          return { success: true };
-        },
-      }),
-    );
-
-    await handlers.PM_REGISTER!({
-      type: 'PM_REGISTER',
-      requestId: 'req-register',
-      payload: {
-        nearAccountId: 'alice.testnet',
-        confirmationConfig: { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 },
-        options: {
-          walletIframeActivation: {
-            kind: 'wallet_iframe_registration_activation_v1',
-            activationId: 'forged',
-            activatedAtMs: Date.now(),
-          },
-          signerOptions: { tempo: { enabled: false } },
-        },
-      },
-    } as any);
-
-    expect(receivedOptions?.walletIframeActivation).toBeUndefined();
-    expect(receivedOptions?.signerOptions).toEqual({ tempo: { enabled: false } });
-    expect(posts).toEqual([
-      expect.objectContaining({
-        type: 'PM_RESULT',
-        requestId: 'req-register',
-        payload: expect.objectContaining({ ok: true }),
-      }),
-    ]);
-  });
-
   test('activation button mints the iframe proof and ignores duplicate clicks', async () => {
     const document = installDomShim();
     const posts: ChildToParentEnvelope[] = [];
     const registration = createDeferred<any>();
-    const calls: Array<{ nearAccountId: string; options: any }> = [];
+    const calls: Array<{ options: any }> = [];
     const handlers = createWalletIframeHandlers(
       makeDeps({
         posts,
-        registerPasskey: async (nearAccountId, options) => {
-          calls.push({ nearAccountId, options });
+        registerPasskey: async (options) => {
+          calls.push({ options });
           return await registration.promise;
         },
       }),
@@ -280,19 +238,16 @@ test.describe('wallet iframe host registration activation', () => {
     await Promise.resolve();
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual(
+    expect(calls[0]?.options).toEqual(
       expect.objectContaining({
-        nearAccountId: 'alice.testnet',
-        options: expect.objectContaining({
-          confirmationConfig: {
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0,
-          },
-          walletIframeActivation: expect.objectContaining({
-            kind: 'wallet_iframe_registration_activation_v1',
-            activationId: 'activation-1',
-          }),
+        confirmationConfig: {
+          uiMode: 'none',
+          behavior: 'skipClick',
+          autoProceedDelay: 0,
+        },
+        walletIframeActivation: expect.objectContaining({
+          kind: 'wallet_iframe_registration_activation_v1',
+          activationId: 'activation-1',
         }),
       }),
     );

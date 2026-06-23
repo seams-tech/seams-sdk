@@ -697,6 +697,7 @@ test.describe('wallet-origin export flow integration', () => {
           }, 3000);
 
           const signPromise = router.executeAction({
+            walletId: 'isolation.testnet',
             nearAccountId: 'isolation.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs: { type: 'Transfer', amount: '1' } as any,

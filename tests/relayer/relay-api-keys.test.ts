@@ -34,12 +34,16 @@ function makeRegistrationBody(): Record<string, unknown> {
   return {
     wallet: { kind: 'provided', walletId: 'alice.testnet' },
     rpId: 'example.localhost',
+    authMethod: { kind: 'passkey' },
     signerSelection: {
       mode: 'ed25519_only',
       ed25519: {
-        nearAccountId: 'alice.testnet',
+        accountProvisioning: {
+          kind: 'sponsored_named_account',
+          requestedAccountId: 'alice.testnet',
+          sponsor: 'relayer',
+        },
         signerSlot: 1,
-        createNearAccount: true,
         keyPurpose: 'ed25519-hss/y_relayer',
         keyVersion: 'threshold-ed25519-hss-v1',
         participantIds: [1, 2],

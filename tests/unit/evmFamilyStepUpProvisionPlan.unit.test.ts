@@ -136,7 +136,7 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
 function makeRecord(): ThresholdEcdsaSessionRecord {
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
   const record: ThresholdEcdsaSessionRecord = {
-    walletId: toAccountId('alice.testnet'),
+    walletId: toWalletId('alice.testnet'),
     authMetadata: { rpId: 'example.localhost' },
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
@@ -385,7 +385,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
     const result = await ensureWarmEcdsaCapabilityReady(
       {
         getWarmSession: async () => ({
-          walletId: toAccountId('alice.testnet'),
+          walletId: toWalletId('alice.testnet'),
           updatedAtMs: 1_800_000_000_000,
           capabilities: {
             ed25519: {

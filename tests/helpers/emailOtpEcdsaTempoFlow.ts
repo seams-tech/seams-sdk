@@ -16,7 +16,7 @@ import {
 } from '@shared/utils/routerAbPublicKeyset';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
+  installRegistrationBootstrapMock,
   installFastNearRpcMock,
   makeAuthServiceForThreshold,
   setupManagedThresholdRegistrationHarness,
@@ -269,7 +269,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
     routerAbPublicKeyset: TEST_ROUTER_AB_PUBLIC_KEYSET,
   });
 
-  await installCreateAccountAndRegisterUserMock(page, {
+  await installRegistrationBootstrapMock(page, {
     relayerBaseUrl: harness.baseUrl,
     session,
     threshold,

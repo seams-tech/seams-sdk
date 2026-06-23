@@ -3,15 +3,15 @@ import {
   parseProfileContinuityEcdsaWarmKey,
   parseThresholdEcdsaKeyIdentityTargets,
 } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
+  walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountSignerRecord } from '../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types';
 
-const WALLET_ID = toAccountId('alice.testnet');
-const SUBJECT_ID = toWalletId(WALLET_ID);
+const WALLET_ID = toWalletId('alice.testnet');
+const SUBJECT_ID = walletIdFromWalletProfile({ walletId: WALLET_ID });
 const RP_ID = 'wallet.example.test';
 const OWNER_ADDRESS = `0x${'ab'.repeat(20)}`;
 const THRESHOLD_ECDSA_PUBLIC_KEY_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
@@ -84,7 +84,7 @@ function profileSigner(metadataOverrides: Record<string, unknown> = {}): Account
 test.describe('threshold ECDSA key identity inventory parser', () => {
   test('accepts canonical inventory records and binds runtime policy scope', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       rpId: RP_ID,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       records: [inventoryRecord()],
@@ -116,7 +116,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
 
   test('rejects records that do not bind the expected wallet, rpId, and owner', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
         inventoryRecord({ subjectId: 'wallet_other' }),
@@ -133,7 +133,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
 
   test('rejects incomplete or target-only inventory records', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
         inventoryRecord({ keyHandle: '' }),
@@ -156,7 +156,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
 
   test('rejects invalid key handles at the inventory boundary', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       rpId: RP_ID,
       records: [
         inventoryRecord({ keyHandle: 'invalid:key-handle' }),
@@ -169,7 +169,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
 
   test('parses active profile continuity ECDSA signer as a wallet key', () => {
     const parsed = parseProfileContinuityEcdsaWarmKey({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       configuredTargets: [EVM_TARGET],
       signer: profileSigner(),
     });
@@ -189,7 +189,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
 
   test('marks key-handle-only profile continuity ECDSA signer as inventory-required', () => {
     const parsed = parseProfileContinuityEcdsaWarmKey({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       configuredTargets: [EVM_TARGET],
       signer: profileSigner({ sharedEvmFamilyKey: undefined }),
     });
@@ -208,12 +208,12 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     const baseSharedKey = (profileSigner().metadata as Record<string, unknown>)
       .sharedEvmFamilyKey as Record<string, unknown>;
     const missingChainTarget = parseProfileContinuityEcdsaWarmKey({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       configuredTargets,
       signer: profileSigner({ chainTarget: undefined }),
     });
     const ambiguousKeyHandle = parseProfileContinuityEcdsaWarmKey({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       configuredTargets,
       signer: profileSigner({
         keyHandle: 'ehss-key-one',
@@ -224,7 +224,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       }),
     });
     const invalidKeyHandle = parseProfileContinuityEcdsaWarmKey({
-      nearAccountId: WALLET_ID,
+      walletId: WALLET_ID,
       configuredTargets,
       signer: profileSigner({ keyHandle: 'invalid:key-handle' }),
     });

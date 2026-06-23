@@ -42,7 +42,11 @@ test.describe('registration signer-selection normalization', () => {
       signerSelection: {
         mode: ' ed25519_only ',
         ed25519: {
-          nearAccountId: ' alice.testnet ',
+          accountProvisioning: {
+            kind: 'sponsored_named_account',
+            requestedAccountId: ' alice.testnet ',
+            sponsor: 'relayer',
+          },
           signerSlot: 0,
           participantIds: [1, '2', 0, -1, 2.5, 'three'],
           keyPurpose: ' near_tx ',
@@ -61,13 +65,16 @@ test.describe('registration signer-selection normalization', () => {
       signerSelection: {
         mode: 'ed25519_only',
         ed25519: {
-          nearAccountId: 'alice.testnet',
+          accountProvisioning: {
+            kind: 'sponsored_named_account',
+            requestedAccountId: 'alice.testnet',
+            sponsor: 'relayer',
+          },
           signerSlot: 1,
           participantIds: [1, 2],
           keyPurpose: 'near_tx',
           keyVersion: 'threshold-ed25519-hss-v1',
           derivationVersion: 1,
-          createNearAccount: true,
         },
       },
     });
@@ -85,13 +92,16 @@ test.describe('registration signer-selection normalization', () => {
       signerSelection: {
         mode: 'ed25519_and_ecdsa',
         ed25519: {
-          nearAccountId: 'bob.testnet',
+          accountProvisioning: {
+            kind: 'sponsored_named_account',
+            requestedAccountId: 'bob.testnet',
+            sponsor: 'relayer',
+          },
           signerSlot: '2',
           participantIds: ['1', '2'],
           keyPurpose: 'near_tx',
           keyVersion: 'threshold-ed25519-hss-v1',
           derivationVersion: 1,
-          createNearAccount: false,
         },
         ecdsa: {
           participantIds: ['1', 'bad', 2],
@@ -105,13 +115,16 @@ test.describe('registration signer-selection normalization', () => {
     expect(result.intent.signerSelection).toEqual({
       mode: 'ed25519_and_ecdsa',
       ed25519: {
-        nearAccountId: 'bob.testnet',
+        accountProvisioning: {
+          kind: 'sponsored_named_account',
+          requestedAccountId: 'bob.testnet',
+          sponsor: 'relayer',
+        },
         signerSlot: 2,
         participantIds: [1, 2],
         keyPurpose: 'near_tx',
         keyVersion: 'threshold-ed25519-hss-v1',
         derivationVersion: 1,
-        createNearAccount: false,
       },
       ecdsa: {
         participantIds: [1, 2],
@@ -144,13 +157,16 @@ test.describe('registration signer-selection normalization', () => {
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {
-            nearAccountId: 'alice.testnet',
+            accountProvisioning: {
+              kind: 'sponsored_named_account',
+              requestedAccountId: 'alice.testnet',
+              sponsor: 'relayer',
+            },
             signerSlot: 1,
             participantIds: [],
             keyPurpose: 'near_tx',
             keyVersion: 'threshold-ed25519-hss-v1',
             derivationVersion: 1,
-            createNearAccount: true,
           },
         },
       }),
@@ -168,13 +184,16 @@ test.describe('registration signer-selection normalization', () => {
         signerSelection: {
           mode: 'ed25519_and_ecdsa',
           ed25519: {
-            nearAccountId: 'alice.testnet',
+            accountProvisioning: {
+              kind: 'sponsored_named_account',
+              requestedAccountId: 'alice.testnet',
+              sponsor: 'relayer',
+            },
             signerSlot: 1,
             participantIds: [1, 2],
             keyPurpose: 'near_tx',
             keyVersion: 'threshold-ed25519-hss-v1',
             derivationVersion: 1,
-            createNearAccount: true,
           },
         },
       }),

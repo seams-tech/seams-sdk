@@ -22,6 +22,9 @@ function makeStatus(input: {
   return {
     record: {
       userId: input.userId,
+      walletId: input.userId,
+      nearAccountId: input.userId,
+      ed25519KeyScopeId: input.userId,
       rpId: input.rpId,
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,

@@ -994,6 +994,13 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /sync-account/options: forwards account_id and returns credentialIds', async () => {
     let receivedBody: Record<string, unknown> | null = null;
+    const walletBinding = {
+      walletId: 'frost-vermillion-k7p9m2',
+      nearAccountId: 'b'.repeat(64),
+      ed25519KeyScopeId: 'ed25519ks_sync_scope',
+      rpId: 'example.localhost',
+      signerSlot: 3,
+    };
     const service = makeFakeAuthService({
       createWebAuthnSyncAccountOptions: async (body) => {
         receivedBody = (body || {}) as Record<string, unknown>;
@@ -1002,6 +1009,7 @@ test.describe('relayer router (express) – P0', () => {
           challengeId: 'sync-cid-123',
           challengeB64u: 'sync-challenge-b64u',
           credentialIds: ['cred-a', 'cred-b'],
+          walletBinding,
           expiresAtMs: 123,
         };
       },
@@ -1017,8 +1025,54 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(200);
       expect(res.json?.challengeId).toBe('sync-cid-123');
       expect(res.json?.credentialIds).toEqual(['cred-a', 'cred-b']);
+      expect(res.json?.walletBinding).toEqual(walletBinding);
       expect((receivedBody as Record<string, unknown> | null)?.['rp_id']).toBe('example.localhost');
       expect((receivedBody as Record<string, unknown> | null)?.['account_id']).toBe('bob.testnet');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /sync-account/verify returns wallet binding identity', async () => {
+    const walletBinding = {
+      walletId: 'frost-vermillion-k7p9m2',
+      nearAccountId: 'b'.repeat(64),
+      ed25519KeyScopeId: 'ed25519ks_sync_scope',
+      rpId: 'example.localhost',
+      signerSlot: 3,
+    };
+    const service = makeFakeAuthService({
+      verifyWebAuthnSyncAccount: async () => ({
+        ok: true,
+        verified: true,
+        accountId: walletBinding.walletId,
+        walletId: walletBinding.walletId,
+        nearAccountId: walletBinding.nearAccountId,
+        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        walletBinding,
+        rpId: walletBinding.rpId,
+        signerSlot: walletBinding.signerSlot,
+        publicKey: 'ed25519:sync-key',
+        credentialIdB64u: 'cred-a',
+        credentialPublicKeyB64u: 'credential-public-key',
+      }),
+    });
+    const router = createRelayRouter(service, {});
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/sync-account/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeId: 'sync-cid-123',
+          webauthn_authentication: { id: 'cred-a' },
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.walletId).toBe(walletBinding.walletId);
+      expect(res.json?.nearAccountId).toBe(walletBinding.nearAccountId);
+      expect(res.json?.ed25519KeyScopeId).toBe(walletBinding.ed25519KeyScopeId);
+      expect(res.json?.walletBinding).toEqual(walletBinding);
     } finally {
       await srv.close();
     }

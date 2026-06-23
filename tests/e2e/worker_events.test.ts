@@ -10,7 +10,7 @@ import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
-  installCreateAccountAndRegisterUserMock,
+  installRegistrationBootstrapMock,
   installFastNearRpcMock,
 } from './thresholdEd25519.testUtils';
 
@@ -26,7 +26,7 @@ test.describe('Worker Communication Protocol', () => {
     const nonceByPublicKey = new Map<string, number>();
     let operationalNearPublicKey = '';
 
-    await installCreateAccountAndRegisterUserMock(page, {
+    await installRegistrationBootstrapMock(page, {
       relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
       onNewPublicKey: (pk) => {
         if (!operationalNearPublicKey) operationalNearPublicKey = pk;
@@ -80,7 +80,7 @@ test.describe('Worker Communication Protocol', () => {
           const cfg =
             (window as any).testUtils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await seams.registration.registerPasskey(testAccountId, {
+          const registrationResult = await seams.registration.registerPasskey({
             onEvent: (event: any) => {
               progressEvents.push(event);
               registrationEvents.push(event);
@@ -439,7 +439,7 @@ test.describe('Worker Communication Protocol', () => {
           const cfg =
             utils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await utils.seams.registration.registerPasskey(testAccountId, {
+          const registrationResult = await utils.seams.registration.registerPasskey({
             onEvent: (event: any) => {
               registrationEvents.push({
                 phase: event?.phase ?? '',
@@ -542,7 +542,7 @@ test.describe('Worker Communication Protocol', () => {
     const nonceByPublicKey = new Map<string, number>();
     let operationalNearPublicKey = '';
 
-    await installCreateAccountAndRegisterUserMock(page, {
+    await installRegistrationBootstrapMock(page, {
       relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
       onNewPublicKey: (pk) => {
         if (!operationalNearPublicKey) operationalNearPublicKey = pk;
@@ -578,7 +578,7 @@ test.describe('Worker Communication Protocol', () => {
         const cfg2 =
           (window as any).testUtils?.confirmOverrides?.none ||
           ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-        const registrationResult = await seams.registration.registerPasskey(testAccountId, {
+        const registrationResult = await seams.registration.registerPasskey({
           onEvent: (event: any) => {
             progressEvents.push(event);
             messageTypes.add(`${event.phase}:${event.status}`);
@@ -696,7 +696,7 @@ test.describe('Worker Communication Protocol', () => {
           const cfg3 =
             (window as any).testUtils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          result = await seams.registration.registerPasskey(validAccountId, {
+          result = await seams.registration.registerPasskey({
             onEvent: (event: any) => {
               progressEvents.push(event);
               if (event.status === 'failed') {

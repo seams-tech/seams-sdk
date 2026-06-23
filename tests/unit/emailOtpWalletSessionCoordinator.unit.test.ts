@@ -355,6 +355,8 @@ function buildEcdsaSealedRecordFixture(
   const ed25519Restore =
     args.ed25519Restore || ed25519ThresholdSessionId
       ? {
+          nearAccountId: args.ed25519Restore?.nearAccountId || walletId,
+          ed25519KeyScopeId: args.ed25519Restore?.ed25519KeyScopeId || walletId,
           rpId: args.ed25519Restore?.rpId || 'localhost',
           relayerKeyId: args.ed25519Restore?.relayerKeyId || 'ed25519-relayer-key',
           participantIds: args.ed25519Restore?.participantIds || [1, 3],
@@ -2241,7 +2243,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     try {
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        walletId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         rpId: 'localhost',
         relayerUrl: 'https://relay.example',
         relayerKeyId: 'relayer-key',
@@ -2371,7 +2375,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     try {
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        walletId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         rpId: 'localhost',
         relayerUrl: 'https://relay.example',
         relayerKeyId: 'relayer-key',
@@ -2823,6 +2829,8 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         ed25519: 'ed25519-session',
       },
       ed25519Restore: {
+        nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         rpId: 'localhost',
         relayerKeyId: 'ed25519-relayer-key',
         participantIds: [1, 3],
@@ -3024,7 +3032,9 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
     try {
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        walletId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
         rpId: 'localhost',
         relayerUrl: 'https://relay.example',
         relayerKeyId: 'relayer-key',

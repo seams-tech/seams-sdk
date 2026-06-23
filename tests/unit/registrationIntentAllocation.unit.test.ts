@@ -7,6 +7,7 @@ import {
 } from '@server/core/types';
 import {
   serializeNearAccountOwnershipProofMessageV1,
+  sponsoredNamedNearAccountProvisioning,
   type AddAuthMethodIntentV1,
   walletIdFromString,
   type AddSignerIntentV1,
@@ -14,6 +15,7 @@ import {
   type RegistrationAuthMethodInput,
   type RegistrationSignerSelection,
 } from '@shared/utils/registrationIntent';
+import { parseNamedNearAccountId } from '@shared/utils/near';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
 import {
@@ -40,6 +42,12 @@ const EXISTING_PASSKEY_CREDENTIAL_ID = base64UrlEncode(
   new TextEncoder().encode('existing-credential-id'),
 );
 const NEW_PASSKEY_CREDENTIAL_ID = base64UrlEncode(new TextEncoder().encode('new-credential-id'));
+
+function namedProvisioning(accountId: string) {
+  const parsed = parseNamedNearAccountId(accountId);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return sponsoredNamedNearAccountProvisioning(parsed.value);
+}
 
 function verifiedEmailOtpRegistrationChallengeProof(args: {
   challengeId: string;
@@ -141,13 +149,12 @@ function emailOtpBackupAck(input?: { offerId?: string; candidateId?: string }) {
 const SIGNER_SELECTION = {
   mode: 'ed25519_only',
   ed25519: {
-    nearAccountId: 'alice.testnet',
+    accountProvisioning: namedProvisioning('alice.testnet'),
     signerSlot: 1,
     participantIds: [1, 2],
     keyPurpose: 'near_tx',
     keyVersion: 'threshold-ed25519-hss-v1',
     derivationVersion: 1,
-    createNearAccount: true,
   },
 } satisfies RegistrationSignerSelection;
 
@@ -653,7 +660,7 @@ test.describe('registration intent allocation', () => {
     let ed25519FinalizeRequest: Record<string, unknown> | null = null;
     (service as any).createAccount = async (request: Record<string, unknown>) => {
       accountCreation = request;
-      return { success: true };
+      return { success: true, transactionHash: 'create-account-tx' };
     };
     (service as any).getWebAuthnAuthenticatorStore = () => ({
       put: async () => {
@@ -691,6 +698,7 @@ test.describe('registration intent allocation', () => {
           ed25519FinalizeRequest = request;
           return {
             ok: true,
+            nearAccountId: 'alice.testnet',
             publicKey: 'ed25519:public-key',
             relayerKeyId: 'relayer-key-ed25519',
           };
@@ -744,7 +752,13 @@ test.describe('registration intent allocation', () => {
     expect(ed25519PrepareRequest).toMatchObject({
       orgId: ORG_ID,
       request: {
-        new_account_id: 'alice.testnet',
+        registrationAccountScope: {
+          kind: 'sponsored_named_registration_scope',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          ed25519KeyScopeId: 'wallet_alice',
+          requestedAccountId: 'alice.testnet',
+        },
         rp_id: 'wallet.example.test',
       },
     });
@@ -923,7 +937,10 @@ test.describe('registration intent allocation', () => {
     let authenticatorWrites = 0;
     let credentialBindingWrites = 0;
     let walletAuthMethodWrite: Record<string, unknown> | null = null;
-    (service as any).createAccount = async () => ({ success: true });
+    (service as any).createAccount = async () => ({
+      success: true,
+      transactionHash: 'create-account-tx',
+    });
     (service as any).getWebAuthnAuthenticatorStore = () => ({
       put: async () => {
         authenticatorWrites += 1;
@@ -957,6 +974,7 @@ test.describe('registration intent allocation', () => {
         }),
         finalizeForRegistration: async () => ({
           ok: true,
+          nearAccountId: 'alice.testnet',
           publicKey: 'ed25519:public-key',
           relayerKeyId: 'relayer-key-ed25519',
         }),
@@ -1229,7 +1247,7 @@ test.describe('registration intent allocation', () => {
     let ecdsaBootstrapRequest: Record<string, unknown> | null = null;
     (service as any).createAccount = async (request: Record<string, unknown>) => {
       accountCreation = request;
-      return { success: true };
+      return { success: true, transactionHash: 'create-account-tx' };
     };
     (service as any).getWebAuthnAuthenticatorStore = () => ({
       put: async () => {
@@ -1267,6 +1285,7 @@ test.describe('registration intent allocation', () => {
           ed25519FinalizeRequest = request;
           return {
             ok: true,
+            nearAccountId: 'alice.testnet',
             publicKey: 'ed25519:public-key',
             relayerKeyId: 'relayer-key-ed25519',
           };
@@ -1293,6 +1312,9 @@ test.describe('registration intent allocation', () => {
         const expiresAtMs = Date.now() + Number(sessionPolicy.ttlMs || 60_000);
         return {
           ok: true,
+          walletId: String(request.walletId || ''),
+          nearAccountId: String(request.nearAccountId || ''),
+          ed25519KeyScopeId: String(request.ed25519KeyScopeId || ''),
           thresholdSessionId: String(sessionPolicy.thresholdSessionId || ''),
           signingGrantId: String(sessionPolicy.signingGrantId || ''),
           expiresAtMs,
@@ -1358,12 +1380,20 @@ test.describe('registration intent allocation', () => {
       throw new Error('combined registration start failed');
     }
     expect(started.ecdsa.prepare.remainingUses).toBe(3);
-    expect(started.ecdsa.prepare.registrationPreparationId).toBe(prepared.registrationPreparationId);
+    expect(started.ecdsa.prepare.registrationPreparationId).toBe(
+      prepared.registrationPreparationId,
+    );
     expect(webAuthnCreateVerifications).toBe(1);
     expect(ed25519PrepareRequest).toMatchObject({
       orgId: ORG_ID,
       request: {
-        new_account_id: 'alice.testnet',
+        registrationAccountScope: {
+          kind: 'sponsored_named_registration_scope',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          ed25519KeyScopeId: 'wallet_alice',
+          requestedAccountId: 'alice.testnet',
+        },
         rp_id: 'wallet.example.test',
       },
     });
@@ -1439,8 +1469,10 @@ test.describe('registration intent allocation', () => {
         evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
         sessionPolicy: {
           version: 'threshold_session_v1',
+          walletId: 'wallet_alice',
           rpId: 'wallet.example.test',
           nearAccountId: 'alice.testnet',
+          ed25519KeyScopeId: 'wallet_alice',
           relayerKeyId: 'relayer-key-ed25519',
           thresholdSessionId: 'tsess_combined_ed25519',
           signingGrantId: started.ecdsa.prepare.signingGrantId,
@@ -1526,7 +1558,7 @@ test.describe('registration intent allocation', () => {
     let accountCreationCalls = 0;
     (service as any).createAccount = async () => {
       accountCreationCalls += 1;
-      return { success: true };
+      return { success: true, transactionHash: 'create-account-tx' };
     };
     (service as any).getThresholdSigningService = () => ({
       ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => {
@@ -2733,7 +2765,7 @@ test.describe('registration intent allocation', () => {
 
     (service as any).createAccount = async (request: Record<string, unknown>) => {
       accountCreation = request;
-      return { success: true };
+      return { success: true, transactionHash: 'create-account-tx' };
     };
     (service as any).getWebAuthnAuthenticatorStore = () => ({
       put: async () => {
@@ -2771,6 +2803,7 @@ test.describe('registration intent allocation', () => {
           finalizeRequest = request;
           return {
             ok: true,
+            nearAccountId: 'alice.testnet',
             publicKey: 'ed25519:public-key',
             relayerKeyId: 'relayer-key-ed25519',
           };
@@ -2838,7 +2871,13 @@ test.describe('registration intent allocation', () => {
     expect(prepareRequest).toMatchObject({
       orgId: ORG_ID,
       request: {
-        new_account_id: 'alice.testnet',
+        registrationAccountScope: {
+          kind: 'known_account_registration_scope',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          ed25519KeyScopeId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+        },
         rp_id: 'wallet.example.test',
         context: {
           nearAccountId: 'alice.testnet',
@@ -2867,7 +2906,13 @@ test.describe('registration intent allocation', () => {
     expect(respondRequest).toMatchObject({
       orgId: ORG_ID,
       request: {
-        new_account_id: 'alice.testnet',
+        registrationAccountScope: {
+          kind: 'known_account_registration_scope',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          ed25519KeyScopeId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+        },
         rp_id: 'wallet.example.test',
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
@@ -2884,24 +2929,33 @@ test.describe('registration intent allocation', () => {
       ok: true,
       walletId: 'wallet_alice',
       rpId: 'wallet.example.test',
-      ed25519: {
-        nearAccountId: 'alice.testnet',
-        publicKey: 'ed25519:public-key',
-        relayerKeyId: 'relayer-key-ed25519',
-        keyVersion: 'threshold-ed25519-hss-v1',
+	      ed25519: {
+	        nearAccountId: 'alice.testnet',
+	        ed25519KeyScopeId: 'alice.testnet',
+	        publicKey: 'ed25519:public-key',
+	        relayerKeyId: 'relayer-key-ed25519',
+	        keyVersion: 'threshold-ed25519-hss-v1',
       },
     });
     expect(finalizeRequest).toMatchObject({
       request: {
-        new_account_id: 'alice.testnet',
+        registrationAccountScope: {
+          kind: 'known_account_registration_scope',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          ed25519KeyScopeId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+        },
         rp_id: 'wallet.example.test',
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
     });
-    expect(keygenRequest).toMatchObject({
-      nearAccountId: 'alice.testnet',
-      rpId: 'wallet.example.test',
-      keyVersion: 'threshold-ed25519-hss-v1',
+	    expect(keygenRequest).toMatchObject({
+	      walletId: 'wallet_alice',
+	      nearAccountId: 'alice.testnet',
+	      ed25519KeyScopeId: 'alice.testnet',
+	      rpId: 'wallet.example.test',
+	      keyVersion: 'threshold-ed25519-hss-v1',
       publicKey: 'ed25519:public-key',
       relayerKeyId: 'relayer-key-ed25519',
     });
@@ -2911,9 +2965,11 @@ test.describe('registration intent allocation', () => {
     });
     expect(bindingWrite).toMatchObject({
       rpId: 'wallet.example.test',
-      credentialIdB64u: 'Y3JlZGVudGlhbC1pZA',
-      userId: 'wallet_alice',
-      signerSlot: 2,
+	      credentialIdB64u: 'Y3JlZGVudGlhbC1pZA',
+	      userId: 'wallet_alice',
+	      nearAccountId: 'alice.testnet',
+	      ed25519KeyScopeId: 'alice.testnet',
+	      signerSlot: 2,
       publicKey: 'ed25519:public-key',
       relayerKeyId: 'relayer-key-ed25519',
       keyVersion: 'threshold-ed25519-hss-v1',
@@ -3064,7 +3120,13 @@ test.describe('registration intent allocation', () => {
     });
     expect(prepareRequest).toMatchObject({
       request: {
-        new_account_id: 'alice.testnet',
+        registrationAccountScope: {
+          kind: 'known_account_registration_scope',
+          walletId: 'wallet_alice',
+          rpId: 'wallet.example.test',
+          ed25519KeyScopeId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+        },
         rp_id: 'wallet.example.test',
       },
     });

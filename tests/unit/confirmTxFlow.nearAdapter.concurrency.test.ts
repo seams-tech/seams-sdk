@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { handleInfrastructureErrors } from '../setup';
+import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
   nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
@@ -9,6 +10,7 @@ const IMPORT_PATHS = {
 test.describe('touchConfirm near adapter – concurrency', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await injectImportMap(page);
   });
 
   test('fetchNearContext returns an isolated transactionContext per call', async ({ page }) => {

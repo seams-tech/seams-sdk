@@ -46,6 +46,20 @@ test.describe('WalletIframeRouter cancellation progress', () => {
           unlock: [],
           signing: [],
         };
+        const registrationSignerSelection = {
+          mode: 'ed25519_only' as const,
+          ed25519: {
+            accountProvisioning: {
+              kind: 'implicit_account' as const,
+              accountIdSource: 'ed25519_public_key' as const,
+            },
+            signerSlot: 1,
+            participantIds: [1, 2],
+            keyPurpose: 'near-ed25519-signing',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            derivationVersion: 1,
+          },
+        };
 
         const runAndCancel = async (
           name: keyof typeof events,
@@ -74,8 +88,11 @@ test.describe('WalletIframeRouter cancellation progress', () => {
         };
 
         const registration = await runAndCancel('registration', () =>
-          router.registerPasskey({
-            nearAccountId: 'alice.testnet',
+          router.registerWallet({
+            wallet: { kind: 'server_generated' },
+            rpId: 'example.localhost',
+            authMethod: { kind: 'passkey' },
+            signerSelection: registrationSignerSelection,
             options: { onEvent: (event: any) => events.registration.push(event) },
           }),
         );
@@ -88,6 +105,7 @@ test.describe('WalletIframeRouter cancellation progress', () => {
         );
         const signing = await runAndCancel('signing', () =>
           router.executeAction({
+            walletId: 'alice.testnet',
             nearAccountId: 'alice.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs: { type: 'Transfer', amount: '1' } as any,

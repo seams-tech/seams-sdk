@@ -4,7 +4,10 @@ import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessi
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { buildEcdsaMaterialStateForCandidate } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
 import { resolveEvmFamilyEcdsaPlannerReadiness } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
-import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
@@ -114,7 +117,7 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
 }
 
 function makeCandidate(): EcdsaLaneCandidate {
-  const walletId = toAccountId('alice.testnet');
+  const walletId = toWalletId('alice.testnet');
   return {
     kind: 'lane_candidate',
     walletId,
@@ -178,7 +181,7 @@ function makeRoleLocalReadyRecord() {
       stateBlobB64u: STATE_BLOB_B64U,
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
-      walletId: toAccountId('alice.testnet'),
+      walletId: toWalletId('alice.testnet'),
       rpId: 'example.localhost',
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
@@ -211,7 +214,7 @@ function makeEmailOtpRoleLocalReadyRecord() {
       stateBlobB64u: STATE_BLOB_B64U,
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
-      walletId: toAccountId('alice.testnet'),
+      walletId: toWalletId('alice.testnet'),
       rpId: 'example.localhost',
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
@@ -237,7 +240,7 @@ function makeRecord(
   overrides: Partial<Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>> = {},
 ): ThresholdEcdsaSessionRecord {
   return {
-    walletId: toAccountId('alice.testnet'),
+    walletId: toWalletId('alice.testnet'),
     chainTarget: EVM_CHAIN_TARGET,
     relayerUrl: 'https://relay.localhost',
     ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -275,7 +278,7 @@ function makeRecord(
 
 function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }> {
   return {
-    walletId: toAccountId('alice.testnet'),
+    walletId: toWalletId('alice.testnet'),
     chainTarget: EVM_CHAIN_TARGET,
     relayerUrl: 'https://relay.localhost',
     ecdsaThresholdKeyId: 'ecdsa-key-1',

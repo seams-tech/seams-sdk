@@ -9,6 +9,7 @@ import {
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 test.describe('WarmSessionStore lifecycle', () => {
   test('returns an empty envelope when no warm-session records exist', async () => {
@@ -18,7 +19,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({}),
     });
-    const warmSession = await store.getWarmSession('empty.testnet');
+    const warmSession = await store.getWarmSession(toWalletId('empty.testnet'));
 
     expect(warmSession.walletId).toBe('empty.testnet');
     expect(warmSession.capabilities.ed25519.state).toBe('missing');
@@ -50,7 +51,7 @@ test.describe('WarmSessionStore lifecycle', () => {
         },
       }),
     });
-    const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
+    const warmSession = await store.getWarmSession(ed25519Record.walletId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ed25519.auth?.walletSessionJwt).toBe(
@@ -83,7 +84,7 @@ test.describe('WarmSessionStore lifecycle', () => {
         },
       }),
     });
-    const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
+    const warmSession = await store.getWarmSession(ed25519Record.walletId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('auth_missing');
     expect(warmSession.capabilities.ed25519.auth).toBeNull();
@@ -224,7 +225,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       },
     });
 
-    const warmSession = await store.getWarmSession('batch-status.testnet');
+    const warmSession = await store.getWarmSession(toWalletId('batch-status.testnet'));
 
     expect(batchCalls).toBe(1);
     expect(singleReads).toBe(0);
@@ -312,7 +313,7 @@ test.describe('WarmSessionStore lifecycle', () => {
         },
       }),
     });
-    const warmSession = await store.getWarmSession('dual.testnet');
+    const warmSession = await store.getWarmSession(toWalletId('dual.testnet'));
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');

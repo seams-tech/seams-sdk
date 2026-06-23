@@ -99,7 +99,7 @@ function makeTempoSpend(args?: {
   operationFingerprint?: string;
   operationId?: string;
 }): WalletSigningSpendPlan {
-  const walletId = toAccountId('alice.testnet');
+  const walletId = toWalletId('alice.testnet');
   const lane = buildTempoTransactionSigningLane({
     key: buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId,

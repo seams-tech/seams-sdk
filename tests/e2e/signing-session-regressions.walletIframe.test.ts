@@ -77,7 +77,7 @@ async function setupPasskeyEvmSigningSession(
         });
         seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-        const registration = await seams.registration.registerPasskey(accountId, {
+        const registration = await seams.registration.registerPasskey({
           confirmationConfig: confirmationConfig as any,
         });
         if (!registration?.success) {

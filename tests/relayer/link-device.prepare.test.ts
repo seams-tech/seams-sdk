@@ -41,7 +41,9 @@ function makeThresholdEd25519PrepareRequest() {
     session_kind: 'jwt',
     session_policy: {
       version: 'threshold_session_v1',
+      walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
+      ed25519KeyScopeId: 'alice.testnet',
       rpId: 'wallet.example.test',
       relayerKeyId: 'rk-near',
       thresholdSessionId: 'near-session-1',
@@ -67,6 +69,9 @@ function makePreparedLinkDeviceService() {
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt',
+          walletId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           thresholdSessionId: 'near-session-1',
           signingGrantId: 'signing-grant-1',
           expiresAtMs: Date.now() + 60_000,

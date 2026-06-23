@@ -4,6 +4,7 @@ import {
   type WarmSessionEnvelope,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { testEcdsaChainTarget } from './helpers/warmSessionStore.fixtures';
 import {
   createWarmSessionTestServices,
@@ -17,7 +18,7 @@ import {
 
 function createEmptyEnvelope(): WarmSessionEnvelope {
   return {
-    walletId: 'invariants.testnet' as any,
+    walletId: toWalletId('invariants.testnet'),
     capabilities: {
       ed25519: {
         capability: 'ed25519',
@@ -143,7 +144,7 @@ test.describe('WarmSessionStore invariants', () => {
       }),
     });
 
-    const warmSession = await store.getWarmSession('invariants.testnet');
+    const warmSession = await store.getWarmSession(toWalletId('invariants.testnet'));
     expect(assertWarmSessionEnvelopeInvariant(warmSession)).toBe(warmSession);
   });
 

@@ -119,7 +119,7 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     const store = createWarmSessionTestServices();
 
-    const warmSession = await store.getWarmSession('email-otp-auth-state.testnet');
+    const warmSession = await store.getWarmSession(evmRecord.walletId);
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('material_pending');
     expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
       state: 'warm',
@@ -169,7 +169,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       },
     });
 
-    const warmSession = await store.getWarmSession('email-otp-exhausted-reauth.testnet');
+    const warmSession = await store.getWarmSession(evmRecord.walletId);
     const capability = warmSession.capabilities.ecdsa.evm;
 
     expect(clearCount).toBe(0);

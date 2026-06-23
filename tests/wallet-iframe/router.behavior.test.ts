@@ -180,6 +180,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
           // Fire-and-forget request that will time out since the stub never replies with PM_RESULT
           const p = router
             .executeAction({
+              walletId: 'e2e_router_timeout.testnet',
               nearAccountId: 'e2e_router_timeout.testnet',
               receiverId: 'w3a-v1.testnet',
               actionArgs: { type: 'Transfer', amount: '1' } as any,
@@ -285,6 +286,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
           const start = Date.now();
           const outcome = await router
             .executeAction({
+              walletId: 'e2e_router_progress_timeout.testnet',
               nearAccountId: 'e2e_router_progress_timeout.testnet',
               receiverId: 'w3a-v1.testnet',
               actionArgs: { type: 'Transfer', amount: '1' } as any,

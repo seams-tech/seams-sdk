@@ -78,7 +78,9 @@ function fixtureEd25519WalletSessionJwt(args: {
 function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    walletId: String(nearAccountId),
     nearAccountId,
+    ed25519KeyScopeId: String(nearAccountId),
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -111,7 +113,9 @@ function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
 function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    walletId: String(nearAccountId),
     nearAccountId,
+    ed25519KeyScopeId: String(nearAccountId),
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -140,7 +144,9 @@ function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): voi
 function remintSessionWithoutMaterial(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    walletId: String(nearAccountId),
     nearAccountId,
+    ed25519KeyScopeId: String(nearAccountId),
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -168,7 +174,9 @@ function remintNewSessionWithoutMaterial(args: {
 }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    walletId: String(nearAccountId),
     nearAccountId,
+    ed25519KeyScopeId: String(nearAccountId),
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',

@@ -35,7 +35,7 @@ const unusedNoPromptReconnectDeps: Pick<
 
 function seedSharedEd25519WalletSessionGrant(args: {
   fixture: ReturnType<typeof createWarmSessionUiConfirmFixture>;
-  walletId: ReturnType<typeof toAccountId>;
+  walletId: ReturnType<typeof toWalletId>;
   signingGrantId: string;
   thresholdSessionId?: string;
   remainingUses?: number;
@@ -74,7 +74,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
-    const walletId = toAccountId('no-prompt-restore.testnet');
+    const walletId = toWalletId('no-prompt-restore.testnet');
     const chainTarget = testEcdsaChainTarget('evm');
     const bootstrap = createThresholdEcdsaBootstrapFixture({
       nearAccountId: String(walletId),
@@ -157,7 +157,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
-    const walletId = toAccountId('no-prompt-reconnect.testnet');
+    const walletId = toWalletId('no-prompt-reconnect.testnet');
     const chainTarget = testEcdsaChainTarget('tempo');
     const restoredBootstrap = createThresholdEcdsaBootstrapFixture({
       nearAccountId: String(walletId),
@@ -288,7 +288,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
-    const walletId = toAccountId('no-prompt-shared-remint.testnet');
+    const walletId = toWalletId('no-prompt-shared-remint.testnet');
     const chainTarget = testEcdsaChainTarget('tempo');
     const sharedGrantId = 'shared-ed25519-grant-remint';
     const expiredBootstrap = createThresholdEcdsaBootstrapFixture({
@@ -414,7 +414,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
-    const walletId = toAccountId('no-prompt-missing.testnet');
+    const walletId = toWalletId('no-prompt-missing.testnet');
     const chainTarget = testEcdsaChainTarget('tempo');
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {},

@@ -2,6 +2,21 @@ import { expect, test } from '@playwright/test';
 import { EmailRecoveryDomain } from '@/SeamsWeb/operations/recovery/emailRecovery';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { EmailRecoveryFlowEventPhase } from '@/core/types/sdkSentEvents';
+import {
+  clearAllStoredThresholdEd25519SessionRecords,
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+} from '@/core/signingEngine/session/persistence/records';
+
+const TEST_WALLET_ID = 'frost-vermillion-k7p9m2';
+const TEST_NEAR_ACCOUNT_ID = 'c'.repeat(64);
+const TEST_ED25519_KEY_SCOPE_ID = 'ed25519ks_email_recovery_scope';
+const TEST_WALLET_BINDING = {
+  walletId: TEST_WALLET_ID,
+  nearAccountId: TEST_NEAR_ACCOUNT_ID,
+  ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+  rpId: 'example.test',
+  signerSlot: 7,
+};
 
 type PendingStoreMock = {
   getCalls: Array<{ accountId: string; nearPublicKey?: string }>;
@@ -47,13 +62,16 @@ function createPendingStoreMock(initialRecord?: any): PendingStoreMock {
 
 function createPendingEmailRecoveryRecord(overrides?: Record<string, unknown>) {
   return {
-    accountId: 'alice.testnet',
+    accountId: TEST_WALLET_ID,
+    walletId: TEST_WALLET_ID,
+    nearAccountId: TEST_NEAR_ACCOUNT_ID,
+    ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
     nearPublicKey: 'ed25519:recovery-key',
     newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
     recoverySessionId: 'ABC123',
     deadlineEpochSeconds: 1_893_456_000,
     recoveryEmailPayloadHash: 'sha256:payload-hash',
-    recoveryEmailSubject: 'recover-v1 alice.testnet ABC123',
+    recoveryEmailSubject: `recover-v1 ${TEST_NEAR_ACCOUNT_ID} ABC123`,
     recoveryEmailBody: 'tee-encrypted\nseams-recovery-v1:payload-token',
     requestId: 'ABC123',
     credential: {},
@@ -73,6 +91,7 @@ function createLocalDomain(options?: {
   const nearAccessKeys = options?.nearAccessKeys ?? [];
   const onViewAccessKeyList = options?.onViewAccessKeyList ?? (() => {});
   const usersByAccount = new Map<string, any>();
+  const hydrateSigningSessionCalls: any[] = [];
   let lastUser: any = null;
   let warmSigningSession: { sessionId: string; expiresAtMs: number; remainingUses: number } | null =
     null;
@@ -139,6 +158,7 @@ function createLocalDomain(options?: {
         },
         warmSessions: {
           hydrateSigningSession: async (input: any) => {
+            hydrateSigningSessionCalls.push(input);
             warmSigningSession = {
               sessionId: String(input?.sessionId || ''),
               expiresAtMs: Number(input?.expiresAtMs || Date.now() + 60_000),
@@ -180,6 +200,7 @@ function createLocalDomain(options?: {
         },
       }),
       hydrateSigningSession: async (input: any) => {
+        hydrateSigningSessionCalls.push(input);
         warmSigningSession = {
           sessionId: String(input?.sessionId || ''),
           expiresAtMs: Number(input?.expiresAtMs || Date.now() + 60_000),
@@ -211,7 +232,7 @@ function createLocalDomain(options?: {
         ok: true,
         contextBindingB64u: 'ctx-binding',
         signingRootId: 'root',
-        nearAccountId: 'alice.testnet',
+        nearAccountId: TEST_NEAR_ACCOUNT_ID,
         keyPurpose: 'near-ed25519-signing',
         keyVersion: 'v1',
         participantIds: [1, 2],
@@ -234,6 +255,19 @@ function createLocalDomain(options?: {
           contextBindingB64u: 'ctx-binding',
           xClientBaseB64u: 'x-client-base',
         },
+      }),
+      prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: async (input: any) => ({
+        ok: true,
+        materialKeyId: 'ed25519-worker-material-key',
+        sealAuthorization: {
+          kind: 'passkey_prf_material_seal_authorization_handle_v1',
+          handle: 'seal-authorization-handle',
+          rpId: 'example.test',
+          credentialIdB64u: String(input?.request?.credentialIdB64u || 'raw-cred-1'),
+          materialKeyId: 'ed25519-worker-material-key',
+          expiresAtMs: Date.now() + 60_000,
+        },
+        remainingUses: 1,
       }),
       runThresholdEd25519HssCeremonyWithMaterialHandle: async () => ({
         ok: true,
@@ -297,7 +331,7 @@ function createLocalDomain(options?: {
     } as any,
   });
 
-  return { domain, storeUserDataCalls, storeAuthenticatorCalls };
+  return { domain, hydrateSigningSessionCalls, storeUserDataCalls, storeAuthenticatorCalls };
 }
 
 test.describe('EmailRecoveryDomain', () => {
@@ -306,6 +340,7 @@ test.describe('EmailRecoveryDomain', () => {
     const events: any[] = [];
     const thresholdMaterialWrites: any[] = [];
 
+    clearAllStoredThresholdEd25519SessionRecords();
     const originalFetch = globalThis.fetch;
     const clientDb = IndexedDBManager as unknown as { resolveProfileAccountContext?: unknown };
     const keyMaterialPort = IndexedDBManager as unknown as {
@@ -320,6 +355,11 @@ test.describe('EmailRecoveryDomain', () => {
           return new Response(
             JSON.stringify({
               ok: true,
+              accountId: TEST_WALLET_ID,
+              walletId: TEST_WALLET_ID,
+              nearAccountId: TEST_NEAR_ACCOUNT_ID,
+              ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+              walletBinding: TEST_WALLET_BINDING,
               thresholdEd25519: {
                 keyVersion: 'threshold-ed25519-hss-v1',
                 recoveryExportCapable: true,
@@ -330,7 +370,10 @@ test.describe('EmailRecoveryDomain', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
-                  sessionId: 'sync-session-1',
+                  walletId: TEST_WALLET_ID,
+                  nearAccountId: TEST_NEAR_ACCOUNT_ID,
+                  ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+                  thresholdSessionId: 'sync-session-1',
                   signingGrantId: 'signing-grant-1',
                   expiresAtMs: Date.now() + 60_000,
                   remainingUses: 5,
@@ -353,7 +396,7 @@ test.describe('EmailRecoveryDomain', () => {
                 chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 11155111 }],
                 prepare: {
                   formatVersion: 'ecdsa-hss-role-local',
-                  walletId: 'alice.testnet',
+                  walletId: TEST_WALLET_ID,
                   rpId: 'example.test',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
                   runtimePolicyScope: {
@@ -384,6 +427,11 @@ test.describe('EmailRecoveryDomain', () => {
         return new Response(
           JSON.stringify({
             ok: true,
+            accountId: TEST_WALLET_ID,
+            walletId: TEST_WALLET_ID,
+            nearAccountId: TEST_NEAR_ACCOUNT_ID,
+            ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+            walletBinding: TEST_WALLET_BINDING,
             thresholdEd25519: {
               keyVersion: 'threshold-ed25519-hss-v1',
               recoveryExportCapable: true,
@@ -394,7 +442,10 @@ test.describe('EmailRecoveryDomain', () => {
               participantIds: [1, 2],
               session: {
                 sessionKind: 'jwt',
-                sessionId: 'sync-session-1',
+                walletId: TEST_WALLET_ID,
+                nearAccountId: TEST_NEAR_ACCOUNT_ID,
+                ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+                thresholdSessionId: 'sync-session-1',
                 signingGrantId: 'signing-grant-1',
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 5,
@@ -420,7 +471,7 @@ test.describe('EmailRecoveryDomain', () => {
                 {
                   keyScope: 'evm-family',
                   chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
-                  walletId: 'alice.testnet',
+                  walletId: TEST_WALLET_ID,
                   rpId: 'example.test',
                   keyHandle: 'key-handle',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
@@ -442,7 +493,7 @@ test.describe('EmailRecoveryDomain', () => {
               payloadHash: 'sha256:payload-hash',
             },
             recoveryEmail: {
-              subject: 'recover-v1 alice.testnet ABC123',
+              subject: `recover-v1 ${TEST_NEAR_ACCOUNT_ID} ABC123`,
               body: 'tee-encrypted\nseams-recovery-v1:payload-token',
               payloadHash: 'sha256:payload-hash',
               deadlineEpochSeconds: 1_893_456_000,
@@ -456,8 +507,8 @@ test.describe('EmailRecoveryDomain', () => {
         accountAddress: string;
       }) =>
         accountRef.chainIdKey === 'near:testnet' &&
-        String(accountRef.accountAddress || '').trim() === 'alice.testnet'
-          ? { profileId: 'near-profile:alice.testnet', accountRef }
+        String(accountRef.accountAddress || '').trim() === TEST_NEAR_ACCOUNT_ID
+          ? { profileId: `near-profile:${TEST_NEAR_ACCOUNT_ID}`, accountRef }
           : null;
       keyMaterialPort.storeKeyMaterial = async (input: any) => {
         thresholdMaterialWrites.push({
@@ -467,9 +518,14 @@ test.describe('EmailRecoveryDomain', () => {
         });
       };
 
-      const { domain, storeUserDataCalls, storeAuthenticatorCalls } = createLocalDomain();
+      const {
+        domain,
+        hydrateSigningSessionCalls,
+        storeUserDataCalls,
+        storeAuthenticatorCalls,
+      } = createLocalDomain();
       const result = await domain.startEmailRecovery({
-        accountId: 'alice.testnet',
+        walletId: TEST_WALLET_ID,
         options: {
           pendingStore: pendingStore.store as any,
           onEvent: (ev: any) => events.push(ev),
@@ -478,10 +534,15 @@ test.describe('EmailRecoveryDomain', () => {
 
       expect(result.nearPublicKey).toBe('ed25519:threshold-public-key');
       expect(result.mailtoUrl).toContain('mailto:recovery@example.test');
-      expect(result.mailtoUrl).toContain(encodeURIComponent('recover-v1 alice.testnet ABC123'));
+      expect(result.mailtoUrl).toContain(
+        encodeURIComponent(`recover-v1 ${TEST_NEAR_ACCOUNT_ID} ABC123`),
+      );
       expect(result.mailtoUrl).toContain(encodeURIComponent('seams-recovery-v1:payload-token'));
       expect(pendingStore.setCalls).toHaveLength(1);
       expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:threshold-public-key');
+      expect(pendingStore.setCalls[0]?.walletId).toBe(TEST_WALLET_ID);
+      expect(pendingStore.setCalls[0]?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
+      expect(pendingStore.setCalls[0]?.ed25519KeyScopeId).toBe(TEST_ED25519_KEY_SCOPE_ID);
       expect(
         Object.prototype.hasOwnProperty.call(pendingStore.setCalls[0] || {}, 'ecdsaThresholdKeyId'),
       ).toBe(false);
@@ -496,7 +557,27 @@ test.describe('EmailRecoveryDomain', () => {
         EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING,
       ]);
       expect(storeUserDataCalls).toHaveLength(1);
+      expect(storeUserDataCalls[0]?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
       expect(storeAuthenticatorCalls).toHaveLength(1);
+      expect(storeAuthenticatorCalls[0]?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
+      expect(hydrateSigningSessionCalls).toHaveLength(2);
+      expect(hydrateSigningSessionCalls[0]?.transport).toMatchObject({
+        curve: 'ed25519',
+        walletId: TEST_WALLET_ID,
+        signingGrantId: 'signing-grant-1',
+      });
+      expect(hydrateSigningSessionCalls[1]?.transport).toMatchObject({
+        curve: 'ed25519',
+        walletId: TEST_WALLET_ID,
+        signingGrantId: 'signing-grant-1',
+      });
+      const persistedWarmSession =
+        getStoredThresholdEd25519SessionRecordByThresholdSessionId('sync-session-1');
+      expect(persistedWarmSession).toMatchObject({
+        walletId: TEST_WALLET_ID,
+        nearAccountId: TEST_NEAR_ACCOUNT_ID,
+        ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+      });
       expect(thresholdMaterialWrites).toHaveLength(1);
       expect(thresholdMaterialWrites[0]?.publicKey).toBe('ed25519:threshold-public-key');
       expect(thresholdMaterialWrites[0]?.relayerKeyId).toBe('relayer-key-1');
@@ -507,6 +588,7 @@ test.describe('EmailRecoveryDomain', () => {
       globalThis.fetch = originalFetch;
       clientDb.resolveProfileAccountContext = originalProfileLookup;
       keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
+      clearAllStoredThresholdEd25519SessionRecords();
     }
   });
 
@@ -523,7 +605,7 @@ test.describe('EmailRecoveryDomain', () => {
     });
 
     await domain.finalizeEmailRecovery({
-      accountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
       options: {
         pendingStore: pendingStore.store as any,
         onEvent: (ev: any) => events.push(ev),
@@ -538,7 +620,7 @@ test.describe('EmailRecoveryDomain', () => {
       'complete',
     ]);
     expect(pendingStore.clearCalls).toEqual([
-      { accountId: 'alice.testnet', nearPublicKey: 'ed25519:recovery-key' },
+      { accountId: TEST_WALLET_ID, nearPublicKey: 'ed25519:recovery-key' },
     ]);
     expect(events.map((ev) => ev.phase)).toEqual([
       EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING,
@@ -549,7 +631,7 @@ test.describe('EmailRecoveryDomain', () => {
       EmailRecoveryFlowEventPhase.STEP_07_COMPLETED,
     ]);
     expect(events[0]).toMatchObject({
-      flowId: 'email-recovery:alice.testnet:ABC123',
+      flowId: `email-recovery:${TEST_WALLET_ID}:ABC123`,
       requestId: 'ABC123',
       interaction: { kind: 'email_recovery_link', overlay: 'hide' },
       data: {
@@ -574,7 +656,7 @@ test.describe('EmailRecoveryDomain', () => {
 
     await expect(
       domain.finalizeEmailRecovery({
-        accountId: 'alice.testnet',
+        walletId: TEST_WALLET_ID,
         options: {
           pendingStore: pendingStore.store as any,
           onEvent: (ev: any) => events.push(ev),
@@ -597,7 +679,7 @@ test.describe('EmailRecoveryDomain', () => {
       EmailRecoveryFlowEventPhase.FAILED,
     ]);
     expect(events.at(-1)).toMatchObject({
-      flowId: 'email-recovery:alice.testnet:ABC123',
+      flowId: `email-recovery:${TEST_WALLET_ID}:ABC123`,
       requestId: 'ABC123',
       status: 'failed',
       error: { message: 'Timed out waiting for AddKey' },
@@ -614,12 +696,12 @@ test.describe('EmailRecoveryDomain', () => {
       onEvent: (event: any) => events.push(event),
     };
     await domain.cancelEmailRecovery({
-      accountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
       nearPublicKey: 'ed25519:cancel-key',
     });
 
     expect(pendingStore.clearCalls).toEqual([
-      { accountId: 'alice.testnet', nearPublicKey: 'ed25519:cancel-key' },
+      { accountId: TEST_WALLET_ID, nearPublicKey: 'ed25519:cancel-key' },
     ]);
     expect(events).toEqual([
       expect.objectContaining({
@@ -629,8 +711,8 @@ test.describe('EmailRecoveryDomain', () => {
         phase: EmailRecoveryFlowEventPhase.CANCELLED,
         status: 'cancelled',
         message: 'Email recovery cancelled',
-        flowId: 'email-recovery:alice.testnet:ed25519:cancel-key',
-        accountId: 'alice.testnet',
+        flowId: `email-recovery:${TEST_WALLET_ID}:ed25519:cancel-key`,
+        accountId: TEST_WALLET_ID,
         interaction: { kind: 'email_recovery_link', overlay: 'hide' },
       }),
     ]);
@@ -670,7 +752,7 @@ test.describe('EmailRecoveryDomain', () => {
     });
 
     const startResult = await domain.startEmailRecovery({
-      accountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
       options: {
         onEvent: (ev: any) => events.push(ev),
         confirmerText: { title: 'Recover', body: 'Confirm recovery' },
@@ -678,12 +760,12 @@ test.describe('EmailRecoveryDomain', () => {
       } as any,
     });
     await domain.finalizeEmailRecovery({
-      accountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
       nearPublicKey: 'ed25519:router-key',
       options: { onEvent: (ev: any) => events.push(ev) },
     });
     await domain.cancelEmailRecovery({
-      accountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
       nearPublicKey: 'ed25519:router-key',
     });
 
@@ -693,7 +775,7 @@ test.describe('EmailRecoveryDomain', () => {
     });
     expect(calls.start).toHaveLength(1);
     expect(calls.start[0]).toMatchObject({
-      accountId: 'alice.testnet',
+      walletId: TEST_WALLET_ID,
       onEvent: expect.any(Function),
       options: {
         confirmerText: { title: 'Recover', body: 'Confirm recovery' },
@@ -702,14 +784,14 @@ test.describe('EmailRecoveryDomain', () => {
     });
     expect(calls.finalize).toEqual([
       {
-        accountId: 'alice.testnet',
+        walletId: TEST_WALLET_ID,
         nearPublicKey: 'ed25519:router-key',
         onEvent: expect.any(Function),
       },
     ]);
     expect(calls.cancel).toEqual([
       {
-        accountId: 'alice.testnet',
+        walletId: TEST_WALLET_ID,
         nearPublicKey: 'ed25519:router-key',
       },
     ]);

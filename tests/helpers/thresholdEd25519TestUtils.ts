@@ -128,7 +128,9 @@ export function createThresholdSigningServiceForUnitTests(input: {
   config?: ThresholdStoreConfigInput | null;
   logger?: Logger | null;
   keyRecord?: {
+    walletId?: string;
     nearAccountId?: string;
+    ed25519KeyScopeId?: string;
     rpId?: string;
     publicKey: string;
     relayerSigningShareB64u: string;
@@ -139,9 +141,10 @@ export function createThresholdSigningServiceForUnitTests(input: {
   accessKeysOnChain?: Array<string | { publicKey: string; nonce: number | string }> | null;
   verifyWebAuthnAuthenticationLite?:
     | ((request: {
-        nearAccountId: string;
+        userId: string;
         rpId: string;
         expectedChallenge: string;
+        expected_origin: string;
         webauthn_authentication: WebAuthnAuthenticationCredential;
       }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>)
     | null;
@@ -195,7 +198,10 @@ export function createThresholdSigningServiceForUnitTests(input: {
   const parsedKeyRecord = parseThresholdEd25519KeyRecord(
     keyRecord
       ? {
+          walletId: keyRecord.walletId || keyRecord.nearAccountId || 'alice.testnet',
           nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
+          ed25519KeyScopeId:
+            keyRecord.ed25519KeyScopeId || keyRecord.nearAccountId || 'alice.testnet',
           rpId: keyRecord.rpId || 'wallet.example.test',
           publicKey: keyRecord.publicKey,
           relayerSigningShareB64u: keyRecord.relayerSigningShareB64u,

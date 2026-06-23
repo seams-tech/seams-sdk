@@ -296,7 +296,6 @@ export function makeFakeAuthService(
     readEmailOtpOutboxEntry: AuthService['readEmailOtpOutboxEntry'];
     createWebAuthnSyncAccountOptions: AuthService['createWebAuthnSyncAccountOptions'];
     verifyWebAuthnSyncAccount: AuthService['verifyWebAuthnSyncAccount'];
-    createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
     executeSignedDelegate: AuthService['executeSignedDelegate'];
     getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
     validateAppSessionVersion: AuthService['validateAppSessionVersion'];
@@ -439,9 +438,6 @@ export function makeFakeAuthService(
         code: 'not_implemented',
         message: 'not implemented',
       })),
-    createAccountAndRegisterUser:
-      overrides.createAccountAndRegisterUser ||
-      (async () => ({ success: false, error: 'not implemented' })),
     executeSignedDelegate:
       overrides.executeSignedDelegate ||
       (async () => ({ ok: false, code: 'not_implemented', error: 'not implemented' })),

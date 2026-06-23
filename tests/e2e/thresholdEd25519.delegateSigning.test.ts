@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
 import bs58 from 'bs58';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import {
-  installCreateAccountAndRegisterUserMock,
+  installRegistrationBootstrapMock,
   installFastNearRpcMock,
   makeAuthServiceForThreshold,
   setupManagedThresholdRegistrationHarness,
@@ -46,7 +46,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
     });
 
     try {
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installRegistrationBootstrapMock(page, {
         relayerBaseUrl: managedRegistrationHarness.baseUrl,
         keysOnChain,
         nonceByPublicKey,
@@ -108,7 +108,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
             const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-            const reg = await pm.registration.registerPasskey(accountId, {
+            const reg = await pm.registration.registerPasskey({
               signerOptions: {
                 tempo: {
                   enabled: false,

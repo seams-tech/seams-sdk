@@ -29,10 +29,8 @@ test.describe('email recovery subject parsing with request_id', () => {
       { paths: IMPORT_PATHS },
     );
 
-    if (!res.success) {
-      test.skip(true, `parseAccountIdFromSubject failed: ${res.error || 'unknown error'}`);
-      return;
-    }
+    expect(res.success, res.error || 'parseAccountIdFromSubject import failed').toBe(true);
+    if (!res.success) return;
 
     expect(res.accountId).toBe('bob.testnet');
   });
@@ -54,13 +52,11 @@ test.describe('email recovery subject parsing with request_id', () => {
       { paths: IMPORT_PATHS },
     );
 
-    if (!res.success) {
-      test.skip(
-        true,
-        `parseAccountIdFromSubject (no request_id) failed: ${res.error || 'unknown error'}`,
-      );
-      return;
-    }
+    expect(
+      res.success,
+      res.error || 'parseAccountIdFromSubject (no request_id) import failed',
+    ).toBe(true);
+    if (!res.success) return;
 
     expect(res.accountId).toBeNull();
   });
@@ -103,10 +99,8 @@ test.describe('email recovery subject parsing with request_id', () => {
       { paths: IMPORT_PATHS },
     );
 
-    if (!res.success) {
-      test.skip(true, `parseRecoverSubjectBindings failed: ${res.error || 'unknown error'}`);
-      return;
-    }
+    expect(res.success, res.error || 'parseRecoverSubjectBindings import failed').toBe(true);
+    if (!res.success) return;
 
     expect(res.bindings).toBeTruthy();
     expect(res.bindings.accountId).toBe('bob.testnet');

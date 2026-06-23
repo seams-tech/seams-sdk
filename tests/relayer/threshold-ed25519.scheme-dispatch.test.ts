@@ -7,6 +7,7 @@ import {
 } from '@server/core/ThresholdService/schemes/schemeIds';
 import {
   ROUTER_AB_ED25519_HEALTH_PATH_V2,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
   ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
 } from '@shared/utils/signingSessionSeal';
@@ -243,6 +244,89 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
       code: 'invalid_body',
       message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
     });
+  });
+
+  test('express: Router A/B Ed25519 HSS rejects legacy email OTP registration finalize', async () => {
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      threshold: {
+        ed25519Hss: {
+          finalizeForRegistration: async () => {
+            throw new Error('legacy email OTP HSS finalize must not run');
+          },
+        },
+      } as any,
+      session: makeSessionAdapter({
+        parse: async () => {
+          throw new Error('legacy email OTP HSS finalize must not parse route auth');
+        },
+      }),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}${ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer app-session',
+        },
+        body: JSON.stringify({
+          kind: 'email_otp_registration',
+          registrationAttemptId: 'attempt-1',
+          new_account_id: 'alice.testnet',
+          rp_id: 'wallet.example.test',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.json).toMatchObject({
+        ok: false,
+        code: 'invalid_body',
+      });
+      expect(String(res.json?.message || '')).toContain('no longer supported');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('cloudflare: Router A/B Ed25519 HSS rejects legacy email OTP registration finalize', async () => {
+    const service = makeFakeAuthService();
+    const { threshold } = makeThresholdAdapter({
+      schemeId: THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
+    });
+    const handler = createCloudflareRouter(service, {
+      threshold: {
+        ...threshold,
+        ed25519Hss: {
+          finalizeForRegistration: async () => {
+            throw new Error('legacy email OTP HSS finalize must not run');
+          },
+        },
+      } as any,
+      session: makeSessionAdapter({
+        parse: async () => {
+          throw new Error('legacy email OTP HSS finalize must not parse route auth');
+        },
+      }),
+    });
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        kind: 'email_otp_registration',
+        registrationAttemptId: 'attempt-1',
+        new_account_id: 'alice.testnet',
+        rp_id: 'wallet.example.test',
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+    });
+    expect(String(res.json?.message || '')).toContain('no longer supported');
   });
 
   test('express: Router A/B ECDSA key identities rejects cookie mode before session parsing', async () => {

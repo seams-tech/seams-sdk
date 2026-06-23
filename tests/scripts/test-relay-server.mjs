@@ -64,6 +64,61 @@ function createFixtureSigningRootShareResolver() {
   };
 }
 
+function toTrimmedString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function coercePositiveInteger(value, fallback) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? Math.floor(numberValue) : fallback;
+}
+
+function buildRegistrationBootstrapResponse(input) {
+  const thresholdEd25519 = input.thresholdEd25519 || {};
+  const publicKey = toTrimmedString(thresholdEd25519.public_key);
+  const sessionPolicy =
+    thresholdEd25519.session_policy && typeof thresholdEd25519.session_policy === 'object'
+      ? thresholdEd25519.session_policy
+      : null;
+  const sessionId = toTrimmedString(sessionPolicy?.sessionId || sessionPolicy?.session_id);
+  const ttlMs = coercePositiveInteger(sessionPolicy?.ttlMs || sessionPolicy?.ttl_ms, 60_000);
+  const remainingUses = coercePositiveInteger(
+    sessionPolicy?.remainingUses || sessionPolicy?.remaining_uses,
+    10_000,
+  );
+  const expiresAtMs = Date.now() + ttlMs;
+  const participantIds = [1, 2];
+  const keyVersion =
+    toTrimmedString(thresholdEd25519.key_version) || 'threshold-ed25519-hss-v1';
+  const relayerKeyId = publicKey;
+  const session =
+    sessionId && input.sessionKind === 'jwt'
+      ? {
+          sessionKind: 'jwt',
+          sessionId,
+          expiresAtMs,
+          participantIds,
+          remainingUses,
+          jwt: 'mock-threshold-ed25519-registration-jwt',
+        }
+      : undefined;
+
+  return {
+    success: true,
+    transactionHash: `mock_registration_bootstrap_${Date.now()}`,
+    thresholdEd25519: {
+      keyVersion,
+      recoveryExportCapable: true,
+      publicKey,
+      relayerKeyId,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds,
+      ...(session ? { session } : {}),
+    },
+  };
+}
+
 async function main() {
   const cache = await readCache();
 
@@ -214,7 +269,6 @@ async function main() {
         const {
           new_account_id,
           threshold_ed25519,
-          device_number,
           rp_id,
           webauthn_registration,
           authenticator_options,
@@ -229,17 +283,14 @@ async function main() {
         ) {
           return sendJson(res, 400, { success: false, error: 'missing required fields' });
         }
-        const expected_origin = String(req.headers?.origin || '').trim();
-        const result = await authService.createAccountAndRegisterUser({
-          new_account_id,
-          device_number,
-          threshold_ed25519,
-          rp_id,
-          webauthn_registration,
-          ...(expected_origin ? { expected_origin } : {}),
-          authenticator_options,
+        const result = buildRegistrationBootstrapResponse({
+          thresholdEd25519: threshold_ed25519,
+          sessionKind:
+            toTrimmedString(threshold_ed25519?.session_kind).toLowerCase() === 'cookie'
+              ? 'cookie'
+              : 'jwt',
         });
-        return sendJson(res, result.success ? 200 : 400, result);
+        return sendJson(res, 200, result);
       }
       sendJson(res, 404, { error: 'not_found' });
     } catch (e) {

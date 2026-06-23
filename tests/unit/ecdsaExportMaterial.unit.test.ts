@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -34,8 +36,9 @@ import {
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import type { RouterAbEcdsaHssNormalSigningStateV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../../packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession';
 
-const WALLET_ID = toAccountId('alice.testnet');
+const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'localhost';
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -68,7 +71,7 @@ function thresholdEcdsaSessionJwtFixture(args: {
   keyHandle: string;
 }): string {
   return unsignedJwt({
-    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
     keyHandle: args.keyHandle,
@@ -126,6 +129,14 @@ function makeVerifiedPublicFacts(keyHandle: string) {
     participantIds: [1, 2],
     thresholdOwnerAddress: OWNER_ADDRESS,
   });
+}
+
+function runtimeValidatedExportRecord<T extends ThresholdEcdsaSessionRecord>(record: T): T {
+  if (record.thresholdSessionKind !== 'jwt') return record;
+  if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+    throw new Error('export fixture record failed Router A/B ECDSA runtime validation');
+  }
+  return record;
 }
 
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
@@ -246,11 +257,11 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     keyHandle,
     authMetadata: { rpId: RP_ID },
   };
-  return {
+  return runtimeValidatedExportRecord({
     ...record,
     routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(record),
     ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
-  };
+  });
 }
 
 function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
@@ -292,11 +303,11 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     keyHandle,
     authMetadata: { rpId: RP_ID },
   };
-  return {
+  return runtimeValidatedExportRecord({
     ...record,
     routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState(record),
     ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
-  };
+  });
 }
 
 async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<ExactEcdsaExportLane> {
@@ -504,22 +515,17 @@ test.describe('ECDSA export material', () => {
     );
   });
 
-  test('fresh Email OTP export material needs challenge when route auth is absent', async () => {
+  test('fresh Email OTP export rejects no-route-auth runtime records without an exact sealed lane', async () => {
     const record = makeRecord({
       walletSessionJwt: undefined,
       thresholdSessionKind: 'cookie',
     });
-    const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
-      depsForRecord(record),
-      await exactExportLane(record),
-    );
-
-    expect(material.kind).toBe('fresh_email_otp_needs_challenge');
-    if (material.kind !== 'fresh_email_otp_needs_challenge') {
-      throw new Error(`expected needs-challenge fresh material, got ${material.kind}`);
-    }
-    expect(material.authSubjectMode).toBe('explicit_auth_subject');
-    expect(material.authSubjectId).toBe('google:alice');
+    await expect(
+      resolveFreshEmailOtpEcdsaExportMaterialForLane(
+        depsForRecord(record),
+        await exactExportLane(record),
+      ),
+    ).rejects.toThrow(/exact sealed export lane not found/);
   });
 
   test('fresh Email OTP export material rejects missing verified public key facts', async () => {

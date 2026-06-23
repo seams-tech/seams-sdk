@@ -93,6 +93,7 @@ function createNearLane(): NearNonceLane {
   return {
     family: 'near',
     networkKey: 'near-testnet',
+    walletId: 'nonce-coordinator.testnet',
     accountId: 'nonce-coordinator.testnet',
     publicKey: 'ed25519:test-key',
   };

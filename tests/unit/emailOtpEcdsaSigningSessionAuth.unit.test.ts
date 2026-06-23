@@ -152,7 +152,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
   const selectedLane = buildTempoTransactionSigningLane({
     key,
     keyHandle: 'key-handle-email-otp',
-    walletId,
+    walletId: ecdsaWalletId,
     authMethod: 'email_otp',
     chainTarget: tempoChainTarget,
     signingGrantId,
@@ -161,14 +161,14 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
   const anchorLane = buildEvmTransactionSigningLane({
     key,
     keyHandle: 'key-handle-email-otp',
-    walletId,
+    walletId: ecdsaWalletId,
     authMethod: 'email_otp',
     chainTarget: sourceChainTarget,
     signingGrantId,
     thresholdSessionId,
   });
   const bridge = createEmailOtpEcdsaTransactionSigningBridge({
-    walletId,
+    walletId: ecdsaWalletId,
     walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
     chain: 'tempo',
     chainTarget: tempoChainTarget,
@@ -229,7 +229,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
   const anchorLane = buildEvmTransactionSigningLane({
     key,
     keyHandle: 'key-handle-email-otp',
-    walletId,
+    walletId: ecdsaWalletId,
     authMethod: 'email_otp',
     chainTarget: sourceChainTarget,
     signingGrantId,
@@ -243,7 +243,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
     selectedLane: buildTempoTransactionSigningLane({
       key,
       keyHandle: 'key-handle-email-otp',
-      walletId,
+      walletId: ecdsaWalletId,
       authMethod: 'email_otp',
       chainTarget: tempoChainTarget,
       signingGrantId,

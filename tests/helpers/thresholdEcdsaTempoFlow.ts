@@ -7,7 +7,7 @@ import {
 } from '@server/threshold/session/signingSessionSeal';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
+  installRegistrationBootstrapMock,
   installFastNearRpcMock,
   makeAuthServiceForThreshold,
   setupThresholdE2ePage,
@@ -553,7 +553,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     (window as any).__w3aManagedRegistration = config;
   }, managedRegistration);
 
-  await installCreateAccountAndRegisterUserMock(page, {
+  await installRegistrationBootstrapMock(page, {
     relayerBaseUrl: server.baseUrl,
     session,
     threshold,
@@ -660,7 +660,7 @@ export async function runThresholdEcdsaTempoFlow(
     (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     try {
-      const registration = await pm.registration.registerPasskey(accountId, {
+      const registration = await pm.registration.registerPasskey({
         signerOptions: {
           tempo: {
             enabled: false,

@@ -1,11 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import type { EvmEip155ChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type EvmEip155ChainTarget,
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearAllThresholdEcdsaSessionRecords,
   consumeSingleUseEmailOtpEcdsaLane,
   emailOtpEcdsaPostSignMaterialFromRecord,
   listThresholdEcdsaSessionRecordsForWalletTarget,
+  readExactThresholdEcdsaSessionRecord,
+  toExactEcdsaSigningLaneIdentity,
+  upsertRestoredThresholdEcdsaSessionRecord,
   upsertStoredThresholdEcdsaSessionRecord,
   type ConsumableEmailOtpEcdsaLane,
   type ConsumeSingleUseEmailOtpEcdsaLaneCommand,
@@ -22,7 +28,7 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
-const WALLET_ID = toAccountId('alice.testnet');
+const WALLET_ID = toWalletId('alice.testnet');
 const EVM_TARGET: EvmEip155ChainTarget = {
   kind: 'evm',
   namespace: 'eip155',
@@ -143,6 +149,16 @@ function consumeCommand(
     kind: 'consume_single_use_email_otp_ecdsa_lane',
     lane,
     uses: 1,
+  };
+}
+
+function withSigningRootVersion(
+  record: ThresholdEcdsaSessionRecord,
+  signingRootVersion: string,
+): ThresholdEcdsaSessionRecord {
+  return {
+    ...record,
+    signingRootVersion,
   };
 }
 
@@ -330,6 +346,24 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
       reason: 'chain_target_mismatch',
     });
 
+    const keyHandleMismatchLane: ConsumableEmailOtpEcdsaLane = {
+      ...selectedLane,
+      laneRef: {
+        ...selectedLane.laneRef,
+        exactIdentity: {
+          ...selectedLane.laneRef.exactIdentity,
+          keyHandle: otherLane.laneRef.exactIdentity.keyHandle,
+        },
+      },
+    };
+    expect(
+      consumeSingleUseEmailOtpEcdsaLane(store, consumeCommand(keyHandleMismatchLane)),
+    ).toEqual({
+      kind: 'stale_record',
+      laneKey: selectedLane.laneRef.laneKey,
+      reason: 'key_handle_mismatch',
+    });
+
     const keyMismatchLane: ConsumableEmailOtpEcdsaLane = {
       ...selectedLane,
       laneRef: {
@@ -345,5 +379,99 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
       laneKey: selectedLane.laneRef.laneKey,
       reason: 'key_identity_mismatch',
     });
+  });
+
+  test('reads the exact ECDSA session record without treating mirrored runtime memory as a duplicate', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        signingGrantId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+
+    const read = readExactThresholdEcdsaSessionRecord(
+      store,
+      toExactEcdsaSigningLaneIdentity(selectedRecord),
+    );
+
+    expect(read.kind).toBe('found');
+    if (read.kind !== 'found') {
+      throw new Error(`expected exact ECDSA record, got ${read.kind}`);
+    }
+    expect(read.record.thresholdSessionId).toBe('threshold-session-a');
+  });
+
+  test('reads the intended exact ECDSA record when unrelated lanes share a threshold session id', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        signingGrantId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-shared',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        signingGrantId: 'wallet-session-b',
+        thresholdSessionId: 'threshold-session-shared',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_123,
+        chainTarget: SECOND_EVM_TARGET,
+      }),
+    );
+
+    const read = readExactThresholdEcdsaSessionRecord(
+      store,
+      toExactEcdsaSigningLaneIdentity(selectedRecord),
+    );
+
+    expect(read.kind).toBe('found');
+    if (read.kind !== 'found') {
+      throw new Error(`expected exact ECDSA record, got ${read.kind}`);
+    }
+    expect(read.record.signingGrantId).toBe('wallet-session-a');
+    expect(read.record.chainTarget).toEqual(EVM_TARGET);
+  });
+
+  test('returns duplicate_records when a broad ECDSA lane has conflicting key identity facts', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        signingGrantId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    upsertRestoredThresholdEcdsaSessionRecord(withSigningRootVersion(selectedRecord, 'v2'));
+
+    const read = readExactThresholdEcdsaSessionRecord(
+      store,
+      toExactEcdsaSigningLaneIdentity(selectedRecord),
+    );
+
+    expect(read.kind).toBe('duplicate_records');
+    if (read.kind !== 'duplicate_records') {
+      throw new Error(`expected duplicate ECDSA records, got ${read.kind}`);
+    }
+    expect(read.candidateSummaries.map((summary) => summary.match).sort()).toEqual([
+      'broad_identity_mismatch',
+      'exact_identity',
+    ]);
+    expect(
+      read.candidateSummaries.some(
+        (summary) =>
+          summary.match === 'broad_identity_mismatch' &&
+          summary.mismatchReason === 'key_identity_mismatch',
+      ),
+    ).toBe(true);
   });
 });

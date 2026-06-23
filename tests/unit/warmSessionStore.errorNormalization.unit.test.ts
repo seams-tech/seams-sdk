@@ -23,7 +23,11 @@ import {
   readWalletScopedLaneClaimsForWallet,
 } from '@/core/signingEngine/session/availability/readiness';
 import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  nearAccountRefFromAccountId,
+  toWalletId,
+  type NearCommandSubject,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
@@ -34,6 +38,16 @@ import {
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
+
+function nearCommandSubject(walletIdRaw: string, nearAccountIdRaw = walletIdRaw): NearCommandSubject {
+  return {
+    walletSession: {
+      walletId: toWalletId(walletIdRaw),
+      walletSessionUserId: walletIdRaw,
+    },
+    nearAccount: nearAccountRefFromAccountId(nearAccountIdRaw),
+  };
+}
 
 async function resolveNearThresholdSigningAuthForTest(args: Parameters<
   typeof resolveNearSigningSessionAuthContext
@@ -683,7 +697,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       resolveNearThresholdSigningAuthForTest({
         warmSessionReader: store,
-        nearAccount: { kind: 'named', accountId: 'auth-unavailable.testnet' as any },
+        commandSubject: nearCommandSubject('auth-unavailable.testnet'),
         requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
@@ -713,7 +727,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       resolveNearThresholdSigningAuthForTest({
         warmSessionReader: store,
-        nearAccount: { kind: 'named', accountId: 'status-unavailable.testnet' as any },
+        commandSubject: nearCommandSubject('status-unavailable.testnet'),
         requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
@@ -755,7 +769,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     const plan = await resolveNearThresholdSigningAuthForTest({
       warmSessionReader: store,
       signingSessionCoordinator,
-      nearAccount: { kind: 'named', accountId: 'wallet-budget-exhausted-ed25519.testnet' as any },
+      commandSubject: nearCommandSubject('wallet-budget-exhausted-ed25519.testnet'),
       requiredSignatureUses: 1,
       operationLabel: 'unit-test',
     });

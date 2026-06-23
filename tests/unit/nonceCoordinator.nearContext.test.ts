@@ -11,6 +11,11 @@ import {
   SigningOperationIntent,
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
+import {
+  classifyNearExecutionReadiness,
+  NearAccountLookupFailedError,
+  NearImplicitAccountFundingRequiredError,
+} from '@/core/signingEngine/nonce/nearNonceLane';
 
 function createFakeEvmNonceBackend(): EvmNonceBackend {
   return {
@@ -18,12 +23,18 @@ function createFakeEvmNonceBackend(): EvmNonceBackend {
   };
 }
 
-function createNearLane(publicKey = 'ed25519:test-key'): NearNonceLane {
+function createNearLane(args?: {
+  walletId?: string;
+  accountId?: string;
+  publicKey?: string;
+}): NearNonceLane {
+  const accountId = args?.accountId || 'nonce-coordinator.testnet';
   return {
     family: 'near',
     networkKey: 'near-testnet',
-    accountId: 'nonce-coordinator.testnet',
-    publicKey,
+    walletId: args?.walletId || 'nonce-coordinator.testnet',
+    accountId,
+    publicKey: args?.publicKey || 'ed25519:test-key',
   };
 }
 
@@ -82,6 +93,121 @@ function createContext(nextNonce: string) {
 }
 
 test.describe('NonceCoordinator NEAR context ownership', () => {
+  test('classifies unfunded implicit account readiness with generated wallet identity', () => {
+    const walletId = 'frost-vermillion-k7p9m2';
+    const nearAccountId = 'a'.repeat(64);
+    const readiness = classifyNearExecutionReadiness({
+      walletId,
+      nearAccountId,
+      nearPublicKeyStr: `ed25519:${nearAccountId}`,
+      accessKeyAvailable: false,
+    });
+
+    expect(readiness).toEqual({
+      kind: 'implicit_unfunded',
+      walletId,
+      nearAccountId,
+      nearPublicKeyStr: `ed25519:${nearAccountId}`,
+    });
+  });
+
+  test('classifies funded implicit readiness with nonce and generated wallet identity', () => {
+    const walletId = 'frost-vermillion-k7p9m2';
+    const nearAccountId = 'b'.repeat(64);
+    const readiness = classifyNearExecutionReadiness({
+      walletId,
+      nearAccountId,
+      nearPublicKeyStr: `ed25519:${nearAccountId}`,
+      accessKeyAvailable: true,
+      transactionContext: createContext('31'),
+    });
+
+    expect(readiness).toEqual({
+      kind: 'access_key_available',
+      walletId,
+      nearAccountId,
+      nearPublicKeyStr: `ed25519:${nearAccountId}`,
+      nonce: 31n,
+      accessKeyNonce: '30',
+      nextNonce: '31',
+      txBlockHeight: '100',
+      txBlockHash: 'test-block',
+    });
+  });
+
+  test('classifies sponsored named readiness with nonce', () => {
+    const readiness = classifyNearExecutionReadiness({
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      nearPublicKeyStr: 'ed25519:test-key',
+      accessKeyAvailable: true,
+      transactionContext: createContext('44'),
+    });
+
+    expect(readiness).toEqual({
+      kind: 'sponsored_named_ready',
+      walletId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      nearPublicKeyStr: 'ed25519:test-key',
+      nonce: 44n,
+      accessKeyNonce: '43',
+      nextNonce: '44',
+      txBlockHeight: '100',
+      txBlockHash: 'test-block',
+    });
+  });
+
+  test('classifies account lookup failures without collapsing wallet identity', () => {
+    const error = new NearAccountLookupFailedError({
+      walletId: 'frost-vermillion-k7p9m2',
+      nearAccountId: 'alice.testnet',
+      nearPublicKeyStr: 'ed25519:test-key',
+      message: 'Access key not found',
+    });
+
+    expect(error.readiness).toEqual({
+      kind: 'account_lookup_failed',
+      walletId: 'frost-vermillion-k7p9m2',
+      nearAccountId: 'alice.testnet',
+      nearPublicKeyStr: 'ed25519:test-key',
+      message: 'Access key not found',
+    });
+  });
+
+  test('surfaces first direct implicit action as unfunded readiness with generated wallet identity', async () => {
+    const walletId = 'frost-vermillion-k7p9m2';
+    const nearAccountId = 'c'.repeat(64);
+    const publicKey = `ed25519:${nearAccountId}`;
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(),
+    });
+    const nearClient = {
+      viewAccessKey: async () => {
+        throw new Error('Access key not found');
+      },
+      viewBlock: async () => ({ header: { height: 100, hash: 'test-block' } }),
+    } as unknown as NearClient;
+
+    let caught: unknown = null;
+    try {
+      await coordinator.fetchNearContext({
+        lane: createNearLane({ walletId, accountId: nearAccountId, publicKey }),
+        nearClient,
+        force: true,
+      });
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(NearImplicitAccountFundingRequiredError);
+    expect((caught as NearImplicitAccountFundingRequiredError).readiness).toEqual({
+      kind: 'implicit_unfunded',
+      walletId,
+      nearAccountId,
+      nearPublicKeyStr: publicKey,
+    });
+  });
+
   test('reserves NEAR batches and reuses a released highest nonce', async () => {
     const coordinator = createNonceCoordinator({
       evmNonceBackend: createFakeEvmNonceBackend(),
@@ -135,7 +261,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     });
     expect(String(second!.nonce)).toBe('12');
 
-    const switchedLane = createNearLane('ed25519:other-key');
+    const switchedLane = createNearLane({ publicKey: 'ed25519:other-key' });
     coordinator.initializeNearAccessKey({
       accountId: switchedLane.accountId,
       publicKey: switchedLane.publicKey,

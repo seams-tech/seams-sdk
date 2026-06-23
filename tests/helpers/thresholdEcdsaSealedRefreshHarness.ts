@@ -1085,7 +1085,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
 
         if (phase === 'register_unlock_sign') {
           stage = 'registration';
-          const registration = await seams.registration.registerPasskey(accountId, {
+          const registration = await seams.registration.registerPasskey({
             confirmationConfig: confirmationConfig as any,
           });
           if (!registration?.success) {

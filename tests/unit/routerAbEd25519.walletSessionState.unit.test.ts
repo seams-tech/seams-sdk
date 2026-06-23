@@ -597,8 +597,10 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 signingRootVersion: 'default',
               },
             },
-            ed25519Restore: {
-              rpId: 'example.localhost',
+	            ed25519Restore: {
+	              nearAccountId: 'alice.testnet',
+	              ed25519KeyScopeId: 'alice.testnet',
+	              rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               participantIds: [1, 2],
               walletSessionJwt: ed25519WalletSessionJwt,

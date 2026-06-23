@@ -1181,7 +1181,7 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(constructorSource).not.toContain('touchConfirm?.consumeWarmSessionUses');
     expect(constructorSource).not.toContain('consumeEmailOtpWarmSessionUses');
     expect(constructorSource).not.toContain(
-      'markThresholdEd25519EmailOtpSessionConsumedForAccount',
+      'markThresholdEd25519EmailOtpSessionConsumedForWallet',
     );
     expect(source).not.toContain('hasSigningGrantConsumeDeps(');
     expect(syncSource).toContain('this.readWalletBudgetStatus(args.budgetStatusCheck)');

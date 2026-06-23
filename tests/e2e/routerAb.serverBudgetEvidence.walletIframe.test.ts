@@ -1389,7 +1389,7 @@ function runSharedBudgetSetup(
           },
         };
 
-        const registration = await seams.registration.registerPasskey(accountId, {
+        const registration = await seams.registration.registerPasskey({
           signerOptions: {
             tempo: {
               enabled: false,

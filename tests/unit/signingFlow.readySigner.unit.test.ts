@@ -200,7 +200,7 @@ function makeThresholdKeyRef(
 test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
   test('uses admitted ready signer material before key-ref fallback', async () => {
     const key = buildBaseEvmFamilyEcdsaKeyIdentity({
-      walletId: WALLET_ID,
+      walletId: SUBJECT_ID,
       rpId: RP_ID,
       ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
       signingRootId: SIGNING_ROOT_ID,
@@ -222,7 +222,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
     const lane = selectedEcdsaLane({
       key,
       keyHandle: publicFacts.keyHandle,
-      walletId: WALLET_ID,
+      walletId: SUBJECT_ID,
       authMethod: 'passkey',
       signingGrantId: WALLET_SIGNING_SESSION_ID,
       thresholdSessionId: THRESHOLD_SESSION_ID,

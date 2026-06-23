@@ -196,6 +196,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         sessionId,
         chain: 'near',
         kind: 'transaction',
+        walletId: 'alice.testnet',
         signingAuthPlan: warmSessionPlan('threshold-session-warm'),
         txSigningRequests: [
           {
@@ -251,6 +252,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         sessionId,
         chain: 'near',
         kind: 'transaction',
+        walletId: 'alice.testnet',
         signingAuthPlan: warmSessionPlan('threshold-session-1'),
         txSigningRequests: [
           {
@@ -299,6 +301,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       sessionId: 'session-near-delegate',
       chain: 'near',
       kind: 'delegate',
+      walletId: 'alice.testnet',
       signingAuthPlan: warmSessionPlan('threshold-session-delegate'),
       nearAccountId: 'alice.testnet',
       nearPublicKeyStr: 'ed25519:delegate-key',
@@ -316,7 +319,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
     });
 
     expect(capturedRequest?.payload?.nearPublicKeyStr).toBe('ed25519:delegate-key');
-    expect(result.transactionContext?.nearPublicKeyStr).toBe('ed25519:delegate-key');
+    expect('transactionContext' in result).toBe(false);
   });
 
   test('near warmSession nep413 keeps request-scoped public key', async () => {
@@ -345,6 +348,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       sessionId: 'session-nep413',
       chain: 'near',
       kind: 'nep413',
+      walletId: 'alice.testnet',
       signingAuthPlan: warmSessionPlan('threshold-session-nep413'),
       nearAccountId: 'alice.testnet',
       nearPublicKeyStr: 'ed25519:nep413-key',
@@ -353,6 +357,6 @@ test.describe('touchConfirm orchestration manager bridge', () => {
     });
 
     expect(capturedRequest?.payload?.nearPublicKeyStr).toBe('ed25519:nep413-key');
-    expect(result.transactionContext?.nearPublicKeyStr).toBe('ed25519:nep413-key');
+    expect('transactionContext' in result).toBe(false);
   });
 });

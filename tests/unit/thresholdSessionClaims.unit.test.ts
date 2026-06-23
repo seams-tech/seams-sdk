@@ -48,6 +48,8 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     kind,
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
+    nearAccountId: 'alice.testnet',
+    ed25519KeyScopeId: 'alice.testnet',
     thresholdSessionId: 'threshold-session-1',
     signingGrantId: 'signing-grant-1',
     relayerKeyId: 'relayer-key-1',
@@ -424,6 +426,9 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
+          walletId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           thresholdSessionId: 'threshold-ed25519-session',
           signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,
@@ -444,6 +449,9 @@ test.describe('threshold session auth token claims', () => {
         relayerKeyId: 'relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
+          walletId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+          ed25519KeyScopeId: 'alice.testnet',
           thresholdSessionId: 'threshold-ed25519-session',
           signingGrantId: 'signing-grant-ed25519',
           expiresAtMs: Date.now() + 60_000,

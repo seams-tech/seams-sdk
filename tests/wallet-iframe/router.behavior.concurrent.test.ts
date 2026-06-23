@@ -166,6 +166,7 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
           const actionArgs = { type: 'Transfer', amount: '1' } as any;
 
           const p1 = router.executeAction({
+            walletId: 'concurrent1.testnet',
             nearAccountId: 'concurrent1.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs,
@@ -179,6 +180,7 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
           }, 3000);
 
           const p2 = router.executeAction({
+            walletId: 'concurrent2.testnet',
             nearAccountId: 'concurrent2.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs,

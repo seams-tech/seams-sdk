@@ -23,7 +23,9 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
     signingShareB64u: relayerSigningShareB64u,
   });
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
+    walletId: nearAccountId,
     nearAccountId,
+    ed25519KeyScopeId: nearAccountId,
     rpId,
     relayerKeyId,
     thresholdSessionId: 'tsess-runtime-scope-ed25519',
@@ -117,7 +119,9 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
 
   async function mintSession(sessionId: string, remainingUses: number) {
     const { policy } = await buildEd25519SessionPolicy({
+      walletId: nearAccountId,
       nearAccountId,
+      ed25519KeyScopeId: nearAccountId,
       rpId,
       relayerKeyId,
       thresholdSessionId: sessionId,

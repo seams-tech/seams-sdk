@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildVerifiedEcdsaPublicFacts,
@@ -50,7 +51,7 @@ function makeNearLane(args?: { thresholdSessionId?: string }) {
 
 function makeEcdsaKey() {
   return buildBaseEvmFamilyEcdsaKeyIdentity({
-    walletId: 'freshness-wallet.testnet',
+    walletId: toWalletId('freshness-wallet.testnet'),
     rpId: 'localhost',
     ecdsaThresholdKeyId: 'ecdsa-threshold-key',
     signingRootId: 'proj_test:dev',
@@ -65,7 +66,7 @@ function makeEcdsaLane(args?: { thresholdSessionId?: string }) {
   return buildEcdsaEmailOtpSigningLane({
     key,
     keyHandle: toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key'),
-    walletId: toAccountId(String(key.walletId)),
+    walletId: key.walletId,
     chainTarget: tempoChainTarget,
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-ecdsa'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(

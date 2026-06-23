@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
@@ -9,7 +12,6 @@ import {
   secondaryEcdsaPostSignPolicyMaterialFromRecord,
   selectedEcdsaPostSignPolicyMaterialFromRecord,
 } from '@/core/signingEngine/session/operationState/postSignPolicy';
-import { toAccountId } from '@/core/types/accountIds';
 import type { ConsumeSingleUseEmailOtpEcdsaLaneCommand } from '@/core/signingEngine/session/persistence/records';
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -19,7 +21,7 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
-const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
+const WALLET_ID = toWalletId('alice.testnet');
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
   namespace: 'eip155',
@@ -50,7 +52,7 @@ function roleLocalReadyRecordForPostSign(args: {
       stateBlobB64u: VALID_CONTEXT_BINDING_B64U,
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
-      walletId: NEAR_ACCOUNT_ID,
+      walletId: WALLET_ID,
       rpId: 'localhost',
       chainTarget: args.chainTarget,
       keyHandle,
@@ -68,7 +70,7 @@ function roleLocalReadyRecordForPostSign(args: {
     }),
     authMethod:
       args.source === 'email_otp'
-        ? buildEcdsaRoleLocalEmailOtpAuthMethod({ authSubjectId: String(NEAR_ACCOUNT_ID) })
+        ? buildEcdsaRoleLocalEmailOtpAuthMethod({ authSubjectId: String(WALLET_ID) })
         : buildEcdsaRoleLocalPasskeyAuthMethod({
             credentialIdB64u: POST_SIGN_PASSKEY_CREDENTIAL_ID,
             rpId: 'localhost',
@@ -86,7 +88,7 @@ function ecdsaRecord(args: {
   const source = args.source || 'email_otp';
   const chainTarget = args.chainTarget || EVM_CHAIN_TARGET;
   const common = {
-    walletId: NEAR_ACCOUNT_ID,
+    walletId: WALLET_ID,
     authMetadata: { rpId: 'localhost' },
     chainTarget,
     relayerUrl: 'https://relay.example',
@@ -163,7 +165,7 @@ test.describe('SigningPostSignPolicy', () => {
     expect(consumed[0]?.command.kind).toBe('consume_single_use_email_otp_ecdsa_lane');
     expect(consumed[0]?.command.uses).toBe(1);
     expect(consumed[0]?.command.lane.laneRef.exactIdentity.walletId).toBe(
-      toAccountId('alice.testnet'),
+      WALLET_ID,
     );
     expect(consumed[0]?.command.lane.laneRef.exactIdentity.chainTarget).toEqual(EVM_CHAIN_TARGET);
     expect(consumed[0]?.command.lane.laneRef.exactIdentity.signingGrantId).toBe(

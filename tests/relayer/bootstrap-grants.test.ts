@@ -63,7 +63,7 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
   return {
     environmentId,
     flow: 'registration_v1',
-    newAccountId: String(relayBody.signerSelection.ed25519.nearAccountId),
+    newAccountId: String(relayBody.signerSelection.ed25519.accountProvisioning.requestedAccountId),
     rpId: String(relayBody.rpId),
     clientContext: {
       sdk: 'web',
@@ -76,12 +76,16 @@ function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unk
   return {
     wallet: { kind: 'provided', walletId: 'alice.w3a-relayer.testnet' },
     rpId: 'app.example.com',
+    authMethod: { kind: 'passkey' },
     signerSelection: {
       mode: 'ed25519_only',
       ed25519: {
-        nearAccountId: 'alice.w3a-relayer.testnet',
+        accountProvisioning: {
+          kind: 'sponsored_named_account',
+          requestedAccountId: 'alice.w3a-relayer.testnet',
+          sponsor: 'relayer',
+        },
         signerSlot: 1,
-        createNearAccount: true,
         keyPurpose: 'ed25519-hss/y_relayer',
         keyVersion: 'threshold-ed25519-hss-v1',
         participantIds: [1, 2],
@@ -420,9 +424,12 @@ test.describe('managed bootstrap grants', () => {
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {
-            nearAccountId: 'mallory.w3a-relayer.testnet',
+            accountProvisioning: {
+              kind: 'sponsored_named_account',
+              requestedAccountId: 'mallory.w3a-relayer.testnet',
+              sponsor: 'relayer',
+            },
             signerSlot: 1,
-            createNearAccount: true,
             keyPurpose: 'ed25519-hss/y_relayer',
             keyVersion: 'threshold-ed25519-hss-v1',
             participantIds: [1, 2],

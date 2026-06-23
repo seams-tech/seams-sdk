@@ -53,7 +53,68 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
         },
       ]);
+      (globalThis as any).__attachTestWebAuthnCredentialStore = (ctx: any) => {
+        const indexedDB = ctx.indexedDB || (ctx.indexedDB = {});
+        const clientDB = indexedDB.clientDB || {};
+        const existingStore = ctx.webauthnCredentialStore || {};
+        const ownFunction = (source: any, methodName: string) => {
+          if (!Object.prototype.hasOwnProperty.call(source, methodName)) return undefined;
+          const method = source[methodName];
+          return typeof method === 'function' ? method.bind(source) : undefined;
+        };
+        const defaultStore = {
+          resolveProfileAccountContext: async ({
+            chainIdKey,
+            accountAddress,
+          }: {
+            chainIdKey: string;
+            accountAddress: string;
+          }) =>
+            (globalThis as any).__buildTestNearProfileAccountContext({
+              chainIdKey,
+              accountAddress,
+            }),
+          listProfileAuthenticators: async () => [
+            { credentialId: 'test-passkey', transports: [] },
+          ],
+          listAccountSigners: async (args: any) => [
+            {
+              signerAuthMethod: 'passkey',
+              metadata: {
+                walletId: String(args?.accountAddress || 'test-wallet'),
+                passkeyCredentialRawId: 'test-passkey',
+              },
+            },
+          ],
+          selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+            authenticatorsForPrompt: authenticators,
+            wrongPasskeyError: undefined,
+          }),
+        };
+        const credentialStore = {
+          resolveProfileAccountContext:
+            ownFunction(existingStore, 'resolveProfileAccountContext') ||
+            ownFunction(clientDB, 'resolveProfileAccountContext') ||
+            defaultStore.resolveProfileAccountContext,
+          listProfileAuthenticators:
+            ownFunction(existingStore, 'listProfileAuthenticators') ||
+            ownFunction(clientDB, 'listProfileAuthenticators') ||
+            defaultStore.listProfileAuthenticators,
+          listAccountSigners:
+            ownFunction(existingStore, 'listAccountSigners') ||
+            ownFunction(clientDB, 'listAccountSigners') ||
+            defaultStore.listAccountSigners,
+          selectProfileAuthenticatorsForPrompt:
+            ownFunction(existingStore, 'selectProfileAuthenticatorsForPrompt') ||
+            ownFunction(clientDB, 'selectProfileAuthenticatorsForPrompt') ||
+            defaultStore.selectProfileAuthenticatorsForPrompt,
+        };
+        ctx.webauthnCredentialStore = credentialStore;
+        indexedDB.clientDB = { ...clientDB, ...credentialStore };
+        return ctx;
+      };
       (globalThis as any).__attachTestNonceCoordinator = async (ctx: any) => {
+        (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         const nonceCoordinatorMod = await import(nonceCoordinatorPath);
         const nearContextFixture = ctx.nearContextFixture || (ctx.nearContextFixture = {});
         if (typeof nearContextFixture.getNonceBlockHashAndHeight !== 'function') {
@@ -733,6 +794,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
         const workerMessages: any[] = [];
         const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
+        (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         await handleLocalOnlyFlow(ctx, request, worker, {
           confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0 },
           transactionSummary: {},
@@ -819,6 +881,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
         const workerMessages: any[] = [];
         const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
 
+        (globalThis as any).__attachTestWebAuthnCredentialStore(ctx);
         await handleLocalOnlyFlow(ctx, request, worker, {
           confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0 },
           transactionSummary: {},

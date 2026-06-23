@@ -11,9 +11,82 @@ const IMPORT_PATHS = {
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
+async function evaluateMismatchedWarmSessionIdentity(args: {
+  paths: typeof IMPORT_PATHS;
+}): Promise<string | null> {
+  const bootstrapMod = await import(args.paths.thresholdWarmSessionBootstrap);
+  const now = Date.now();
+  try {
+    bootstrapMod.completeRegisteredThresholdEd25519Registration({
+      thresholdEd25519: {
+        nearAccountId: 'registration-alice.testnet',
+        ed25519KeyScopeId: 'registration-alice.testnet',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        recoveryExportCapable: true,
+        publicKey: 'ed25519:registration-public-key',
+        relayerKeyId: 'rk-1',
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds: [1, 2],
+        session: {
+          sessionKind: 'jwt',
+          walletId: 'wallet_alice',
+          nearAccountId: 'registration-alice.testnet',
+          ed25519KeyScopeId: 'wrong-scope',
+          thresholdSessionId: 'registration-session-1',
+          signingGrantId: 'signing-grant-1',
+          expiresAtMs: now + 60_000,
+          participantIds: [1, 2],
+          remainingUses: 3,
+          routerAbNormalSigning: {
+            kind: 'router_ab_ed25519_normal_signing_v1',
+            signingWorkerId: 'signing-worker-local',
+          },
+          jwt: 'jwt-registration',
+        },
+      },
+      expectedSessionPolicy: {
+        version: 'threshold_session_v1',
+        walletId: 'wallet_alice',
+        nearAccountId: 'registration-alice.testnet',
+        ed25519KeyScopeId: 'registration-alice.testnet',
+        rpId: 'example.localhost',
+        relayerKeyId: 'rk-1',
+        thresholdSessionId: 'registration-session-1',
+        signingGrantId: 'signing-grant-1',
+        participantIds: [1, 2],
+        ttlMs: 60_000,
+        remainingUses: 3,
+        routerAbNormalSigning: {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: 'signing-worker-local',
+        },
+      },
+      expectedIdentity: {
+        walletId: 'wallet_alice',
+        nearAccountId: 'registration-alice.testnet',
+        ed25519KeyScopeId: 'registration-alice.testnet',
+      },
+    });
+    return null;
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 test.describe('threshold Ed25519 registration warm-session', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+  });
+
+  test('rejects returned warm-session identity that differs from expected registration binding', async ({
+    page,
+  }) => {
+    const message = await page.evaluate(evaluateMismatchedWarmSessionIdentity, {
+      paths: IMPORT_PATHS,
+    });
+
+    expect(message).toBe('threshold-ed25519 warm session ed25519KeyScopeId mismatch');
   });
 
   test('awaits warm-session hydrate before registration persistence returns', async ({ page }) => {
@@ -26,6 +99,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
         const nearAccountId = 'registration-alice.testnet';
+        const walletId = nearAccountId;
+        const ed25519KeyScopeId = nearAccountId;
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -108,7 +183,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
+            walletId,
             nearAccountId,
+            ed25519KeyScopeId,
             signerSlot: 1,
             auth: { kind: 'passkey' },
             rpId: 'example.localhost',
@@ -116,7 +193,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             prfFirstB64u: 'prf-first-registration',
             registrationSessionPolicy: {
               version: 'threshold_session_v1',
+              walletId,
               nearAccountId,
+              ed25519KeyScopeId,
               rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               sessionId: 'registration-session-1',
@@ -143,6 +222,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
+                  walletId,
+                  nearAccountId,
+                  ed25519KeyScopeId,
                   thresholdSessionId: 'registration-session-1',
                   signingGrantId: 'signing-grant-1',
                   expiresAtMs: now + 60_000,
@@ -370,6 +452,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
         const nearAccountId = 'registration-parity.testnet';
+        const walletId = nearAccountId;
+        const ed25519KeyScopeId = nearAccountId;
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -451,7 +535,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
+            walletId,
             nearAccountId,
+            ed25519KeyScopeId,
             signerSlot: 1,
             auth: { kind: 'passkey' },
             rpId: 'example.localhost',
@@ -459,7 +545,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             prfFirstB64u: 'prf-first-registration',
             registrationSessionPolicy: {
               version: 'threshold_session_v1',
+              walletId,
               nearAccountId,
+              ed25519KeyScopeId,
               rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               sessionId: 'registration-session-parity',
@@ -486,6 +574,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
+                  walletId,
+                  nearAccountId,
+                  ed25519KeyScopeId,
                   thresholdSessionId: 'registration-session-parity',
                   signingGrantId: 'signing-grant-parity',
                   expiresAtMs: now + 60_000,
@@ -539,6 +630,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const sessionStoreMod = await import(paths.thresholdSessionStore);
 
         const nearAccountId = 'registration-email-otp.testnet';
+        const walletId = nearAccountId;
+        const ed25519KeyScopeId = nearAccountId;
         const now = Date.now();
         const runtimePolicyScope = {
           orgId: 'org-registration',
@@ -628,7 +721,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   );
               },
             },
+            walletId,
             nearAccountId,
+            ed25519KeyScopeId,
             signerSlot: 1,
             auth: {
               kind: 'email_otp',
@@ -662,7 +757,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
             registrationSessionPolicy: {
               version: 'threshold_session_v1',
+              walletId,
               nearAccountId,
+              ed25519KeyScopeId,
               rpId: 'example.localhost',
               relayerKeyId: 'rk-email-otp',
               sessionId: 'registration-session-email-otp',
@@ -684,6 +781,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                 participantIds: [1, 2],
                 session: {
                   sessionKind: 'jwt',
+                  walletId,
+                  nearAccountId,
+                  ed25519KeyScopeId,
                   thresholdSessionId: 'registration-session-email-otp',
                   signingGrantId: 'signing-grant-email-otp',
                   expiresAtMs: now + 60_000,

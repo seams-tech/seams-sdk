@@ -94,6 +94,9 @@ async function putWalletSessionOnStore(
     input.id,
     {
       userId: 'user-1',
+      walletId: 'user-1',
+      nearAccountId: 'user-1',
+      ed25519KeyScopeId: 'user-1',
       rpId: 'rp.example',
       relayerKeyId: 'relayer-1',
       participantIds: [1, 2],

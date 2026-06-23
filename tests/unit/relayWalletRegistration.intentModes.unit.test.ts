@@ -8,7 +8,13 @@ import {
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import type { RelayApiKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/relay';
-import type { RegistrationSignerSelection } from '../../packages/shared-ts/src/utils/registrationIntent';
+import {
+  implicitNearAccountProvisioning,
+  parseGeneratedImplicitWalletId,
+  sponsoredNamedNearAccountProvisioning,
+  type RegistrationSignerSelection,
+} from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseNamedNearAccountId } from '../../packages/shared-ts/src/utils/near';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const ORG_ID = 'org_registration_intent_modes';
@@ -16,6 +22,12 @@ const PROJECT_ID = 'project_registration_intent_modes';
 const ENV_ID = 'dev';
 const ENVIRONMENT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const SIGNING_ROOT_VERSION = 'root_v1';
+
+function namedProvisioning(accountId: string) {
+  const parsed = parseNamedNearAccountId(accountId);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return sponsoredNamedNearAccountProvisioning(parsed.value);
+}
 
 const routeDefinitions = createRelayRouteDefinitions({
   enableHealthz: true,
@@ -29,13 +41,12 @@ const modeCases = [
     signerSelection: {
       mode: 'ed25519_only',
       ed25519: {
-        nearAccountId: 'alice.testnet',
+        accountProvisioning: namedProvisioning('alice.testnet'),
         signerSlot: 1,
         participantIds: [1, 2],
         keyPurpose: 'near_tx',
         keyVersion: 'threshold-ed25519-hss-v1',
         derivationVersion: 1,
-        createNearAccount: true,
       },
     },
   },
@@ -54,13 +65,12 @@ const modeCases = [
     signerSelection: {
       mode: 'ed25519_and_ecdsa',
       ed25519: {
-        nearAccountId: 'combined.testnet',
+        accountProvisioning: namedProvisioning('combined.testnet'),
         signerSlot: 1,
         participantIds: [1, 2],
         keyPurpose: 'near_tx',
         keyVersion: 'threshold-ed25519-hss-v1',
         derivationVersion: 1,
-        createNearAccount: true,
       },
       ecdsa: {
         chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
@@ -251,7 +261,10 @@ test.describe('wallet registration intent relayer modes', () => {
     test(`creates ${entry.mode} registration intents through the relayer route`, async () => {
       const response = await handleRelayWalletRegistrationIntent({
         body: {
-          wallet: { kind: 'server_generated' },
+          wallet:
+            entry.mode === 'ecdsa_only'
+              ? { kind: 'server_generated' }
+              : { kind: 'provided', walletId: 'wallet_alice' },
           rpId: 'wallet.example.test',
           authMethod: { kind: 'passkey' },
           signerSelection: entry.signerSelection,
@@ -289,4 +302,56 @@ test.describe('wallet registration intent relayer modes', () => {
       expect(response.body.registrationIntentGrant).toMatch(/^rig_/);
     });
   }
+
+  test('creates an implicit Ed25519 registration intent with a generated wallet ID', async () => {
+    const response = await handleRelayWalletRegistrationIntent({
+      body: {
+        wallet: { kind: 'server_generated' },
+        rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
+        signerSelection: {
+          mode: 'ed25519_only',
+          ed25519: {
+            accountProvisioning: implicitNearAccountProvisioning(),
+            signerSlot: 1,
+            participantIds: [1, 2],
+            keyPurpose: 'near_tx',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            derivationVersion: 1,
+          },
+        },
+      },
+      headers: {
+        authorization: 'Bearer sk_test',
+        'x-seams-environment-id': ENVIRONMENT_ID,
+      },
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+      origin: 'https://wallet.example.test',
+      route: route('wallet_registration_intent'),
+      services: {
+        authService: makeService(),
+        apiKeyAuth: makeApiKeyAuth(),
+        orgProjectEnv: await makeOrgProjectEnv(),
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    if (!response.body.ok) throw new Error(response.body.message);
+
+    const generatedWalletId = parseGeneratedImplicitWalletId(response.body.intent.walletId);
+    expect(generatedWalletId.ok).toBe(true);
+    expect(response.body.intent.signerSelection).toMatchObject({
+      mode: 'ed25519_only',
+      ed25519: {
+        accountProvisioning: { kind: 'implicit_account' },
+      },
+    });
+    expect(response.body.registrationIntentGrant).toMatch(/^rig_/);
+  });
 });

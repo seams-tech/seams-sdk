@@ -24,7 +24,6 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
         const calls: Array<{ type: string; mode: string }> = [];
         const fullscreenTypes = [
           'PM_EXPORT_KEYPAIR_UI',
-          'PM_REGISTER',
           'PM_UNLOCK',
           'PM_SIGN_AND_SEND_TX',
           'PM_EXECUTE_ACTION',
@@ -58,7 +57,6 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     const byType = Object.fromEntries(result.calls.map((c) => [c.type, c.mode]));
     // Fullscreen intents
     expect(byType['PM_EXPORT_KEYPAIR_UI']).toBe('fullscreen');
-    expect(byType['PM_REGISTER']).toBe('fullscreen');
     expect(byType['PM_UNLOCK']).toBe('fullscreen');
     expect(byType['PM_SIGN_AND_SEND_TX']).toBe('fullscreen');
     expect(byType['PM_EXECUTE_ACTION']).toBe('fullscreen');

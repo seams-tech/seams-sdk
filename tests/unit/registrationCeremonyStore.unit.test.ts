@@ -15,12 +15,16 @@ import {
   type CloudflareDurableObjectNamespaceLike,
 } from '@server/core/types';
 import {
+  ed25519KeyScopeIdFromWalletId,
   registrationIntentGrantFromString,
+  requireGeneratedImplicitWalletId,
+  sponsoredNamedNearAccountProvisioning,
   walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
 } from '@shared/utils/registrationIntent';
+import { parseNamedNearAccountId } from '@shared/utils/near';
 
 class FakeDurableObjectStub {
   private readonly records = new Map<string, { value: unknown; expiresAtMs?: number }>();
@@ -104,16 +108,25 @@ class FakeDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike
   }
 }
 
+function namedProvisioning(accountId: string) {
+  return sponsoredNamedNearAccountProvisioning(namedAccountId(accountId));
+}
+
+function namedAccountId(accountId: string) {
+  const parsed = parseNamedNearAccountId(accountId);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
+}
+
 const SIGNER_SELECTION = {
   mode: 'ed25519_only',
   ed25519: {
-    nearAccountId: 'registration-store.testnet',
+    accountProvisioning: namedProvisioning('registration-store.testnet'),
     signerSlot: 1,
     participantIds: [1, 2],
     keyPurpose: 'near_tx',
     keyVersion: 'threshold-ed25519-hss-v1',
     derivationVersion: 1,
-    createNearAccount: true,
   },
 } satisfies RegistrationSignerSelection;
 
@@ -203,7 +216,9 @@ function makePreparationBase(
       orgId: 'org_registration_store',
       signingRootId: 'project:dev',
       signingRootVersion: 'default',
-      nearAccountId: SIGNER_SELECTION.ed25519.nearAccountId,
+      registrationIntentDigestB64u: 'digest',
+      ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(INTENT.walletId),
+      signerSlot: SIGNER_SELECTION.ed25519.signerSlot,
       keyPurpose: SIGNER_SELECTION.ed25519.keyPurpose,
       keyVersion: SIGNER_SELECTION.ed25519.keyVersion,
       derivationVersion: SIGNER_SELECTION.ed25519.derivationVersion,
@@ -265,6 +280,38 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
   };
 }
 
+test('registration ceremony store scopes generated wallet reservations by RP ID', async () => {
+  const store = createRegistrationCeremonyStore({
+    config: null,
+    logger: undefined,
+    isNode: false,
+  });
+  const walletId = requireGeneratedImplicitWalletId('frost-vermillion-k7p9m2');
+  const expiresAtMs = Date.now() + 60_000;
+
+  await expect(
+    store.reserveGeneratedWalletId({
+      rpId: 'wallet.example.test',
+      walletId,
+      expiresAtMs,
+    }),
+  ).resolves.toBe(true);
+  await expect(
+    store.reserveGeneratedWalletId({
+      rpId: 'wallet.example.test',
+      walletId,
+      expiresAtMs,
+    }),
+  ).resolves.toBe(false);
+  await expect(
+    store.reserveGeneratedWalletId({
+      rpId: 'other-wallet.example.test',
+      walletId,
+      expiresAtMs,
+    }),
+  ).resolves.toBe(true);
+});
+
 test('Cloudflare Durable Object registration ceremony store consumes grants and ceremonies once', async () => {
   const namespace = new FakeDurableObjectNamespace();
   const store = createRegistrationCeremonyStore({
@@ -322,8 +369,16 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
       ok: true,
       walletId: INTENT.walletId,
       rpId: INTENT.rpId,
+      accountProvisioning: namedProvisioning('registration-store.testnet'),
+      resolvedAccount: {
+        kind: 'sponsored_named_account',
+        nearAccountId: namedAccountId('registration-store.testnet'),
+        ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(INTENT.walletId),
+        transactionHash: 'create-account-tx',
+      },
       ed25519: {
         nearAccountId: 'registration-store.testnet',
+        ed25519KeyScopeId: String(ed25519KeyScopeIdFromWalletId(INTENT.walletId)),
         publicKey: 'ed25519-public-key',
         relayerKeyId: 'relayer-key',
         keyVersion: 'threshold-ed25519-hss-v1',
@@ -431,14 +486,25 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
         ok: true,
         walletId: INTENT.walletId,
         rpId: INTENT.rpId,
+        accountProvisioning: namedProvisioning('registration-store.testnet'),
+        resolvedAccount: {
+          kind: 'sponsored_named_account',
+          nearAccountId: namedAccountId('registration-store.testnet'),
+          ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(INTENT.walletId),
+          transactionHash: 'create-account-tx',
+        },
         ed25519: {
           nearAccountId: 'registration-store.testnet',
+          ed25519KeyScopeId: String(ed25519KeyScopeIdFromWalletId(INTENT.walletId)),
           publicKey: 'ed25519-public-key',
           relayerKeyId: 'relayer-key',
           keyVersion: 'threshold-ed25519-hss-v1',
           recoveryExportCapable: true,
           session: {
             sessionKind: 'jwt',
+            walletId: INTENT.walletId,
+            nearAccountId: 'registration-store.testnet',
+            ed25519KeyScopeId: String(ed25519KeyScopeIdFromWalletId(INTENT.walletId)),
             thresholdSessionId: 'session',
             signingGrantId: 'wallet-session',
             expiresAtMs: Date.now() + 60_000,
@@ -526,7 +592,7 @@ test('registration ceremony store consumes an intent only when the preparation s
       registrationPreparationId: mismatchedPreparation.registrationPreparationId,
       ed25519Scope: {
         ...mismatchedPreparation.ed25519Scope,
-        nearAccountId: 'different.testnet',
+        ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(walletIdFromString('different-wallet')),
       },
     }),
   ).resolves.toMatchObject({

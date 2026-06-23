@@ -9,9 +9,9 @@ import {
   type WalletUnlockSelection,
 } from '@/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner';
 import { evmFamilyEcdsaWalletKeyToIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
@@ -22,7 +22,7 @@ import {
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
-const WALLET_ID = toAccountId('alice.testnet');
+const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'wallet.example.test';
 const OWNER_ADDRESS = `0x${'ab'.repeat(20)}`;
 const PUBLIC_KEY_33_B64U = Buffer.from([2, ...Array(32).fill(7)]).toString('base64url');

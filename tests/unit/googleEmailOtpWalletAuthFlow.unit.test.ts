@@ -5,6 +5,10 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { buildEmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
+import {
+  registrationProvisioningScopeKey,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
 
 const TEMPO_TARGET = {
   kind: 'tempo',
@@ -134,13 +138,11 @@ function makeStartedPrecompute(
             : 'server_generated',
         rpId: args.rpId,
         signerMode:
-          args.signerSelection.mode === 'ed25519_and_ecdsa'
-            ? 'ed25519_and_ecdsa'
-            : 'ed25519_only',
-        nearAccountId:
+          args.signerSelection.mode === 'ed25519_and_ecdsa' ? 'ed25519_and_ecdsa' : 'ed25519_only',
+        accountProvisioningScopeKey:
           args.signerSelection.mode === 'ed25519_and_ecdsa' ||
           args.signerSelection.mode === 'ed25519_only'
-            ? String(args.signerSelection.ed25519.nearAccountId)
+            ? registrationProvisioningScopeKey(args.signerSelection.ed25519.accountProvisioning)
             : walletId,
       },
       read: async () => {
@@ -162,7 +164,7 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
     overrides?.registerWallet ??
     (async (args: Parameters<GoogleEmailOtpWalletAuthDeps['registerWallet']>[0]) => {
       calls.push({ type: 'registerWallet', args });
-      return { success: true, accountId: 'alice.testnet' } as Awaited<
+      return { success: true, walletId: walletIdFromString('alice.testnet') } satisfies Awaited<
         ReturnType<GoogleEmailOtpWalletAuthDeps['registerWallet']>
       >;
     });
@@ -448,7 +450,8 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       });
 
       expect(started.ok).toBe(true);
-      if (!started.ok || started.value.mode !== 'register') throw new Error('expected register flow');
+      if (!started.ok || started.value.mode !== 'register')
+        throw new Error('expected register flow');
       expect(material?.recoveryKeys).toHaveLength(10);
 
       nowMs += 2_000;
@@ -541,7 +544,8 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
         calls.push({ type: 'registerWallet', args });
         return {
           success: false,
-          error: 'Wallet registration was already finalized. Restore or unlock the wallet to continue.',
+          error:
+            'Wallet registration was already finalized. Restore or unlock the wallet to continue.',
           errorCode: 'already_finalized_restore_required',
         };
       },

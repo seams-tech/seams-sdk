@@ -8,7 +8,7 @@
     "test:lite": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test -c playwright.lite.config.ts --reporter=line",
     "test:inline": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test --reporter=line",
     "test:e2e": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test ./e2e --reporter=line",
-    "test:unit": "pnpm -C ../packages/sdk-web run build:prepare && playwright test -c playwright.unit.config.ts --reporter=line",
+    "test:unit": "pnpm -C ../packages/sdk-server-ts run build && pnpm -C ../packages/sdk-web run build:prepare && playwright test -c playwright.unit.config.ts --reporter=line",
     "test:router-surface": "playwright test -c playwright.router.config.ts --reporter=line",
     "test:source-guards": "pnpm -C ../packages/sdk-web run build:prepare && playwright test -c playwright.source.config.ts --reporter=line",
     "test:integration:signing": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test -c playwright.integration.config.ts --reporter=line",

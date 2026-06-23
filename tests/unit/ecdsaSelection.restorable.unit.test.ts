@@ -62,9 +62,9 @@ function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate
     authMethod: 'passkey',
     curve: 'ecdsa',
     chain: 'evm',
-    walletId: toAccountId('restorable.testnet'),
+    walletId,
     key: buildEvmFamilyEcdsaKeyIdentity({
-      walletId: toAccountId('restorable.testnet'),
+      walletId,
       rpId: 'example.localhost',
       ecdsaThresholdKeyId: 'ek-restorable',
       signingRootId: 'proj_local:dev',
