@@ -13,6 +13,7 @@ import {
   type WasmPrepareThresholdEd25519HssSessionResult,
 } from '@/core/types/signer-worker';
 import { base64UrlDecode } from '@shared/utils/encoders';
+import { parseWalletKeyId } from '@shared/utils/domainIds';
 import {
   executeWorkerOperation,
   type WorkerOperationContext,
@@ -57,7 +58,7 @@ import {
   type SigningRootId,
   type SigningRootVersion,
 } from '../../session/identity/emailOtpHssIdentity';
-import { toRpId, type RpId } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { WalletKeyId } from '@shared/signing-lanes';
 
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 const ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES = 32;
@@ -372,27 +373,22 @@ export type ThresholdEd25519RoleSeparatedClientVerifyingShare = {
 
 export type ThresholdEcdsaHssStableKeyContext = {
   walletId: WalletId;
-  rpId: RpId;
-  chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
   signingGrantId?: never;
   thresholdSessionId?: never;
-  keyPurpose: string;
-  keyVersion: string;
 };
 
 declare const serverPlannedEcdsaHssContextBrand: unique symbol;
 
 export type ServerPlannedEcdsaHssContext = ThresholdEcdsaHssStableKeyContext & {
+  walletKeyId: WalletKeyId;
+  chainTarget: ThresholdEcdsaChainTarget;
   readonly [serverPlannedEcdsaHssContextBrand]: true;
 };
 
-export type ThresholdEcdsaHssRoleLocalClientContext = Omit<
-  ThresholdEcdsaHssStableKeyContext,
-  'chainTarget'
->;
+export type ThresholdEcdsaHssRoleLocalClientContext = ThresholdEcdsaHssStableKeyContext;
 
 function normalizeParticipantIds(value: unknown): number[] {
   if (Array.isArray(value) || ArrayBuffer.isView(value)) {
@@ -415,43 +411,39 @@ function readThresholdEcdsaHssChainTarget(value: unknown): ThresholdEcdsaChainTa
   });
 }
 
+function readWalletKeyId(value: unknown): WalletKeyId {
+  const parsed = parseWalletKeyId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function buildThresholdEcdsaHssStableKeyContext(input: {
   walletId: unknown;
-  rpId: unknown;
-  chainTarget: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
-  keyPurpose: unknown;
-  keyVersion: unknown;
 }): ThresholdEcdsaHssStableKeyContext {
-  const keyPurpose = String(input.keyPurpose || '').trim();
-  const keyVersion = String(input.keyVersion || '').trim();
-  if (!keyPurpose) throw new Error('[email-otp-hss] keyPurpose is required');
-  if (!keyVersion) throw new Error('[email-otp-hss] keyVersion is required');
   return {
     walletId: toWalletId(input.walletId),
-    rpId: toRpId(input.rpId),
-    chainTarget: readThresholdEcdsaHssChainTarget(input.chainTarget),
     ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(input.ecdsaThresholdKeyId),
     signingRootId: toEcdsaHssSigningRootId(input.signingRootId),
     signingRootVersion: toEcdsaHssSigningRootVersion(input.signingRootVersion),
-    keyPurpose,
-    keyVersion,
   };
 }
 
 export function parseServerPlannedEcdsaHssContext(input: {
   walletId: unknown;
-  rpId: unknown;
+  walletKeyId: unknown;
   chainTarget: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
   signingRootVersion: unknown;
-  keyPurpose: unknown;
-  keyVersion: unknown;
 }): ServerPlannedEcdsaHssContext {
-  return buildThresholdEcdsaHssStableKeyContext(input) as ServerPlannedEcdsaHssContext;
+  return {
+    ...buildThresholdEcdsaHssStableKeyContext(input),
+    walletKeyId: readWalletKeyId(input.walletKeyId),
+    chainTarget: readThresholdEcdsaHssChainTarget(input.chainTarget),
+  } as ServerPlannedEcdsaHssContext;
 }
 
 export async function deriveThresholdEd25519HssClientInputsWasm(args: {

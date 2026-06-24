@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import { ensureEvmFamilyThresholdEcdsaRecordReady } from '@/core/signingEngine/flows/signEvmFamily/ecdsaReadiness';
 import {
   getThresholdEcdsaSessionRecordByKey,
-  thresholdEcdsaRecordRpId,
 } from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -52,24 +51,33 @@ test.describe('EVM family threshold reconnect events', () => {
     });
     const events: any[] = [];
     const provisionedChainIds: unknown[] = [];
+    const roleLocalRecord = staleRecord.ecdsaRoleLocalReadyRecord;
+    if (roleLocalRecord.authMethod.kind !== 'passkey') {
+      throw new Error('expected passkey role-local record');
+    }
     const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: staleRecord,
-      rpId: thresholdEcdsaRecordRpId(staleRecord),
+      walletKeyId: roleLocalRecord.publicFacts.walletKeyId,
     });
     const lane = {
       ...selectedEcdsaLane({
         key,
         keyHandle: staleRecord.keyHandle,
         walletId: toWalletId('reconnect-events.testnet'),
-        authMethod: 'passkey',
+        auth: {
+          kind: 'passkey',
+          rpId: roleLocalRecord.authMethod.rpId,
+          credentialIdB64u: roleLocalRecord.authMethod.credentialIdB64u,
+        },
         signingGrantId,
         thresholdSessionId: staleRecord.thresholdSessionId,
         chainTarget: staleRecord.chainTarget,
       }),
       key,
-      keyKind: 'threshold_ecdsa_secp256k1',
-      chainFamily: 'evm',
-      sessionOrigin: 'login',
+	      keyKind: 'threshold_ecdsa_secp256k1',
+	      chainFamily: 'evm',
+	      runtimeState: 'no_runtime_material',
+	      sessionOrigin: 'login',
       storageSource: 'login',
       retention: 'session',
     } as const;

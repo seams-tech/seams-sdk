@@ -26,11 +26,9 @@ use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use signer_core::commands::{
     Base64UrlEncodingV1, EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1,
-    EcdsaClientBootstrapFactsV1, EcdsaClientBootstrapKeyPurposeV1,
-    EcdsaClientBootstrapKeyVersionV1, EcdsaClientBootstrapParticipantsV1,
-    EcdsaPreparePublicFactsV1, EcdsaRoleLocalPendingStateBlobV1, PendingStateBlobKindV1,
-    PrepareEcdsaClientBootstrapOutputV1, Secp256k1CurveNameV1, SignerCoreProducerV1,
-    ThresholdEcdsaChainTargetV1,
+    EcdsaClientBootstrapFactsV1, EcdsaClientBootstrapParticipantsV1, EcdsaPreparePublicFactsV1,
+    EcdsaRoleLocalPendingStateBlobV1, PendingStateBlobKindV1, PrepareEcdsaClientBootstrapOutputV1,
+    Secp256k1CurveNameV1, SignerCoreProducerV1,
 };
 use signer_core::error::{CoreResult, SignerCoreError, SignerCoreErrorCode};
 use signer_core::threshold_ecdsa_hss::{
@@ -924,9 +922,8 @@ pub fn threshold_ed25519_role_separated_client_verifying_share_from_base_share(
         &get_required_string(&args, "xClientBaseB64u")?,
         "xClientBaseB64u",
     )?;
-    let client_verifying_share =
-        role_separated_ed25519_client_verifying_share_v1(x_client_base)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_verifying_share = role_separated_ed25519_client_verifying_share_v1(x_client_base)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let out = object();
     set_string(
         &out,
@@ -1292,23 +1289,11 @@ fn prepare_resolved_email_otp_root_command_v1(
         EcdsaClientBootstrapAlgorithmV1::EcdsaHssSecp256k1RoleLocalV1 => {}
     }
     validate_resolved_email_otp_root_participants(&command.participants)?;
-    validate_resolved_email_otp_root_chain_target(&command.context.chain_target)?;
 
-    let context = EcdsaHssStableKeyContext::new(
-        require_command_ascii_nonempty(command.context.wallet_id, "context.walletId")?,
-        require_command_ascii_nonempty(command.context.rp_id, "context.rpId")?,
-        require_command_ascii_nonempty(
-            command.context.ecdsa_threshold_key_id,
-            "context.ecdsaThresholdKeyId",
-        )?,
-        require_command_ascii_nonempty(command.context.signing_root_id, "context.signingRootId")?,
-        require_command_ascii_nonempty(
-            command.context.signing_root_version,
-            "context.signingRootVersion",
-        )?,
-        key_purpose_string(command.context.key_purpose),
-        key_version_string(command.context.key_version),
-    );
+    let context = EcdsaHssStableKeyContext::new(decode_fixed_32_core(
+        &command.context.application_binding_digest_b64u,
+        "context.applicationBindingDigestB64u",
+    )?);
     context
         .validate()
         .map_err(|error| SignerCoreError::invalid_input(error.to_string()))?;
@@ -1368,62 +1353,6 @@ fn validate_resolved_email_otp_root_participants(
         return Err(SignerCoreError::invalid_input(
             "participants.participantIds must be [1, 2]",
         ));
-    }
-    Ok(())
-}
-
-fn validate_resolved_email_otp_root_chain_target(
-    target: &ThresholdEcdsaChainTargetV1,
-) -> CoreResult<()> {
-    match target {
-        ThresholdEcdsaChainTargetV1::Evm {
-            namespace: _,
-            chain_id,
-            network_slug,
-        }
-        | ThresholdEcdsaChainTargetV1::Tempo {
-            chain_id,
-            network_slug,
-        } => {
-            if *chain_id == 0 {
-                return Err(SignerCoreError::invalid_input(
-                    "context.chainTarget.chainId must be positive",
-                ));
-            }
-            require_command_ascii_nonempty_ref(network_slug, "context.chainTarget.networkSlug")?;
-        }
-    }
-    Ok(())
-}
-
-fn key_purpose_string(value: EcdsaClientBootstrapKeyPurposeV1) -> &'static str {
-    match value {
-        EcdsaClientBootstrapKeyPurposeV1::EvmSigning => "evm-signing",
-    }
-}
-
-fn key_version_string(value: EcdsaClientBootstrapKeyVersionV1) -> &'static str {
-    match value {
-        EcdsaClientBootstrapKeyVersionV1::V1 => "v1",
-    }
-}
-
-fn require_command_ascii_nonempty(value: String, field_name: &str) -> CoreResult<String> {
-    let trimmed = value.trim().to_owned();
-    require_command_ascii_nonempty_ref(&trimmed, field_name)?;
-    Ok(trimmed)
-}
-
-fn require_command_ascii_nonempty_ref(value: &str, field_name: &str) -> CoreResult<()> {
-    if value.is_empty() {
-        return Err(SignerCoreError::invalid_input(format!(
-            "{field_name} must be non-empty"
-        )));
-    }
-    if !value.is_ascii() {
-        return Err(SignerCoreError::invalid_input(format!(
-            "{field_name} must be ASCII-only"
-        )));
     }
     Ok(())
 }

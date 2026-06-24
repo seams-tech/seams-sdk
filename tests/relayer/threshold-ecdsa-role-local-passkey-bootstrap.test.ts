@@ -23,6 +23,9 @@ const RUNTIME_POLICY_SCOPE = {
   signingRootVersion: 'v1',
 };
 const WALLET_SESSION_USER_ID = 'passkey-wallet-user';
+const WALLET_KEY_ID = 'wallet-key-passkey-role-local';
+const NEAR_ACCOUNT_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const ED25519_KEY_SCOPE_ID = 'passkey-wallet-user-ed25519-scope';
 const RP_ID = 'wallet.example.test';
 const SUBJECT_ID = WALLET_SESSION_USER_ID;
 const SIGNING_ROOT_ID = `${RUNTIME_POLICY_SCOPE.projectId}:${RUNTIME_POLICY_SCOPE.envId}`;
@@ -81,18 +84,18 @@ function fakeWebAuthnAuthentication() {
 async function makeBootstrapBody(overrides?: Record<string, unknown>) {
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: WALLET_SESSION_USER_ID,
-    rpId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: WALLET_SESSION_USER_ID,
-    rpId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
   });
   const body = {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: WALLET_SESSION_USER_ID,
-    rpId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
     ecdsaThresholdKeyId,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
@@ -111,6 +114,7 @@ async function makeBootstrapBody(overrides?: Record<string, unknown>) {
     participantIds: PARTICIPANT_IDS,
     passkeyBootstrapAuthorization: {
       kind: 'passkey_bootstrap',
+      rpId: RP_ID,
       webauthn_authentication: fakeWebAuthnAuthentication(),
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     },
@@ -147,7 +151,7 @@ async function startPasskeyBootstrapRoute(input: {
         value: {
           formatVersion: 'ecdsa-hss-role-local',
           walletId: WALLET_SESSION_USER_ID,
-          rpId: RP_ID,
+          walletKeyId: WALLET_KEY_ID,
           ecdsaThresholdKeyId: parsedRequest.ecdsaThresholdKeyId,
           relayerKeyId: parsedRequest.relayerKeyId,
           contextBinding32B64u: parsedRequest.contextBinding32B64u,
@@ -177,7 +181,7 @@ async function startPasskeyBootstrapRoute(input: {
           clientShareRetryCounter: Number(parsedRequest.clientShareRetryCounter),
           relayerShareRetryCounter: 0,
           participantIds: PARTICIPANT_IDS,
-          sessionId: parsedRequest.sessionId,
+          thresholdSessionId: parsedRequest.sessionId,
           signingGrantId: parsedRequest.signingGrantId,
           expiresAtMs: Date.now() + 60_000,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -223,10 +227,10 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       expect(harness.bootstrapCalls).toHaveLength(1);
       expect(harness.verifyCalls).toHaveLength(1);
       expect(harness.verifyCalls[0]).toMatchObject({
-        nearAccountId: WALLET_SESSION_USER_ID,
         rpId: RP_ID,
         expectedChallenge: await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
           walletId: WALLET_SESSION_USER_ID,
+          walletKeyId: WALLET_KEY_ID,
           rpId: RP_ID,
           ecdsaThresholdKeyId: body.ecdsaThresholdKeyId as string,
           signingRootId: SIGNING_ROOT_ID,
@@ -305,6 +309,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     const body = await makeBootstrapBody({
       passkeyBootstrapAuthorization: {
         kind: 'passkey_bootstrap',
+        rpId: RP_ID,
         webauthn_authentication: fakeObjectAuthentication,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       },
@@ -351,7 +356,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
         ),
         digest32B64u: await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u({
           walletId: String(bodyWithoutProof.walletId),
-          rpId: String(bodyWithoutProof.rpId),
+          walletKeyId: String(bodyWithoutProof.walletKeyId),
           ecdsaThresholdKeyId: String(bodyWithoutProof.ecdsaThresholdKeyId),
           signingRootId: String(bodyWithoutProof.signingRootId),
           signingRootVersion: String(bodyWithoutProof.signingRootVersion),
@@ -380,6 +385,8 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
           kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
           sub: WALLET_SESSION_USER_ID,
           walletId: WALLET_SESSION_USER_ID,
+          nearAccountId: NEAR_ACCOUNT_ID,
+          ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
           thresholdSessionId: 'threshold-ed25519-login-session',
           signingGrantId: body.signingGrantId,
           relayerKeyId: 'ed25519-relayer-key',
@@ -422,6 +429,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       ...bodyWithoutAuthorization,
       passkeyBootstrapAuthorization: {
         kind: 'passkey_bootstrap',
+        rpId: RP_ID,
         webauthn_authentication: fakeWebAuthnAuthentication(),
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       },
@@ -440,10 +448,10 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       expect(harness.verifyCalls).toHaveLength(1);
       expect(harness.bootstrapCalls).toHaveLength(1);
       expect(harness.verifyCalls[0]).toMatchObject({
-        nearAccountId: WALLET_SESSION_USER_ID,
         rpId: RP_ID,
         expectedChallenge: await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
           walletId: WALLET_SESSION_USER_ID,
+          walletKeyId: WALLET_KEY_ID,
           rpId: RP_ID,
           ecdsaThresholdKeyId: String(body.ecdsaThresholdKeyId),
           signingRootId: SIGNING_ROOT_ID,
@@ -469,7 +477,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       signingRootVersion: mismatchedSigningRootVersion,
       ecdsaThresholdKeyId: await computeEcdsaHssRoleLocalThresholdKeyId({
         walletId: WALLET_SESSION_USER_ID,
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
         signingRootId: SIGNING_ROOT_ID,
         signingRootVersion: mismatchedSigningRootVersion,
       }),

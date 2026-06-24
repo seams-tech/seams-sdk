@@ -35,7 +35,7 @@ test.describe('relayer login challenge replay', () => {
       const options = await fetchJson(`${srv.baseUrl}/auth/passkey/options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: 'bob.testnet', rp_id: 'example.localhost' }),
+        body: JSON.stringify({ user_id: 'bob.testnet', wallet_key_id: 'example.localhost' }),
       });
       expect(options.status).toBe(200);
       const challengeId = String(options.json?.challengeId || '');

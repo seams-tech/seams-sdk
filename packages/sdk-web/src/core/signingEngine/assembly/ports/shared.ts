@@ -33,13 +33,13 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
   ThresholdEcdsaKeyRefLookupResult,
+  ThresholdEcdsaSessionRecordLookupKey,
 } from '../../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
 import {
   type ThresholdEcdsaChainTarget,
-  type ThresholdEcdsaSessionRecordKey,
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -145,7 +145,7 @@ export type CreateSigningEnginePortsArgs = {
     source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord[];
   getThresholdEcdsaSessionRecordByKey: (
-    identity: ThresholdEcdsaSessionRecordKey,
+    identity: ThresholdEcdsaSessionRecordLookupKey,
   ) => ThresholdEcdsaSessionRecord | null;
   getEmailOtpThresholdEcdsaSessionRecordForSigning: (args: {
     walletId: WalletId;

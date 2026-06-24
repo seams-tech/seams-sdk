@@ -10,7 +10,10 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   listStoredThresholdEd25519SessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
+  thresholdEd25519LaneCandidateFromSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { laneCandidateAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   ed25519AvailableLaneIdentityKey,
@@ -133,10 +136,12 @@ export async function readEmailOtpPersistedSessionSnapshot(
           { recordsByLane: new Map() },
           recordWalletId,
         )) {
-          if (runtimeLane.authMethod !== 'email_otp') continue;
+          if (signingLaneAuthMethod(runtimeLane.auth) !== 'email_otp') continue;
           if (!runtimeLane.routerAbEcdsaHssNormalSigning) continue;
+          if (runtimeLane.auth.kind !== 'email_otp') continue;
           const record: AvailableSigningLanesRuntimeEcdsaRecord = {
             key: runtimeLane.key,
+            auth: runtimeLane.auth,
             routerAbEcdsaHssNormalSigning: runtimeLane.routerAbEcdsaHssNormalSigning,
             keyHandle: runtimeLane.keyHandle,
             ...(runtimeLane.verifiedPublicFacts
@@ -173,12 +178,16 @@ export async function readEmailOtpPersistedSessionSnapshot(
         for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForWallet(
           recordWalletId,
         )) {
-          const authMethod =
-            runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
-          if (args.authMethod && args.authMethod !== authMethod) continue;
+          const laneCandidate = thresholdEd25519LaneCandidateFromSessionRecord({
+            record: runtimeRecord,
+          });
+          if (!laneCandidate) continue;
+          const candidateAuthMethod = laneCandidateAuthMethod(laneCandidate);
+          if (args.authMethod && args.authMethod !== candidateAuthMethod) continue;
           if (!runtimeRecord.routerAbNormalSigning) continue;
           pushRecord({
-            authMethod,
+            auth: laneCandidate.auth,
+            authMethod: candidateAuthMethod,
             curve: 'ed25519',
             chain: 'near',
             walletId: runtimeRecord.walletId,

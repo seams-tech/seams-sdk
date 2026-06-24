@@ -19,9 +19,7 @@ const activeDocPaths = [
   'docs/otp/email-otp.md',
   'docs/refactor-68-wallet-session-v2.md',
   'docs/router-a-b-cleanup.md',
-  'docs/router-a-b-single-session.md',
-  'docs/router-A-B-signer.md',
-  'docs/router-A-B-signer-SPEC.md',
+  'docs/router-a-b-SPEC.md',
   'docs/refactor-74-login-no-hss.md',
   'docs/signing-session-architecture/README.md',
   'docs/signing-session-architecture/sealed-refresh.md',
@@ -75,7 +73,7 @@ const classifiedSessionIdPublicSurfaceFiles: Record<string, SessionIdSurfaceClas
   'packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts':
-    'keep_email_otp_worker_session',
+    'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/platform/ports.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/platform/secretSources.ts': 'keep_email_otp_worker_session',
   'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts':
@@ -109,6 +107,8 @@ const classifiedSessionIdPublicSurfaceFiles: Record<string, SessionIdSurfaceClas
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/ports.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts':
+    'rename_later_agent_b_signing_or_wasm',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/recoveryCodeWarmSessionHydration.ts':
     'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-web/src/core/signingEngine/session/emailOtp/workerRequests.ts':
     'keep_email_otp_worker_session',
@@ -159,7 +159,8 @@ const classifiedSessionIdPublicSurfaceFiles: Record<string, SessionIdSurfaceClas
 };
 const classifiedSessionIdBoundaryFiles: Record<string, SessionIdSurfaceClassification> = {
   'apps/docs/src/concepts/security-model.md': 'keep_secureconfirm_session',
-  'crates/signer-core/src/commands/ecdsa_bootstrap.rs': 'keep_email_otp_worker_session',
+  'crates/signer-core/src/commands/ecdsa_bootstrap.rs':
+    'rename_later_agent_b_signing_or_wasm',
   'crates/signer-core/src/commands/ed25519_worker_material.rs':
     'rename_later_agent_b_signing_or_wasm',
   'wasm/near_signer/src/handlers/handle_sign_delegate_action.rs':

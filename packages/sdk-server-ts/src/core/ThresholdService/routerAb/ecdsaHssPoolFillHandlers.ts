@@ -68,7 +68,7 @@ type ThresholdEcdsaMpcSessionRecord = {
   intentDigestB64u: string;
   signingDigestB64u: string;
   walletSessionUserId: string;
-  rpId: string;
+  walletKeyId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
@@ -344,7 +344,7 @@ function parseRouterAbEcdsaHssPoolFillInitRequest(
 function validateRouterAbEcdsaHssPresignPoolFill(input: {
   poolFill: RouterAbEcdsaHssSigningWorkerPoolFillDestination;
   walletSessionUserId: string;
-  rpId: string;
+  walletKeyId: string;
   keyMaterial: ThresholdEcdsaSigningKeyMaterial;
   sessionExpiresAtMs: number;
 }): ParseResult<RouterAbEcdsaHssSigningWorkerPoolFillDestination> {
@@ -358,32 +358,27 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
   }
 
   const scope = routerAb.scope;
-  const context = scope.context;
   const publicIdentity = scope.public_identity;
   const expected = input.keyMaterial;
-  const keyVersion = formatEcdsaHssKeyVersionForWire(
-    parseEcdsaHssKeyVersion(expected.signingRootMetadata.walletKeyVersion),
-  );
   const signingRootVersion = expected.signingRootMetadata.signingRootVersion || 'default';
   const contextChecks: Array<[string, string, string]> = [
-    ['poolFill.scope.context.wallet_id', context.wallet_id, input.walletSessionUserId],
-    ['poolFill.scope.context.rp_id', context.rp_id, input.rpId],
+    ['poolFill.scope.wallet_key_id', scope.wallet_key_id, input.walletKeyId],
+    ['poolFill.scope.wallet_id', scope.wallet_id, input.walletSessionUserId],
     [
-      'poolFill.scope.context.ecdsa_threshold_key_id',
-      context.ecdsa_threshold_key_id,
+      'poolFill.scope.ecdsa_threshold_key_id',
+      scope.ecdsa_threshold_key_id,
       expected.ecdsaThresholdKeyId,
     ],
     [
-      'poolFill.scope.context.signing_root_id',
-      context.signing_root_id,
+      'poolFill.scope.signing_root_id',
+      scope.signing_root_id,
       expected.signingRootMetadata.signingRootId,
     ],
     [
-      'poolFill.scope.context.signing_root_version',
-      context.signing_root_version,
+      'poolFill.scope.signing_root_version',
+      scope.signing_root_version,
       signingRootVersion,
     ],
-    ['poolFill.scope.context.key_version', context.key_version, keyVersion],
   ];
   for (const [field, actual, expectedValue] of contextChecks) {
     if (actual !== expectedValue) {
@@ -675,7 +670,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
   private async resolvePoolFillInitKeyMaterial(input: {
     keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
     walletSessionUserId: string;
-    rpId: string;
+    walletKeyId: string;
     participantIds: number[];
     tokenRelayerKeyId: string;
     tokenKeyHandle: string;
@@ -707,7 +702,10 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         message: 'keyHandle does not match Wallet Session scope',
       };
     }
-    if (roleLocalKey.walletId !== input.walletSessionUserId || roleLocalKey.rpId !== input.rpId) {
+    if (
+      roleLocalKey.walletId !== input.walletSessionUserId ||
+      roleLocalKey.walletKeyId !== input.walletKeyId
+    ) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -802,7 +800,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       event: input.event,
       presignSessionId: input.presignSessionId,
       walletSessionUserId: record?.walletSessionUserId || null,
-      rpId: record?.rpId || null,
+      walletKeyId: record?.walletKeyId || null,
       relayerKeyId: record?.relayerKeyId || null,
       ecdsaThresholdKeyId: null,
       presignPoolKey: record?.presignPoolKey || null,
@@ -986,8 +984,8 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         message: 'Missing walletSessionUserId in Wallet Session token',
       };
     const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
-    const tokenRpId = toOptionalTrimmedString(claims?.rpId);
-    if (!tokenRelayerKeyId || !tokenRpId) {
+    const tokenWalletKeyId = toOptionalTrimmedString(claims?.walletKeyId);
+    if (!tokenRelayerKeyId || !tokenWalletKeyId) {
       return { ok: false, code: 'unauthorized', message: 'Invalid Wallet Session token claims' };
     }
     const tokenSigningRoot = signingRootMetadataFromRuntimePolicyScope(claims.runtimePolicyScope);
@@ -1001,7 +999,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     const resolvedKeyMaterial = await this.resolvePoolFillInitKeyMaterial({
       keySelector,
       walletSessionUserId,
-      rpId: tokenRpId,
+      walletKeyId: tokenWalletKeyId,
       participantIds: claims.participantIds,
       tokenRelayerKeyId,
       tokenKeyHandle: claims.keyHandle,
@@ -1116,7 +1114,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     const sessionPoolFill = validateRouterAbEcdsaHssPresignPoolFill({
       poolFill,
       walletSessionUserId,
-      rpId: tokenRpId,
+      walletKeyId: tokenWalletKeyId,
       keyMaterial: resolvedKeyMaterial.value,
       sessionExpiresAtMs: expiresAtMs,
     });
@@ -1145,7 +1143,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       const record: RouterAbEcdsaHssPoolFillSessionRecord = {
         expiresAtMs,
         walletSessionUserId,
-        rpId: tokenRpId,
+        walletKeyId: tokenWalletKeyId,
         relayerKeyId,
         presignPoolKey,
         poolFill: sessionPoolFill.value,
@@ -1293,9 +1291,9 @@ export class RouterAbEcdsaHssPoolFillHandlers {
 
       const claims = input.claims;
       const tokenUserId = toOptionalTrimmedString(claims?.walletId);
-      const tokenRpId = toOptionalTrimmedString(claims?.rpId);
+      const tokenWalletKeyId = toOptionalTrimmedString(claims?.walletKeyId);
       const tokenParticipantIds = normalizeThresholdEd25519ParticipantIds(claims?.participantIds);
-      if (!tokenUserId || !tokenRpId || !tokenParticipantIds) {
+      if (!tokenUserId || !tokenWalletKeyId || !tokenParticipantIds) {
         await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
         this.emitPresignSecurityEvent({
@@ -1314,7 +1312,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       }
       if (
         tokenUserId !== record.walletSessionUserId ||
-        tokenRpId !== record.rpId ||
+        tokenWalletKeyId !== record.walletKeyId ||
         !sameParticipantIds(tokenParticipantIds, record.participantIds)
       ) {
         await maybeDeleteOwnedSession();

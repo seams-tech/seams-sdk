@@ -10,7 +10,6 @@ import type {
   FinalizeEcdsaClientBootstrapOutput as RawFinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapCommand as RawPrepareEcdsaClientBootstrapCommand,
   PrepareEcdsaClientBootstrapOutput as RawPrepareEcdsaClientBootstrapOutput,
-  ThresholdEcdsaChainTarget as RawThresholdEcdsaChainTarget,
 } from './generated/signerCoreCommands';
 import type {
   BuildEcdsaRoleLocalExportArtifactInput,
@@ -40,17 +39,6 @@ function requireBase64UrlBytes(value: string, field: string, byteLength: number)
   }
   if (base64UrlDecode(normalized).length !== byteLength) {
     throw new Error(`[signer-core-command] ${field} must decode to ${byteLength} bytes`);
-  }
-  return normalized;
-}
-
-function requireNonEmptyBase64Url(value: string, field: string): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) {
-    throw new Error(`[signer-core-command] ${field} is required`);
-  }
-  if (base64UrlDecode(normalized).length === 0) {
-    throw new Error(`[signer-core-command] ${field} must decode to at least one byte`);
   }
   return normalized;
 }
@@ -92,28 +80,6 @@ function parseHexBytes(value: string, field: string, byteLength: number): `0x${s
   return normalized as `0x${string}`;
 }
 
-function toGeneratedChainTarget(
-  input: PrepareEcdsaClientBootstrapInput['context']['chainTarget'],
-): RawThresholdEcdsaChainTarget {
-  switch (input.kind) {
-    case 'evm':
-      return {
-        kind: 'evm',
-        namespace: 'eip155',
-        chainId: input.chainId,
-        networkSlug: input.networkSlug,
-      };
-    case 'tempo':
-      return {
-        kind: 'tempo',
-        chainId: input.chainId,
-        networkSlug: input.networkSlug,
-      };
-    default:
-      return assertNeverSignerCoreCommand(input);
-  }
-}
-
 function parsePendingStateBlob(
   input: RawPrepareEcdsaClientBootstrapOutput['pendingStateBlob'],
 ): EcdsaRoleLocalPendingStateBlob {
@@ -151,14 +117,7 @@ export function toGeneratedPrepareEcdsaClientBootstrapCommand(
     kind: input.kind,
     algorithm: input.algorithm,
     context: {
-      walletId: input.context.walletId,
-      rpId: input.context.rpId,
-      chainTarget: toGeneratedChainTarget(input.context.chainTarget),
-      ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
-      signingRootId: input.context.signingRootId,
-      signingRootVersion: input.context.signingRootVersion,
-      keyPurpose: input.context.keyPurpose,
-      keyVersion: input.context.keyVersion,
+      applicationBindingDigestB64u: input.context.applicationBindingDigestB64u,
     },
     participants: {
       clientParticipantId: input.participants.clientParticipantId,
@@ -179,25 +138,6 @@ export function toGeneratedPrepareEcdsaClientBootstrapCommand(
         },
       };
     case 'email_otp_worker_session':
-      if (input.secretSource.handle.action !== 'threshold_ecdsa_bootstrap') {
-        throw new Error('[signer-core-command] Email OTP ECDSA bootstrap requires an ECDSA handle');
-      }
-      return {
-        ...base,
-        secretSource: {
-          kind: 'email_otp_worker_session',
-          handle: {
-            kind: input.secretSource.handle.kind,
-            sessionId: input.secretSource.handle.sessionId,
-            walletId: input.secretSource.handle.walletId,
-            rpId: input.secretSource.handle.rpId,
-            authSubjectId: input.secretSource.handle.authSubjectId,
-            action: input.secretSource.handle.action,
-            operation: input.secretSource.handle.operation,
-            chainTarget: toGeneratedChainTarget(input.secretSource.handle.chainTarget),
-          },
-        },
-      };
     case 'secure_enclave_wrapped_secret':
     case 'fido2_hmac_secret':
       throw new Error(
@@ -290,13 +230,11 @@ function generatedExportPublicFacts(
   publicFacts: EcdsaRoleLocalPublicFacts,
 ): RawBuildEcdsaRoleLocalExportArtifactCommand['publicFacts'] {
   return {
-    walletId: publicFacts.walletId,
-    rpId: publicFacts.rpId,
-    chainTarget: toGeneratedChainTarget(publicFacts.chainTarget),
-    keyHandle: publicFacts.keyHandle,
-    ecdsaThresholdKeyId: publicFacts.ecdsaThresholdKeyId,
-    signingRootId: publicFacts.signingRootId,
-    signingRootVersion: publicFacts.signingRootVersion,
+    applicationBindingDigestB64u: requireBase64UrlBytes(
+      publicFacts.applicationBindingDigestB64u,
+      'publicFacts.applicationBindingDigestB64u',
+      32,
+    ),
     clientParticipantId: publicFacts.clientParticipantId,
     relayerParticipantId: publicFacts.relayerParticipantId,
     participantIds: [...publicFacts.participantIds],
@@ -322,7 +260,7 @@ function generatedExportPublicFacts(
 export function toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(
   input: BuildEcdsaRoleLocalExportArtifactInput,
 ): GeneratedBuildEcdsaRoleLocalExportArtifactCommand {
-  const base = {
+  return {
     kind: input.kind,
     algorithm: input.algorithm,
     stateBlob: parseReadyStateBlob(input.stateBlob),
@@ -333,33 +271,6 @@ export function toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(
       32,
     ),
   };
-  switch (input.authorization.kind) {
-    case 'passkey_export_authorized':
-      return {
-        ...base,
-        authorization: {
-          kind: 'passkey_export_authorized',
-          walletId: input.authorization.walletId,
-          rpId: input.authorization.rpId,
-          credentialIdB64u: requireNonEmptyBase64Url(
-            input.authorization.credentialIdB64u,
-            'authorization.credentialIdB64u',
-          ),
-        },
-      };
-    case 'email_otp_export_authorized':
-      return {
-        ...base,
-        authorization: {
-          kind: 'email_otp_export_authorized',
-          walletId: input.authorization.walletId,
-          rpId: input.authorization.rpId,
-          authSubjectId: input.authorization.authSubjectId,
-        },
-      };
-    default:
-      return assertNeverSignerCoreCommand(input.authorization);
-  }
 }
 
 export function parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(

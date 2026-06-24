@@ -100,7 +100,7 @@ function makeEmailOtpRegistrationEnrollmentMaterial(args: {
       kind: 'email_otp_worker_session_handle_v1',
       sessionId: `client-root-share-${args.walletId}`,
       walletId: args.walletId,
-      rpId: 'localhost',
+      walletKeyId: `wallet-key-${args.walletId}`,
       authSubjectId: args.userId,
       action: 'wallet_registration_ecdsa_prepare',
       operation: 'registration',

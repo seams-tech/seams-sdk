@@ -24,6 +24,7 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildKnownReadyThresholdEcdsaSessionPolicy,
   buildReadyEcdsaSignerSession,
+  toRpId,
   toVerifiedEcdsaPublicFactsFromKeyRef,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { selectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
@@ -44,6 +45,12 @@ import { parseEcdsaThresholdKeyId } from '../../packages/sdk-web/src/core/signin
 const WALLET_ID = 'alice.testnet';
 const SUBJECT_ID = toWalletId(WALLET_ID);
 const RP_ID = 'localhost';
+const WALLET_KEY_ID = 'wallet-key-ready-flow';
+const PASSKEY_AUTH = {
+  kind: 'passkey' as const,
+  rpId: toRpId(RP_ID),
+  credentialIdB64u: 'key-handle-ready-flow',
+};
 const ECDSA_THRESHOLD_KEY_ID = parseEcdsaThresholdKeyId('ehss-shared-key');
 const SIGNING_ROOT_ID = 'project:dev';
 const SIGNING_ROOT_VERSION = 'default';
@@ -71,6 +78,7 @@ const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
   },
   publicFacts: buildEcdsaRoleLocalPublicFacts({
     walletId: SUBJECT_ID,
+    walletKeyId: WALLET_KEY_ID,
     rpId: RP_ID,
     chainTarget: EVM_TARGET,
     keyHandle: 'key-handle-ready-flow',
@@ -100,15 +108,13 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: WALLET_KEY_ID,
+      wallet_id: WALLET_ID,
+      ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
+      signing_root_id: SIGNING_ROOT_ID,
+      signing_root_version: SIGNING_ROOT_VERSION,
       context: {
-        wallet_id: WALLET_ID,
-        rp_id: RP_ID,
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
-        signing_root_id: SIGNING_ROOT_ID,
-        signing_root_version: SIGNING_ROOT_VERSION,
-        key_purpose: 'evm-signing',
-        key_version: 'v1',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: VALID_CONTEXT_BINDING_B64U,
@@ -201,7 +207,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
   test('uses admitted ready signer material before key-ref fallback', async () => {
     const key = buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: SUBJECT_ID,
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
       ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: SIGNING_ROOT_VERSION,
@@ -223,7 +229,7 @@ test.describe('signEvmFamilyWithUiConfirm ready signer handoff', () => {
       key,
       keyHandle: publicFacts.keyHandle,
       walletId: SUBJECT_ID,
-      authMethod: 'passkey',
+      auth: PASSKEY_AUTH,
       signingGrantId: WALLET_SIGNING_SESSION_ID,
       thresholdSessionId: THRESHOLD_SESSION_ID,
       chainTarget: EVM_TARGET,

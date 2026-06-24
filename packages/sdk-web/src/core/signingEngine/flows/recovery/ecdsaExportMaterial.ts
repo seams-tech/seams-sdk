@@ -184,7 +184,6 @@ export function buildReadyThresholdEcdsaExportMaterial(args: {
 function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
   deps: EcdsaExportSessionStoreDeps;
   exportLane: ExactEcdsaExportLane;
-  rpId: string;
 }): ReadyEvmFamilyEcdsaMaterial | null {
   const record = readEcdsaExportRecordForLane(args.deps, args.exportLane);
   if (!record || !isUsableEcdsaExportSessionRecord(record)) return null;
@@ -192,10 +191,10 @@ function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
     args.deps.exportArtifactsByLane.get(deriveThresholdEcdsaRuntimeLaneKey(record)) || null;
   const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
-    rpId: args.rpId,
     cachedExportArtifact,
     expected: {
       walletId: args.exportLane.key.walletId,
+      walletKeyId: args.exportLane.key.walletKeyId,
       chainTarget: args.exportLane.session.chainTarget,
       authMethod: args.exportLane.session.authMethod,
       source: record.source,
@@ -342,9 +341,8 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
 export async function resolveEcdsaExportMaterialForLane(
   deps: EcdsaExportSessionStoreDeps,
   exportLane: ExactEcdsaExportLane,
-  rpId: string,
 ): Promise<EcdsaExportMaterial> {
-  const readyMaterial = readReadyEvmFamilyEcdsaMaterialForExportLane({ deps, exportLane, rpId });
+  const readyMaterial = readReadyEvmFamilyEcdsaMaterialForExportLane({ deps, exportLane });
   if (readyMaterial) {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromReadyMaterial({
       material: readyMaterial,

@@ -2,7 +2,6 @@ export type {
   AuthenticatorOperation,
   AuthenticatorPort,
   AuthenticatorResult,
-  BuildEcdsaRoleLocalExportArtifactAuthorization,
   BuildEcdsaRoleLocalExportArtifactErrorCode,
   BuildEcdsaRoleLocalExportArtifactInput,
   BuildEcdsaRoleLocalExportArtifactOutput,

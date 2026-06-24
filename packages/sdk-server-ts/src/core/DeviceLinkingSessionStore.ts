@@ -64,7 +64,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
   const prepare = isObject(raw.prepare) ? raw.prepare : null;
   const formatVersion = toOptionalTrimmedString(prepare?.formatVersion);
   const walletId = toOptionalTrimmedString(prepare?.walletId);
-  const rpId = toOptionalTrimmedString(prepare?.rpId);
+  const walletKeyId = toOptionalTrimmedString(prepare?.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(prepare?.ecdsaThresholdKeyId);
   const signingRootId = toOptionalTrimmedString(prepare?.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(prepare?.signingRootVersion);
@@ -88,7 +88,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
     chainTargets.length === 0 ||
     formatVersion !== 'ecdsa-hss-role-local' ||
     !walletId ||
-    !rpId ||
+    !walletKeyId ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
     !signingRootVersion ||
@@ -112,7 +112,7 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
     prepare: {
       formatVersion: 'ecdsa-hss-role-local',
       walletId,
-      rpId,
+      walletKeyId,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,

@@ -5,6 +5,7 @@ import {
   ecdsaSessionIdentitiesEqual,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
+  buildEvmFamilyEcdsaKeyIdentityFromRecord,
   resolveReadyEvmFamilyEcdsaMaterial,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -19,10 +20,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  thresholdEcdsaRecordRpId,
-  type ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { EvmFamilyEcdsaEmailOtpStepUpAuthorization } from './stepUpAuthorization';
 
 export type EvmFamilyEmailOtpSigningCompleter = {
@@ -68,12 +66,13 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   if (!ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)) {
     throw new Error('[SigningEngine][ecdsa] Email OTP refresh returned mismatched ECDSA identity');
   }
+  const recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record });
   const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
-    rpId: thresholdEcdsaRecordRpId(record),
     cachedExportArtifact: keyRef.ecdsaHssExportArtifact || null,
     expected: {
       walletId: record.walletId,
+      walletKeyId: recordKey.walletKeyId,
       chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
       source: SIGNER_AUTH_METHODS.emailOtp,

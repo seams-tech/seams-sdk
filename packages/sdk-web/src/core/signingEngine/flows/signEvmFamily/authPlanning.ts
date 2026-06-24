@@ -17,6 +17,7 @@ import {
 } from '../../session/budget/budget';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type { PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
@@ -224,7 +225,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
   if (
     !record ||
     args.material.kind !== 'ready_to_sign' ||
-    args.lane.authMethod !== SIGNER_AUTH_METHODS.passkey
+    signingLaneAuthMethod(args.lane.auth) !== SIGNER_AUTH_METHODS.passkey
   ) {
     return null;
   }
@@ -299,7 +300,8 @@ export async function resolveEvmFamilyTransactionStepUp(
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
     args.senderSignatureAlgorithm === 'secp256k1' &&
-    preparedEcdsaLane?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+    preparedEcdsaLane &&
+    signingLaneAuthMethod(preparedEcdsaLane.auth) === SIGNER_AUTH_METHODS.emailOtp
       ? preparedSelection?.kind === 'reauth_required'
         ? getEcdsaMaterialRecord(preparedSelection.material) || laneWarmRecord
         : laneWarmRecord

@@ -274,7 +274,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
           kind: 'email_otp_registration',
           registrationAttemptId: 'attempt-1',
           new_account_id: 'alice.testnet',
-          rp_id: 'wallet.example.test',
+          wallet_key_id: 'wallet.example.test',
         }),
       });
 
@@ -317,7 +317,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
         kind: 'email_otp_registration',
         registrationAttemptId: 'attempt-1',
         new_account_id: 'alice.testnet',
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
       },
     });
 

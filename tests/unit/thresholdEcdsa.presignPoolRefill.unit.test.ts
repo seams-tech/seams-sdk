@@ -73,14 +73,7 @@ const SIGNATURE_65_B64U = base64UrlEncode(SIGNATURE_65);
 const ENTROPY_B64U = base64UrlEncode(ENTROPY_32);
 const WALLET_SESSION_CREDENTIAL = { kind: 'jwt' as const, walletSessionJwt: 'wallet-session-jwt' };
 const ROUTER_AB_ECDSA_HSS_CONTEXT = {
-  wallet_id: 'alice.testnet',
-  rp_id: RP_ID,
-  key_scope: 'evm-family',
-  ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
-  signing_root_id: 'proj_local:dev',
-  signing_root_version: 'default',
-  key_purpose: 'evm-signing',
-  key_version: 'v1',
+  application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
 } as const;
 let ROUTER_AB_ECDSA_HSS_SCOPE: RouterAbEcdsaHssNormalSigningScopeV1;
 type ClientPresignInitInput = Omit<
@@ -90,6 +83,11 @@ type ClientPresignInitInput = Omit<
 
 async function buildRouterAbEcdsaHssScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
   return {
+    wallet_key_id: RP_ID,
+    wallet_id: 'alice.testnet',
+    ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
+    signing_root_id: 'proj_local:dev',
+    signing_root_version: 'default',
     context: ROUTER_AB_ECDSA_HSS_CONTEXT,
     public_identity: {
       context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(

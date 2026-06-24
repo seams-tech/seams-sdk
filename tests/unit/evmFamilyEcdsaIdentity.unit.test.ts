@@ -20,6 +20,7 @@ import {
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
   resolveReadyEvmFamilyEcdsaMaterial,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
   toReadyEcdsaSignerSessionFromReadyMaterial,
   toVerifiedEcdsaPublicFactsFromDurableRecord,
   toVerifiedEcdsaPublicFactsFromKeyRef,
@@ -64,6 +65,9 @@ const WALLET_ID = toWalletId('alice.testnet');
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const RP_ID = 'localhost';
+const WALLET_KEY_ID = 'wallet-key-alice';
+const OTHER_WALLET_KEY_ID = 'wallet-key-other';
+const PASSKEY_CREDENTIAL_ID = 'credential-passkey';
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OTHER_VALID_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const VALID_SHARE_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -138,7 +142,7 @@ function makeRoleLocalReadyRecord(
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: WALLET_ID,
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
       chainTarget: recordChainTarget,
       keyHandle: recordKeyHandle,
       ecdsaThresholdKeyId: 'ehss-shared-key',
@@ -206,15 +210,13 @@ function makeRouterAbEcdsaHssNormalSigningState(
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: RP_ID,
+      wallet_id: input.walletId ?? WALLET_ID,
+      ecdsa_threshold_key_id: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
+      signing_root_id: input.signingRootId ?? 'project:dev',
+      signing_root_version: input.signingRootVersion ?? 'default',
       context: {
-        wallet_id: input.walletId ?? WALLET_ID,
-        rp_id: RP_ID,
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
-        signing_root_id: input.signingRootId ?? 'project:dev',
-        signing_root_version: input.signingRootVersion ?? 'default',
-        key_purpose: 'evm-signing',
-        key_version: 'v1',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: VALID_SHARE_32_B64U,
@@ -288,7 +290,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     updatedAtMs: 1_800_000_000_000,
     source: 'login' as const,
     keyHandle: keyHandleForRecord,
-    authMetadata: { rpId: RP_ID },
+    authMetadata: { walletKeyId: RP_ID },
   };
   return record;
 }
@@ -386,7 +388,7 @@ test.describe('EVM-family ECDSA identity', () => {
         thresholdSessionId: 'threshold-session-evm',
         signingGrantId: 'wallet-session-evm',
       }),
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
     });
     const tempoKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord({
@@ -394,7 +396,7 @@ test.describe('EVM-family ECDSA identity', () => {
         thresholdSessionId: 'threshold-session-tempo',
         signingGrantId: 'wallet-session-tempo',
       }),
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
     });
 
     expect(evmKey.ecdsaThresholdKeyId).toBe(tempoKey.ecdsaThresholdKeyId);
@@ -405,11 +407,11 @@ test.describe('EVM-family ECDSA identity', () => {
   test('normalizes participant order before fingerprinting shared key identity', () => {
     const recordKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord({ participantIds: [2, 1] }),
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
     });
     const keyRefKey = buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
       keyRef: makeKeyRef({ participantIds: [1, 2] }),
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
@@ -490,7 +492,10 @@ test.describe('EVM-family ECDSA identity', () => {
     const passkeyKey = buildResolvedEvmFamilyEcdsaKey({
       walletId: WALLET_ID,
       publicFacts,
-      authBinding: buildPasskeyEcdsaAuthBinding({ rpId: RP_ID }),
+      authBinding: buildPasskeyEcdsaAuthBinding({
+        rpId: RP_ID,
+        credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+      }),
     });
     const emailOtpKey = buildResolvedEvmFamilyEcdsaKey({
       walletId: WALLET_ID,
@@ -515,7 +520,12 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('rejects incomplete resolved ECDSA auth bindings', () => {
-    expect(() => buildPasskeyEcdsaAuthBinding({ rpId: '' })).toThrow(/rpId is required/);
+    expect(() =>
+      buildPasskeyEcdsaAuthBinding({ rpId: '', credentialIdB64u: PASSKEY_CREDENTIAL_ID }),
+    ).toThrow(/rpId is required/);
+    expect(() =>
+      buildPasskeyEcdsaAuthBinding({ rpId: RP_ID, credentialIdB64u: '' }),
+    ).toThrow(/credentialIdB64u is required/);
     expect(() =>
       buildEmailOtpEcdsaAuthBinding({ authSubjectId: '', providerId: 'google' }),
     ).toThrow(/authSubjectId is required/);
@@ -609,9 +619,9 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -656,9 +666,9 @@ test.describe('EVM-family ECDSA identity', () => {
 
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'email_otp',
         source: 'email_otp',
@@ -682,9 +692,9 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -712,9 +722,9 @@ test.describe('EVM-family ECDSA identity', () => {
     const record = makeEmailOtpRecord();
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'email_otp',
         source: 'email_otp',
@@ -732,7 +742,7 @@ test.describe('EVM-family ECDSA identity', () => {
       buildReadySecp256k1SigningMaterialFromRecord({
         record,
         requestLabel: 'evm',
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
       }),
     ).rejects.toThrow(/not runtime-validated: worker_material_unvalidated/);
   });
@@ -844,13 +854,13 @@ test.describe('EVM-family ECDSA identity', () => {
   test('changes the shared fingerprint when stable EVM-family key fields change', () => {
     const baseKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord(),
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
     });
     const baseFingerprint = deriveEvmFamilyKeyFingerprint(baseKey);
     const variants = [
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord(),
-        rpId: 'wallet.other.test',
+        walletKeyId: OTHER_WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({
@@ -859,23 +869,23 @@ test.describe('EVM-family ECDSA identity', () => {
             signingRootId: 'project:other',
           }),
         }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ signingRootVersion: 'v2' }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ participantIds: [1, 2, 3] }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ ecdsaThresholdKeyId: 'ehss-other-key' }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
       }),
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
       }),
     ];
 
@@ -890,9 +900,9 @@ test.describe('EVM-family ECDSA identity', () => {
       record: makeRecord({
         walletId: otherWallet,
       }),
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -914,7 +924,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildEvmFamilyEcdsaKeyIdentityFromRecord({
         record: makeRecord({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
         trustedOwnerAddress: OWNER_ADDRESS,
       }),
     ).toThrow(/persisted owner address mismatches trusted EVM-family key material/);
@@ -924,7 +934,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(() =>
       buildEvmFamilyEcdsaKeyIdentityFromKeyRef({
         keyRef: makeKeyRef({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-        rpId: RP_ID,
+        walletKeyId: WALLET_KEY_ID,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
         trustedOwnerAddress: OWNER_ADDRESS,
       }),
@@ -934,9 +944,9 @@ test.describe('EVM-family ECDSA identity', () => {
   test('returns stale before ready material can reach signing', () => {
     const result = resolveReadyEvmFamilyEcdsaMaterial({
       record: makeRecord({ remainingUses: 0 }),
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -957,9 +967,9 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
     const result = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: EVM_TARGET,
         authMethod: 'passkey',
         source: 'login',
@@ -1262,18 +1272,21 @@ test.describe('EVM-family ECDSA identity', () => {
       now: () => 1_800_000_000_000,
     };
     const record = makeRecord();
-    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, rpId: RP_ID });
+    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
+      record,
+      walletKeyId: WALLET_KEY_ID,
+    });
     const otherWallet = toWalletId('mallory.testnet');
     const otherWalletKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: makeRecord({ walletId: otherWallet }),
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
     });
     upsertStoredThresholdEcdsaSessionRecord(deps, record);
     const matchingLane = selectedEcdsaLane({
       key,
       keyHandle: record.keyHandle,
       walletId: WALLET_ID,
-      authMethod: 'passkey',
+      auth: { kind: 'passkey', rpId: toRpId(RP_ID), credentialIdB64u: PASSKEY_CREDENTIAL_ID },
       signingGrantId: 'signing-grant-1',
       thresholdSessionId: 'threshold-session-1',
       chainTarget: EVM_TARGET,

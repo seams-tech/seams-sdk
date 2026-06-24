@@ -15,6 +15,7 @@ import type { WorkerOperationContext } from '../../signingEngine/workerManager/e
 import {
   getSignerWorkerOperationCoreCode,
   getSignerWorkerOperationErrorCode,
+  type EmailOtpPrepareEcdsaClientBootstrapInput,
 } from '../../signingEngine/workerManager/workerTypes';
 import {
   serializeAuthenticationCredentialWithPRF,
@@ -41,7 +42,6 @@ import {
   toGeneratedFinalizeEcdsaClientBootstrapCommand,
   toGeneratedPrepareEcdsaClientBootstrapCommand,
 } from '../signerCoreCommandAdapters';
-import { assertNeverRuntimePortsKind } from '../types';
 import type {
   AuthenticatorOperation,
   AuthenticatorResult,
@@ -231,9 +231,6 @@ function mapBuildEcdsaRoleLocalExportCommandError(
   error: unknown,
 ): SignerCryptoCommandFailure<BuildEcdsaRoleLocalExportArtifactErrorCode> {
   const message = errorMessage(error);
-  if (/authorization|authorized|credential|authSubject/i.test(message)) {
-    return signerCryptoCommandFailure('export_not_authorized', message);
-  }
   if (/public facts|public key|public identity|ethereum address|context binding|context/i.test(message)) {
     return signerCryptoCommandFailure('invalid_public_identity', message);
   }
@@ -595,27 +592,28 @@ function createBrowserSignerCryptoPort(
         );
       }
       try {
-        const generatedCommand = toGeneratedPrepareEcdsaClientBootstrapCommand(input);
-        switch (generatedCommand.secretSource.kind) {
-          case 'email_otp_worker_session': {
-            const generatedOutput = await workerCtx.requestWorkerOperation({
-              kind: 'emailOtp',
-              request: {
-                type: 'prepareEcdsaClientBootstrapFromEmailOtpHandle',
-                timeoutMs: 60_000,
-                payload: { command: generatedCommand },
-              },
-            });
-            return {
-              ok: true,
-              value: parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput),
-            };
-          }
-          case 'webauthn_prf_first':
-            break;
-          default:
-            return assertNeverRuntimePortsKind(generatedCommand.secretSource);
+        if (input.secretSource.kind === 'email_otp_worker_session') {
+          const emailOtpInput: EmailOtpPrepareEcdsaClientBootstrapInput = {
+            kind: input.kind,
+            algorithm: input.algorithm,
+            context: input.context,
+            participants: input.participants,
+            secretSource: input.secretSource,
+          };
+          const generatedOutput = await workerCtx.requestWorkerOperation({
+            kind: 'emailOtp',
+            request: {
+              type: 'prepareEcdsaClientBootstrapFromEmailOtpHandle',
+              timeoutMs: 60_000,
+              payload: { input: emailOtpInput },
+            },
+          });
+          return {
+            ok: true,
+            value: parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput),
+          };
         }
+        const generatedCommand = toGeneratedPrepareEcdsaClientBootstrapCommand(input);
         const generatedOutput = await prepareEcdsaClientBootstrapCommandWasm({
           command: generatedCommand,
           workerCtx,

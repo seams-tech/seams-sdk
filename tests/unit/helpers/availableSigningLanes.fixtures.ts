@@ -15,6 +15,8 @@ import { toAccountId } from '@/core/types/accountIds';
 import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
+  toRpId,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -43,6 +45,8 @@ export const AVAILABLE_LANES_ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString(
   'scope-frost-vermillion-k7p9m2',
 );
 export const AVAILABLE_LANES_ECDSA_RP_ID = 'wallet.example.localhost';
+export const AVAILABLE_LANES_ECDSA_WALLET_KEY_ID = 'wallet-key-available-lanes';
+export const AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID = 'credential-available-lanes';
 export const AVAILABLE_LANES_EXPIRES_AT_MS = 2_000_000_000_000;
 export const AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U =
   'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -79,15 +83,13 @@ export function runtimeEcdsaRouterAbNormalSigningState(args: {
   return {
     kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
+      wallet_key_id: args.key.walletKeyId,
+      wallet_id: args.key.walletId,
+      ecdsa_threshold_key_id: args.key.ecdsaThresholdKeyId,
+      signing_root_id: args.key.signingRootId,
+      signing_root_version: args.key.signingRootVersion,
       context: {
-        wallet_id: args.key.walletId,
-        rp_id: args.key.rpId,
-        key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-        ecdsa_threshold_key_id: args.key.ecdsaThresholdKeyId,
-        signing_root_id: args.key.signingRootId,
-        signing_root_version: args.key.signingRootVersion,
-        key_purpose: 'evm-family-signing',
-        key_version: 'available-lanes-test',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: 'AQ',
@@ -158,9 +160,17 @@ export function sealedEcdsaAvailableLaneRecord(args: {
   const restoreMetadata = args.restoreMetadata || 'valid';
   const keyHandle = args.keyHandle || AVAILABLE_LANES_ECDSA_KEY_HANDLE;
   const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'ek-passkey';
-  const validEcdsaRestore: SealedSigningSessionEcdsaRestoreMetadata = {
-    chainTarget,
-    rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+	  const validEcdsaRestore: SealedSigningSessionEcdsaRestoreMetadata = {
+	    chainTarget,
+	    ...(authMethod === 'passkey'
+	      ? {
+	          rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+	          credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+	        }
+	      : {
+	          walletKeyId: AVAILABLE_LANES_ECDSA_WALLET_KEY_ID,
+	          providerSubjectId: 'google:available-lanes',
+	        }),
     sessionKind,
     ...(sessionKind === 'jwt'
       ? {
@@ -253,9 +263,17 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
 }): AvailableSigningLanesRuntimeEcdsaRecord {
   const keyId = args.ecdsaThresholdKeyId || 'shared-ecdsa-key';
   const thresholdOwnerAddress = args.thresholdOwnerAddress;
+  const walletKeyId = deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
+    walletId: AVAILABLE_LANES_WALLET_ID,
+    ecdsaThresholdKeyId: keyId,
+    signingRootId: 'sr-test:dev',
+    signingRootVersion: 'default',
+    participantIds: [1, 2],
+    thresholdOwnerAddress,
+  });
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: AVAILABLE_LANES_WALLET_ID,
-    rpId: AVAILABLE_LANES_ECDSA_RP_ID,
+    walletKeyId,
     ecdsaThresholdKeyId: keyId,
     signingRootId: 'sr-test:dev',
     signingRootVersion: 'default',
@@ -281,8 +299,20 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
     updatedAtMs: args.updatedAtMs ?? 700,
   } as const;
   return (args.authMethod || 'passkey') === 'email_otp'
-    ? { ...base, authMethod: 'email_otp' }
-    : { ...base, authMethod: 'passkey' };
+    ? {
+        ...base,
+        auth: { kind: 'email_otp', providerSubjectId: 'google:available-lanes' },
+        authMethod: 'email_otp',
+      }
+    : {
+        ...base,
+        auth: {
+          kind: 'passkey',
+          rpId: toRpId(AVAILABLE_LANES_ECDSA_RP_ID),
+          credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+        },
+        authMethod: 'passkey',
+      };
 }
 
 export async function readAvailableLanesFixture(args: {

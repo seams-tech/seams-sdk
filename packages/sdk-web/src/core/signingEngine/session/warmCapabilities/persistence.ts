@@ -110,6 +110,7 @@ export type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs =
     kind: 'jwt_passkey';
     sessionKind: 'jwt';
     jwt: string;
+    passkeyCredentialIdB64u: string;
     source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
     emailOtpAuthContext?: never;
   };
@@ -352,11 +353,16 @@ export function persistWarmSessionEd25519Capability(
   const source = args.source;
   const walletId = nonEmptyString(args.walletId);
   const ed25519KeyScopeId = nonEmptyString(args.ed25519KeyScopeId);
+  const passkeyCredentialIdB64u =
+    args.kind === 'jwt_passkey' ? nonEmptyString(args.passkeyCredentialIdB64u) : '';
   if (!walletId) {
     throw new Error('Missing walletId for warm threshold-ed25519 capability');
   }
   if (!ed25519KeyScopeId) {
     throw new Error('Missing ed25519KeyScopeId for warm threshold-ed25519 capability');
+  }
+  if (args.kind === 'jwt_passkey' && !passkeyCredentialIdB64u) {
+    throw new Error('Missing passkeyCredentialIdB64u for warm threshold-ed25519 capability');
   }
   const retainedMaterial =
     !clientVerifyingShareB64u &&
@@ -381,6 +387,9 @@ export function persistWarmSessionEd25519Capability(
     nearAccountId: args.nearAccountId,
     ed25519KeyScopeId,
     rpId: String(args.rpId || '').trim(),
+    ...(args.kind === 'jwt_passkey'
+      ? { passkeyCredentialIdB64u }
+      : {}),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds,

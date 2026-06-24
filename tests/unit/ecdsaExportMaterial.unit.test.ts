@@ -40,12 +40,14 @@ import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from '../../packag
 
 const WALLET_ID = toWalletId('alice.testnet');
 const RP_ID = 'localhost';
+const WALLET_KEY_ID = 'wallet-key-export';
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const PASSKEY_EXPORT_CREDENTIAL_ID_B64U = 'export-passkey-credential';
 const HSS_CLIENT_PUBLIC_KEY_B64U = base64UrlEncode(Uint8Array.from([2, ...Array(32).fill(1)]));
 const RELAYER_PUBLIC_KEY_B64U = base64UrlEncode(Uint8Array.from([3, ...Array(32).fill(2)]));
 const CONTEXT_BINDING_32_B64U = base64UrlEncode(new Uint8Array(32).fill(5));
+const APPLICATION_BINDING_DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(7));
 const READY_STATE_BLOB_B64U = base64UrlEncode(new Uint8Array(96).fill(6));
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
@@ -77,7 +79,7 @@ function thresholdEcdsaSessionJwtFixture(args: {
     keyHandle: args.keyHandle,
     keyScope: 'evm-family',
     chainTarget: EVM_TARGET,
-    sessionId: args.thresholdSessionId,
+    thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     exp: Math.floor(Date.now() / 1000) + 3600,
   });
@@ -92,15 +94,13 @@ function makeRouterAbEcdsaHssNormalSigningState(record: {
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: WALLET_KEY_ID,
+      wallet_id: String(record.walletId),
+      ecdsa_threshold_key_id: String(record.ecdsaThresholdKeyId),
+      signing_root_id: String(record.signingRootId),
+      signing_root_version: String(record.signingRootVersion || 'default'),
       context: {
-        wallet_id: String(record.walletId),
-        rp_id: RP_ID,
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: String(record.ecdsaThresholdKeyId),
-        signing_root_id: String(record.signingRootId),
-        signing_root_version: String(record.signingRootVersion || 'default'),
-        key_purpose: 'evm-signing',
-        key_version: 'v1',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: CONTEXT_BINDING_32_B64U,
@@ -179,12 +179,13 @@ function makeReadyRecordForExport(record: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: record.walletId,
-      rpId: RP_ID,
+      walletKeyId: WALLET_KEY_ID,
       chainTarget: record.chainTarget,
       keyHandle: record.keyHandle,
       ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
       signingRootId: record.signingRootId,
       signingRootVersion: String(record.signingRootVersion || 'default'),
+      applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_B64U,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -255,7 +256,7 @@ function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsa
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp' as const,
     keyHandle,
-    authMetadata: { rpId: RP_ID },
+    authMetadata: { walletKeyId: RP_ID },
   };
   return runtimeValidatedExportRecord({
     ...record,
@@ -301,7 +302,7 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
     updatedAtMs: 1_800_000_000_000,
     source: 'registration' as const,
     keyHandle,
-    authMetadata: { rpId: RP_ID },
+    authMetadata: { walletKeyId: RP_ID },
   };
   return runtimeValidatedExportRecord({
     ...record,
@@ -313,7 +314,7 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
 async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<ExactEcdsaExportLane> {
   return {
     curve: 'ecdsa',
-    key: buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, rpId: RP_ID }),
+    key: buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, walletKeyId: WALLET_KEY_ID }),
     publicFacts: await toVerifiedEcdsaPublicFactsFromRecord({ record }),
     session: {
       chainTarget: record.chainTarget,
@@ -345,7 +346,6 @@ test.describe('ECDSA export material', () => {
     const material = await resolveEcdsaExportMaterialForLane(
       depsForRecord(record),
       await exactExportLane(record),
-      RP_ID,
     );
 
     expect(material.kind).toBe('ready_threshold_ecdsa_export_material');
@@ -380,7 +380,6 @@ test.describe('ECDSA export material', () => {
     const material = await resolveEcdsaExportMaterialForLane(
       depsForRecord(record, cachedExportArtifact),
       await exactExportLane(record),
-      RP_ID,
     );
 
     expect(material.kind).toBe('ready_threshold_ecdsa_export_material');
@@ -515,17 +514,26 @@ test.describe('ECDSA export material', () => {
     );
   });
 
-  test('fresh Email OTP export rejects no-route-auth runtime records without an exact sealed lane', async () => {
+  test('fresh Email OTP export material can challenge from exact no-route-auth runtime records', async () => {
     const record = makeRecord({
       walletSessionJwt: undefined,
       thresholdSessionKind: 'cookie',
     });
-    await expect(
-      resolveFreshEmailOtpEcdsaExportMaterialForLane(
-        depsForRecord(record),
-        await exactExportLane(record),
-      ),
-    ).rejects.toThrow(/exact sealed export lane not found/);
+    const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
+      depsForRecord(record),
+      await exactExportLane(record),
+    );
+
+    expect(material.kind).toBe('fresh_email_otp_needs_challenge');
+    if (material.kind !== 'fresh_email_otp_needs_challenge') {
+      throw new Error(`expected needs-challenge fresh material, got ${material.kind}`);
+    }
+    expect(material.authSubjectMode).toBe('explicit_auth_subject');
+    if (material.authSubjectMode !== 'explicit_auth_subject') {
+      throw new Error(`expected explicit auth subject, got ${material.authSubjectMode}`);
+    }
+    expect(material.authSubjectId).toBe('google:alice');
+    expect(material.runtimePolicyScope.projectId).toBe('project-export');
   });
 
   test('fresh Email OTP export material rejects missing verified public key facts', async () => {
@@ -562,7 +570,7 @@ test.describe('ECDSA export material', () => {
     };
 
     await expect(
-      resolveEcdsaExportMaterialForLane(depsForRecord(record), mismatchedLane, RP_ID),
+      resolveEcdsaExportMaterialForLane(depsForRecord(record), mismatchedLane),
     ).rejects.toThrow(/ready export lane public facts mismatch: thresholdOwnerAddress/);
   });
 

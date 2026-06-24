@@ -18,15 +18,13 @@ function b64u(byte: number, length: number): string {
 }
 
 const scope: RouterAbEcdsaHssNormalSigningScopeV1 = {
+  wallet_key_id: 'wallet-key-localhost',
+  wallet_id: 'wallet-1',
+  ecdsa_threshold_key_id: 'ecdsa-key-1',
+  signing_root_id: 'root-1',
+  signing_root_version: 'root-v1',
   context: {
-    wallet_id: 'wallet-1',
-    rp_id: 'localhost',
-    key_scope: 'evm-family',
-    ecdsa_threshold_key_id: 'ecdsa-key-1',
-    signing_root_id: 'root-1',
-    signing_root_version: 'root-v1',
-    key_purpose: 'evm-signing',
-    key_version: 'v1',
+    application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
   public_identity: {
     context_binding_b64u: b64u(1, 32),
@@ -73,7 +71,7 @@ function receipt(
 ): CloudflareSigningWorkerEcdsaHssPresignaturePoolPutReceiptV1Wire {
   return {
     active_signing_worker_state: {
-      account_id: scope.context.wallet_id,
+      account_id: scope.wallet_id,
       session_id: 'session-1',
       account_public_key: scope.public_identity.threshold_public_key33_b64u,
       signing_worker: scope.signing_worker,
@@ -121,10 +119,10 @@ test.describe('Router A/B ECDSA-HSS presign bridge', () => {
         ...scope,
         context: {
           ...scope.context,
-          key_scope: 'tempo-only',
+          key_scope: 'evm-family',
         },
       }),
-    ).toThrow('scope.context.key_scope must be evm-family');
+    ).toThrow('scope.context.key_scope is not a supported field');
 
     expect(() =>
       parseRouterAbEcdsaHssNormalSigningScopeV1({

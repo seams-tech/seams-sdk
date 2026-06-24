@@ -61,7 +61,7 @@ export async function handleEmailRecoveryPrepare(
       rpId:
         ctx.pathname === '/email-recovery/prepare'
           ? (body as Record<string, unknown>).rp_id
-          : (result as any).ecdsa?.bootstrap?.rpId,
+          : (result as any).walletBinding?.rpId,
       relayerKeyId: result.thresholdEd25519.relayerKeyId,
       sessionInfo,
       fallbackParticipantIds: result.thresholdEd25519.participantIds,

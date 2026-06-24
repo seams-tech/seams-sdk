@@ -32,6 +32,7 @@ import { clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation } from '@/core/sig
 
 const WALLET_ID = 'router-ab-registration.testnet';
 const RP_ID = 'localhost';
+const WALLET_KEY_ID = 'wallet-key-router-ab-registration';
 const RELAYER_URL = 'https://relay.example.test';
 const KEY_HANDLE = 'router-ab-ecdsa-key';
 const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-threshold-key-1';
@@ -76,7 +77,8 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u(payload)}.sig`;
 }
 
-const CONTEXT_BINDING_32_B64U = b64u(9, 32);
+const APPLICATION_BINDING_DIGEST_B64U = b64u(7, 32);
+const CONTEXT_BINDING_32_B64U = 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w';
 const READY_STATE_BLOB_32_B64U = b64u(10, 32);
 const CLIENT_PUBLIC_KEY_33_B64U = publicKey33(2, 11) as EcdsaHssClientSharePublicKey33B64u;
 const RELAYER_PUBLIC_KEY_33_B64U = publicKey33(3, 12) as EcdsaRelayerHssPublicKey33B64u;
@@ -87,15 +89,13 @@ function routerAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigningStat
   const state = parseRouterAbEcdsaHssNormalSigningStateV1({
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: WALLET_KEY_ID,
+      wallet_id: WALLET_ID,
+      ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
+      signing_root_id: SIGNING_ROOT_ID,
+      signing_root_version: SIGNING_ROOT_VERSION,
       context: {
-        wallet_id: WALLET_ID,
-        rp_id: RP_ID,
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: ECDSA_THRESHOLD_KEY_ID,
-        signing_root_id: SIGNING_ROOT_ID,
-        signing_root_version: SIGNING_ROOT_VERSION,
-        key_purpose: 'evm-signing',
-        key_version: 'v1',
+        application_binding_digest_b64u: APPLICATION_BINDING_DIGEST_B64U,
       },
       public_identity: {
         context_binding_b64u: CONTEXT_BINDING_32_B64U,
@@ -129,6 +129,7 @@ function walletSessionJwt(
     kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
+    walletKeyId: WALLET_KEY_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     keyScope: 'evm-family',
@@ -141,12 +142,7 @@ function walletSessionJwt(
   if (args.mode === 'issuer_binding_only') {
     payload.routerAbEcdsaHssIssuerBinding = {
       stableKeyContext: {
-        walletId: WALLET_ID,
-        rpId: RP_ID,
-        keyScope: 'evm-family',
-        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-        signingRootId: SIGNING_ROOT_ID,
-        signingRootVersion: SIGNING_ROOT_VERSION,
+        applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_B64U,
         contextBinding32B64u: CONTEXT_BINDING_32_B64U,
       },
       publicIdentity: {
@@ -168,7 +164,7 @@ function clientBootstrap(): WalletRegistrationEcdsaClientBootstrap {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: WALLET_ID,
-    rpId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
@@ -195,7 +191,7 @@ function serverBootstrap(
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: toWalletId(WALLET_ID),
-    rpId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
     ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(ECDSA_THRESHOLD_KEY_ID),
     relayerKeyId: RELAYER_KEY_ID,
     contextBinding32B64u: CONTEXT_BINDING_32_B64U,
@@ -230,7 +226,7 @@ function walletKey(): WalletRegistrationEcdsaWalletKey {
     keyScope: 'evm-family',
     chainTarget: EVM_TARGET,
     walletId: WALLET_ID,
-    rpId: RP_ID,
+    walletKeyId: WALLET_KEY_ID,
     keyHandle: KEY_HANDLE,
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
@@ -243,7 +239,7 @@ function walletKey(): WalletRegistrationEcdsaWalletKey {
   };
 }
 
-function buildRegistrationBootstrap(
+async function buildRegistrationBootstrap(
   args: {
     signingMaterialHandle?: ThresholdEcdsaRoleLocalWorkerShareHandle;
   } = {},
@@ -252,7 +248,7 @@ function buildRegistrationBootstrap(
     clientBootstrap: clientBootstrap(),
     serverBootstrap: serverBootstrap(),
   });
-  return buildWalletRegistrationEcdsaSessionBootstrap({
+  return await buildWalletRegistrationEcdsaSessionBootstrap({
     walletId: WALLET_ID,
     relayerUrl: RELAYER_URL,
     chainTarget: EVM_TARGET,
@@ -271,6 +267,7 @@ function buildRegistrationBootstrap(
     authMethod: {
       kind: 'passkey',
       credentialIdB64u: CREDENTIAL_ID_B64U,
+      rpId: RP_ID,
     },
   });
 }
@@ -291,7 +288,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
 
   test('persists Router A/B JWT state into a non-ready ECDSA lane until worker validation', async () => {
     const store = createEcdsaSessionStore();
-    const bootstrap = buildRegistrationBootstrap();
+    const bootstrap = await buildRegistrationBootstrap();
     expect(bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaHssNormalSigning).toEqual(
       routerAbEcdsaHssNormalSigningState(),
     );
@@ -327,7 +324,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     );
 
     expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(EVM_TARGET)]).toMatchObject({
-      authMethod: 'passkey',
+      auth: { kind: 'passkey' },
       curve: 'ecdsa',
       state: 'deferred',
       source: 'runtime_session_record',
@@ -339,7 +336,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
 
   test('keeps unvalidated Router A/B ECDSA bootstrap material restore-only in available lanes', async () => {
     const store = createEcdsaSessionStore();
-    const bootstrap = buildRegistrationBootstrap();
+    const bootstrap = await buildRegistrationBootstrap();
 
     upsertThresholdEcdsaSessionFromBootstrap(store, {
       walletId: toWalletId(WALLET_ID),
@@ -372,7 +369,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     );
 
     expect(lanes.ecdsa.lanesByTarget[thresholdEcdsaChainTargetKey(EVM_TARGET)]).toMatchObject({
-      authMethod: 'passkey',
+      auth: { kind: 'passkey' },
       curve: 'ecdsa',
       state: 'deferred',
       source: 'runtime_session_record',
@@ -382,8 +379,8 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
     });
   });
 
-  test('uses worker-owned role-local material handles for signable registration key refs', () => {
-    const bootstrap = buildRegistrationBootstrap({
+  test('uses worker-owned role-local material handles for signable registration key refs', async () => {
+    const bootstrap = await buildRegistrationBootstrap({
       signingMaterialHandle: ROLE_LOCAL_SIGNING_MATERIAL_HANDLE,
     });
     const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
@@ -418,7 +415,7 @@ test.describe('wallet registration Router A/B ECDSA bootstrap', () => {
 
   test('keeps persisted ECDSA runtime records without Router A/B state invisible', async () => {
     const store = createEcdsaSessionStore();
-    const bootstrap = buildRegistrationBootstrap();
+    const bootstrap = await buildRegistrationBootstrap();
     const { routerAbEcdsaHssNormalSigning, ...keyRefWithoutRouterAb } =
       bootstrap.thresholdEcdsaKeyRef;
     void routerAbEcdsaHssNormalSigning;

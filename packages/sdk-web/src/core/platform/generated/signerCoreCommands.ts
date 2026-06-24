@@ -3,27 +3,11 @@
 
 export type SignerCommandVersion = "v1";
 
-export type EvmThresholdEcdsaNamespace = "eip155";
-
-export type ThresholdEcdsaChainTarget = { "kind": "evm", namespace: EvmThresholdEcdsaNamespace, chainId: number, networkSlug: string, } | { "kind": "tempo", chainId: number, networkSlug: string, };
-
-export type EmailOtpWorkerSessionHandleKind = "email_otp_worker_session_handle_v1";
-
-export type EmailOtpWorkerSessionHandleAction = "threshold_ecdsa_bootstrap";
-
-export type EmailOtpWorkerSessionHandleOperation = "registration" | "wallet_unlock" | "sign" | "export";
-
-export type EcdsaBootstrapEmailOtpWorkerSessionHandle = { kind: EmailOtpWorkerSessionHandleKind, sessionId: string, walletId: string, rpId: string, authSubjectId: string, action: EmailOtpWorkerSessionHandleAction, operation: EmailOtpWorkerSessionHandleOperation, chainTarget: ThresholdEcdsaChainTarget, };
-
-export type EcdsaBootstrapSecretSource = { "kind": "webauthn_prf_first", prfFirstB64u: string, rpId: string, credentialIdB64u: string, } | { "kind": "email_otp_worker_session", handle: EcdsaBootstrapEmailOtpWorkerSessionHandle, };
+export type EcdsaBootstrapSecretSource = { "kind": "webauthn_prf_first", prfFirstB64u: string, rpId: string, credentialIdB64u: string, };
 
 export type EcdsaClientBootstrapAlgorithm = "ecdsa_hss_secp256k1_role_local_v1";
 
-export type EcdsaClientBootstrapKeyPurpose = "evm-signing";
-
-export type EcdsaClientBootstrapKeyVersion = "v1";
-
-export type EcdsaClientBootstrapContext = { walletId: string, rpId: string, chainTarget: ThresholdEcdsaChainTarget, ecdsaThresholdKeyId: string, signingRootId: string, signingRootVersion: string, keyPurpose: EcdsaClientBootstrapKeyPurpose, keyVersion: EcdsaClientBootstrapKeyVersion, };
+export type EcdsaClientBootstrapContext = { applicationBindingDigestB64u: string, };
 
 export type EcdsaClientBootstrapParticipants = { clientParticipantId: number, relayerParticipantId: number, participantIds: Array<number>, };
 
@@ -67,15 +51,13 @@ export type FinalizeEcdsaClientBootstrapErrorCode = "invalid_pending_state" | "i
 
 export type BuildEcdsaRoleLocalExportArtifactCommandKind = "build_ecdsa_role_local_export_artifact_v1";
 
-export type EcdsaRoleLocalExportPublicFacts = { walletId: string, rpId: string, chainTarget: ThresholdEcdsaChainTarget, keyHandle: string, ecdsaThresholdKeyId: string, signingRootId: string, signingRootVersion: string, clientParticipantId: number, relayerParticipantId: number, participantIds: Array<number>, contextBinding32B64u: string, hssClientSharePublicKey33B64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
+export type EcdsaRoleLocalExportPublicFacts = { applicationBindingDigestB64u: string, clientParticipantId: number, relayerParticipantId: number, participantIds: Array<number>, contextBinding32B64u: string, hssClientSharePublicKey33B64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
 
-export type EcdsaRoleLocalExportAuthorization = { "kind": "passkey_export_authorized", walletId: string, rpId: string, credentialIdB64u: string, } | { "kind": "email_otp_export_authorized", walletId: string, rpId: string, authSubjectId: string, };
-
-export type BuildEcdsaRoleLocalExportArtifactCommand = { kind: BuildEcdsaRoleLocalExportArtifactCommandKind, algorithm: EcdsaClientBootstrapAlgorithm, stateBlob: EcdsaRoleLocalReadyStateBlob, publicFacts: EcdsaRoleLocalExportPublicFacts, authorization: EcdsaRoleLocalExportAuthorization, serverExportShare32B64u: string, };
+export type BuildEcdsaRoleLocalExportArtifactCommand = { kind: BuildEcdsaRoleLocalExportArtifactCommandKind, algorithm: EcdsaClientBootstrapAlgorithm, stateBlob: EcdsaRoleLocalReadyStateBlob, publicFacts: EcdsaRoleLocalExportPublicFacts, serverExportShare32B64u: string, };
 
 export type BuildEcdsaRoleLocalExportArtifactOutput = { publicKeyHex: string, privateKeyHex: string, ethereumAddress: string, };
 
-export type BuildEcdsaRoleLocalExportArtifactErrorCode = "invalid_ready_state" | "invalid_public_identity" | "export_not_authorized" | "crypto_failure";
+export type BuildEcdsaRoleLocalExportArtifactErrorCode = "invalid_ready_state" | "invalid_public_identity" | "crypto_failure";
 
 export type Ed25519WorkerMaterialFormatVersion = "ed25519_worker_material_v1";
 

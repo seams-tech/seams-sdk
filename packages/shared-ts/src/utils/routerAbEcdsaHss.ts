@@ -1,5 +1,9 @@
 import { base64UrlDecode, base64UrlEncode } from './encoders';
 import {
+  computeSdkEcdsaHssApplicationBindingDigestB64u,
+  type SdkEcdsaHssBindingFacts,
+} from '../threshold/ecdsaHssRoleLocalBootstrap';
+import {
   decodeJwtPayloadRecord,
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
 } from './sessionTokens';
@@ -18,9 +22,9 @@ export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1 =
 export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1 =
   '/v1/hss/ecdsa/sign/prepare' as const;
 export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1 = '/v1/hss/ecdsa/sign' as const;
-const ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1 = 'ecdsa-hss:context:v2' as const;
+const ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1 = 'ecdsa-hss:context:v4' as const;
 const ECDSA_HSS_CONTEXT_BINDING_DOMAIN_V1 = 'ecdsa-hss:role-local:v2:context-binding' as const;
-const ECDSA_HSS_SCHEME_ID_V1 = 'ecdsa-hss-v2' as const;
+const ECDSA_HSS_SCHEME_ID_V1 = 'ecdsa-hss-v4' as const;
 const ECDSA_HSS_CURVE_V1 = 'secp256k1' as const;
 const ECDSA_HSS_CONTEXT_FIELD_BYTES_V1 = 0x01;
 const ECDSA_HSS_PARTICIPANT_IDS_V1 = [1, 2] as const;
@@ -34,14 +38,7 @@ const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_FINALIZE_REQUEST_VERSION_V1 =
   'router-ab-protocol/ecdsa-hss/normal-signing-finalize-request/v1' as const;
 
 export type RouterAbEcdsaHssStableKeyContextV1 = {
-  wallet_id: string;
-  rp_id: string;
-  key_scope: typeof ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1;
-  ecdsa_threshold_key_id: string;
-  signing_root_id: string;
-  signing_root_version: string;
-  key_purpose: string;
-  key_version: string;
+  application_binding_digest_b64u: string;
 };
 
 export type RouterAbEcdsaHssPublicIdentityV1 = {
@@ -76,6 +73,11 @@ export type RouterAbActiveSigningWorkerStateV1 = {
 };
 
 export type RouterAbEcdsaHssNormalSigningScopeV1 = {
+  wallet_key_id: string;
+  wallet_id: string;
+  ecdsa_threshold_key_id: string;
+  signing_root_id: string;
+  signing_root_version: string;
   context: RouterAbEcdsaHssStableKeyContextV1;
   public_identity: RouterAbEcdsaHssPublicIdentityV1;
   signing_worker: RouterAbServerIdentityV1;
@@ -89,7 +91,7 @@ export type RouterAbEcdsaHssNormalSigningStateV1 = {
 
 export type RouterAbEcdsaHssWalletRegistrationJwtBindingFactsV1 = {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   keyHandle: string;
   relayerKeyId: string;
   ecdsaThresholdKeyId: string;
@@ -306,38 +308,18 @@ function parsePublicDigest32(value: unknown, label: string): RouterAbPublicDiges
 
 function parseStableKeyContext(value: unknown): RouterAbEcdsaHssStableKeyContextV1 {
   const record = requireRecord(value, 'scope.context');
-  requireExactKeys(record, 'scope.context', [
-    'wallet_id',
-    'rp_id',
-    'key_scope',
-    'ecdsa_threshold_key_id',
-    'signing_root_id',
-    'signing_root_version',
-    'key_purpose',
-    'key_version',
-  ]);
-  const keyScope = requireAsciiNonEmptyString(record.key_scope, 'scope.context.key_scope');
-  if (keyScope !== ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1) {
-    throw new Error('scope.context.key_scope must be evm-family');
+  requireExactKeys(record, 'scope.context', ['application_binding_digest_b64u']);
+  const digest = base64UrlDecode(
+    requireAsciiNonEmptyString(
+      record.application_binding_digest_b64u,
+      'scope.context.application_binding_digest_b64u',
+    ),
+  );
+  if (digest.length !== 32) {
+    throw new Error('scope.context.application_binding_digest_b64u must decode to 32 bytes');
   }
   return {
-    wallet_id: requireAsciiNonEmptyString(record.wallet_id, 'scope.context.wallet_id'),
-    rp_id: requireAsciiNonEmptyString(record.rp_id, 'scope.context.rp_id'),
-    key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-    ecdsa_threshold_key_id: requireAsciiNonEmptyString(
-      record.ecdsa_threshold_key_id,
-      'scope.context.ecdsa_threshold_key_id',
-    ),
-    signing_root_id: requireAsciiNonEmptyString(
-      record.signing_root_id,
-      'scope.context.signing_root_id',
-    ),
-    signing_root_version: requireAsciiNonEmptyString(
-      record.signing_root_version,
-      'scope.context.signing_root_version',
-    ),
-    key_purpose: requireAsciiNonEmptyString(record.key_purpose, 'scope.context.key_purpose'),
-    key_version: requireAsciiNonEmptyString(record.key_version, 'scope.context.key_version'),
+    application_binding_digest_b64u: base64UrlEncode(digest),
   };
 }
 
@@ -500,17 +482,18 @@ function canonicalStableKeyContextBytes(context: RouterAbEcdsaHssStableKeyContex
   pushBytes(out, asciiBytes(ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1));
   pushAsciiU16(out, ECDSA_HSS_SCHEME_ID_V1);
   pushAsciiU16(out, ECDSA_HSS_CURVE_V1);
-  pushAsciiU16(out, parsed.wallet_id);
-  pushAsciiU16(out, parsed.rp_id);
-  pushAsciiU16(out, parsed.key_scope);
-  pushAsciiU16(out, parsed.ecdsa_threshold_key_id);
-  pushAsciiU16(out, parsed.signing_root_id);
-  pushAsciiU16(out, parsed.signing_root_version);
-  pushAsciiU16(out, parsed.key_purpose);
-  pushAsciiU16(out, parsed.key_version);
+  pushBytes(out, base64UrlDecode(parsed.application_binding_digest_b64u));
   out.push(ECDSA_HSS_PARTICIPANT_IDS_V1.length);
   for (const participantId of ECDSA_HSS_PARTICIPANT_IDS_V1) pushU16(out, participantId);
   return new Uint8Array(out);
+}
+
+export async function routerAbEcdsaHssStableKeyContextFromSdkFactsV1(
+  facts: SdkEcdsaHssBindingFacts,
+): Promise<RouterAbEcdsaHssStableKeyContextV1> {
+  return {
+    application_binding_digest_b64u: await computeSdkEcdsaHssApplicationBindingDigestB64u(facts),
+  };
 }
 
 function contextBindingFrame(contextBytes: Uint8Array): Uint8Array {
@@ -558,6 +541,11 @@ function canonicalNormalSigningScopeBytes(scope: RouterAbEcdsaHssNormalSigningSc
   const parsed = parseRouterAbEcdsaHssNormalSigningScopeV1(scope);
   const out: number[] = [];
   pushLen32(out, asciiBytes(ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_SCOPE_VERSION_V1));
+  pushLen32(out, asciiBytes(parsed.wallet_key_id));
+  pushLen32(out, asciiBytes(parsed.wallet_id));
+  pushLen32(out, asciiBytes(parsed.ecdsa_threshold_key_id));
+  pushLen32(out, asciiBytes(parsed.signing_root_id));
+  pushLen32(out, asciiBytes(parsed.signing_root_version));
   pushLen32(out, canonicalStableKeyContextBytes(parsed.context));
   pushLen32(out, canonicalPublicIdentityBytes(parsed.public_identity));
   pushServerIdentity(out, parsed.signing_worker);
@@ -664,12 +652,28 @@ export function parseRouterAbEcdsaHssNormalSigningScopeV1(
 ): RouterAbEcdsaHssNormalSigningScopeV1 {
   const record = requireRecord(value, 'scope');
   requireExactKeys(record, 'scope', [
+    'wallet_key_id',
+    'wallet_id',
+    'ecdsa_threshold_key_id',
+    'signing_root_id',
+    'signing_root_version',
     'context',
     'public_identity',
     'signing_worker',
     'activation_epoch',
   ]);
   return {
+    wallet_key_id: requireAsciiNonEmptyString(record.wallet_key_id, 'scope.wallet_key_id'),
+    wallet_id: requireAsciiNonEmptyString(record.wallet_id, 'scope.wallet_id'),
+    ecdsa_threshold_key_id: requireAsciiNonEmptyString(
+      record.ecdsa_threshold_key_id,
+      'scope.ecdsa_threshold_key_id',
+    ),
+    signing_root_id: requireAsciiNonEmptyString(record.signing_root_id, 'scope.signing_root_id'),
+    signing_root_version: requireAsciiNonEmptyString(
+      record.signing_root_version,
+      'scope.signing_root_version',
+    ),
     context: parseStableKeyContext(record.context),
     public_identity: parsePublicIdentity(record.public_identity),
     signing_worker: parseServerIdentity(record.signing_worker),
@@ -791,9 +795,9 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
     actual: payload.walletId,
   });
   requireWalletRegistrationMatchingString({
-    field: 'walletSessionJwt.rpId',
-    expected: expected.rpId,
-    actual: payload.rpId,
+    field: 'walletSessionJwt.walletKeyId',
+    expected: expected.walletKeyId,
+    actual: payload.walletKeyId,
   });
   requireWalletRegistrationMatchingString({
     field: 'walletSessionJwt.keyScope',
@@ -858,46 +862,30 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
       'ECDSA registration bootstrap Wallet Session JWT missing routerAbEcdsaHssNormalSigning',
     );
   }
-  const context = normalSigning.scope.context;
   requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.wallet_id',
+    field: 'routerAbEcdsaHssNormalSigning.scope.wallet_id',
     expected: expected.walletId,
-    actual: context.wallet_id,
+    actual: normalSigning.scope.wallet_id,
   });
   requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.rp_id',
-    expected: expected.rpId,
-    actual: context.rp_id,
+    field: 'routerAbEcdsaHssNormalSigning.scope.wallet_key_id',
+    expected: expected.walletKeyId,
+    actual: normalSigning.scope.wallet_key_id,
   });
   requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.key_scope',
-    expected: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-    actual: context.key_scope,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.ecdsa_threshold_key_id',
+    field: 'routerAbEcdsaHssNormalSigning.scope.ecdsa_threshold_key_id',
     expected: expected.ecdsaThresholdKeyId,
-    actual: context.ecdsa_threshold_key_id,
+    actual: normalSigning.scope.ecdsa_threshold_key_id,
   });
   requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.signing_root_id',
+    field: 'routerAbEcdsaHssNormalSigning.scope.signing_root_id',
     expected: expected.signingRootId,
-    actual: context.signing_root_id,
+    actual: normalSigning.scope.signing_root_id,
   });
   requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.signing_root_version',
+    field: 'routerAbEcdsaHssNormalSigning.scope.signing_root_version',
     expected: expected.signingRootVersion,
-    actual: context.signing_root_version,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.key_purpose',
-    expected: 'evm-signing',
-    actual: context.key_purpose,
-  });
-  requireWalletRegistrationMatchingString({
-    field: 'routerAbEcdsaHssNormalSigning.scope.context.key_version',
-    expected: 'v1',
-    actual: context.key_version,
+    actual: normalSigning.scope.signing_root_version,
   });
   const publicIdentity = normalSigning.scope.public_identity;
   requireWalletRegistrationMatchingString({
@@ -949,11 +937,10 @@ export function parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1(ar
 export function routerAbEcdsaHssActiveStateSessionId(
   state: RouterAbEcdsaHssNormalSigningStateV1,
 ): string {
-  const context = state.scope.context;
   return [
-    context.ecdsa_threshold_key_id,
-    context.signing_root_id,
-    context.signing_root_version,
+    state.scope.ecdsa_threshold_key_id,
+    state.scope.signing_root_id,
+    state.scope.signing_root_version,
     state.scope.activation_epoch,
   ].join(':');
 }

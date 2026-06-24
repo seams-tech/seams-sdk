@@ -381,15 +381,20 @@ async function installThresholdRegistrationBootstrapMock(
         const runtimePolicyScope = resolveRuntimePolicyScope(policy);
         const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
         const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
+        const walletKeyId = String(
+          thresholdEcdsa?.walletKeyId ||
+            thresholdEcdsa?.wallet_key_id ||
+            `wallet-key-${accountId}`,
+        ).trim();
         const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
           walletId: accountId,
-          rpId,
+          walletKeyId,
           signingRootId: signingRootScope.signingRootId,
           signingRootVersion,
         });
         const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
           walletId: accountId,
-          rpId,
+          walletKeyId,
         });
         ensureHssClientSignerWasm();
         const clientBootstrap = preparePasskeyPrfEcdsaClientBootstrapForTest({
@@ -405,7 +410,7 @@ async function installThresholdRegistrationBootstrapMock(
         const bootstrapResult = await threshold.ecdsaHssRoleLocalBootstrap!({
           formatVersion: 'ecdsa-hss-role-local',
           walletId: accountId,
-          rpId,
+          walletKeyId,
           ecdsaThresholdKeyId,
           signingRootId: signingRootScope.signingRootId,
           signingRootVersion,
@@ -452,15 +457,12 @@ async function installThresholdRegistrationBootstrapMock(
             routerAbEcdsaHssNormalSigning: {
               kind: 'router_ab_ecdsa_hss_normal_signing_v1',
               scope: {
+                wallet_key_id: rpId,
                 context: {
                   wallet_id: accountId,
-                  rp_id: rpId,
-                  key_scope: 'evm-family',
                   ecdsa_threshold_key_id: String(bootstrap.ecdsaThresholdKeyId || ''),
                   signing_root_id: String(bootstrap.signingRootId || ''),
                   signing_root_version: String(bootstrap.signingRootVersion || ''),
-                  key_purpose: 'evm-signing',
-                  key_version: 'v1',
                 },
                 public_identity: {
                   context_binding_b64u: String(bootstrap.contextBinding32B64u || ''),

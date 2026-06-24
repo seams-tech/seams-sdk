@@ -5,12 +5,12 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  thresholdEcdsaRecordRpId,
   type ThresholdEcdsaSessionRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import {
   resolveReadyEvmFamilyEcdsaMaterial,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -67,6 +67,12 @@ const TEST_WEBAUTHN_CREDENTIAL = {
 } satisfies WebAuthnAuthenticationCredential;
 const THRESHOLD_OWNER_ADDRESS = `0x${'11'.repeat(20)}` as const;
 const TEST_PASSKEY_CREDENTIAL_ID_B64U = TEST_WEBAUTHN_CREDENTIAL.rawId;
+const WALLET_KEY_ID = 'wallet-key-step-up-provision';
+const PASSKEY_AUTH = {
+  kind: 'passkey',
+  rpId: toRpId('example.localhost'),
+  credentialIdB64u: TEST_PASSKEY_CREDENTIAL_ID_B64U,
+} as const;
 
 function makeWalletSessionJwt(args: {
   thresholdSessionId: string;
@@ -103,15 +109,13 @@ function makeRouterAbEcdsaHssNormalSigningState(args: {
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: WALLET_KEY_ID,
+      wallet_id: String(args.record.walletId),
+      ecdsa_threshold_key_id: String(args.record.ecdsaThresholdKeyId),
+      signing_root_id: String(args.record.signingRootId),
+      signing_root_version: String(args.record.signingRootVersion),
       context: {
-        wallet_id: String(args.record.walletId),
-        rp_id: String(args.record.authMetadata.rpId),
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: String(args.record.ecdsaThresholdKeyId),
-        signing_root_id: String(args.record.signingRootId),
-        signing_root_version: String(args.record.signingRootVersion),
-        key_purpose: 'evm-family-signing',
-        key_version: 'ecdsa-hss-material-test-v1',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
@@ -137,7 +141,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
   const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
   const record: ThresholdEcdsaSessionRecord = {
     walletId: toWalletId('alice.testnet'),
-    authMetadata: { rpId: 'example.localhost' },
+    authMetadata: { walletKeyId: 'example.localhost' },
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
     keyHandle,
@@ -156,7 +160,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
       },
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: toWalletId('alice.testnet'),
-        rpId: 'example.localhost',
+        walletKeyId: WALLET_KEY_ID,
         chainTarget: CHAIN_TARGET,
         keyHandle,
         ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -231,9 +235,9 @@ function makeReadyMaterial(args: {
 }): ReadyEvmFamilyEcdsaMaterial {
   const material = resolveReadyEvmFamilyEcdsaMaterial({
     record: args.record,
-    rpId: thresholdEcdsaRecordRpId(args.record),
     expected: {
       walletId: args.record.walletId,
+      walletKeyId: WALLET_KEY_ID,
       chainTarget: CHAIN_TARGET,
       authMethod: args.authMethod,
       source: args.source,
@@ -265,7 +269,7 @@ function makeReadyEcdsaCapability(args: {
       key: args.material.key,
       keyHandle: args.record.keyHandle,
       walletId: args.record.walletId,
-      authMethod: 'passkey',
+      auth: PASSKEY_AUTH,
       signingGrantId: args.record.signingGrantId,
       thresholdSessionId: args.record.thresholdSessionId,
       chainTarget: args.record.chainTarget,
@@ -429,10 +433,11 @@ test.describe('EVM-family step-up provision-plan builders', () => {
             thresholdEcdsaKeyRef: buildThresholdEcdsaSecp256k1KeyRefFromRecord({
               record: refreshedRecord,
             }),
-            keygen: {
-              ok: true,
-              chainId: CHAIN_TARGET.chainId,
-            },
+	            keygen: {
+	              ok: true,
+	              walletKeyId: refreshedRecord.authMetadata.walletKeyId,
+	              chainId: CHAIN_TARGET.chainId,
+	            },
             session: {
               ok: true,
               thresholdSessionId: refreshedRecord.thresholdSessionId,

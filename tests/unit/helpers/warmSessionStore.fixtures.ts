@@ -129,15 +129,13 @@ function fixtureRouterAbEcdsaHssNormalSigning(args: {
   return {
     kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
+      wallet_key_id: args.rpId,
+      wallet_id: args.walletId,
+      ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
+      signing_root_id: args.signingRootId,
+      signing_root_version: args.signingRootVersion,
       context: {
-        wallet_id: args.walletId,
-        rp_id: args.rpId,
-        key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-        ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
-        signing_root_id: args.signingRootId,
-        signing_root_version: args.signingRootVersion,
-        key_purpose: 'evm-family-signing',
-        key_version: 'warm-session-fixture',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: VALID_ECDSA_SHARE32_B64U,
@@ -452,6 +450,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.nearAccountId),
+      walletKeyId: `wallet-key-${args.nearAccountId}`,
       rpId,
       chainTarget,
       keyHandle,
@@ -519,10 +518,10 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
     passkeyCredentialIdB64u,
-    keygen: {
-      ok: true,
-      rpId,
-      ecdsaThresholdKeyId,
+	    keygen: {
+	      ok: true,
+	      walletKeyId: rpId,
+	      ecdsaThresholdKeyId,
       clientVerifyingShareB64u,
       relayerKeyId,
       participantIds: [...participantIds],
@@ -1167,7 +1166,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                 kind: 'passkey_ecdsa_session_provision',
                 key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
                   record,
-                  rpId: thresholdEcdsaRecordRpId(record),
+                  walletKeyId: record.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
                 }),
                 chainTarget,
                 sessionIdentity: identity,

@@ -57,5 +57,6 @@ Read next:
 
 - [Router A/B](/concepts/threshold-signing/router-ab)
 - [HSS Key Derivation](/concepts/threshold-signing/hss-key-derivation)
+- [Serverless Threshold Signing](/concepts/threshold-signing/serverless-threshold-signing)
 - [NEAR Ed25519 HSS](/concepts/threshold-signing/near-ed25519-hss)
 - [EVM ECDSA-HSS](/concepts/threshold-signing/evm-ecdsa-hss)

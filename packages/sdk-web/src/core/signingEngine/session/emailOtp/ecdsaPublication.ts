@@ -211,9 +211,10 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
         ports.configs.signing.sessionSeal.signingSessionSealKeyVersion,
       )
     : '';
-  const rpId = String(args.bootstrap.keygen.rpId || '').trim();
-  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
-  const userId = String(keyRef.userId || '').trim();
+	  const walletKeyId = String(args.bootstrap.keygen.walletKeyId || '').trim();
+	  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+	  const userId = String(keyRef.userId || '').trim();
+	  const authSubjectId = String(args.emailOtpAuthContext.authSubjectId || userId).trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
   const clientVerifyingShareB64u = String(
     keyRef.backendBinding?.clientVerifyingShareB64u || '',
@@ -225,11 +226,12 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
         .map((participantId) => Math.floor(Number(participantId)))
         .filter((participantId) => Number.isFinite(participantId) && participantId > 0)
     : [];
-  if (
-    !ecdsaThresholdKeyId ||
-    !rpId ||
-    !userId ||
-    !ethereumAddress ||
+	  if (
+	    !ecdsaThresholdKeyId ||
+	    !walletKeyId ||
+	    !userId ||
+	    !authSubjectId ||
+	    !ethereumAddress ||
     !clientVerifyingShareB64u ||
     !relayerKeyId ||
     !participantIds.length ||
@@ -305,12 +307,13 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!keyHandle) {
     throw new Error('Email OTP sealed refresh requires exact ECDSA key handle');
   }
-  await ports.registerSigningSession({
-    ...sealedRecordBase,
-    ecdsaRestore: {
-      chainTarget: actualChainTarget,
-      rpId,
-      walletSessionJwt,
+	  await ports.registerSigningSession({
+	    ...sealedRecordBase,
+	    ecdsaRestore: {
+	      chainTarget: actualChainTarget,
+	      walletKeyId,
+	      authSubjectId,
+	      walletSessionJwt,
       sessionKind: 'jwt',
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle,

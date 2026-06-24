@@ -4,6 +4,10 @@ import type {
   SelectedEcdsaLane,
   ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
+import {
+  laneCandidateAuthMethod,
+  selectedLaneAuthMethod,
+} from '../../session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   ReadAvailableSigningLanesForSigningInput,
@@ -11,6 +15,7 @@ import type {
   AvailableEcdsaSigningLane,
 } from '../../session/availability/availableSigningLanes';
 import {
+  availableEcdsaSigningLaneAuthMethod,
   buildReauthAnchorIdentityFromAvailableLane,
   ecdsaAvailableLaneCandidatesForTarget,
   isConcreteAvailableSigningLane,
@@ -130,7 +135,8 @@ function isRuntimeBackedEcdsaAvailableLane(
     Boolean(lane!.chainTarget) &&
     isConcreteAvailableSigningLane(lane!) &&
     (lane!.source === 'runtime_session_record' || lane!.source === 'runtime_and_durable') &&
-    (lane!.authMethod === 'email_otp' || lane!.authMethod === 'passkey')
+    (availableEcdsaSigningLaneAuthMethod(lane!) === 'email_otp' ||
+      availableEcdsaSigningLaneAuthMethod(lane!) === 'passkey')
   );
 }
 
@@ -164,7 +170,7 @@ function singleConcreteAuthMethodForEcdsaTarget(args: {
   )) {
     if (!isConcreteAvailableSigningLane(lane)) continue;
     if (!thresholdEcdsaChainTargetsEqual(lane.chainTarget, args.signingTarget)) continue;
-    authMethods.add(lane.authMethod);
+    authMethods.add(availableEcdsaSigningLaneAuthMethod(lane));
   }
   return authMethods.size === 1 ? Array.from(authMethods)[0] : undefined;
 }
@@ -188,7 +194,7 @@ function summarizeEcdsaAvailableLane(
   });
   return {
     present: true,
-    authMethod: lane.authMethod,
+    authMethod: availableEcdsaSigningLaneAuthMethod(lane),
     curve: lane.curve,
     chain: lane.chainTarget?.kind,
     chainTarget: lane.chainTarget,
@@ -244,7 +250,7 @@ function summarizeEcdsaLaneCandidate(
   if (!candidate) return { present: false };
   return {
     present: true,
-    authMethod: candidate.authMethod,
+    authMethod: laneCandidateAuthMethod(candidate),
     curve: candidate.curve,
     chain: candidate.chainTarget.kind,
     chainTarget: candidate.chainTarget,
@@ -266,9 +272,11 @@ function assertSelectionMatchesLaneCandidate(args: {
   selection: ReadyEvmFamilyEcdsaSigningSelection;
 }): void {
   const candidate = args.candidate;
-  if (candidate.authMethod !== args.selection.lane.authMethod) {
+  const candidateAuthMethod = laneCandidateAuthMethod(candidate);
+  const selectionAuthMethod = selectedLaneAuthMethod(args.selection.lane);
+  if (candidateAuthMethod !== selectionAuthMethod) {
     throw new Error(
-      `[SigningEngine][ecdsa] prepared restore auth method ${candidate.authMethod} did not match selected lane auth method ${args.selection.lane.authMethod}`,
+      `[SigningEngine][ecdsa] prepared restore auth method ${candidateAuthMethod} did not match selected lane auth method ${selectionAuthMethod}`,
     );
   }
   if (candidate.thresholdSessionId !== String(args.selection.lane.thresholdSessionId)) {
@@ -542,7 +550,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           ...laneReadDiagnostic,
         });
         const candidateAuthMethod =
-          currentRuntimeLane?.authMethod ||
+          (currentRuntimeLane ? availableEcdsaSigningLaneAuthMethod(currentRuntimeLane) : undefined) ||
           singleConcreteAuthMethodForEcdsaTarget({
             availableLanes: candidateAvailableLanes,
             signingTarget: args.signingTarget,
@@ -566,7 +574,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           chain,
           chainTarget,
           primaryAuthMethod: selectedLane.ok
-            ? selectedLane.candidate.authMethod
+            ? laneCandidateAuthMethod(selectedLane.candidate as EcdsaLaneCandidate)
             : candidateAuthMethod,
           selectionOk: selectedLane.ok,
           ...(selectedLane.ok
@@ -632,7 +640,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             `[SigningEngine][ecdsa] transaction restore requires an exact available lane for ${chain}`,
           );
         }
-        const authMethod = transactionLane.authMethod;
+        const authMethod = selectedLaneAuthMethod(transactionLane);
         const restoreResults: Record<string, unknown> = {};
         const laneRequiresFreshAuth =
           laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted';

@@ -8,11 +8,10 @@ use serde::{Deserialize, Serialize};
 use signer_core::commands::{
     finalize_ecdsa_client_bootstrap_command_v1, prepare_ecdsa_client_bootstrap_command_v1,
     EcdsaBootstrapSecretSourceV1, EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1,
-    EcdsaClientBootstrapKeyPurposeV1, EcdsaClientBootstrapKeyVersionV1,
-    EcdsaClientBootstrapParticipantsV1, EvmNamespaceV1, FinalizeEcdsaClientBootstrapCommandKindV1,
+    EcdsaClientBootstrapParticipantsV1, FinalizeEcdsaClientBootstrapCommandKindV1,
     FinalizeEcdsaClientBootstrapCommandV1, FinalizeEcdsaClientBootstrapOutputV1,
     PrepareEcdsaClientBootstrapCommandKindV1, PrepareEcdsaClientBootstrapCommandV1,
-    PrepareEcdsaClientBootstrapOutputV1, RelayerPublicIdentityV1, ThresholdEcdsaChainTargetV1,
+    PrepareEcdsaClientBootstrapOutputV1, RelayerPublicIdentityV1,
 };
 
 const UPDATE_ENV: &str = "UPDATE_NATIVE_READINESS_VECTORS";
@@ -57,37 +56,14 @@ fn decode_base64_url_fixed<const N: usize>(input: &str, field_name: &str) -> [u8
     out
 }
 
-fn chain_target() -> ThresholdEcdsaChainTargetV1 {
-    ThresholdEcdsaChainTargetV1::Evm {
-        namespace: EvmNamespaceV1::Eip155,
-        chain_id: 5042002,
-        network_slug: "arc-testnet".to_owned(),
-    }
-}
-
 fn context() -> EcdsaClientBootstrapContextV1 {
     EcdsaClientBootstrapContextV1 {
-        wallet_id: "wallet.testnet".to_owned(),
-        rp_id: "localhost".to_owned(),
-        chain_target: chain_target(),
-        ecdsa_threshold_key_id: "ehss-key".to_owned(),
-        signing_root_id: "root-id".to_owned(),
-        signing_root_version: "root-v1".to_owned(),
-        key_purpose: EcdsaClientBootstrapKeyPurposeV1::EvmSigning,
-        key_version: EcdsaClientBootstrapKeyVersionV1::V1,
+        application_binding_digest_b64u: encode_base64_url(&[0x55u8; 32]),
     }
 }
 
 fn stable_key_context() -> EcdsaHssStableKeyContext {
-    EcdsaHssStableKeyContext::new(
-        "wallet.testnet",
-        "localhost",
-        "ehss-key",
-        "root-id",
-        "root-v1",
-        "evm-signing",
-        "v1",
-    )
+    EcdsaHssStableKeyContext::new([0x55u8; 32])
 }
 
 fn participants() -> EcdsaClientBootstrapParticipantsV1 {

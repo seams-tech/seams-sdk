@@ -1,26 +1,21 @@
 import type {
   PrepareEcdsaClientBootstrapOutput,
-  ThresholdEcdsaChainTarget,
 } from '../../packages/sdk-web/src/core/platform/generated/signerCoreCommands';
+import { createHash } from 'node:crypto';
 import {
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
   prepare_ecdsa_client_bootstrap_v1,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
-const DEFAULT_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
-  kind: 'evm',
-  namespace: 'eip155',
-  chainId: 1,
-  networkSlug: 'ethereum',
-};
-
 export type TestEcdsaClientBootstrapContext = {
   walletId: string;
-  rpId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  chainTarget?: ThresholdEcdsaChainTarget;
+};
+
+export type TestPasskeyEcdsaClientBootstrapContext = TestEcdsaClientBootstrapContext & {
+  rpId: string;
 };
 
 export type TestPreparedEcdsaClientBootstrap = {
@@ -57,7 +52,7 @@ export function prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest(args: {
 }
 
 export function preparePasskeyPrfEcdsaClientBootstrapForTest(args: {
-  context: TestEcdsaClientBootstrapContext;
+  context: TestPasskeyEcdsaClientBootstrapContext;
   passkeyPrfFirstB64u: string;
   credentialIdB64u?: string;
 }): TestPreparedEcdsaClientBootstrap {
@@ -86,16 +81,45 @@ export function preparePasskeyPrfEcdsaClientBootstrapForTest(args: {
 }
 
 function contextPayload(context: TestEcdsaClientBootstrapContext) {
-  return {
+  const applicationBindingDigestB64u = sdkEcdsaHssApplicationBindingDigestB64u({
     walletId: context.walletId,
-    rpId: context.rpId,
-    chainTarget: context.chainTarget || DEFAULT_CHAIN_TARGET,
     ecdsaThresholdKeyId: context.ecdsaThresholdKeyId,
     signingRootId: context.signingRootId,
     signingRootVersion: context.signingRootVersion,
-    keyPurpose: 'evm-signing',
-    keyVersion: 'v1',
+  });
+  return {
+    applicationBindingDigestB64u,
   };
+}
+
+function pushU32(out: number[], value: number): void {
+  out.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
+}
+
+function pushLengthDelimitedField(out: number[], label: string, value: string): void {
+  const labelBytes = Buffer.from(label, 'utf8');
+  const valueBytes = Buffer.from(String(value || '').trim(), 'utf8');
+  pushU32(out, labelBytes.length);
+  out.push(...labelBytes);
+  pushU32(out, valueBytes.length);
+  out.push(...valueBytes);
+}
+
+export function sdkEcdsaHssApplicationBindingDigestB64u(input: {
+  walletId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+}): string {
+  const out: number[] = [];
+  const domain = Buffer.from('seams-sdk:ecdsa-hss:application-binding:v1', 'utf8');
+  pushU32(out, domain.length);
+  out.push(...domain);
+  pushLengthDelimitedField(out, 'walletId', input.walletId);
+  pushLengthDelimitedField(out, 'ecdsaThresholdKeyId', input.ecdsaThresholdKeyId);
+  pushLengthDelimitedField(out, 'signingRootId', input.signingRootId);
+  pushLengthDelimitedField(out, 'signingRootVersion', input.signingRootVersion);
+  return createHash('sha256').update(Buffer.from(out)).digest('base64url');
 }
 
 function flattenPreparedBootstrap(

@@ -792,7 +792,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         kind: 'email_otp_registration',
         registrationAttemptId,
         new_account_id: accountId,
-        rp_id: 'example.localhost',
+        wallet_key_id: 'example.localhost',
         context: hssContext,
       };
       const prepared = await withStageTimeout(

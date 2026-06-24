@@ -107,33 +107,50 @@ export type SigningSessionSealOperation = 'apply-server-seal' | 'remove-server-s
 
 export type SigningSessionSealCurve = 'ecdsa' | 'ed25519';
 
-export interface SigningSessionSealThresholdSessionRecord {
+type SigningSessionSealThresholdSessionRecordBase = {
   curve: SigningSessionSealCurve;
   thresholdSessionId: string;
   userId: string;
   expiresAtMs: number;
   relayerKeyId: string;
-  rpId: string;
   participantIds: readonly number[];
   signingRootId?: string;
   signingRootVersion?: string;
   remainingUses?: number;
-}
+};
 
-export interface SigningSessionSealThresholdSessionStatus
-  extends SigningSessionSealThresholdSessionRecord {
-  kind: 'wallet_session';
-  remainingUses: number;
-}
+export type SigningSessionSealEcdsaThresholdSessionRecord =
+  SigningSessionSealThresholdSessionRecordBase & {
+    curve: 'ecdsa';
+    walletKeyId: string;
+    rpId?: never;
+  };
 
-export interface SigningSessionSealWalletBudgetStatus extends SigningSessionSealThresholdSessionRecord {
+export type SigningSessionSealEd25519ThresholdSessionRecord =
+  SigningSessionSealThresholdSessionRecordBase & {
+    curve: 'ed25519';
+    rpId: string;
+    walletKeyId?: never;
+  };
+
+export type SigningSessionSealThresholdSessionRecord =
+  | SigningSessionSealEcdsaThresholdSessionRecord
+  | SigningSessionSealEd25519ThresholdSessionRecord;
+
+export type SigningSessionSealThresholdSessionStatus =
+  SigningSessionSealThresholdSessionRecord & {
+    kind: 'wallet_session';
+    remainingUses: number;
+  };
+
+export type SigningSessionSealWalletBudgetStatus = SigningSessionSealThresholdSessionRecord & {
   kind: 'wallet_budget';
   signingGrantId: string;
   committedRemainingUses: number;
   reservedUses: number;
   availableUses: number;
   remainingUses: number;
-}
+};
 
 export type SigningSessionSealThresholdStatusLookup =
   | {

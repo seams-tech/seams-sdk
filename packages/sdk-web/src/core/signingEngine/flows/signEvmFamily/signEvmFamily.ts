@@ -17,6 +17,7 @@ import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
   UiConfirmContextPort,
   UiConfirmSigningPort,
@@ -701,9 +702,10 @@ async function signEvmFamilyAttempt(
       context: 'EVM-family signing reauth refresh',
       diagnostics: argsForRefresh.diagnostics,
     });
-    if (resolvedLane.authMethod !== argsForRefresh.authMethod) {
+    const resolvedLaneAuthMethod = signingLaneAuthMethod(resolvedLane.auth);
+    if (resolvedLaneAuthMethod !== argsForRefresh.authMethod) {
       throw new Error(
-        `[SigningEngine][ecdsa] reauth lane auth method ${resolvedLane.authMethod} did not match ${argsForRefresh.authMethod}`,
+        `[SigningEngine][ecdsa] reauth lane auth method ${resolvedLaneAuthMethod} did not match ${argsForRefresh.authMethod}`,
       );
     }
     const transactionLane = selectedEvmFamilyEcdsaLaneForMaterialIdentity({
@@ -721,7 +723,7 @@ async function signEvmFamilyAttempt(
               curve: 'ecdsa',
               chain: 'tempo',
               chainTarget: signingTarget,
-              authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLane.authMethod },
+              authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLaneAuthMethod },
               operationUsesNeeded: requiredSignatureUses,
             }
           : {
@@ -729,7 +731,7 @@ async function signEvmFamilyAttempt(
               curve: 'ecdsa',
               chain: 'evm',
               chainTarget: signingTarget,
-              authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLane.authMethod },
+              authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLaneAuthMethod },
               operationUsesNeeded: requiredSignatureUses,
             },
       coordinator: signingSessionCoordinator,

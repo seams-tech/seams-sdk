@@ -5,17 +5,29 @@ import {
   type SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   AVAILABLE_LANES_ECDSA_TARGET as ECDSA_TARGET,
   AVAILABLE_LANES_ED25519_KEY_SCOPE_ID as ED25519_KEY_SCOPE_ID,
   AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID as ED25519_NEAR_ACCOUNT_ID,
   AVAILABLE_LANES_ED25519_WALLET_ID as ED25519_WALLET_ID,
+  AVAILABLE_LANES_ECDSA_RP_ID as RP_ID,
   AVAILABLE_LANES_EXPIRES_AT_MS as EXPIRES_AT_MS,
   AVAILABLE_LANES_TEMPO_TARGET as TEMPO_TARGET,
   readAvailableLanesFixture as readAvailableLanes,
   runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
   runtimeEd25519RouterAbNormalSigningState,
 } from './helpers/availableSigningLanes.fixtures';
+
+const PASSKEY_AUTH = {
+  kind: 'passkey',
+  rpId: toRpId(RP_ID),
+  credentialIdB64u: 'credential-ed25519-duplicates',
+} as const;
+const EMAIL_OTP_AUTH = {
+  kind: 'email_otp',
+  providerSubjectId: 'google:ed25519-duplicates',
+} as const;
 
 function sealedEd25519Record(args: {
   authMethod: 'email_otp' | 'passkey';
@@ -41,6 +53,9 @@ function sealedEd25519Record(args: {
       nearAccountId: String(ED25519_NEAR_ACCOUNT_ID),
       ed25519KeyScopeId: String(ED25519_KEY_SCOPE_ID),
       rpId: 'wallet.example.localhost',
+      ...(args.authMethod === 'passkey'
+        ? { credentialIdB64u: PASSKEY_AUTH.credentialIdB64u }
+        : { providerSubjectId: EMAIL_OTP_AUTH.providerSubjectId }),
       relayerKeyId: 'relayer-key',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -134,6 +149,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       ],
       runtimeEd25519Records: [
         {
+          auth: EMAIL_OTP_AUTH,
           authMethod: 'email_otp',
           curve: 'ed25519',
           chain: 'near',
@@ -173,6 +189,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     const availableLanes = await readAvailableLanes({
       runtimeEd25519Records: [
         {
+          auth: PASSKEY_AUTH,
           authMethod: 'passkey',
           curve: 'ed25519',
           chain: 'near',
@@ -256,6 +273,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     const availableLanes = await readAvailableLanes({
       runtimeEd25519Records: [
         {
+          auth: PASSKEY_AUTH,
           authMethod: 'passkey',
           curve: 'ed25519',
           chain: 'near',
@@ -267,6 +285,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           thresholdSessionId: 'tsess-1',
         },
         {
+          auth: EMAIL_OTP_AUTH,
           authMethod: 'email_otp',
           curve: 'ed25519',
           chain: 'near',

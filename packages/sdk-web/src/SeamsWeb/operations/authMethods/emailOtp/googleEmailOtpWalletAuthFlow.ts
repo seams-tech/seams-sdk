@@ -14,6 +14,8 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseThresholdRuntimePolicyScopeFromJwt } from '@/core/signingEngine/threshold/sessionPolicy';
+import { derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import { sponsoredNamedRegistrationProvisioningFromAccountId } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
@@ -120,7 +122,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     relayUrl?: string;
     walletId: string;
     userId: string;
-    rpId: string;
+    walletKeyId: string;
     appSessionJwt: string;
   }): Promise<EmailOtpRegistrationEnrollmentMaterial>;
   registerWallet(args: GoogleEmailOtpWalletRegistrationArgs): Promise<RegistrationResult>;
@@ -559,6 +561,30 @@ function relayerUrlFromInput(args: {
   return String(args.input.relayUrl || args.deps.configs.network.relayer?.url || '').trim();
 }
 
+function googleEmailOtpRegistrationAppSessionJwt(state: GoogleSessionState): string {
+  const appSessionJwt = String(state.appSessionJwt || '').trim();
+  if (!appSessionJwt) {
+    throw new Error('Google Email OTP registration requires an app session token');
+  }
+  return appSessionJwt;
+}
+
+function googleEmailOtpRegistrationWalletKeyId(args: {
+  walletId: WalletId;
+  appSessionJwt: string;
+}): string {
+  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
+  if (!runtimePolicyScope) {
+    throw new Error('Google Email OTP registration prewarm requires runtime policy scope');
+  }
+  return String(
+    derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+      walletId: args.walletId,
+      runtimePolicyScope,
+    }),
+  );
+}
+
 function createRegistrationMaterialPrewarm(args: {
   deps: GoogleEmailOtpWalletAuthDeps;
   state: GoogleSessionState;
@@ -576,21 +602,18 @@ function createRegistrationMaterialPrewarm(args: {
   if (!selectedCandidate) {
     throw new Error('Google Email OTP registration offer selected candidate is missing');
   }
+  const appSessionJwt = googleEmailOtpRegistrationAppSessionJwt(args.state);
+  const walletKeyId = googleEmailOtpRegistrationWalletKeyId({
+    walletId: selectedCandidate.walletId,
+    appSessionJwt,
+  });
   const promise = args.deps
     .prepareEmailOtpRegistrationEnrollmentMaterial({
       relayUrl: relayerUrlFromInput({ deps: args.deps, input: args.input }),
       walletId: selectedCandidate.walletId,
       userId: args.state.walletSessionUserId,
-      rpId: (() => {
-        const rpId = String(args.deps.getRpId() || '').trim();
-        if (!rpId) throw new Error('Google Email OTP registration requires rpId');
-        return rpId;
-      })(),
-      appSessionJwt: (() => {
-        const jwt = String(args.state.appSessionJwt || '').trim();
-        if (!jwt) throw new Error('Google Email OTP registration requires an app session token');
-        return jwt;
-      })(),
+      walletKeyId,
+      appSessionJwt,
     })
     .then((material) => {
       const prewarmed: EmailOtpPrewarmedRegistrationMaterial = {

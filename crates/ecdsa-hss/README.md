@@ -16,8 +16,8 @@ That key is:
 
 - threshold-signable
 - explicitly exportable through the `ExplicitKeyExport` operation
-- deterministic from role-local client/server root-share material and stable key
-  context
+- deterministic from role-local client/server root-share material and an opaque
+  SDK-owned application binding digest
 - server-blind
 
 The crate provides:
@@ -55,9 +55,9 @@ exported_private_key = x
 The active lifecycle is:
 
 1. The client derives `x_client` locally from client-owned root-share material
-   and stable key context.
-2. The relayer derives `x_relayer` locally from relayer-owned root-share material
-   and stable key context.
+   and the HSS context.
+2. The relayer derives `x_relayer` locally from relayer-owned root-share
+   material and the HSS context.
 3. The roles exchange public share commitments.
 4. The shared public identity is computed as `X = x_clientG + x_relayerG`.
 5. The additive shares are mapped into `threshold-signatures` participant-share
@@ -106,7 +106,9 @@ returned only through server-owned result types for persistence.
 ## Status
 
 The old ECDSA HSS context and server/client crate APIs were removed after the
-v2 `wallet_id`/`rp_id` invalidation. No crate module retains the old
+v3 stable-key context invalidation. The active context carries only
+`application_binding_digest`, fixed scheme/curve values, and participant IDs.
+No crate module retains the old
 `wallet_session_user_id`/`subject_id` context, wire, server, integration,
 fixture, or benchmark path.
 

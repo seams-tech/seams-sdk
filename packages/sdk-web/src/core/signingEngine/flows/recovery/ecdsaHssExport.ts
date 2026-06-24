@@ -8,7 +8,6 @@ import {
   toEcdsaHssThresholdKeyId,
 } from '../../session/identity/emailOtpHssIdentity';
 import {
-  toRpId,
   type ReadyEcdsaSignerSession,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
@@ -74,6 +73,10 @@ export async function exportEcdsaHssKeyWithWalletSession(
 
   const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
   const readyRecord = roleLocalMaterial.readyRecord;
+  const walletKeyId = String(readyRecord.publicFacts.walletKeyId || '').trim();
+  if (!walletKeyId) {
+    throw new Error('[SigningEngine][ecdsa-export] ready export material is missing walletKeyId');
+  }
   if (readyRecord.authMethod.kind !== 'passkey') {
     throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
   }
@@ -122,7 +125,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
     operation: 'explicit_key_export',
     keyHandle,
     walletId,
-    rpId: args.rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     signingRootId,
@@ -144,7 +147,7 @@ export async function exportEcdsaHssKeyWithWalletSession(
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {
     formatVersion: 'ecdsa-hss-role-local-export',
     walletId,
-    rpId: args.rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
@@ -176,12 +179,6 @@ export async function exportEcdsaHssKeyWithWalletSession(
     algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
     stateBlob: readyRecord.stateBlob,
     publicFacts: readyRecord.publicFacts,
-    authorization: {
-      kind: 'passkey_export_authorized',
-      walletId,
-      rpId: toRpId(args.rpId),
-      credentialIdB64u: readyRecord.authMethod.credentialIdB64u,
-    },
     serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
   });
   const generatedOutput = await buildEcdsaRoleLocalExportArtifactCommandWasm({

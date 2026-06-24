@@ -11,6 +11,7 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   buildEvmFamilyEcdsaWalletKey,
+  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   toEvmFamilyEcdsaKeyHandle,
@@ -126,19 +127,31 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
   if (!keyWalletId) return null;
   try {
     toThresholdEcdsaPublicKeyB64u(thresholdEcdsaPublicKeyB64u);
+    const ecdsaThresholdKeyId = keyFacts.ecdsaThresholdKeyId || args.metadata.ecdsaThresholdKeyId;
+    const signingRootId = keyFacts.signingRootId || args.metadata.signingRootId;
+    const signingRootVersion = keyFacts.signingRootVersion || args.metadata.signingRootVersion;
+    const participantIds = keyFacts.participantIds || args.metadata.participantIds;
+    const thresholdOwnerAddress =
+      keyFacts.thresholdOwnerAddress ||
+      args.metadata.thresholdOwnerAddress ||
+      args.metadata.ownerAddress;
     return buildEvmFamilyEcdsaWalletKey({
       walletId: keyWalletId,
-      rpId: keyFacts.rpId || args.metadata.rpId,
+      walletKeyId: deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
+        walletId: keyWalletId,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion,
+        participantIds,
+        thresholdOwnerAddress,
+      }),
       keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
-      ecdsaThresholdKeyId: keyFacts.ecdsaThresholdKeyId || args.metadata.ecdsaThresholdKeyId,
-      signingRootId: keyFacts.signingRootId || args.metadata.signingRootId,
-      signingRootVersion: keyFacts.signingRootVersion || args.metadata.signingRootVersion,
-      participantIds: keyFacts.participantIds || args.metadata.participantIds,
-      thresholdOwnerAddress:
-        keyFacts.thresholdOwnerAddress ||
-        args.metadata.thresholdOwnerAddress ||
-        args.metadata.ownerAddress,
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+      participantIds,
+      thresholdOwnerAddress,
       thresholdEcdsaPublicKeyB64u,
     });
   } catch {
@@ -278,7 +291,14 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       ownerAddress,
       walletKey: buildEvmFamilyEcdsaWalletKey({
         walletId: args.walletId,
-        rpId: args.rpId,
+        walletKeyId: deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
+          walletId: args.walletId,
+          ecdsaThresholdKeyId,
+          signingRootId: signingRootBinding.signingRootId,
+          signingRootVersion: signingRootBinding.signingRootVersion,
+          participantIds: rawKey.participantIds || raw.participantIds,
+          thresholdOwnerAddress,
+        }),
         keyHandle: canonicalKeyHandle,
         chainTarget,
         ecdsaThresholdKeyId,

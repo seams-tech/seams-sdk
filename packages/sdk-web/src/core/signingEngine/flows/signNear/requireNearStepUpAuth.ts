@@ -15,6 +15,7 @@ import type {
   NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
 import type { NearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
+import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 
 type NearPreparedStepUpAuthBase = {
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };
@@ -68,7 +69,7 @@ export async function requireNearStepUpAuth(args: {
       kind: 'near_ed25519_step_up' as const,
       requiredSignatureUses: args.requiredSignatureUses,
     },
-    selectedLane: { authMethod: args.signingLane.authMethod },
+    selectedLane: { authMethod: signingLaneAuthMethod(args.signingLane.auth) },
     policy: stepUpPolicyFromSigningAuthPlan(args.signingAuthPlan),
     methods: {
       ...(args.emailOtpSigning

@@ -90,7 +90,7 @@ function makeEmailOtpEcdsaCurrentRecord(
   return {
     source: 'email_otp',
     walletId: 'alice.testnet',
-    authMetadata: { rpId: 'example.com' },
+    authMetadata: { walletKeyId: 'example.com' },
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle: 'key-handle-ecdsa',

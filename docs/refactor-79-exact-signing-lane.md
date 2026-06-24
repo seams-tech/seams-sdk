@@ -179,6 +179,13 @@ Cleanup rules:
   authority key.
 - `rpId` appears only in passkey/WebAuthn auth bindings. ECDSA key identity
   uses `WalletKeyId` and signing-root facts.
+- ECDSA-HSS cryptographic context uses an opaque SDK-provided binding digest
+  plus HSS protocol parameters. SDK-specific wallet, wallet-key,
+  signing-root, chain-target, auth, and display facts stay outside the HSS
+  crate.
+- Ed25519-HSS cryptographic context uses an opaque SDK-provided binding digest
+  plus HSS protocol parameters. SDK-specific key-scope, signing-root, wallet,
+  and final NEAR account facts stay outside the HSS crate.
 - `SigningLaneReference` stays separate from threshold-session identity. It
   identifies wallet-key/lane-share custody state.
 
@@ -257,6 +264,13 @@ packages/sdk-web/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner
 packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts
 packages/shared-ts/src/utils/domainIds.ts
 packages/shared-ts/src/signing-lanes/records.ts
+crates/ecdsa-hss/src/shared/context.rs
+crates/signer-core/src/commands/ecdsa_bootstrap.rs
+crates/signer-core/src/commands/ecdsa_export.rs
+crates/signer-core/src/threshold_ecdsa_hss/command.rs
+wasm/eth_signer/src/ecdsa_hss.rs
+wasm/hss_client_signer/src/threshold_hss.rs
+wasm/threshold_prf/src/lib.rs
 ```
 
 Important tests:
@@ -314,6 +328,12 @@ Guard categories:
   calls `requireRpId(...)`;
 - `rpId` in ECDSA files is allowed only in passkey auth bindings, WebAuthn
   boundary parsing, or named ECDSA key-identity migration parsers.
+- no ECDSA-HSS cryptographic context or derivation input accepts
+  `wallet_id`, `wallet_key_id`, `ecdsa_threshold_key_id`, `signing_root_id`,
+  `signing_root_version`, `rp_id`, `key_purpose`, or `key_version`;
+- no signer-core generated ECDSA-HSS bootstrap/export context exposes
+  `walletId`, `walletKeyId`, `ecdsaThresholdKeyId`, `signingRootId`,
+  `signingRootVersion`, `keyPurpose`, or `keyVersion`.
 
 Initial guard should classify existing allowed hits:
 
@@ -377,6 +397,9 @@ Builder rules:
 - passkey auth bindings require `rpId` and `credentialIdB64u`;
 - Email OTP auth bindings require `providerSubjectId` and reject `rpId`;
 - ECDSA key identity builders require `walletKeyId` and reject `rpId`.
+- ECDSA-HSS context builders accept `applicationBindingDigest` only for SDK
+  identity binding. They reject wallet, wallet-key, threshold-key, signing-root,
+  chain-target, auth, purpose, and version fields.
 
 Type fixtures:
 
@@ -512,11 +535,14 @@ Email OTP-only and future-auth wallets depend on a passkey/WebAuthn concept.
 Target:
 
 - add `walletKeyId` to `EvmFamilyEcdsaKeyIdentity`, `EvmFamilyEcdsaWalletKey`,
-  and session bootstrap key context;
+  SDK session bootstrap records, and exact-lane/public-facts identity;
 - remove `rpId` from ECDSA key identity, ECDSA key comparisons, exact ECDSA lane
   canonicalization, and ECDSA key fingerprints;
 - keep `rpId` only in `PasskeyEcdsaAuthBinding` and passkey/WebAuthn transport
   boundaries;
+- keep `walletKeyId` outside ECDSA-HSS derivation. It identifies the SDK wallet
+  key lane; `ecdsaThresholdKeyId` is an SDK key fact that feeds the SDK
+  ECDSA-HSS application-binding digest;
 - update Email OTP ECDSA login, enrollment, publication, restore, and companion
   session flows so they resolve `walletKeyId` from bootstrap/key records instead
   of calling `requireRpId(...)`;
@@ -537,6 +563,579 @@ Tests:
   distinct exact identities;
 - compatibility parser rejects old ECDSA records when `walletKeyId` cannot be
   recovered.
+
+## Phase 3b: Slim ECDSA-HSS Cryptographic Context
+
+Current ECDSA-HSS stable context carries values that belong to SDK product
+identity or single-value protocol constants:
+
+```rust
+pub struct EcdsaHssStableKeyContext {
+    pub wallet_id: String,
+    pub wallet_key_id: String,
+    pub ecdsa_threshold_key_id: String,
+    pub signing_root_id: String,
+    pub signing_root_version: String,
+    pub key_purpose: String,
+    pub key_version: String,
+}
+```
+
+That makes the HSS crate understand Seams product identity. `wallet_id`,
+`wallet_key_id`, `ecdsa_threshold_key_id`, `signing_root_id`, and
+`signing_root_version` are SDK-level binding facts. `rp_id` is passkey/WebAuthn
+auth scope, `key_purpose` is currently a caller-provided spelling of the fixed
+EVM-family purpose, and `key_version` is currently the single protocol enum
+value `v1`.
+
+Target ECDSA-HSS crate context:
+
+```rust
+pub struct EcdsaHssStableKeyContext {
+    pub application_binding_digest: [u8; 32],
+}
+```
+
+The SDK builds `application_binding_digest` from the SDK facts it wants to bind:
+
+```ts
+type SdkEcdsaHssBindingFacts = {
+  walletId: WalletId;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+};
+```
+
+The digest builder uses a versioned, domain-separated, length-delimited
+encoding. The HSS crate receives only the digest and does not know how the SDK
+chose to compose it.
+
+Keep these as code constants/domain parameters:
+
+```rust
+pub const ECDSA_HSS_CONTEXT_VERSION: &str = "v4";
+pub const ECDSA_HSS_SCHEME_ID: &str = "ecdsa-hss-v4";
+pub const ECDSA_HSS_CURVE: &str = "secp256k1";
+pub const ECDSA_HSS_PARTICIPANT_IDS: [u16; 2] = [1, 2];
+```
+
+Rules:
+
+- remove `wallet_id`, `wallet_key_id`, `ecdsa_threshold_key_id`,
+  `signing_root_id`, `signing_root_version`, `rp_id`, `key_purpose`, and
+  `key_version` from `crates/ecdsa-hss` derivation inputs, context encoding,
+  tests, docs, and fixtures;
+- remove the same fields from signer-core and WASM HSS command contexts when
+  they only feed `EcdsaHssStableKeyContext`;
+- introduce one SDK-owned digest builder for ECDSA-HSS binding facts. It
+  currently binds `walletId`, `ecdsaThresholdKeyId`, `signingRootId`, and
+  `signingRootVersion`. Future SDK facts must be added to that builder rather
+  than to the HSS crate context;
+- include EVM-family scope, chain namespace, or key-purpose labels in the SDK
+  digest builder if the SDK needs to distinguish this material from another
+  secp256k1 HSS use. Do not add app scope fields to the HSS crate context;
+- make `applicationBindingDigest` the only SDK-controlled selector inside
+  ECDSA-HSS derivation;
+- bump the ECDSA-HSS context domain/scheme and pending/ready state blob magic
+  or envelope version so old dev blobs fail clearly;
+- update `wasm/threshold_prf` ECDSA-HSS derivation input so it no longer
+  accepts SDK wallet, signing-root, chain, passkey RP, or purpose/version
+  labels;
+- keep `walletKeyId` in SDK exact lane identity, wallet-key records, public
+  facts, export authorization, and persistence where it identifies the product
+  wallet key lane;
+- keep `walletId`, `ecdsaThresholdKeyId`, `signingRootId`, and
+  `signingRootVersion` in SDK exact lane identity, public facts, admission, and
+  digest-builder inputs where they define SDK authority;
+- keep `rpId` only in passkey auth bindings and WebAuthn secret-source
+  boundaries;
+- do not include `walletKeyId` in the SDK digest unless the product intends a
+  wallet-key lane alias change to create different HSS material. The current
+  model keeps `walletKeyId` as SDK lane authority outside HSS derivation.
+
+Tests:
+
+- SDK ECDSA-HSS binding digest changes when `walletId`,
+  `ecdsaThresholdKeyId`, `signingRootId`, or `signingRootVersion` changes;
+- SDK ECDSA-HSS binding digest does not change when only `walletKeyId` changes
+  under the current lane-alias model;
+- ECDSA-HSS context binding changes when `applicationBindingDigest` changes;
+- source guards reject `wallet_id`, `wallet_key_id`, `ecdsa_threshold_key_id`,
+  `signing_root_id`, `signing_root_version`, `rp_id`, `key_purpose`, and
+  `key_version` in `crates/ecdsa-hss` derivation context files;
+- signer-core generated TS command types no longer expose `keyPurpose`,
+  `keyVersion`, `walletId`, `walletKeyId`, `ecdsaThresholdKeyId`,
+  `signingRootId`, or `signingRootVersion` inside HSS command contexts;
+- passkey and Email OTP ECDSA bootstrap still produce matching client/relayer
+  HSS context bindings after regeneration;
+- export authorization validates `walletKeyId` against public facts at the SDK
+  or server boundary, before signer-core/HSS export commands run.
+
+## Phase 3c: Delete ECDSA-HSS Boundary and Planning Duplication
+
+Phase 3b defines the slim cryptographic context. This phase removes the
+surrounding request, adapter, generated, and planning shapes that can keep the
+old broad context alive.
+
+Generated and WASM boundary cleanup:
+
+- regenerate `packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts`
+  after the Rust signer-core command structs change;
+- rebuild `wasm/threshold_prf/pkg/*` so generated JS and `.d.ts` exports match
+  the slim `threshold_prf_derive_ecdsa_hss_y_relayer(...)` signature;
+- update `packages/sdk-web/src/core/platform/ports.ts` and
+  `packages/sdk-web/src/core/platform/signerCoreCommandAdapters.ts` so ECDSA-HSS
+  bootstrap inputs carry `applicationBindingDigest` instead of SDK wallet,
+  signing-root, chain, passkey RP, or purpose/version facts;
+- update `packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts`,
+  `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`,
+  and `packages/shared-ts/src/utils/routerAbEcdsaHss.ts` so Router A/B ECDSA-HSS
+  scope context is converted to the SDK binding digest before calling HSS;
+- remove stale generated or fixture references to `wallet_id`, `wallet_key_id`,
+  `ecdsa_threshold_key_id`, `signing_root_id`, `signing_root_version`, `rp_id`,
+  `key_purpose`, and `key_version` in ECDSA-HSS derivation context files.
+
+Command-shape cleanup:
+
+- remove `chainTarget` from signer-core ECDSA-HSS bootstrap context when it is
+  only validated and discarded before `EcdsaHssStableKeyContext` construction;
+- remove `chainTarget` from signer-core ECDSA-HSS export public facts if it is
+  only validated and discarded by the cryptographic export path;
+- keep chain target in SDK exact lane identity, export selection identity, and
+  operation planning where it controls EVM-family routing. Include a chain or
+  key-scope label in the SDK digest builder only when it should change HSS
+  material;
+- move passkey/Email OTP export authorization validation out of signer-core HSS
+  export commands. Signer-core export receives state blob, slim public facts,
+  application binding digest, public keys, and server export share;
+- keep `walletKeyId` checks in SDK/server export admission where wallet-key
+  authority is available.
+
+Planning and authority-field cleanup:
+
+- remove stored `authMethod` from `SelectedLane`, lane candidates, and signing
+  planning lanes. Use `signingLaneAuthMethod(auth)` for display, analytics, and
+  compatibility payloads only;
+- replace optional core identity/session fields on planning lanes with
+  branch-specific lifecycle states, so selected lanes always require exact
+  threshold-session identity;
+- shrink `WalletSigningSpendPlan` so it carries operation id, optional operation
+  fingerprint, lane, uses, reason, and backing-material ids. Derive `walletId`,
+  `signingGrantId`, and threshold-session ids from the exact lane;
+- delete legacy `ecdsaKey` stripping in spend-plan normalization after callers
+  compile against the current shape;
+- collapse ECDSA exact-record filtering to one canonical exact identity
+  comparison path. Broad candidate summaries may remain diagnostics only.
+
+Tests and guards:
+
+- source guards fail when generated signer-core or WASM ECDSA-HSS bindings expose
+  removed SDK context fields;
+- Router A/B ECDSA-HSS fixtures use the same context byte framing as
+  the SDK ECDSA-HSS application-binding digest builder;
+- signer-core export tests prove passkey/Email OTP authorization branches are
+  absent from cryptographic export commands;
+- tests prove the SDK digest builder is the only place SDK identity facts are
+  assembled for ECDSA-HSS;
+- type fixtures reject direct `authMethod` authority construction in selected
+  lanes, candidates, planning lanes, and spend plans;
+- spend-plan tests prove duplicated wallet/session fields cannot be supplied and
+  cannot diverge from the exact lane.
+
+ECDSA-HSS digest-boundary inventory:
+
+```bash
+rg -n "EcdsaHss|ecdsa_hss|threshold_ecdsa_hss|EcdsaClientBootstrap|walletKeyId|ecdsaThresholdKeyId|routerAbEcdsaHss" crates/ecdsa-hss crates/signer-core wasm packages/sdk-server-ts/src/core/ThresholdService packages/sdk-web/src/core packages/shared-ts/src tests/unit
+rg -n "wallet_id|wallet_key_id|ecdsa_threshold_key_id|signing_root_id|signing_root_version|key_purpose|key_version|applicationBindingDigest|application_binding_digest" crates/ecdsa-hss crates/signer-core/src/commands/ecdsa* crates/signer-core/src/threshold_ecdsa_hss wasm/eth_signer wasm/threshold_prf packages/sdk-server-ts/src/core/ThresholdService packages/sdk-web/src/core/platform packages/sdk-web/src/core/signingEngine packages/shared-ts/src/utils/routerAbEcdsaHss.ts tests/unit
+```
+
+Primary files:
+
+```text
+crates/ecdsa-hss/src/shared/context.rs
+crates/ecdsa-hss/src/shared/derive.rs
+crates/ecdsa-hss/specs/protocol.md
+crates/ecdsa-hss/specs/export.md
+crates/ecdsa-hss/security.md
+crates/ecdsa-hss/fixtures/role_local_v2.json
+crates/ecdsa-hss/tests/role_local_mvp.rs
+crates/ecdsa-hss/formal-verification/lean-boundary/*
+crates/ecdsa-hss/formal-verification/lean-boundary/generated/*
+crates/ecdsa-hss/formal-verification/lean-boundary/rust-boundary/src/lib.rs
+crates/signer-core/src/commands/ecdsa_bootstrap.rs
+crates/signer-core/src/commands/ecdsa_export.rs
+crates/signer-core/src/threshold_ecdsa_hss/command.rs
+crates/signer-core/tests/export_typescript_schemas.rs
+wasm/eth_signer/src/ecdsa_hss.rs
+wasm/threshold_prf/src/lib.rs
+packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts
+packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm.ts
+packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts
+packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPresignBridge.ts
+packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts
+packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts
+packages/sdk-server-ts/src/core/ThresholdService/postgresRecords.ts
+packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts
+packages/sdk-web/src/core/platform/ports.ts
+packages/sdk-web/src/core/platform/signerCoreCommandAdapters.ts
+packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts
+packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts
+packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap.ts
+packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts
+packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts
+packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/*
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts
+packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts
+packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts
+packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts
+packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts
+packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts
+packages/shared-ts/src/utils/routerAbEcdsaHss.ts
+packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap.ts
+```
+
+Likely stale fixture tests:
+
+```text
+tests/unit/thresholdEcdsa.hssWasmSurface.unit.test.ts
+tests/unit/thresholdEcdsa.hssRoleLocalClientParser.unit.test.ts
+tests/unit/thresholdEcdsa.hssRoleLocalExportPolicy.unit.test.ts
+tests/unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts
+tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts
+tests/unit/routerAbEcdsaHssPresignBridge.unit.test.ts
+tests/unit/routerAbEcdsaHssBudgetRouteCore.unit.test.ts
+tests/unit/ecdsaExportMaterial.unit.test.ts
+tests/unit/ecdsaMaterialState.unit.test.ts
+tests/unit/warmSessionEcdsaProvisioning.unit.test.ts
+tests/unit/refactor79ExactSigningLane.guard.unit.test.ts
+```
+
+## Phase 3d: Slim Ed25519-HSS Cryptographic Context
+
+Current Ed25519-HSS derivation accepts values that are either fixed protocol
+labels or final NEAR account identity:
+
+```rust
+pub struct Ed25519HssCanonicalContextV1 {
+    pub org_id: String,
+    pub account_id: String,
+    pub key_purpose: String,
+    pub key_version: String,
+    pub participant_ids: Vec<u16>,
+    pub derivation_version: u32,
+}
+```
+
+That shape keeps the old NEAR-account-as-wallet-id model alive. It also lets
+callers provide `key_purpose` and `key_version` even though current flows use
+single fixed values. For implicit accounts, deriving HSS material from final
+`nearAccountId` is the wrong boundary: the final account id is derived from the
+Ed25519 public key, while HSS registration needs a stable key scope before that
+final account id exists.
+
+Target Ed25519-HSS crate context:
+
+```rust
+pub struct Ed25519HssStableKeyContext {
+    pub application_binding_digest: [u8; 32],
+    pub participant_ids: Vec<u16>,
+}
+```
+
+The SDK builds `application_binding_digest` from the SDK facts it wants to bind:
+
+```ts
+type SdkEd25519HssBindingFacts = {
+  ed25519KeyScopeId: Ed25519KeyScopeId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+};
+```
+
+The digest builder uses a domain-separated, length-delimited encoding. The HSS
+crate receives only the digest and does not know how the SDK chose to compose
+it.
+
+Seams SDK keeps the raw binding facts only where they are real SDK authority or
+account-binding data. Any SDK type whose only purpose is to call Ed25519-HSS
+must pass `applicationBindingDigest` rather than raw SDK identity fields.
+
+Keep these as code constants/domain parameters:
+
+```rust
+pub const ED25519_HSS_CONTEXT_VERSION: &str = "v2";
+pub const ED25519_HSS_SCHEME_ID: &str = "ed25519-hss-v2";
+pub const ED25519_HSS_CURVE: &str = "ed25519";
+```
+
+Rules:
+
+- remove `key_purpose`, `keyPurpose`, `key_version`, and `keyVersion` from
+  Ed25519-HSS derivation inputs, context encoding, command bodies, generated
+  bindings, tests, docs, and fixtures;
+- remove `account_id`, `accountId`, and `nearAccountId` from Ed25519-HSS
+  derivation inputs and context encoding;
+- remove `ed25519_key_scope_id`, `ed25519KeyScopeId`, `signing_root_id`,
+  `signingRootId`, `signing_root_version`, and `signingRootVersion` from the
+  Ed25519-HSS crate context and generated HSS command shapes;
+- introduce one SDK-owned digest builder for Ed25519-HSS binding facts. It
+  currently binds `ed25519KeyScopeId`, `signingRootId`, and
+  `signingRootVersion`. Future SDK facts must be added to that builder rather
+  than to the HSS crate context;
+- remove `nearAccountId`, `accountId`, `keyPurpose`, `keyVersion`,
+  `ed25519KeyScopeId`, `signingRootId`, and `signingRootVersion` from Seams SDK
+  request/result/worker/port types when those fields exist only to construct an
+  Ed25519-HSS context;
+- keep raw SDK binding facts in exact lane identity, wallet/account binding
+  records, registration-session state, audit data, and digest-builder inputs
+  where those facts still define SDK authority;
+- make the SDK digest builder the single conversion point from raw SDK facts to
+  Ed25519-HSS input. Core flows should pass an `Ed25519HssApplicationBindingDigest`
+  branded value across signer-core, WASM, worker, and server boundaries;
+- include NEAR scope in the SDK digest builder if the SDK needs to distinguish
+  NEAR Ed25519 material from another Ed25519 use. Do not add a chain/scope field
+  to the HSS crate context;
+- use `applicationBindingDigest` as the only SDK-controlled selector inside
+  Ed25519-HSS derivation. Do not replace `nearAccountId` with `walletId`; exact
+  lane identity already carries `walletId`, and the SDK digest carries the
+  desired app-level key binding;
+- keep `nearAccountId` in `ExactEd25519SigningLaneIdentity`, NEAR transaction
+  signer validation, access-key/nonce readiness, wallet-account binding records,
+  public wallet/account surfaces, and audit logs where it represents the final
+  protocol account;
+- keep `walletId` outside the Ed25519-HSS cryptographic context unless a
+  concrete collision case proves the SDK binding facts are insufficient. The
+  preferred fix for such a collision is to strengthen the SDK digest builder
+  instead of adding a second wallet alias to HSS;
+- keep `participant_ids` in the HSS context because the participant set changes
+  the threshold shares and binding;
+- bump the Ed25519-HSS context domain/scheme and any pending/ready state blob
+  magic or envelope version so old dev blobs fail clearly;
+- delete old compatibility parsers, stale fixtures, and tests that encode
+  `account_id`, `nearAccountId`, `keyPurpose`, or `keyVersion` as Ed25519-HSS
+  derivation fields. If an external boundary still sends the old shape, update
+  that boundary in the same phase or reject it with a typed request error.
+
+Cleanup task list:
+
+1. Add a single SDK digest type and builder.
+
+   - define `Ed25519HssApplicationBindingDigest` as a branded 32-byte digest or
+     base64url digest at the SDK boundary;
+   - define `SdkEd25519HssBindingFacts` in one shared SDK module;
+   - build the digest with a versioned, domain-separated, length-delimited
+     encoding;
+   - make all client/server SDK flows call this builder before crossing into
+     signer-core, WASM, workers, or threshold PRF;
+   - add test vectors for the digest encoding.
+
+2. Replace crate/WASM HSS context shapes.
+
+   - replace `Ed25519HssCanonicalContextV1` with the slim digest context;
+   - remove key-purpose, key-version, account-id, key-scope, signing-root, and
+     chain/scope field validation from HSS context parsing;
+   - remove echo fields such as `keyPurpose` and `keyVersion` from HSS client
+     and server outputs;
+   - regenerate signer-core command schemas and WASM bindings;
+   - update Rust/WASM tests so changed digest or participant set changes the HSS
+     binding.
+
+3. Clean Seams SDK HSS-facing request, result, port, and worker types.
+
+   - replace raw HSS context facts with `applicationBindingDigest`;
+   - remove raw context facts from Router A/B Ed25519-HSS prepare/respond/finalize
+     request bodies when the fields exist only to feed HSS;
+   - update web worker messages, near-signer messages, hss-client worker messages,
+     `SigningSurface` ports, and generated signer-core adapters;
+   - remove public or iframe API fields that only proxy old HSS context facts;
+   - reject old request bodies that still include `keyPurpose`, `keyVersion`, or
+     final account id as HSS context fields.
+
+4. Classify remaining raw SDK identity fields.
+
+   - keep `nearAccountId` where it represents the final NEAR account in exact
+     lane identity, NEAR transaction signer checks, readiness, export display,
+     wallet/account binding records, and audit logs;
+   - keep `ed25519KeyScopeId`, `signingRootId`, and `signingRootVersion` where
+     they are SDK authority facts or digest-builder input;
+   - remove or rename `keyVersion` in Ed25519 worker material records. If it
+     means HSS protocol version, delete it. If it means sealed-material or
+     session-seal metadata, rename it to the precise material/seal version type;
+   - keep `materialFormatVersion`, `sessionSealKeyVersion`, and similar storage
+     metadata only when they are unrelated to HSS derivation.
+
+5. Update persistence, registration, recovery, and warm-session call chains.
+
+   - registration and add-signer should persist raw SDK authority facts and store
+     HSS material created from the digest;
+   - email OTP and passkey recovery should reconstruct the digest from persisted
+     SDK facts before calling HSS;
+   - warm-session hydration should persist exact lane identity separately from
+     HSS digest input;
+   - delete fixtures and helpers that still synthesize HSS `keyPurpose`,
+     `keyVersion`, or final account id.
+
+6. Add guards.
+
+   - source guards fail when HSS crate files or generated HSS command types
+     expose removed raw fields;
+   - SDK guards fail when HSS-facing request/result/worker/port types expose raw
+     SDK facts instead of `applicationBindingDigest`;
+   - targeted type fixtures reject direct construction of old Ed25519-HSS
+     request bodies.
+
+Rough inventory and search plan:
+
+Primary grep commands:
+
+```bash
+rg -n "Ed25519Hss|ed25519_hss|threshold_ed25519_hss|deriveThresholdEd25519Hss|prepareThresholdEd25519Hss|runThresholdEd25519Hss|ThresholdEd25519Hss|threshold_prf_derive_ed25519_hss|deriveEd25519HssServerInputs|ed25519Hss" crates/signer-core wasm packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
+rg -n "keyPurpose|key_purpose|keyVersion|key_version" crates/signer-core/src/near_ed25519_recovery.rs crates/signer-core/src/commands/ed25519_worker_material.rs wasm/threshold_prf wasm/hss_client_signer packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
+rg -n "applicationBindingDigest|application_binding_digest|nearAccountId|account_id|accountId|ed25519KeyScopeId|signingRootId|signing_root_id|signingRootVersion|signing_root_version" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
+```
+
+Rust/signer-core and WASM HSS context:
+
+```text
+crates/signer-core/src/near_ed25519_recovery.rs
+crates/signer-core/src/commands/ed25519_worker_material.rs
+crates/signer-core/src/commands/mod.rs
+crates/signer-core/tests/export_typescript_schemas.rs
+wasm/threshold_prf/src/lib.rs
+wasm/threshold_prf/pkg/*
+wasm/hss_client_signer/src/client_inputs.rs
+wasm/hss_client_signer/src/threshold_hss.rs
+wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_hss_client_inputs.rs
+wasm/near_signer/src/threshold/threshold_hss.rs
+wasm/near_signer/src/threshold/worker_material.rs
+wasm/near_signer/src/types/worker_messages.rs
+```
+
+Server request, ceremony, and threshold-service surfaces:
+
+```text
+packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts
+packages/sdk-server-ts/src/core/ThresholdService/ed25519HssWasm.ts
+packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver.ts
+packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts
+packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts
+packages/sdk-server-ts/src/core/ThresholdService/validation.ts
+packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts
+packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore.ts
+packages/sdk-server-ts/src/core/AuthService.ts
+packages/sdk-server-ts/src/router/relayWalletRegistration.ts
+packages/sdk-server-ts/src/router/relay.ts
+packages/sdk-server-ts/src/router/routeDefinitions.ts
+packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts
+packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts
+```
+
+Shared request/digest utilities:
+
+```text
+packages/shared-ts/src/threshold/index.ts
+packages/shared-ts/src/threshold/participants.ts
+packages/shared-ts/src/threshold/signingRootScope.ts
+packages/shared-ts/src/utils/registrationIntent.ts
+packages/shared-ts/src/utils/signingSessionSeal.ts
+packages/shared-ts/src/utils/registrationIntent.typecheck.ts
+```
+
+Web SDK platform, worker, and generated boundaries:
+
+```text
+packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts
+packages/sdk-web/src/core/platform/ports.ts
+packages/sdk-web/src/core/platform/signerCoreCommandAdapters.ts
+packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts
+packages/sdk-web/src/core/signingEngine/threshold/ed25519/clientOutputMask.ts
+packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssClientBase.ts
+packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts
+packages/sdk-web/src/core/signingEngine/threshold/ed25519/public.ts
+packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts
+packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts
+packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts
+packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts
+packages/sdk-web/src/core/signingEngine/workerManager/workers/hss-client.worker.ts
+packages/sdk-web/src/core/signingEngine/workerManager/workers/near-signer.worker.ts
+packages/sdk-web/src/core/signingEngine/workerManager/nearKeyOps/createNearKeyOps.ts
+packages/sdk-web/src/core/types/signer-worker.ts
+```
+
+Web SDK registration, recovery, signing, and persistence call chains:
+
+```text
+packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts
+packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts
+packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts
+packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts
+packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts
+packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts
+packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts
+packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts
+packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519HssExport.ts
+packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/clientSecretSource.ts
+packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts
+packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts
+packages/sdk-web/src/core/signingEngine/session/persistence/records.ts
+packages/sdk-web/src/core/accountData/near/keyMaterial.ts
+```
+
+Tests and fixtures most likely to encode the old shape:
+
+```text
+tests/unit/*ed25519*hss*
+tests/unit/*registration*
+tests/unit/*warmSessionEd25519*
+tests/unit/addWalletSigner.orchestration.unit.test.ts
+tests/unit/deviceRecoveryDomain.emailRecovery.unit.test.ts
+tests/unit/registrationCeremonyStore.unit.test.ts
+tests/unit/registrationIntentDigest.unit.test.ts
+tests/unit/relayWalletRegistration.boundary.unit.test.ts
+tests/unit/relayWalletRegistration.intentModes.unit.test.ts
+tests/unit/signingRootShareResolver.script.unit.test.ts
+tests/unit/thresholdEd25519.hssMaterialHandle.unit.test.ts
+tests/unit/thresholdEd25519.nearSignerWasm.unit.test.ts
+tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts
+tests/unit/thresholdEd25519.signingRootResolver.script.unit.test.ts
+tests/unit/thresholdPrfWasm.script.unit.test.ts
+tests/unit/warmSessionEd25519Persistence.unit.test.ts
+tests/helpers/emailOtpEcdsaTempoFlow.ts
+tests/helpers/thresholdEd25519TestUtils.ts
+```
+
+Tests and guards:
+
+- SDK Ed25519-HSS binding digest changes when `ed25519KeyScopeId`,
+  `signingRootId`, or `signingRootVersion` changes;
+- Ed25519-HSS context binding changes when `applicationBindingDigest` or
+  `participantIds` changes;
+- generated implicit-account fixtures prove `walletId !== nearAccountId` and
+  HSS derivation never receives `nearAccountId`;
+- passkey and Email OTP Ed25519 registration/add-signer/recovery produce
+  matching client/server HSS context bindings with only the slim fields;
+- source guards reject `account_id`, `accountId`, `nearAccountId`,
+  `ed25519_key_scope_id`, `ed25519KeyScopeId`, `signing_root_id`,
+  `signingRootId`, `signing_root_version`, `signingRootVersion`,
+  `key_purpose`, `keyPurpose`, `key_version`, and `keyVersion` inside
+  Ed25519-HSS crate derivation-context files and generated HSS command types;
+- tests reject constructing Ed25519-HSS request bodies with final account id or
+  caller-provided purpose/version fields;
+- tests prove the SDK digest builder is the only place SDK identity facts are
+  assembled for Ed25519-HSS;
+- source guards reject Seams SDK HSS-facing types that expose raw SDK binding
+  facts instead of `applicationBindingDigest`;
+- old fixtures that only exist to support the removed context shape are deleted.
 
 ## Phase 4: Remove Best-Candidate Selection From Transaction Signing
 
@@ -845,6 +1444,10 @@ pnpm -C tests exec playwright test --reporter=line unit/warmSessionEd25519Persis
 pnpm -C tests exec playwright test --reporter=line unit/routerAbEd25519.walletSessionState.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/emailOtpWalletSessionCoordinator.unit.test.ts
 pnpm -C tests exec playwright test --reporter=line unit/unlockEcdsaWarmupPlanner.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/thresholdEcdsa.hssWasmSurface.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/thresholdEcdsa.hssRoleLocalClientParser.unit.test.ts
+cargo test -p ecdsa-hss
+cargo test -p signer-core threshold_ecdsa_hss
 git diff --check
 ```
 
@@ -873,6 +1476,14 @@ Browser evidence after implementation:
   `ed25519KeyScopeId`.
 - Exact ECDSA identity uses `WalletId`, `keyHandle`, `WalletKeyId`, and full key
   identity without `rpId`.
+- ECDSA-HSS stable context contains only `application_binding_digest`; SDK
+  wallet, threshold-key, signing-root, chain-target, auth, caller-provided key
+  purpose, and caller-provided key version facts are absent from HSS crate
+  derivation inputs.
+- Ed25519-HSS stable context contains only `application_binding_digest` and
+  `participant_ids`; SDK key-scope/signing-root facts, final NEAR account ids,
+  caller-provided key purpose, and caller-provided key version are absent from
+  HSS crate derivation inputs.
 - Persistence writes enforce uniqueness or return typed duplicate errors.
 - Broad threshold-session reads are absent from authority-bearing paths.
 - Candidate ranking and timestamp tie-breakers are absent from authority-bearing

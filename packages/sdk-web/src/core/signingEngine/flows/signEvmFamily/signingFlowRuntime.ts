@@ -2,6 +2,7 @@ import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { assertThresholdSigningSessionReady } from '../../session/warmCapabilities/thresholdSigningSessionReadiness';
 import { SigningSessionIds } from '../../session/operationState/types';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
   SigningOperationContext,
   SigningOperationId,
@@ -183,7 +184,7 @@ function unavailableEcdsaSigningMaterialPlanForRecordState(
 async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
   record: ThresholdEcdsaSessionRecord | undefined;
   requestLabel: unknown;
-  rpId: unknown;
+  walletKeyId: unknown;
 }): Promise<EcdsaSigningMaterialPlan> {
   const recordState = classifyRouterAbEcdsaHssPersistedSigningRecord(args.record);
   if (recordState.kind !== 'runtime_validated') {
@@ -193,12 +194,12 @@ async function resolveRuntimeValidatedEcdsaSigningMaterialPlan(args: {
     const material = await buildReadySecp256k1SigningMaterialFromRecord({
       record: recordState.record,
       requestLabel: args.requestLabel,
-      rpId: args.rpId,
+      walletKeyId: args.walletKeyId,
     });
     return { kind: 'material_from_runtime_validated_record', material };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('rpId mismatch')) {
+    if (message.includes('walletKeyId mismatch')) {
       return { kind: 'unavailable', reason: 'rp_id_mismatch' };
     }
     if (message.includes('chain mismatch')) {
@@ -305,6 +306,10 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!rpId) {
           throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
         }
+        const walletKeyId = String(lane.key.walletKeyId || '').trim();
+        if (!walletKeyId) {
+          throw new Error('[SigningEngine] missing walletKeyId for passkey ECDSA reconnect');
+        }
         const signingKeyContext = signingKeyContextFromPasskeyEcdsaReconnectMaterial(material);
         const materialRelayerKeyId = relayerKeyIdFromPasskeyEcdsaReconnectMaterial(material);
         if (!materialRelayerKeyId) {
@@ -312,7 +317,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         }
         const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
           walletId,
-          rpId,
+          walletKeyId,
         });
         if (materialRelayerKeyId !== relayerKeyId) {
           throw new Error('[SigningEngine] passkey ECDSA reconnect relayer key mismatch');
@@ -331,7 +336,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const runtimePolicyScope = runtimePolicyScopeFromPasskeyEcdsaReconnectMaterial(material);
         const { policy } = await buildEcdsaSessionPolicy({
           walletId,
-          rpId,
+          walletKeyId,
           relayerKeyId,
           chainTarget: lane.chainTarget,
           ecdsaThresholdKeyId,
@@ -346,7 +351,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             });
             return computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
               walletId: policy.walletId,
-              rpId: policy.rpId,
+              walletKeyId: policy.walletKeyId,
+              rpId,
               ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
               signingRootId: String(signingRootBinding.signingRootId),
               signingRootVersion: String(signingRootBinding.signingRootVersion || 'default'),
@@ -406,7 +412,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           chain: args.request.chain,
           chainId: requestChainId,
           lane: {
-            authMethod: lane.authMethod,
+            authMethod: signingLaneAuthMethod(lane.auth),
             signingGrantId: String(lane.signingGrantId),
             thresholdSessionId: String(lane.thresholdSessionId),
           },
@@ -583,7 +589,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             await resolveRuntimeValidatedEcdsaSigningMaterialPlan({
               record: runtimeValidatedThresholdEcdsaRecord,
               requestLabel,
-              rpId: ctx.touchIdPrompt.getRpId?.(),
+              walletKeyId: args.getResolvedEcdsaSigningLane().key.walletKeyId,
             }),
         }
       : {}),

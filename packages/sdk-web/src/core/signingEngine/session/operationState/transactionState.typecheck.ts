@@ -9,6 +9,7 @@ import {
   buildFreshStepUpSatisfiedForAdmission,
 } from './stepUpFreshness';
 import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import {
   recordPreparedTransactionBudgetAdmissionFromFreshness,
   signPreparedTransactionOperation,
@@ -24,7 +25,11 @@ const lane = buildNearTransactionSigningLane({
   walletId,
   nearAccountId: accountId,
   ed25519KeyScopeId,
-  authMethod: 'passkey',
+  auth: {
+    kind: 'passkey',
+      rpId: toRpId('localhost'),
+    credentialIdB64u: 'credential-id',
+  },
   signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
   storageSource: 'login',

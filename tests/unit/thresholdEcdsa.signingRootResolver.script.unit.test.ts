@@ -53,7 +53,7 @@ const ECDSA_CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
   walletId: 'alice.near',
-  rpId: 'wallet.example.test',
+  walletKeyId: 'wallet-key-alice',
   chainTarget: ECDSA_CHAIN_TARGET,
   ecdsaThresholdKeyId: 'ecdsa-alpha',
   keyPurpose: 'wallet',
@@ -150,8 +150,6 @@ async function roleLocalBootstrapWithClientShare(args: {
   const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
     context: {
       walletId: ECDSA_CONTEXT.walletId,
-      rpId: ECDSA_CONTEXT.rpId,
-      chainTarget: ECDSA_CONTEXT.chainTarget,
       ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
@@ -162,7 +160,7 @@ async function roleLocalBootstrapWithClientShare(args: {
   return await args.service.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId: ECDSA_CONTEXT.walletId,
-    rpId: ECDSA_CONTEXT.rpId,
+    walletKeyId: ECDSA_CONTEXT.walletKeyId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -279,7 +277,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    rpId: 'example.localhost',
+    walletKeyId: ECDSA_CONTEXT.walletKeyId,
     clientPublicKey33B64u,
   });
   expect(first.ok).toBe(true);
@@ -293,7 +291,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    rpId: 'example.localhost',
+    walletKeyId: ECDSA_CONTEXT.walletKeyId,
     clientPublicKey33B64u,
     expectedEthereumAddress: first.canonicalEthereumAddress,
   });
@@ -309,7 +307,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    rpId: 'example.localhost',
+    walletKeyId: ECDSA_CONTEXT.walletKeyId,
     clientPublicKey33B64u,
     expectedEthereumAddress: `0x${'11'.repeat(20)}`,
   });

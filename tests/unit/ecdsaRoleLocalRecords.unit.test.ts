@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { parseWalletKeyId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
@@ -46,6 +47,13 @@ function compressedPublicKeyB64u(prefix: 2 | 3, fill: number): string {
   return base64UrlEncode(bytes);
 }
 
+function parsedDomain<T>(
+  result: { ok: true; value: T } | { ok: false; error: { message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -54,6 +62,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 
 const walletId = toWalletId('wallet.testnet');
 const rpId = toRpId('localhost');
+const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-role-local'));
 const keyHandle = 'ecdsa-key-handle';
 const passkeyCredentialIdB64u = 'passkey-credential-id';
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
@@ -88,7 +97,7 @@ function loadInput(
 ): LoadEcdsaRoleLocalReadyRecordInput {
   return {
     walletId,
-    rpId,
+    walletKeyId,
     chainTarget,
     keyHandle,
     ecdsaThresholdKeyId,
@@ -123,7 +132,7 @@ function legacyRoleLocalState(): Record<string, unknown> {
 function publicFacts() {
   return buildEcdsaRoleLocalPublicFacts({
     walletId,
-    rpId,
+    walletKeyId,
     chainTarget,
     keyHandle,
     ecdsaThresholdKeyId,
@@ -158,7 +167,7 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
   const source = String(overrides.source || 'registration');
   return {
     walletId,
-    authMetadata: { rpId },
+    authMetadata: { walletKeyId },
     chainTarget,
     relayerUrl: 'https://relayer.example',
     keyHandle,
@@ -211,7 +220,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       rpId,
     });
     expect(ready.publicFacts.walletId).toBe(walletId);
-    expect(ready.publicFacts.rpId).toBe(rpId);
+    expect(ready.publicFacts.walletKeyId).toBe(walletKeyId);
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
     expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(hssClientSharePublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
@@ -531,7 +540,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(malformed).toMatchObject({ ok: true, value: { kind: 'malformed' } });
     const cleanup = await runtime.storage.cleanupMalformedEcdsaRoleLocalRecord({
       walletId,
-      rpId,
+      walletKeyId,
       chainTarget,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -560,7 +569,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
       },
       publicFacts: {
         walletId,
-        rpId,
+        walletKeyId,
         chainTarget,
         keyHandle,
         ecdsaThresholdKeyId,

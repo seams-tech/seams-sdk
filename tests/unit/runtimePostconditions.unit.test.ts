@@ -21,6 +21,7 @@ import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
+  toRpId,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
@@ -46,6 +47,16 @@ const ARC_TARGET: ThresholdEcdsaChainTarget = {
 const ARC_TARGET_KEY = thresholdEcdsaChainTargetKey(ARC_TARGET);
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const WALLET_KEY_ID = 'wallet-key-runtime-postconditions';
+const PASSKEY_AUTH = {
+  kind: 'passkey' as const,
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-runtime-postconditions',
+};
+const EMAIL_OTP_AUTH = {
+  kind: 'email_otp' as const,
+  providerSubjectId: 'google:runtime-postconditions',
+};
 const REQUIRED_TARGETS = [
   { curve: 'ed25519' as const },
   { curve: 'ecdsa' as const, chainTarget: TARGET },
@@ -66,6 +77,7 @@ function ed25519Lane(
 ): ConcreteAvailableEd25519SigningLane {
   return {
     authMethod,
+    auth: authMethod === 'passkey' ? PASSKEY_AUTH : EMAIL_OTP_AUTH,
     curve: 'ed25519',
     chain: 'near',
     walletId: ED25519_WALLET_ID,
@@ -89,7 +101,7 @@ function ecdsaLane(
 ): ConcreteAvailableEcdsaSigningLane {
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: WALLET_ID,
-    rpId: 'localhost',
+    walletKeyId: WALLET_KEY_ID,
     ecdsaThresholdKeyId: 'ecdsa-key-runtime-postconditions',
     signingRootId: 'root-runtime-postconditions',
     signingRootVersion: 'default',
@@ -103,7 +115,6 @@ function ecdsaLane(
     thresholdOwnerAddress: key.thresholdOwnerAddress,
   });
   const laneBase = {
-    authMethod,
     curve: 'ecdsa' as const,
     chainTarget,
     state: options.state ?? 'ready',
@@ -119,17 +130,20 @@ function ecdsaLane(
   if (authMethod === 'passkey') {
     return {
       ...laneBase,
-      authMethod: 'passkey',
+      auth: PASSKEY_AUTH,
       resolvedKey: buildResolvedEvmFamilyEcdsaKey({
         walletId: WALLET_ID,
         publicFacts,
-        authBinding: buildPasskeyEcdsaAuthBinding({ rpId: 'localhost' }),
+        authBinding: buildPasskeyEcdsaAuthBinding({
+          rpId: 'localhost',
+          credentialIdB64u: PASSKEY_AUTH.credentialIdB64u,
+        }),
       }),
     };
   }
   return {
     ...laneBase,
-    authMethod: 'email_otp',
+    auth: EMAIL_OTP_AUTH,
   };
 }
 

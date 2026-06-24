@@ -19,7 +19,6 @@ import {
 } from '../keyMaterialBrands';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  thresholdEcdsaRecordRpId,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
@@ -130,10 +129,10 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       throw new Error('passkey ECDSA restore requires existing role-local ready record');
     }
 
-    upsertRestoredThresholdEcdsaSessionRecord({
-      walletId: toWalletId(args.walletId),
-      authMetadata: { rpId: thresholdEcdsaRecordRpId(args.record) },
-      chainTarget: args.record.chainTarget,
+	    upsertRestoredThresholdEcdsaSessionRecord({
+	      walletId: toWalletId(args.walletId),
+	      authMetadata: { walletKeyId: ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId },
+	      chainTarget: args.record.chainTarget,
       relayerUrl: args.record.relayerUrl,
       keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
       ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,

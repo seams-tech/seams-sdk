@@ -29,6 +29,7 @@ import {
 import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const WALLET_KEY_ID = 'wallet-key-request-boundary';
 const budgetChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -43,7 +44,7 @@ function authenticatedEcdsaBudgetCheck(args: {
 }): AuthenticatedEcdsaLaneBudgetStatusCheck {
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.walletId,
-    rpId: 'localhost',
+    walletKeyId: WALLET_KEY_ID,
     ecdsaThresholdKeyId: 'ecdsa-budget-key',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',

@@ -775,7 +775,7 @@ function routerAbEcdsaHssSigningIdentityFromScope(scope: RouterAbEcdsaHssNormalS
 } {
   const parsed = parseRouterAbEcdsaHssNormalSigningScopeV1(scope);
   return {
-    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(parsed.context.ecdsa_threshold_key_id),
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(parsed.ecdsa_threshold_key_id),
     clientVerifyingShareB64u: parseEcdsaClientVerifyingShareB64u(
       parsed.public_identity.client_public_key33_b64u,
     ),

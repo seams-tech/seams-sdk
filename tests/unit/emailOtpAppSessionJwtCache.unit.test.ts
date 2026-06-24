@@ -38,7 +38,10 @@ function makeIdentity() {
     walletId,
     nearAccountId,
     ed25519KeyScopeId,
-    authMethod: 'email_otp',
+    auth: {
+      kind: 'email_otp',
+      providerSubjectId: 'google:wallet.testnet',
+    },
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
   });

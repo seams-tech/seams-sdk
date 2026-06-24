@@ -16,11 +16,17 @@ import {
   buildRouterAbEcdsaHssEvmDigestSigningBudgetedFinalizeRequestV1,
   buildRouterAbEcdsaHssEvmDigestSigningRequestV1,
   routerAbEcdsaHssContextBindingB64uV1,
-  ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
+  routerAbEcdsaHssStableKeyContextFromSdkFactsV1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PREPARE_PATH_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
 } from '@shared/utils/routerAbEcdsaHss';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+  parseSdkEcdsaHssThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
@@ -39,6 +45,12 @@ type RouterAbBudgetConsumeCall = {
 };
 
 const ROUTER_AB_TEST_EXPIRES_AT_MS = Date.now() + 60 * 60 * 1000;
+
+function walletIdForFixture(value: unknown): WalletId {
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 const NORMAL_SIGNING_ROUTES = [
   {
@@ -93,6 +105,8 @@ const ROUTER_AB_ED25519_CLAIMS = {
   kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   sub: 'alice.testnet',
   walletId: 'alice.testnet',
+  nearAccountId: 'alice.testnet',
+  ed25519KeyScopeId: 'alice.testnet',
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   relayerKeyId: 'relayer-key-1',
@@ -112,18 +126,16 @@ const ROUTER_AB_ED25519_CLAIMS = {
 } as const;
 
 const ECDSA_HSS_SCOPE = {
+  wallet_key_id: 'wallet-key-example-localhost',
+  wallet_id: 'alice.testnet',
+  ecdsa_threshold_key_id: 'ehss-key-test',
+  signing_root_id: 'signing-root',
+  signing_root_version: 'default',
   context: {
-    wallet_id: 'alice.testnet',
-    rp_id: 'example.localhost',
-    key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-    ecdsa_threshold_key_id: 'ehss-key-test',
-    signing_root_id: 'signing-root',
-    signing_root_version: 'default',
-    key_purpose: 'normal-signing',
-    key_version: 'v1',
+    application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
   public_identity: {
-    context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
+    context_binding_b64u: 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w',
     client_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
     server_public_key33_b64u: b64u([0x03, ...Array.from({ length: 32 }, () => 2)]),
     threshold_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
@@ -146,16 +158,17 @@ const ROUTER_AB_ECDSA_HSS_CLAIMS = {
   thresholdSessionId: 'threshold-ecdsa-session-1',
   signingGrantId: 'signing-grant-ecdsa-1',
   keyScope: 'evm-family',
-  keyHandle: ECDSA_HSS_SCOPE.context.ecdsa_threshold_key_id,
+  keyHandle: ECDSA_HSS_SCOPE.ecdsa_threshold_key_id,
+  walletKeyId: ECDSA_HSS_SCOPE.wallet_key_id,
   relayerKeyId: 'relayer-key-1',
-  rpId: ECDSA_HSS_SCOPE.context.rp_id,
+  rpId: 'example.localhost',
   thresholdExpiresAtMs: ROUTER_AB_TEST_EXPIRES_AT_MS,
   participantIds: [1, 2],
   runtimePolicyScope: {
     orgId: 'org',
     projectId: 'proj',
     envId: 'dev',
-    signingRootVersion: ECDSA_HSS_SCOPE.context.signing_root_version,
+    signingRootVersion: ECDSA_HSS_SCOPE.signing_root_version,
   },
   routerAbEcdsaHssNormalSigning: {
     kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
@@ -638,14 +651,17 @@ async function ecdsaFinalizeBudgetCase(input: {
   privatePath: string;
   budget: RouterAbBudgetConsumeCall;
 }> {
-  const context = {
-    ...ECDSA_HSS_SCOPE.context,
+  const context = await routerAbEcdsaHssStableKeyContextFromSdkFactsV1({
+    walletId: walletIdForFixture(ECDSA_HSS_SCOPE.wallet_id),
+    ecdsaThresholdKeyId: parseSdkEcdsaHssThresholdKeyId(input.keyHandle),
+    signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
+  });
+  const scope = {
+    ...ECDSA_HSS_SCOPE,
     ecdsa_threshold_key_id: input.keyHandle,
     signing_root_id: input.signingRootId,
     signing_root_version: input.signingRootVersion,
-  };
-  const scope = {
-    ...ECDSA_HSS_SCOPE,
     context,
     public_identity: {
       ...ECDSA_HSS_SCOPE.public_identity,

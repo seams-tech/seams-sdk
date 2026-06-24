@@ -15,6 +15,7 @@ import {
 import {
   selectedEcdsaLane,
   selectedEd25519Lane,
+  laneCandidateAuthMethod,
   type EcdsaLaneCandidate,
   type Ed25519LaneCandidate,
   type LaneCandidate,
@@ -184,7 +185,7 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
       walletId: candidate.walletId,
       nearAccountId: candidate.nearAccountId,
       ed25519KeyScopeId: candidate.ed25519KeyScopeId,
-      authMethod: candidate.authMethod,
+      auth: candidate.auth,
       signingGrantId: candidate.signingGrantId,
       thresholdSessionId: candidate.thresholdSessionId,
     });
@@ -193,7 +194,7 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
     key: candidate.key,
     keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
-    authMethod: candidate.authMethod,
+    auth: candidate.auth,
     signingGrantId: candidate.signingGrantId,
     thresholdSessionId: candidate.thresholdSessionId,
     chainTarget: candidate.chainTarget,
@@ -203,7 +204,8 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
 function allowedAuthMethods(
   candidates: readonly ConcreteTransactionCandidate[],
 ): SigningAuthMethod[] {
-  return [...new Set(candidates.map((candidate) => candidate.candidate.authMethod))].sort();
+  return [...new Set(candidates.map((candidate) => laneCandidateAuthMethod(candidate.candidate)))]
+    .sort();
 }
 
 function candidateStatePriority(candidate: ConcreteTransactionCandidate): number {
@@ -378,7 +380,7 @@ function selectSelectedEd25519Lane(
     }
     if (
       intent.authSelectionPolicy.kind === 'explicit' &&
-      candidate.authMethod !== intent.authSelectionPolicy.authMethod
+      laneCandidateAuthMethod(candidate) !== intent.authSelectionPolicy.authMethod
     ) {
       return {
         ok: false,
@@ -458,7 +460,7 @@ function selectEvmFamilyEcdsaTransactionLane(
     }
     if (
       intent.authSelectionPolicy.kind === 'explicit' &&
-      candidate.authMethod !== intent.authSelectionPolicy.authMethod
+      laneCandidateAuthMethod(candidate) !== intent.authSelectionPolicy.authMethod
     ) {
       return {
         ok: false,
@@ -521,7 +523,7 @@ function selectConcreteTransactionCandidate<
       : (() => {
           const policyAuthMethod = intent.authSelectionPolicy.authMethod;
           return args.candidates.filter(
-            (candidate) => candidate.candidate.authMethod === policyAuthMethod,
+            (candidate) => laneCandidateAuthMethod(candidate.candidate) === policyAuthMethod,
           );
         })();
 

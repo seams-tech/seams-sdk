@@ -1,10 +1,19 @@
 import type {
+  EcdsaThresholdKeyId,
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
+  SigningRootId,
+  SigningRootVersion,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { WalletId } from '@shared/utils/domainIds';
+import type { WalletKeyId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
 
+export type {
+  EcdsaThresholdKeyId,
+  SigningRootId,
+  SigningRootVersion,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 export type { WalletId } from '@shared/utils/domainIds';
 
 export type EvmEip155ChainTarget = {
@@ -24,12 +33,9 @@ export type ThresholdEcdsaChainTarget = EvmEip155ChainTarget | TempoChainTarget;
 
 export type CredentialIdB64u = string & { readonly __brand: 'CredentialIdB64u' };
 export type RpId = string & { readonly __brand: 'RpId' };
-export type EcdsaThresholdKeyId = string & { readonly __brand: 'EcdsaThresholdKeyId' };
 export type EmailOtpAuthSubjectId = string & {
   readonly __brand: 'EmailOtpAuthSubjectId';
 };
-export type SigningRootId = string & { readonly __brand: 'SigningRootId' };
-export type SigningRootVersion = string & { readonly __brand: 'SigningRootVersion' };
 export type EcdsaGroupPublicKey33B64u = string & {
   readonly __brand: 'EcdsaGroupPublicKey33B64u';
 };
@@ -53,12 +59,13 @@ export type EcdsaRoleLocalReadyStateBlob = {
 
 export type EcdsaRoleLocalPublicFacts = {
   walletId: WalletId;
-  rpId: RpId;
+  walletKeyId: WalletKeyId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
+  applicationBindingDigestB64u: string;
   clientParticipantId: 1;
   relayerParticipantId: 2;
   participantIds: readonly [1, 2];
@@ -195,7 +202,7 @@ export type EcdsaRoleLocalRecordParseResult =
 
 export type LoadEcdsaRoleLocalReadyRecordInput = {
   walletId: WalletId;
-  rpId: RpId;
+  walletKeyId: WalletKeyId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;

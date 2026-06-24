@@ -10,7 +10,6 @@ import type {
 import type { RpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaThresholdKeyId,
-  EmailOtpAuthSubjectId,
   SigningRootId,
   SigningRootVersion,
 } from '../signingEngine/session/identity/emailOtpHssIdentity';
@@ -30,11 +29,11 @@ import type {
   PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
 } from './generated/signerCoreCommands';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
+import type { WalletKeyId } from '@shared/signing-lanes';
 import type { PlatformResult } from './http';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
   CleanupMalformedEcdsaRoleLocalRecordResult,
-  CredentialIdB64u,
   EcdsaGroupPublicKey33B64u,
   EcdsaRoleLocalAuthMethod,
   EcdsaRoleLocalPendingStateBlob,
@@ -47,6 +46,8 @@ import type {
   PersistEcdsaRoleLocalReadyRecordResult,
   RelayerKeyId,
 } from './ecdsaRoleLocalRecords';
+
+export type { CredentialIdB64u } from './ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaRoleLocalWorkerShareHandle } from '../signingEngine/interfaces/signing';
 import type { EcdsaBootstrapSecretSource } from './secretSources';
 
@@ -231,14 +232,7 @@ export type PrepareEcdsaClientBootstrapInput = {
   kind: GeneratedPrepareEcdsaClientBootstrapCommand['kind'];
   algorithm: GeneratedPrepareEcdsaClientBootstrapCommand['algorithm'];
   context: {
-    walletId: WalletId;
-    rpId: RpId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-    signingRootId: SigningRootId;
-    signingRootVersion: SigningRootVersion;
-    keyPurpose: GeneratedPrepareEcdsaClientBootstrapCommand['context']['keyPurpose'];
-    keyVersion: GeneratedPrepareEcdsaClientBootstrapCommand['context']['keyVersion'];
+    applicationBindingDigestB64u: string;
   };
   participants: {
     clientParticipantId: 1;
@@ -318,7 +312,7 @@ export type EcdsaBootstrapRouteAuth =
 export type BootstrapEcdsaSessionRouteInput = {
   kind: 'bootstrap_ecdsa_session_route_v1';
   walletId: WalletId;
-  rpId: RpId;
+  walletKeyId: WalletKeyId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyScope: 'evm-family';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -339,7 +333,7 @@ export type BootstrapEcdsaSessionRouteInput = {
 export type BootstrapEcdsaSessionRouteOutput = {
   kind: 'bootstrap_ecdsa_session_route_output_v1';
   walletId: WalletId;
-  rpId: RpId;
+  walletKeyId: WalletKeyId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
   relayerPublicIdentity: EcdsaRelayerPublicIdentity;
@@ -405,28 +399,11 @@ export type StoreEcdsaRoleLocalSigningMaterialErrorCode =
   | 'invalid_ready_state'
   | 'crypto_failure';
 
-export type BuildEcdsaRoleLocalExportArtifactAuthorization =
-  | {
-      kind: 'passkey_export_authorized';
-      walletId: WalletId;
-      rpId: RpId;
-      credentialIdB64u: CredentialIdB64u;
-      authSubjectId?: never;
-    }
-  | {
-      kind: 'email_otp_export_authorized';
-      walletId: WalletId;
-      rpId: RpId;
-      authSubjectId: EmailOtpAuthSubjectId;
-      credentialIdB64u?: never;
-    };
-
 export type BuildEcdsaRoleLocalExportArtifactInput = {
   kind: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['kind'];
   algorithm: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['algorithm'];
   stateBlob: EcdsaRoleLocalReadyStateBlob;
   publicFacts: EcdsaRoleLocalPublicFacts;
-  authorization: BuildEcdsaRoleLocalExportArtifactAuthorization;
   serverExportShare32B64u: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['serverExportShare32B64u'];
 };
 

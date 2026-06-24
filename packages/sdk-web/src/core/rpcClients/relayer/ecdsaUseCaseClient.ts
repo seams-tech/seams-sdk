@@ -11,6 +11,7 @@ import {
   toEcdsaHssSigningRootVersion,
 } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { computeSdkEcdsaHssApplicationBindingDigestB64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
   thresholdEcdsaHssRoleLocalBootstrap,
   type ThresholdEcdsaHssRoleLocalBootstrapValue,
@@ -58,14 +59,14 @@ function signingRootFromRouteInput(input: BootstrapEcdsaSessionRouteInput): {
   };
 }
 
-function parseBootstrapOutput(
+async function parseBootstrapOutput(
   input: BootstrapEcdsaSessionRouteInput,
   value: ThresholdEcdsaHssRoleLocalBootstrapValue,
-): BootstrapEcdsaSessionRouteOutput {
+): Promise<BootstrapEcdsaSessionRouteOutput> {
   const signingRoot = signingRootFromRouteInput(input);
   if (
     !sameString(value.walletId, input.walletId) ||
-    !sameString(value.rpId, input.rpId) ||
+    !sameString(value.walletKeyId, input.walletKeyId) ||
     !sameString(value.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
     !sameString(value.signingRootId, signingRoot.signingRootId) ||
     !sameString(value.signingRootVersion, signingRoot.signingRootVersion) ||
@@ -74,14 +75,21 @@ function parseBootstrapOutput(
     throw new Error('[relayer][ecdsa] route output identity mismatch');
   }
   const participantIds = participantIdsFromRoute(value.participantIds);
+  const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
+    walletId: input.walletId,
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
+  });
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     chainTarget: input.chainTarget,
     keyHandle: value.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     signingRootId: signingRoot.signingRootId,
     signingRootVersion: signingRoot.signingRootVersion,
+    applicationBindingDigestB64u,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds,
@@ -94,7 +102,7 @@ function parseBootstrapOutput(
   return {
     kind: 'bootstrap_ecdsa_session_route_output_v1',
     walletId: input.walletId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     keyHandle: value.keyHandle,
     relayerPublicIdentity: {
@@ -147,7 +155,7 @@ export function createThresholdEcdsaRelayerClient(
       const response = await thresholdEcdsaHssRoleLocalBootstrap(config.relayerUrl, {
         formatVersion: 'ecdsa-hss-role-local',
         walletId: input.walletId,
-        rpId: input.rpId,
+        walletKeyId: input.walletKeyId,
         ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
         signingRootId: signingRoot.signingRootId,
         signingRootVersion: signingRoot.signingRootVersion,
@@ -172,7 +180,7 @@ export function createThresholdEcdsaRelayerClient(
         });
       }
       try {
-        return { ok: true, value: parseBootstrapOutput(input, response.value) };
+        return { ok: true, value: await parseBootstrapOutput(input, response.value) };
       } catch (error) {
         return {
           ok: false,

@@ -3,6 +3,7 @@ import {
   toWalletId,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { parseWalletKeyId } from '@shared/signing-lanes';
 import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
@@ -66,11 +67,14 @@ declare const passkeyReadyRecord: Extract<
   { kind: 'ecdsa_role_local_ready_passkey_v1' }
 >;
 declare const requiredPrfAuthenticatorSuccess: RequiredPrfAuthenticatorSuccess;
+const walletKeyIdResult = parseWalletKeyId('wallet-key-example');
+if (!walletKeyIdResult.ok) throw new Error(walletKeyIdResult.error.message);
+const walletKeyId = walletKeyIdResult.value;
 
 const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId: toWalletId('wallet_alice'),
-  rpId: toRpId('wallet.example'),
+  walletKeyId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -81,14 +85,7 @@ const prepareInput = {
   kind: 'prepare_ecdsa_client_bootstrap_v1',
   algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
   context: {
-    walletId: toWalletId('wallet_alice'),
-    rpId: toRpId('wallet.example'),
-    chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'evm', chainId: 5042002 }),
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
-    signingRootId: toEcdsaHssSigningRootId('root'),
-    signingRootVersion: toEcdsaHssSigningRootVersion('v1'),
-    keyPurpose: 'evm-signing',
-    keyVersion: 'v1',
+    applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
   participants: {
     clientParticipantId: 1,
@@ -114,12 +111,6 @@ runtime.signerCrypto.buildEcdsaRoleLocalExportArtifact({
   algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
   stateBlob: readyBlob,
   publicFacts,
-  authorization: {
-    kind: 'passkey_export_authorized',
-    walletId: publicFacts.walletId,
-    rpId: publicFacts.rpId,
-    credentialIdB64u: passkeyReadyRecord.authMethod.credentialIdB64u,
-  },
   serverExportShare32B64u: 'server-share',
 });
 
@@ -286,7 +277,7 @@ const directEmailOtpWorkerSessionHandle = {
   kind: 'email_otp_worker_session_handle_v1',
   sessionId: 'otp-session',
   walletId: toWalletId('wallet_alice'),
-  rpId: toRpId('wallet.example'),
+  walletKeyId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -305,7 +296,7 @@ broadSpreadEmailOtpWorkerSessionHandle satisfies EmailOtpWorkerIssuedSessionHand
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId: toWalletId('wallet_alice'),
-  rpId: toRpId('wallet.example'),
+  walletKeyId,
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
@@ -315,7 +306,7 @@ buildEmailOtpWorkerIssuedSessionHandle({
 buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'otp-session',
   walletId: toWalletId('wallet_alice'),
-  rpId: toRpId('wallet.example'),
+  walletKeyId,
   authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'sign',
@@ -426,7 +417,7 @@ broadSpreadMixedReadyRecord satisfies EcdsaRoleLocalReadyRecord;
 
 const validEcdsaLoadInput = {
   walletId: toWalletId('wallet_alice'),
-  rpId: toRpId('wallet.example'),
+  walletKeyId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
@@ -442,7 +433,7 @@ void validEcdsaLoadInput;
 
 const ecdsaLoadInputWithoutAuth = {
   walletId: toWalletId('wallet_alice'),
-  rpId: toRpId('wallet.example'),
+  walletKeyId,
   chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),

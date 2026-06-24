@@ -412,7 +412,7 @@ async function attachEcdsaWalletSessionJwt(
   const signed = await signRouterAbEcdsaHssWalletSessionJwt({
     session: input.services.session,
     userId: bootstrap.walletId,
-    rpId: bootstrap.rpId,
+    walletKeyId: bootstrap.walletKeyId,
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
       sessionKind: 'jwt',
@@ -422,15 +422,16 @@ async function attachEcdsaWalletSessionJwt(
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle: bootstrap.keyHandle,
-      stableKeyContext: {
-        walletId: bootstrap.walletId,
-        rpId: bootstrap.rpId,
-        keyScope: 'evm-family',
-        ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
-        signingRootId: bootstrap.signingRootId,
-        signingRootVersion: bootstrap.signingRootVersion,
-        contextBinding32B64u: bootstrap.contextBinding32B64u,
-      },
+        stableKeyContext: {
+          walletId: bootstrap.walletId,
+          walletKeyId: bootstrap.walletKeyId,
+          keyScope: 'evm-family',
+          ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
+          signingRootId: bootstrap.signingRootId,
+          signingRootVersion: bootstrap.signingRootVersion,
+          applicationBindingDigestB64u: bootstrap.applicationBindingDigestB64u,
+          contextBinding32B64u: bootstrap.contextBinding32B64u,
+        },
       publicIdentity: bootstrap.publicIdentity,
       activationEpoch: bootstrap.thresholdSessionId,
       signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
@@ -1679,7 +1680,7 @@ function parseWalletRegistrationHssRespondRequest(
       clientBootstrap: {
         formatVersion: parsed.formatVersion,
         walletId: parsed.walletId,
-        rpId: parsed.rpId,
+        walletKeyId: parsed.walletKeyId,
         ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
         signingRootId: parsed.signingRootId,
         signingRootVersion: parsed.signingRootVersion,

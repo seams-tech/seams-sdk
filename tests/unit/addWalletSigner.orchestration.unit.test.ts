@@ -176,15 +176,12 @@ function ecdsaWalletSessionJwtForBootstrap(bootstrap: Record<string, unknown>): 
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
+        wallet_key_id: rpId,
         context: {
           wallet_id: walletId,
-          rp_id: rpId,
-          key_scope: 'evm-family',
           ecdsa_threshold_key_id: ecdsaThresholdKeyId,
           signing_root_id: signingRootId,
           signing_root_version: signingRootVersion,
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
         },
         public_identity: {
           context_binding_b64u: String(bootstrap.contextBinding32B64u || '').trim(),

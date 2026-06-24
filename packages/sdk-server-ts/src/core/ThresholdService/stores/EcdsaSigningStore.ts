@@ -55,7 +55,7 @@ export type RouterAbEcdsaHssPoolFillSessionDestination =
 export type RouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
   walletSessionUserId: string;
-  rpId: string;
+  walletKeyId: string;
   relayerKeyId: string;
   presignPoolKey: string;
   poolFill: RouterAbEcdsaHssPoolFillSessionDestination;

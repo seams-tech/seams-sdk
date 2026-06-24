@@ -465,7 +465,7 @@ export class SeamsWeb {
                   relayUrl: prepareArgs.relayUrl,
                   walletId: walletIdFromString(prepareArgs.walletId),
                   userId: prepareArgs.userId,
-                  rpId: prepareArgs.rpId,
+                  walletKeyId: prepareArgs.walletKeyId,
                   appSessionJwt: prepareArgs.appSessionJwt,
                 }),
               registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),

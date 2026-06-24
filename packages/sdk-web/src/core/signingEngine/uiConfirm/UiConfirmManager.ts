@@ -1100,16 +1100,20 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       args.curve === 'ed25519'
         ? getStoredThresholdEd25519SessionRecordByThresholdSessionId(args.thresholdSessionId)
         : null;
-    const ecdsaRecord =
-      args.curve === 'ecdsa'
-        ? args.chainTarget
-          ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-              thresholdSessionId: args.thresholdSessionId,
-              chainTarget: args.chainTarget,
-            })
-          : null
-        : null;
-    const walletId = String(ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '').trim();
+	    const ecdsaRecord =
+	      args.curve === 'ecdsa'
+	        ? args.chainTarget
+	          ? getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+	              thresholdSessionId: args.thresholdSessionId,
+	              chainTarget: args.chainTarget,
+	            })
+	          : null
+	        : null;
+	    const ecdsaPasskeyCredentialId =
+	      ecdsaRecord?.ecdsaRoleLocalReadyRecord.authMethod.kind === 'passkey'
+	        ? ecdsaRecord.ecdsaRoleLocalReadyRecord.authMethod.credentialIdB64u
+	        : '';
+	    const walletId = String(ed25519Record?.walletId || ecdsaRecord?.walletId || args.walletId || '').trim();
     const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
       .trim()
       .toLowerCase();
@@ -1117,10 +1121,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ecdsaRecord &&
       ecdsaRecord.chainTarget &&
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
-        ? {
-            chainTarget: ecdsaRecord.chainTarget,
-            rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
-            ...persistedRestoreWalletSessionAuthFields(ecdsaRecord),
+	        ? {
+	            chainTarget: ecdsaRecord.chainTarget,
+	            rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
+	            credentialIdB64u: ecdsaPasskeyCredentialId,
+	            ...persistedRestoreWalletSessionAuthFields(ecdsaRecord),
             keyHandle: ecdsaRecord.keyHandle,
             ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
             ethereumAddress,

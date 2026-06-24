@@ -24,6 +24,7 @@ export type ActivateSigningSessionFailure = UseCaseFailure<ActivateSigningSessio
 
 export type ActivateSigningSessionSealPolicyInput = {
   walletId: ActivateSigningSessionInput['walletId'];
+  walletKeyId: ActivateSigningSessionInput['walletKeyId'];
   rpId: ActivateSigningSessionInput['rpId'];
   auth: SigningSessionActivationAuth;
   material: SigningSessionActivationMaterial;
@@ -173,33 +174,68 @@ function isEmailOtpEcdsaAuth(
 function validateAuthMatchesInput(
   input: ActivateSigningSessionInput,
 ): ActivateSigningSessionFailure | null {
-  if (
-    !sameString(input.auth.walletId, input.walletId) ||
-    !sameString(input.auth.rpId, input.rpId)
-  ) {
+  if (!sameString(input.auth.walletId, input.walletId)) {
     return failure({
       code: 'auth_branch_mismatch',
       source: 'domain',
-      message: 'Signing-session activation auth does not match the requested wallet and RP',
+      message: 'Signing-session activation auth does not match the requested wallet',
       retryable: false,
     });
   }
-  if (input.auth.kind === 'passkey') return null;
+  if (input.auth.kind === 'passkey') {
+    if (sameString(input.auth.rpId, input.rpId)) return null;
+    return failure({
+      code: 'auth_branch_mismatch',
+      source: 'domain',
+      message: 'Passkey activation auth does not match the requested RP',
+      retryable: false,
+    });
+  }
 
   const handle = input.auth.workerHandle;
-  if (
-    !sameString(handle.walletId, input.walletId) ||
-    !sameString(handle.rpId, input.rpId) ||
-    !sameString(handle.authSubjectId, input.auth.authSubjectId)
-  ) {
+  if (!sameString(handle.walletId, input.walletId)) {
     return failure({
       code: 'auth_branch_mismatch',
       source: 'domain',
-      message: 'Email OTP activation handle does not match the requested wallet, RP, and subject',
+      message: 'Email OTP activation handle does not match the requested wallet',
       retryable: false,
     });
   }
-  return null;
+  if (!sameString(handle.authSubjectId, input.auth.authSubjectId)) {
+    return failure({
+      code: 'auth_branch_mismatch',
+      source: 'domain',
+      message: 'Email OTP activation handle does not match the requested auth subject',
+      retryable: false,
+    });
+  }
+  if (isEmailOtpEd25519Auth(input.auth)) {
+    if (sameString(input.auth.rpId, input.rpId) && sameString(handle.rpId, input.rpId)) {
+      return null;
+    }
+    return failure({
+      code: 'auth_branch_mismatch',
+      source: 'domain',
+      message: 'Email OTP Ed25519 activation handle does not match the requested RP',
+      retryable: false,
+    });
+  }
+  if (isEmailOtpEcdsaAuth(input.auth)) {
+    if (
+      sameString(input.auth.walletKeyId, input.walletKeyId) &&
+      sameString(handle.walletKeyId, input.walletKeyId)
+    ) {
+      return null;
+    }
+    return failure({
+      code: 'auth_branch_mismatch',
+      source: 'domain',
+      message: 'Email OTP ECDSA activation handle does not match the requested wallet key',
+      retryable: false,
+    });
+  }
+  input.auth satisfies never;
+  throw new Error('Unsupported signing-session activation auth branch');
 }
 
 function validateEcdsaRecordMatchesInput(args: {
@@ -209,12 +245,12 @@ function validateEcdsaRecordMatchesInput(args: {
   const facts = args.material.record.publicFacts;
   if (
     !sameString(facts.walletId, args.input.walletId) ||
-    !sameString(facts.rpId, args.input.rpId)
+    !sameString(facts.walletKeyId, args.input.walletKeyId)
   ) {
     return failure({
       code: 'material_branch_mismatch',
       source: 'domain',
-      message: 'ECDSA activation material does not match the requested wallet and RP',
+      message: 'ECDSA activation material does not match the requested wallet key',
       retryable: false,
     });
   }
@@ -390,6 +426,7 @@ async function sealWriteForMaterial(args: {
 
   const policy = await args.deps.sealPolicy.resolve({
     walletId: args.input.walletId,
+    walletKeyId: args.input.walletKeyId,
     rpId: args.input.rpId,
     auth: args.input.auth,
     material: args.material,
@@ -429,6 +466,7 @@ export async function activateSigningSession(
   await emit(deps, {
     kind: 'received_input',
     walletId: input.walletId,
+    walletKeyId: input.walletKeyId,
     rpId: input.rpId,
     auth: input.auth,
     material: input.material,
@@ -440,6 +478,7 @@ export async function activateSigningSession(
   await emit(deps, {
     kind: 'validating_material',
     walletId: input.walletId,
+    walletKeyId: input.walletKeyId,
     rpId: input.rpId,
     auth: input.auth,
     material: input.material,
@@ -469,6 +508,7 @@ export async function activateSigningSession(
   await emit(deps, {
     kind: 'writing_seals',
     walletId: input.walletId,
+    walletKeyId: input.walletKeyId,
     rpId: input.rpId,
     sealWrites: nonEmptySealWrites,
   });

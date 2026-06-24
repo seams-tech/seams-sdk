@@ -36,6 +36,7 @@ import {
   type SelectedEd25519Lane,
   type ThresholdEd25519SessionStoreSource,
 } from '../../session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
@@ -422,11 +423,14 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
     throw new Error('[SigningEngine][near] missing signing grant id for transaction auth planning');
   }
   if (args.record.source === 'email_otp') {
+    if (args.selectedLane.auth.kind !== 'email_otp') {
+      throw new Error('[SigningEngine][near] selected Email OTP lane is missing Email OTP auth');
+    }
     return buildNearTransactionSigningLane({
       walletId,
       nearAccountId: args.record.nearAccountId,
       ed25519KeyScopeId: args.record.ed25519KeyScopeId,
-      authMethod: 'email_otp',
+      auth: args.selectedLane.auth,
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
       retention: args.record.emailOtpAuthContext?.retention || 'session',
@@ -434,11 +438,14 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
         args.record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
     });
   }
+  if (args.selectedLane.auth.kind !== 'passkey') {
+    throw new Error('[SigningEngine][near] selected passkey lane is missing passkey auth');
+  }
   return buildNearTransactionSigningLane({
     walletId,
     nearAccountId: args.record.nearAccountId,
     ed25519KeyScopeId: args.record.ed25519KeyScopeId,
-    authMethod: 'passkey',
+    auth: args.selectedLane.auth,
     signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
     storageSource: resolveEd25519PasskeyStorageSource(args.record.source),
@@ -460,7 +467,8 @@ function assertSigningLaneMatchesSelectedTransactionLane(args: {
       String(args.transactionLane.nearAccountId || '').trim() ||
     String(args.signingLane.ed25519KeyScopeId || '').trim() !==
       String(args.transactionLane.ed25519KeyScopeId || '').trim() ||
-    args.signingLane.authMethod !== args.transactionLane.authMethod ||
+    signingLaneAuthMethod(args.signingLane.auth) !==
+      signingLaneAuthMethod(args.transactionLane.auth) ||
     args.signingLane.curve !== args.transactionLane.curve ||
     args.signingLane.chainFamily !== args.transactionLane.chain ||
     String(args.signingLane.signingGrantId || '').trim() !==
@@ -696,7 +704,7 @@ async function resolveNearTransactionWalletAuth(args: {
   if (plan.kind === SigningSessionPlanKind.NotReady) {
     console.warn('[SigningEngine][near][ed25519] transaction auth planning not ready', {
       nearAccountId,
-      authMethod: lane.authMethod,
+      authMethod: signingLaneAuthMethod(lane.auth),
       reason: plan.reason,
       readiness: preparedOperation.readiness.status,
       signingGrantId: lane.signingGrantId,
@@ -1075,7 +1083,8 @@ function thresholdEd25519RecordMatchesSelectedLane(args: {
       String(args.selectedLane.nearAccountId || '').trim() &&
     String(args.record.ed25519KeyScopeId || '').trim() ===
       String(args.selectedLane.ed25519KeyScopeId || '').trim() &&
-    authMethodForThresholdEd25519Record(args.record) === args.selectedLane.authMethod &&
+    authMethodForThresholdEd25519Record(args.record) ===
+      signingLaneAuthMethod(args.selectedLane.auth) &&
     String(args.record.thresholdSessionId || '').trim() ===
       String(args.selectedLane.thresholdSessionId || '').trim() &&
     String(args.record.signingGrantId || '').trim() ===
@@ -1381,7 +1390,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
   }
   await args.deps.restorePersistedSessionForSigning({
     walletId,
-    authMethod: selectedLane.authMethod,
+    authMethod: signingLaneAuthMethod(selectedLane.auth),
     curve: 'ed25519',
     chain: 'near',
     signingGrantId: selectedLane.signingGrantId,
@@ -1559,7 +1568,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
   }
   const initialAuthSelectionPolicy: TransactionAuthSelectionPolicy = {
     kind: 'account_class',
-    authMethod: selectedLane.lane.authMethod,
+    authMethod: signingLaneAuthMethod(selectedLane.lane.auth),
   };
 
   const preparedTransaction = await prepareTransactionSigningOperation({

@@ -180,7 +180,6 @@ async function exportKeypairWithFlowId(
     exportMaterial = await resolveEcdsaExportMaterialForLane(
       deps.ecdsa.sessionStore,
       exportLane,
-      rpId,
     );
     if (exportMaterial.kind === 'fresh_email_otp_needs_challenge') {
       return await exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(deps.ecdsa, {

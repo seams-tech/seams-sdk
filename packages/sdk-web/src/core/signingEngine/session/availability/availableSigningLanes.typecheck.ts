@@ -4,6 +4,7 @@ import {
   buildPasskeyEcdsaAuthBinding,
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
+  toRpId,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaKeyHandle } from '../identity/evmFamilyEcdsaIdentity';
 import type {
@@ -29,13 +30,22 @@ const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
+const passkeyAuth = {
+  kind: 'passkey',
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-id',
+} as const;
+const emailOtpAuth = {
+  kind: 'email_otp',
+  providerSubjectId: 'google:alice',
+} as const;
 
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 
@@ -49,7 +59,10 @@ const publicFacts = buildVerifiedEcdsaPublicFacts({
 const resolvedKey = buildResolvedEvmFamilyEcdsaKey({
   walletId: key.walletId,
   publicFacts,
-  authBinding: buildPasskeyEcdsaAuthBinding({ rpId: key.rpId }),
+  authBinding: buildPasskeyEcdsaAuthBinding({
+    rpId: passkeyAuth.rpId,
+    credentialIdB64u: passkeyAuth.credentialIdB64u,
+  }),
 });
 
 const emailOtpResolvedKey = buildResolvedEvmFamilyEcdsaKey({
@@ -64,7 +77,7 @@ const emailOtpResolvedKey = buildResolvedEvmFamilyEcdsaKey({
 const passkeyLane: ConcreteAvailableEcdsaSigningLane = {
   key,
   publicFacts,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
@@ -92,7 +105,7 @@ void invalidAvailableSigningLanesInputWithSubjectId;
 const passkeyLaneIdentity: EcdsaAvailableLaneIdentityInput = {
   key,
   publicFacts,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
@@ -119,7 +132,7 @@ void invalidPasskeyLaneIdentityWithSubjectId;
 const passkeyLaneMissingResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   key,
   publicFacts,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   curve: 'ecdsa',
   chainTarget,
   state: 'ready',
@@ -132,7 +145,7 @@ void passkeyLaneMissingResolvedKey;
 const passkeyLaneWithEmailOtpResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   key,
   publicFacts,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   // @ts-expect-error passkey lanes reject Email OTP auth bindings.
   resolvedKey: emailOtpResolvedKey,
   curve: 'ecdsa',
@@ -148,7 +161,7 @@ void passkeyLaneWithEmailOtpResolvedKey;
 const passkeyLaneIdentityMissingResolvedKey: EcdsaAvailableLaneIdentityInput = {
   key,
   publicFacts,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   curve: 'ecdsa',
   chainTarget,
   signingGrantId: 'signing-grant-1',
@@ -160,7 +173,7 @@ void passkeyLaneIdentityMissingResolvedKey;
 const emailOtpLaneWithResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   key,
   publicFacts,
-  authMethod: 'email_otp',
+  auth: emailOtpAuth,
   resolvedKey,
   curve: 'ecdsa',
   chainTarget,
@@ -172,6 +185,7 @@ const emailOtpLaneWithResolvedKey: ConcreteAvailableEcdsaSigningLane = {
 void emailOtpLaneWithResolvedKey;
 
 const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
+  auth: passkeyAuth,
   authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
@@ -186,6 +200,7 @@ void ed25519Lane;
 
 // @ts-expect-error ready Ed25519 lanes require auth method identity.
 const readyEd25519LaneMissingAuthMethod: ConcreteAvailableEd25519SigningLane = {
+  auth: passkeyAuth,
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',
@@ -196,6 +211,7 @@ void readyEd25519LaneMissingAuthMethod;
 
 // @ts-expect-error ready Ed25519 lanes require a signing grant id.
 const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
+  auth: passkeyAuth,
   authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
@@ -206,6 +222,7 @@ void readyEd25519LaneMissingSigningGrantId;
 
 // @ts-expect-error ready Ed25519 lanes require a threshold session id.
 const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519SigningLane = {
+  auth: passkeyAuth,
   authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',

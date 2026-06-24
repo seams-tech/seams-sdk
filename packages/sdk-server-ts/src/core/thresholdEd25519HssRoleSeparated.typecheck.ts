@@ -86,14 +86,14 @@ const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScop
 
 void ({
   registrationAccountScope: sponsoredRegistrationAccountScope,
-  rp_id: 'wallet.example.test',
+  wallet_key_id: 'wallet.example.test',
   ceremonyHandle: 'ceremony',
   clientRequest: serverVisibleClientRequest,
 } satisfies ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest);
 
 void ({
   registrationAccountScope: sponsoredRegistrationAccountScope,
-  rp_id: 'wallet.example.test',
+  wallet_key_id: 'wallet.example.test',
   ceremonyHandle: 'ceremony',
   clientRequest: {
     clientRequestMessageB64u: 'client-request-message',

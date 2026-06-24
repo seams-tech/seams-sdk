@@ -118,7 +118,7 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: requireLinkDeviceString(value.walletId, 'walletId'),
-    rpId: requireLinkDeviceString(value.rpId, 'rpId'),
+    walletKeyId: requireLinkDeviceString(value.walletKeyId, 'walletKeyId'),
     ecdsaThresholdKeyId: requireLinkDeviceString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
     signingRootId: signingRootScope.signingRootId,
     signingRootVersion:
@@ -162,7 +162,7 @@ function parseLinkDeviceEcdsaWalletKeys(value: unknown): WalletRegistrationEcdsa
       keyScope: 'evm-family',
       chainTarget,
       walletId: requireLinkDeviceString(raw.walletId, 'walletId'),
-      rpId: requireLinkDeviceString(raw.rpId, 'rpId'),
+      walletKeyId: requireLinkDeviceString(raw.walletKeyId, 'walletKeyId'),
       keyHandle: requireLinkDeviceString(raw.keyHandle, 'keyHandle'),
       ecdsaThresholdKeyId: requireLinkDeviceString(raw.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
       signingRootId: requireLinkDeviceString(raw.signingRootId, 'signingRootId'),
@@ -740,6 +740,7 @@ export class LinkDeviceFlow {
         {
           prepare: ecdsaPrepare,
           chainTarget: primaryEcdsaProvisionTarget.chainTarget,
+          rpId,
           passkeyPrfFirstB64u,
           credentialIdB64u: String(credential.rawId || credential.id || '').trim(),
         },

@@ -48,7 +48,7 @@ export type WalletEd25519SignerRecord = {
 export type WalletEcdsaSignerRecord = {
   version: 'wallet_signer_ecdsa_v1';
   walletId: WalletId;
-  rpId: string;
+  walletKeyId: string;
   signerId: string;
   chainTargetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -152,7 +152,7 @@ export function buildWalletEcdsaSignerRecord(input: {
   return {
     version: 'wallet_signer_ecdsa_v1',
     walletId: input.walletId,
-    rpId: input.walletKey.rpId,
+    walletKeyId: input.walletKey.walletKeyId,
     signerId: `ecdsa:${chainTargetKey}`,
     chainTargetKey,
     chainTarget: input.walletKey.chainTarget,

@@ -2,13 +2,7 @@ pub mod shared {
     pub mod context {
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct EcdsaHssStableKeyContext {
-            pub wallet_id: String,
-            pub rp_id: String,
-            pub ecdsa_threshold_key_id: String,
-            pub signing_root_id: String,
-            pub signing_root_version: String,
-            pub key_purpose: String,
-            pub key_version: String,
+            pub application_binding_digest: [u8; 32],
         }
     }
 }

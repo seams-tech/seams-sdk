@@ -39,6 +39,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  toRpId,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -57,6 +58,11 @@ type ExternallyConsumedSuccessInput = Extract<
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const PASSKEY_AUTH = {
+  kind: 'passkey' as const,
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-budget-finalizer',
+};
 
 function makeLane(args?: {
   signingGrantId?: string;
@@ -66,7 +72,7 @@ function makeLane(args?: {
     walletId: NEAR_WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
-    authMethod: 'passkey',
+    auth: PASSKEY_AUTH,
     signingGrantId: SigningSessionIds.signingGrant(
       args?.signingGrantId || 'wallet-session-1',
     ),
@@ -90,10 +96,7 @@ function makeSpend(args?: {
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(
       args?.operationFingerprint || 'fingerprint-1',
     ),
-    walletId: NEAR_WALLET_ID,
-    signingGrantId: lane.signingGrantId,
     lane,
-    thresholdSessionIds: [lane.thresholdSessionId],
     backingMaterialSessionIds: [],
     uses: args?.uses ?? 1,
     reason: SigningOperationIntent.TransactionSign,
@@ -110,7 +113,7 @@ function makeTempoSpend(args?: {
   const lane = buildTempoTransactionSigningLane({
     key: buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId,
-      rpId: 'localhost',
+      walletKeyId: 'wallet-key-tempo-budget',
       ecdsaThresholdKeyId: 'ehss-tempo-budget',
       signingRootId: 'project:dev',
       signingRootVersion: 'default',
@@ -119,7 +122,7 @@ function makeTempoSpend(args?: {
     }),
     keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-tempo-budget-handle'),
     walletId,
-    authMethod: 'passkey',
+    auth: PASSKEY_AUTH,
     storageSource: 'login',
     chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
     signingGrantId: SigningSessionIds.signingGrant(
@@ -134,10 +137,7 @@ function makeTempoSpend(args?: {
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(
       args?.operationFingerprint || 'tempo-fingerprint-1',
     ),
-    walletId,
-    signingGrantId: lane.signingGrantId,
     lane,
-    thresholdSessionIds: [lane.thresholdSessionId],
     backingMaterialSessionIds: [],
     uses: 1,
     reason: SigningOperationIntent.TransactionSign,
@@ -151,7 +151,7 @@ function makeTempoNonceLane(spend: WalletSigningSpendPlan): EvmNonceLane {
   return {
     family: 'evm',
     chainTarget: spend.lane.chainTarget,
-    subjectId: toWalletId(spend.walletId),
+    subjectId: toWalletId(spend.lane.walletId),
     sender: `0x${'33'.repeat(20)}`,
     nonceKey: 1n,
   };
@@ -159,10 +159,10 @@ function makeTempoNonceLane(spend: WalletSigningSpendPlan): EvmNonceLane {
 
 function makeBudgetIdentity(spend: WalletSigningSpendPlan): SigningSessionPreparedBudgetIdentity {
   return {
-    signingGrantId: spend.signingGrantId,
+    signingGrantId: spend.lane.signingGrantId,
     projectionVersion: 'projection-1',
     status: {
-      sessionId: String(spend.signingGrantId),
+      sessionId: String(spend.lane.signingGrantId),
       status: 'active',
       projectionVersion: 'projection-1',
       remainingUses: 2,
@@ -451,7 +451,7 @@ test.describe('budget coordinator reserved success handling', () => {
         operationId: spend.operationId,
         operationFingerprint: spend.operationFingerprint!,
         intent: SigningOperationIntent.TransactionSign,
-        accountId: String(spend.walletId),
+        accountId: String(spend.lane.walletId),
       },
     });
     await nonceCoordinator.markSigned({
@@ -477,7 +477,7 @@ test.describe('budget coordinator reserved success handling', () => {
           'tempo-broadcast-failed-retry-fingerprint',
         ),
         intent: SigningOperationIntent.TransactionSign,
-        accountId: String(spend.walletId),
+        accountId: String(spend.lane.walletId),
       },
     });
 
@@ -645,7 +645,7 @@ test.describe('budget coordinator reserved success handling', () => {
         operationId: spend.operationId,
         operationFingerprint: spend.operationFingerprint!,
         intent: SigningOperationIntent.TransactionSign,
-        accountId: String(spend.walletId),
+        accountId: String(spend.lane.walletId),
       },
     });
 
@@ -764,12 +764,7 @@ test.describe('budget coordinator reserved success handling', () => {
           kind: 'externally_consumed_success',
           spend: {
             operationId: SigningSessionIds.signingOperation('observation-only'),
-            walletId: toWalletId(String(walletBudgetOwnerId(args.owner))),
-            signingGrantId: SigningSessionIds.signingGrant(
-              args.signingGrantId,
-            ),
             lane: makeLane(),
-            thresholdSessionIds: [],
             backingMaterialSessionIds: [],
             uses: 1,
             reason: SigningOperationIntent.TransactionSign,

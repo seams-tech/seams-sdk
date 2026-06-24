@@ -7,6 +7,7 @@ import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
+import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EvmFamilyEcdsaTransactionSigningIntent,
   NearEd25519TransactionSigningIntent,
@@ -22,16 +23,21 @@ declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 
 const validPlanningLane = {
-  authMethod: 'passkey',
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('localhost'),
+    credentialIdB64u: 'credential-id',
+  },
   curve: 'ecdsa',
   keyKind: 'threshold_ecdsa_secp256k1',
   chainFamily: chainTarget.kind,
   key,
   keyHandle,
   walletId: ecdsaWalletId,
-  signingGrantId: SigningSessionIds.signingGrant('signing-grant-id'),
-  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session-id'),
-  sessionOrigin: 'login',
+	  signingGrantId: SigningSessionIds.signingGrant('signing-grant-id'),
+	  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session-id'),
+	  runtimeState: 'no_runtime_material',
+	  sessionOrigin: 'login',
   storageSource: 'login',
   retention: 'session',
   chainTarget,
@@ -39,7 +45,11 @@ const validPlanningLane = {
 void validPlanningLane;
 
 const invalidPlanningLaneWithSubjectId = {
-  authMethod: 'passkey',
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('localhost'),
+    credentialIdB64u: 'credential-id',
+  },
   curve: 'ecdsa',
   keyKind: 'threshold_ecdsa_secp256k1',
   chainFamily: chainTarget.kind,

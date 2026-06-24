@@ -113,7 +113,7 @@ const invalidReconnectKeyRefThresholdSessionAuth = {
 void invalidReconnectKeyRefThresholdSessionAuth;
 const reconnectRecord = {
   walletId: toWalletId('alice.testnet'),
-  authMetadata: { rpId: 'example.localhost' },
+  authMetadata: { walletKeyId: 'example.localhost' },
   chainTarget,
   relayerUrl: 'https://relayer.test',
   keyHandle,
@@ -136,7 +136,7 @@ const reconnectRecord = {
 } satisfies ThresholdEcdsaSessionRecord;
 const exactKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
   record: reconnectRecord,
-  rpId: thresholdEcdsaRecordRpId(reconnectRecord),
+  walletKeyId: reconnectRecord.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
 });
 
 void buildPasskeyEcdsaSessionProvision({

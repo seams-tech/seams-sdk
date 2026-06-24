@@ -56,6 +56,7 @@ import {
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
   walletSessionAuthInputFromPersistedThresholdSession,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
@@ -65,10 +66,15 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
 import {
+  exactSigningLaneIdentity,
   exactSigningLaneIdentityKey,
   type ExactEcdsaSigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
 } from '../identity/exactSigningLaneIdentity';
+import {
+  signingLaneAuthMethod,
+  type SigningLaneAuthBinding,
+} from '../identity/signingLaneAuthBinding';
 import {
   SigningSessionIds,
   type ThresholdEcdsaSessionId,
@@ -82,18 +88,19 @@ import {
 } from '../../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
-import { parseEcdsaRoleLocalReadyRecord } from './ecdsaRoleLocalRecords';
+import {
+  parseEcdsaRoleLocalReadyRecord,
+  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
+} from './ecdsaRoleLocalRecords';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
 export type ThresholdEcdsaSessionAuthMetadata = {
-  rpId: string;
+  walletKeyId: string;
 };
 
 type ThresholdEcdsaSessionRecordCore = {
   walletId: WalletId;
-  // Compatibility boundary only; current records persist rpId in authMetadata.
-  rpId?: string;
   authMetadata: ThresholdEcdsaSessionAuthMetadata;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
@@ -295,6 +302,7 @@ export type ThresholdEd25519SessionRecord = {
   nearAccountId: AccountId;
   ed25519KeyScopeId: Ed25519KeyScopeId;
   rpId: string;
+  passkeyCredentialIdB64u?: string;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
@@ -374,6 +382,7 @@ export type ThresholdEcdsaSessionRecordReadModel = {
 export type ThresholdEcdsaRuntimeRecordCandidate = {
   source: 'runtime_session_record';
   walletId: WalletId;
+  auth: SigningLaneAuthBinding;
   key: EvmFamilyEcdsaKeyIdentity;
   routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
@@ -381,7 +390,6 @@ export type ThresholdEcdsaRuntimeRecordCandidate = {
   verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
   thresholdEcdsaPublicKeyB64u: string;
   lane: EvmFamilyEcdsaSessionLane;
-  authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: string;
@@ -395,6 +403,21 @@ export type ThresholdEcdsaSessionRecordLookupKey =
   | ThresholdEcdsaSessionRecordKey
   | SelectedEcdsaLane;
 
+function thresholdEcdsaRecordKeyFromLookupKey(
+  identity: ThresholdEcdsaSessionRecordLookupKey,
+): ThresholdEcdsaSessionRecordKey {
+  return {
+    walletId: identity.walletId,
+    keyHandle: identity.keyHandle,
+    authMethod:
+      'authMethod' in identity ? identity.authMethod : signingLaneAuthMethod(identity.auth),
+    curve: 'ecdsa',
+    chainTarget: identity.chainTarget,
+    signingGrantId: String(identity.signingGrantId),
+    thresholdSessionId: String(identity.thresholdSessionId),
+  };
+}
+
 function normalizeThresholdEcdsaSessionAuthMetadata(
   value: unknown,
 ): ThresholdEcdsaSessionAuthMetadata | null {
@@ -402,21 +425,16 @@ function normalizeThresholdEcdsaSessionAuthMetadata(
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
-  const rpId = normalizeOptionalNonEmptyString(obj?.rpId);
-  return rpId ? { rpId } : null;
+  const walletKeyId = normalizeOptionalNonEmptyString(obj?.walletKeyId);
+  return walletKeyId ? { walletKeyId } : null;
 }
 
-export function thresholdEcdsaRecordRpId(record: {
-  authMetadata?: {
-    rpId?: unknown;
-  } | null;
-  rpId?: unknown;
-}): string {
-  const metadataRpId = normalizeOptionalNonEmptyString(record.authMetadata?.rpId);
-  if (metadataRpId) return metadataRpId;
-  const legacyRpId = normalizeOptionalNonEmptyString(record.rpId);
-  if (legacyRpId) return legacyRpId;
-  throw new Error('[SigningEngine] threshold ECDSA session record is missing auth rpId');
+export function thresholdEcdsaRecordRpId(record: ThresholdEcdsaSessionRecord): string {
+  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  if (readyRecord.authMethod.kind !== 'passkey') {
+    throw new Error('[SigningEngine] threshold ECDSA session record does not carry passkey RP scope');
+  }
+  return readyRecord.authMethod.rpId;
 }
 
 function thresholdEcdsaAuthMethodForRecord(
@@ -425,17 +443,44 @@ function thresholdEcdsaAuthMethodForRecord(
   return record.source === 'email_otp' ? 'email_otp' : 'passkey';
 }
 
+function thresholdEcdsaAuthBindingForRecord(
+  record: ThresholdEcdsaSessionRecord,
+): SigningLaneAuthBinding {
+  if (record.source === 'email_otp') {
+    const providerSubjectId = String(record.emailOtpAuthContext?.authSubjectId || '').trim();
+    if (!providerSubjectId) {
+      throw new Error('[SigningEngine] Email OTP ECDSA record is missing auth subject');
+    }
+    return {
+      kind: 'email_otp',
+      providerSubjectId,
+    };
+  }
+  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  if (readyRecord.authMethod.kind !== 'passkey') {
+    throw new Error('[SigningEngine] passkey ECDSA record has non-passkey role-local auth');
+  }
+  return {
+    kind: 'passkey',
+    rpId: readyRecord.authMethod.rpId,
+    credentialIdB64u: readyRecord.authMethod.credentialIdB64u,
+  };
+}
+
 function thresholdEcdsaResolvedKeyFromRecord(
   record: ThresholdEcdsaSessionRecord,
 ): ResolvedEvmFamilyEcdsaKey | null {
   if (thresholdEcdsaAuthMethodForRecord(record) !== 'passkey') return null;
   if (!record.verifiedPublicFacts) return null;
+  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  if (readyRecord.authMethod.kind !== 'passkey') return null;
   try {
     return buildResolvedEvmFamilyEcdsaKey({
       walletId: record.walletId,
       publicFacts: record.verifiedPublicFacts,
       authBinding: buildPasskeyEcdsaAuthBinding({
-        rpId: thresholdEcdsaRecordRpId(record),
+        rpId: readyRecord.authMethod.rpId,
+        credentialIdB64u: readyRecord.authMethod.credentialIdB64u,
       }),
     });
   } catch {
@@ -448,7 +493,6 @@ export function thresholdEcdsaSessionRecordReadModel(
 ): ThresholdEcdsaSessionRecordReadModel {
   const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
     record,
-    rpId: thresholdEcdsaRecordRpId(record),
   });
   const resolvedKey = thresholdEcdsaResolvedKeyFromRecord(record);
   const lane = buildEvmFamilyEcdsaSessionLane({
@@ -477,7 +521,7 @@ function evmFamilyEcdsaSharedContextKey(key: EvmFamilyEcdsaKeyIdentity): string 
   return ecdsaIndexKey([
     key.walletId,
     deriveBaseEcdsaSubjectIdFromWalletId(key.walletId),
-    key.rpId,
+    key.walletKeyId,
     key.keyScope,
     key.signingRootId,
     key.signingRootVersion,
@@ -512,7 +556,7 @@ function assertUniqueEvmFamilyEcdsaIdentityForStore(args: {
     if (evmFamilyEcdsaSharedContextKey(stored) !== incomingContextKey) continue;
     if (evmFamilyEcdsaIdentityValue(stored) === incomingIdentityValue) continue;
     throw new Error(
-      '[SigningEngine] EVM-family ECDSA key identity already exists for wallet/subject/rp/signing root',
+      '[SigningEngine] EVM-family ECDSA key identity already exists for wallet/key/signing root',
     );
   }
 }
@@ -521,39 +565,18 @@ function thresholdEcdsaRecordMatchesLookupKey(args: {
   record: ThresholdEcdsaSessionRecord;
   identity: ThresholdEcdsaSessionRecordLookupKey;
 }): boolean {
-  let readModel: ThresholdEcdsaSessionRecordReadModel;
-  try {
-    readModel = thresholdEcdsaSessionRecordReadModel(args.record);
-  } catch {
-    return false;
-  }
   const identity = args.identity;
-  return (
-    String(readModel.key.walletId) === String(identity.walletId) &&
-    String(args.record.keyHandle) === String(identity.keyHandle) &&
-    readModel.lane.authMethod === identity.authMethod &&
-    identity.curve === 'ecdsa' &&
-    thresholdEcdsaChainTargetsEqual(readModel.lane.chainTarget, identity.chainTarget) &&
-    String(readModel.lane.signingGrantId) === String(identity.signingGrantId) &&
-    String(readModel.lane.thresholdSessionId) === String(identity.thresholdSessionId)
-  );
+  const lookupKey = thresholdEcdsaRecordKeyFromLookupKey(identity);
+  return getThresholdEcdsaSessionLaneKeyForRecord(args.record) === thresholdEcdsaLaneKey(lookupKey);
 }
 
-function thresholdEcdsaRecordMatchesExactBroadIdentity(args: {
+function thresholdEcdsaRecordMatchesExactIdentity(args: {
   record: ThresholdEcdsaSessionRecord;
   identity: ExactEcdsaSigningLaneIdentity;
 }): boolean {
   try {
-    return (
-      String(toWalletId(args.record.walletId)) === String(args.identity.walletId) &&
-      String(args.record.keyHandle) === String(args.identity.keyHandle) &&
-      thresholdEcdsaAuthMethodForRecord(args.record) === args.identity.authMethod &&
-      thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.identity.chainTarget) &&
-      String(SigningSessionIds.signingGrant(args.record.signingGrantId)) ===
-        String(args.identity.signingGrantId) &&
-      String(SigningSessionIds.thresholdEcdsaSession(args.record.thresholdSessionId)) ===
-        String(args.identity.thresholdSessionId)
-    );
+    const recordIdentity = toExactEcdsaSigningLaneIdentity(args.record);
+    return exactSigningLaneIdentityKey(recordIdentity) === exactSigningLaneIdentityKey(args.identity);
   } catch {
     return false;
   }
@@ -565,7 +588,7 @@ function thresholdEcdsaRuntimeRecordCandidateLaneKey(
   return thresholdEcdsaLaneKey({
     walletId: candidate.walletId,
     keyHandle: candidate.keyHandle,
-    authMethod: candidate.authMethod,
+    authMethod: signingLaneAuthMethod(candidate.auth),
     curve: 'ecdsa',
     chainTarget: candidate.chainTarget,
     signingGrantId: candidate.signingGrantId,
@@ -599,11 +622,10 @@ export function thresholdEcdsaLaneCandidateFromSessionRecord(args: {
     walletId: args.record.walletId,
     key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: args.record,
-      rpId: thresholdEcdsaRecordRpId(args.record),
     }),
     ...(resolvedKey ? { resolvedKey } : {}),
     keyHandle: args.record.keyHandle,
-    authMethod: thresholdEcdsaAuthMethodForRecord(args.record),
+    auth: thresholdEcdsaAuthBindingForRecord(args.record),
     curve: 'ecdsa',
     chain: args.record.chainTarget.kind,
     chainTarget: args.record.chainTarget,
@@ -1038,7 +1060,7 @@ function normalizeEthereumAddress20B64u(value: string): string {
 function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
   raw: unknown;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string | undefined;
@@ -1049,15 +1071,15 @@ function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
 }): RouterAbEcdsaHssNormalSigningStateV1 | undefined {
   const parsed = parseRouterAbEcdsaHssNormalSigningStateV1(args.raw);
   if (!parsed) return undefined;
-  const context = parsed.scope.context;
   const publicIdentity = parsed.scope.public_identity;
+  const walletKeyId = parsed.scope.wallet_key_id;
   const expectedSigningRootVersion = args.signingRootVersion || 'default';
   const checks: Array<[string, string, string]> = [
-    ['wallet_id', context.wallet_id, args.walletId],
-    ['rp_id', context.rp_id, args.rpId],
-    ['ecdsa_threshold_key_id', context.ecdsa_threshold_key_id, args.ecdsaThresholdKeyId],
-    ['signing_root_id', context.signing_root_id, args.signingRootId],
-    ['signing_root_version', context.signing_root_version, expectedSigningRootVersion],
+    ['wallet_id', parsed.scope.wallet_id, args.walletId],
+    ['wallet_key_id', walletKeyId, args.walletKeyId],
+    ['ecdsa_threshold_key_id', parsed.scope.ecdsa_threshold_key_id, args.ecdsaThresholdKeyId],
+    ['signing_root_id', parsed.scope.signing_root_id, args.signingRootId],
+    ['signing_root_version', parsed.scope.signing_root_version, expectedSigningRootVersion],
     [
       'client_public_key33_b64u',
       publicIdentity.client_public_key33_b64u,
@@ -1132,7 +1154,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const walletId = toWalletId(String(obj.walletId || '').trim());
   const authMetadata = normalizeThresholdEcdsaSessionAuthMetadata(obj.authMetadata);
-  const rpId = authMetadata?.rpId || normalizeOptionalNonEmptyString(obj.rpId) || '';
+  const walletKeyId = authMetadata?.walletKeyId || '';
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -1186,7 +1208,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
 
   if (
     !relayerUrl ||
-    !rpId ||
+    !walletKeyId ||
     !keyHandle ||
     !relayerKeyId ||
     !clientVerifyingShareB64u ||
@@ -1223,7 +1245,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const routerAbEcdsaHssNormalSigning = normalizeStoredRouterAbEcdsaHssNormalSigningState({
     raw: obj.routerAbEcdsaHssNormalSigning,
     walletId,
-    rpId,
+    walletKeyId: ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
     ecdsaThresholdKeyId,
     signingRootId: signingRootBinding.signingRootId,
     signingRootVersion: signingRootBinding.signingRootVersion,
@@ -1246,7 +1268,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   }
   const sharedRecord = {
     walletId,
-    authMetadata: { rpId },
+    authMetadata: { walletKeyId },
     relayerUrl,
     keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
     ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({
@@ -1394,6 +1416,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const { walletId, nearAccountId, ed25519KeyScopeId } =
     migrateLegacyThresholdEd25519SessionIdentity(obj);
   const rpId = String(obj.rpId || '').trim();
+  const passkeyCredentialIdB64u = normalizeOptionalNonEmptyString(obj.passkeyCredentialIdB64u);
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
@@ -1475,6 +1498,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     nearAccountId,
     ed25519KeyScopeId,
     rpId,
+    ...(passkeyCredentialIdB64u ? { passkeyCredentialIdB64u } : {}),
     relayerUrl,
     relayerKeyId,
     participantIds,
@@ -1693,6 +1717,30 @@ function thresholdEd25519AuthMethodForRecord(
   return record.source === 'email_otp' ? 'email_otp' : 'passkey';
 }
 
+function thresholdEd25519AuthBindingForRecord(
+  record: ThresholdEd25519SessionRecord,
+): SigningLaneAuthBinding {
+  if (record.source === 'email_otp') {
+    const providerSubjectId = String(record.emailOtpAuthContext?.authSubjectId || '').trim();
+    if (!providerSubjectId) {
+      throw new Error('[SigningEngine] Email OTP Ed25519 record is missing auth subject');
+    }
+    return {
+      kind: 'email_otp',
+      providerSubjectId,
+    };
+  }
+  const credentialIdB64u = normalizeOptionalNonEmptyString(record.passkeyCredentialIdB64u);
+  if (!credentialIdB64u) {
+    throw new Error('[SigningEngine] passkey Ed25519 record is missing credential id');
+  }
+	  return {
+	    kind: 'passkey',
+	    rpId: toRpId(record.rpId),
+	    credentialIdB64u,
+	  };
+}
+
 function isRawOnlyEd25519ClientBaseInput(value: unknown): boolean {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const rawClientBase = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
@@ -1715,7 +1763,7 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
     ed25519KeyScopeId: args.record.ed25519KeyScopeId,
-    authMethod: thresholdEd25519AuthMethodForRecord(args.record),
+    auth: thresholdEd25519AuthBindingForRecord(args.record),
     curve: 'ed25519',
     chain: 'near',
     signingGrantId,
@@ -1940,7 +1988,7 @@ function isSelectedEcdsaLane(
 }
 
 export function toExactEcdsaSigningLaneIdentity(
-  input: ThresholdEcdsaSessionRecord | SelectedEcdsaLane,
+  input: ThresholdEcdsaSessionRecord | (SelectedEcdsaLane & { auth: SigningLaneAuthBinding }),
 ): ExactEcdsaSigningLaneIdentity {
   if (isSelectedEcdsaLane(input)) {
     return {
@@ -1948,7 +1996,7 @@ export function toExactEcdsaSigningLaneIdentity(
       curve: 'ecdsa',
       chainFamily: input.chainTarget.kind,
       walletId: toWalletId(input.walletId),
-      authMethod: input.authMethod,
+      auth: input.auth,
       chainTarget: input.chainTarget,
       keyHandle: input.keyHandle,
       key: input.key,
@@ -1961,12 +2009,11 @@ export function toExactEcdsaSigningLaneIdentity(
     curve: 'ecdsa',
     chainFamily: input.chainTarget.kind,
     walletId: toWalletId(input.walletId),
-    authMethod: thresholdEcdsaAuthMethodForRecord(input),
+    auth: thresholdEcdsaAuthBindingForRecord(input),
     chainTarget: input.chainTarget,
     keyHandle: toEvmFamilyEcdsaKeyHandle(input.keyHandle),
     key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: input,
-      rpId: thresholdEcdsaRecordRpId(input),
     }),
     signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
@@ -2059,7 +2106,7 @@ function readExactThresholdEcdsaSessionRecordCandidates(args: {
       thresholdSessionId,
     }),
   ].filter((candidate) =>
-    thresholdEcdsaRecordMatchesExactBroadIdentity({
+    thresholdEcdsaRecordMatchesExactIdentity({
       record: candidate.record,
       identity: args.identity,
     }),
@@ -2292,7 +2339,7 @@ function buildEcdsaRecordFromBootstrap(
 
   return normalizeThresholdEcdsaSessionRecord({
     walletId,
-    authMetadata: { rpId: args.bootstrap.keygen.rpId },
+    authMetadata: { walletKeyId: args.bootstrap.keygen.walletKeyId },
     chainTarget: args.chainTarget,
     relayerUrl: keyRef.relayerUrl,
     keyHandle,
@@ -2541,7 +2588,17 @@ export function getThresholdEcdsaSessionRecordByKey(
   deps: ThresholdEcdsaSessionStoreDeps,
   identity: ThresholdEcdsaSessionRecordLookupKey,
 ): ThresholdEcdsaSessionRecord | null {
-  const laneKey = thresholdEcdsaLaneKey(identity);
+  if ('auth' in identity) {
+    const exactIdentity = exactSigningLaneIdentity(identity);
+    if (exactIdentity.curve !== 'ecdsa') return null;
+    const result = readExactThresholdEcdsaSessionRecord(deps, exactIdentity);
+    if (result.kind === 'found') return result.record;
+    if (result.kind === 'duplicate_records') {
+      throw new Error('[SigningEngine] duplicate exact threshold ECDSA session records');
+    }
+    return null;
+  }
+  const laneKey = thresholdEcdsaLaneKey(thresholdEcdsaRecordKeyFromLookupKey(identity));
   const record = deps.recordsByLane.get(laneKey) || inMemoryEcdsaRecordsByLane.get(laneKey) || null;
   if (!record) return null;
   return thresholdEcdsaRecordMatchesLookupKey({ record, identity }) ? record : null;
@@ -2765,8 +2822,13 @@ function exactEcdsaLaneIdentityMismatchReason(args: {
   expected: ExactEcdsaSigningLaneIdentity;
   actual: ExactEcdsaSigningLaneIdentity;
 }): Extract<ConsumeSingleUseEmailOtpEcdsaLaneResult, { kind: 'stale_record' }>['reason'] | null {
+  if (exactSigningLaneIdentityKey(args.actual) === exactSigningLaneIdentityKey(args.expected)) {
+    return null;
+  }
   if (String(args.actual.walletId) !== String(args.expected.walletId)) return 'wallet_mismatch';
-  if (args.actual.authMethod !== args.expected.authMethod) return 'auth_method_mismatch';
+  if (signingLaneAuthMethod(args.actual.auth) !== signingLaneAuthMethod(args.expected.auth)) {
+    return 'auth_method_mismatch';
+  }
   if (!thresholdEcdsaChainTargetsEqual(args.actual.chainTarget, args.expected.chainTarget)) {
     return 'chain_target_mismatch';
   }
@@ -2779,29 +2841,7 @@ function exactEcdsaLaneIdentityMismatchReason(args: {
   ) {
     return 'session_identity_mismatch';
   }
-  if (!exactEcdsaKeyIdentityMatches(args.actual.key, args.expected.key)) {
-    return 'key_identity_mismatch';
-  }
-  return null;
-}
-
-function exactEcdsaKeyIdentityMatches(
-  left: EvmFamilyEcdsaKeyIdentity,
-  right: EvmFamilyEcdsaKeyIdentity,
-): boolean {
-  if (String(left.walletId) !== String(right.walletId)) return false;
-  if (String(left.rpId) !== String(right.rpId)) return false;
-  if (String(left.keyScope) !== String(right.keyScope)) return false;
-  if (String(left.ecdsaThresholdKeyId) !== String(right.ecdsaThresholdKeyId)) return false;
-  if (String(left.signingRootId) !== String(right.signingRootId)) return false;
-  if (String(left.signingRootVersion) !== String(right.signingRootVersion)) return false;
-  if (String(left.thresholdOwnerAddress) !== String(right.thresholdOwnerAddress)) return false;
-  const leftParticipants = left.participantIds.map((participantId) => Number(participantId));
-  const rightParticipants = right.participantIds.map((participantId) => Number(participantId));
-  if (leftParticipants.length !== rightParticipants.length) return false;
-  return leftParticipants.every(
-    (participantId, index) => participantId === rightParticipants[index],
-  );
+  return 'key_identity_mismatch';
 }
 
 function staleSingleUseEmailOtpEcdsaLaneResult(args: {
@@ -2826,7 +2866,7 @@ export function consumeSingleUseEmailOtpEcdsaLane(
     command.lane.kind !== 'consumable_email_otp_ecdsa_lane' ||
     command.lane.remainingUses !== 1 ||
     command.lane.consumedAtMs !== null ||
-    command.lane.laneRef.exactIdentity.authMethod !== 'email_otp'
+    signingLaneAuthMethod(command.lane.laneRef.exactIdentity.auth) !== 'email_otp'
   ) {
     return staleSingleUseEmailOtpEcdsaLaneResult({ laneKey, reason: 'auth_method_mismatch' });
   }
@@ -2971,6 +3011,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   nearAccountId: AccountId | string;
   ed25519KeyScopeId: Ed25519KeyScopeId | string;
   rpId: string;
+  passkeyCredentialIdB64u?: string;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
@@ -3012,6 +3053,9 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     nearAccountId,
     ed25519KeyScopeId,
     rpId: String(args.rpId || '').trim(),
+    ...(String(args.passkeyCredentialIdB64u || '').trim()
+      ? { passkeyCredentialIdB64u: String(args.passkeyCredentialIdB64u || '').trim() }
+      : {}),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds: args.participantIds,
@@ -3110,6 +3154,9 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
     nearAccountId: existing.nearAccountId,
     ed25519KeyScopeId: existing.ed25519KeyScopeId,
     rpId: existing.rpId,
+    ...(existing.passkeyCredentialIdB64u
+      ? { passkeyCredentialIdB64u: existing.passkeyCredentialIdB64u }
+      : {}),
     relayerUrl: existing.relayerUrl,
     relayerKeyId: existing.relayerKeyId,
     participantIds: existing.participantIds,
@@ -3300,7 +3347,7 @@ function ecdsaRuntimeLaneFromRecord(args: {
     verifiedPublicFacts,
     thresholdEcdsaPublicKeyB64u,
     lane: readModel.lane,
-    authMethod: candidate.authMethod,
+    auth: candidate.auth,
     curve: 'ecdsa',
     walletId: candidate.walletId,
     chainTarget: candidate.chainTarget,

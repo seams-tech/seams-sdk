@@ -25,6 +25,7 @@ import type { EvmAddress, EvmSigningRequest, Hex } from '../chains/evm/evmSignin
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpHssIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
+import type { WalletKeyId } from '@shared/signing-lanes';
 import type {
   EmailOtpChallengeId,
   SigningOperationId,
@@ -127,6 +128,7 @@ export type ReadyEd25519Lane = {
 export type EcdsaUseCaseReadyLane = {
   kind: 'ecdsa_ready_lane_v1';
   walletId: WalletId;
+  walletKeyId: WalletKeyId;
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   readyRecord: EcdsaRoleLocalReadyRecord;
@@ -449,14 +451,16 @@ export type SigningSessionActivationEmailOtpEd25519Auth = {
   authSubjectId: EmailOtpAuthSubjectId;
   workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ed25519_session' }>;
   credentialIdB64u?: never;
+  walletKeyId?: never;
 };
 
 export type SigningSessionActivationEmailOtpEcdsaAuth = {
   kind: 'email_otp';
   walletId: WalletId;
-  rpId: RpId;
+  walletKeyId: WalletKeyId;
   authSubjectId: EmailOtpAuthSubjectId;
   workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
+  rpId?: never;
   credentialIdB64u?: never;
 };
 
@@ -516,6 +520,7 @@ export type SigningSessionSealWriteInput =
 
 export type ActivateSigningSessionInput = {
   walletId: WalletId;
+  walletKeyId: WalletKeyId;
   rpId: RpId;
   auth: SigningSessionActivationAuth;
   material: NonEmptyReadonlyArray<SigningSessionActivationMaterial>;
@@ -548,6 +553,7 @@ export type ActivateSigningSessionLifecycleState =
   | {
       kind: 'validating_material';
       walletId: WalletId;
+      walletKeyId: WalletKeyId;
       rpId: RpId;
       auth: SigningSessionActivationAuth;
       material: NonEmptyReadonlyArray<SigningSessionActivationMaterial>;
@@ -555,6 +561,7 @@ export type ActivateSigningSessionLifecycleState =
   | {
       kind: 'writing_seals';
       walletId: WalletId;
+      walletKeyId: WalletKeyId;
       rpId: RpId;
       sealWrites: NonEmptyReadonlyArray<SigningSessionSealWriteInput>;
     }
@@ -870,6 +877,7 @@ export type ExportKeyRequest =
 
 export type ExportKeysInput = {
   walletId: WalletId;
+  walletKeyId: WalletKeyId;
   rpId: RpId;
   requestedKeys: NonEmptyReadonlyArray<ExportKeyRequest>;
   authorization: ExportKeysAuthorization;

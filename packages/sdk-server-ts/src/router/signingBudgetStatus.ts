@@ -102,6 +102,18 @@ function sameParticipants(expected: readonly number[], actual: unknown): boolean
   return actual.every((value, index) => Number(value) === Number(expected[index]));
 }
 
+function statusMatchesAuthScope(
+  auth: VerifiedWalletSessionAuth,
+  status: SigningSessionSealThresholdSessionStatus | SigningSessionSealWalletBudgetStatus,
+): boolean {
+  switch (auth.curve) {
+    case 'ecdsa':
+      return status.curve === 'ecdsa' && status.walletKeyId === auth.walletKeyId;
+    case 'ed25519':
+      return status.curve === 'ed25519' && status.rpId === auth.rpId;
+  }
+}
+
 function selectMatchingCurveStatus(
   statuses: SigningSessionSealThresholdSessionStatus[],
   auth: VerifiedWalletSessionAuth,
@@ -113,7 +125,7 @@ function selectMatchingCurveStatus(
         status.curve === auth.curve &&
         status.thresholdSessionId === auth.thresholdSessionId &&
         status.userId === auth.userId &&
-        status.rpId === auth.rpId &&
+        statusMatchesAuthScope(auth, status) &&
         status.relayerKeyId === auth.relayerKeyId &&
         sameParticipants(auth.participantIds, status.participantIds)
       );
@@ -130,7 +142,7 @@ function walletBudgetMatches(
       status.kind === 'wallet_budget' &&
       status.signingGrantId === auth.signingGrantId &&
       status.userId === auth.userId &&
-      status.rpId === auth.rpId &&
+      statusMatchesAuthScope(auth, status) &&
       sameParticipants(auth.participantIds, status.participantIds),
   );
 }

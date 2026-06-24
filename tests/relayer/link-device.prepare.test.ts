@@ -20,6 +20,8 @@ const ECDSA_CLIENT_PUBLIC_KEY_B64U =
 const ECDSA_RELAYER_PUBLIC_KEY_B64U =
   'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as EcdsaRelayerHssPublicKey33B64u;
 const ECDSA_GROUP_PUBLIC_KEY_B64U = 'AgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE';
+const ECDSA_APPLICATION_BINDING_DIGEST_B64U =
+  'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc';
 const ECDSA_CONTEXT_BINDING_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ROUTER_AB_RUNTIME_POLICY_SCOPE = {
   orgId: 'org',
@@ -97,7 +99,7 @@ function makePreparedLinkDeviceService() {
         prepare: {
           formatVersion: 'ecdsa-hss-role-local',
           walletId: 'alice.testnet',
-          rpId: 'wallet.example.test',
+          walletKeyId: 'wallet-key-link-device',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           signingRootId: 'project:env',
           signingRootVersion: 'v1',
@@ -125,9 +127,10 @@ function makeLinkDeviceEcdsaRespondService() {
         bootstrap: {
           formatVersion: 'ecdsa-hss-role-local',
           walletId: 'alice.testnet',
-          rpId: 'wallet.example.test',
+          walletKeyId: 'wallet-key-link-device',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           relayerKeyId: 'rk-evm',
+          applicationBindingDigestB64u: ECDSA_APPLICATION_BINDING_DIGEST_B64U,
           contextBinding32B64u: ECDSA_CONTEXT_BINDING_B64U,
           publicIdentity: {
             hssClientSharePublicKey33B64u: ECDSA_CLIENT_PUBLIC_KEY_B64U,
@@ -161,7 +164,7 @@ function makeLinkDeviceEcdsaRespondService() {
               networkSlug: 'sepolia',
             },
             walletId: 'alice.testnet',
-            rpId: 'wallet.example.test',
+            walletKeyId: 'wallet-key-link-device',
             keyHandle: 'key-handle-link-device',
             ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
             signingRootId: 'project:env',

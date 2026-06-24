@@ -53,6 +53,7 @@ function roleLocalReadyRecordForPostSign(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: WALLET_ID,
+      walletKeyId: 'wallet-key-post-sign',
       rpId: 'localhost',
       chainTarget: args.chainTarget,
       keyHandle,
@@ -89,7 +90,7 @@ function ecdsaRecord(args: {
   const chainTarget = args.chainTarget || EVM_CHAIN_TARGET;
   const common = {
     walletId: WALLET_ID,
-    authMetadata: { rpId: 'localhost' },
+    authMetadata: { walletKeyId: 'localhost' },
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-post-sign'),

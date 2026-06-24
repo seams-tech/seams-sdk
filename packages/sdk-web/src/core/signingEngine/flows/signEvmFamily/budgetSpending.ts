@@ -55,10 +55,7 @@ function buildEvmFamilyBudgetFinalization(
     ...(args.operation.operationFingerprint
       ? { operationFingerprint: args.operation.operationFingerprint }
       : {}),
-    walletId: toWalletId(args.walletSession.walletId),
-    signingGrantId: args.finalizedSigningLane.signingGrantId,
     lane: args.finalizedSigningLane,
-    thresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
     backingMaterialSessionIds: [],
     uses: 1,
     reason: args.operation.intent,

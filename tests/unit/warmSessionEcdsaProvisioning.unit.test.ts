@@ -9,10 +9,10 @@ import {
 } from '@/core/signingEngine/useCases/provisionEcdsaSession';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { thresholdEcdsaRecordRpId } from '@/core/signingEngine/session/persistence/records';
 import {
   createThresholdEcdsaStoreFixture,
   createThresholdEcdsaBootstrapFixture,
@@ -22,6 +22,18 @@ import {
 
 const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
 const TEMPO_CHAIN_TARGET = testEcdsaChainTarget('tempo');
+
+function passkeyAuthFromRecord(record: { ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord }) {
+  const authMethod = record.ecdsaRoleLocalReadyRecord.authMethod;
+  if (authMethod.kind !== 'passkey') {
+    throw new Error('expected passkey ECDSA fixture record');
+  }
+  return {
+    kind: 'passkey' as const,
+    rpId: authMethod.rpId,
+    credentialIdB64u: authMethod.credentialIdB64u,
+  };
+}
 
 function createEnvelope(): WarmSessionEnvelope {
   const ecdsaSessions = createThresholdEcdsaStoreFixture();
@@ -53,12 +65,14 @@ function createEnvelope(): WarmSessionEnvelope {
   });
   const evmKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
     record: evmRecord,
-    rpId: thresholdEcdsaRecordRpId(evmRecord),
+    walletKeyId: evmRecord.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
   });
   const tempoKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
     record: tempoRecord,
-    rpId: thresholdEcdsaRecordRpId(tempoRecord),
+    walletKeyId: tempoRecord.ecdsaRoleLocalReadyRecord.publicFacts.walletKeyId,
   });
+  const evmAuth = passkeyAuthFromRecord(evmRecord);
+  const tempoAuth = passkeyAuthFromRecord(tempoRecord);
   const envelope: WarmSessionEnvelope = {
     walletId: evmRecord.walletId,
     capabilities: {
@@ -78,7 +92,7 @@ function createEnvelope(): WarmSessionEnvelope {
             key: evmKey,
             keyHandle: evmRecord.keyHandle,
             walletId: evmRecord.walletId,
-            authMethod: 'passkey',
+            auth: evmAuth,
             signingGrantId: evmRecord.signingGrantId,
             thresholdSessionId: evmRecord.thresholdSessionId,
             chainTarget: evmRecord.chainTarget,
@@ -106,7 +120,7 @@ function createEnvelope(): WarmSessionEnvelope {
             key: tempoKey,
             keyHandle: tempoRecord.keyHandle,
             walletId: tempoRecord.walletId,
-            authMethod: 'passkey',
+            auth: tempoAuth,
             signingGrantId: tempoRecord.signingGrantId,
             thresholdSessionId: tempoRecord.thresholdSessionId,
             chainTarget: tempoRecord.chainTarget,

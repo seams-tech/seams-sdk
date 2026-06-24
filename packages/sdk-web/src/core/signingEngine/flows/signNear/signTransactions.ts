@@ -56,6 +56,7 @@ import {
   type RouterAbEd25519RuntimeValidatedMaterial,
 } from '../../threshold/ed25519/workerMaterialHandle';
 import type { SelectedEd25519Lane } from '../../session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import {
   SigningOperationIntent,
   SigningSessionIds,
@@ -723,12 +724,9 @@ export async function runNearTransactionWithActionsSigning({
   ): Promise<void> => {
     if (walletSpendRecorded) return;
     const spend = {
-	      operationId: confirmationOperationId,
-	      ...(operationFingerprint ? { operationFingerprint } : {}),
-	      walletId: commandSubject.walletSession.walletId,
-      signingGrantId: buildBudgetSigningLane().signingGrantId,
+      operationId: confirmationOperationId,
+      ...(operationFingerprint ? { operationFingerprint } : {}),
       lane: buildBudgetSigningLane(),
-      thresholdSessionIds: [operationState.lane.thresholdSessionId],
       backingMaterialSessionIds: [],
       uses: requiredSignatureUses,
       reason: SigningOperationIntent.TransactionSign,
@@ -936,7 +934,7 @@ export async function runNearTransactionWithActionsSigning({
             message: err.message,
             requiredSignatureUses,
             thresholdSessionId: signingSessionAuthPlan.sessionId,
-            authMethod: signingSessionAuthPlan.lane.authMethod,
+            authMethod: signingLaneAuthMethod(signingSessionAuthPlan.lane.auth),
             warmSessionReady: signingSessionAuthPlan.warmSessionReady,
           });
           const finalError = new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);

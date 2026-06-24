@@ -129,7 +129,7 @@ function buildRoleLocalKeyRecord(input: {
   ecdsaThresholdKeyId: string;
   keyHandle?: string;
   userId: string;
-  rpId: string;
+  walletKeyId: string;
   participantIds: number[];
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
@@ -154,7 +154,7 @@ function buildRoleLocalKeyRecord(input: {
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     keyHandle: input.keyHandle || `ehss-key-${input.ecdsaThresholdKeyId}`,
     walletId: input.userId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     signingRootId: TEST_SIGNING_ROOT_ID,
     signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
     keyScope: 'evm-family' as const,
@@ -185,15 +185,13 @@ function buildRouterAbEcdsaHssScope(
   roleLocalKey: ReturnType<typeof buildRoleLocalKeyRecord>,
 ): RouterAbEcdsaHssNormalSigningScopeV1 {
   return {
+    wallet_key_id: roleLocalKey.walletKeyId,
+    wallet_id: roleLocalKey.walletId,
+    ecdsa_threshold_key_id: roleLocalKey.ecdsaThresholdKeyId,
+    signing_root_id: roleLocalKey.signingRootId,
+    signing_root_version: roleLocalKey.signingRootVersion || 'default',
     context: {
-      wallet_id: roleLocalKey.walletId,
-      rp_id: roleLocalKey.rpId,
-      key_scope: 'evm-family',
-      ecdsa_threshold_key_id: roleLocalKey.ecdsaThresholdKeyId,
-      signing_root_id: roleLocalKey.signingRootId,
-      signing_root_version: roleLocalKey.signingRootVersion || 'default',
-      key_purpose: 'normal-signing',
-      key_version: TEST_ECDSA_ROLE_LOCAL_WALLET_KEY_VERSION,
+      application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
     },
     public_identity: {
       context_binding_b64u: roleLocalKey.contextBinding32B64u,
@@ -357,7 +355,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('completes one presign session on a single coordinator instance', async () => {
     const userId = 'distributed-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -372,7 +370,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -383,7 +381,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
       ...buildRoleLocalKeyRecord({
         ecdsaThresholdKeyId,
         userId,
-        rpId,
+        walletKeyId,
         participantIds,
         relayerKeyId,
         clientVerifyingShareB64u,
@@ -417,7 +415,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
       return new Response(
         JSON.stringify({
           active_signing_worker_state: {
-            account_id: poolFill.scope.context.wallet_id,
+            account_id: poolFill.scope.wallet_id,
             session_id: 'router-ab-session-1',
             account_public_key: poolFill.scope.public_identity.threshold_public_key33_b64u,
             signing_worker: poolFill.scope.signing_worker,
@@ -473,7 +471,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -581,7 +579,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('fills Router A/B ECDSA-HSS SigningWorker pool on presign completion', async () => {
     const userId = 'router-ab-ecdsa-hss-presign-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -596,7 +594,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -607,7 +605,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
       ...buildRoleLocalKeyRecord({
         ecdsaThresholdKeyId,
         userId,
-        rpId,
+        walletKeyId,
         participantIds,
         relayerKeyId,
         clientVerifyingShareB64u,
@@ -647,7 +645,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
       return new Response(
         JSON.stringify({
           active_signing_worker_state: {
-            account_id: scope.context.wallet_id,
+            account_id: scope.wallet_id,
             session_id: 'router-ab-session-1',
             account_public_key: scope.public_identity.threshold_public_key33_b64u,
             signing_worker: scope.signing_worker,
@@ -701,7 +699,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     });
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle,
       ecdsaThresholdKeyId,
@@ -828,7 +826,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('returns retriable stale_session_state on cross-instance cache miss', async () => {
     const userId = 'strict-no-replay-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -843,7 +841,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -852,7 +850,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -889,7 +887,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const handlerB = makeHandler();
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,
@@ -926,7 +924,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('forwards cross-instance presign step to owner coordinator', async () => {
     const userId = 'owner-forward-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -941,7 +939,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -950,7 +948,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -995,7 +993,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     });
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,
@@ -1060,7 +1058,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('returns stale_session_state when forwarding lacks session auth headers', async () => {
     const userId = 'owner-forward-no-auth-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -1075,7 +1073,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -1084,7 +1082,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -1129,7 +1127,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     });
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,
@@ -1170,7 +1168,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('keeps scope validation precedence over cache miss', async () => {
     const userId = 'strict-scope-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -1185,7 +1183,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -1194,7 +1192,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -1231,7 +1229,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const handlerB = makeHandler();
     const validClaims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,
@@ -1272,7 +1270,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('burns presign session on relayer key mismatch', async () => {
     const userId = 'relayer-mismatch-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -1287,7 +1285,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -1296,7 +1294,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -1322,7 +1320,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     });
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,
@@ -1355,7 +1353,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('burns presign session after malformed protocol message', async () => {
     const userId = 'malformed-protocol-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -1370,7 +1368,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -1379,7 +1377,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -1409,7 +1407,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     });
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,
@@ -1458,7 +1456,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
   test('rejects stage regression once presign stage has started', async () => {
     const userId = 'stage-regression-user';
-    const rpId = 'example.localhost';
+    const walletKeyId = 'wallet-key-example-localhost';
     const participantIds = [1, 2];
     const clientParticipantId = 1;
     const relayerParticipantId = 2;
@@ -1473,7 +1471,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
         version: 'threshold_secp256k1_key_id_v1',
         schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
         userId,
-        rpId,
+        walletKeyId,
         clientVerifyingShareB64u,
       }),
     );
@@ -1482,7 +1480,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
     const roleLocalKeyRecord = buildRoleLocalKeyRecord({
       ecdsaThresholdKeyId,
       userId,
-      rpId,
+      walletKeyId,
       participantIds,
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -1526,7 +1524,7 @@ test.describe('Router A/B ECDSA-HSS pool-fill distributed session store', () => 
 
     const claims = {
       walletId: userId,
-      rpId,
+      walletKeyId,
       relayerKeyId,
       keyHandle: roleLocalKeyRecord.keyHandle,
       ecdsaThresholdKeyId,

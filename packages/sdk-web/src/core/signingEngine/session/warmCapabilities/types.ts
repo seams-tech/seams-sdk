@@ -14,6 +14,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
@@ -346,7 +347,7 @@ function assertCapabilityStateInvariant(args: {
       );
     }
     const expectedAuthMethod = capability.record.source === 'email_otp' ? 'email_otp' : 'passkey';
-    if (capability.lane.authMethod !== expectedAuthMethod) {
+    if (signingLaneAuthMethod(capability.lane.auth) !== expectedAuthMethod) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: lane authMethod does not match record source`,
       );

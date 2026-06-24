@@ -37,7 +37,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -47,7 +47,7 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 
 const validPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -60,7 +60,7 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
   walletId,
   // @ts-expect-error ECDSA public key identity builder derives subject identity from walletId.
   subjectId: 'wallet.testnet',
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-subject-cleanup',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -70,16 +70,11 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
 void invalidPublicKeyIdentity;
 
 const laneIdentity = exactEcdsaSigningLaneIdentity({
-  kind: 'selected_lane',
-  curve: 'ecdsa',
-  chain: 'tempo',
-  chainFamily: 'tempo',
-  keyKind: 'threshold_ecdsa_secp256k1',
-  sessionOrigin: 'per_operation',
-  storageSource: 'email_otp',
-  retention: 'single_use',
   walletId,
-  authMethod: 'email_otp',
+  auth: {
+    kind: 'email_otp',
+    providerSubjectId: 'google:subject-1',
+  },
   chainTarget,
   key,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
@@ -122,19 +117,22 @@ void invalidFreshness;
 const ecdsaSpendPlan: WalletSigningSpendPlan = {
   operationId,
   operationFingerprint,
-  walletId,
-  signingGrantId: laneIdentity.signingGrantId,
   lane: {
-    ...laneIdentity,
-    key,
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+    auth: laneIdentity.auth,
+    curve: 'ecdsa',
     keyKind: 'threshold_ecdsa_secp256k1',
     chainFamily: 'tempo',
-    sessionOrigin: 'per_operation',
+    walletId,
+    key,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+    chainTarget,
+    signingGrantId: laneIdentity.signingGrantId,
+	    thresholdSessionId: laneIdentity.thresholdSessionId,
+	    runtimeState: 'no_runtime_material',
+	    sessionOrigin: 'per_operation',
     storageSource: 'email_otp',
     retention: 'single_use',
   },
-  thresholdSessionIds: [laneIdentity.thresholdSessionId],
   backingMaterialSessionIds: [],
   uses: 1,
   reason: SigningOperationIntent.TransactionSign,

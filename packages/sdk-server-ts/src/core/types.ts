@@ -210,7 +210,7 @@ export interface ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest {
 
 export interface ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  rp_id: string;
+  wallet_key_id: string;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
@@ -714,7 +714,7 @@ export type WalletRegistrationEcdsaPreparePayload = {
   prepare: {
     formatVersion: EcdsaHssRoleLocalFormatVersion;
     walletId: string;
-    rpId: string;
+    walletKeyId: string;
     ecdsaThresholdKeyId: EcdsaThresholdKeyId;
     signingRootId: string;
     signingRootVersion: string;
@@ -734,7 +734,7 @@ export type WalletRegistrationEcdsaPreparePayload = {
 export type WalletRegistrationEcdsaClientBootstrap = {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -759,7 +759,7 @@ export type WalletRegistrationEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
@@ -1023,7 +1023,7 @@ export interface ThresholdEd25519HssPrepareWithSessionRequest {
 
 export interface ThresholdEd25519HssPrepareForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  rp_id: string;
+  wallet_key_id: string;
   context: ThresholdEd25519HssCanonicalContext;
 }
 
@@ -1034,7 +1034,7 @@ export interface ThresholdEd25519HssRespondWithSessionRequest {
 
 export interface ThresholdEd25519HssRespondForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  rp_id: string;
+  wallet_key_id: string;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
@@ -1126,7 +1126,7 @@ export type ThresholdEd25519HssFinalizeAccountResolution =
 
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
-  rp_id: string;
+  wallet_key_id: string;
   ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
   accountResolution: ThresholdEd25519HssFinalizeAccountResolution;
@@ -1786,6 +1786,7 @@ export interface EcdsaHssClientRootProof {
 
 export interface EcdsaHssPasskeyBootstrapAuthorization {
   kind: 'passkey_bootstrap';
+  rpId: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: RuntimePolicyScope;
   runtimeEnvironmentId?: string;
@@ -1794,7 +1795,7 @@ export interface EcdsaHssPasskeyBootstrapAuthorization {
 interface EcdsaHssClientBootstrapRequestBase {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -1831,9 +1832,10 @@ export type EcdsaHssClientBootstrapRequest =
 export interface EcdsaHssServerBootstrapResponse {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
+  applicationBindingDigestB64u: string;
   contextBinding32B64u: string;
   publicIdentity: EcdsaHssPublicIdentity;
   clientShareRetryCounter: number;
@@ -1859,7 +1861,7 @@ export interface EcdsaHssRoleLocalKeyRecord {
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
@@ -1879,7 +1881,7 @@ export interface EcdsaHssRoleLocalKeyRecord {
 export interface EcdsaHssExportShareRequest {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1896,7 +1898,7 @@ export interface EcdsaHssExportShareRequest {
 export interface EcdsaHssExportShareResponse {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1908,7 +1910,7 @@ export interface EcdsaHssExportShareResponse {
 export type EcdsaSessionPolicy = {
   version: 'threshold_session_policy_v2';
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;
@@ -1925,7 +1927,7 @@ export type EcdsaSessionPolicy = {
 export type ThresholdEcdsaBootstrapSessionPolicy = {
   version: 'threshold_session_policy_v2';
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;

@@ -14,16 +14,10 @@ struct BenchmarkFixture {
 
 fn representative_fixture() -> BenchmarkFixture {
     BenchmarkFixture {
-        name: "role-local-v2",
-        context: EcdsaHssStableKeyContext::new(
-            "bench-wallet",
-            "bench.localhost",
-            "bench-ecdsa-threshold-key",
-            "bench-signing-root",
-            "default",
-            "evm-signing",
-            "key-current",
-        ),
+        name: "role-local-v4",
+        context: EcdsaHssStableKeyContext::new(fixed_digest32(
+            b"ecdsa-hss/bench/application-binding",
+        )),
         y_client32_le: fixed_digest32(b"ecdsa-hss/bench/client-root"),
         y_relayer32_le: fixed_digest32(b"ecdsa-hss/bench/relayer-root"),
     }

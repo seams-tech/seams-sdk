@@ -33,11 +33,41 @@ function makeSealedRecord(args: {
   updatedAtMs?: number;
 }): SigningSessionSealedStoreRecord {
   const authMethod = args.authMethod || 'email_otp';
-  const curve = args.curve || 'ecdsa';
-  const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
-  const chain = args.chain || 'tempo';
-  const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
-  return {
+	  const curve = args.curve || 'ecdsa';
+	  const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
+	  const chain = args.chain || 'tempo';
+	  const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
+	  const ecdsaRestore =
+	    authMethod === 'passkey'
+	      ? {
+	          chainTarget,
+	          rpId: 'example.com',
+	          credentialIdB64u: 'credential-restore',
+	          sessionKind: 'jwt' as const,
+	          walletSessionJwt: 'jwt-restore',
+	          keyHandle: 'key-handle-restore',
+	          ecdsaThresholdKeyId: 'ecdsa-key-restore',
+	          ethereumAddress: `0x${'33'.repeat(20)}`,
+	          relayerKeyId: 'relayer-key-restore',
+	          clientVerifyingShareB64u: 'client-verifying-share-restore',
+	          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
+	          participantIds: [1, 2],
+	        }
+	      : {
+	          chainTarget,
+	          walletKeyId: 'wallet-key-restore',
+	          providerSubjectId: 'google:restore',
+	          sessionKind: 'jwt' as const,
+	          walletSessionJwt: 'jwt-restore',
+	          keyHandle: 'key-handle-restore',
+	          ecdsaThresholdKeyId: 'ecdsa-key-restore',
+	          ethereumAddress: `0x${'33'.repeat(20)}`,
+	          relayerKeyId: 'relayer-key-restore',
+	          clientVerifyingShareB64u: 'client-verifying-share-restore',
+	          thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
+	          participantIds: [1, 2],
+	        };
+	  return {
     v: 1,
     alg: 'shamir3pass-v1',
     storageScope: 'iframe_origin_indexeddb',
@@ -55,24 +85,12 @@ function makeSealedRecord(args: {
     relayerUrl: 'https://relay.example',
     ...(curve === 'ecdsa'
       ? {
-          signingRootId: 'root-restore',
-          signingRootVersion: 'v1',
-          keyVersion: 'signing-session-seal-kek-test-r1',
-          shamirPrimeB64u: 'prime-b64u',
-          ecdsaRestore: {
-            chainTarget,
-            rpId: 'example.com',
-            sessionKind: 'jwt' as const,
-            walletSessionJwt: 'jwt-restore',
-            keyHandle: 'key-handle-restore',
-            ecdsaThresholdKeyId: 'ecdsa-key-restore',
-            ethereumAddress: `0x${'33'.repeat(20)}`,
-            relayerKeyId: 'relayer-key-restore',
-            clientVerifyingShareB64u: 'client-verifying-share-restore',
-            thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-            participantIds: [1, 2],
-          },
-        }
+	          signingRootId: 'root-restore',
+	          signingRootVersion: 'v1',
+	          keyVersion: 'signing-session-seal-kek-test-r1',
+	          shamirPrimeB64u: 'prime-b64u',
+	          ecdsaRestore,
+	        }
       : {
 	          ed25519Restore: {
 	            nearAccountId: 'restore.testnet',
@@ -110,10 +128,11 @@ function makeEd25519RecordWithEcdsaCompanion(args: {
       ecdsa: args.ecdsaThresholdSessionId,
       ed25519: args.thresholdSessionId,
     },
-    ecdsaRestore: {
-      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-      rpId: 'example.com',
-      sessionKind: 'jwt',
+	    ecdsaRestore: {
+	      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+	      walletKeyId: 'wallet-key-restore',
+	      providerSubjectId: 'google:restore',
+	      sessionKind: 'jwt',
       walletSessionJwt: 'jwt-restore',
       keyHandle: 'key-handle-restore',
       ecdsaThresholdKeyId: 'ecdsa-key-restore',

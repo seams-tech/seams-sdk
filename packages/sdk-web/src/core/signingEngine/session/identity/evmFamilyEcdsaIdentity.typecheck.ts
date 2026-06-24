@@ -53,7 +53,7 @@ const evmTarget = {
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -142,8 +142,8 @@ const laneWithoutKey: EvmFamilyEcdsaSessionLane = {
 };
 void laneWithoutKey;
 
-// @ts-expect-error key identity requires rpId.
-const keyWithoutRpId: EvmFamilyEcdsaKeyIdentity = {
+// @ts-expect-error key identity requires walletKeyId.
+const keyWithoutWalletKeyId: EvmFamilyEcdsaKeyIdentity = {
   walletId: key.walletId,
   keyScope: 'evm-family',
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -152,7 +152,7 @@ const keyWithoutRpId: EvmFamilyEcdsaKeyIdentity = {
   participantIds: key.participantIds,
   thresholdOwnerAddress: key.thresholdOwnerAddress,
 };
-void keyWithoutRpId;
+void keyWithoutWalletKeyId;
 
 const keyWithTargetScope: EvmFamilyEcdsaKeyIdentity = {
   ...key,
@@ -179,7 +179,7 @@ void publicFacts;
 
 const walletKey = buildEvmFamilyEcdsaWalletKey({
   walletId: key.walletId,
-  rpId: key.rpId,
+  walletKeyId: key.walletKeyId,
   keyHandle,
   chainTarget: evmTarget,
   ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -218,7 +218,10 @@ void ecdsaKeyFacts;
 const ecdsaWalletSignerRecord: EcdsaWalletSignerRecord = {
   kind: 'ecdsa_wallet_signer_record',
   walletKey,
-  authBinding: buildPasskeyEcdsaAuthBinding({ rpId: key.rpId }),
+  authBinding: buildPasskeyEcdsaAuthBinding({
+    rpId: 'localhost',
+    credentialIdB64u: 'credential-id',
+  }),
 };
 void ecdsaWalletSignerRecord;
 
@@ -297,7 +300,10 @@ const invalidDurablePublicFactsRecordWithThresholdKeyId: DurableEvmFamilyEcdsaPu
 };
 void invalidDurablePublicFactsRecordWithThresholdKeyId;
 
-const passkeyBinding = buildPasskeyEcdsaAuthBinding({ rpId: 'localhost' });
+const passkeyBinding = buildPasskeyEcdsaAuthBinding({
+  rpId: 'localhost',
+  credentialIdB64u: 'credential-id',
+});
 const emailOtpBinding = buildEmailOtpEcdsaAuthBinding({
   authSubjectId: 'google:alice',
   providerId: 'google',

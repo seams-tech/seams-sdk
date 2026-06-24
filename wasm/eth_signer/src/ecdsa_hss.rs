@@ -11,13 +11,7 @@ use crate::errors::{js_ecdsa_hss_err, js_invalid_input_err};
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct EcdsaHssRoleLocalRelayerBootstrapInputJs {
-    pub wallet_id: String,
-    pub rp_id: String,
-    pub ecdsa_threshold_key_id: String,
-    pub signing_root_id: String,
-    pub signing_root_version: String,
-    pub key_purpose: String,
-    pub key_version: String,
+    pub application_binding_digest: Vec<u8>,
     pub relayer_key_id: String,
     pub y_relayer32_le: Vec<u8>,
     pub client_public_key33: Vec<u8>,
@@ -42,15 +36,10 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
 ) -> Result<JsValue, JsValue> {
     let parsed: EcdsaHssRoleLocalRelayerBootstrapInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let context = EcdsaHssStableKeyContext::new(
-        parsed.wallet_id,
-        parsed.rp_id,
-        parsed.ecdsa_threshold_key_id,
-        parsed.signing_root_id,
-        parsed.signing_root_version,
-        parsed.key_purpose,
-        parsed.key_version,
-    );
+    let context = EcdsaHssStableKeyContext::new(vec_to_fixed_32(
+        parsed.application_binding_digest,
+        "applicationBindingDigest",
+    )?);
     let y_relayer32_le = vec_to_fixed_32(parsed.y_relayer32_le, "yRelayer32Le")?;
     let client_public_key33 = vec_to_fixed_33(parsed.client_public_key33, "clientPublicKey33")?;
     validate_ascii_nonempty("relayerKeyId", &parsed.relayer_key_id)?;

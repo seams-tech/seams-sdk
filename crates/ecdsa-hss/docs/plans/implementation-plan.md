@@ -2,9 +2,9 @@
 
 Date created: April 8, 2026
 
-Removal note: this implementation plan predates the v2 invalidation. The active
-crate removed the old ECDSA HSS context version and now retains only the v2
-`wallet_id`/`rp_id` role-local derivation path.
+Removal note: this implementation plan predates the v3 invalidation. The active
+crate removed the old ECDSA HSS context version and now receives only an opaque
+SDK-owned application binding digest for role-local derivation.
 
 ## Summary
 

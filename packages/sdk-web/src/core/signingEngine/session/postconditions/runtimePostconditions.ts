@@ -8,6 +8,7 @@ import type {
   ConcreteAvailableEcdsaSigningLane,
   ConcreteAvailableEd25519SigningLane,
 } from '../availability/availableSigningLanes';
+import { availableEcdsaSigningLaneAuthMethod } from '../availability/availableSigningLanes';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
 export type RuntimePostconditionAuthMethod = 'email_otp' | 'passkey';
@@ -159,7 +160,9 @@ function readEcdsaUseCaseReadyLane(args: {
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
   const lane = args.lanes.ecdsa.lanesByTarget[targetKey];
   if (!lane || lane.state === 'missing') return 'ecdsa_lane_missing';
-  if (lane.authMethod !== args.authMethod) return 'auth_method_route_mismatch';
+  if (availableEcdsaSigningLaneAuthMethod(lane) !== args.authMethod) {
+    return 'auth_method_route_mismatch';
+  }
   if (lane.state !== 'ready') return 'ecdsa_lane_missing';
   const remainingSignatureUses = positiveInteger(lane.remainingUses);
   const expiresAtMs = futureEpochMs(lane.expiresAtMs, args.nowMs);

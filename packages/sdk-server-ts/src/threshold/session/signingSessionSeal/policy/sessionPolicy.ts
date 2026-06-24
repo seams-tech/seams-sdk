@@ -28,27 +28,26 @@ function normalizeSessionRecord(
   const userId = String(raw.userId || '').trim();
   const expiresAtMs = Number(raw.expiresAtMs);
   const relayerKeyId = String(raw.relayerKeyId || '').trim();
-  const rpId = String(raw.rpId || '').trim();
+  const authScopeId = String(raw.rpId || '').trim();
   const participantIds = Array.isArray(raw.participantIds)
     ? raw.participantIds.map((value) => Math.floor(Number(value))).filter(Number.isFinite)
     : [];
   if (
     !userId ||
     !relayerKeyId ||
-    !rpId ||
+    !authScopeId ||
     participantIds.length < 2 ||
     !Number.isFinite(expiresAtMs) ||
     expiresAtMs <= 0
   ) {
     return null;
   }
-  return {
+  const base = {
     curve: input.curve,
     thresholdSessionId: input.thresholdSessionId,
     userId,
     expiresAtMs: Math.floor(expiresAtMs),
     relayerKeyId,
-    rpId,
     participantIds,
     ...(typeof raw.signingRootId === 'string' && raw.signingRootId.trim()
       ? { signingRootId: raw.signingRootId.trim() }
@@ -57,6 +56,20 @@ function normalizeSessionRecord(
       ? { signingRootVersion: raw.signingRootVersion.trim() }
       : {}),
   };
+  switch (input.curve) {
+    case 'ecdsa':
+      return {
+        ...base,
+        curve: 'ecdsa',
+        walletKeyId: authScopeId,
+      };
+    case 'ed25519':
+      return {
+        ...base,
+        curve: 'ed25519',
+        rpId: authScopeId,
+      };
+  }
 }
 
 function normalizeThresholdSessionStatus(

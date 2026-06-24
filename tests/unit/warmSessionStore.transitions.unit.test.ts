@@ -175,7 +175,11 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       walletId,
       nearAccountId: accountId,
       ed25519KeyScopeId,
-      authMethod: 'passkey',
+      auth: {
+        kind: 'passkey',
+        rpId: 'localhost' as any,
+        credentialIdB64u: 'credential-ed25519-pending-material',
+      },
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
       storageSource: 'login',

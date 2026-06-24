@@ -58,6 +58,7 @@ import {
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
+import { derivePlannedEvmFamilyWalletKeyId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
@@ -1144,6 +1145,25 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   });
 }
 
+function plannedEvmFamilyWalletKeyIdFromRegistrationIntent(intent: {
+  walletId: string;
+  runtimePolicyScope?: {
+    projectId: string;
+    envId: string;
+    signingRootVersion?: string;
+  };
+}): string {
+  const runtimePolicyScope = intent.runtimePolicyScope;
+  if (!runtimePolicyScope?.signingRootVersion) {
+    throw new Error('ECDSA registration wallet-key identity requires signing root scope');
+  }
+  return derivePlannedEvmFamilyWalletKeyId({
+    walletId: intent.walletId,
+    signingRootId: deriveSigningRootId(runtimePolicyScope),
+    signingRootVersion: runtimePolicyScope.signingRootVersion,
+  });
+}
+
 function walletRegistrationPrecomputeScopeFromArgs(args: {
   authMethod: RegistrationAuthMethodInput;
   wallet: RegisterWalletInput;
@@ -1530,7 +1550,7 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
   relayerUrl: string;
   walletId: string;
   providerSubject: string;
-  rpId: string;
+  walletKeyId: string;
   appSessionJwt: string;
 }): Promise<EmailOtpRegistrationEnrollmentMaterial> {
   if (input.authMethod.kind !== 'email_otp') {
@@ -1555,7 +1575,7 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
     relayUrl: input.relayerUrl,
     walletId: toWalletId(input.walletId),
     userId: input.providerSubject,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     appSessionJwt: input.appSessionJwt,
   });
 }
@@ -2035,7 +2055,10 @@ async function registerEcdsaWalletOnly(args: {
           relayerUrl,
           walletId: String(walletId),
           providerSubject: emailAuthority.providerSubject,
-          rpId,
+          walletKeyId: plannedEvmFamilyWalletKeyIdFromRegistrationIntent({
+            walletId: String(walletId),
+            runtimePolicyScope: intentResponse.intent.runtimePolicyScope,
+          }),
           appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         }),
       );
@@ -2093,10 +2116,11 @@ async function registerEcdsaWalletOnly(args: {
                 chainTarget: ecdsaChainTarget,
               });
             })()
-          : await context.signingEngine.preparePasskeyEcdsaBootstrap({
-              prepare: ecdsaPrepare,
-              chainTarget: ecdsaChainTarget,
-              passkeyPrfFirstB64u,
+            : await context.signingEngine.preparePasskeyEcdsaBootstrap({
+                prepare: ecdsaPrepare,
+                rpId,
+                chainTarget: ecdsaChainTarget,
+                passkeyPrfFirstB64u,
               credentialIdB64u: String(
                 passkeyAuthority?.credential.rawId || passkeyAuthority?.credential.id || '',
               ).trim(),
@@ -2180,10 +2204,11 @@ async function registerEcdsaWalletOnly(args: {
                   providerSubject: emailOtpProviderSubject,
                 }),
               }
-            : {
-                kind: 'passkey',
-                credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(preparedClientBootstrap),
-              },
+              : {
+                  kind: 'passkey',
+                  credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(preparedClientBootstrap),
+                  rpId,
+                },
       });
       if (args.authMethod.kind === 'passkey') {
         if (!passkeyAuthority) {
@@ -2483,7 +2508,10 @@ async function registerWalletInternal(
           relayerUrl,
           walletId: String(intentResponse.intent.walletId),
           providerSubject: emailAuthority.providerSubject,
-          rpId,
+          walletKeyId: plannedEvmFamilyWalletKeyIdFromRegistrationIntent({
+            walletId: String(intentResponse.intent.walletId),
+            runtimePolicyScope: intentResponse.intent.runtimePolicyScope,
+          }),
           appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         }),
       );
@@ -2589,6 +2617,7 @@ async function registerWalletInternal(
                 })()
               : await context.signingEngine.preparePasskeyEcdsaBootstrap({
                   prepare: ecdsaPrepare,
+                  rpId,
                   chainTarget: ecdsaChainTarget,
                   passkeyPrfFirstB64u: ecdsaPasskeyPrfFirstB64u,
                   credentialIdB64u: String(
@@ -2854,7 +2883,12 @@ async function registerWalletInternal(
           nearAccountId,
           ed25519KeyScopeId: ed25519KeyScopeIdFromString(finalizedEd25519.ed25519KeyScopeId),
           signerSlot,
-          auth: { kind: 'passkey' },
+          auth: {
+            kind: 'passkey',
+            credentialIdB64u: String(
+              passkeyAuthority?.credential.rawId || passkeyAuthority?.credential.id || '',
+            ).trim(),
+          },
           rpId,
           relayerUrl,
           prfFirstB64u: hssClientMaterial.prfFirstB64u,
@@ -2907,6 +2941,7 @@ async function registerWalletInternal(
                   credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(
                     ecdsaPreparedClientBootstrap,
                   ),
+                  rpId,
                 },
         });
         if (args.authMethod.kind === 'passkey') {
@@ -3277,7 +3312,12 @@ export async function addWalletSigner(args: {
         nearAccountId,
         ed25519KeyScopeId,
         signerSlot: storedRegistration.signerSlot,
-        auth: { kind: 'passkey' },
+        auth: {
+          kind: 'passkey',
+          credentialIdB64u: String(
+            redactedAuthentication.rawId || redactedAuthentication.id || '',
+          ).trim(),
+        },
         rpId,
         relayerUrl,
         prfFirstB64u: hssClientMaterial.prfFirstB64u,
@@ -3336,6 +3376,7 @@ export async function addWalletSigner(args: {
     }
     const preparedClientBootstrap = await context.signingEngine.preparePasskeyEcdsaBootstrap({
       prepare: startedCeremony.ecdsa.prepare,
+      rpId,
       chainTarget: startedCeremony.ecdsa.chainTargets[0],
       passkeyPrfFirstB64u,
       credentialIdB64u: String(
@@ -3381,6 +3422,7 @@ export async function addWalletSigner(args: {
       auth: {
         kind: 'passkey',
         credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(preparedClientBootstrap),
+        rpId,
       },
     });
     await context.signingEngine.storeWalletEcdsaSignerRecords({

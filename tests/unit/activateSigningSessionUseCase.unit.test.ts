@@ -4,6 +4,7 @@ import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
   parseSigningGrantId,
+  parseWalletKeyId,
 } from '@shared/utils/domainIds';
 import {
   buildEmailOtpWorkerIssuedSessionHandle,
@@ -86,6 +87,7 @@ function ecdsaHandle(
 }
 
 const walletId = toWalletId('wallet_alice');
+const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-activation'));
 const rpId = toRpId('wallet.example');
 const authSubjectId = toEmailOtpAuthSubjectId('google:alice');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -148,13 +150,13 @@ function emailOtpEcdsaAuthFor(
   return {
     kind: 'email_otp',
     walletId,
-    rpId,
+    walletKeyId,
     authSubjectId,
     workerHandle: ecdsaHandle(
       buildEmailOtpWorkerIssuedSessionHandle({
         sessionId: 'email-ecdsa-session',
         walletId,
-        rpId,
+        walletKeyId,
         authSubjectId,
         action: 'threshold_ecdsa_bootstrap',
         operation: 'wallet_unlock',
@@ -167,6 +169,7 @@ function emailOtpEcdsaAuthFor(
 function publicFacts(target: ThresholdEcdsaChainTarget) {
   return buildEcdsaRoleLocalPublicFacts({
     walletId,
+      walletKeyId,
     rpId,
     chainTarget: target,
     keyHandle: 'ecdsa-key-handle',
@@ -280,6 +283,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('writes branch-specific passkey seals for Ed25519 and ECDSA materials', async () => {
     const { result, captures } = await activate({
       walletId,
+      walletKeyId,
       rpId,
       auth: passkeyAuth,
       material: [ed25519Material, ecdsaMaterial(readyRecord({ authMethod: passkeyAuthMethod }))],
@@ -303,6 +307,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('writes Email OTP Ed25519 seals only from Ed25519 worker handles', async () => {
     const { result, captures } = await activate({
       walletId,
+      walletKeyId,
       rpId,
       auth: emailOtpEd25519Auth,
       material: [ed25519Material],
@@ -325,6 +330,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
 
     const { result, captures } = await activate({
       walletId,
+      walletKeyId,
       rpId,
       auth: emailOtpEcdsaAuth,
       material: [material],
@@ -344,6 +350,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('rejects Email OTP Ed25519 activation carrying an ECDSA worker handle', async () => {
     const { result, captures } = await activate({
       walletId,
+      walletKeyId,
       rpId,
       auth: emailOtpEcdsaAuthFor(chainTarget),
       material: [ed25519Material],
@@ -360,6 +367,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('rejects Email OTP ECDSA activation carrying an Ed25519 worker handle', async () => {
     const { result, captures } = await activate({
       walletId,
+      walletKeyId,
       rpId,
       auth: emailOtpEd25519Auth,
       material: [ecdsaMaterial(readyRecord({ authMethod: emailOtpAuthMethod }))],
@@ -376,6 +384,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
   test('rejects Email OTP ECDSA handles whose chain target differs from the ready record', async () => {
     const { result, captures } = await activate({
       walletId,
+      walletKeyId,
       rpId,
       auth: emailOtpEcdsaAuthFor(otherChainTarget),
       material: [ecdsaMaterial(readyRecord({ authMethod: emailOtpAuthMethod }))],
@@ -393,6 +402,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
     const { result, captures } = await activate(
       {
         walletId,
+      walletKeyId,
         rpId,
         auth: passkeyAuth,
         material: [ed25519Material],
@@ -417,6 +427,7 @@ test.describe('ActivateSigningSessionUseCase', () => {
     const { result, captures } = await activate(
       {
         walletId,
+      walletKeyId,
         rpId,
         auth: passkeyAuth,
         material: [ed25519Material],

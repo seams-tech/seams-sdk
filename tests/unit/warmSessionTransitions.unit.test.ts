@@ -62,7 +62,11 @@ function createEnvelope(): WarmSessionEnvelope {
               key,
               keyHandle: 'ek-tempo-handle',
               walletId: 'transition-summary.testnet' as any,
-              authMethod: 'passkey',
+              auth: {
+                kind: 'passkey',
+                rpId: 'example.localhost' as any,
+                credentialIdB64u: 'credential-transition-summary',
+              },
               signingGrantId: 'wallet-tempo-session',
               thresholdSessionId: 'tempo-session',
               chainTarget,

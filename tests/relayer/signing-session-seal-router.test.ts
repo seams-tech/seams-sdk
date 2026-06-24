@@ -50,21 +50,18 @@ function makeThresholdSessionClaims(input?: { userId?: string; signingGrantId?: 
     },
     ecdsaThresholdKeyId: 'ecdsa-threshold-key-1',
     relayerKeyId: 'relayer-key-1',
-    rpId: FRONTEND_ORIGIN.replace('https://', ''),
+    walletKeyId: FRONTEND_ORIGIN.replace('https://', ''),
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
+        wallet_key_id: FRONTEND_ORIGIN.replace('https://', ''),
         context: {
           wallet_id: userId,
-          rp_id: FRONTEND_ORIGIN.replace('https://', ''),
-          key_scope: 'evm-family' as const,
           ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
           signing_root_id: 'signing-root-1',
           signing_root_version: 'v1',
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
@@ -118,7 +115,7 @@ function makePolicy(
     : 7;
   const signingGrantId = 'signing-grant-1';
   const participantIds = [1, 2] as const;
-  const rpId = FRONTEND_ORIGIN.replace('https://', '');
+  const walletKeyId = FRONTEND_ORIGIN.replace('https://', '');
   const relayerKeyId = 'relayer-key-1';
   const thresholdSession = {
     curve: 'ecdsa' as const,
@@ -126,7 +123,7 @@ function makePolicy(
     userId: sessionUserId,
     expiresAtMs,
     relayerKeyId,
-    rpId,
+    walletKeyId,
     participantIds,
     remainingUses,
   };
@@ -142,7 +139,7 @@ function makePolicy(
     reservedUses: 0,
     availableUses: remainingUses,
     relayerKeyId: 'wallet-signing-budget',
-    rpId,
+    walletKeyId,
     participantIds,
   };
   return {
@@ -384,7 +381,7 @@ test.describe('signing-session seal routes', () => {
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
           relayerKeyId: 'relayer-key-1',
-          rpId: 'localhost',
+          walletKeyId: 'localhost',
           participantIds: [1, 2],
           remainingUses: 7,
         }),
@@ -404,7 +401,7 @@ test.describe('signing-session seal routes', () => {
                 reservedUses: 0,
                 availableUses: 2,
                 relayerKeyId: 'wallet-signing-budget',
-                rpId: 'localhost',
+                walletKeyId: 'localhost',
                 participantIds: [1, 2],
               },
       },
@@ -443,7 +440,7 @@ test.describe('signing-session seal routes', () => {
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
           relayerKeyId: 'relayer-key-1',
-          rpId: 'localhost',
+          walletKeyId: 'localhost',
           participantIds: [1, 2],
           remainingUses: 7,
         }),
@@ -460,7 +457,7 @@ test.describe('signing-session seal routes', () => {
           reservedUses: 0,
           availableUses: 0,
           relayerKeyId: 'wallet-signing-budget',
-          rpId: 'localhost',
+          walletKeyId: 'localhost',
           participantIds: [1, 2],
         }),
       },
@@ -501,7 +498,7 @@ test.describe('signing-session seal routes', () => {
           userId: USER_ID,
           expiresAtMs: Date.now() + 60_000,
           relayerKeyId: 'relayer-key-1',
-          rpId: 'localhost',
+          walletKeyId: 'localhost',
           participantIds: [1, 2],
           remainingUses: 7,
         }),
@@ -518,7 +515,7 @@ test.describe('signing-session seal routes', () => {
           reservedUses: 0,
           availableUses: walletRemainingUses,
           relayerKeyId: 'wallet-signing-budget',
-          rpId: 'localhost',
+          walletKeyId: 'localhost',
           participantIds: [1, 2],
         }),
       },

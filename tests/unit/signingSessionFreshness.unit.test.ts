@@ -4,6 +4,7 @@ import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interf
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildVerifiedEcdsaPublicFacts,
+  toRpId,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildReauthAnchorIdentityFromAvailableLane } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
@@ -40,13 +41,22 @@ const tempoChainTarget = { kind: 'tempo', chainId: 4242, networkSlug: 'tempo-tes
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('freshness-alice.testnet');
 const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const PASSKEY_AUTH = {
+  kind: 'passkey' as const,
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-freshness',
+};
+const EMAIL_OTP_AUTH = {
+  kind: 'email_otp' as const,
+  providerSubjectId: 'google:freshness',
+};
 
 function makeNearLane(args?: { thresholdSessionId?: string }) {
   return buildNearTransactionSigningLane({
     walletId: NEAR_WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
     ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
-    authMethod: 'passkey',
+    auth: PASSKEY_AUTH,
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-near'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
       args?.thresholdSessionId || 'threshold-session-near',
@@ -58,7 +68,7 @@ function makeNearLane(args?: { thresholdSessionId?: string }) {
 function makeEcdsaKey() {
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: toWalletId('freshness-wallet.testnet'),
-    rpId: 'localhost',
+    walletKeyId: 'wallet-key-freshness',
     ecdsaThresholdKeyId: 'ecdsa-threshold-key',
     signingRootId: 'proj_test:dev',
     signingRootVersion: '1',
@@ -73,6 +83,7 @@ function makeEcdsaLane(args?: { thresholdSessionId?: string }) {
     key,
     keyHandle: toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key'),
     walletId: key.walletId,
+    auth: EMAIL_OTP_AUTH,
     chainTarget: tempoChainTarget,
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-ecdsa'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
@@ -227,7 +238,7 @@ test.describe('step-up freshness identity', () => {
           participantIds: [1, 2],
           thresholdOwnerAddress: key.thresholdOwnerAddress,
         }),
-        authMethod: 'email_otp',
+        auth: EMAIL_OTP_AUTH,
         curve: 'ecdsa',
         chainTarget: tempoChainTarget,
         state: 'exhausted',
@@ -261,6 +272,7 @@ test.describe('step-up freshness identity', () => {
       ...makeOperation(),
       lane: {
         authMethod: 'passkey',
+        auth: PASSKEY_AUTH,
         curve: 'ed25519',
         chain: 'near',
         walletId: NEAR_WALLET_ID,
@@ -449,9 +461,6 @@ test.describe('budget reservation identity', () => {
     const operation = makeOperation();
     const baseSpend = {
       ...operation,
-      walletId: NEAR_WALLET_ID,
-      signingGrantId: lane.signingGrantId,
-      thresholdSessionIds: [lane.thresholdSessionId],
       backingMaterialSessionIds: [],
       uses: 1 as const,
       reason: SigningOperationIntent.TransactionSign,
@@ -469,7 +478,6 @@ test.describe('budget reservation identity', () => {
       spend: {
         ...baseSpend,
         lane: nextLane,
-        thresholdSessionIds: [nextLane.thresholdSessionId],
       },
       projectionVersion: 'projection-1',
     });

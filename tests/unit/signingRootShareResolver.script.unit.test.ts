@@ -40,18 +40,7 @@ const PROJECT_ID = 'project-alpha:dev';
 const SIGNING_ROOT_VERSION = 'root-v1';
 const ECDSA_HSS_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
 const ECDSA_HSS_CONTEXT = {
-  signingRootId: PROJECT_ID,
-  signingRootVersion: SIGNING_ROOT_VERSION,
-  walletId: 'alice.near',
-  rpId: 'wallet.example.test',
-  chainTarget: {
-    kind: 'evm' as const,
-    namespace: 'eip155' as const,
-    chainId: 11155111,
-  },
-  ecdsaThresholdKeyId: 'ecdsa-alpha',
-  keyPurpose: 'wallet',
-  keyVersion: 'v1',
+  applicationBindingDigest: new Uint8Array(32).fill(7),
 } as const;
 
 function vectorForPurpose(purpose: string): ThresholdPrfFixtureVector {

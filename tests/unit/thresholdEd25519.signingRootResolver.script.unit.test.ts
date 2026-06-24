@@ -136,7 +136,7 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
         derivationVersion: CONTEXT.derivationVersion,
         participantIds: [...CONTEXT.participantIds],
       },
-      rp_id: 'example.localhost',
+      wallet_key_id: 'example.localhost',
       context: CONTEXT,
     },
   });
@@ -167,7 +167,7 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
         derivationVersion: CONTEXT.derivationVersion,
         participantIds: [...CONTEXT.participantIds],
       },
-      rp_id: 'example.localhost',
+      wallet_key_id: 'example.localhost',
       context: CONTEXT,
     },
   });

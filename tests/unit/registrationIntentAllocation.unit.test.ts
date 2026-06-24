@@ -759,7 +759,7 @@ test.describe('registration intent allocation', () => {
           ed25519KeyScopeId: 'wallet_alice',
           requestedAccountId: 'alice.testnet',
         },
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
       },
     });
     await expect(
@@ -1394,7 +1394,7 @@ test.describe('registration intent allocation', () => {
           ed25519KeyScopeId: 'wallet_alice',
           requestedAccountId: 'alice.testnet',
         },
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
       },
     });
     await expect(
@@ -2878,7 +2878,7 @@ test.describe('registration intent allocation', () => {
           ed25519KeyScopeId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
         context: {
           nearAccountId: 'alice.testnet',
           keyPurpose: 'near_tx',
@@ -2913,7 +2913,7 @@ test.describe('registration intent allocation', () => {
           ed25519KeyScopeId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
     });
@@ -2946,7 +2946,7 @@ test.describe('registration intent allocation', () => {
           ed25519KeyScopeId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
         ceremonyHandle: 'ed25519-add-signer-handle',
       },
     });
@@ -3127,7 +3127,7 @@ test.describe('registration intent allocation', () => {
           ed25519KeyScopeId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
         },
-        rp_id: 'wallet.example.test',
+        wallet_key_id: 'wallet.example.test',
       },
     });
   });

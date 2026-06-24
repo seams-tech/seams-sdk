@@ -19,6 +19,10 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
   type ResolvedEvmFamilyEcdsaKey,
 } from './evmFamilyEcdsaIdentity';
+import {
+  signingLaneAuthMethod,
+  type SigningLaneAuthBinding,
+} from './signingLaneAuthBinding';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
 import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 
@@ -62,7 +66,7 @@ export type ThresholdEcdsaEmailOtpAuthContext = {
 
 export type BaseSelectedLane = {
   kind: 'selected_lane';
-  authMethod: SigningAuthMethod;
+  auth: SigningLaneAuthBinding;
   curve: SigningCurve;
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdSessionId;
@@ -94,7 +98,7 @@ export type SelectedEd25519LaneInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
   ed25519KeyScopeId: Ed25519KeyScopeId;
-  authMethod: SigningAuthMethod;
+  auth: SigningLaneAuthBinding;
   signingGrantId: unknown;
   thresholdSessionId: unknown;
 };
@@ -103,7 +107,7 @@ export type SelectedEcdsaLaneInput = {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: unknown;
   walletId: WalletId;
-  authMethod: SigningAuthMethod;
+  auth: SigningLaneAuthBinding;
   signingGrantId: unknown;
   thresholdSessionId: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -115,7 +119,7 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
     ed25519KeyScopeId: input.ed25519KeyScopeId,
-    authMethod: input.authMethod,
+    auth: input.auth,
     curve: 'ed25519',
     chain: 'near',
     signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
@@ -133,7 +137,7 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
   }
   return {
     kind: 'selected_lane',
-    authMethod: input.authMethod,
+    auth: input.auth,
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
     key: input.key,
@@ -156,7 +160,7 @@ export type LaneCandidateSource =
 
 export type BaseLaneCandidate = {
   kind: 'lane_candidate';
-  authMethod: SigningAuthMethod;
+  auth: SigningLaneAuthBinding;
   curve: SigningCurve;
   signingGrantId: string;
   thresholdSessionId: string;
@@ -197,3 +201,11 @@ export type EcdsaLaneCandidate =
     });
 
 export type LaneCandidate = Ed25519LaneCandidate | EcdsaLaneCandidate;
+
+export function selectedLaneAuthMethod(lane: SelectedLane): SigningAuthMethod {
+  return signingLaneAuthMethod(lane.auth);
+}
+
+export function laneCandidateAuthMethod(candidate: LaneCandidate): SigningAuthMethod {
+  return signingLaneAuthMethod(candidate.auth);
+}

@@ -20,6 +20,7 @@ import {
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
@@ -47,6 +48,17 @@ const STATE_BLOB_B64U = base64UrlEncode(new Uint8Array(64).fill(9));
 const OWNER_ADDRESS = `0x${'aa'.repeat(20)}`;
 const SIGNING_ROOT_ID = 'project:env';
 const SIGNING_ROOT_VERSION = 'v1';
+const WALLET_KEY_ID = 'wallet-key-material-state';
+const PASSKEY_CREDENTIAL_ID = 'credential-material-state';
+const PASSKEY_AUTH = {
+  kind: 'passkey',
+  rpId: toRpId('example.localhost'),
+  credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+} as const;
+const EMAIL_OTP_AUTH = {
+  kind: 'email_otp',
+  providerSubjectId: 'email:alice',
+} as const;
 
 const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -86,15 +98,13 @@ function makeRouterAbEcdsaHssNormalSigningState(): RouterAbEcdsaHssNormalSigning
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: WALLET_KEY_ID,
+      wallet_id: 'alice.testnet',
+      ecdsa_threshold_key_id: 'ecdsa-key-1',
+      signing_root_id: SIGNING_ROOT_ID,
+      signing_root_version: SIGNING_ROOT_VERSION,
       context: {
-        wallet_id: 'alice.testnet',
-        rp_id: 'example.localhost',
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: 'ecdsa-key-1',
-        signing_root_id: SIGNING_ROOT_ID,
-        signing_root_version: SIGNING_ROOT_VERSION,
-        key_purpose: 'evm-signing',
-        key_version: 'v1',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: CONTEXT_BINDING_32_B64U,
@@ -123,14 +133,14 @@ function makeCandidate(): EcdsaLaneCandidate {
     walletId,
     key: buildEvmFamilyEcdsaKeyIdentity({
       walletId,
-      rpId: 'example.localhost',
+      walletKeyId: WALLET_KEY_ID,
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: SIGNING_ROOT_VERSION,
       participantIds: [1, 2],
       thresholdOwnerAddress: OWNER_ADDRESS,
     }),
-    authMethod: 'passkey',
+    auth: PASSKEY_AUTH,
     curve: 'ecdsa',
     chain: 'evm',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
@@ -149,7 +159,7 @@ function makeResolvedLane() {
   const candidate = makeCandidate();
   return requireResolvedEvmFamilyEcdsaSigningLane({
     lane: buildEvmTransactionSigningLane({
-      authMethod: 'passkey',
+      auth: PASSKEY_AUTH,
       key: candidate.key,
       keyHandle: candidate.keyHandle,
       walletId: candidate.walletId,
@@ -167,7 +177,7 @@ function makeEmailOtpCandidate(): EcdsaLaneCandidate {
   const passkeyCandidate = makeCandidate();
   return {
     ...passkeyCandidate,
-    authMethod: 'email_otp',
+    auth: EMAIL_OTP_AUTH,
   };
 }
 
@@ -182,7 +192,7 @@ function makeRoleLocalReadyRecord() {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
-      rpId: 'example.localhost',
+      walletKeyId: WALLET_KEY_ID,
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -198,7 +208,7 @@ function makeRoleLocalReadyRecord() {
       ethereumAddress: OWNER_ADDRESS,
     }),
     authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
-      credentialIdB64u: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
+      credentialIdB64u: PASSKEY_CREDENTIAL_ID,
       rpId: 'example.localhost',
     }),
   });
@@ -215,7 +225,7 @@ function makeEmailOtpRoleLocalReadyRecord() {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
-      rpId: 'example.localhost',
+      walletKeyId: WALLET_KEY_ID,
       chainTarget: EVM_CHAIN_TARGET,
       keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
       ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -271,7 +281,7 @@ function makeRecord(
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    authMetadata: { rpId: 'example.localhost' },
+    authMetadata: { walletKeyId: 'example.localhost' },
     ...overrides,
   };
 }
@@ -309,7 +319,7 @@ function makeEmailOtpRecord(): Extract<ThresholdEcdsaSessionRecord, { source: 'e
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    authMetadata: { rpId: 'example.localhost' },
+    authMetadata: { walletKeyId: 'example.localhost' },
     emailOtpAuthContext: {
       authMethod: 'email_otp',
       policy: 'per_operation',
@@ -398,6 +408,7 @@ test.describe('ecdsa material state', () => {
       materialChainTarget: EVM_CHAIN_TARGET,
     });
     const lane = buildEcdsaEmailOtpSigningLane({
+      auth: EMAIL_OTP_AUTH,
       key: makeEmailOtpCandidate().key,
       keyHandle: record.keyHandle,
       walletId: record.walletId,

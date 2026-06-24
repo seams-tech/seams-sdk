@@ -332,7 +332,7 @@ function findMaterialForRequest(args: {
       if (
         !isReadyStateEnvelopeValid(lane) ||
         String(lane.readyRecord.publicFacts.walletId) !== String(args.input.walletId) ||
-        String(lane.readyRecord.publicFacts.rpId) !== String(args.input.rpId) ||
+        String(lane.readyRecord.publicFacts.walletKeyId) !== String(args.input.walletKeyId) ||
         !thresholdEcdsaChainTargetsEqual(
           lane.readyRecord.publicFacts.chainTarget,
           request.chainTarget,

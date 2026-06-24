@@ -17,7 +17,6 @@ import {
 import type {
   BuildEcdsaRoleLocalExportArtifactInput,
   BuildEcdsaRoleLocalExportArtifactOutput,
-  EmailOtpWorkerSessionSecretSource,
   FinalizeEcdsaClientBootstrapInput,
   FinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapInput,
@@ -81,26 +80,10 @@ type _WebAuthnSecretSourceNoMissing = AssertNever<
     StringKeys<WebAuthnPrfFirstSecretSource>
   >
 >;
-type _EmailOtpSecretSourceNoExtra = AssertNever<
-  Exclude<
-    StringKeys<EmailOtpWorkerSessionSecretSource>,
-    StringKeys<
-      Extract<
-        RawPrepareEcdsaClientBootstrapCommand['secretSource'],
-        { kind: 'email_otp_worker_session' }
-      >
-    >
-  >
->;
-type _EmailOtpSecretSourceNoMissing = AssertNever<
-  Exclude<
-    StringKeys<
-      Extract<
-        RawPrepareEcdsaClientBootstrapCommand['secretSource'],
-        { kind: 'email_otp_worker_session' }
-      >
-    >,
-    StringKeys<EmailOtpWorkerSessionSecretSource>
+type _GeneratedPrepareSecretSourceDoesNotExposeEmailOtp = AssertNever<
+  Extract<
+    RawPrepareEcdsaClientBootstrapCommand['secretSource'],
+    { kind: 'email_otp_worker_session' }
   >
 >;
 

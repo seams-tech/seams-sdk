@@ -18,7 +18,10 @@ const laneIdentity = exactSigningLaneIdentity(
     walletId,
     nearAccountId,
     ed25519KeyScopeId,
-    authMethod: 'email_otp',
+    auth: {
+      kind: 'email_otp',
+      providerSubjectId: 'google:subject-1',
+    },
     signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session'),
   }),

@@ -92,7 +92,7 @@ function makePreparedRecoveryService() {
         prepare: {
           formatVersion: 'ecdsa-hss-role-local' as const,
           walletId: TEST_WALLET_ID,
-          rpId: 'wallet.example.test',
+          walletKeyId: 'wallet-key-recovery-test',
           ecdsaThresholdKeyId: 'ecdsa-threshold-key',
           signingRootId: 'root-id',
           signingRootVersion: 'root-v1',
@@ -141,7 +141,7 @@ function makePreparedRecoveryService() {
         bootstrap: {
           formatVersion: 'ecdsa-hss-role-local',
           walletId: TEST_WALLET_ID,
-          rpId: 'wallet.example.test',
+          walletKeyId: 'wallet-key-recovery-test',
           ecdsaThresholdKeyId: 'ecdsa-threshold-key',
           signingRootId: 'root-id',
           signingRootVersion: 'root-v1',

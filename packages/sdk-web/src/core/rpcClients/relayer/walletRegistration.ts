@@ -19,6 +19,11 @@ import {
   parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
+import {
+  computeSdkEcdsaHssApplicationBindingDigestB64u,
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
@@ -27,6 +32,7 @@ import {
 } from '@/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
@@ -627,7 +633,7 @@ export type WalletAddSignerFinalizeResponse = {
 export type WalletRegistrationEcdsaPrepareContext = {
   formatVersion: 'ecdsa-hss-role-local';
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -655,7 +661,7 @@ export type WalletRegistrationEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
@@ -686,7 +692,7 @@ type WalletRegistrationStartAuthority =
 
 export type WalletRegistrationEcdsaHssRespondBootstrap = {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -765,7 +771,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
       walletSessionJwt,
       expected: {
         walletId: String(serverBootstrap.walletId || '').trim(),
-        rpId: String(serverBootstrap.rpId || '').trim(),
+        walletKeyId: String(serverBootstrap.walletKeyId || '').trim(),
         keyHandle: String(serverBootstrap.keyHandle || '').trim(),
         relayerKeyId: String(serverBootstrap.relayerKeyId || '').trim(),
         ecdsaThresholdKeyId: String(serverBootstrap.ecdsaThresholdKeyId || '').trim(),
@@ -793,7 +799,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
       },
     });
   const walletId = String(serverBootstrap.walletId || '').trim();
-  const rpId = String(serverBootstrap.rpId || '').trim();
+  const walletKeyId = String(serverBootstrap.walletKeyId || '').trim();
   const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
   const keyHandle = String(serverBootstrap.keyHandle || '').trim();
   const signingRootId = String(serverBootstrap.signingRootId || '').trim();
@@ -813,7 +819,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   );
   if (
     !walletId ||
-    !rpId ||
+    !walletKeyId ||
     !keyHandle ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
@@ -836,7 +842,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   }
   return {
     walletId,
-    rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -857,7 +863,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   };
 }
 
-export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
+export async function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   walletId: string;
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -868,9 +874,9 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   serverBootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
   walletKey: WalletRegistrationEcdsaWalletKey;
   authMethod:
-    | { kind: 'passkey'; credentialIdB64u: string }
+    | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
     | { kind: 'email_otp'; authSubjectId?: string };
-}): ThresholdEcdsaSessionBootstrapResult {
+}): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const serverBootstrap = args.serverBootstrap;
   requireMatchingString({
     field: 'walletId',
@@ -882,10 +888,10 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     expected: args.walletId,
     actual: args.walletKey.walletId,
   });
-  const rpId = requireMatchingString({
-    field: 'rpId',
-    expected: args.walletKey.rpId,
-    actual: serverBootstrap.rpId,
+  const walletKeyId = requireMatchingString({
+    field: 'walletKeyId',
+    expected: args.walletKey.walletKeyId,
+    actual: serverBootstrap.walletKeyId,
   });
   const keyHandle = requireMatchingString({
     field: 'keyHandle',
@@ -943,14 +949,21 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   const signingGrantId = serverBootstrap.signingGrantId;
   const remainingUses = serverBootstrap.remainingUses;
   const expiresAtMs = serverBootstrap.expiresAtMs;
+  const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
+    walletId: toWalletId(args.walletId),
+    ecdsaThresholdKeyId,
+    signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
+  });
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: args.walletId,
-    rpId,
+    walletKeyId,
     chainTarget: args.chainTarget,
     keyHandle,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
+    applicationBindingDigestB64u,
     participantIds,
     clientParticipantId: 1,
     relayerParticipantId: 2,
@@ -970,7 +983,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
           })
         : buildEcdsaRoleLocalPasskeyAuthMethod({
             credentialIdB64u: args.authMethod.credentialIdB64u,
-            rpId,
+            rpId: args.authMethod.rpId,
           }),
   });
 
@@ -1011,11 +1024,11 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     ...(args.authMethod.kind === 'passkey'
       ? { passkeyCredentialIdB64u: args.authMethod.credentialIdB64u }
       : {}),
-    keygen: {
-      ok: true,
-      keygenSessionId: args.keygenSessionId,
-      rpId,
-      keyHandle,
+	    keygen: {
+	      ok: true,
+	      keygenSessionId: args.keygenSessionId,
+	      walletKeyId,
+	      keyHandle,
       ecdsaThresholdKeyId,
       clientVerifyingShareB64u: args.clientVerifyingShareB64u,
       thresholdEcdsaPublicKeyB64u,

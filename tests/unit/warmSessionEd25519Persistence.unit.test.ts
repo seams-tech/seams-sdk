@@ -78,6 +78,7 @@ function fixtureEd25519WalletSessionJwt(args: {
 function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId: String(nearAccountId),
     nearAccountId,
     ed25519KeyScopeId: String(nearAccountId),
@@ -113,6 +114,7 @@ function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
 function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId: String(nearAccountId),
     nearAccountId,
     ed25519KeyScopeId: String(nearAccountId),
@@ -144,6 +146,7 @@ function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): voi
 function remintSessionWithoutMaterial(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId: String(nearAccountId),
     nearAccountId,
     ed25519KeyScopeId: String(nearAccountId),
@@ -174,6 +177,7 @@ function remintNewSessionWithoutMaterial(args: {
 }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
+    passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId: String(nearAccountId),
     nearAccountId,
     ed25519KeyScopeId: String(nearAccountId),

@@ -36,7 +36,7 @@ const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
 
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'wallet.testnet',
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -220,9 +220,6 @@ void invalidZeroWalletSpendWithoutCommand;
 // @ts-expect-error budget finalization spend requires selected lane identity
 const walletOnlyBudgetFinalizationSpend: ReservedBudgetFinalizationSpend['spend'] = {
   operationId: SigningSessionIds.signingOperation('operation-1'),
-  walletId,
-  signingGrantId: SigningSessionIds.signingGrant('signing-grant-1'),
-  thresholdSessionIds: [SigningSessionIds.thresholdEcdsaSession('threshold-session-1')],
   backingMaterialSessionIds: [],
   uses: 1,
   reason: SigningOperationIntent.TransactionSign,

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { parseWalletKeyId } from '@shared/utils/domainIds';
 import {
   createBrowserPlatformRuntime,
   parseEmailOtpWorkerIssuedSessionHandle,
@@ -36,6 +37,12 @@ function bytesB64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
 }
 
+function parsedWalletKeyId(value: string) {
+  const parsed = parseWalletKeyId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 const publicKeyA = bytesB64u(33, 2);
 const publicKeyB = bytesB64u(33, 3);
 const publicKeyC = bytesB64u(33, 4);
@@ -44,6 +51,7 @@ const shareB = bytesB64u(32, 6);
 const shareC = bytesB64u(32, 7);
 const pendingStateBlobB64u = bytesB64u(96, 8);
 const readyStateBlobB64u = bytesB64u(160, 9);
+const walletKeyId = parsedWalletKeyId('wallet-key-browser-platform');
 
 const requiredPrfSuccess: RequiredPrfAuthenticatorSuccess = {
   ok: true,
@@ -82,14 +90,7 @@ const prepareInput: PrepareEcdsaClientBootstrapInput = {
   kind: 'prepare_ecdsa_client_bootstrap_v1',
   algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
   context: {
-    walletId: toWalletId('wallet.testnet'),
-    rpId: toRpId('localhost'),
-    chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'evm', chainId: 5042002 }),
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
-    signingRootId: toEcdsaHssSigningRootId('root'),
-    signingRootVersion: toEcdsaHssSigningRootVersion('v1'),
-    keyPurpose: 'evm-signing',
-    keyVersion: 'v1',
+    applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
   participants: {
     clientParticipantId: 1,
@@ -300,13 +301,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             kind: 'prepare_ecdsa_client_bootstrap_v1',
             algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
             context: {
-              walletId: prepareInput.context.walletId,
-              rpId: prepareInput.context.rpId,
-              ecdsaThresholdKeyId: prepareInput.context.ecdsaThresholdKeyId,
-              signingRootId: prepareInput.context.signingRootId,
-              signingRootVersion: prepareInput.context.signingRootVersion,
-              keyPurpose: 'evm-signing',
-              keyVersion: 'v1',
+              applicationBindingDigestB64u: prepareInput.context.applicationBindingDigestB64u,
             },
             participants: {
               clientParticipantId: 1,
@@ -560,7 +555,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       kind: 'email_otp_worker_session_handle_v1',
       sessionId: 'otp-session',
       walletId: 'wallet.testnet',
-      rpId: 'localhost',
+      walletKeyId: 'wallet-key-browser-platform',
       authSubjectId: 'google:alice',
       action: 'threshold_ecdsa_bootstrap',
       operation: 'sign',
@@ -579,7 +574,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         kind: 'email_otp_worker_session_handle_v1',
         sessionId: 'otp-session',
         walletId: 'wallet.testnet',
-        rpId: 'localhost',
+        walletKeyId: 'wallet-key-browser-platform',
         action: 'threshold_ecdsa_bootstrap',
         operation: 'sign',
         chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
@@ -593,12 +588,28 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         kind: 'email_otp_worker_session_handle_v1',
         sessionId: 'otp-session',
         walletId: 'wallet.testnet',
-        rpId: 'localhost',
+        walletKeyId: 'wallet-key-browser-platform',
         authSubjectId: 'google:alice',
         action: 'threshold_ecdsa_bootstrap',
         operation: 'sign',
       }),
     ).toThrow(/chainTarget/i);
+  });
+
+  test('rejects ECDSA worker-issued Email OTP handles carrying rpId', () => {
+    expect(() =>
+      parseEmailOtpWorkerIssuedSessionHandle({
+        kind: 'email_otp_worker_session_handle_v1',
+        sessionId: 'otp-session',
+        walletId: 'wallet.testnet',
+        walletKeyId: 'wallet-key-browser-platform',
+        rpId: 'localhost',
+        authSubjectId: 'google:alice',
+        action: 'threshold_ecdsa_bootstrap',
+        operation: 'sign',
+        chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+      }),
+    ).toThrow(/rpId/i);
   });
 
   test('parses Ed25519 worker-issued Email OTP handles without chainTarget', () => {

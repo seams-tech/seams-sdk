@@ -75,7 +75,6 @@ function expectNoCanonicalExportMaterial(json: Record<string, unknown>): void {
 async function createRoleLocalBootstrap(args: {
   svc: ReturnType<typeof createThresholdSigningServiceForUnitTests>['svc'];
   walletId: string;
-  rpId: string;
   clientRootShare32B64u: string;
   sessionId: string;
   signingGrantId?: string;
@@ -87,20 +86,20 @@ async function createRoleLocalBootstrap(args: {
   const signingRootId = args.signingRootId || TEST_SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion;
   const participantIds = args.participantIds || [1, 2];
+  const walletKeyId = `wallet-key-${args.walletId}`;
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: args.walletId,
-    rpId: args.rpId,
+    walletKeyId,
     signingRootId,
     signingRootVersion,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: args.walletId,
-    rpId: args.rpId,
+    walletKeyId,
   });
   const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
     context: {
       walletId: args.walletId,
-      rpId: args.rpId,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
@@ -111,7 +110,7 @@ async function createRoleLocalBootstrap(args: {
   const result = await args.svc.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId: args.walletId,
-    rpId: args.rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -138,20 +137,17 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   test('role-local bootstrap derives one shared key id and owner for evm-family scope', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletId = 'alice-hss-shared-target.near';
-    const rpId = 'wallet.example.test';
     const clientRootShare32B64u = rootShare32B64u(42);
 
     const first = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId,
       clientRootShare32B64u,
       sessionId: 'ecdsa-session-hss-first',
     });
     const second = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId,
       clientRootShare32B64u,
       sessionId: 'ecdsa-session-hss-second',
     });
@@ -166,28 +162,19 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     expectNoCanonicalExportMaterial(first as unknown as Record<string, unknown>);
   });
 
-  test('role-local bootstrap changes planned key id when stable shared fields change', async () => {
+  test('role-local bootstrap changes planned key id when stable HSS fields change', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletId = 'alice-hss-stable-field-change.near';
     const clientRootShare32B64u = rootShare32B64u(7);
     const base = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId: 'wallet.example.test',
       clientRootShare32B64u,
       sessionId: 'ecdsa-session-hss-stable-base',
-    });
-    const changedRp = await createRoleLocalBootstrap({
-      svc,
-      walletId,
-      rpId: 'wallet.other.test',
-      clientRootShare32B64u,
-      sessionId: 'ecdsa-session-hss-stable-rp',
     });
     const changedRoot = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId: 'wallet.example.test',
       clientRootShare32B64u,
       sessionId: 'ecdsa-session-hss-stable-root',
       signingRootId: 'project-beta:env-alpha',
@@ -195,16 +182,13 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const changedVersion = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId: 'wallet.example.test',
       clientRootShare32B64u,
       sessionId: 'ecdsa-session-hss-stable-version',
       signingRootVersion: 'v2',
     });
 
-    expect(changedRp.ecdsaThresholdKeyId).not.toBe(base.ecdsaThresholdKeyId);
     expect(changedRoot.ecdsaThresholdKeyId).not.toBe(base.ecdsaThresholdKeyId);
     expect(changedVersion.ecdsaThresholdKeyId).not.toBe(base.ecdsaThresholdKeyId);
-    expect(changedRp.ethereumAddress).not.toBe(base.ethereumAddress);
     expect(changedRoot.ethereumAddress).not.toBe(base.ethereumAddress);
     expect(changedVersion.ethereumAddress).not.toBe(base.ethereumAddress);
   });
@@ -212,17 +196,17 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   test('role-local bootstrap maps invalid client public keys to public_key_invalid', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletId = 'alice-invalid-public-key.near';
-    const rpId = 'wallet.example.test';
+    const walletKeyId = `wallet-key-${walletId}`;
     const subjectId = walletId;
     const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
       walletId,
-      rpId,
+      walletKeyId,
       signingRootId: TEST_SIGNING_ROOT_ID,
       signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
     });
     const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
       walletId,
-      rpId,
+      walletKeyId,
     });
 
     for (const [name, hssClientSharePublicKey33B64u] of [
@@ -232,7 +216,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       const result = await svc.ecdsaHssRoleLocalBootstrap({
         formatVersion: 'ecdsa-hss-role-local',
         walletId,
-        rpId,
+        walletKeyId,
         ecdsaThresholdKeyId,
         signingRootId: TEST_SIGNING_ROOT_ID,
         signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
@@ -261,11 +245,9 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   test('role-local bootstrap rejects client public key changes for an existing key handle', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletId = 'alice-identity-sum.near';
-    const rpId = 'wallet.example.test';
     const first = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId,
       clientRootShare32B64u: rootShare32B64u(77),
       sessionId: 'ecdsa-session-identity-sum-first',
     });
@@ -275,7 +257,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const retry = await svc.ecdsaHssRoleLocalBootstrap({
       formatVersion: 'ecdsa-hss-role-local',
       walletId,
-      rpId,
+      walletKeyId: first.walletKeyId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
       signingRootId: first.signingRootId,
       signingRootVersion: first.signingRootVersion,
@@ -303,12 +285,10 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   test('role-local bootstrap rejects relayer key rotation for an existing key handle', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletId = 'alice-relayer-rotation.near';
-    const rpId = 'wallet.example.test';
     const clientRootShare32B64u = rootShare32B64u(55);
     const first = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId,
       clientRootShare32B64u,
       sessionId: 'ecdsa-session-relayer-rotation-first',
     });
@@ -317,7 +297,6 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: {
         walletId,
-        rpId,
         ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
         signingRootId: first.signingRootId,
         signingRootVersion: first.signingRootVersion,
@@ -328,7 +307,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const rotated = await svc.ecdsaHssRoleLocalBootstrap({
       formatVersion: 'ecdsa-hss-role-local',
       walletId,
-      rpId,
+      walletKeyId: first.walletKeyId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
       signingRootId: first.signingRootId,
       signingRootVersion: first.signingRootVersion,
@@ -356,11 +335,9 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
   test('role-local bootstrap rejects client share changes for an existing key handle', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletId = 'alice-client-share-rotation.near';
-    const rpId = 'wallet.example.test';
     const first = await createRoleLocalBootstrap({
       svc,
       walletId,
-      rpId,
       clientRootShare32B64u: rootShare32B64u(56),
       sessionId: 'ecdsa-session-client-share-first',
     });
@@ -369,7 +346,6 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const changedClientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
       context: {
         walletId,
-        rpId,
         ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
         signingRootId: first.signingRootId,
         signingRootVersion: first.signingRootVersion,
@@ -380,7 +356,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     const changedClient = await svc.ecdsaHssRoleLocalBootstrap({
       formatVersion: 'ecdsa-hss-role-local',
       walletId,
-      rpId,
+      walletKeyId: first.walletKeyId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
       signingRootId: first.signingRootId,
       signingRootVersion: first.signingRootVersion,

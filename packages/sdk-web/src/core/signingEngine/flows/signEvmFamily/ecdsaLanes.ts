@@ -7,16 +7,21 @@ import type {
 } from '../../interfaces/operationDeps';
 import {
   selectedEcdsaLane,
+  selectedLaneAuthMethod,
   type SelectedEcdsaLane,
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
   type EcdsaTransactionSigningLane,
 } from '../../session/operationState/lanes';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import { thresholdEcdsaSessionRecordReadModel } from '../../session/persistence/records';
+import {
+  thresholdEcdsaLaneCandidateFromSessionRecord,
+  thresholdEcdsaSessionRecordReadModel,
+} from '../../session/persistence/records';
 import {
   toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
@@ -51,7 +56,6 @@ export type EvmFamilyEcdsaAuthMethod =
   | typeof SIGNER_AUTH_METHODS.passkey;
 
 export type ResolvedEvmFamilyEcdsaSigningLane = EcdsaTransactionSigningLane & {
-  authMethod: EvmFamilyEcdsaAuthMethod;
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: EvmFamilyChain;
@@ -91,7 +95,7 @@ export function summarizeEvmFamilyEcdsaLane(
   return {
     present: true,
     walletId: lane.walletId,
-    authMethod: lane.authMethod,
+    authMethod: signingLaneAuthMethod(lane.auth),
     curve: lane.curve,
     chain: lane.chain,
     chainFamily: 'chainFamily' in lane ? lane.chainFamily : lane.chain,
@@ -138,18 +142,6 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
       ...args.diagnostics,
     });
     throw new Error(`[SigningEngine][ecdsa] ${args.context} requires an ECDSA signing lane`);
-  }
-  if (
-    lane.authMethod !== SIGNER_AUTH_METHODS.emailOtp &&
-    lane.authMethod !== SIGNER_AUTH_METHODS.passkey
-  ) {
-    logEvmFamilyEcdsaLaneDiagnostic('selected signing lane has no concrete auth method', {
-      context: args.context,
-      expectedChain: args.chain,
-      lane: summarizeEvmFamilyEcdsaLane(lane),
-      ...args.diagnostics,
-    });
-    throw new Error(`[SigningEngine][ecdsa] ${args.context} requires a concrete ECDSA auth method`);
   }
   if (lane.chainFamily !== args.chain) {
     logEvmFamilyEcdsaLaneDiagnostic('selected signing lane chain mismatch', {
@@ -209,7 +201,7 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     key,
     keyHandle: lane.keyHandle,
     walletId: lane.walletId,
-    authMethod: lane.authMethod,
+    auth: lane.auth,
     signingGrantId: laneIdentity.signingGrantId,
     thresholdSessionId: laneIdentity.thresholdSessionId,
     chainTarget,
@@ -280,7 +272,7 @@ export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args: {
     key: args.lane.key,
     keyHandle,
     walletId: args.lane.walletId,
-    authMethod: args.lane.authMethod,
+    auth: args.lane.auth,
     chainTarget: args.chainTarget,
     signingGrantId: args.lane.signingGrantId,
     thresholdSessionId: args.lane.thresholdSessionId,
@@ -342,6 +334,21 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
     });
     return undefined;
   }
+  let recordCandidate: ReturnType<typeof thresholdEcdsaLaneCandidateFromSessionRecord>;
+  try {
+    recordCandidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
+  } catch (error) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from missing exact auth binding', {
+      walletId: args.walletId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      message: error instanceof Error ? error.message : String(error),
+      record: summarizeEvmFamilyEcdsaSessionRecord(record),
+    });
+    return undefined;
+  }
 
   const base = {
     key,
@@ -356,11 +363,22 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
       : buildEvmTransactionSigningLane;
 
   if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    if (recordCandidate.auth.kind !== 'email_otp') {
+      logEvmFamilyEcdsaLaneDiagnostic('Email OTP ECDSA lane is missing Email OTP auth binding', {
+        walletId: args.walletId,
+        chain: args.chain,
+        chainTarget: args.chainTarget,
+        authMethod: args.authMethod,
+        source: args.source,
+        record: summarizeEvmFamilyEcdsaSessionRecord(record),
+      });
+      return undefined;
+    }
     const emailOtpAuthContext = record?.source === 'email_otp' ? record.emailOtpAuthContext : null;
     const lane = buildLane({
       ...base,
+      auth: recordCandidate.auth,
       chainTarget: args.chainTarget,
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
       retention: emailOtpAuthContext?.retention || 'session',
       sessionOrigin: emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
     });
@@ -372,10 +390,21 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   }
 
   if (args.source === SIGNER_AUTH_METHODS.emailOtp) return undefined;
+  if (recordCandidate.auth.kind !== 'passkey') {
+    logEvmFamilyEcdsaLaneDiagnostic('passkey ECDSA lane is missing passkey auth binding', {
+      walletId: args.walletId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(record),
+    });
+    return undefined;
+  }
   const lane = buildLane({
     ...base,
+    auth: recordCandidate.auth,
     chainTarget: args.chainTarget,
-    authMethod: SIGNER_AUTH_METHODS.passkey,
     storageSource: args.source,
   });
   return requireResolvedEvmFamilyEcdsaSigningLane({
@@ -514,7 +543,7 @@ export function readSelectedEcdsaRecordForLane(args: {
   if (!record) return undefined;
   if (
     ecdsaMaterialSourceMatchesAuth({
-      authMethod: args.lane.authMethod,
+      authMethod: selectedLaneAuthMethod(args.lane),
       source: record.source,
       record,
     })
@@ -577,7 +606,7 @@ export function findSharedEvmFamilyEcdsaSessionRecordForLane(args: {
       seen.add(candidateKey);
       if (
         !ecdsaMaterialSourceMatchesAuth({
-          authMethod: lane.authMethod,
+          authMethod: selectedLaneAuthMethod(lane),
           source: record.source,
           record,
         })
@@ -610,7 +639,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   }
   if (
     !ecdsaMaterialSourceMatchesAuth({
-      authMethod: lane.authMethod,
+      authMethod: selectedLaneAuthMethod(lane),
       source: record.source,
       record,
     })

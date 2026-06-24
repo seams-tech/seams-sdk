@@ -191,7 +191,7 @@ export type RouterAbNormalSigningAdmissionInput =
       curve: 'ecdsa-hss';
       phase: 'prepare' | 'finalize';
       walletId: string;
-      rpId: string;
+      walletKeyId: string;
       thresholdSessionId: string;
       signingGrantId: string;
       requestId: string;
@@ -267,7 +267,7 @@ export async function evaluateRouterAbNormalSigningAdmission(
     curve: 'ecdsa-hss',
     phase: input.phase,
     walletId: input.walletSessionAuth.userId,
-    rpId: input.walletSessionAuth.rpId,
+    walletKeyId: input.walletSessionAuth.walletKeyId,
     thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
@@ -504,7 +504,6 @@ export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
   signingWorkerId: string;
   thresholdSessionId: string;
 }): Promise<string> {
-  const context = input.body.scope.context;
   const publicIdentity = input.body.scope.public_identity;
   const presignatureId =
     'client_presignature_id' in input.body
@@ -512,11 +511,11 @@ export async function deriveRouterAbEcdsaHssBudgetOperationId(input: {
       : input.body.server_presignature_id;
   const fields = [
     ['threshold_session_id', input.thresholdSessionId],
-    ['wallet_id', context.wallet_id],
-    ['rp_id', context.rp_id],
-    ['ecdsa_threshold_key_id', context.ecdsa_threshold_key_id],
-    ['signing_root_id', context.signing_root_id],
-    ['signing_root_version', context.signing_root_version],
+    ['wallet_id', input.body.scope.wallet_id],
+    ['wallet_key_id', input.body.scope.wallet_key_id],
+    ['ecdsa_threshold_key_id', input.body.scope.ecdsa_threshold_key_id],
+    ['signing_root_id', input.body.scope.signing_root_id],
+    ['signing_root_version', input.body.scope.signing_root_version],
     ['activation_epoch', input.body.scope.activation_epoch],
     ['signing_worker_id', input.signingWorkerId],
     ['scope_signing_worker_id', input.body.scope.signing_worker.server_id],
@@ -697,7 +696,7 @@ function ecdsaHssTrustedAdmission(input: {
   expiresAtMs: number;
 }): RouterAbEcdsaHssTrustedAdmissionV1 {
   return {
-    account_id: input.scope.context.wallet_id,
+    account_id: input.scope.wallet_id,
     session_id: routerAbEcdsaHssActiveStateSessionId({
       kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
       scope: input.scope,

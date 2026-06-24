@@ -3,25 +3,22 @@ pub mod ecdsa_export;
 pub mod ed25519_worker_material;
 
 pub use ecdsa_bootstrap::{
-    Base64UrlEncodingV1, EcdsaBootstrapEmailOtpWorkerSessionHandleV1, EcdsaBootstrapSecretSourceV1,
-    EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1, EcdsaClientBootstrapFactsV1,
-    EcdsaClientBootstrapKeyPurposeV1, EcdsaClientBootstrapKeyVersionV1,
-    EcdsaClientBootstrapParticipantsV1, EcdsaPreparePublicFactsV1, EcdsaReadyPublicFactsV1,
-    EcdsaRoleLocalPendingStateBlobV1, EcdsaRoleLocalReadyStateBlobV1,
-    EmailOtpWorkerSessionHandleActionV1, EmailOtpWorkerSessionHandleKindV1,
-    EmailOtpWorkerSessionHandleOperationV1, EvmNamespaceV1,
-    FinalizeEcdsaClientBootstrapCommandKindV1, FinalizeEcdsaClientBootstrapCommandV1,
-    FinalizeEcdsaClientBootstrapErrorCodeV1, FinalizeEcdsaClientBootstrapOutputV1,
-    PendingStateBlobKindV1, PrepareEcdsaClientBootstrapCommandKindV1,
-    PrepareEcdsaClientBootstrapCommandV1, PrepareEcdsaClientBootstrapErrorCodeV1,
-    PrepareEcdsaClientBootstrapOutputV1, ReadyStateBlobKindV1, RelayerPublicIdentityV1,
-    Secp256k1CurveNameV1, SignerCommandVersion, SignerCoreProducerV1, ThresholdEcdsaChainTargetV1,
+    Base64UrlEncodingV1, EcdsaBootstrapSecretSourceV1, EcdsaClientBootstrapAlgorithmV1,
+    EcdsaClientBootstrapContextV1, EcdsaClientBootstrapFactsV1, EcdsaClientBootstrapParticipantsV1,
+    EcdsaPreparePublicFactsV1, EcdsaReadyPublicFactsV1, EcdsaRoleLocalPendingStateBlobV1,
+    EcdsaRoleLocalReadyStateBlobV1, FinalizeEcdsaClientBootstrapCommandKindV1,
+    FinalizeEcdsaClientBootstrapCommandV1, FinalizeEcdsaClientBootstrapErrorCodeV1,
+    FinalizeEcdsaClientBootstrapOutputV1, PendingStateBlobKindV1,
+    PrepareEcdsaClientBootstrapCommandKindV1, PrepareEcdsaClientBootstrapCommandV1,
+    PrepareEcdsaClientBootstrapErrorCodeV1, PrepareEcdsaClientBootstrapOutputV1,
+    ReadyStateBlobKindV1, RelayerPublicIdentityV1, Secp256k1CurveNameV1, SignerCommandVersion,
+    SignerCoreProducerV1,
 };
 
 pub use ecdsa_export::{
     BuildEcdsaRoleLocalExportArtifactCommandKindV1, BuildEcdsaRoleLocalExportArtifactCommandV1,
     BuildEcdsaRoleLocalExportArtifactErrorCodeV1, BuildEcdsaRoleLocalExportArtifactOutputV1,
-    EcdsaRoleLocalExportAuthorizationV1, EcdsaRoleLocalExportPublicFactsV1,
+    EcdsaRoleLocalExportPublicFactsV1,
 };
 
 pub use ed25519_worker_material::{

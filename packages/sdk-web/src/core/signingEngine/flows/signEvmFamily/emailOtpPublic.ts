@@ -118,7 +118,7 @@ export type RotateEmailOtpRecoveryCodesInternalResult = Awaited<
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs = {
   walletId: WalletId;
   userId: string;
-  rpId: string;
+  walletKeyId: string;
   relayUrl?: string;
   shamirPrimeB64u?: string;
   appSessionJwt: string;
@@ -317,7 +317,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
     ecdsaClientRootHandleBinding: {
-      rpId: String(args.rpId).trim(),
+      walletKeyId: String(args.walletKeyId).trim(),
       authSubjectId: String(args.userId).trim(),
       action: 'wallet_registration_ecdsa_prepare',
       operation: 'registration',

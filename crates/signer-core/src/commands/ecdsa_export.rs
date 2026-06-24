@@ -21,13 +21,10 @@ use zeroize::Zeroize;
 
 #[cfg(feature = "threshold-ecdsa-hss")]
 use super::ecdsa_bootstrap::{
-    Base64UrlEncodingV1, EcdsaClientBootstrapKeyPurposeV1, EcdsaClientBootstrapKeyVersionV1,
-    EcdsaClientBootstrapParticipantsV1, EvmNamespaceV1, ReadyStateBlobKindV1, Secp256k1CurveNameV1,
-    SignerCoreProducerV1,
+    Base64UrlEncodingV1, EcdsaClientBootstrapParticipantsV1, ReadyStateBlobKindV1,
+    Secp256k1CurveNameV1, SignerCoreProducerV1,
 };
-use super::ecdsa_bootstrap::{
-    EcdsaClientBootstrapAlgorithmV1, EcdsaRoleLocalReadyStateBlobV1, ThresholdEcdsaChainTargetV1,
-};
+use super::ecdsa_bootstrap::{EcdsaClientBootstrapAlgorithmV1, EcdsaRoleLocalReadyStateBlobV1};
 
 #[cfg(feature = "threshold-ecdsa-hss")]
 const ECDSA_HSS_CLIENT_PARTICIPANT_ID: u32 = 1;
@@ -46,13 +43,7 @@ pub enum BuildEcdsaRoleLocalExportArtifactCommandKindV1 {
 #[serde(rename_all = "camelCase")]
 #[ts(rename = "EcdsaRoleLocalExportPublicFacts", rename_all = "camelCase")]
 pub struct EcdsaRoleLocalExportPublicFactsV1 {
-    pub wallet_id: String,
-    pub rp_id: String,
-    pub chain_target: ThresholdEcdsaChainTargetV1,
-    pub key_handle: String,
-    pub ecdsa_threshold_key_id: String,
-    pub signing_root_id: String,
-    pub signing_root_version: String,
+    pub application_binding_digest_b64u: String,
     pub client_participant_id: u32,
     pub relayer_participant_id: u32,
     pub participant_ids: Vec<u32>,
@@ -61,31 +52,6 @@ pub struct EcdsaRoleLocalExportPublicFactsV1 {
     pub relayer_public_key33_b64u: String,
     pub group_public_key33_b64u: String,
     pub ethereum_address: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-#[ts(
-    rename = "EcdsaRoleLocalExportAuthorization",
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-pub enum EcdsaRoleLocalExportAuthorizationV1 {
-    PasskeyExportAuthorized {
-        wallet_id: String,
-        rp_id: String,
-        credential_id_b64u: String,
-    },
-    EmailOtpExportAuthorized {
-        wallet_id: String,
-        rp_id: String,
-        auth_subject_id: String,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -99,7 +65,6 @@ pub struct BuildEcdsaRoleLocalExportArtifactCommandV1 {
     pub algorithm: EcdsaClientBootstrapAlgorithmV1,
     pub state_blob: EcdsaRoleLocalReadyStateBlobV1,
     pub public_facts: EcdsaRoleLocalExportPublicFactsV1,
-    pub authorization: EcdsaRoleLocalExportAuthorizationV1,
     pub server_export_share32_b64u: String,
 }
 
@@ -124,7 +89,6 @@ pub struct BuildEcdsaRoleLocalExportArtifactOutputV1 {
 pub enum BuildEcdsaRoleLocalExportArtifactErrorCodeV1 {
     InvalidReadyState,
     InvalidPublicIdentity,
-    ExportNotAuthorized,
     CryptoFailure,
 }
 
@@ -134,7 +98,6 @@ pub fn build_ecdsa_role_local_export_artifact_command_v1(
 ) -> CoreResult<BuildEcdsaRoleLocalExportArtifactOutputV1> {
     validate_export_command_header(&command)?;
     validate_ready_state_blob_envelope(&command.state_blob)?;
-    validate_export_authorization(&command.public_facts, &command.authorization)?;
 
     let public_facts = core_public_facts_from_command(&command.public_facts)?;
     let mut server_export_share32 = decode_base64_url_fixed::<32>(
@@ -225,25 +188,10 @@ fn validate_ready_state_blob_envelope(blob: &EcdsaRoleLocalReadyStateBlobV1) -> 
 fn core_public_facts_from_command(
     facts: &EcdsaRoleLocalExportPublicFactsV1,
 ) -> CoreResult<CoreEcdsaRoleLocalExportPublicFacts> {
-    validate_chain_target(&facts.chain_target)?;
-    require_ascii_nonempty_ref(&facts.key_handle, "publicFacts.keyHandle")?;
-    let context = EcdsaHssStableKeyContext::new(
-        require_ascii_nonempty_ref(&facts.wallet_id, "publicFacts.walletId")?.to_owned(),
-        require_ascii_nonempty_ref(&facts.rp_id, "publicFacts.rpId")?.to_owned(),
-        require_ascii_nonempty_ref(
-            &facts.ecdsa_threshold_key_id,
-            "publicFacts.ecdsaThresholdKeyId",
-        )?
-        .to_owned(),
-        require_ascii_nonempty_ref(&facts.signing_root_id, "publicFacts.signingRootId")?.to_owned(),
-        require_ascii_nonempty_ref(
-            &facts.signing_root_version,
-            "publicFacts.signingRootVersion",
-        )?
-        .to_owned(),
-        key_purpose_string(EcdsaClientBootstrapKeyPurposeV1::EvmSigning).to_owned(),
-        key_version_string(EcdsaClientBootstrapKeyVersionV1::V1).to_owned(),
-    );
+    let context = EcdsaHssStableKeyContext::new(decode_base64_url_fixed::<32>(
+        &facts.application_binding_digest_b64u,
+        "publicFacts.applicationBindingDigestB64u",
+    )?);
     context
         .validate()
         .map_err(|error| SignerCoreError::invalid_input(error.message))?;
@@ -271,124 +219,6 @@ fn core_public_facts_from_command(
             "publicFacts.ethereumAddress",
         )?,
     })
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn validate_export_authorization(
-    facts: &EcdsaRoleLocalExportPublicFactsV1,
-    authorization: &EcdsaRoleLocalExportAuthorizationV1,
-) -> CoreResult<()> {
-    match authorization {
-        EcdsaRoleLocalExportAuthorizationV1::PasskeyExportAuthorized {
-            wallet_id,
-            rp_id,
-            credential_id_b64u,
-        } => {
-            require_authorization_identity_match(facts, wallet_id, rp_id)?;
-            let mut credential_id =
-                decode_base64_url(credential_id_b64u, "authorization.credentialIdB64u")?;
-            if credential_id.is_empty() {
-                return Err(SignerCoreError::invalid_input(
-                    "authorization.credentialIdB64u must decode to at least one byte",
-                ));
-            }
-            credential_id.zeroize();
-        }
-        EcdsaRoleLocalExportAuthorizationV1::EmailOtpExportAuthorized {
-            wallet_id,
-            rp_id,
-            auth_subject_id,
-        } => {
-            require_authorization_identity_match(facts, wallet_id, rp_id)?;
-            require_ascii_nonempty_ref(auth_subject_id, "authorization.authSubjectId")?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn require_authorization_identity_match(
-    facts: &EcdsaRoleLocalExportPublicFactsV1,
-    wallet_id: &str,
-    rp_id: &str,
-) -> CoreResult<()> {
-    let wallet_id = require_ascii_nonempty_ref(wallet_id, "authorization.walletId")?;
-    let rp_id = require_ascii_nonempty_ref(rp_id, "authorization.rpId")?;
-    if wallet_id != facts.wallet_id {
-        return Err(SignerCoreError::invalid_input(
-            "authorization.walletId does not match publicFacts.walletId",
-        ));
-    }
-    if rp_id != facts.rp_id {
-        return Err(SignerCoreError::invalid_input(
-            "authorization.rpId does not match publicFacts.rpId",
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn validate_chain_target(target: &ThresholdEcdsaChainTargetV1) -> CoreResult<()> {
-    match target {
-        ThresholdEcdsaChainTargetV1::Evm {
-            namespace,
-            chain_id,
-            network_slug,
-        } => {
-            match namespace {
-                EvmNamespaceV1::Eip155 => {}
-            }
-            validate_chain_id(*chain_id)?;
-            require_ascii_nonempty_ref(network_slug, "publicFacts.chainTarget.networkSlug")?;
-        }
-        ThresholdEcdsaChainTargetV1::Tempo {
-            chain_id,
-            network_slug,
-        } => {
-            validate_chain_id(*chain_id)?;
-            require_ascii_nonempty_ref(network_slug, "publicFacts.chainTarget.networkSlug")?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn validate_chain_id(chain_id: u32) -> CoreResult<()> {
-    if chain_id == 0 {
-        return Err(SignerCoreError::invalid_input(
-            "publicFacts.chainTarget.chainId must be positive",
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn key_purpose_string(value: EcdsaClientBootstrapKeyPurposeV1) -> &'static str {
-    match value {
-        EcdsaClientBootstrapKeyPurposeV1::EvmSigning => "evm-signing",
-    }
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn key_version_string(value: EcdsaClientBootstrapKeyVersionV1) -> &'static str {
-    match value {
-        EcdsaClientBootstrapKeyVersionV1::V1 => "v1",
-    }
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn require_ascii_nonempty_ref<'a>(value: &'a str, field_name: &str) -> CoreResult<&'a str> {
-    if value.is_empty() {
-        return Err(SignerCoreError::invalid_input(format!(
-            "{field_name} must be non-empty"
-        )));
-    }
-    if !value.is_ascii() {
-        return Err(SignerCoreError::invalid_input(format!(
-            "{field_name} must be ASCII-only"
-        )));
-    }
-    Ok(value)
 }
 
 #[cfg(feature = "threshold-ecdsa-hss")]

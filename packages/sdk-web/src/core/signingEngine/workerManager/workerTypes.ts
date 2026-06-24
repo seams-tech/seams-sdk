@@ -65,10 +65,10 @@ import type {
   EcdsaPreparePublicFacts,
   EcdsaRoleLocalPendingStateBlob,
   EcdsaRoleLocalReadyStateBlob,
+  PrepareEcdsaClientBootstrapInput,
 } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type {
-  GeneratedPrepareEcdsaClientBootstrapCommand,
   GeneratedPrepareEcdsaClientBootstrapOutput,
 } from '@/core/platform/signerCoreCommandAdapters';
 
@@ -233,7 +233,7 @@ export type EmailOtpEcdsaSessionBootstrapHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
   sessionId: string;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   authSubjectId: string;
   action: 'threshold_ecdsa_bootstrap';
   operation: EmailOtpWorkerSessionHandleOperation;
@@ -244,7 +244,7 @@ export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
   kind: 'email_otp_worker_session_handle_v1';
   sessionId: string;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   authSubjectId: string;
   action: 'wallet_registration_ecdsa_prepare';
   operation: 'registration';
@@ -256,8 +256,18 @@ export type EmailOtpWorkerIssuedSessionHandlePayload =
   | EmailOtpEcdsaSessionBootstrapHandlePayload
   | EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
 
+export type EmailOtpPrepareEcdsaClientBootstrapInput = Omit<
+  PrepareEcdsaClientBootstrapInput,
+  'secretSource'
+> & {
+  secretSource: Extract<
+    PrepareEcdsaClientBootstrapInput['secretSource'],
+    { kind: 'email_otp_worker_session' }
+  >;
+};
+
 export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
-  rpId: string;
+  walletKeyId: string;
   authSubjectId: string;
   action?: 'threshold_ecdsa_bootstrap';
   operation: EmailOtpWorkerSessionHandleOperation;
@@ -265,7 +275,7 @@ export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
 };
 
 export type EmailOtpWalletRegistrationEcdsaPrepareHandleBinding = {
-  rpId: string;
+  walletKeyId: string;
   authSubjectId: string;
   action: 'wallet_registration_ecdsa_prepare';
   operation: 'registration';
@@ -282,7 +292,7 @@ type EmailOtpEcdsaBootstrapBasePayload = {
   walletId: string;
   walletSessionUserId: string;
   userId: string;
-  rpId: string;
+  walletKeyId: string;
   clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   chainTarget: ThresholdEcdsaChainTarget;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
@@ -416,7 +426,7 @@ export interface EmailOtpWorkerOperationMap {
   };
   prepareEcdsaClientBootstrapFromEmailOtpHandle: {
     payload: {
-      command: GeneratedPrepareEcdsaClientBootstrapCommand;
+      input: EmailOtpPrepareEcdsaClientBootstrapInput;
     };
     result: GeneratedPrepareEcdsaClientBootstrapOutput;
   };
@@ -618,7 +628,7 @@ export interface EmailOtpWorkerOperationMap {
       restore: {
         sessionId: string;
         walletId: string;
-        rpId: string;
+        walletKeyId: string;
         chainTarget: ThresholdEcdsaChainTarget;
         signingGrantId: string;
         keyHandle: string;
@@ -670,7 +680,7 @@ export interface EmailOtpWorkerOperationMap {
       otpCode: string;
       shamirPrimeB64u: string;
       routePlan: EmailOtpRoutePlan;
-      rpId: string;
+      walletKeyId: string;
       walletSessionJwt: string;
       ecdsaThresholdKeyId: string;
       relayerKeyId: string;

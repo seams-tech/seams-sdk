@@ -1,9 +1,11 @@
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   persistStoredThresholdEd25519SessionMaterialHandle,
+  thresholdEd25519LaneCandidateFromSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEd25519SessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
+import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
@@ -67,27 +69,35 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
   if (!thresholdSessionId || !signingGrantId) return null;
   const walletSessionAuth = walletSessionAuthFromPersistedEd25519Record(record);
   if (!walletSessionAuth) return null;
+  const recordCandidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
+  if (!recordCandidate) return null;
   const signingLane =
     record.source === 'email_otp'
-      ? buildNearTransactionSigningLane({
-          walletId: record.walletId,
-          nearAccountId: record.nearAccountId,
-          ed25519KeyScopeId: record.ed25519KeyScopeId,
-          authMethod: 'email_otp',
-          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-          thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
-          retention: record.emailOtpAuthContext?.retention || 'session',
-          sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
-        })
-      : buildNearTransactionSigningLane({
-          walletId: record.walletId,
-          nearAccountId: record.nearAccountId,
-          ed25519KeyScopeId: record.ed25519KeyScopeId,
-          authMethod: 'passkey',
-          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-          thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
-          storageSource: resolveEd25519PasskeyStorageSource(record.source),
-        });
+      ? recordCandidate.auth.kind === 'email_otp'
+        ? buildNearTransactionSigningLane({
+            walletId: record.walletId,
+            nearAccountId: record.nearAccountId,
+            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            auth: recordCandidate.auth,
+            signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+            retention: record.emailOtpAuthContext?.retention || 'session',
+            sessionOrigin:
+              record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+          })
+        : null
+      : recordCandidate.auth.kind === 'passkey'
+        ? buildNearTransactionSigningLane({
+            walletId: record.walletId,
+            nearAccountId: record.nearAccountId,
+            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            auth: recordCandidate.auth,
+            signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+            storageSource: resolveEd25519PasskeyStorageSource(record.source),
+          })
+        : null;
+  if (!signingLane) return null;
   const common = {
     thresholdSessionId,
     signingGrantId,
@@ -174,7 +184,7 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
   thresholdSessionId: string;
   materialHandle: string | undefined;
 }): Promise<void> {
-  if (args.walletSessionState.signingLane.authMethod !== 'passkey') return;
+  if (signingLaneAuthMethod(args.walletSessionState.signingLane.auth) !== 'passkey') return;
   const persist = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
   if (typeof persist !== 'function') return;
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();

@@ -101,7 +101,7 @@ export type StoreWalletEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
@@ -1145,7 +1145,7 @@ function prepareWalletEcdsaSignerActivations(
       walletKey.signingRootVersion,
       'wallet key signingRootVersion',
     );
-    const rpId = requireStoreWalletString(walletKey.rpId, 'wallet key rpId');
+    const walletKeyId = requireStoreWalletString(walletKey.walletKeyId, 'wallet key walletKeyId');
     const relayerKeyId = requireStoreWalletString(
       walletKey.relayerKeyId,
       'wallet key relayerKeyId',
@@ -1190,7 +1190,7 @@ function prepareWalletEcdsaSignerActivations(
             keyScope: walletKey.keyScope,
             keyHandle,
             walletId: walletId,
-            rpId,
+            walletKeyId,
             ecdsaThresholdKeyId,
             signingRootId,
             signingRootVersion,
@@ -1208,7 +1208,7 @@ function prepareWalletEcdsaSignerActivations(
             },
             sharedEvmFamilyKey: {
               walletId: walletId,
-              rpId,
+              walletKeyId,
               keyScope: walletKey.keyScope,
               keyHandle,
               ecdsaThresholdKeyId,

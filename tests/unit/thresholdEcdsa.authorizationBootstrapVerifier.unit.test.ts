@@ -34,7 +34,7 @@ const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 });
 const TEST_KEY_IDENTITY = buildEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  rpId: 'wallet.example.test',
+  walletKeyId: 'wallet-key-alice',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -110,14 +110,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     const originalFetch = globalThis.fetch;
     const storedMaterials: Array<{ materialHandle: string; bindingDigest: string }> = [];
     const contextBinding32B64u = await routerAbEcdsaHssContextBindingB64uV1({
-      wallet_id: TEST_KEY_IDENTITY.walletId,
-      rp_id: TEST_KEY_IDENTITY.rpId,
-      key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-      ecdsa_threshold_key_id: TEST_KEY_IDENTITY.ecdsaThresholdKeyId,
-      signing_root_id: TEST_KEY_IDENTITY.signingRootId,
-      signing_root_version: TEST_KEY_IDENTITY.signingRootVersion,
-      key_purpose: 'evm-signing',
-      key_version: 'v1',
+      application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
     });
     const clientPublicKey33B64u = base64UrlEncode(
       Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
@@ -183,15 +176,12 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         const normalSigning = {
           kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
           scope: {
+            wallet_key_id: body.walletKeyId,
             context: {
               wallet_id: body.walletId,
-              rp_id: body.rpId,
-              key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
               ecdsa_threshold_key_id: body.ecdsaThresholdKeyId,
               signing_root_id: body.signingRootId,
               signing_root_version: body.signingRootVersion,
-              key_purpose: 'evm-signing',
-              key_version: 'v1',
             },
             public_identity: {
               context_binding_b64u: contextBinding32B64u,
@@ -215,6 +205,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
           sub: body.walletId,
           walletId: body.walletId,
+          walletKeyId: body.walletKeyId,
           rpId: body.rpId,
           keyScope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
           keyHandle: TEST_KEY_HANDLE,
@@ -231,6 +222,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
             value: {
               formatVersion: 'ecdsa-hss-role-local',
               walletId: body.walletId,
+              walletKeyId: body.walletKeyId,
               rpId: body.rpId,
               ecdsaThresholdKeyId: body.ecdsaThresholdKeyId,
               relayerKeyId: body.relayerKeyId,
@@ -438,6 +430,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       } as any,
       relayerUrl: 'https://relay.example',
       userId: 'alice.testnet',
+      walletKeyId: TEST_KEY_IDENTITY.walletKeyId,
       chainTarget: TEST_CHAIN_TARGET,
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       sessionId: 'ecdsa-session-1',

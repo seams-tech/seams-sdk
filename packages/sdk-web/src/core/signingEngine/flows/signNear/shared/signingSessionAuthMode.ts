@@ -38,6 +38,7 @@ import {
   SigningSessionPlanKind,
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
+import { thresholdEd25519LaneCandidateFromSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   NearCommandSubject,
   ThresholdEcdsaChainTarget,
@@ -306,27 +307,39 @@ export async function resolveNearSigningSessionAuthContext(args: {
   if (!signingGrantId) {
     throw new Error('[SigningEngine][near] missing signing grant id for transaction auth planning');
   }
+  const recordCandidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
+  if (!recordCandidate) {
+    throw new Error('[SigningEngine][near] selected Ed25519 record has no lane candidate');
+  }
   const lane =
     record?.source === 'email_otp'
-      ? buildNearTransactionSigningLane({
-          walletId: record.walletId,
-          nearAccountId: record.nearAccountId,
-          ed25519KeyScopeId: record.ed25519KeyScopeId,
-          authMethod: 'email_otp',
-          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-          thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-          retention: record.emailOtpAuthContext?.retention || 'session',
-          sessionOrigin: record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
-        })
-      : buildNearTransactionSigningLane({
-          walletId: record.walletId,
-          nearAccountId: record.nearAccountId,
-          ed25519KeyScopeId: record.ed25519KeyScopeId,
-          authMethod: 'passkey',
-          signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
-          thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
-          storageSource: record.source,
-        });
+      ? recordCandidate.auth.kind === 'email_otp'
+        ? buildNearTransactionSigningLane({
+            walletId: record.walletId,
+            nearAccountId: record.nearAccountId,
+            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            auth: recordCandidate.auth,
+            signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
+            retention: record.emailOtpAuthContext?.retention || 'session',
+            sessionOrigin:
+              record.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+          })
+        : null
+      : recordCandidate.auth.kind === 'passkey'
+        ? buildNearTransactionSigningLane({
+            walletId: record.walletId,
+            nearAccountId: record.nearAccountId,
+            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            auth: recordCandidate.auth,
+            signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
+            storageSource: record.source,
+          })
+        : null;
+  if (!lane) {
+    throw new Error('[SigningEngine][near] selected Ed25519 record auth branch is invalid');
+  }
   emitSigningLaneResolutionTrace('near', lane, {
     reason: 'near_threshold_auth_plan',
   });

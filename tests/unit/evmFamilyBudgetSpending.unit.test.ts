@@ -29,6 +29,11 @@ import type { BudgetAdmittedOperation } from '../../packages/sdk-web/src/core/si
 import type { SigningSessionStatus } from '../../packages/sdk-web/src/core/types/seams';
 
 const WALLET_ID = toWalletId('budget-refresh.testnet');
+const WALLET_KEY_ID = 'wallet-key-budget-refresh';
+const EMAIL_OTP_AUTH = {
+  kind: 'email_otp',
+  providerSubjectId: 'google:budget-refresh',
+} as const;
 const CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -37,7 +42,7 @@ const CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const ECDSA_KEY = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: WALLET_ID,
-  rpId: 'localhost',
+  walletKeyId: WALLET_KEY_ID,
   ecdsaThresholdKeyId: 'ehss-shared-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -86,7 +91,7 @@ function makeAdmittedOperation(args: {
       key: ECDSA_KEY,
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
-      authMethod: 'email_otp',
+      auth: EMAIL_OTP_AUTH,
       signingGrantId: SigningSessionIds.signingGrant(
         args.exhaustedSigningGrantId,
       ),
@@ -120,7 +125,7 @@ function makeResolvedFinalizedLane(args: {
 }) {
   return requireResolvedEvmFamilyEcdsaSigningLane({
     lane: buildTempoTransactionSigningLane({
-      authMethod: 'email_otp',
+      auth: EMAIL_OTP_AUTH,
       key: ECDSA_KEY,
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
@@ -197,7 +202,7 @@ test.describe('EVM-family budget finalization spending', () => {
     const signingGrantId = 'wallet-session-server-inflight';
     const thresholdSessionId = 'threshold-session-server-inflight';
     const lane = buildTempoTransactionSigningLane({
-      authMethod: 'email_otp',
+      auth: EMAIL_OTP_AUTH,
       key: ECDSA_KEY,
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
@@ -232,7 +237,7 @@ test.describe('EVM-family budget finalization spending', () => {
     const signingGrantId = 'wallet-session-server-exhausted';
     const thresholdSessionId = 'threshold-session-server-exhausted';
     const lane = buildTempoTransactionSigningLane({
-      authMethod: 'email_otp',
+      auth: EMAIL_OTP_AUTH,
       key: ECDSA_KEY,
       keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,

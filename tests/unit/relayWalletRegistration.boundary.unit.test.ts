@@ -1001,10 +1001,9 @@ test.describe('wallet registration route boundaries', () => {
       routerAbEcdsaHssNormalSigning: {
         kind: 'router_ab_ecdsa_hss_normal_signing_v1',
         scope: {
+          wallet_key_id: 'wallet.example.test',
           context: {
             wallet_id: 'wallet_alice',
-            rp_id: 'wallet.example.test',
-            key_scope: 'evm-family',
             ecdsa_threshold_key_id: 'ehss-alice',
             signing_root_id: 'project:dev',
             signing_root_version: 'default',

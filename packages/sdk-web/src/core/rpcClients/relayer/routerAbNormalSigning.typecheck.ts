@@ -115,15 +115,13 @@ const prepareWithoutSigningWorker = {
 void prepareWithoutSigningWorker;
 
 const ecdsaScope = {
+  wallet_key_id: 'example.com',
+  wallet_id: 'wallet-1',
+  ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
+  signing_root_id: 'signing-root-1',
+  signing_root_version: 'v1',
   context: {
-    wallet_id: 'wallet-1',
-    rp_id: 'example.com',
-    key_scope: 'evm-family' as const,
-    ecdsa_threshold_key_id: 'ecdsa-threshold-key-1',
-    signing_root_id: 'signing-root-1',
-    signing_root_version: 'v1',
-    key_purpose: 'evm-signing',
-    key_version: 'v1',
+    application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
   },
   public_identity: {
     context_binding_b64u: 'context-binding',

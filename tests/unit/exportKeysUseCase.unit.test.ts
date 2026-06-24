@@ -49,6 +49,7 @@ function asBrand<T>(value: unknown): T {
 
 const walletId = toWalletId('phase7-wallet');
 const rpId = toRpId('wallet.example');
+const walletKeyId = asBrand<ExportKeysInput['walletKeyId']>('wallet-key-phase7');
 const evmTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -70,7 +71,7 @@ const remainingUses = asBrand<WarmSessionRemainingUses>(8);
 function readyEcdsaLane(): EcdsaUseCaseReadyLane {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId,
-    rpId,
+    walletKeyId,
     chainTarget: evmTarget,
     keyHandle: ecdsaKeyHandle,
     ecdsaThresholdKeyId: 'ecdsa-key',
@@ -102,6 +103,7 @@ function readyEcdsaLane(): EcdsaUseCaseReadyLane {
   return {
     kind: 'ecdsa_ready_lane_v1',
     walletId,
+    walletKeyId,
     rpId,
     chainTarget: evmTarget,
     readyRecord,
@@ -146,6 +148,7 @@ function exportInput(
 ): ExportKeysInput {
   return {
     walletId,
+    walletKeyId,
     rpId,
     requestedKeys: [{ kind: 'near_ed25519' }, { kind: 'ecdsa_secp256k1', chainTarget: evmTarget }],
     authorization,

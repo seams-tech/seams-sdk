@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as EthSignerWasm from '../../wasm/eth_signer/pkg/eth_signer.js';
 import * as HssClientSignerWasm from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
-import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
+import {
+  prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest,
+  sdkEcdsaHssApplicationBindingDigestB64u,
+} from '../helpers/thresholdEcdsaClientBootstrap';
 
 const ETH_SIGNER_WASM_URL = new URL(
   '../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
@@ -45,12 +48,9 @@ function readRoleLocalFixture() {
   return JSON.parse(readFileSync(FIXTURE_URL, 'utf8')) as {
     context: {
       walletId: string;
-      rpId: string;
       ecdsaThresholdKeyId: string;
       signingRootId: string;
       signingRootVersion: string;
-      keyPurpose: string;
-      keyVersion: string;
     };
     inputs: {
       relayer_key_id: string;
@@ -69,13 +69,9 @@ function readRoleLocalFixture() {
 
 function contextPayload(fixture: ReturnType<typeof readRoleLocalFixture>) {
   return {
-    walletId: fixture.context.walletId,
-    rpId: fixture.context.rpId,
-    ecdsaThresholdKeyId: fixture.context.ecdsaThresholdKeyId,
-    signingRootId: fixture.context.signingRootId,
-    signingRootVersion: fixture.context.signingRootVersion,
-    keyPurpose: 'evm-signing',
-    keyVersion: 'v1',
+    applicationBindingDigest: Array.from(
+      Buffer.from(sdkEcdsaHssApplicationBindingDigestB64u(fixture.context), 'base64url'),
+    ),
   };
 }
 
@@ -126,14 +122,14 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     ensureEthSignerWasm();
     ensureHssClientSignerWasm();
     const fixture = readRoleLocalFixture();
-    const context = contextPayload(fixture);
+    const relayerContext = contextPayload(fixture);
     const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
-      context,
+      context: fixture.context,
       clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
     });
 
     const relayerBootstrap = EthSignerWasm.threshold_ecdsa_hss_role_local_relayer_bootstrap({
-      ...context,
+      ...relayerContext,
       relayerKeyId: fixture.inputs.relayer_key_id,
       yRelayer32Le: Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex)),
       clientPublicKey33: Array.from(
@@ -162,11 +158,18 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
   test('relayer bootstrap FFI rejects wrong scalar and public-key widths', () => {
     ensureEthSignerWasm();
     const fixture = readRoleLocalFixture();
-    const context = contextPayload(fixture);
-    const validClientPublicKey33 = Array.from(hexToBytes(fixture.identity.client_public_key33_hex));
+    const relayerContext = contextPayload(fixture);
+    ensureHssClientSignerWasm();
+    const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
+      context: fixture.context,
+      clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
+    });
+    const validClientPublicKey33 = Array.from(
+      Buffer.from(clientBootstrap.hssClientSharePublicKey33B64u, 'base64url'),
+    );
     const validRelayerRoot = Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex));
     const basePayload = {
-      ...context,
+      ...relayerContext,
       relayerKeyId: fixture.inputs.relayer_key_id,
       yRelayer32Le: validRelayerRoot,
       clientPublicKey33: validClientPublicKey33,

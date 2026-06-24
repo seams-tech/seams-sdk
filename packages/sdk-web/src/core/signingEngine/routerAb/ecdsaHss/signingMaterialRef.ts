@@ -33,11 +33,9 @@ export function buildRouterAbEcdsaHssSigningMaterialRef(args: {
   return {
     kind: 'router_ab_ecdsa_hss_signing_material_ref_v1',
     routerAbStateSessionId: routerAbEcdsaHssActiveStateSessionId(routerAbState),
-    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(
-      routerAbState.scope.context.ecdsa_threshold_key_id,
-    ),
-    signingRootId: routerAbState.scope.context.signing_root_id,
-    signingRootVersion: routerAbState.scope.context.signing_root_version,
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(routerAbState.scope.ecdsa_threshold_key_id),
+    signingRootId: routerAbState.scope.signing_root_id,
+    signingRootVersion: routerAbState.scope.signing_root_version,
     signingWorkerId: routerAbState.scope.signing_worker.server_id,
     clientVerifier33B64u: parseEcdsaClientVerifyingShareB64u(
       routerAbState.scope.public_identity.client_public_key33_b64u,

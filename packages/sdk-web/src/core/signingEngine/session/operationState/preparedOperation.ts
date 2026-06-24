@@ -15,6 +15,7 @@ import type {
   SigningOperationContext,
   SigningSessionPlan,
 } from './types';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 
 export type ThresholdSigningIntent =
   | {
@@ -130,7 +131,7 @@ export async function prepareThresholdSigningOperation<
     intent: args.intent,
     ...(args.operation ? { operation: args.operation } : {}),
     lane: lifecycle.lane,
-    authMethod: lifecycle.lane.authMethod,
+    authMethod: signingLaneAuthMethod(lifecycle.lane.auth),
     signingSessionPlan: resolved.signingSessionPlan,
     readiness: resolved.readiness,
     expiresAtMs: resolved.expiresAtMs,

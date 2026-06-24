@@ -108,6 +108,7 @@ function parseEcdsaHssPasskeyBootstrapAuthorization(
 ): EcdsaHssPasskeyBootstrapAuthorization | null {
   if (!isObject(value)) return null;
   if (toOptionalString(value.kind) !== 'passkey_bootstrap') return null;
+  const rpId = toOptionalString(value.rpId);
   if (!isObject(value.webauthn_authentication)) return null;
   let runtimePolicyScope: RuntimePolicyScope | undefined;
   if (value.runtimePolicyScope !== undefined) {
@@ -118,8 +119,10 @@ function parseEcdsaHssPasskeyBootstrapAuthorization(
     }
   }
   const runtimeEnvironmentId = toOptionalString(value.runtimeEnvironmentId);
+  if (!rpId) return null;
   return {
     kind: 'passkey_bootstrap',
+    rpId,
     webauthn_authentication: value.webauthn_authentication as any,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
@@ -286,10 +289,21 @@ const ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS = [
   'walletSessionUserId',
   'subject_id',
   'wallet_session_user_id',
+  'wallet_id',
+  'wallet_key_id',
+  'ecdsa_threshold_key_id',
+  'signing_root_id',
+  'signing_root_version',
+  'keyPurpose',
+  'key_purpose',
+  'keyVersion',
+  'key_version',
 ] as const;
 
 const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
   ...ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS,
+  'rpId',
+  'rp_id',
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -309,6 +323,8 @@ const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
 
 const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
   ...ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS,
+  'rpId',
+  'rp_id',
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -354,7 +370,7 @@ export function parseEcdsaHssClientBootstrapRequest(
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
   const walletId = toOptionalString(raw.walletId);
-  const rpId = toOptionalString(raw.rpId);
+  const walletKeyId = toOptionalString(raw.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
@@ -385,7 +401,7 @@ export function parseEcdsaHssClientBootstrapRequest(
       : parseEcdsaHssPasskeyBootstrapAuthorization(raw.passkeyBootstrapAuthorization);
   if (
     !walletId ||
-    !rpId ||
+    !walletKeyId ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
     !signingRootVersion ||
@@ -411,7 +427,7 @@ export function parseEcdsaHssClientBootstrapRequest(
   const base = {
     formatVersion: 'ecdsa-hss-role-local' as const,
     walletId,
-    rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -457,7 +473,7 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
   const parsed = parseEcdsaHssClientBootstrapRequest({
     formatVersion: raw.formatVersion,
     walletId: raw.walletId,
-    rpId: raw.rpId,
+    walletKeyId: raw.walletKeyId,
     ecdsaThresholdKeyId: raw.ecdsaThresholdKeyId,
     signingRootId: raw.signingRootId,
     signingRootVersion: raw.signingRootVersion,
@@ -486,7 +502,7 @@ export function parseWalletRegistrationEcdsaClientBootstrap(
   return {
     formatVersion: parsed.formatVersion,
     walletId: parsed.walletId,
-    rpId: parsed.rpId,
+    walletKeyId: parsed.walletKeyId,
     ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
     signingRootId: parsed.signingRootId,
     signingRootVersion: parsed.signingRootVersion,
@@ -513,7 +529,7 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
   if (hasForbiddenFields(raw, ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local-export') return null;
   const walletId = toOptionalString(raw.walletId);
-  const rpId = toOptionalString(raw.rpId);
+  const walletKeyId = toOptionalString(raw.walletKeyId);
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
@@ -527,7 +543,7 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
   const clientSessionId = toOptionalString(raw.clientSessionId);
   if (
     !walletId ||
-    !rpId ||
+    !walletKeyId ||
     !ecdsaThresholdKeyId ||
     !relayerKeyId ||
     !contextBinding32B64u ||
@@ -546,7 +562,7 @@ export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportSha
   return {
     formatVersion: 'ecdsa-hss-role-local-export',
     walletId,
-    rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -569,7 +585,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocal
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const keyHandle = toOptionalString(raw.keyHandle);
   const walletId = toOptionalString(raw.walletId);
-  const rpId = toOptionalString(raw.rpId);
+  const walletKeyId = toOptionalString(raw.walletKeyId);
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
@@ -594,7 +610,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocal
     !ecdsaThresholdKeyId ||
     !keyHandle ||
     !walletId ||
-    !rpId ||
+    !walletKeyId ||
     !signingRootId ||
     !signingRootVersion ||
     !relayerKeyId ||
@@ -619,7 +635,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocal
     ecdsaThresholdKeyId,
     keyHandle,
     walletId,
-    rpId,
+    walletKeyId,
     signingRootId,
     signingRootVersion,
     keyScope: 'evm-family',
@@ -962,7 +978,7 @@ export type ParsedRouterAbEcdsaHssPoolFillSessionDestination =
 export type ParsedRouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
   walletSessionUserId: string;
-  rpId: string;
+  walletKeyId: string;
   relayerKeyId: string;
   presignPoolKey: string;
   poolFill: ParsedRouterAbEcdsaHssPoolFillSessionDestination;
@@ -1014,7 +1030,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   const expiresAtMs = raw.expiresAtMs;
   const walletSessionUserId =
     toOptionalString(raw.walletSessionUserId) || toOptionalString(raw.userId);
-  const rpId = toOptionalString(raw.rpId);
+  const walletKeyId = toOptionalString(raw.walletKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const presignPoolKey = toOptionalString(raw.presignPoolKey);
   const ownerInstanceId = toOptionalString(raw.ownerInstanceId);
@@ -1046,7 +1062,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   const poolFill = parseRouterAbEcdsaHssPoolFillSessionDestination(raw.poolFill, expiresAtMs);
   if (
     !walletSessionUserId ||
-    !rpId ||
+    !walletKeyId ||
     !relayerKeyId ||
     !presignPoolKey ||
     !poolFill ||
@@ -1069,7 +1085,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   return {
     expiresAtMs,
     walletSessionUserId,
-    rpId,
+    walletKeyId,
     relayerKeyId,
     presignPoolKey,
     poolFill,
@@ -1478,7 +1494,7 @@ export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaim
   keyScope: 'evm-family';
   keyHandle: string;
   relayerKeyId: string;
-  rpId: string;
+  walletKeyId: string;
   runtimePolicyScope?: RuntimePolicyScope;
   thresholdExpiresAtMs: number;
   participantIds: number[];
@@ -1517,7 +1533,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
   const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const rpId = toOptionalString(raw.rpId);
+  const walletKeyId = toOptionalString((raw as { walletKeyId?: unknown }).walletKeyId);
   if (
     !sub ||
     !walletId ||
@@ -1527,7 +1543,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     keyScope !== 'evm-family' ||
     !keyHandle ||
     !relayerKeyId ||
-    !rpId
+    !walletKeyId
   )
     return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
@@ -1545,7 +1561,7 @@ function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionCla
     keyScope,
     keyHandle,
     relayerKeyId,
-    rpId,
+    walletKeyId,
     thresholdExpiresAtMs,
     participantIds,
   };

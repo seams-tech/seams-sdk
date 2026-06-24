@@ -112,6 +112,95 @@ test('Refactor 79 ECDSA exact identity carries wallet id, key handle, and full k
   expect(ecdsaIdentity).not.toContain('keyHandle?: never;');
 });
 
+test('Refactor 79 planning lane base does not carry optional session identity', () => {
+  const source = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
+  );
+  const basePlanningLane = sourceRangeBetween(
+    source,
+    'type BaseSigningSessionPlanningLane = {',
+    'type BranchSigningSessionRuntimeState =',
+  );
+  const runtimeState = sourceRangeBetween(
+    source,
+    'type BranchSigningSessionRuntimeState =',
+    'export type Ed25519SigningSessionPlanningLane =',
+  );
+  const resolvedIdentity = sourceRangeBetween(
+    source,
+    'type BaseResolvedSigningSessionIdentity =',
+    'export type ResolvedEd25519SigningSessionIdentity =',
+  );
+
+  expect(basePlanningLane).not.toContain('thresholdSessionId?:');
+  expect(basePlanningLane).not.toContain('backingMaterialSessionId?:');
+  expect(basePlanningLane).not.toContain('activeSignerSlot?:');
+  expect(source).not.toMatch(/backingMaterialSessionId\?:\s*BackingMaterialSessionId/);
+  expect(source).not.toMatch(/activeSignerSlot\?:\s*number/);
+  expect(runtimeState).toContain("runtimeState: 'no_runtime_material';");
+  expect(runtimeState).toContain("runtimeState: 'backing_material';");
+  expect(runtimeState).toContain("runtimeState: 'active_signer';");
+  expect(runtimeState).toContain("runtimeState: 'backing_material_with_active_signer';");
+  expect(resolvedIdentity).toContain('BranchSigningSessionRuntimeState');
+});
+
+test('Refactor 79 Email OTP ECDSA worker handles are wallet-key scoped', () => {
+  const generatedSignerCore = readRepoSource(
+    'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts',
+  );
+  const secretSources = readRepoSource('packages/sdk-web/src/core/platform/secretSources.ts');
+
+  expect(generatedSignerCore).not.toContain('EcdsaBootstrapEmailOtpWorkerSessionHandle');
+  expect(generatedSignerCore).not.toContain('email_otp_worker_session');
+  expect(secretSources).toContain('walletKeyId: WalletKeyId;');
+  expect(secretSources).toContain('rpId?: never;');
+});
+
+test('Refactor 79 signer-core ECDSA export public facts exclude SDK lane key handles', () => {
+  const generatedSignerCore = readRepoSource(
+    'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts',
+  );
+  const exportPublicFacts = sourceRangeBetween(
+    generatedSignerCore,
+    'export type EcdsaRoleLocalExportPublicFacts = {',
+    'export type BuildEcdsaRoleLocalExportArtifactCommand =',
+  );
+
+  expect(exportPublicFacts).toContain('applicationBindingDigestB64u: string');
+  expect(exportPublicFacts).not.toContain('keyHandle');
+});
+
+test('Refactor 79 ECDSA keygen and session envelopes expose walletKeyId rather than rpId', () => {
+  const guardedFiles = [
+    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/keygen.ts',
+    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
+    'packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts',
+    'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
+    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  ];
+  const violations: string[] = [];
+
+  for (const relativePath of guardedFiles) {
+    const source = readRepoSource(relativePath);
+    if (/rpId:\s*walletKeyId/.test(source)) {
+      violations.push(`${relativePath}: rpId assigned from walletKeyId`);
+    }
+    if (/keygen\.rpId\b/.test(source)) {
+      violations.push(`${relativePath}: keygen.rpId read`);
+    }
+    if (/authMetadata\.rpId\b/.test(source)) {
+      violations.push(`${relativePath}: authMetadata.rpId read`);
+    }
+    if (/authMetadata:\s*\{\s*rpId\b/.test(source)) {
+      violations.push(`${relativePath}: authMetadata writes rpId`);
+    }
+  }
+
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
 test('Refactor 79 first-candidate selectors stay explicitly inventoried', () => {
   const markerLines = authorityTypeScriptFiles().flatMap(firstCandidateMarkerLines);
 
@@ -139,4 +228,37 @@ test('Refactor 79 timestamp authority selectors stay explicitly inventoried', ()
     'packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts: function selectNewestCandidateWhenUnambiguous<TCandidate extends ConcreteTransactionCandidate>(',
     'packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts: return selectNewestCandidateWhenUnambiguous(bestSourceCandidates);',
   ]);
+});
+
+test('Refactor 79 ECDSA-HSS context artifacts do not reintroduce product or auth scope fields', () => {
+  const guardedArtifacts = [
+    'crates/ecdsa-hss/src/shared/context.rs',
+    'crates/ecdsa-hss/formal-verification/verus/src/shared/context.rs',
+    'crates/ecdsa-hss/formal-verification/lean-boundary/rust-boundary/src/lib.rs',
+    'crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHss/Types.lean',
+    'crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-package/EcdsaHss/Types.lean',
+    'crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-input/ecdsa_hss.llbc',
+  ];
+  const forbidden = [
+    'rp_id',
+    'wallet_id',
+    'wallet_key_id',
+    'ecdsa_threshold_key_id',
+    'signing_root_id',
+    'signing_root_version',
+    'key_purpose',
+    'key_version',
+  ];
+  const violations: string[] = [];
+
+  for (const relativePath of guardedArtifacts) {
+    const source = readRepoSource(relativePath);
+    for (const token of forbidden) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath} contains ${token}`);
+      }
+    }
+  }
+
+  expect(violations, violations.join('\n')).toEqual([]);
 });

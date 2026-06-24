@@ -10,7 +10,6 @@ import {
 import {
   buildReadyEcdsaSignerSessionFromReadyMaterial,
   buildVerifiedEcdsaPublicFacts,
-  buildEvmFamilyEcdsaKeyIdentityFromRecord,
   deriveEvmFamilyKeyFingerprintFromRecordPublicFacts,
   resolveReadyEvmFamilyEcdsaMaterial,
   type ReadyEcdsaSignerSession,
@@ -18,7 +17,7 @@ import {
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  thresholdEcdsaRecordRpId,
+  thresholdEcdsaLaneCandidateFromSessionRecord,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
@@ -261,9 +260,9 @@ export function buildEcdsaMaterialStateForCandidate(
 
   const readyResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record: args.record || null,
-    rpId: args.candidate.key.rpId,
     expected: {
       walletId: args.candidate.walletId,
+      walletKeyId: args.candidate.key.walletKeyId,
       chainTarget: args.materialChainTarget,
       authMethod: args.authMethod,
       source: args.source,
@@ -343,7 +342,7 @@ export function buildEcdsaMaterialStateForResolvedLane(args: {
       walletId: args.lane.walletId,
       key: args.lane.key,
       keyHandle: args.lane.keyHandle,
-      authMethod: args.authMethod,
+      auth: args.lane.auth,
       curve: 'ecdsa',
       chain: args.lane.chainFamily,
       signingGrantId: String(args.lane.signingGrantId),
@@ -450,11 +449,17 @@ export function summarizeVisibleEcdsaMaterial(args: {
     thresholdSessionId: record.thresholdSessionId,
     signingGrantId: record.signingGrantId,
   });
+  let recordCandidate: EcdsaLaneCandidate;
+  try {
+    recordCandidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record });
+  } catch {
+    return { present: false };
+  }
   const readyResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
-    rpId: thresholdEcdsaRecordRpId(record),
     expected: {
       walletId: record.walletId,
+      walletKeyId: recordCandidate.key.walletKeyId,
       chainTarget: args.materialChainTarget,
       authMethod: args.authMethod,
       source: args.source,
@@ -467,15 +472,9 @@ export function summarizeVisibleEcdsaMaterial(args: {
       candidate: {
         kind: 'lane_candidate',
         walletId: record.walletId,
-        key:
-          readyResolution.kind === 'ready'
-            ? readyResolution.material.key
-            : buildEvmFamilyEcdsaKeyIdentityFromRecord({
-                record,
-                rpId: thresholdEcdsaRecordRpId(record),
-              }),
+        key: readyResolution.kind === 'ready' ? readyResolution.material.key : recordCandidate.key,
         keyHandle: record.keyHandle,
-        authMethod: args.authMethod,
+        auth: recordCandidate.auth,
         curve: 'ecdsa',
         chain: args.chainTarget.kind,
         signingGrantId: record.signingGrantId,

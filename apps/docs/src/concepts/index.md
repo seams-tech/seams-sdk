@@ -18,6 +18,9 @@ Wallet signing is the first execution surface. The same model extends to payment
 rails, merchant APIs, marketplace APIs, agent tools, and delegated device
 actions.
 
+For wallet teams, Seams provides self-hostable threshold embedded wallets that
+deploy to Cloudflare.
+
 ## System Layers
 
 | Layer | Role |
@@ -31,13 +34,14 @@ actions.
 ## Reading Order
 
 1. [Architecture](/concepts/architecture) for the source-of-truth component map.
-2. [Policy](/concepts/policy/) for mandates, proofs, and authorization.
-3. [Custody](/concepts/custody/) for who can hold or open key material.
-4. [Threshold Signing](/concepts/threshold-signing/) for Router A/B and HSS.
-5. [Sessions](/concepts/sessions/) for signing lanes and bounded runtime authority.
-6. [Auth Methods](/concepts/auth-methods/) for passkeys, Email OTP, and VoiceID.
-7. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.
-8. [Advanced](/concepts/advanced/) for protocol, ceremony, and deployment details.
+2. [Wallet Infrastructure Comparison](/concepts/wallet-infrastructure-comparison) for deployment and cost tradeoffs.
+3. [Policy](/concepts/policy/) for mandates, proofs, and authorization.
+4. [Custody](/concepts/custody/) for who can hold or open key material.
+5. [Threshold Signing](/concepts/threshold-signing/) for Router A/B and HSS.
+6. [Sessions](/concepts/sessions/) for signing lanes and bounded runtime authority.
+7. [Auth Methods](/concepts/auth-methods/) for passkeys, Email OTP, and VoiceID.
+8. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.
+9. [Advanced](/concepts/advanced/) for protocol, ceremony, and deployment details.
 
 ## Short Version
 

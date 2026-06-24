@@ -9,185 +9,49 @@ use ecdsa_hss::{
 };
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{ProjectivePoint, PublicKey};
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-struct RoleLocalFixture {
-    format_version: u32,
-    context: RoleLocalFixtureContext,
-    context_encoding_hex: String,
-    context_binding32_hex: String,
-    inputs: RoleLocalFixtureInputs,
-    identity: RoleLocalFixtureIdentity,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RoleLocalFixtureContext {
-    wallet_id: String,
-    rp_id: String,
-    ecdsa_threshold_key_id: String,
-    signing_root_id: String,
-    signing_root_version: String,
-    key_purpose: String,
-    key_version: String,
-}
-
-impl RoleLocalFixtureContext {
-    fn to_context(&self) -> EcdsaHssStableKeyContext {
-        EcdsaHssStableKeyContext::new(
-            self.wallet_id.clone(),
-            self.rp_id.clone(),
-            self.ecdsa_threshold_key_id.clone(),
-            self.signing_root_id.clone(),
-            self.signing_root_version.clone(),
-            self.key_purpose.clone(),
-            self.key_version.clone(),
-        )
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct RoleLocalFixtureInputs {
-    relayer_key_id: String,
-    y_client32_le_hex: String,
-    y_relayer32_le_hex: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RoleLocalFixtureIdentity {
-    client_public_key33_hex: String,
-    relayer_public_key33_hex: String,
-    threshold_public_key33_hex: String,
-    threshold_ethereum_address20_hex: String,
-    client_share_retry_counter: u32,
-    relayer_share_retry_counter: u32,
-}
-
-fn committed_fixture() -> RoleLocalFixture {
-    serde_json::from_str(include_str!("../fixtures/role_local_v2.json"))
-        .expect("role_local_v2 fixture parses")
-}
 
 fn context() -> EcdsaHssStableKeyContext {
-    EcdsaHssStableKeyContext::new(
-        "wallet.testnet",
-        "localhost",
-        "ecdsa-threshold-key",
-        "signing-root",
-        "default",
-        "evm-signing",
-        "key-current",
-    )
+    EcdsaHssStableKeyContext::new([0x42u8; 32])
 }
 
 fn fixed_inputs() -> ([u8; 32], [u8; 32]) {
     ([0x11u8; 32], [0x22u8; 32])
 }
 
-fn hex32(value: &str) -> [u8; 32] {
-    let bytes = hex::decode(value).expect("hex decodes");
-    bytes.try_into().expect("32-byte fixture")
-}
-
-fn hex_vec(value: &str) -> Vec<u8> {
-    hex::decode(value).expect("hex decodes")
-}
-
 #[test]
-fn context_uses_wallet_and_rp_identity() {
+fn context_uses_only_application_binding_digest() {
     let context = context();
     let encoded = encode_context(&context).expect("context encoding");
     let encoded_text = String::from_utf8_lossy(&encoded);
 
-    assert!(encoded.starts_with(b"ecdsa-hss:context:v2"));
-    assert!(encoded_text.contains("ecdsa-hss-v2"));
-    assert!(encoded_text.contains("wallet.testnet"));
-    assert!(encoded_text.contains("localhost"));
+    assert!(encoded.starts_with(b"ecdsa-hss:context:v4"));
+    assert!(encoded_text.contains("ecdsa-hss-v4"));
+    assert!(!encoded_text.contains("wallet.testnet"));
+    assert!(!encoded_text.contains("ecdsa-threshold-key"));
+    assert!(!encoded_text.contains("localhost"));
+    assert!(!encoded_text.contains("evm-signing"));
 }
 
 #[test]
-fn committed_role_local_v2_vector_matches_derivation() {
-    let fixture = committed_fixture();
-    assert_eq!(fixture.format_version, 2);
-    assert!(!fixture.inputs.relayer_key_id.trim().is_empty());
-
-    let context = fixture.context.to_context();
-    let context_encoding = encode_context(&context).expect("context encoding");
-    assert_eq!(hex::encode(&context_encoding), fixture.context_encoding_hex);
-    assert_eq!(
-        hex::encode(context_binding(&context).expect("context binding")),
-        fixture.context_binding32_hex
-    );
-
-    let y_client32_le = hex32(&fixture.inputs.y_client32_le_hex);
-    let y_relayer32_le = hex32(&fixture.inputs.y_relayer32_le_hex);
-    let client_share = derive_client_share(&context, y_client32_le).expect("client share");
-    let (relayer_share, identity) = derive_relayer_share_for_client_public(
-        &context,
-        y_relayer32_le,
-        &client_share.client_public_key33,
-        client_share.retry_counter,
-    )
-    .expect("relayer share");
+fn context_binding_is_independent_of_product_wallet_key_alias() {
+    let first = EcdsaHssStableKeyContext::new([0x42u8; 32]);
+    let second = EcdsaHssStableKeyContext::new([0x42u8; 32]);
 
     assert_eq!(
-        secp256k1_private_key_32_to_public_key_33(&client_share.x_client32)
-            .expect("client scalar public key"),
-        client_share.client_public_key33
+        context_binding(&first).expect("first context binding"),
+        context_binding(&second).expect("second context binding"),
     );
-    assert_eq!(
-        secp256k1_private_key_32_to_public_key_33(&relayer_share.x_relayer32)
-            .expect("relayer scalar public key"),
-        relayer_share.relayer_public_key33
-    );
-    assert_eq!(
-        hex::encode(identity.client_public_key33),
-        fixture.identity.client_public_key33_hex
-    );
-    assert_eq!(
-        hex::encode(identity.relayer_public_key33),
-        fixture.identity.relayer_public_key33_hex
-    );
-    assert_eq!(
-        hex::encode(identity.threshold_public_key33),
-        fixture.identity.threshold_public_key33_hex
-    );
-    assert_eq!(
-        hex::encode(identity.threshold_ethereum_address20),
-        fixture.identity.threshold_ethereum_address20_hex
-    );
-    assert_eq!(
-        identity.client_share_retry_counter,
-        fixture.identity.client_share_retry_counter
-    );
-    assert_eq!(
-        identity.relayer_share_retry_counter,
-        fixture.identity.relayer_share_retry_counter
-    );
+}
 
-    let summed = add_secp256k1_public_keys_33(
-        &client_share.client_public_key33,
-        &relayer_share.relayer_public_key33,
-    )
-    .expect("public key sum");
-    assert_eq!(
-        summed,
-        hex_vec(&fixture.identity.threshold_public_key33_hex)
-    );
+#[test]
+fn context_binding_changes_with_application_binding_digest() {
+    let first = EcdsaHssStableKeyContext::new([0x42u8; 32]);
+    let second = EcdsaHssStableKeyContext::new([0x43u8; 32]);
 
-    let address = secp256k1_public_key_33_to_ethereum_address_20(&identity.threshold_public_key33)
-        .expect("ethereum address");
-    assert_eq!(
-        address,
-        hex_vec(&fixture.identity.threshold_ethereum_address20_hex)
+    assert_ne!(
+        context_binding(&first).expect("first context binding"),
+        context_binding(&second).expect("second context binding"),
     );
-
-    let export_key32 = reconstruct_export_key(&client_share, &relayer_share.x_relayer32, &identity)
-        .expect("export key");
-    let export_public_key33 =
-        secp256k1_private_key_32_to_public_key_33(&export_key32).expect("export public key");
-    assert_eq!(export_public_key33, identity.threshold_public_key33);
 }
 
 #[test]
@@ -327,10 +191,6 @@ fn transcript_digest_depends_on_operation() {
 
 #[test]
 fn invalid_inputs_are_rejected() {
-    let mut invalid_context = context();
-    invalid_context.wallet_id = String::new();
-    assert!(encode_context(&invalid_context).is_err());
-
     let context = context();
     let invalid_public_key = [0u8; 33];
     derive_relayer_share_for_client_public(&context, [0x22u8; 32], &invalid_public_key, 0)

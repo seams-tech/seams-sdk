@@ -131,6 +131,7 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.walletId),
+      walletKeyId: `wallet-key-${args.walletId}`,
       rpId: args.rpId,
       chainTarget: args.chainTarget,
       keyHandle: args.keyHandle,
@@ -165,7 +166,7 @@ function makeEmailOtpEcdsaRecordForSelection(args: {
   const ethereumAddress = '0x'.padEnd(42, 'a') as `0x${string}`;
   return {
     walletId: TEST_SUBJECT_ID,
-    authMetadata: { rpId: 'localhost' },
+    authMetadata: { walletKeyId: 'localhost' },
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle,
@@ -289,9 +290,10 @@ async function roleLocalEcdsaKeyHandle(args: {
   signingRootVersion: string;
 }): Promise<string> {
   const signingRootId = `${args.projectId}:${args.envId}`;
+  const walletKeyId = `wallet-key-${args.walletId}-${args.projectId}-${args.envId}`;
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: args.walletId,
-    rpId: args.rpId,
+    walletKeyId,
     signingRootId,
     signingRootVersion: args.signingRootVersion,
   });
@@ -346,10 +348,11 @@ function buildEcdsaSealedRecordFixture(
     envId: signingRootParts[1] || 'dev',
     signingRootVersion: args.signingRootVersion || 'root-v1',
   };
-  const ecdsaRestore: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'] = {
-    chainTarget,
-    rpId: args.ecdsaRestore?.rpId || 'example.com',
-    walletSessionJwt:
+	  const ecdsaRestore: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'] = {
+	    chainTarget,
+	    walletKeyId: args.ecdsaRestore?.walletKeyId || 'wallet-key-email-otp',
+	    providerSubjectId: args.ecdsaRestore?.providerSubjectId || 'google:subject',
+	    walletSessionJwt:
       args.ecdsaRestore?.walletSessionJwt ||
       thresholdEcdsaSessionJwt({
         walletId,
@@ -470,7 +473,7 @@ function createCoordinator(overrides?: {
         participantIds: [1, 3],
         backendBinding: TEST_ECDSA_BACKEND_BINDING,
       },
-      keygen: { ok: true, rpId: 'example.com' },
+      keygen: { ok: true, walletKeyId: 'example.com' },
       session: {
         ok: true,
         sessionId: thresholdSessionId,
@@ -552,7 +555,7 @@ function createCoordinator(overrides?: {
               signingGrantId: call.request.payload.restore.signingGrantId,
               walletSessionJwt: call.request.payload.transport.walletSessionJwt,
             },
-            keygen: { ok: true, rpId: 'example.com' },
+            keygen: { ok: true, walletKeyId: 'example.com' },
             session: {
               ok: true,
               sessionId: call.request.payload.restore.sessionId,
@@ -1380,19 +1383,20 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       kind: 'emailOtp',
       request: {
         type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
-        payload: {
-          relayUrl: 'https://relay.example',
-          walletId: 'alice.testnet',
-          userId: 'alice.testnet',
-          rpId: 'localhost',
-          keyHandle,
-          participantIds: [1, 3],
+	        payload: {
+	          relayUrl: 'https://relay.example',
+	          walletId: 'alice.testnet',
+	          userId: 'alice.testnet',
+	          walletKeyId: 'wallet-key:evm-family:alice.testnet:proj%3Adev:v1',
+	          keyHandle,
+	          participantIds: [1, 3],
           sessionKind: 'jwt',
           remainingUses: 3,
           routeAuth: { kind: 'app_session', jwt },
         },
-      },
-    });
+	      },
+	    });
+	    expect(workerCalls.at(-1)?.request.payload).not.toHaveProperty('rpId');
     expect(ecdsaCommitCalls[0]).toMatchObject({
       walletId: 'alice.testnet',
       primaryChain: { kind: 'tempo', chainId: 42431 },
@@ -1606,7 +1610,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 participantIds: [1, 3],
                 backendBinding: TEST_ECDSA_BACKEND_BINDING,
               },
-              keygen: { ok: true, rpId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'example.com' },
               session: {
                 ok: true,
                 sessionId: 'ecdsa-session',
@@ -1836,7 +1840,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
         walletId: 'alice.testnet' as any,
-        authMetadata: { rpId: 'localhost' },
+        authMetadata: { walletKeyId: 'localhost' },
         chainTarget: TEMPO_CHAIN_TARGET,
         relayerUrl: 'https://relay.example',
         keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
@@ -1941,7 +1945,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       routeAuth: { kind: 'wallet_session', jwt: walletSessionJwt },
       record: {
         walletId: 'alice.testnet' as any,
-        authMetadata: { rpId: 'localhost' },
+        authMetadata: { walletKeyId: 'localhost' },
         chainTarget: tempoChainTarget,
         relayerUrl: 'https://relay.example',
         keyHandle,
@@ -2077,7 +2081,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, rpId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'example.com' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2150,11 +2154,12 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
             signingSessionSealKeyVersion: TEST_SIGNING_SESSION_SEAL_KEY_VERSION,
             shamirPrimeB64u: 'prime-b64u',
           },
-          restore: {
-            sessionId: 'ecdsa-session',
-            walletId: 'alice.testnet',
-            rpId: 'localhost',
-            chainTarget: tempoChainTarget,
+	          restore: {
+	            sessionId: 'ecdsa-session',
+	            walletId: 'alice.testnet',
+	            walletKeyId:
+	              'wallet-key:evm-family:alice.testnet:ecdsa-key:signing-root%3Adev:root-v1:1%2C3:0x3333333333333333333333333333333333333333',
+	            chainTarget: tempoChainTarget,
             signingGrantId: 'wallet-session-1',
             keyHandle: 'key-handle-ecdsa',
             relayerKeyId: 'relayer-key',
@@ -2223,7 +2228,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, rpId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'example.com' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2513,7 +2518,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, rpId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'example.com' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2702,7 +2707,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: call.request.payload.restore.signingGrantId,
                 walletSessionJwt: call.request.payload.transport.walletSessionJwt,
               },
-              keygen: { ok: true, rpId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'example.com' },
               session: {
                 ok: true,
                 sessionId: call.request.payload.restore.sessionId,
@@ -2833,7 +2838,7 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
                 signingGrantId: 'wallet-session-1',
                 walletSessionJwt: 'threshold-session-jwt',
               },
-              keygen: { ok: true, rpId: 'example.com' },
+              keygen: { ok: true, walletKeyId: 'example.com' },
               session: {
                 ok: true,
                 sessionId: 'ecdsa-session',

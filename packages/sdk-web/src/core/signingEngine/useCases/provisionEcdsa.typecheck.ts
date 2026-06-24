@@ -6,8 +6,9 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '../interfaces/ecdsaChainTarget';
-import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
+import type { WalletKeyId } from '@shared/signing-lanes';
 import type { EcdsaThresholdKeyId } from '../session/identity/emailOtpHssIdentity';
+import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type {
   ProvisionEcdsaEmailOtpHandle,
@@ -17,6 +18,7 @@ import type {
 } from './provisionEcdsa';
 
 declare const walletId: WalletId;
+declare const walletKeyId: WalletKeyId;
 declare const rpId: RpId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const credentialIdB64u: CredentialIdB64u;
@@ -39,6 +41,7 @@ const routeFacts = {
 
 const validPasskeyInput = {
   walletId,
+  walletKeyId,
   rpId,
   chainTarget,
   keyHandle: 'ecdsa-key-handle',
@@ -55,6 +58,7 @@ void validPasskeyInput;
 
 const passkeyInputWithEmailHandle = {
   walletId,
+  walletKeyId,
   rpId,
   chainTarget,
   keyHandle: 'ecdsa-key-handle',
@@ -73,6 +77,7 @@ passkeyInputWithEmailHandle satisfies ProvisionEcdsaInput;
 
 const emailOtpInputWithChallenge = {
   walletId,
+  walletKeyId,
   rpId,
   chainTarget,
   keyHandle: 'ecdsa-key-handle',
@@ -90,6 +95,7 @@ emailOtpInputWithChallenge satisfies ProvisionEcdsaInput;
 
 const inputWithoutKeyHandle = {
   walletId,
+  walletKeyId,
   rpId,
   chainTarget,
   ecdsaThresholdKeyId,

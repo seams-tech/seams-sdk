@@ -52,6 +52,7 @@ import type { EvmSigningRequest, Hex } from '../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../chains/tempo/tempoSigning.types';
 import type { EmailOtpAuthSubjectId } from '../session/identity/emailOtpHssIdentity';
 import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
+import type { WalletKeyId } from '@shared/signing-lanes';
 import type {
   EmailOtpChallengeId,
   SigningOperationId,
@@ -60,6 +61,7 @@ import type {
 } from '../session/operationState/types';
 
 declare const walletId: WalletId;
+declare const walletKeyId: WalletKeyId;
 declare const rpId: RpId;
 declare const accountId: AccountId;
 declare const credentialIdB64u: CredentialIdB64u;
@@ -199,10 +201,21 @@ const emailOtpEd25519ActivationAuth = {
 const emailOtpEcdsaActivationAuth = {
   kind: 'email_otp',
   walletId,
-  rpId,
+  walletKeyId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEcdsaWorkerHandle,
 } satisfies SigningSessionActivationEmailOtpEcdsaAuth;
+
+const emailOtpEcdsaActivationAuthWithRp = {
+  kind: 'email_otp',
+  walletId,
+  walletKeyId,
+  rpId,
+  authSubjectId: emailOtpAuthSubjectId,
+  workerHandle: emailOtpEcdsaWorkerHandle,
+};
+// @ts-expect-error Email OTP ECDSA activation is wallet-key scoped, not RP scoped
+emailOtpEcdsaActivationAuthWithRp satisfies SigningSessionActivationEmailOtpEcdsaAuth;
 
 const emailOtpEd25519AuthWithEcdsaHandle = {
   kind: 'email_otp',
@@ -217,7 +230,7 @@ emailOtpEd25519AuthWithEcdsaHandle satisfies SigningSessionActivationEmailOtpEd2
 const emailOtpEcdsaAuthWithEd25519Handle = {
   kind: 'email_otp',
   walletId,
-  rpId,
+  walletKeyId,
   authSubjectId: emailOtpAuthSubjectId,
   workerHandle: emailOtpEd25519WorkerHandle,
 };

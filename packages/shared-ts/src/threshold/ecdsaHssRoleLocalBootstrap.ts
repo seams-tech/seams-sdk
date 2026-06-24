@@ -1,7 +1,10 @@
-import { alphabetizeStringify, sha256BytesUtf8 } from '../utils/digests';
+import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
 import { base64UrlEncode } from '../utils/encoders';
+import type { WalletId } from '../utils/domainIds';
 
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
+const SDK_ECDSA_HSS_APPLICATION_BINDING_DOMAIN_V1 =
+  'seams-sdk:ecdsa-hss:application-binding:v1';
 
 export const ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION =
   'ecdsa-hss:role-local:first-bootstrap-root-proof:v2' as const;
@@ -20,6 +23,18 @@ export type EcdsaRelayerHssPublicKey33B64u = string & {
   readonly __brand: 'EcdsaRelayerHssPublicKey33B64u';
 };
 
+export type EcdsaThresholdKeyId = string & {
+  readonly __brand: 'EcdsaThresholdKeyId';
+};
+
+export type SigningRootId = string & {
+  readonly __brand: 'SigningRootId';
+};
+
+export type SigningRootVersion = string & {
+  readonly __brand: 'SigningRootVersion';
+};
+
 export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
   version: typeof ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION;
   clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
@@ -29,7 +44,7 @@ export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
 
 export type EcdsaHssRoleLocalBootstrapIdentity = {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -49,11 +64,75 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
 export type EcdsaHssRoleLocalPasskeyBootstrapIdentity = Omit<
   EcdsaHssRoleLocalBootstrapIdentity,
   'hssClientSharePublicKey33B64u' | 'clientShareRetryCounter' | 'contextBinding32B64u'
->;
+> & {
+  rpId: string;
+};
+
+export type SdkEcdsaHssBindingFacts = {
+  walletId: WalletId;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+};
+
+function requireSdkBindingFactString(value: unknown, field: string): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) throw new Error(`${field} is required`);
+  return normalized;
+}
+
+export function parseSdkEcdsaHssThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
+  return requireSdkBindingFactString(value, 'ecdsaThresholdKeyId') as EcdsaThresholdKeyId;
+}
+
+export function parseSdkEcdsaHssSigningRootId(value: unknown): SigningRootId {
+  return requireSdkBindingFactString(value, 'signingRootId') as SigningRootId;
+}
+
+export function parseSdkEcdsaHssSigningRootVersion(value: unknown): SigningRootVersion {
+  return requireSdkBindingFactString(value, 'signingRootVersion') as SigningRootVersion;
+}
+
+function pushU32(out: number[], value: number): void {
+  out.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
+}
+
+function pushLengthDelimitedField(out: number[], label: string, value: unknown): void {
+  const labelBytes = new TextEncoder().encode(label);
+  const valueBytes = new TextEncoder().encode(requireSdkBindingFactString(value, label));
+  pushU32(out, labelBytes.length);
+  out.push(...labelBytes);
+  pushU32(out, valueBytes.length);
+  out.push(...valueBytes);
+}
+
+export function encodeSdkEcdsaHssBindingFactsV1(input: SdkEcdsaHssBindingFacts): Uint8Array {
+  const out: number[] = [];
+  const domainBytes = new TextEncoder().encode(SDK_ECDSA_HSS_APPLICATION_BINDING_DOMAIN_V1);
+  pushU32(out, domainBytes.length);
+  out.push(...domainBytes);
+  pushLengthDelimitedField(out, 'walletId', input.walletId);
+  pushLengthDelimitedField(out, 'ecdsaThresholdKeyId', input.ecdsaThresholdKeyId);
+  pushLengthDelimitedField(out, 'signingRootId', input.signingRootId);
+  pushLengthDelimitedField(out, 'signingRootVersion', input.signingRootVersion);
+  return new Uint8Array(out);
+}
+
+export async function computeSdkEcdsaHssApplicationBindingDigest32(
+  input: SdkEcdsaHssBindingFacts,
+): Promise<Uint8Array> {
+  return await sha256Bytes(encodeSdkEcdsaHssBindingFactsV1(input));
+}
+
+export async function computeSdkEcdsaHssApplicationBindingDigestB64u(
+  input: SdkEcdsaHssBindingFacts,
+): Promise<string> {
+  return base64UrlEncode(await computeSdkEcdsaHssApplicationBindingDigest32(input));
+}
 
 export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
 }): Promise<string> {
@@ -62,7 +141,7 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
       version: 'threshold_ecdsa_hss_key_id_v7',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
-      rpId: input.rpId,
+      walletKeyId: input.walletKeyId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
     }),
@@ -72,14 +151,14 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
 
 export async function computeEcdsaHssRoleLocalRelayerKeyId(input: {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
 }): Promise<string> {
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
       version: 'threshold_ecdsa_hss_relayer_key_id_v1',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
       walletId: input.walletId,
-      rpId: input.rpId,
+      walletKeyId: input.walletKeyId,
     }),
   );
   return `ehss-relayer-${base64UrlEncode(digest32)}`;
@@ -92,7 +171,7 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
     alphabetizeStringify({
       version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
       walletId: input.walletId,
-      rpId: input.rpId,
+      walletKeyId: input.walletKeyId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
@@ -124,6 +203,7 @@ export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
     alphabetizeStringify({
       version: ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION,
       walletId: input.walletId,
+      walletKeyId: input.walletKeyId,
       rpId: input.rpId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
       signingRootId: input.signingRootId,

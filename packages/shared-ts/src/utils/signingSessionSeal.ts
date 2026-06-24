@@ -87,9 +87,8 @@ export type SealedSigningSessionEcdsaChainTarget =
       networkSlug: string;
     };
 
-export type SealedSigningSessionEcdsaRestoreMetadata = {
+type SealedSigningSessionEcdsaRestoreMetadataBase = {
   chainTarget: SealedSigningSessionEcdsaChainTarget;
-  rpId: string;
   walletSessionJwt?: string;
   sessionKind: 'jwt' | 'cookie';
   keyHandle: string;
@@ -102,10 +101,29 @@ export type SealedSigningSessionEcdsaRestoreMetadata = {
   runtimePolicyScope?: unknown;
 };
 
+export type SealedSigningSessionEcdsaRestoreMetadata =
+  | (SealedSigningSessionEcdsaRestoreMetadataBase & {
+      rpId: string;
+      credentialIdB64u: string;
+      walletKeyId?: never;
+      providerSubjectId?: never;
+      authSubjectId?: never;
+    })
+  | (SealedSigningSessionEcdsaRestoreMetadataBase & {
+      walletKeyId: string;
+      providerSubjectId?: string;
+      authSubjectId?: string;
+      rpId?: never;
+      credentialIdB64u?: never;
+    });
+
 export type SealedSigningSessionEd25519RestoreMetadata = {
   nearAccountId: string;
   ed25519KeyScopeId: string;
   rpId: string;
+  credentialIdB64u?: string;
+  providerSubjectId?: string;
+  authSubjectId?: string;
   relayerKeyId: string;
   participantIds: number[];
   walletSessionJwt?: string;

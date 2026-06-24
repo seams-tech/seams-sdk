@@ -62,29 +62,23 @@ The role-local input domain is:
 the server role. A production request path must not accept both values in one
 process.
 
-The active product context binding tuple is v2:
+The active HSS context binding tuple is v4:
 
-- `scheme_id = "ecdsa-hss-v2"`
+- `scheme_id = "ecdsa-hss-v4"`
 - `curve = "secp256k1"`
-- `wallet_id`
-- `rp_id`
-- `key_scope = "evm-family"`
-- `ecdsa_threshold_key_id`
-- `signing_root_id`
-- `signing_root_version`
-- `key_purpose`
-- `key_version`
+- `application_binding_digest`: 32 opaque bytes supplied by the SDK
 - `participant_ids = [1, 2]`
 
-This context is part of deterministic role-local derivation. Changing any field
-except the concrete EVM chain target changes the derived key.
+This context is part of deterministic role-local derivation. The Rust crate
+does not know the SDK product fields that produced the digest.
 
-Funds-safety invariant: every EVM-class target for the same wallet, RP, signing
-root, and key version must derive the same threshold ECDSA public key and
-Ethereum address. The fixed `key_scope = "evm-family"` field is the stable
-EVM-family key scope. Concrete chain targets stay out of the stable key context.
-Cross-chain replay protection belongs to EVM transaction chain IDs and
-typed-data domain separation.
+Funds-safety invariant: every EVM-class target for the same SDK application
+binding digest must derive the same threshold ECDSA public key and Ethereum
+address. Concrete chain targets, wallet key aliases, RP IDs, and auth-method
+labels stay out of the HSS stable key context unless the SDK intentionally folds
+them into the digest before crossing the crate boundary. Cross-chain replay
+protection belongs to EVM transaction chain IDs and typed-data domain
+separation.
 
 ### `chain_target` Cleanup
 
@@ -93,17 +87,16 @@ selection, budgets, sealed recovery lookup, transaction serialization, nonce
 handling, and signing policy. That product-level field stays outside the HSS
 stable-key derivation context.
 
-The `ecdsa-hss` Rust context should remove the `chain_target` field from the
-active stable-key context type. The encoded context continues to carry the fixed
-`key_scope = "evm-family"` field. Request and persistence boundaries may parse
-legacy or product-level chain target values only to route the operation before
-building the HSS context.
+The `ecdsa-hss` Rust context does not contain `chain_target`. Request and
+persistence boundaries may parse product-level chain target values only to route
+the operation before building the HSS context.
 
 Implementation rule:
 
 - product/API surface: concrete `chainTarget` is allowed for routing and policy
 - HSS stable context: `chain_target` is absent
-- HSS derivation: fixed `key_scope = "evm-family"`
+- HSS derivation: SDK-controlled fields enter only through
+  `application_binding_digest`
 - tests: changing only concrete `chainTarget` must preserve the HSS public key
   and Ethereum address
 
@@ -116,43 +109,29 @@ crate boundaries must reject those fields for active ECDSA HSS records.
 
 The Rust crate no longer retains the old context version, byte encoder, wire
 types, server/client APIs, fixtures, benchmarks, or formal-verification tests.
-The only active context format is `encode_context_v2`.
+The only active context format is `encode_context`.
 
-## `encode_context_v2` Byte Contract
+## `encode_context` Byte Contract
 
-`encode_context_v2` is the active product context format.
+`encode_context` is the active HSS context format.
 
 The byte encoding is:
 
-- ASCII domain tag: `b"ecdsa-hss:context:v2"`
+- ASCII domain tag: `b"ecdsa-hss:context:v4"`
 - followed by the fixed tuple fields in this exact order:
   1. `scheme_id`
   2. `curve`
-  3. `wallet_id`
-  4. `rp_id`
-  5. `key_scope`
-  6. `ecdsa_threshold_key_id`
-  7. `signing_root_id`
-  8. `signing_root_version`
-  9. `key_purpose`
-  10. `key_version`
-  11. `participant_ids`
+  3. `application_binding_digest`
+  4. `participant_ids`
 
-The v2 string fields are:
+The string fields are:
 
 - `scheme_id`
 - `curve`
-- `wallet_id`
-- `rp_id`
-- `key_scope`
-- `ecdsa_threshold_key_id`
-- `signing_root_id`
-- `signing_root_version`
-- `key_purpose`
-- `key_version`
 
 The string length and ASCII validation rules are the same for every string
-field. The active participant-id bytes are `0x02 || 0x0001 || 0x0002`.
+field. The application binding digest is exactly 32 raw bytes. The active
+participant-id bytes are `0x02 || 0x0001 || 0x0002`.
 
 ## Role-Local Share Derivation
 
@@ -175,7 +154,7 @@ H_scalar(domain, context_binding32, context_bytes, input_le32, retry_counter) =
 The active product share derivation is:
 
 ```text
-context = encode_context_v2(...)
+context = encode_context(...)
 context_binding32 = SHA-256(frame(
   "ecdsa-hss:role-local:v2:context-binding",
   field(0x01, context)
@@ -509,11 +488,9 @@ Allowed log/audit fields:
 - event kind
 - operation kind
 - result and failure code
-- `wallet_id`
-- `rp_id`
-- `ecdsa_threshold_key_id`
 - `relayer_key_id`
 - client device/session identifiers
+- application binding digest fingerprint
 - context binding
 - public transcript digest
 - export authorization digest

@@ -4,6 +4,7 @@ import {
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
 import {
+  thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdSessionSealTransportAuthMaterial,
 } from '../persistence/records';
@@ -194,11 +195,12 @@ export function createWarmSessionCapabilityReaderCore(
       throw new Error('[WarmSessionStore] ECDSA capability state cannot be missing with a record');
     }
     const key = thresholdEcdsaSessionRecordReadModel(args.record).key;
+    const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
     const lane = selectedEcdsaLane({
       key,
       keyHandle: args.record.keyHandle,
       walletId: args.record.walletId,
-      authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
+      auth: candidate.auth,
       signingGrantId: args.record.signingGrantId,
       thresholdSessionId: args.record.thresholdSessionId,
       chainTarget: args.record.chainTarget,

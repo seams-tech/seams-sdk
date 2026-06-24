@@ -9,8 +9,8 @@ use ecdsa_hss::{
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-const PENDING_BLOB_MAGIC: &[u8; 8] = b"EHSSP1\0\0";
-const READY_BLOB_MAGIC: &[u8; 8] = b"EHSSR1\0\0";
+const PENDING_BLOB_MAGIC: &[u8; 8] = b"EHSSP4\0\0";
+const READY_BLOB_MAGIC: &[u8; 8] = b"EHSSR4\0\0";
 const ECDSA_HSS_CLIENT_PARTICIPANT_ID: u32 = 1;
 const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1: &[u8] =
     b"seams/passkey/threshold-ecdsa-client-root/v1";
@@ -437,13 +437,8 @@ fn validate_ready_state_against_export_public_facts(
 }
 
 fn write_context(out: &mut Vec<u8>, context: &EcdsaHssStableKeyContext) -> CoreResult<()> {
-    write_string(out, &context.wallet_id)?;
-    write_string(out, &context.rp_id)?;
-    write_string(out, &context.ecdsa_threshold_key_id)?;
-    write_string(out, &context.signing_root_id)?;
-    write_string(out, &context.signing_root_version)?;
-    write_string(out, &context.key_purpose)?;
-    write_string(out, &context.key_version)
+    out.extend_from_slice(&context.application_binding_digest);
+    Ok(())
 }
 
 fn map_ecdsa_hss_error(error: EcdsaHssError) -> SignerCoreError {
@@ -496,19 +491,10 @@ impl<'a> BlobCursor<'a> {
     }
 
     fn read_context(&mut self) -> CoreResult<EcdsaHssStableKeyContext> {
-        Ok(EcdsaHssStableKeyContext::new(
-            self.read_string("wallet_id")?,
-            self.read_string("rp_id")?,
-            self.read_string("ecdsa_threshold_key_id")?,
-            self.read_string("signing_root_id")?,
-            self.read_string("signing_root_version")?,
-            self.read_string("key_purpose")?,
-            self.read_string("key_version")?,
-        ))
-        .and_then(|context| {
-            context.validate().map_err(map_ecdsa_hss_error)?;
-            Ok(context)
-        })
+        let context =
+            EcdsaHssStableKeyContext::new(self.read_array::<32>("application_binding_digest")?);
+        context.validate().map_err(map_ecdsa_hss_error)?;
+        Ok(context)
     }
 
     fn read_string(&mut self, field_name: &str) -> CoreResult<String> {
@@ -569,15 +555,7 @@ mod tests {
     use ecdsa_hss::derive_relayer_share_for_client_public;
 
     fn context() -> EcdsaHssStableKeyContext {
-        EcdsaHssStableKeyContext::new(
-            "wallet.testnet",
-            "localhost",
-            "ehss-key",
-            "root-id",
-            "root-v1",
-            "evm-signing",
-            "v1",
-        )
+        EcdsaHssStableKeyContext::new([0x55u8; 32])
     }
 
     #[test]

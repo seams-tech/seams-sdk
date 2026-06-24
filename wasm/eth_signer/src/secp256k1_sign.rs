@@ -24,11 +24,11 @@ pub fn verify_secp256k1_recoverable_signature_against_public_key_33(
 ) -> Result<Vec<u8>, JsValue> {
     let result =
         signer_core::secp256k1::verify_secp256k1_recoverable_signature_against_public_key_33(
-        digest32.as_slice(),
-        signature65.as_slice(),
-        public_key33.as_slice(),
-    )
-    .map_err(js_core_err);
+            digest32.as_slice(),
+            signature65.as_slice(),
+            public_key33.as_slice(),
+        )
+        .map_err(js_core_err);
     digest32.zeroize();
     signature65.zeroize();
     result

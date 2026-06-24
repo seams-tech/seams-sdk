@@ -26,6 +26,7 @@ import {
   SigningKeyRefIntentKind,
   SigningSessionPlanKind,
 } from '@/core/signingEngine/session/operationState/types';
+import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   SigningEventPhase,
   type CreateSigningFlowEventInput,
@@ -145,7 +146,7 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
     }
     return {
       kind: SigningAuthPlanKind.WarmSession,
-      method: plan.lane.authMethod,
+      method: signingLaneAuthMethod(plan.lane.auth),
       accountId: args.accountId,
       intent: args.intent,
       ...(args.curve ? { curve: args.curve } : {}),

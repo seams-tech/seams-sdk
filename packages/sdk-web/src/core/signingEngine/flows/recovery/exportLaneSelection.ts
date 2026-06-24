@@ -1,8 +1,8 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import {
+  availableEcdsaSigningLaneAuthMethod,
   ecdsaAvailableLaneCandidatesForTarget,
-  ecdsaAvailableLaneAuthRpId,
   ed25519AvailableLaneIdentityKey,
   type ReadAvailableSigningLanesInput,
   type AvailableSigningLanes,
@@ -53,7 +53,6 @@ type ConcreteExportAvailableLane =
 
 type EcdsaExportSelectionKeyContext = {
   walletId: string;
-  rpId: string;
 };
 
 type EcdsaExportMaterialLaneResolution =
@@ -103,8 +102,10 @@ function isConcreteEd25519ExportLane(
 }
 
 function summarizeExportAvailableLane(lane: ConcreteExportAvailableLane): Record<string, unknown> {
+  const authMethod =
+    lane.curve === 'ecdsa' ? availableEcdsaSigningLaneAuthMethod(lane) : lane.authMethod;
   return {
-    authMethod: lane.authMethod,
+    authMethod,
     curve: lane.curve,
     chain: lane.curve === 'ecdsa' ? lane.chainTarget.kind : lane.chain,
     ...(lane.curve === 'ecdsa' ? { chainTarget: lane.chainTarget } : {}),
@@ -133,7 +134,6 @@ function exportAvailableLaneSelectionKey(
   if (lane.curve === 'ed25519') return ed25519AvailableLaneIdentityKey(lane) || '';
   if (!ecdsaContext) return '';
   if (String(lane.key.walletId) !== ecdsaContext.walletId) return '';
-  if (ecdsaAvailableLaneAuthRpId(lane) !== ecdsaContext.rpId) return '';
   return String(
     deriveEvmFamilyKeyFingerprintFromPublicFacts({
       walletId: lane.key.walletId,
@@ -354,7 +354,7 @@ function sameEcdsaExportSession(
   right: ConcreteEcdsaExportAvailableLane,
 ): boolean {
   return (
-    left.authMethod === right.authMethod &&
+    availableEcdsaSigningLaneAuthMethod(left) === availableEcdsaSigningLaneAuthMethod(right) &&
     left.signingGrantId === right.signingGrantId &&
     left.thresholdSessionId === right.thresholdSessionId
   );
@@ -476,7 +476,6 @@ async function resolveEcdsaExportLane(
     .filter(isConcreteEcdsaExportLane);
   const ecdsaContext = {
     walletId: args.walletId,
-    rpId: args.rpId,
   };
   const materialCandidates = resolveEcdsaExportMaterialLanesForTarget({
     targetCandidates,
@@ -484,7 +483,7 @@ async function resolveEcdsaExportLane(
     ecdsaContext,
   });
   const emailOtpTargetCandidates = materialCandidates.filter(
-    (candidate) => candidate.authMethod === 'email_otp',
+    (candidate) => availableEcdsaSigningLaneAuthMethod(candidate) === 'email_otp',
   );
   const selectionCandidates = emailOtpTargetCandidates.length
     ? emailOtpTargetCandidates
@@ -502,7 +501,7 @@ async function resolveEcdsaExportLane(
     publicFacts: selected.publicFacts,
     session: {
       chainTarget: sessionChainTarget,
-      authMethod: selected.authMethod,
+      authMethod: availableEcdsaSigningLaneAuthMethod(selected),
       signingGrantId: SigningSessionIds.signingGrant(
         selected.signingGrantId,
       ),

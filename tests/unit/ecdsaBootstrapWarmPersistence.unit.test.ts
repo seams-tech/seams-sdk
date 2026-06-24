@@ -13,11 +13,20 @@ import {
   type EcdsaBootstrapRequest,
 } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import { shouldEnsurePasskeyEcdsaSealAfterProvision } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
-import { toEmailOtpAuthSubjectId, toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { toEmailOtpAuthSubjectId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import { parseWalletKeyId } from '@shared/signing-lanes';
+
+function parsedDomain<T>(
+  result: { ok: true; value: T } | { ok: false; error: { message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
 
 const walletId = toWalletId('wallet.testnet');
+const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-bootstrap-warm'));
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -35,7 +44,7 @@ function emailOtpWorkerSessionHandle(): Extract<
   const handle = buildEmailOtpWorkerIssuedSessionHandle({
     sessionId: 'email-otp-worker-session-1',
     walletId,
-    rpId: toRpId('wallet.example.test'),
+    walletKeyId,
     authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
     action: 'threshold_ecdsa_bootstrap',
     operation: 'sign',

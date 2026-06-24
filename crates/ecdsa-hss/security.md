@@ -1,8 +1,9 @@
 # Security Model
 
 Removal note: the old ECDSA HSS context version and its crate APIs were removed
-after v2 invalidation. The active crate surface retains only the v2
-`wallet_id`/`rp_id` role-local derivation path.
+after v3 invalidation. The active crate surface receives only an opaque
+SDK-owned `application_binding_digest` plus fixed protocol constants for
+role-local derivation.
 
 This file is the security-focused entrypoint for
 [crates/ecdsa-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss).

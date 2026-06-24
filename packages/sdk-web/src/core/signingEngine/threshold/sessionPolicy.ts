@@ -3,6 +3,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
 import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -103,7 +104,7 @@ export type EcdsaHssSessionPolicy = {
   walletId: WalletId;
   subjectId?: never;
   walletSessionUserId?: never;
-  rpId: string;
+  walletKeyId: WalletKeyId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
@@ -228,7 +229,7 @@ export async function buildEcdsaSessionPolicy(params: {
   walletId: unknown;
   subjectId?: never;
   walletSessionUserId?: never;
-  rpId: string;
+  walletKeyId: unknown;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: unknown;
@@ -264,7 +265,7 @@ export function buildEcdsaHssSessionPolicy(params: {
   walletId: unknown;
   subjectId?: never;
   walletSessionUserId?: never;
-  rpId: string;
+  walletKeyId: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: unknown;
   ecdsaThresholdKeyId?: unknown;
@@ -285,10 +286,14 @@ export function buildEcdsaHssSessionPolicy(params: {
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
   const keyHandle = String(params.keyHandle || '').trim();
   const ecdsaThresholdKeyId = String(params.ecdsaThresholdKeyId || '').trim();
+  const walletKeyId = parseWalletKeyId(params.walletKeyId);
+  if (!walletKeyId.ok) {
+    throw new Error(`[threshold-ecdsa] ${walletKeyId.error.message}`);
+  }
   return {
     version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
     walletId: toWalletId(params.walletId),
-    rpId: params.rpId,
+    walletKeyId: walletKeyId.value,
     chainTarget: params.chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
     ...(ecdsaThresholdKeyId

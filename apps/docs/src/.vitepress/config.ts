@@ -76,6 +76,10 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/concepts/' },
           { text: 'Architecture', link: '/concepts/architecture' },
+          {
+            text: 'Wallet Infrastructure Comparison',
+            link: '/concepts/wallet-infrastructure-comparison',
+          },
           { text: 'Glossary', link: '/concepts/glossary' },
           { text: 'Auth Planes', link: '/concepts/auth-planes' },
           {
@@ -111,6 +115,10 @@ export default defineConfig({
               {
                 text: 'HSS Key Derivation',
                 link: '/concepts/threshold-signing/hss-key-derivation',
+              },
+              {
+                text: 'Serverless Threshold Signing',
+                link: '/concepts/threshold-signing/serverless-threshold-signing',
               },
               {
                 text: 'NEAR Ed25519 HSS',

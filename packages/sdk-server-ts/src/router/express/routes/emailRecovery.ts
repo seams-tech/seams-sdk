@@ -89,7 +89,7 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
       }
-      if (!(await signEmailRecoveryThresholdSession(result, result.ecdsa?.bootstrap?.rpId, res))) {
+      if (!(await signEmailRecoveryThresholdSession(result, result.walletBinding?.rpId, res))) {
         return;
       }
       res.status(200).json(result);

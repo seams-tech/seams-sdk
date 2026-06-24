@@ -6,6 +6,7 @@ import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
   getStoredThresholdEd25519SessionRecordForAccount,
+  thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
 } from '../persistence/records';
 import { selectedEcdsaLane, type ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
@@ -467,6 +468,7 @@ export function createWarmSessionStatusReader(
   }): WarmEcdsaRecordBackedSigningSessionStatus {
     const identity = buildEcdsaSessionIdentity(args.record);
     const key = thresholdEcdsaSessionRecordReadModel(args.record).key;
+    const candidate = thresholdEcdsaLaneCandidateFromSessionRecord({ record: args.record });
     return {
       ...toSigningSessionStatus({
         sessionId: identity.thresholdSessionId,
@@ -480,7 +482,7 @@ export function createWarmSessionStatusReader(
         key,
         keyHandle: args.record.keyHandle,
         walletId: args.record.walletId,
-        authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
+        auth: candidate.auth,
         signingGrantId: identity.signingGrantId,
         thresholdSessionId: identity.thresholdSessionId,
         chainTarget: args.record.chainTarget,

@@ -23,6 +23,10 @@ import {
   type ThresholdEcdsaSessionStoreSource,
   type ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
+import {
+  signingLaneAuthMethod,
+  type SigningLaneAuthBinding,
+} from '../identity/signingLaneAuthBinding';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaChainTarget,
@@ -65,7 +69,7 @@ type BaseEcdsaSigningLaneInput = BaseSigningLaneInput & {
 export type NearTransactionSigningLane = SelectedEd25519Lane & SelectedSigningSessionPlanningLane;
 export type EcdsaTransactionSigningLane = SelectedEcdsaLane & SelectedSigningSessionPlanningLane;
 type OptionalRetention<TLane extends NearTransactionSigningLane | EcdsaTransactionSigningLane> =
-  Omit<TLane, 'retention'> & {
+  Omit<TLane, 'retention' | 'runtimeState'> & {
     retention?: SigningSessionRetention;
   };
 type BuildSigningLaneInput<TLane extends NearTransactionSigningLane | EcdsaTransactionSigningLane> =
@@ -95,16 +99,32 @@ export type EcdsaEmailOtpSigningLaneInput = BaseEcdsaSigningLaneInput & {
   sessionOrigin?: SigningSessionOrigin;
 };
 
-export type NearTransactionSigningLaneInput =
-  | ({ authMethod: 'passkey' } & Ed25519PasskeySigningLaneInput)
-  | ({ authMethod: 'email_otp' } & Ed25519EmailOtpSigningLaneInput);
+type PasskeySigningLaneAuthInput = {
+  auth: Extract<SigningLaneAuthBinding, { kind: 'passkey' }>;
+};
 
+type EmailOtpSigningLaneAuthInput = {
+  auth: Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
+};
+
+export type Ed25519PasskeyTransactionSigningLaneInput =
+  PasskeySigningLaneAuthInput & Ed25519PasskeySigningLaneInput;
+export type Ed25519EmailOtpTransactionSigningLaneInput =
+  EmailOtpSigningLaneAuthInput & Ed25519EmailOtpSigningLaneInput;
+export type NearTransactionSigningLaneInput =
+  | Ed25519PasskeyTransactionSigningLaneInput
+  | Ed25519EmailOtpTransactionSigningLaneInput;
+
+export type EcdsaPasskeyTransactionSigningLaneInput =
+  PasskeySigningLaneAuthInput & EcdsaPasskeySigningLaneInput;
+export type EcdsaEmailOtpTransactionSigningLaneInput =
+  EmailOtpSigningLaneAuthInput & EcdsaEmailOtpSigningLaneInput;
 export type EcdsaTransactionSigningLaneInput =
-  | ({ authMethod: 'passkey' } & EcdsaPasskeySigningLaneInput)
-  | ({ authMethod: 'email_otp' } & EcdsaEmailOtpSigningLaneInput);
+  | EcdsaPasskeyTransactionSigningLaneInput
+  | EcdsaEmailOtpTransactionSigningLaneInput;
 
 export function buildEd25519PasskeySigningLane(
-  input: Ed25519PasskeySigningLaneInput,
+  input: PasskeySigningLaneAuthInput & Ed25519PasskeySigningLaneInput,
 ): NearTransactionSigningLane {
   return buildSigningLane<NearTransactionSigningLane>({
     ...input,
@@ -112,7 +132,7 @@ export function buildEd25519PasskeySigningLane(
       walletId: input.walletId,
       nearAccountId: input.nearAccountId,
       ed25519KeyScopeId: input.ed25519KeyScopeId,
-      authMethod: 'passkey',
+      auth: input.auth,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
     }),
@@ -124,7 +144,7 @@ export function buildEd25519PasskeySigningLane(
 }
 
 export function buildEd25519EmailOtpSigningLane(
-  input: Ed25519EmailOtpSigningLaneInput,
+  input: EmailOtpSigningLaneAuthInput & Ed25519EmailOtpSigningLaneInput,
 ): NearTransactionSigningLane {
   return buildSigningLane<NearTransactionSigningLane>({
     ...input,
@@ -132,7 +152,7 @@ export function buildEd25519EmailOtpSigningLane(
       walletId: input.walletId,
       nearAccountId: input.nearAccountId,
       ed25519KeyScopeId: input.ed25519KeyScopeId,
-      authMethod: 'email_otp',
+      auth: input.auth,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
     }),
@@ -144,7 +164,7 @@ export function buildEd25519EmailOtpSigningLane(
 }
 
 export function buildEcdsaPasskeySigningLane(
-  input: EcdsaPasskeySigningLaneInput,
+  input: PasskeySigningLaneAuthInput & EcdsaPasskeySigningLaneInput,
 ): EcdsaTransactionSigningLane {
   return buildSigningLane<EcdsaTransactionSigningLane>({
     ...input,
@@ -152,7 +172,7 @@ export function buildEcdsaPasskeySigningLane(
       key: input.key,
       keyHandle: input.keyHandle,
       walletId: input.walletId,
-      authMethod: 'passkey',
+      auth: input.auth,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
       chainTarget: input.chainTarget,
@@ -165,7 +185,7 @@ export function buildEcdsaPasskeySigningLane(
 }
 
 export function buildEcdsaEmailOtpSigningLane(
-  input: EcdsaEmailOtpSigningLaneInput,
+  input: EmailOtpSigningLaneAuthInput & EcdsaEmailOtpSigningLaneInput,
 ): EcdsaTransactionSigningLane {
   return buildSigningLane<EcdsaTransactionSigningLane>({
     ...input,
@@ -173,7 +193,7 @@ export function buildEcdsaEmailOtpSigningLane(
       key: input.key,
       keyHandle: input.keyHandle,
       walletId: input.walletId,
-      authMethod: 'email_otp',
+      auth: input.auth,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
       chainTarget: input.chainTarget,
@@ -188,9 +208,14 @@ export function buildEcdsaEmailOtpSigningLane(
 export function buildNearTransactionSigningLane(
   input: NearTransactionSigningLaneInput,
 ): NearTransactionSigningLane {
-  return input.authMethod === 'email_otp'
-    ? buildEd25519EmailOtpSigningLane(input)
-    : buildEd25519PasskeySigningLane(input);
+  if (isEd25519EmailOtpTransactionSigningLaneInput(input)) {
+    return buildEd25519EmailOtpSigningLane(input);
+  }
+  if (isEd25519PasskeyTransactionSigningLaneInput(input)) {
+    return buildEd25519PasskeySigningLane(input);
+  }
+  input satisfies never;
+  throw new Error('[SigningSession] unsupported NEAR lane auth');
 }
 
 export function buildTempoTransactionSigningLane(
@@ -214,9 +239,38 @@ export function buildEvmTransactionSigningLane(
 function buildEcdsaTransactionSigningLane(
   input: EcdsaTransactionSigningLaneInput,
 ): EcdsaTransactionSigningLane {
-  return input.authMethod === 'email_otp'
-    ? buildEcdsaEmailOtpSigningLane(input)
-    : buildEcdsaPasskeySigningLane(input);
+  if (isEcdsaEmailOtpTransactionSigningLaneInput(input)) {
+    return buildEcdsaEmailOtpSigningLane(input);
+  }
+  if (isEcdsaPasskeyTransactionSigningLaneInput(input)) {
+    return buildEcdsaPasskeySigningLane(input);
+  }
+  input satisfies never;
+  throw new Error('[SigningSession] unsupported ECDSA lane auth');
+}
+
+function isEd25519PasskeyTransactionSigningLaneInput(
+  input: NearTransactionSigningLaneInput,
+): input is Ed25519PasskeyTransactionSigningLaneInput {
+  return input.auth.kind === 'passkey';
+}
+
+function isEd25519EmailOtpTransactionSigningLaneInput(
+  input: NearTransactionSigningLaneInput,
+): input is Ed25519EmailOtpTransactionSigningLaneInput {
+  return input.auth.kind === 'email_otp';
+}
+
+function isEcdsaPasskeyTransactionSigningLaneInput(
+  input: EcdsaTransactionSigningLaneInput,
+): input is EcdsaPasskeyTransactionSigningLaneInput {
+  return input.auth.kind === 'passkey';
+}
+
+function isEcdsaEmailOtpTransactionSigningLaneInput(
+  input: EcdsaTransactionSigningLaneInput,
+): input is EcdsaEmailOtpTransactionSigningLaneInput {
+  return input.auth.kind === 'email_otp';
 }
 
 function buildSigningLane<TLane extends NearTransactionSigningLane | EcdsaTransactionSigningLane>(
@@ -224,8 +278,39 @@ function buildSigningLane<TLane extends NearTransactionSigningLane | EcdsaTransa
 ): TLane {
   return {
     ...input,
+    ...runtimeStateFromLaneInput(input),
     retention: input.retention || 'session',
   } as TLane;
+}
+
+function runtimeStateFromLaneInput(input: {
+  backingMaterialSessionId?: BackingMaterialSessionId;
+  activeSignerSlot?: number;
+}):
+  | { runtimeState: 'no_runtime_material' }
+  | { runtimeState: 'backing_material'; backingMaterialSessionId: BackingMaterialSessionId }
+  | { runtimeState: 'active_signer'; activeSignerSlot: number }
+  | {
+      runtimeState: 'backing_material_with_active_signer';
+      backingMaterialSessionId: BackingMaterialSessionId;
+      activeSignerSlot: number;
+    } {
+  const backingMaterialSessionId = input.backingMaterialSessionId;
+  const activeSignerSlot = Math.floor(Number(input.activeSignerSlot) || 0);
+  if (backingMaterialSessionId && activeSignerSlot > 0) {
+    return {
+      runtimeState: 'backing_material_with_active_signer',
+      backingMaterialSessionId,
+      activeSignerSlot,
+    };
+  }
+  if (backingMaterialSessionId) {
+    return { runtimeState: 'backing_material', backingMaterialSessionId };
+  }
+  if (activeSignerSlot > 0) {
+    return { runtimeState: 'active_signer', activeSignerSlot };
+  }
+  return { runtimeState: 'no_runtime_material' };
 }
 
 function signingSessionOriginFromStorageSource(
@@ -448,7 +533,7 @@ function readEcdsaCapabilityRecord(
   }
 
   const record =
-    lane.authMethod === 'email_otp'
+    signingLaneAuthMethod(lane.auth) === 'email_otp'
       ? deps.readEmailOtpEcdsaSessionRecord?.({
           walletId: lane.walletId,
           chainTarget,
@@ -526,7 +611,7 @@ function validateLaneCandidateForSigningLane(
       'Session record account does not match selected lane',
     );
   }
-  if (candidate.authMethod !== lane.authMethod) {
+  if (signingLaneAuthMethod(candidate.auth) !== signingLaneAuthMethod(lane.auth)) {
     return readError(
       lane,
       'record_mismatch',

@@ -6,6 +6,7 @@ import { SigningSessionIds } from '../../../session/operationState/types';
 import { toAccountId } from '../../../../types/accountIds';
 import { toWalletId } from '../../../interfaces/ecdsaChainTarget';
 import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { toRpId } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   ResolvedRouterAbEd25519WalletSessionState,
 } from './routerAbEd25519WalletSessionState';
@@ -31,7 +32,11 @@ const validWalletSessionState = {
     walletId,
     nearAccountId,
     ed25519KeyScopeId,
-    authMethod: 'passkey',
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId('localhost'),
+      credentialIdB64u: 'credential-id',
+    },
     signingGrantId:
       SigningSessionIds.signingGrant('signing-grant-1'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),

@@ -21,6 +21,7 @@ import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
+  toRpId,
   type EvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -33,6 +34,9 @@ import { ed25519KeyScopeIdFromString, walletIdFromString } from '@shared/utils/r
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
+const WALLET_KEY_ID = 'wallet-key-export-lane';
+const PASSKEY_CREDENTIAL_ID = 'credential-export-lane';
+const EMAIL_OTP_PROVIDER_SUBJECT_ID = 'google:export-lane';
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_THRESHOLD_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -68,8 +72,24 @@ type EcdsaLaneOverrides = Partial<ConcreteAvailableEcdsaSigningLane> & {
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
   authBindingRpId?: string;
-  keyRpId?: string;
+  keyWalletKeyId?: string;
+  authMethod?: 'email_otp' | 'passkey';
 };
+
+function passkeySigningAuth(rpId = toRpId(RP_ID)) {
+  return {
+    kind: 'passkey' as const,
+    rpId,
+    credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+  };
+}
+
+function emailOtpSigningAuth() {
+  return {
+    kind: 'email_otp' as const,
+    providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+  };
+}
 
 function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigningLane {
   const {
@@ -80,11 +100,15 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     ecdsaThresholdKeyId,
     thresholdOwnerAddress,
     authBindingRpId,
-    keyRpId,
+    keyWalletKeyId,
+    auth: authOverride,
+    authMethod: authMethodOverride,
+    resolvedKey: _resolvedKeyOverride,
     ...laneOverrides
   } = overrides;
+  const authMethod = authMethodOverride || authOverride?.kind || 'passkey';
+  const passkeyRpId = toRpId(authBindingRpId || RP_ID);
   const lane = {
-    authMethod: 'passkey' as const,
     curve: 'ecdsa' as const,
     chainTarget: EVM_TARGET,
     state: 'ready' as const,
@@ -99,7 +123,7 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     keyOverride ||
     buildEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
-      rpId: keyRpId || RP_ID,
+      walletKeyId: keyWalletKeyId || WALLET_KEY_ID,
       ecdsaThresholdKeyId: ecdsaThresholdKeyId || 'ecdsa-key-1',
       signingRootId: 'root-1',
       signingRootVersion: 'default',
@@ -116,48 +140,60 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
       participantIds: key.participantIds,
       thresholdOwnerAddress: key.thresholdOwnerAddress,
     });
-  const resolvedKey =
-    lane.authMethod === 'passkey'
-      ? buildResolvedEvmFamilyEcdsaKey({
-          walletId: key.walletId,
-          publicFacts,
-          authBinding: buildPasskeyEcdsaAuthBinding({ rpId: authBindingRpId || key.rpId }),
-        })
-      : null;
   if (source === 'evm_family_shared_key') {
-    if (lane.authMethod === 'passkey') {
+    if (authMethod === 'passkey') {
+      const auth = authOverride?.kind === 'passkey' ? authOverride : passkeySigningAuth(passkeyRpId);
+      const resolvedKey = buildResolvedEvmFamilyEcdsaKey({
+        walletId: key.walletId,
+        publicFacts,
+        authBinding: buildPasskeyEcdsaAuthBinding({
+          rpId: passkeyRpId,
+          credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+        }),
+      });
       return {
         ...lane,
-        authMethod: 'passkey',
+        auth,
         key,
         publicFacts,
-        resolvedKey: resolvedKey!,
+        resolvedKey,
         source,
         sourceChainTarget: sourceChainTarget || EVM_TARGET,
       };
     }
+    const auth = authOverride?.kind === 'email_otp' ? authOverride : emailOtpSigningAuth();
     return {
       ...lane,
-      authMethod: 'email_otp',
+      auth,
       key,
       publicFacts,
       source,
       sourceChainTarget: sourceChainTarget || EVM_TARGET,
     };
   }
-  if (lane.authMethod === 'passkey') {
+  if (authMethod === 'passkey') {
+    const auth = authOverride?.kind === 'passkey' ? authOverride : passkeySigningAuth(passkeyRpId);
+    const resolvedKey = buildResolvedEvmFamilyEcdsaKey({
+      walletId: key.walletId,
+      publicFacts,
+      authBinding: buildPasskeyEcdsaAuthBinding({
+        rpId: passkeyRpId,
+        credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+      }),
+    });
     return {
       ...lane,
-      authMethod: 'passkey',
+      auth,
       key,
       publicFacts,
-      resolvedKey: resolvedKey!,
+      resolvedKey,
       source: source || 'runtime_session_record',
     };
   }
+  const auth = authOverride?.kind === 'email_otp' ? authOverride : emailOtpSigningAuth();
   return {
     ...lane,
-    authMethod: 'email_otp',
+    auth,
     key,
     publicFacts,
     source: source || 'runtime_session_record',
@@ -264,8 +300,23 @@ function depsForTargets(
 function ed25519Lane(
   overrides: Partial<ConcreteAvailableEd25519SigningLane>,
 ): ConcreteAvailableEd25519SigningLane {
+  const { auth: authOverride, authMethod: authMethodOverride, ...laneOverrides } = overrides;
+  const authMethod = authMethodOverride || 'passkey';
+  const auth =
+    authOverride ||
+    (authMethod === 'passkey'
+      ? {
+          kind: 'passkey' as const,
+          rpId: toRpId(RP_ID),
+          credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+        }
+      : {
+          kind: 'email_otp' as const,
+          providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
+        });
   return {
-    authMethod: 'passkey',
+    auth,
+    authMethod,
     curve: 'ed25519',
     chain: 'near',
     walletId: NEAR_EXPORT_SIGNER.account.wallet.walletId,
@@ -278,7 +329,7 @@ function ed25519Lane(
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
     source: 'durable_sealed_record',
-    ...overrides,
+    ...laneOverrides,
   };
 }
 
@@ -585,7 +636,7 @@ test.describe('ECDSA export lane selection', () => {
     const selected = await restoreEcdsaSessionForExport(
       depsFor([
         ecdsaLane({
-          keyRpId: 'stale-key-rp.localhost',
+          keyWalletKeyId: 'wallet-key-stale-export-lane',
           authBindingRpId: RP_ID,
           signingGrantId: 'wallet-session-passkey-auth-binding',
           thresholdSessionId: 'threshold-session-passkey-auth-binding',

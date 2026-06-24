@@ -70,6 +70,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
 
   const walletId = 'wallet-user-1';
   const rpId = 'wallet.example.test';
+  const walletKeyId = `wallet-key-${walletId}`;
   const ecdsaThresholdKeyId = 'ecdsa-key-1';
   const signingRootId = 'signing-root';
   const signingRootVersion = 'default';
@@ -79,7 +80,6 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
     context: {
       walletId,
-      rpId,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
@@ -90,7 +90,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   const bootstrap = await svc.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
     walletId,
-    rpId,
+    walletKeyId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -121,21 +121,19 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     keyScope: 'evm-family',
     keyHandle: bootstrapValue.keyHandle,
     relayerKeyId,
-    rpId,
+    walletKeyId,
     thresholdExpiresAtMs: bootstrapValue.expiresAtMs,
     participantIds: bootstrapValue.participantIds,
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
+        wallet_key_id: walletKeyId,
+        wallet_id: walletId,
+        ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+        signing_root_id: signingRootId,
+        signing_root_version: signingRootVersion,
         context: {
-          wallet_id: walletId,
-          rp_id: rpId,
-          key_scope: 'evm-family',
-          ecdsa_threshold_key_id: ecdsaThresholdKeyId,
-          signing_root_id: signingRootId,
-          signing_root_version: signingRootVersion,
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
+          application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
         },
         public_identity: {
           context_binding_b64u: clientBootstrap.contextBinding32B64u,
@@ -170,7 +168,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     const requestWithoutDigests = {
       formatVersion: 'ecdsa-hss-role-local-export' as const,
       walletId,
-      rpId,
+      walletKeyId,
       ecdsaThresholdKeyId,
       relayerKeyId,
       contextBinding32B64u: input?.contextBinding32B64u ?? clientBootstrap.contextBinding32B64u,
@@ -184,7 +182,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     const confirmationDigest32B64u = await digestB64u({
       version: EXPORT_CONFIRMATION_DIGEST_VERSION,
       walletId,
-      rpId,
+      walletKeyId,
       ecdsaThresholdKeyId,
       relayerKeyId,
       contextBinding32B64u: requestWithoutDigests.contextBinding32B64u,
@@ -207,7 +205,7 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
         operation: 'explicit_key_export',
         keyHandle: bootstrapValue.keyHandle,
         walletId,
-        rpId,
+        walletKeyId,
         ecdsaThresholdKeyId,
         relayerKeyId,
         signingRootId: bootstrapValue.signingRootId,
@@ -243,7 +241,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     const bootstrapRequest = {
       formatVersion: 'ecdsa-hss-role-local',
       walletId: 'wallet-user-1',
-      rpId: 'wallet.example.test',
+      walletKeyId: 'wallet-key-wallet-user-1',
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: 'signing-root',
       signingRootVersion: 'default',
@@ -267,6 +265,17 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       'walletSessionUserId',
       'subject_id',
       'wallet_session_user_id',
+      'wallet_id',
+      'wallet_key_id',
+      'ecdsa_threshold_key_id',
+      'signing_root_id',
+      'signing_root_version',
+      'keyPurpose',
+      'key_purpose',
+      'keyVersion',
+      'key_version',
+      'rpId',
+      'rp_id',
     ] as const;
 
     expect(parseEcdsaHssClientBootstrapRequest(bootstrapRequest)).not.toBeNull();

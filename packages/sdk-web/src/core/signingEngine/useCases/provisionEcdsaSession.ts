@@ -1,9 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../session/persistence/ecdsaRoleLocalRecords';
-import {
-  thresholdEcdsaRecordRpId,
-  type ThresholdEcdsaSessionRecord,
-} from '../session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '../session/persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -68,6 +65,7 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaWalletKey,
   buildEvmFamilyEcdsaSessionLanePolicy,
+  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   type EvmFamilyEcdsaWalletKey,
@@ -395,9 +393,17 @@ function buildActivationKeyAndLanePolicy(args: {
       );
     }
   }
+  const walletKeyId = deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
+    walletId: args.record.walletId,
+    ecdsaThresholdKeyId: planKeyId,
+    signingRootId: planSigningRootId,
+    signingRootVersion: planSigningRootVersion,
+    participantIds: planParticipantIds,
+    thresholdOwnerAddress: args.record.ethereumAddress,
+  });
   const key = buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: args.record.walletId,
-    rpId: thresholdEcdsaRecordRpId(args.record),
+    walletKeyId,
     ecdsaThresholdKeyId: planKeyId,
     signingRootId: planSigningRootId,
     signingRootVersion: planSigningRootVersion,
@@ -409,7 +415,7 @@ function buildActivationKeyAndLanePolicy(args: {
   return {
     walletKey: buildEvmFamilyEcdsaWalletKey({
       walletId: key.walletId,
-      rpId: key.rpId,
+      walletKeyId: key.walletKeyId,
       keyHandle: args.record.keyHandle,
       chainTarget: args.plan.chainTarget,
       ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
@@ -1340,9 +1346,10 @@ export function buildReusableEcdsaBootstrapResult(args: {
       signingGrantId: identity.signingGrantId,
       walletSessionJwt: String(auth.walletSessionJwt || keyRef.walletSessionJwt || '').trim(),
     },
-    keygen: {
-      ok: true,
-      ecdsaThresholdKeyId,
+	    keygen: {
+	      ok: true,
+	      walletKeyId: record.authMetadata.walletKeyId,
+	      ecdsaThresholdKeyId,
       relayerKeyId,
       clientVerifyingShareB64u,
       participantIds: record.participantIds,

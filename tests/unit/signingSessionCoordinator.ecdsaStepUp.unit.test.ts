@@ -6,6 +6,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  toRpId,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -19,6 +20,15 @@ import {
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 
 const walletId = toWalletId('ecdsa-step-up-budget.testnet');
+const passkeyAuth = {
+  kind: 'passkey' as const,
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-ecdsa-step-up',
+};
+const emailOtpAuth = {
+  kind: 'email_otp' as const,
+  providerSubjectId: 'google:ecdsa-step-up',
+};
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -26,7 +36,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-ecdsa-step-up',
   ecdsaThresholdKeyId: 'ehss-step-up-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -39,6 +49,7 @@ function makePasskeyLane() {
     key: ecdsaKey,
     keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-step-up-passkey'),
     walletId,
+    auth: passkeyAuth,
     chainTarget,
     signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-passkey'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tehss-step-up-passkey'),
@@ -51,6 +62,7 @@ function makeEmailOtpLane() {
     key: ecdsaKey,
     keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-step-up-email-otp'),
     walletId,
+    auth: emailOtpAuth,
     chainTarget,
     signingGrantId: SigningSessionIds.signingGrant('wsess-step-up-email-otp'),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tehss-step-up-email-otp'),

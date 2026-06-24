@@ -155,13 +155,7 @@ test('threshold-prf WASM wrapper derives ECDSA HSS y_server through policy-shape
   const policy = policyForVector(vector);
   const selectedIds = [1, 2] as const;
   const context = {
-    signingRootId: 'project-alpha:dev',
-    signingRootVersion: 'root-v1',
-    walletId: 'alice.near',
-    rpId: 'wallet.example.test',
-    ecdsaThresholdKeyId: 'ecdsa-alpha',
-    keyPurpose: 'wallet',
-    keyVersion: 'v1',
+    applicationBindingDigest: new Uint8Array(32).fill(7),
   };
 
   const yServer = await deriveEcdsaHssYRelayerFromSigningRootShares({
@@ -173,13 +167,7 @@ test('threshold-prf WASM wrapper derives ECDSA HSS y_server through policy-shape
     policy.threshold,
     policy.shareCount,
     flattenShareWires(vector, selectedIds),
-    context.walletId,
-    context.rpId,
-    context.ecdsaThresholdKeyId,
-    context.signingRootId,
-    context.signingRootVersion,
-    context.keyPurpose,
-    context.keyVersion,
+    context.applicationBindingDigest,
   );
 
   expect(bytesToHex(yServer)).toBe(bytesToHex(expected));
@@ -234,13 +222,7 @@ test('threshold-prf WASM wrapper rejects duplicate signing-root share ids', asyn
       policy,
       shareWires: duplicate,
       context: {
-        signingRootId: 'project-alpha:dev',
-        signingRootVersion: 'root-v1',
-        walletId: 'alice.near',
-        rpId: 'wallet.example.test',
-        ecdsaThresholdKeyId: 'ecdsa-alpha',
-        keyPurpose: 'wallet',
-        keyVersion: 'v1',
+        applicationBindingDigest: new Uint8Array(32).fill(7),
       },
     }),
   ).rejects.toThrow('distinct share ids');

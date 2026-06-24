@@ -72,16 +72,14 @@ function budgetFailure(): {
 
 async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
   const context = {
+    application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  } as const;
+  return {
+    wallet_key_id: rpId,
     wallet_id: walletId,
-    rp_id: rpId,
-    key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
     ecdsa_threshold_key_id: 'ecdsa-key-1',
     signing_root_id: 'root-1',
     signing_root_version: 'root-v1',
-    key_purpose: 'evm-signing',
-    key_version: 'v1',
-  } as const;
-  return {
     context,
     public_identity: {
       context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(context),

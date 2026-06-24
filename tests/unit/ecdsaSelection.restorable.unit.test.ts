@@ -1,15 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
-import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  laneCandidateAuthMethod,
+  type EcdsaLaneCandidate,
+} from '@/core/signingEngine/session/identity/laneIdentity';
 import type { EvmFamilyEcdsaSigningSelectionDeps } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildReauthAnchorIdentity } from '@/core/signingEngine/session/operationState/transactionState';
 import {
@@ -25,6 +31,10 @@ import {
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import {
+  clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation,
+  markRouterAbEcdsaHssWorkerMaterialRuntimeValidated,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
@@ -55,17 +65,82 @@ const validRelayerEcdsaPublicKeyB64u = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const contextBinding32B64u = base64UrlEncode(new Uint8Array(32).fill(8));
 const stateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(9));
 const passkeyCredentialIdB64u = 'restorable-passkey-credential';
+const rpId = toRpId('example.localhost');
+const walletKeyId = 'wallet-key-restorable';
+const passkeyAuth = {
+  kind: 'passkey',
+  rpId,
+  credentialIdB64u: passkeyCredentialIdB64u,
+} as const;
+const emailOtpAuth = {
+  kind: 'email_otp',
+  providerSubjectId: 'google:restorable',
+} as const;
+
+function makeWalletSessionJwt(args: {
+  thresholdSessionId: string;
+  signingGrantId: string;
+}): string {
+  const encode = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    thresholdSessionId: args.thresholdSessionId,
+    signingGrantId: args.signingGrantId,
+    exp: 1_900_000_000,
+  })}.signature`;
+}
+
+function ethereumAddress20B64u(address: string): string {
+  const hex = address.replace(/^0x/, '');
+  const bytes = new Uint8Array(hex.match(/.{2}/g)?.map((part) => Number.parseInt(part, 16)) || []);
+  return base64UrlEncode(bytes);
+}
+
+function routerAbEcdsaHssNormalSigningStateForCandidate(
+  input: EcdsaLaneCandidate,
+): RouterAbEcdsaHssNormalSigningStateV1 {
+  return {
+    kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+    scope: {
+      wallet_key_id: input.key.walletKeyId,
+      wallet_id: input.walletId,
+      ecdsa_threshold_key_id: input.key.ecdsaThresholdKeyId,
+      signing_root_id: input.key.signingRootId,
+      signing_root_version: input.key.signingRootVersion,
+      context: {
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      },
+      public_identity: {
+        context_binding_b64u: contextBinding32B64u,
+        client_public_key33_b64u: validThresholdEcdsaPublicKeyB64u,
+        server_public_key33_b64u: validRelayerEcdsaPublicKeyB64u,
+        threshold_public_key33_b64u: validThresholdEcdsaPublicKeyB64u,
+        ethereum_address20_b64u: ethereumAddress20B64u(input.key.thresholdOwnerAddress),
+        client_share_retry_counter: 0,
+        server_share_retry_counter: 0,
+      },
+      signing_worker: {
+        server_id: 'signing-worker-restorable',
+        key_epoch: 'worker-epoch-restorable',
+        recipient_encryption_key:
+          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      activation_epoch: input.thresholdSessionId,
+    },
+  };
+}
 
 function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate {
   return {
     kind: 'lane_candidate',
-    authMethod: 'passkey',
+    auth: passkeyAuth,
     curve: 'ecdsa',
     chain: 'evm',
     walletId,
     key: buildEvmFamilyEcdsaKeyIdentity({
       walletId,
-      rpId: 'example.localhost',
+      walletKeyId,
       ecdsaThresholdKeyId: 'ek-restorable',
       signingRootId: 'proj_local:dev',
       signingRootVersion: 'default',
@@ -98,7 +173,7 @@ function sharedTempoCandidate(): EcdsaLaneCandidate {
 function emailOtpCandidate(state: EcdsaLaneCandidate['state']): EcdsaLaneCandidate {
   return {
     ...candidate(state),
-    authMethod: 'email_otp',
+    auth: emailOtpAuth,
     source: 'runtime_session_record',
   };
 }
@@ -106,7 +181,7 @@ function emailOtpCandidate(state: EcdsaLaneCandidate['state']): EcdsaLaneCandida
 function emailOtpSharedTempoCandidate(): EcdsaLaneCandidate {
   return {
     ...sharedTempoCandidate(),
-    authMethod: 'email_otp',
+    auth: emailOtpAuth,
   };
 }
 
@@ -124,12 +199,12 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
       ? buildTempoTransactionSigningLane
       : buildEvmTransactionSigningLane;
   const lane = buildLane(
-    input.authMethod === 'email_otp'
+    laneCandidateAuthMethod(input) === 'email_otp'
       ? {
           key: input.key,
           keyHandle: input.keyHandle,
           walletId: input.walletId,
-          authMethod: 'email_otp',
+          auth: emailOtpAuth,
           chainTarget: input.chainTarget,
           signingGrantId: SigningSessionIds.signingGrant(
             input.signingGrantId,
@@ -142,7 +217,7 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
           key: input.key,
           keyHandle: input.keyHandle,
           walletId: input.walletId,
-          authMethod: 'passkey',
+          auth: passkeyAuth,
           chainTarget: input.chainTarget,
           signingGrantId: SigningSessionIds.signingGrant(
             input.signingGrantId,
@@ -173,8 +248,8 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
     sourceState: {
       kind: 'reauth_anchor_source_state',
       availabilitySource: input.source === 'unknown' ? 'durable_sealed_record' : input.source,
-      storeSource: input.authMethod === 'email_otp' ? 'email_otp' : 'login',
-      retention: input.authMethod === 'email_otp' ? 'single_use' : 'session',
+      storeSource: laneCandidateAuthMethod(input) === 'email_otp' ? 'email_otp' : 'login',
+      retention: laneCandidateAuthMethod(input) === 'email_otp' ? 'single_use' : 'session',
       remainingUses: input.remainingUses,
       expiry: freshness.expiry,
       projection: freshness.projection,
@@ -205,7 +280,7 @@ function roleLocalReadyRecordForCandidate(
 ) {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    rpId: input.key.rpId,
+    walletKeyId: input.key.walletKeyId,
     chainTarget: materialChainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.key.ecdsaThresholdKeyId,
@@ -230,13 +305,13 @@ function roleLocalReadyRecordForCandidate(
     },
     publicFacts,
     authMethod:
-      input.authMethod === 'email_otp'
+      laneCandidateAuthMethod(input) === 'email_otp'
         ? buildEcdsaRoleLocalEmailOtpAuthMethod({
             authSubjectId: `google:${String(input.walletId)}`,
           })
         : buildEcdsaRoleLocalPasskeyAuthMethod({
             credentialIdB64u: passkeyCredentialIdB64u,
-            rpId: input.key.rpId,
+            rpId,
           }),
   });
 }
@@ -245,9 +320,9 @@ function recordForChainTarget(
   input: EcdsaLaneCandidate,
   materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
 ): PasskeyEcdsaSessionRecord {
-  return {
+  return markRuntimeValidated({
     walletId: input.walletId,
-    authMetadata: { rpId: input.key.rpId },
+    authMetadata: { walletKeyId },
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
@@ -265,17 +340,27 @@ function recordForChainTarget(
       participantIds: [1, 2],
       thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
     }),
+    runtimePolicyScope: {
+      orgId: 'org',
+      projectId: 'proj_local',
+      envId: 'dev',
+      signingRootVersion: input.key.signingRootVersion,
+    },
     thresholdSessionKind: 'jwt',
     thresholdSessionId: input.thresholdSessionId,
     signingGrantId: input.signingGrantId,
-    walletSessionJwt: 'threshold-session-token',
+    walletSessionJwt: makeWalletSessionJwt({
+      thresholdSessionId: input.thresholdSessionId,
+      signingGrantId: input.signingGrantId,
+    }),
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,
+    routerAbEcdsaHssNormalSigning: routerAbEcdsaHssNormalSigningStateForCandidate(input),
     thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,
     relayerVerifyingShareB64u: validRelayerEcdsaPublicKeyB64u,
     updatedAtMs: Date.now(),
     source: 'registration',
-  };
+  });
 }
 
 function emailOtpRecordForChainTarget(
@@ -287,7 +372,7 @@ function emailOtpRecordForChainTarget(
   } = {},
 ): EmailOtpEcdsaSessionRecord {
   const workerOwnedRecord = recordForChainTarget(input, materialChainTarget);
-  return {
+  return markRuntimeValidated({
     ...workerOwnedRecord,
     source: 'email_otp',
     emailOtpAuthContext: {
@@ -295,13 +380,22 @@ function emailOtpRecordForChainTarget(
       retention: options.retention ?? 'session',
       reason: 'login',
       authMethod: 'email_otp',
+      authSubjectId: emailOtpAuth.providerSubjectId,
     },
     clientAdditiveShareHandle: {
       kind: 'email_otp_worker_session',
       sessionId: 'email-otp-worker-session',
     },
     remainingUses: options.remainingUses ?? workerOwnedRecord.remainingUses,
-  };
+  });
+}
+
+function markRuntimeValidated<T extends ThresholdEcdsaSessionRecord>(record: T): T {
+  if (record.remainingUses <= 0 || record.expiresAtMs <= Date.now()) return record;
+  if (!markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)) {
+    throw new Error('failed to mark ECDSA-HSS test record runtime-validated');
+  }
+  return record;
 }
 
 function selectionDepsWithExactMaterial(
@@ -315,6 +409,10 @@ function selectionDepsWithExactMaterial(
 }
 
 test.describe('ECDSA restorable lane selection', () => {
+  test.afterEach(() => {
+    clearRouterAbEcdsaHssWorkerMaterialRuntimeValidation();
+  });
+
   test('routes restorable passkey lanes without hot material through reauth', async () => {
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: selectionDeps(),
@@ -612,10 +710,11 @@ test.describe('ECDSA restorable lane selection', () => {
       state: 'exhausted',
       remainingUses: 0,
     };
-    const { clientAdditiveShareHandle: _clientAdditiveShareHandle, ...emailOtpRecord } = {
+    const { clientAdditiveShareHandle: _clientAdditiveShareHandle, ...emailOtpRecordRaw } = {
       ...emailOtpRecordForChainTarget(input, chainTarget),
       remainingUses: 1,
     };
+    const emailOtpRecord = markRuntimeValidated(emailOtpRecordRaw);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {

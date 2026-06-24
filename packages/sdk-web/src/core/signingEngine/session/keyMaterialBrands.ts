@@ -1,3 +1,10 @@
+import {
+  parseSdkEcdsaHssThresholdKeyId,
+  type EcdsaThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+
+export type { EcdsaThresholdKeyId };
+
 export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 
 export type Ed25519HssKeyVersion = Brand<string, 'Ed25519HssKeyVersion'>;
@@ -20,7 +27,6 @@ export type EcdsaClientVerifyingShareB64u = Brand<
 >;
 export type Ed25519RelayerKeyId = Brand<string, 'Ed25519RelayerKeyId'>;
 export type EcdsaRelayerKeyId = Brand<string, 'EcdsaRelayerKeyId'>;
-export type EcdsaThresholdKeyId = Brand<string, 'EcdsaThresholdKeyId'>;
 export type EcdsaKeyHandle = Brand<string, 'EcdsaKeyHandle'>;
 export type EcdsaClientAdditiveShareHandle = Brand<
   string,
@@ -117,7 +123,7 @@ export function parseEcdsaRelayerKeyId(value: unknown): EcdsaRelayerKeyId {
 }
 
 export function parseEcdsaThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
-  return parseNonEmptyBrand<'EcdsaThresholdKeyId'>(value, 'ECDSA threshold key id');
+  return parseSdkEcdsaHssThresholdKeyId(value);
 }
 
 export function parseEcdsaKeyHandle(value: unknown): EcdsaKeyHandle {

@@ -64,6 +64,7 @@ function bootstrap(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId('alice.testnet'),
+      walletKeyId: 'wallet-key-bootstrap-persistence',
       rpId: 'localhost',
       chainTarget: EVM_TARGET,
       keyHandle,
@@ -110,7 +111,7 @@ function bootstrap(args: {
       ethereumAddress: args.ownerAddress,
       keyHandle,
       ecdsaThresholdKeyId,
-      rpId: 'localhost',
+      walletKeyId: 'localhost',
       relayerKeyId: 'relayer-key-1',
       relayerVerifyingShareB64u: VALID_RELAYER_PUBLIC_KEY_B64U,
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,

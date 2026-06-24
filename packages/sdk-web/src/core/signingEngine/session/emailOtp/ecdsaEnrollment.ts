@@ -48,6 +48,7 @@ import {
   resolveSigningBudgetPolicyRemainingUses,
   resolveWalletUnlockBudgetPolicyFromRequestedUses,
 } from '../budget/policy';
+import { derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope } from '../identity/evmFamilyEcdsaIdentity';
 
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
@@ -134,7 +135,6 @@ async function resolveEmailOtpEcdsaRegistrationBootstrapInput(args: {
   routeAuth: AppOrWalletSessionAuth | undefined;
   runtimePolicyScope: ThresholdRuntimePolicyScope | undefined;
   walletSessionUserId: string;
-  rpId: string;
 }): Promise<EmailOtpEcdsaRegistrationBootstrapInput> {
   const registrationAttemptId = requiredEmailOtpEcdsaEnrollmentString(
     args.request.registrationAttemptId,
@@ -222,7 +222,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   if (!workerCtx) {
     throw new Error('Email OTP enrollment login requires the dedicated emailOtp worker');
   }
-  const rpId = ports.requireRpId('Email OTP enrollment login');
   const appSessionJwt = appSessionJwtFromEmailOtpAuthLane(routePlan.authLane);
   if (appSessionJwt) {
     ports.rememberAppSessionJwt({ walletSession: args.walletSession, appSessionJwt });
@@ -263,7 +262,10 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     routeAuth,
     runtimePolicyScope,
     walletSessionUserId,
-    rpId,
+  });
+  const walletKeyId = derivePlannedEvmFamilyWalletKeyIdFromRuntimePolicyScope({
+    walletId: args.walletSession.walletId,
+    runtimePolicyScope: registrationInput.runtimePolicyScope,
   });
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
@@ -281,7 +283,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     workerCtx,
     googleEmailOtpRegistrationAttemptId: registrationInput.registrationAttemptId,
     ecdsaClientRootHandleBinding: {
-      rpId,
+      walletKeyId,
       authSubjectId: emailOtpAuthSubjectId,
       operation: 'registration',
       chainTarget,
@@ -295,7 +297,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
     userId: emailOtpAuthSubjectId,
-    rpId,
+    walletKeyId,
     clientRootShareHandle: enrollment.clientRootShareHandle,
     chainTarget,
     publicationChainTargets,

@@ -35,6 +35,7 @@ import {
   isEmailOtpThresholdEcdsaSigningContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
+import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import {
   getEcdsaMaterialRecord,
   type EcdsaMaterialState,
@@ -96,7 +97,7 @@ function emailOtpReauthAuthorityFromAnchor(
 ): { thresholdSessionId: string; chainTarget: ThresholdEcdsaChainTarget } | null {
   const identity = anchor.laneIdentity;
   if (identity.curve !== 'ecdsa') return null;
-  if (identity.authMethod !== 'email_otp') return null;
+  if (signingLaneAuthMethod(identity.auth) !== 'email_otp') return null;
   return {
     thresholdSessionId: String(identity.thresholdSessionId),
     chainTarget: identity.chainTarget,

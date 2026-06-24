@@ -35,37 +35,6 @@ pub enum SignerCommandVersion {
     V1,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-#[ts(
-    rename = "ThresholdEcdsaChainTarget",
-    tag = "kind",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-pub enum ThresholdEcdsaChainTargetV1 {
-    Evm {
-        namespace: EvmNamespaceV1,
-        chain_id: u32,
-        network_slug: String,
-    },
-    Tempo {
-        chain_id: u32,
-        network_slug: String,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(rename = "EvmThresholdEcdsaNamespace", rename_all = "lowercase")]
-pub enum EvmNamespaceV1 {
-    Eip155,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(rename = "EcdsaClientBootstrapAlgorithm")]
 pub enum EcdsaClientBootstrapAlgorithmV1 {
@@ -74,33 +43,11 @@ pub enum EcdsaClientBootstrapAlgorithmV1 {
     EcdsaHssSecp256k1RoleLocalV1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(rename = "EcdsaClientBootstrapKeyPurpose")]
-pub enum EcdsaClientBootstrapKeyPurposeV1 {
-    #[serde(rename = "evm-signing")]
-    #[ts(rename = "evm-signing")]
-    EvmSigning,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(rename = "EcdsaClientBootstrapKeyVersion", rename_all = "lowercase")]
-pub enum EcdsaClientBootstrapKeyVersionV1 {
-    V1,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename = "EcdsaClientBootstrapContext", rename_all = "camelCase")]
 pub struct EcdsaClientBootstrapContextV1 {
-    pub wallet_id: String,
-    pub rp_id: String,
-    pub chain_target: ThresholdEcdsaChainTargetV1,
-    pub ecdsa_threshold_key_id: String,
-    pub signing_root_id: String,
-    pub signing_root_version: String,
-    pub key_purpose: EcdsaClientBootstrapKeyPurposeV1,
-    pub key_version: EcdsaClientBootstrapKeyVersionV1,
+    pub application_binding_digest_b64u: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -130,55 +77,6 @@ pub enum EcdsaBootstrapSecretSourceV1 {
         rp_id: String,
         credential_id_b64u: String,
     },
-    EmailOtpWorkerSession {
-        handle: EcdsaBootstrapEmailOtpWorkerSessionHandleV1,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(
-    rename = "EcdsaBootstrapEmailOtpWorkerSessionHandle",
-    rename_all = "camelCase"
-)]
-pub struct EcdsaBootstrapEmailOtpWorkerSessionHandleV1 {
-    pub kind: EmailOtpWorkerSessionHandleKindV1,
-    pub session_id: String,
-    pub wallet_id: String,
-    pub rp_id: String,
-    pub auth_subject_id: String,
-    pub action: EmailOtpWorkerSessionHandleActionV1,
-    pub operation: EmailOtpWorkerSessionHandleOperationV1,
-    pub chain_target: ThresholdEcdsaChainTargetV1,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(rename = "EmailOtpWorkerSessionHandleKind")]
-pub enum EmailOtpWorkerSessionHandleKindV1 {
-    #[serde(rename = "email_otp_worker_session_handle_v1")]
-    #[ts(rename = "email_otp_worker_session_handle_v1")]
-    EmailOtpWorkerSessionHandleV1,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(rename = "EmailOtpWorkerSessionHandleAction")]
-pub enum EmailOtpWorkerSessionHandleActionV1 {
-    #[serde(rename = "threshold_ecdsa_bootstrap")]
-    #[ts(rename = "threshold_ecdsa_bootstrap")]
-    ThresholdEcdsaBootstrap,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(
-    rename = "EmailOtpWorkerSessionHandleOperation",
-    rename_all = "snake_case"
-)]
-pub enum EmailOtpWorkerSessionHandleOperationV1 {
-    Registration,
-    WalletUnlock,
-    Sign,
-    Export,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -500,72 +398,14 @@ fn validate_participants(participants: &EcdsaClientBootstrapParticipantsV1) -> C
 fn stable_key_context_from_prepare_context(
     context: EcdsaClientBootstrapContextV1,
 ) -> CoreResult<EcdsaHssStableKeyContext> {
-    validate_chain_target(&context.chain_target)?;
-    let stable_context = EcdsaHssStableKeyContext::new(
-        require_ascii_nonempty(context.wallet_id, "context.walletId")?,
-        require_ascii_nonempty(context.rp_id, "context.rpId")?,
-        require_ascii_nonempty(
-            context.ecdsa_threshold_key_id,
-            "context.ecdsaThresholdKeyId",
-        )?,
-        require_ascii_nonempty(context.signing_root_id, "context.signingRootId")?,
-        require_ascii_nonempty(context.signing_root_version, "context.signingRootVersion")?,
-        key_purpose_string(context.key_purpose).to_owned(),
-        key_version_string(context.key_version).to_owned(),
-    );
+    let stable_context = EcdsaHssStableKeyContext::new(decode_base64_url_fixed::<32>(
+        &context.application_binding_digest_b64u,
+        "context.applicationBindingDigestB64u",
+    )?);
     stable_context
         .validate()
         .map_err(|error| SignerCoreError::invalid_input(error.message))?;
     Ok(stable_context)
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn validate_chain_target(target: &ThresholdEcdsaChainTargetV1) -> CoreResult<()> {
-    match target {
-        ThresholdEcdsaChainTargetV1::Evm {
-            namespace,
-            chain_id,
-            network_slug,
-        } => {
-            match namespace {
-                EvmNamespaceV1::Eip155 => {}
-            }
-            validate_chain_id(*chain_id)?;
-            require_ascii_nonempty_ref(network_slug, "context.chainTarget.networkSlug")?;
-        }
-        ThresholdEcdsaChainTargetV1::Tempo {
-            chain_id,
-            network_slug,
-        } => {
-            validate_chain_id(*chain_id)?;
-            require_ascii_nonempty_ref(network_slug, "context.chainTarget.networkSlug")?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn validate_chain_id(chain_id: u32) -> CoreResult<()> {
-    if chain_id == 0 {
-        return Err(SignerCoreError::invalid_input(
-            "context.chainTarget.chainId must be positive",
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn key_purpose_string(value: EcdsaClientBootstrapKeyPurposeV1) -> &'static str {
-    match value {
-        EcdsaClientBootstrapKeyPurposeV1::EvmSigning => "evm-signing",
-    }
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn key_version_string(value: EcdsaClientBootstrapKeyVersionV1) -> &'static str {
-    match value {
-        EcdsaClientBootstrapKeyVersionV1::V1 => "v1",
-    }
 }
 
 #[cfg(feature = "threshold-ecdsa-hss")]
@@ -594,37 +434,7 @@ fn client_root_share_from_secret_source(
             prf_first32.zeroize();
             derived
         }
-        EcdsaBootstrapSecretSourceV1::EmailOtpWorkerSession { handle } => {
-            validate_email_otp_handle(&handle)?;
-            Err(SignerCoreError::unsupported(
-                "email OTP worker session handles must be resolved inside the Email OTP worker",
-            ))
-        }
     }
-}
-
-#[cfg(feature = "threshold-ecdsa-hss")]
-fn validate_email_otp_handle(
-    handle: &EcdsaBootstrapEmailOtpWorkerSessionHandleV1,
-) -> CoreResult<()> {
-    match handle.kind {
-        EmailOtpWorkerSessionHandleKindV1::EmailOtpWorkerSessionHandleV1 => {}
-    }
-    match handle.action {
-        EmailOtpWorkerSessionHandleActionV1::ThresholdEcdsaBootstrap => {}
-    }
-    match handle.operation {
-        EmailOtpWorkerSessionHandleOperationV1::Registration
-        | EmailOtpWorkerSessionHandleOperationV1::WalletUnlock
-        | EmailOtpWorkerSessionHandleOperationV1::Sign
-        | EmailOtpWorkerSessionHandleOperationV1::Export => {}
-    }
-    require_ascii_nonempty_ref(&handle.session_id, "secretSource.handle.sessionId")?;
-    require_ascii_nonempty_ref(&handle.wallet_id, "secretSource.handle.walletId")?;
-    require_ascii_nonempty_ref(&handle.rp_id, "secretSource.handle.rpId")?;
-    require_ascii_nonempty_ref(&handle.auth_subject_id, "secretSource.handle.authSubjectId")?;
-    validate_chain_target(&handle.chain_target)?;
-    Ok(())
 }
 
 #[cfg(feature = "threshold-ecdsa-hss")]
@@ -761,24 +571,9 @@ mod command_tests {
     };
     use ecdsa_hss::derive_relayer_share_for_client_public;
 
-    fn chain_target() -> ThresholdEcdsaChainTargetV1 {
-        ThresholdEcdsaChainTargetV1::Evm {
-            namespace: EvmNamespaceV1::Eip155,
-            chain_id: 5042002,
-            network_slug: "arc-testnet".to_owned(),
-        }
-    }
-
     fn context() -> EcdsaClientBootstrapContextV1 {
         EcdsaClientBootstrapContextV1 {
-            wallet_id: "wallet.testnet".to_owned(),
-            rp_id: "localhost".to_owned(),
-            chain_target: chain_target(),
-            ecdsa_threshold_key_id: "ehss-key".to_owned(),
-            signing_root_id: "root-id".to_owned(),
-            signing_root_version: "root-v1".to_owned(),
-            key_purpose: EcdsaClientBootstrapKeyPurposeV1::EvmSigning,
-            key_version: EcdsaClientBootstrapKeyVersionV1::V1,
+            application_binding_digest_b64u: encode_base64_url(&[0x55u8; 32]),
         }
     }
 

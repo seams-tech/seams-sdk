@@ -31,6 +31,7 @@ import {
 import {
   routerAbEcdsaHssActiveStateSessionId,
 } from '@shared/utils/routerAbEcdsaHss';
+import { computeSdkEcdsaHssApplicationBindingDigestB64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
   parseEcdsaClientVerifyingShareB64u,
   parseEcdsaKeyHandle,
@@ -74,6 +75,7 @@ export type WalletRegistrationEcdsaPreparedClientBootstrap =
 
 export type PreparePasskeyWalletRegistrationEcdsaClientBootstrapInput = {
   prepare: WalletRegistrationEcdsaPrepareContext;
+  rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   passkeyPrfFirstB64u: string;
   credentialIdB64u: string;
@@ -132,18 +134,17 @@ export async function preparePasskeyWalletRegistrationEcdsaClientBootstrap(
   },
   args: PreparePasskeyWalletRegistrationEcdsaClientBootstrapInput,
 ): Promise<PasskeyWalletRegistrationEcdsaPreparedClientBootstrap> {
+  const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
+    walletId: toWalletId(args.prepare.walletId),
+    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.prepare.ecdsaThresholdKeyId),
+    signingRootId: toEcdsaHssSigningRootId(args.prepare.signingRootId),
+    signingRootVersion: toEcdsaHssSigningRootVersion(args.prepare.signingRootVersion),
+  });
   const prepared = await deps.signerCrypto.prepareEcdsaClientBootstrap({
     kind: 'prepare_ecdsa_client_bootstrap_v1',
     algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
     context: {
-      walletId: toWalletId(args.prepare.walletId),
-      rpId: toRpId(args.prepare.rpId),
-      chainTarget: args.chainTarget,
-      ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.prepare.ecdsaThresholdKeyId),
-      signingRootId: toEcdsaHssSigningRootId(args.prepare.signingRootId),
-      signingRootVersion: toEcdsaHssSigningRootVersion(args.prepare.signingRootVersion),
-      keyPurpose: 'evm-signing',
-      keyVersion: 'v1',
+      applicationBindingDigestB64u,
     },
     participants: {
       clientParticipantId: 1,
@@ -152,7 +153,7 @@ export async function preparePasskeyWalletRegistrationEcdsaClientBootstrap(
     },
     secretSource: buildWebAuthnPrfFirstSecretSourceFromParts({
       prfFirstB64u: args.passkeyPrfFirstB64u,
-      rpId: toRpId(args.prepare.rpId),
+      rpId: toRpId(args.rpId),
       credentialIdB64u: args.credentialIdB64u,
     }),
   });

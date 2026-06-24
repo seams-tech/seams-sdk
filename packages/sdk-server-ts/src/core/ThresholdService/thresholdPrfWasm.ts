@@ -23,15 +23,9 @@ const THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH = 34;
 const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
 
 export type EcdsaHssStableKeyPrfContext = {
-  readonly walletId: string;
-  readonly rpId: string;
-  readonly ecdsaThresholdKeyId: string;
-  readonly signingRootId: string;
-  readonly signingRootVersion: string;
+  readonly applicationBindingDigest: Uint8Array;
   readonly signingGrantId?: never;
   readonly thresholdSessionId?: never;
-  readonly keyPurpose: string;
-  readonly keyVersion: string;
 };
 
 export type SigningRootShareWire = Uint8Array & {
@@ -215,13 +209,11 @@ export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
       policy.threshold,
       policy.shareCount,
       flattened,
-      requiredTrimmed('walletId', input.context.walletId),
-      requiredTrimmed('rpId', input.context.rpId),
-      requiredTrimmed('ecdsaThresholdKeyId', input.context.ecdsaThresholdKeyId),
-      requiredTrimmed('signingRootId', input.context.signingRootId),
-      requiredTrimmed('signingRootVersion', input.context.signingRootVersion),
-      requiredTrimmed('keyPurpose', input.context.keyPurpose),
-      requiredTrimmed('keyVersion', input.context.keyVersion),
+      checkedBytes(
+        'threshold-prf ecdsa-hss applicationBindingDigest',
+        input.context.applicationBindingDigest,
+        32,
+      ),
     ) as Uint8Array;
     return checkedBytes('threshold-prf ecdsa-hss y_relayer', out, 32).slice();
   } finally {

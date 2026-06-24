@@ -199,7 +199,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
   const required = {
     formatVersion: toOptionalTrimmedString(prepare.formatVersion),
     walletId: toOptionalTrimmedString(prepare.walletId),
-    rpId: toOptionalTrimmedString(prepare.rpId),
+    walletKeyId: toOptionalTrimmedString(prepare.walletKeyId),
     ecdsaThresholdKeyId: toOptionalTrimmedString(prepare.ecdsaThresholdKeyId),
     signingRootId: toOptionalTrimmedString(prepare.signingRootId),
     signingRootVersion: toOptionalTrimmedString(prepare.signingRootVersion),
@@ -213,7 +213,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     required.formatVersion !== 'ecdsa-hss-role-local' ||
     required.keyScope !== 'evm-family' ||
     !required.walletId ||
-    !required.rpId ||
+    !required.walletKeyId ||
     !required.ecdsaThresholdKeyId ||
     !required.signingRootId ||
     !required.signingRootVersion ||
@@ -233,7 +233,7 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     prepare: {
       formatVersion: 'ecdsa-hss-role-local',
       walletId: required.walletId,
-      rpId: required.rpId,
+      walletKeyId: required.walletKeyId,
       ecdsaThresholdKeyId: required.ecdsaThresholdKeyId,
       signingRootId: required.signingRootId,
       signingRootVersion: required.signingRootVersion,

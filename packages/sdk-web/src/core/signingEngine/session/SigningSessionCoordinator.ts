@@ -40,6 +40,7 @@ import {
   type WalletBudgetOwner,
   type ZeroWalletBudgetSpend,
 } from './budget/budget';
+import { signingLaneAuthMethod } from './identity/signingLaneAuthBinding';
 import { BudgetCoordinator } from './budget/BudgetCoordinator';
 import { budgetUnknownSigningSessionStatus } from './budget/budgetProjection';
 import {
@@ -322,16 +323,9 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   async reserve(
     input: SigningSessionBudgetReserveInput,
   ): ReturnType<SigningSessionBudget['reserve']> {
-    const signingGrantId = normalizeRequired(
-      input.spend.signingGrantId,
-      'signingGrantId',
-    );
+    normalizeRequired(input.spend.lane.signingGrantId, 'signingGrantId');
     return await this.walletBudget.reserve({
       ...input,
-      spend: {
-        ...input.spend,
-        signingGrantId: signingGrantId as SigningGrantId,
-      },
     });
   }
 
@@ -453,7 +447,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
           }))
       : null;
     const emailOtpEd25519PreflightUnavailable =
-      input.lane.authMethod === 'email_otp' &&
+      signingLaneAuthMethod(input.lane.auth) === 'email_otp' &&
       input.lane.curve === 'ed25519' &&
       (walletBudgetStatus?.status === 'budget_unknown' ||
         walletBudgetStatus?.status === 'unavailable');

@@ -90,7 +90,7 @@ async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
 function validateEcdsaHssSessionIdentity(input: {
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   relayerKeyId: string;
 }): { ok: true } | { ok: false; code: string; message: string } {
   if (input.walletSessionAuth.expiresAtMs <= Date.now()) {
@@ -99,8 +99,8 @@ function validateEcdsaHssSessionIdentity(input: {
   if (input.walletId !== input.walletSessionAuth.userId) {
     return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
   }
-  if (input.rpId !== input.walletSessionAuth.rpId) {
-    return { ok: false, code: 'identity_mismatch', message: 'rpId mismatch' };
+  if (input.walletKeyId !== input.walletSessionAuth.walletKeyId) {
+    return { ok: false, code: 'identity_mismatch', message: 'walletKeyId mismatch' };
   }
 
   if (input.relayerKeyId !== input.walletSessionAuth.relayerKeyId) {
@@ -211,16 +211,12 @@ function resolveEcdsaRuntimePolicyScopeFromClaims(input: {
 function validateEd25519SessionBridgeForEcdsaHssBootstrap(input: {
   claims: ThresholdEd25519SessionClaims;
   walletId: string;
-  rpId: string;
 }): { ok: true } | { ok: false; code: string; message: string } {
   if (input.claims.thresholdExpiresAtMs <= Date.now()) {
     return { ok: false, code: 'unauthorized', message: 'Threshold Ed25519 session is expired' };
   }
   if (input.claims.walletId !== input.walletId) {
     return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
-  }
-  if (input.claims.rpId !== input.rpId) {
-    return { ok: false, code: 'identity_mismatch', message: 'rpId mismatch' };
   }
   return { ok: true };
 }
@@ -235,14 +231,14 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
   const { ctx, request } = input;
   const expectedRelayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: request.walletId,
-    rpId: request.rpId,
+    walletKeyId: request.walletKeyId,
   });
   if (request.relayerKeyId !== expectedRelayerKeyId) {
     return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
   }
   const expectedThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: request.walletId,
-    rpId: request.rpId,
+    walletKeyId: request.walletKeyId,
     signingRootId: request.signingRootId,
     signingRootVersion: request.signingRootVersion,
   });
@@ -293,7 +289,8 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     }
     const expectedChallenge = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
       walletId: request.walletId,
-      rpId: request.rpId,
+      walletKeyId: request.walletKeyId,
+      rpId: passkeyAuthorization.rpId,
       ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
       signingRootId: request.signingRootId,
       signingRootVersion: request.signingRootVersion,
@@ -308,7 +305,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
       userId: request.walletId,
-      rpId: request.rpId,
+      rpId: passkeyAuthorization.rpId,
       expectedChallenge,
       expected_origin: expectedOrigin,
       webauthn_authentication: passkeyAuthorization.webauthn_authentication,
@@ -379,7 +376,6 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     const identity = validateEd25519SessionBridgeForEcdsaHssBootstrap({
       claims: ed25519SessionClaims,
       walletId: request.walletId,
-      rpId: request.rpId,
     });
     if (!identity.ok) return identity;
   } else if (String(sessionClaims.walletId || '').trim() !== request.walletId) {
@@ -588,7 +584,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       const identity = validateEcdsaHssSessionIdentity({
         walletSessionAuth: validated.walletSessionAuth,
         walletId: parsed.walletId,
-        rpId: parsed.rpId,
+        walletKeyId: parsed.walletKeyId,
         relayerKeyId: parsed.relayerKeyId,
       });
       if (!identity.ok) {
@@ -630,7 +626,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     const signed = await signRouterAbEcdsaHssWalletSessionJwt({
       session: ctx.opts.session,
       userId: parsed.walletId,
-      rpId: parsed.rpId,
+      walletKeyId: parsed.walletKeyId,
       relayerKeyId: parsed.relayerKeyId,
       sessionInfo: {
         sessionKind: 'jwt',
@@ -640,15 +636,16 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
         participantIds: result.value.participantIds,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         keyHandle: result.value.keyHandle,
-        stableKeyContext: {
-          walletId: parsed.walletId,
-          rpId: parsed.rpId,
-          keyScope: 'evm-family',
-          ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
-          signingRootId: parsed.signingRootId,
-          signingRootVersion: parsed.signingRootVersion,
-          contextBinding32B64u: parsed.contextBinding32B64u,
-        },
+          stableKeyContext: {
+            walletId: parsed.walletId,
+            walletKeyId: parsed.walletKeyId,
+            keyScope: 'evm-family',
+            ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
+            signingRootId: parsed.signingRootId,
+            signingRootVersion: parsed.signingRootVersion,
+            applicationBindingDigestB64u: result.value.applicationBindingDigestB64u,
+            contextBinding32B64u: parsed.contextBinding32B64u,
+          },
         publicIdentity: result.value.publicIdentity,
         activationEpoch: result.value.thresholdSessionId,
         signingWorkerId: threshold.getRouterAbNormalSigningWorkerId(),
@@ -702,7 +699,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     const identity = validateEcdsaHssSessionIdentity({
       walletSessionAuth: validated.walletSessionAuth,
       walletId: parsed.walletId,
-      rpId: parsed.rpId,
+      walletKeyId: parsed.walletKeyId,
       relayerKeyId: parsed.relayerKeyId,
     });
     if (!identity.ok) {

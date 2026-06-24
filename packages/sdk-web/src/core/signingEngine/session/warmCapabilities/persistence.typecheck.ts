@@ -63,6 +63,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
 });
 
 // @ts-expect-error Warm-session persistence requires an explicit wallet identity.
@@ -82,6 +83,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
 });
 
 // @ts-expect-error Warm-session persistence requires an explicit Ed25519 key scope.
@@ -101,6 +103,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
 });
 
 void persistWarmSessionEd25519Capability({
@@ -109,6 +112,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
@@ -123,6 +127,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   sealedWorkerMaterialRef,
@@ -148,6 +153,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
@@ -166,6 +172,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
@@ -182,6 +189,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
@@ -199,6 +207,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   // @ts-expect-error Warm-session persistence must not accept raw Ed25519 client-base material.
   xClientBaseB64u: 'raw-client-base',
 });
@@ -210,6 +219,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   clientVerifyingShareB64u,
   ed25519WorkerMaterialHandle,
   ed25519WorkerMaterialBindingDigest,
@@ -245,6 +255,7 @@ void persistWarmSessionEd25519Capability({
   sessionKind: 'jwt',
   jwt: 'jwt-token',
   source: 'login',
+  passkeyCredentialIdB64u: 'credential-id',
   emailOtpAuthContext,
 });
 

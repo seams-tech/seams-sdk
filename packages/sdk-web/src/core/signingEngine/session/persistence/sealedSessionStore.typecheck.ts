@@ -66,11 +66,12 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   signingGrantId: 'wsess-ecdsa',
   walletId: 'wallet.testnet',
   relayerUrl: 'https://relay.example',
-  ecdsaRestore: {
-    chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-    rpId: 'wallet.example.localhost',
-    sessionKind: 'cookie',
-    keyHandle: 'key-handle-ecdsa',
+	  ecdsaRestore: {
+	    chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+	    rpId: 'wallet.example.localhost',
+	    credentialIdB64u: 'credential-id',
+	    sessionKind: 'cookie',
+	    keyHandle: 'key-handle-ecdsa',
     ethereumAddress: `0x${'11'.repeat(20)}`,
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],

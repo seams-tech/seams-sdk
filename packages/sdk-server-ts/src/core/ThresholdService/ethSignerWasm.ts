@@ -258,13 +258,7 @@ export async function mapAdditiveShareToThresholdSignaturesShare2p(input: {
 }
 
 export async function roleLocalThresholdEcdsaHssRelayerBootstrap(input: {
-  walletId: string;
-  rpId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigest: Uint8Array;
   relayerKeyId: string;
   yRelayer32Le: Uint8Array;
   clientPublicKey33: Uint8Array;
@@ -281,13 +275,9 @@ export async function roleLocalThresholdEcdsaHssRelayerBootstrap(input: {
 }> {
   await ensureEthSignerWasm();
   const raw = threshold_ecdsa_hss_role_local_relayer_bootstrap({
-    walletId: String(input.walletId || '').trim(),
-    rpId: String(input.rpId || '').trim(),
-    ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
-    signingRootId: String(input.signingRootId || '').trim(),
-    signingRootVersion: String(input.signingRootVersion || '').trim(),
-    keyPurpose: String(input.keyPurpose || '').trim(),
-    keyVersion: String(input.keyVersion || '').trim(),
+    applicationBindingDigest: Array.from(
+      checkedBytes('applicationBindingDigest', input.applicationBindingDigest, 32),
+    ),
     relayerKeyId: String(input.relayerKeyId || '').trim(),
     yRelayer32Le: Array.from(checkedBytes('yRelayer32Le', input.yRelayer32Le, 32)),
     clientPublicKey33: Array.from(checkedBytes('clientPublicKey33', input.clientPublicKey33, 33)),

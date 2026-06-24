@@ -263,7 +263,7 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
         walletId: String(INTENT.walletId),
-        rpId: INTENT.rpId,
+        walletKeyId: `wallet-key-${String(INTENT.walletId)}`,
         ecdsaThresholdKeyId: 'ek_add_signer',
         signingRootId: 'project:dev',
         signingRootVersion: 'default',

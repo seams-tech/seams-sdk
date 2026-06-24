@@ -31,7 +31,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '../interfaces/ecdsaChainTarget';
-import type { RpId } from '../session/identity/evmFamilyEcdsaIdentity';
+import { toRpId, type RpId } from '../session/identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaThresholdKeyId,
 } from '../session/identity/emailOtpHssIdentity';
@@ -41,7 +41,9 @@ import {
 } from '../session/identity/emailOtpHssIdentity';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { computeSdkEcdsaHssApplicationBindingDigestB64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { assertNeverUseCase, useCaseFailure, type UseCaseFailure } from './lifecycle';
+import type { WalletKeyId } from '@shared/signing-lanes';
 
 export type ProvisionEcdsaDeps = {
   authenticator: Pick<AuthenticatorPort, 'run'>;
@@ -90,6 +92,7 @@ export type ProvisionEcdsaRouteFacts = {
 
 export type ProvisionEcdsaInput = {
   walletId: WalletId;
+  walletKeyId: WalletKeyId;
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
@@ -209,7 +212,7 @@ function validateEmailOtpHandle(input: ProvisionEcdsaInput): ProvisionEcdsaFailu
   const handle = input.authMethod.handle;
   if (
     !sameString(handle.walletId, input.walletId) ||
-    !sameString(handle.rpId, input.rpId) ||
+    !sameString(handle.walletKeyId, input.walletKeyId) ||
     !sameString(handle.action, 'threshold_ecdsa_bootstrap') ||
     !thresholdEcdsaChainTargetsEqual(handle.chainTarget, input.chainTarget)
   ) {
@@ -246,7 +249,7 @@ function storageKeyFactsFromInput(
 ): LoadEcdsaRoleLocalReadyRecordInput {
   return {
     walletId: input.walletId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     chainTarget: input.chainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
@@ -302,7 +305,7 @@ function routeInputFromPrepared(args: {
   return {
     kind: 'bootstrap_ecdsa_session_route_v1',
     walletId: args.input.walletId,
-    rpId: args.input.rpId,
+    walletKeyId: args.input.walletKeyId,
     chainTarget: args.input.chainTarget,
     keyScope: 'evm-family',
     ecdsaThresholdKeyId: args.input.ecdsaThresholdKeyId,
@@ -329,7 +332,7 @@ function validateRelayerOutput(args: {
   const input = args.input;
   if (
     !sameString(output.walletId, input.walletId) ||
-    !sameString(output.rpId, input.rpId) ||
+    !sameString(output.walletKeyId, input.walletKeyId) ||
     !sameString(output.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
     !sameString(output.keyHandle, input.keyHandle) ||
     !sameString(output.thresholdSessionId, input.route.sessionId) ||
@@ -388,18 +391,17 @@ export async function provisionEcdsa(
   const secretSource = await secretSourceFromInput(deps, input);
   if (isProvisionEcdsaFailure(secretSource)) return secretSource;
 
+  const applicationBindingDigestB64u = await computeSdkEcdsaHssApplicationBindingDigestB64u({
+    walletId: input.walletId,
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+    signingRootId: signingRoot.signingRootId,
+    signingRootVersion: signingRoot.signingRootVersion,
+  });
   const prepared = await deps.signerCrypto.prepareEcdsaClientBootstrap({
     kind: 'prepare_ecdsa_client_bootstrap_v1',
     algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
     context: {
-      walletId: input.walletId,
-      rpId: input.rpId,
-      chainTarget: input.chainTarget,
-      ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
-      signingRootId: signingRoot.signingRootId,
-      signingRootVersion: signingRoot.signingRootVersion,
-      keyPurpose: 'evm-signing',
-      keyVersion: 'v1',
+      applicationBindingDigestB64u,
     },
     participants: {
       clientParticipantId: 1,
@@ -437,12 +439,13 @@ export async function provisionEcdsa(
 
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     chainTarget: input.chainTarget,
     keyHandle: relayer.value.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     signingRootId: signingRoot.signingRootId,
     signingRootVersion: signingRoot.signingRootVersion,
+    applicationBindingDigestB64u,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: input.participantIds,

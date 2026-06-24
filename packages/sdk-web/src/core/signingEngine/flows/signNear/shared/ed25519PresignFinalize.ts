@@ -978,10 +978,7 @@ async function prepareRouterAbEd25519SignatureOnlyBudgetFinalizer(args: {
       spend: {
         operationId: args.operationId,
         operationFingerprint: args.operationFingerprint,
-        walletId: args.walletId,
-        signingGrantId: args.walletSessionState.signingLane.signingGrantId,
         lane: args.walletSessionState.signingLane,
-        thresholdSessionIds: [args.walletSessionState.signingLane.thresholdSessionId],
         backingMaterialSessionIds: [],
         uses: 1,
         reason: SigningOperationIntent.TransactionSign,

@@ -9,6 +9,11 @@ import type {
   SigningGrantId,
 } from './evmFamilyEcdsaIdentity';
 import type { EmailOtpAuthSubjectId } from '@/core/platform/types';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+  parseSdkEcdsaHssThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 export type {
   EcdsaThresholdKeyId,
@@ -87,15 +92,15 @@ export function toEmailOtpAuthSubjectId(value: unknown): EmailOtpAuthSubjectId {
 }
 
 export function toEcdsaHssThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
-  return requiredEmailOtpHssString(value, 'ecdsaThresholdKeyId') as EcdsaThresholdKeyId;
+  return parseSdkEcdsaHssThresholdKeyId(value);
 }
 
 export function toEcdsaHssSigningRootId(value: unknown): SigningRootId {
-  return requiredEmailOtpHssString(value, 'signingRootId') as SigningRootId;
+  return parseSdkEcdsaHssSigningRootId(value);
 }
 
 export function toEcdsaHssSigningRootVersion(value: unknown): SigningRootVersion {
-  return requiredEmailOtpHssString(value, 'signingRootVersion') as SigningRootVersion;
+  return parseSdkEcdsaHssSigningRootVersion(value);
 }
 
 export function toEcdsaHssThresholdSessionId(value: unknown): ThresholdEcdsaSessionId {

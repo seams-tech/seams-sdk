@@ -23,7 +23,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-step-up',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
@@ -31,16 +31,11 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 const laneIdentity = exactEcdsaSigningLaneIdentity({
-  kind: 'selected_lane',
-  curve: 'ecdsa',
-  chain: 'tempo',
-  chainFamily: 'tempo',
-  keyKind: 'threshold_ecdsa_secp256k1',
-  sessionOrigin: 'per_operation',
-  storageSource: 'email_otp',
-  retention: 'single_use',
   walletId,
-  authMethod: 'email_otp',
+  auth: {
+    kind: 'email_otp',
+    providerSubjectId: 'google:subject-1',
+  },
   chainTarget,
   key,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),

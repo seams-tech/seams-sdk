@@ -53,6 +53,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             },
             publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
               walletId: args.walletId,
+              walletKeyId: `wallet-key-${args.walletId}`,
               rpId: 'example.localhost',
               chainTarget,
               keyHandle,

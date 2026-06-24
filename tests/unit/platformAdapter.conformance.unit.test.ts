@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { parseWalletKeyId } from '@shared/utils/domainIds';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -44,8 +45,16 @@ function publicKeyB64u(prefix: 2 | 3, fill: number): string {
   return base64UrlEncode(bytes);
 }
 
+function parsedDomain<T>(
+  result: { ok: true; value: T } | { ok: false; error: { message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
 const walletId = toWalletId('wallet.testnet');
 const rpId = toRpId('localhost');
+const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-platform-adapter'));
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({ chain: 'evm', chainId: 5042002 });
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ehss-key');
 const signingRootId = toEcdsaHssSigningRootId('root');
@@ -58,7 +67,7 @@ const ethereumAddress = '0x0000000000000000000000000000000000000001' as const;
 
 const emailOtpStorageKeyFacts = {
   walletId,
-  rpId,
+  walletKeyId,
   chainTarget,
   keyHandle: 'credential-key',
   ecdsaThresholdKeyId,
@@ -72,7 +81,7 @@ const emailOtpStorageKeyFacts = {
 
 const storageKeyFacts = {
   walletId,
-  rpId,
+  walletKeyId,
   chainTarget,
   keyHandle: 'credential-key',
   ecdsaThresholdKeyId,
@@ -85,19 +94,27 @@ const storageKeyFacts = {
   }),
 };
 
+const applicationBindingDigestB64u = bytesB64u(32, 7);
+const timeoutApplicationBindingDigestB64u = bytesB64u(32, 8);
+const nativeFailureApplicationBindingDigestB64u = bytesB64u(32, 9);
+
+function applicationBindingDigestForWallet(wallet: ReturnType<typeof toWalletId>): string {
+  switch (wallet) {
+    case toWalletId('timeout.testnet'):
+      return timeoutApplicationBindingDigestB64u;
+    case toWalletId('native-failure.testnet'):
+      return nativeFailureApplicationBindingDigestB64u;
+    default:
+      return applicationBindingDigestB64u;
+  }
+}
+
 function prepareInputFor(wallet = walletId) {
   return {
     kind: 'prepare_ecdsa_client_bootstrap_v1' as const,
     algorithm: 'ecdsa_hss_secp256k1_role_local_v1' as const,
     context: {
-      walletId: wallet,
-      rpId,
-      chainTarget,
-      ecdsaThresholdKeyId,
-      signingRootId,
-      signingRootVersion,
-      keyPurpose: 'evm-signing' as const,
-      keyVersion: 'v1' as const,
+      applicationBindingDigestB64u: applicationBindingDigestForWallet(wallet),
     },
     participants: {
       clientParticipantId: 1 as const,
@@ -223,14 +240,16 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
     async requestWorkerOperation({ request }) {
       if (request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap) {
         const payload = request.payload as typeof prepareInput;
-        if (String(payload.context.walletId) === 'timeout.testnet') {
+        if (payload.context.applicationBindingDigestB64u === timeoutApplicationBindingDigestB64u) {
           throw new SignerWorkerOperationError({
             code: 'TIMEOUT',
             message: 'Worker operation timed out after 1000ms',
             workerKind: 'hssClient',
           });
         }
-        if (String(payload.context.walletId) === 'native-failure.testnet') {
+        if (
+          payload.context.applicationBindingDigestB64u === nativeFailureApplicationBindingDigestB64u
+        ) {
           throw new SignerWorkerOperationError({
             code: 'WORKER_RUNTIME_ERROR',
             message: 'HSS client WASM initialization failed: failed to instantiate module_or_path',
@@ -323,12 +342,13 @@ function createMemoryIndexedDB(): NonNullable<BrowserRuntimeDeps['indexedDB']> {
 function createPublicFacts(): EcdsaRoleLocalPublicFacts {
   return buildEcdsaRoleLocalPublicFacts({
     walletId,
-    rpId,
+    walletKeyId,
     chainTarget,
     keyHandle: storageKeyFacts.keyHandle,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
+    applicationBindingDigestB64u,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],

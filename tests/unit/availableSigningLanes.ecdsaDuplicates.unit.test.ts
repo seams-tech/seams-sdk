@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 import {
+  availableEcdsaSigningLaneAuthMethod,
   buildRuntimeEcdsaAvailableLaneIdentityInput,
-  ecdsaAvailableLaneAuthRpId,
+  ecdsaAvailableLaneAuthKey,
   ecdsaAvailableLaneIdentityKey,
   runtimeEcdsaAvailableLaneIdentityKey,
   runtimeEcdsaRecordClaimKey,
+  type AvailableEcdsaSigningLane,
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -14,19 +16,33 @@ import {
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
   deriveEvmFamilyEcdsaKeyHandle,
+  toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   AVAILABLE_LANES_ECDSA_KEY_HANDLE as TEST_ECDSA_KEY_HANDLE,
   AVAILABLE_LANES_ECDSA_PUBLIC_KEY_B64U as VALID_ECDSA_PUBLIC_KEY_B64U,
   AVAILABLE_LANES_ECDSA_RP_ID as RP_ID,
+  AVAILABLE_LANES_ECDSA_WALLET_KEY_ID as WALLET_KEY_ID,
   AVAILABLE_LANES_ECDSA_TARGET as ECDSA_TARGET,
   AVAILABLE_LANES_EXPIRES_AT_MS as EXPIRES_AT_MS,
+  AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID as PASSKEY_CREDENTIAL_ID,
   AVAILABLE_LANES_TEMPO_TARGET as TEMPO_TARGET,
   AVAILABLE_LANES_WALLET_ID as WALLET_ID,
   readAvailableLanesFixture as readAvailableLanes,
   runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
   sealedEcdsaAvailableLaneRecord as sealedEcdsaRecord,
 } from './helpers/availableSigningLanes.fixtures';
+
+function expectEcdsaLaneAuthMethod(
+  lane: AvailableEcdsaSigningLane | undefined,
+  authMethod: 'email_otp' | 'passkey',
+): asserts lane is ConcreteAvailableEcdsaSigningLane {
+  expect(lane).toBeDefined();
+  if (!lane || lane.state === 'missing') {
+    throw new Error('expected concrete ECDSA lane');
+  }
+  expect(availableEcdsaSigningLaneAuthMethod(lane)).toBe(authMethod);
+}
 
 test.describe('ECDSA available signing lane duplicate normalization', () => {
   test('restores Email OTP ECDSA durable lanes written through the sealed record builder', async () => {
@@ -51,8 +67,9 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
 
     const targetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
     expect(availableLanes.ecdsa.candidatesByTarget[targetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[targetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+    const lane = availableLanes.ecdsa.candidatesByTarget[targetKey][0];
+    expectEcdsaLaneAuthMethod(lane, 'email_otp');
+    expect(lane).toMatchObject({
       source: 'durable_sealed_record',
       state: 'exhausted',
       remainingUses: 0,
@@ -87,8 +104,9 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
 
     const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+    const lane = availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0];
+    expectEcdsaLaneAuthMethod(lane, 'email_otp');
+    expect(lane).toMatchObject({
       source: 'runtime_session_record',
       state: 'exhausted',
       remainingUses: 0,
@@ -176,8 +194,9 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
 
     const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
-    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+    const lane = availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0];
+    expectEcdsaLaneAuthMethod(lane, 'email_otp');
+    expect(lane).toMatchObject({
       source: 'runtime_and_durable',
       state: 'ready',
       remainingUses: 2,
@@ -265,8 +284,8 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
     const evmCandidates = availableLanes.ecdsa.candidatesByTarget[evmTargetKey] || [];
     expect(evmCandidates).toHaveLength(2);
+    expectEcdsaLaneAuthMethod(evmCandidates[0], 'email_otp');
     expect(evmCandidates[0]).toMatchObject({
-      authMethod: 'email_otp',
       chainTarget: ECDSA_TARGET,
       source: 'evm_family_shared_key',
       sourceChainTarget: TEMPO_TARGET,
@@ -275,8 +294,9 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       thresholdSessionId: tempoThresholdSessionId,
       remainingUses: 2,
     });
-    expect(availableLanes.ecdsa.lanesByTarget[evmTargetKey]).toMatchObject({
-      authMethod: 'email_otp',
+    const selectedLane = availableLanes.ecdsa.lanesByTarget[evmTargetKey];
+    expectEcdsaLaneAuthMethod(selectedLane, 'email_otp');
+    expect(selectedLane).toMatchObject({
       source: 'evm_family_shared_key',
       state: 'ready',
       thresholdSessionId: tempoThresholdSessionId,
@@ -330,8 +350,9 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     });
 
     const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
-    expect(availableLanes.ecdsa.lanesByTarget[evmTargetKey]).toMatchObject({
-      authMethod: 'email_otp',
+    const selectedLane = availableLanes.ecdsa.lanesByTarget[evmTargetKey];
+    expectEcdsaLaneAuthMethod(selectedLane, 'email_otp');
+    expect(selectedLane).toMatchObject({
       source: 'evm_family_shared_key',
       sourceChainTarget: TEMPO_TARGET,
       state: 'ready',
@@ -362,7 +383,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     const lane = availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0];
 
     expect(lane).toMatchObject({
-      authMethod: 'passkey',
+      auth: { kind: 'passkey' },
       resolvedKey: {
         kind: 'resolved_evm_family_ecdsa_key',
         authBinding: {
@@ -371,7 +392,12 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
         },
       },
     });
-    if (!lane || lane.state === 'missing' || lane.authMethod !== 'passkey') {
+    if (
+      !lane ||
+      lane.state === 'missing' ||
+      availableEcdsaSigningLaneAuthMethod(lane) !== 'passkey' ||
+      !lane.resolvedKey
+    ) {
       throw new Error('expected passkey ECDSA lane');
     }
     expect(lane.resolvedKey.publicFacts).toBe(lane.publicFacts);
@@ -380,7 +406,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
   test('passkey ECDSA availability identity uses auth binding rpId', () => {
     const key = buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
-      rpId: 'stale-key-rp.localhost',
+      walletKeyId: WALLET_KEY_ID,
       ecdsaThresholdKeyId: 'shared-ecdsa-key-auth-binding-rp',
       signingRootId: 'sr-test:dev',
       signingRootVersion: 'default',
@@ -396,11 +422,18 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     const lane: ConcreteAvailableEcdsaSigningLane = {
       key,
       publicFacts,
-      authMethod: 'passkey',
+      auth: {
+        kind: 'passkey',
+        rpId: toRpId(RP_ID),
+        credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+      },
       resolvedKey: buildResolvedEvmFamilyEcdsaKey({
         walletId: key.walletId,
         publicFacts,
-        authBinding: buildPasskeyEcdsaAuthBinding({ rpId: RP_ID }),
+        authBinding: buildPasskeyEcdsaAuthBinding({
+          rpId: RP_ID,
+          credentialIdB64u: PASSKEY_CREDENTIAL_ID,
+        }),
       }),
       curve: 'ecdsa',
       chainTarget: ECDSA_TARGET,
@@ -412,7 +445,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
 
     const identityKey = ecdsaAvailableLaneIdentityKey(lane);
 
-    expect(ecdsaAvailableLaneAuthRpId(lane)).toBe(RP_ID);
+    expect(ecdsaAvailableLaneAuthKey(lane.auth)).toBe(`passkey:${RP_ID}:${PASSKEY_CREDENTIAL_ID}`);
     expect(identityKey).toContain(RP_ID);
     expect(identityKey).not.toContain('stale-key-rp.localhost');
   });

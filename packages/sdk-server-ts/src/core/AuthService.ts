@@ -688,7 +688,7 @@ type ThresholdEcdsaKeyInventoryRecord = {
   thresholdEcdsaPublicKeyB64u: string;
   key: {
     walletId: string;
-    rpId: string;
+    walletKeyId: string;
     keyScope: 'evm-family';
     ecdsaThresholdKeyId: string;
     signingRootId: string;
@@ -1759,6 +1759,30 @@ type EcdsaWalletKeyBuildResult =
   | { ok: true; walletKeys: WalletRegistrationEcdsaWalletKey[] }
   | { ok: false; code: 'incomplete_ecdsa_wallet_key'; message: string };
 
+function encodeEcdsaWalletKeyIdPart(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function derivePlannedEvmFamilyWalletKeyId(input: {
+  walletId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+}): string {
+  const walletId = toOptionalTrimmedString(input.walletId);
+  const signingRootId = toOptionalTrimmedString(input.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(input.signingRootVersion);
+  if (!walletId || !signingRootId || !signingRootVersion) {
+    throw new Error('ECDSA wallet-key identity requires walletId and signing root');
+  }
+  return [
+    'wallet-key',
+    'evm-family',
+    encodeEcdsaWalletKeyIdPart(walletId),
+    encodeEcdsaWalletKeyIdPart(signingRootId),
+    encodeEcdsaWalletKeyIdPart(signingRootVersion),
+  ].join(':');
+}
+
 function buildEcdsaWalletKeysFromBootstrap(args: {
   bootstrap: EcdsaHssServerBootstrapResponse;
   chainTargets: readonly ThresholdEcdsaChainTarget[];
@@ -1767,7 +1791,7 @@ function buildEcdsaWalletKeysFromBootstrap(args: {
   const bootstrap = args.bootstrap;
   const required = {
     walletId: toOptionalTrimmedString(bootstrap.walletId),
-    rpId: toOptionalTrimmedString(bootstrap.rpId),
+    walletKeyId: toOptionalTrimmedString(bootstrap.walletKeyId),
     keyHandle: toOptionalTrimmedString(bootstrap.keyHandle),
     ecdsaThresholdKeyId: toOptionalTrimmedString(bootstrap.ecdsaThresholdKeyId),
     signingRootId: toOptionalTrimmedString(bootstrap.signingRootId),
@@ -1810,7 +1834,7 @@ function buildEcdsaWalletKeysFromBootstrap(args: {
       keyScope: 'evm-family',
       chainTarget,
       walletId: required.walletId,
-      rpId: required.rpId,
+      walletKeyId: required.walletKeyId,
       keyHandle: required.keyHandle,
       ecdsaThresholdKeyId: required.ecdsaThresholdKeyId,
       signingRootId: required.signingRootId,
@@ -1831,7 +1855,7 @@ function isMatchingEcdsaClientBootstrap(
   return (
     actual.formatVersion === expected.formatVersion &&
     actual.walletId === expected.walletId &&
-    actual.rpId === expected.rpId &&
+    actual.walletKeyId === expected.walletKeyId &&
     actual.ecdsaThresholdKeyId === expected.ecdsaThresholdKeyId &&
     actual.signingRootId === expected.signingRootId &&
     actual.signingRootVersion === expected.signingRootVersion &&
@@ -1854,7 +1878,7 @@ function toEcdsaHssClientBootstrapRequest(
   return {
     formatVersion: clientBootstrap.formatVersion,
     walletId: clientBootstrap.walletId,
-    rpId: clientBootstrap.rpId,
+    walletKeyId: clientBootstrap.walletKeyId,
     ecdsaThresholdKeyId: clientBootstrap.ecdsaThresholdKeyId,
     signingRootId: clientBootstrap.signingRootId,
     signingRootVersion: clientBootstrap.signingRootVersion,
@@ -6311,15 +6335,20 @@ export class AuthService {
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   }): Promise<WalletRegistrationEcdsaPreparePayload> {
     const walletId = input.walletId;
+    const walletKeyId = derivePlannedEvmFamilyWalletKeyId({
+      walletId,
+      signingRootId: input.signingRootId,
+      signingRootVersion: input.signingRootVersion,
+    });
     const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
       walletId,
-      rpId: input.rpId,
+      walletKeyId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
     });
     const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
       walletId,
-      rpId: input.rpId,
+      walletKeyId,
     });
     return {
       kind: 'evm_family_ecdsa_keygen',
@@ -6327,7 +6356,7 @@ export class AuthService {
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
         walletId,
-        rpId: input.rpId,
+        walletKeyId,
         ecdsaThresholdKeyId,
         signingRootId: input.signingRootId,
         signingRootVersion: input.signingRootVersion,
@@ -6461,7 +6490,7 @@ export class AuthService {
           participantIds: input.scope.participantIds,
           accountProvisioning: input.accountProvisioning,
         }),
-        rp_id: input.scope.rpId,
+        wallet_key_id: input.scope.rpId,
         context: {
           signingRootId: input.scope.signingRootId,
           nearAccountId: input.scope.ed25519KeyScopeId,
@@ -7086,7 +7115,7 @@ export class AuthService {
                   participantIds: ed25519.participantIds,
                   accountProvisioning: ed25519.accountProvisioning,
                 }),
-                rp_id: ceremony.intent.rpId,
+                wallet_key_id: ceremony.intent.rpId,
                 ceremonyHandle: preparedEd25519.ceremonyHandle,
                 clientRequest: requestEd25519.clientRequest,
               },
@@ -7283,7 +7312,7 @@ export class AuthService {
               participantIds: ed25519.participantIds,
               accountProvisioning: ed25519.accountProvisioning,
             }),
-            rp_id: ceremony.intent.rpId,
+            wallet_key_id: ceremony.intent.rpId,
             ceremonyHandle: preparedEd25519.ceremonyHandle,
             clientRequest: requestEd25519.clientRequest,
           },
@@ -8272,7 +8301,7 @@ export class AuthService {
                 participantIds: ed25519.participantIds,
                 accountProvisioning: ed25519.accountProvisioning,
               }),
-              rp_id: ceremony.intent.rpId,
+              wallet_key_id: ceremony.intent.rpId,
               ceremonyHandle: combinedSignerState.ed25519.ceremonyHandle,
               evaluationResult: ed25519FinalizeRequest.evaluationResult,
               accountResolution: {
@@ -8755,7 +8784,7 @@ export class AuthService {
             participantIds: ed25519.participantIds,
             accountProvisioning: ed25519.accountProvisioning,
           }),
-            rp_id: ceremony.intent.rpId,
+            wallet_key_id: ceremony.intent.rpId,
             ceremonyHandle: ed25519SignerState.ceremonyHandle,
             evaluationResult: ed25519FinalizeRequest.evaluationResult,
             accountResolution: {
@@ -9217,7 +9246,7 @@ export class AuthService {
               derivationVersion: ed25519.derivationVersion,
               participantIds: ed25519.participantIds,
             }),
-            rp_id: storedIntent.intent.rpId,
+            wallet_key_id: storedIntent.intent.rpId,
             context: {
               signingRootId: signingRootId || '',
               nearAccountId: ed25519.nearAccountId,
@@ -9279,15 +9308,20 @@ export class AuthService {
           message: 'ECDSA add-signer contains an invalid chain target',
         };
       }
+      const walletKeyId = derivePlannedEvmFamilyWalletKeyId({
+        walletId,
+        signingRootId,
+        signingRootVersion,
+      });
       const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
         walletId,
-        rpId: storedIntent.intent.rpId,
+        walletKeyId,
         signingRootId,
         signingRootVersion,
       });
       const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
         walletId,
-        rpId: storedIntent.intent.rpId,
+        walletKeyId,
       });
       const responseEcdsa = {
         kind: 'evm_family_ecdsa_keygen' as const,
@@ -9295,7 +9329,7 @@ export class AuthService {
         prepare: {
           formatVersion: 'ecdsa-hss-role-local' as const,
           walletId,
-          rpId: storedIntent.intent.rpId,
+          walletKeyId,
           ecdsaThresholdKeyId,
           signingRootId,
           signingRootVersion,
@@ -9911,7 +9945,7 @@ export class AuthService {
             derivationVersion: ed25519.derivationVersion,
             participantIds: ed25519.participantIds,
           }),
-          rp_id: ceremony.intent.rpId,
+          wallet_key_id: ceremony.intent.rpId,
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           clientRequest: request.ed25519.clientRequest,
         },
@@ -10053,7 +10087,7 @@ export class AuthService {
         orgId: ceremony.orgId,
         request: {
           registrationAccountScope,
-          rp_id: ceremony.intent.rpId,
+          wallet_key_id: ceremony.intent.rpId,
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           evaluationResult: request.ed25519.evaluationResult,
           accountResolution: {
@@ -14812,7 +14846,6 @@ export class AuthService {
       seen.add(requestKey);
       const identity = await threshold.getEcdsaKeyIdentityMetadata({
         walletId: userId,
-        rpId,
         keySelector: parsed.value.keySelector,
       });
       if (!identity) {
@@ -14821,7 +14854,6 @@ export class AuthService {
       }
       if (
         identity.walletId !== userId ||
-        identity.rpId !== rpId ||
         !thresholdEcdsaKeyInventorySelectorMatchesIdentity(parsed.value.keySelector, identity)
       ) {
         incrementCount(diagnostics.rejected, 'identity_mismatch');
@@ -14848,7 +14880,7 @@ export class AuthService {
         thresholdEcdsaPublicKeyB64u,
         key: {
           walletId: identity.walletId,
-          rpId: identity.rpId,
+          walletKeyId: identity.walletKeyId,
           keyScope: identity.keyScope,
           ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
           signingRootId: identity.signingRootId,

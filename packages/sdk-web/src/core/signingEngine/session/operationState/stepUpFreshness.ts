@@ -9,6 +9,7 @@ import {
   type ExactSigningLaneIdentityKey,
   type NonEmptyThresholdSessionIds,
 } from '../identity/exactSigningLaneIdentity';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import type {
   SigningAuthMethod,
   SigningCurve,
@@ -192,7 +193,7 @@ export function buildFreshStepUpRequired(
     walletId: input.walletId,
     operationId: input.operationId,
     operationFingerprint: input.operationFingerprint,
-    authMethod: input.laneIdentity.authMethod,
+    authMethod: signingLaneAuthMethod(input.laneIdentity.auth),
     curve: input.laneIdentity.curve,
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
@@ -216,7 +217,7 @@ export function buildFreshStepUpSatisfied(
     walletId: input.walletId,
     operationId: input.operationId,
     operationFingerprint: input.operationFingerprint,
-    authMethod: input.laneIdentity.authMethod,
+    authMethod: signingLaneAuthMethod(input.laneIdentity.auth),
     curve: input.laneIdentity.curve,
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,

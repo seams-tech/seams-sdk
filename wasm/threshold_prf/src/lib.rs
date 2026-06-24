@@ -64,15 +64,12 @@ fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue
 }
 
 fn encode_ecdsa_hss_context_with_participants(
-    wallet_id: &str,
-    rp_id: &str,
-    ecdsa_threshold_key_id: &str,
-    signing_root_id: &str,
-    signing_root_version: &str,
-    key_purpose: &str,
-    key_version: &str,
+    application_binding_digest: &[u8],
     participant_ids: &[u16],
 ) -> Result<Vec<u8>, JsValue> {
+    if application_binding_digest.len() != 32 {
+        return Err(js_error("application_binding_digest must be 32 bytes"));
+    }
     let participant_count = u8::try_from(participant_ids.len())
         .map_err(|_| js_error("participant count exceeds ecdsa-hss context capacity"))?;
     if participant_count == 0 {
@@ -80,17 +77,10 @@ fn encode_ecdsa_hss_context_with_participants(
     }
 
     let mut out = Vec::new();
-    out.extend_from_slice(b"ecdsa-hss:context:v2");
-    push_len16(&mut out, "scheme_id", "ecdsa-hss-v2")?;
+    out.extend_from_slice(b"ecdsa-hss:context:v4");
+    push_len16(&mut out, "scheme_id", "ecdsa-hss-v4")?;
     push_len16(&mut out, "curve", "secp256k1")?;
-    push_len16(&mut out, "wallet_id", wallet_id)?;
-    push_len16(&mut out, "rp_id", rp_id)?;
-    push_len16(&mut out, "key_scope", "evm-family")?;
-    push_len16(&mut out, "ecdsa_threshold_key_id", ecdsa_threshold_key_id)?;
-    push_len16(&mut out, "signing_root_id", signing_root_id)?;
-    push_len16(&mut out, "signing_root_version", signing_root_version)?;
-    push_len16(&mut out, "key_purpose", key_purpose)?;
-    push_len16(&mut out, "key_version", key_version)?;
+    out.extend_from_slice(application_binding_digest);
     out.push(participant_count);
     for participant_id in participant_ids {
         out.extend_from_slice(&participant_id.to_be_bytes());
@@ -342,24 +332,12 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
     threshold: u32,
     share_count: u32,
     share_wires: Vec<u8>,
-    wallet_id: String,
-    rp_id: String,
-    ecdsa_threshold_key_id: String,
-    signing_root_id: String,
-    signing_root_version: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
     let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
     let participant_ids = sorted_share_ids(&shares);
     let context_bytes = encode_ecdsa_hss_context_with_participants(
-        &wallet_id,
-        &rp_id,
-        &ecdsa_threshold_key_id,
-        &signing_root_id,
-        &signing_root_version,
-        &key_purpose,
-        &key_version,
+        &application_binding_digest,
         &participant_ids,
     )?;
     derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYServer, context_bytes)

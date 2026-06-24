@@ -26,10 +26,17 @@ import type {
   WasmOpenThresholdEd25519HssClientOutputRequest,
   WasmPrepareThresholdEd25519HssClientRequestRequest,
 } from '../../../types/signer-worker';
+import { parseWalletKeyId } from '@shared/utils/domainIds';
+
+function parsedWalletKeyId(value: string) {
+  const parsed = parseWalletKeyId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 const serverPlannedContext = parseServerPlannedEcdsaHssContext({
   walletId: 'wallet-user',
-  rpId: 'wallet.example.test',
+  walletKeyId: 'wallet-key-wallet-user',
   chainTarget: {
     kind: 'evm',
     namespace: 'eip155',
@@ -39,25 +46,14 @@ const serverPlannedContext = parseServerPlannedEcdsaHssContext({
   ecdsaThresholdKeyId: 'ehss-stable',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
-  keyPurpose: 'evm-signing',
-  keyVersion: 'v1',
 });
 void (serverPlannedContext satisfies ServerPlannedEcdsaHssContext);
 
 const locallyConstructedStableContext: ThresholdEcdsaHssStableKeyContext = {
   walletId: toWalletId('wallet-user'),
-  rpId: toRpId('wallet.example.test'),
-  chainTarget: {
-    kind: 'evm',
-    namespace: 'eip155',
-    chainId: 11155111,
-    networkSlug: 'ethereum-sepolia',
-  },
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-stable'),
   signingRootId: toEcdsaHssSigningRootId('project:dev'),
   signingRootVersion: toEcdsaHssSigningRootVersion('default'),
-  keyPurpose: 'evm-signing',
-  keyVersion: 'v1',
 };
 
 void ({
@@ -86,15 +82,42 @@ const stableContextWithThresholdSessionId: ThresholdEcdsaHssStableKeyContext = {
 };
 void stableContextWithThresholdSessionId;
 
+void ({
+  ...locallyConstructedStableContext,
+  // @ts-expect-error stable ECDSA HSS key context rejects SDK wallet key aliases.
+  walletKeyId: parsedWalletKeyId('wallet-key-wallet-user'),
+} satisfies ThresholdEcdsaHssStableKeyContext);
+
+void ({
+  ...locallyConstructedStableContext,
+  // @ts-expect-error stable ECDSA HSS key context rejects chain targets.
+  chainTarget: {
+    kind: 'evm',
+    namespace: 'eip155',
+    chainId: 11155111,
+    networkSlug: 'ethereum-sepolia',
+  },
+} satisfies ThresholdEcdsaHssStableKeyContext);
+
+void ({
+  ...locallyConstructedStableContext,
+  // @ts-expect-error stable ECDSA HSS key context rejects caller-provided key purpose.
+  keyPurpose: 'evm-signing',
+} satisfies ThresholdEcdsaHssStableKeyContext);
+
+void ({
+  ...locallyConstructedStableContext,
+  // @ts-expect-error stable ECDSA HSS key context rejects protocol key version labels.
+  keyVersion: 'v1',
+} satisfies ThresholdEcdsaHssStableKeyContext);
+
 const roleLocalClientContext: ThresholdEcdsaHssRoleLocalClientContext = {
   walletId: toWalletId('wallet-user'),
-  rpId: toRpId('wallet.example.test'),
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-stable'),
   signingRootId: toEcdsaHssSigningRootId('project:dev'),
   signingRootVersion: toEcdsaHssSigningRootVersion('default'),
-  keyPurpose: 'evm-signing',
-  keyVersion: 'v1',
 };
+const passkeyRpId = toRpId('wallet.example.test');
 
 void ({
   ...roleLocalClientContext,
@@ -115,19 +138,7 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
       kind: 'prepare_ecdsa_client_bootstrap_v1',
       algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
       context: {
-        walletId: roleLocalClientContext.walletId,
-        rpId: roleLocalClientContext.rpId,
-        chainTarget: {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 11155111,
-          networkSlug: 'ethereum-sepolia',
-        },
-        ecdsaThresholdKeyId: roleLocalClientContext.ecdsaThresholdKeyId,
-        signingRootId: roleLocalClientContext.signingRootId,
-        signingRootVersion: roleLocalClientContext.signingRootVersion,
-        keyPurpose: 'evm-signing',
-        keyVersion: 'v1',
+        applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       participants: {
         clientParticipantId: 1,
@@ -137,7 +148,7 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
       secretSource: {
         kind: 'webauthn_prf_first',
         prfFirstB64u: 'prf-first',
-        rpId: roleLocalClientContext.rpId,
+        rpId: passkeyRpId,
         credentialIdB64u: 'credential-id',
       },
     } satisfies PrepareEcdsaClientBootstrapCommand,
@@ -184,18 +195,7 @@ async function assertRoleLocalExportShape(): Promise<void> {
         stateBlobB64u: 'ready-state',
       },
       publicFacts: {
-        walletId: roleLocalClientContext.walletId,
-        rpId: roleLocalClientContext.rpId,
-        chainTarget: {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 11155111,
-          networkSlug: 'ethereum-sepolia',
-        },
-        keyHandle: 'credential-id',
-        ecdsaThresholdKeyId: roleLocalClientContext.ecdsaThresholdKeyId,
-        signingRootId: roleLocalClientContext.signingRootId,
-        signingRootVersion: roleLocalClientContext.signingRootVersion,
+        applicationBindingDigestB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
         clientParticipantId: 1,
         relayerParticipantId: 2,
         participantIds: [1, 2],
@@ -204,12 +204,6 @@ async function assertRoleLocalExportShape(): Promise<void> {
         relayerPublicKey33B64u: 'relayer-public',
         groupPublicKey33B64u: 'group-public',
         ethereumAddress: '0x1111111111111111111111111111111111111111',
-      },
-      authorization: {
-        kind: 'passkey_export_authorized',
-        walletId: roleLocalClientContext.walletId,
-        rpId: roleLocalClientContext.rpId,
-        credentialIdB64u: 'credential-id',
       },
       serverExportShare32B64u: 'server-export-share',
     } satisfies BuildEcdsaRoleLocalExportArtifactCommand,

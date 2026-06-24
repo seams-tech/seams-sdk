@@ -503,11 +503,22 @@ function runtimePolicyScopeKey(scope: RuntimePolicyScope): string {
   return [scope.orgId, scope.projectId, scope.envId, scope.signingRootVersion].join('\x1f');
 }
 
+function admissionAuthorityScope(input: RouterAbNormalSigningAdmissionInput): string {
+  switch (input.curve) {
+    case 'ed25519':
+      return input.rpId;
+    case 'ecdsa-hss':
+      return input.walletKeyId;
+  }
+  input satisfies never;
+  throw new Error('Unsupported Router A/B normal-signing curve');
+}
+
 function abusePrincipalKey(input: RouterAbNormalSigningAdmissionInput): string {
   return [
     runtimePolicyScopeKey(input.runtimePolicyScope),
     input.walletId,
-    input.rpId,
+    admissionAuthorityScope(input),
     input.curve,
   ].join('\x1f');
 }
@@ -516,7 +527,7 @@ function quotaScopeKey(input: RouterAbNormalSigningAdmissionInput): string {
   const base = [
     runtimePolicyScopeKey(input.runtimePolicyScope),
     input.walletId,
-    input.rpId,
+    admissionAuthorityScope(input),
     input.curve,
     input.phase,
     input.thresholdSessionId,
@@ -542,7 +553,7 @@ function normalSigningLifecycleId(input: RouterAbNormalSigningAdmissionInput): s
     input.curve,
     input.phase,
     input.walletId,
-    input.rpId,
+    admissionAuthorityScope(input),
     input.thresholdSessionId,
     input.signingGrantId,
     input.requestId,

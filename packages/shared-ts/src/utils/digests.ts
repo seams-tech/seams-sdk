@@ -31,6 +31,11 @@ export function alphabetizeStringify(input: unknown): string {
 
 export async function sha256BytesUtf8(input: string): Promise<Uint8Array> {
   const data = new TextEncoder().encode(input);
+  return await sha256Bytes(data);
+}
+
+export async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
+  const data = input.slice();
   const digest = await crypto.subtle.digest('SHA-256', data);
   return new Uint8Array(digest);
 }

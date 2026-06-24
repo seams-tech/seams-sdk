@@ -13,6 +13,7 @@ import {
   summarizeSigningLane,
   summarizeSigningSessionPlan,
 } from '../operationState/types';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 
 type ReauthableNotReadyReason = Extract<
   SigningSessionNotReadyReason,
@@ -115,7 +116,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
     };
   }
 
-  if (lane.authMethod === 'email_otp') {
+  if (signingLaneAuthMethod(lane.auth) === 'email_otp') {
     return {
       kind: SigningSessionPlanKind.EmailOtpReauth,
       lane,
@@ -156,7 +157,7 @@ export function createSigningPlannerDecisionTraceEvent(
 function getPolicyBlock(
   input: SigningSessionPlannerInput,
 ): Extract<SigningSessionNotReadyReason, 'policy_blocked'> | null {
-  if (input.lane.authMethod !== 'email_otp') {
+  if (signingLaneAuthMethod(input.lane.auth) !== 'email_otp') {
     return null;
   }
 

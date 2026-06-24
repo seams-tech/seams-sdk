@@ -64,15 +64,13 @@ void ed25519SigningMaterial;
 const ecdsaRouterAbNormalSigning = {
   kind: 'router_ab_ecdsa_hss_normal_signing_v1',
   scope: {
+    wallet_key_id: 'localhost',
+    wallet_id: 'alice.testnet',
+    ecdsa_threshold_key_id: 'ehss-shared-key',
+    signing_root_id: 'project-test:dev',
+    signing_root_version: 'default',
     context: {
-      wallet_id: 'alice.testnet',
-      rp_id: 'localhost',
-      key_scope: 'evm-family',
-      ecdsa_threshold_key_id: 'ehss-shared-key',
-      signing_root_id: 'project-test:dev',
-      signing_root_version: 'default',
-      key_purpose: 'evm-family-signing',
-      key_version: 'ecdsa-hss-v2',
+      application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
     },
     public_identity: {
       context_binding_b64u: 'context-binding',

@@ -8,6 +8,7 @@ import { SigningSessionIds } from '../operationState/types';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
   type EvmFamilyEcdsaKeyIdentity,
 } from './evmFamilyEcdsaIdentity';
 import {
@@ -39,38 +40,36 @@ const evmTarget = {
 } as const satisfies ThresholdEcdsaChainTarget;
 const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  rpId: 'localhost',
+  walletKeyId: 'wallet-key-localhost',
   ecdsaThresholdKeyId: 'ehss-exact-key',
   signingRootId: 'project:dev',
   signingRootVersion: 'default',
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
+const passkeyAuth = {
+  kind: 'passkey',
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-id',
+} as const;
+const emailOtpAuth = {
+  kind: 'email_otp',
+  providerSubjectId: 'google:alice',
+} as const;
 
 const ed25519Identity = exactEd25519SigningLaneIdentity({
-  kind: 'selected_lane',
-  curve: 'ed25519',
-  chain: 'near',
   walletId,
   nearAccountId: accountId,
   ed25519KeyScopeId,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   signingGrantId,
   thresholdSessionId: ed25519ThresholdSessionId,
 });
 exactSigningLaneIdentityKey(ed25519Identity);
 
 const ecdsaIdentity = exactEcdsaSigningLaneIdentity({
-  kind: 'selected_lane',
-  curve: 'ecdsa',
-  chain: 'evm',
-  chainFamily: 'evm',
-  keyKind: 'threshold_ecdsa_secp256k1',
-  sessionOrigin: 'per_operation',
-  storageSource: 'email_otp',
-  retention: 'single_use',
   walletId,
-  authMethod: 'email_otp',
+  auth: emailOtpAuth,
   chainTarget: evmTarget,
   key: ecdsaKey,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
@@ -107,7 +106,7 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
   curve: 'ecdsa',
   chainFamily: 'evm',
   walletId,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   chainTarget: evmTarget,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   key: ecdsaKey,
@@ -124,7 +123,7 @@ const invalidEcdsaWithoutKey: ExactEcdsaSigningLaneIdentity = {
   curve: 'ecdsa',
   chainFamily: 'evm',
   walletId,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   chainTarget: evmTarget,
   keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   signingGrantId,
@@ -138,7 +137,7 @@ const invalidEcdsaWithoutKeyHandle: ExactEcdsaSigningLaneIdentity = {
   curve: 'ecdsa',
   chainFamily: 'evm',
   walletId,
-  authMethod: 'passkey',
+  auth: passkeyAuth,
   chainTarget: evmTarget,
   key: ecdsaKey,
   signingGrantId,

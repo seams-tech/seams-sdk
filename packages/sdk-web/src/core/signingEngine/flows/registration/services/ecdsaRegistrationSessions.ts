@@ -27,7 +27,7 @@ export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
   walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
   auth:
-    | { kind: 'passkey'; credentialIdB64u: string }
+    | { kind: 'passkey'; credentialIdB64u: string; rpId: string }
     | { kind: 'email_otp'; emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext };
 };
 
@@ -86,7 +86,7 @@ export async function finalizeWalletRegistrationEcdsaSessions(
       });
       return {
         walletKey,
-        bootstrap: buildWalletRegistrationEcdsaSessionBootstrap({
+        bootstrap: await buildWalletRegistrationEcdsaSessionBootstrap({
           walletId,
           relayerUrl: args.relayerUrl,
           chainTarget: walletKey.chainTarget,
@@ -102,7 +102,11 @@ export async function finalizeWalletRegistrationEcdsaSessions(
                   kind: 'email_otp',
                   authSubjectId: args.auth.emailOtpAuthContext.authSubjectId,
                 }
-              : { kind: 'passkey', credentialIdB64u: args.auth.credentialIdB64u },
+              : {
+                  kind: 'passkey',
+                  credentialIdB64u: args.auth.credentialIdB64u,
+                  rpId: args.auth.rpId,
+                },
         }),
       };
     }),
@@ -157,7 +161,7 @@ async function hydratePasskeyRegistrationSession(args: {
   walletId: WalletId;
   relayerUrl: string;
   walletKey: WalletRegistrationEcdsaWalletKey;
-  bootstrap: ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>;
+  bootstrap: Awaited<ReturnType<typeof buildWalletRegistrationEcdsaSessionBootstrap>>;
   preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
   signingSessionSeal: {
     signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;

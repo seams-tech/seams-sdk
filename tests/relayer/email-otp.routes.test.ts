@@ -236,22 +236,19 @@ function makeTokenBoundAppSessionAdapter(
 
 function makeRouterAbEcdsaHssNormalSigningState(args: {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   thresholdSessionId: string;
   ecdsaThresholdKeyId: string;
 }) {
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: args.walletKeyId,
       context: {
         wallet_id: args.walletId,
-        rp_id: args.rpId,
-        key_scope: 'evm-family',
         ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
         signing_root_id: 'email-otp-signing-root-1',
         signing_root_version: DEFAULT_RUNTIME_POLICY_SCOPE.signingRootVersion,
-        key_purpose: 'evm-signing',
-        key_version: 'v1',
       },
       public_identity: {
         context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
@@ -276,7 +273,7 @@ function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record
   const walletId = String(overrides?.walletId || overrides?.sub || 'alice.testnet');
   const thresholdSessionId = String(overrides?.thresholdSessionId || 'ecdsa-session-1');
   const signingGrantId = String(overrides?.signingGrantId || 'signing-grant-1');
-  const rpId = String(overrides?.rpId || 'example.localhost');
+  const walletKeyId = String(overrides?.walletKeyId || 'wallet-key-email-otp-routes');
   const ecdsaThresholdKeyId = String(
     overrides?.ecdsaThresholdKeyId || 'ecdsa-threshold-key-email-otp-routes',
   );
@@ -289,7 +286,7 @@ function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record
     keyScope: 'evm-family',
     relayerKeyId: 'relayer-key-1',
     keyHandle: 'ecdsa-key-handle-1',
-    rpId,
+    walletKeyId,
     orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
     runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
     thresholdExpiresAtMs: Date.now() + 60_000,
@@ -297,7 +294,7 @@ function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record
     ecdsaThresholdKeyId,
     routerAbEcdsaHssNormalSigning: makeRouterAbEcdsaHssNormalSigningState({
       walletId,
-      rpId,
+      walletKeyId,
       thresholdSessionId,
       ecdsaThresholdKeyId,
     }),
@@ -317,7 +314,7 @@ function makeSigningSessionStatusPolicy(args?: {
   const signingGrantId = String(
     claims.signingGrantId || 'signing-grant-1',
   );
-  const rpId = String(claims.rpId || 'example.localhost');
+  const walletKeyId = String(claims.walletKeyId || 'wallet-key-email-otp-routes');
   const relayerKeyId = String(claims.relayerKeyId || 'relayer-key-1');
   const participantIds = Array.isArray(claims.participantIds)
     ? claims.participantIds.map((value) => Number(value))
@@ -331,7 +328,7 @@ function makeSigningSessionStatusPolicy(args?: {
     expiresAtMs,
     remainingUses: 7,
     relayerKeyId: recordRelayerKeyId,
-    rpId,
+    walletKeyId,
     participantIds,
   });
   const makeWalletBudgetStatus = (id: string, recordRelayerKeyId: string) => ({
@@ -343,7 +340,7 @@ function makeSigningSessionStatusPolicy(args?: {
     expiresAtMs,
     remainingUses: 7,
     relayerKeyId: recordRelayerKeyId,
-    rpId,
+    walletKeyId,
     participantIds,
   });
   const walletBudgetId = `wallet-signing:${signingGrantId}`;
@@ -367,7 +364,7 @@ function makeSigningSessionStatusPolicy(args?: {
         userId: status.userId,
         expiresAtMs: status.expiresAtMs,
         relayerKeyId: status.relayerKeyId,
-        rpId: status.rpId,
+        walletKeyId: status.walletKeyId,
         participantIds: status.participantIds,
         remainingUses: status.remainingUses,
       };

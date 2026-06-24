@@ -25,7 +25,6 @@ import {
   type VerifiedEd25519WalletSessionAuth,
 } from './verifiedWalletSessionAuth';
 import {
-  ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaHssNormalSigningStateV1,
   type RouterAbEcdsaHssNormalSigningStateV1,
@@ -157,7 +156,6 @@ type WalletSessionJwtSigningFailure = Extract<WalletSessionJwtSigningResult, { o
 type RouterAbWalletSessionJwtSigningInput = {
   session: SessionAdapter | null | undefined;
   userId: unknown;
-  rpId: unknown;
   relayerKeyId: unknown;
   sessionInfo: {
     sessionKind: 'jwt';
@@ -174,6 +172,7 @@ type RouterAbWalletSessionJwtSigningInput = {
 };
 
 export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
+  rpId: unknown;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
     walletId: unknown;
@@ -188,6 +187,7 @@ export type RouterAbEd25519WalletSessionJwtSessionInfo =
   RouterAbEd25519WalletSessionJwtSigningInput['sessionInfo'];
 
 export type RouterAbEcdsaHssWalletSessionJwtSigningInput = RouterAbWalletSessionJwtSigningInput & {
+  walletKeyId: unknown;
   sessionInfo: RouterAbWalletSessionJwtSigningInput['sessionInfo'] & {
     sessionKind: 'jwt';
     keyHandle: unknown;
@@ -264,7 +264,6 @@ function rejectNonJwtWalletSessionKind(
 
 type NormalizedRouterAbWalletSessionSigningBase = {
   userId: string;
-  rpId: string;
   relayerKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -283,7 +282,6 @@ function normalizeRouterAbWalletSessionSigningBase(
   if (invalidSessionKind) return invalidSessionKind;
 
   const userId = String(args.userId || '').trim();
-  const rpId = String(args.rpId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const thresholdSessionId = String(args.sessionInfo?.thresholdSessionId || '').trim();
   const signingGrantId = String(args.sessionInfo?.signingGrantId || '').trim();
@@ -294,7 +292,6 @@ function normalizeRouterAbWalletSessionSigningBase(
 
   if (
     !userId ||
-    !rpId ||
     !relayerKeyId ||
     !thresholdSessionId ||
     !signingGrantId ||
@@ -315,7 +312,6 @@ function normalizeRouterAbWalletSessionSigningBase(
     ok: true,
     value: {
       userId,
-      rpId,
       relayerKeyId,
       thresholdSessionId,
       signingGrantId,
@@ -400,15 +396,13 @@ export function buildRouterAbEcdsaHssNormalSigningStateForBootstrap(input: {
     const state = parseRouterAbEcdsaHssNormalSigningStateV1({
       kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
       scope: {
+        wallet_key_id: bootstrap.walletKeyId,
+        wallet_id: bootstrap.walletId,
+        ecdsa_threshold_key_id: bootstrap.ecdsaThresholdKeyId,
+        signing_root_id: bootstrap.signingRootId,
+        signing_root_version: bootstrap.signingRootVersion,
         context: {
-          wallet_id: bootstrap.walletId,
-          rp_id: bootstrap.rpId,
-          key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
-          ecdsa_threshold_key_id: bootstrap.ecdsaThresholdKeyId,
-          signing_root_id: bootstrap.signingRootId,
-          signing_root_version: bootstrap.signingRootVersion,
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
+          application_binding_digest_b64u: bootstrap.applicationBindingDigestB64u,
         },
         public_identity: {
           context_binding_b64u: bootstrap.contextBinding32B64u,
@@ -513,7 +507,6 @@ function doesEcdsaHssBindingMatchSessionInfo(
     : null;
   if (!stableKeyContext || !publicIdentity) return false;
 
-  const context = normalSigning.scope.context;
   const identity = normalSigning.scope.public_identity;
   const signingWorker = normalSigning.scope.signing_worker;
   const expectedEthereumAddress20B64u = (() => {
@@ -531,12 +524,15 @@ function doesEcdsaHssBindingMatchSessionInfo(
     String(args.sessionInfo.activationEpoch || '').trim() ===
       normalSigning.scope.activation_epoch &&
     String(args.sessionInfo.signingWorkerId || '').trim() === signingWorker.server_id &&
-    String(stableKeyContext.walletId || '').trim() === context.wallet_id &&
-    String(stableKeyContext.rpId || '').trim() === context.rp_id &&
-    String(stableKeyContext.keyScope || '').trim() === context.key_scope &&
-    String(stableKeyContext.ecdsaThresholdKeyId || '').trim() === context.ecdsa_threshold_key_id &&
-    String(stableKeyContext.signingRootId || '').trim() === context.signing_root_id &&
-    String(stableKeyContext.signingRootVersion || '').trim() === context.signing_root_version &&
+    String(stableKeyContext.walletKeyId || '').trim() === normalSigning.scope.wallet_key_id &&
+    String(stableKeyContext.walletId || '').trim() === normalSigning.scope.wallet_id &&
+    String(stableKeyContext.ecdsaThresholdKeyId || '').trim() ===
+      normalSigning.scope.ecdsa_threshold_key_id &&
+    String(stableKeyContext.signingRootId || '').trim() === normalSigning.scope.signing_root_id &&
+    String(stableKeyContext.signingRootVersion || '').trim() ===
+      normalSigning.scope.signing_root_version &&
+    String(stableKeyContext.applicationBindingDigestB64u || '').trim() ===
+      normalSigning.scope.context.application_binding_digest_b64u &&
     String(stableKeyContext.contextBinding32B64u || '').trim() === identity.context_binding_b64u &&
     String(publicIdentity.hssClientSharePublicKey33B64u || '').trim() ===
       identity.client_public_key33_b64u &&
@@ -554,6 +550,7 @@ type RouterAbWalletSessionClaimsToSign =
 
 type RouterAbEd25519WalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
+  rpId: string;
   binding: {
     nearAccountId: string;
     ed25519KeyScopeId: string;
@@ -564,6 +561,7 @@ type RouterAbEd25519WalletSessionClaimsBuildInput = {
 
 type RouterAbEcdsaHssWalletSessionClaimsBuildInput = {
   base: NormalizedRouterAbWalletSessionSigningBase;
+  walletKeyId: string;
   keyHandle: string;
   runtimePolicyScope?: RuntimePolicyScope;
   binding: {
@@ -583,7 +581,7 @@ function buildRouterAbEd25519WalletSessionClaims(
     thresholdSessionId: input.base.thresholdSessionId,
     signingGrantId: input.base.signingGrantId,
     relayerKeyId: input.base.relayerKeyId,
-    rpId: input.base.rpId,
+    rpId: input.rpId,
     runtimePolicyScope: input.binding.runtimePolicyScope,
     routerAbNormalSigning: input.binding.routerAbNormalSigning,
     participantIds: input.base.participantIds,
@@ -605,7 +603,7 @@ function buildRouterAbEcdsaHssWalletSessionClaims(
     keyScope: 'evm-family',
     keyHandle: input.keyHandle,
     relayerKeyId: input.base.relayerKeyId,
-    rpId: input.base.rpId,
+    walletKeyId: input.walletKeyId,
     routerAbEcdsaHssNormalSigning: input.binding.normalSigning,
     participantIds: input.base.participantIds,
     thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
@@ -661,10 +659,20 @@ export async function signRouterAbEd25519WalletSessionJwt(
 ): Promise<WalletSessionJwtSigningResult> {
   const base = normalizeRouterAbWalletSessionSigningBase(args);
   if (!base.ok) return base;
+  const rpId = String(args.rpId || '').trim();
+  if (!rpId) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
   const binding = rejectInvalidRouterAbEd25519Binding(args);
   if (!binding.ok) return binding;
   const claims = buildRouterAbEd25519WalletSessionClaims({
     base: base.value,
+    rpId,
     binding,
   });
   return await signRouterAbWalletSessionClaims({
@@ -682,6 +690,15 @@ export async function signRouterAbEcdsaHssWalletSessionJwt(
   if (!base.ok) return base;
   const binding = rejectInvalidRouterAbEcdsaHssBinding(args);
   if (!binding.ok) return binding;
+  const walletKeyId = String(args.walletKeyId || '').trim();
+  if (!walletKeyId || walletKeyId !== binding.normalSigning.scope.wallet_key_id) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
   const runtimePolicyScope = parseOptionalRuntimePolicyScope(
     args.sessionInfo.runtimePolicyScope,
     args.invalidPayloadErrorMessage,
@@ -698,6 +715,7 @@ export async function signRouterAbEcdsaHssWalletSessionJwt(
   }
   const claims = buildRouterAbEcdsaHssWalletSessionClaims({
     base: base.value,
+    walletKeyId,
     keyHandle,
     runtimePolicyScope: runtimePolicyScope.value,
     binding,

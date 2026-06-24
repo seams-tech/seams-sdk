@@ -80,6 +80,7 @@ function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
     nearAccountId: args.nearAccountId,
     ed25519KeyScopeId,
     rpId: 'example.localhost',
+    passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
     relayerUrl: 'https://relay.example.test',
     relayerKeyId: 'ed25519:relayer-key-id',
     participantIds: [1, 2],
@@ -152,6 +153,7 @@ test.describe('near signing session selection', () => {
               walletId: nearAccountId,
               nearAccountId,
               rpId: 'example.localhost',
+              passkeyCredentialIdB64u: 'credential-ed25519-auth-missing',
               relayerUrl: 'https://relay.example.test',
               relayerKeyId: 'ed25519:relayer-key-id',
               participantIds: [1, 2],
@@ -236,6 +238,7 @@ test.describe('near signing session selection', () => {
     });
     persistWarmSessionEd25519Capability({
       kind: 'jwt_passkey' as const,
+      passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
       walletId: walletId as any,
       nearAccountId: nearAccountId as any,
       ed25519KeyScopeId,
@@ -328,6 +331,7 @@ test.describe('near signing session selection', () => {
     });
     persistWarmSessionEd25519Capability({
       kind: 'jwt_passkey' as const,
+      passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
       walletId: walletId as any,
       nearAccountId: nearAccountId as any,
       ed25519KeyScopeId,
@@ -408,6 +412,7 @@ test.describe('near signing session selection', () => {
       nearAccountId,
       ed25519KeyScopeId,
       rpId: 'localhost',
+      passkeyCredentialIdB64u: 'credential-ed25519-refresh-failed',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId,
       participantIds: [1, 2],
@@ -615,6 +620,7 @@ test.describe('near signing session selection', () => {
     } as const;
     const common = {
       kind: 'jwt_passkey' as const,
+      passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
       walletId: nearAccountId as any,
       nearAccountId: nearAccountId as any,
       ed25519KeyScopeId: nearAccountId,

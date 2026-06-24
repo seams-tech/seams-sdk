@@ -11,7 +11,7 @@ import { createEmailOtpEcdsaTransactionSigningBridge } from '@/core/signingEngin
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '@/core/signingEngine/session/emailOtp/exportRecovery';
-import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   toAuthorizingSigningGrantId,
   type EmailOtpAuthLane,
@@ -37,6 +37,11 @@ const tempoChainTarget = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 };
+const walletKeyId = 'wallet-key-email-otp-signing-session-auth';
+const emailOtpAuth = {
+  kind: 'email_otp',
+  providerSubjectId: 'google:otp-refresh',
+} as const;
 
 function unsignedJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
@@ -51,12 +56,12 @@ function thresholdEcdsaSessionJwt(args: {
   keyHandle: string;
 }) {
   return unsignedJwt({
-    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sub: args.walletId,
     walletId: args.walletId,
     keyHandle: args.keyHandle,
     chainTarget: sourceChainTarget,
-    sessionId: args.thresholdSessionId,
+    thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     runtimePolicyScope: {
       orgId: 'org-local',
@@ -142,7 +147,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
   const loginCalls: EmailOtpAuthLane[] = [];
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
-    rpId: 'example.localhost',
+    walletKeyId,
     ecdsaThresholdKeyId: 'ehss-email-otp',
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
@@ -153,7 +158,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     key,
     keyHandle: 'key-handle-email-otp',
     walletId: ecdsaWalletId,
-    authMethod: 'email_otp',
+    auth: emailOtpAuth,
     chainTarget: tempoChainTarget,
     signingGrantId,
     thresholdSessionId,
@@ -162,7 +167,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     key,
     keyHandle: 'key-handle-email-otp',
     walletId: ecdsaWalletId,
-    authMethod: 'email_otp',
+    auth: emailOtpAuth,
     chainTarget: sourceChainTarget,
     signingGrantId,
     thresholdSessionId,
@@ -219,7 +224,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
   let challengeCalls = 0;
   const key = buildEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
-    rpId: 'example.localhost',
+    walletKeyId,
     ecdsaThresholdKeyId: 'ehss-email-otp',
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
@@ -230,7 +235,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
     key,
     keyHandle: 'key-handle-email-otp',
     walletId: ecdsaWalletId,
-    authMethod: 'email_otp',
+    auth: emailOtpAuth,
     chainTarget: sourceChainTarget,
     signingGrantId,
     thresholdSessionId,
@@ -244,7 +249,7 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
       key,
       keyHandle: 'key-handle-email-otp',
       walletId: ecdsaWalletId,
-      authMethod: 'email_otp',
+      auth: emailOtpAuth,
       chainTarget: tempoChainTarget,
       signingGrantId,
       thresholdSessionId,
@@ -317,9 +322,10 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     curve: 'ecdsa',
     walletId,
     relayerUrl: 'https://relay.example.test',
-    ecdsaRestore: {
-      chainTarget: sourceChainTarget,
-      rpId: 'example.localhost',
+	    ecdsaRestore: {
+	      chainTarget: sourceChainTarget,
+	      walletKeyId: 'wallet-key-email-otp-refresh',
+	      providerSubjectId: emailOtpAuth.providerSubjectId,
       walletSessionJwt: thresholdEcdsaSessionJwt({
         thresholdSessionId,
         signingGrantId,

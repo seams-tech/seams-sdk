@@ -14,6 +14,7 @@ import type {
 import type { ThresholdEd25519SessionStoreSource } from '../identity/laneIdentity';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
+type Ed25519MintAuthorization = NonNullable<ConnectEd25519SessionInput['auth']>;
 
 export type ProvisionThresholdEd25519SessionDeps = {
   credentialStore: ConnectEd25519SessionInput['credentialStore'];
@@ -39,6 +40,34 @@ function sealTransportForProvisionedEd25519Session(args: {
     signingGrantId: args.signingGrantId,
     ...(args.walletSessionJwt ? { walletSessionJwt: args.walletSessionJwt } : {}),
   };
+}
+
+function passkeyCredentialIdB64uFromMintAuthorization(auth: Ed25519MintAuthorization): string {
+  switch (auth.kind) {
+    case 'app_session_jwt':
+    case 'app_session_cookie': {
+      const credentialIdB64u = String(
+        auth.localSecretSource.credential.rawId || auth.localSecretSource.credential.id || '',
+      ).trim();
+      if (!credentialIdB64u) {
+        throw new Error('[threshold-ed25519] passkey credential id is required');
+      }
+      return credentialIdB64u;
+    }
+    case 'threshold_session_policy_webauthn': {
+      const credentialIdB64u = String(
+        auth.policySecretSource.credential.rawId || auth.policySecretSource.credential.id || '',
+      ).trim();
+      if (!credentialIdB64u) {
+        throw new Error('[threshold-ed25519] passkey credential id is required');
+      }
+      return credentialIdB64u;
+    }
+    case 'threshold_ecdsa_session_jwt':
+      throw new Error('[threshold-ed25519] threshold ECDSA authorization must provide passkey auth');
+  }
+  auth satisfies never;
+  throw new Error('[threshold-ed25519] unsupported mint authorization');
 }
 
 export async function provisionThresholdEd25519Session(
@@ -113,6 +142,9 @@ export async function provisionThresholdEd25519Session(
   }
 
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
+  if (!args.auth) {
+    throw new Error('[threshold-ed25519] passkey mint authorization is required');
+  }
   persist({
     kind: 'jwt_passkey',
     walletId: args.walletId,
@@ -133,6 +165,7 @@ export async function provisionThresholdEd25519Session(
     expiresAtMs,
     remainingUses,
     jwt,
+    passkeyCredentialIdB64u: passkeyCredentialIdB64uFromMintAuthorization(args.auth),
     source,
   });
 

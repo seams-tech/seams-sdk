@@ -32,6 +32,7 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { parseWalletKeyId } from '@shared/signing-lanes';
 
 export type EcdsaRoleLocalExportMaterial = {
   readyRecord: EcdsaRoleLocalReadyRecord;
@@ -150,6 +151,12 @@ function parseCredentialIdB64u(value: unknown, field = 'credentialIdB64u'): Cred
   return requiredString(value, field) as CredentialIdB64u;
 }
 
+function toWalletKeyId(value: unknown) {
+  const parsed = parseWalletKeyId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 function parseAuthMethod(input: unknown): EcdsaRoleLocalAuthMethod {
   if (!isRecord(input)) {
     throw new Error('[platform][ecdsa-role-local] authMethod must be an object');
@@ -219,9 +226,6 @@ function readyRecordFromParts(args: {
 }): EcdsaRoleLocalReadyRecord {
   switch (args.authMethod.kind) {
     case 'passkey':
-      if (String(args.authMethod.rpId) !== String(args.publicFacts.rpId)) {
-        throw new Error('[platform][ecdsa-role-local] passkey authMethod rpId mismatch');
-      }
       return {
         kind: 'ecdsa_role_local_ready_passkey_v1',
         stateBlob: args.stateBlob,
@@ -261,7 +265,7 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
   }
   return {
     walletId: toWalletId(input.walletId),
-    rpId: toRpId(input.rpId),
+    walletKeyId: toWalletKeyId(input.walletKeyId),
     chainTarget: thresholdEcdsaChainTargetFromRequest(
       isRecord(input.chainTarget) ? input.chainTarget : {},
     ),
@@ -269,6 +273,11 @@ function parsePublicFacts(input: unknown): EcdsaRoleLocalPublicFacts {
     ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(input.ecdsaThresholdKeyId),
     signingRootId: toEcdsaHssSigningRootId(input.signingRootId),
     signingRootVersion: toEcdsaHssSigningRootVersion(input.signingRootVersion),
+    applicationBindingDigestB64u: parseBase64UrlBytes(
+      input.applicationBindingDigestB64u,
+      'applicationBindingDigestB64u',
+      32,
+    ),
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: parseParticipantIds(input.participantIds),
@@ -552,12 +561,13 @@ export function serializeEcdsaRoleLocalPublicFacts(
 ): Record<string, unknown> {
   return {
     walletId: facts.walletId,
-    rpId: facts.rpId,
+    walletKeyId: facts.walletKeyId,
     chainTarget: facts.chainTarget,
     keyHandle: facts.keyHandle,
     ecdsaThresholdKeyId: facts.ecdsaThresholdKeyId,
     signingRootId: facts.signingRootId,
     signingRootVersion: facts.signingRootVersion,
+    applicationBindingDigestB64u: facts.applicationBindingDigestB64u,
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
@@ -597,7 +607,7 @@ export function ecdsaRoleLocalReadyRecordStorageKey(
   return [
     'ecdsa_role_local_ready_v1',
     keyPart(input.walletId),
-    keyPart(input.rpId),
+    keyPart(input.walletKeyId),
     keyPart(thresholdEcdsaChainTargetKey(input.chainTarget)),
     keyPart(input.keyHandle),
     keyPart(input.ecdsaThresholdKeyId),
@@ -627,7 +637,7 @@ export function ecdsaRoleLocalReadyRecordMatchesInput(args: {
   const input = args.input;
   return (
     String(facts.walletId) === String(input.walletId) &&
-    String(facts.rpId) === String(input.rpId) &&
+    String(facts.walletKeyId) === String(input.walletKeyId) &&
     thresholdEcdsaChainTargetsEqual(facts.chainTarget, input.chainTarget) &&
     String(facts.keyHandle) === String(input.keyHandle) &&
     String(facts.ecdsaThresholdKeyId) === String(input.ecdsaThresholdKeyId) &&

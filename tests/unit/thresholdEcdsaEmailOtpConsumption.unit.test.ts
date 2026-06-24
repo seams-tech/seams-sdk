@@ -70,7 +70,7 @@ function ecdsaEmailOtpRecord(args: {
   const chainTarget = args.chainTarget || EVM_TARGET;
   return {
     walletId: WALLET_ID,
-    authMetadata: { rpId: 'localhost' },
+    authMetadata: { walletKeyId: 'localhost' },
     chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle,
@@ -89,6 +89,7 @@ function ecdsaEmailOtpRecord(args: {
       },
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: WALLET_ID,
+        walletKeyId: 'wallet-key-email-otp-consumption',
         rpId: 'localhost',
         chainTarget,
         keyHandle,
@@ -127,6 +128,7 @@ function ecdsaEmailOtpRecord(args: {
     source: 'email_otp',
     emailOtpAuthContext: {
       authMethod: 'email_otp',
+      authSubjectId: 'google:alice',
       policy: 'per_operation',
       reason: 'sign',
       retention: 'single_use',
@@ -440,7 +442,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     expect(read.record.chainTarget).toEqual(EVM_TARGET);
   });
 
-  test('returns duplicate_records when a broad ECDSA lane has conflicting key identity facts', () => {
+  test('ignores broad ECDSA lanes with conflicting key identity facts during exact lookup', () => {
     const store = createStore(1_800_000_000_000);
     const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
@@ -458,20 +460,10 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
       toExactEcdsaSigningLaneIdentity(selectedRecord),
     );
 
-    expect(read.kind).toBe('duplicate_records');
-    if (read.kind !== 'duplicate_records') {
-      throw new Error(`expected duplicate ECDSA records, got ${read.kind}`);
+    expect(read.kind).toBe('found');
+    if (read.kind !== 'found') {
+      throw new Error(`expected exact ECDSA record, got ${read.kind}`);
     }
-    expect(read.candidateSummaries.map((summary) => summary.match).sort()).toEqual([
-      'broad_identity_mismatch',
-      'exact_identity',
-    ]);
-    expect(
-      read.candidateSummaries.some(
-        (summary) =>
-          summary.match === 'broad_identity_mismatch' &&
-          summary.mismatchReason === 'key_identity_mismatch',
-      ),
-    ).toBe(true);
+    expect(read.record.signingRootVersion).toBe('v1');
   });
 });

@@ -40,7 +40,7 @@ function ecdsaHssAdmissionInput(
     curve: 'ecdsa-hss',
     phase: 'prepare',
     walletId: 'alice.testnet',
-    rpId: 'example.localhost',
+    walletKeyId: 'wallet-key-example-localhost',
     thresholdSessionId: 'ecdsa-session-1',
     signingGrantId: 'signing-grant-1',
     requestId: 'ecdsa-request-1',

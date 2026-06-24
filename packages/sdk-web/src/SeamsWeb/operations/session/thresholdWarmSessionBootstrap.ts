@@ -98,6 +98,16 @@ import {
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
+function passkeyCredentialIdB64uFromCredential(
+  credential: WebAuthnAuthenticationCredential | WebAuthnRegistrationCredential,
+): string {
+  const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
+  if (!credentialIdB64u) {
+    throw new Error('Missing passkey credential id for threshold session hydration');
+  }
+  return credentialIdB64u;
+}
+
 function signingRootIdFromRuntimePolicyScope(
   scope: ThresholdRuntimePolicyScope,
   errorContext: string,
@@ -114,6 +124,7 @@ function signingRootIdFromRuntimePolicyScope(
 export type RegisteredThresholdEd25519SessionAuth =
   | {
       kind: 'passkey';
+      credentialIdB64u: string;
       emailOtpAuthContext?: never;
     }
   | {
@@ -603,6 +614,9 @@ function upsertEd25519SessionRecordFromExactSealedWorkerMaterial(args: {
     nearAccountId: restore.nearAccountId,
     ed25519KeyScopeId: restore.ed25519KeyScopeId,
     rpId: restore.rpId,
+    ...(normalizedRestoreString(restore.credentialIdB64u)
+      ? { passkeyCredentialIdB64u: normalizedRestoreString(restore.credentialIdB64u) }
+      : {}),
     relayerUrl: sealed.relayerUrl,
     relayerKeyId: restore.relayerKeyId,
     participantIds: restore.participantIds,
@@ -1005,6 +1019,9 @@ export async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMateria
     nearAccountId: record.nearAccountId,
     ed25519KeyScopeId: record.ed25519KeyScopeId,
     rpId: record.rpId,
+    ...(record.passkeyCredentialIdB64u
+      ? { passkeyCredentialIdB64u: record.passkeyCredentialIdB64u }
+      : {}),
     relayerUrl: record.relayerUrl,
     relayerKeyId: record.relayerKeyId,
     participantIds: record.participantIds,
@@ -1897,6 +1914,7 @@ export async function persistRegisteredThresholdEd25519Session(
       expiresAtMs,
       remainingUses,
       jwt,
+      passkeyCredentialIdB64u: args.auth.credentialIdB64u,
       signerSlot: args.signerSlot,
       source: 'registration',
     };
@@ -2338,6 +2356,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first output from credential for threshold session hydration');
   }
+  const passkeyCredentialIdB64u = passkeyCredentialIdB64uFromCredential(args.credential);
   const walletId = String(args.walletId || '').trim();
   const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
   if (!walletId || !ed25519KeyScopeId) {
@@ -2355,6 +2374,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     participantIds,
     sessionKind: 'jwt',
     sessionId,
+    passkeyCredentialIdB64u,
     signingGrantId,
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,

@@ -98,7 +98,14 @@ function createEcdsaIdentityArgs(args: {
     key,
     keyHandle: record.keyHandle,
     walletId: args.walletId as any,
-    authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
+    auth:
+      args.source === 'email_otp'
+        ? { kind: 'email_otp', providerSubjectId: 'google:invariants' }
+        : {
+            kind: 'passkey',
+            rpId: 'example.localhost' as any,
+            credentialIdB64u: 'credential-invariants',
+          },
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     chainTarget,

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { parseWalletKeyId } from '@shared/utils/domainIds';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -47,8 +48,16 @@ function compressedSecp256k1PublicKeyB64u(fill: number): string {
   return base64UrlEncode(bytes);
 }
 
+function parsedDomain<T>(
+  result: { ok: true; value: T } | { ok: false; error: { message: string } },
+): T {
+  if (!result.ok) throw new Error(result.error.message);
+  return result.value;
+}
+
 const walletId = toWalletId('wallet_alice');
 const rpId = toRpId('wallet.example');
+const walletKeyId = parsedDomain(parseWalletKeyId('wallet-key-provision-ecdsa'));
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -70,7 +79,7 @@ const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
 const emailOtpHandle = buildEmailOtpWorkerIssuedSessionHandle({
   sessionId: 'email-session',
   walletId,
-  rpId,
+  walletKeyId,
   authSubjectId: toEmailOtpAuthSubjectId(walletId),
   action: 'threshold_ecdsa_bootstrap',
   operation: 'wallet_unlock',
@@ -111,6 +120,7 @@ const credential: WebAuthnAuthenticationCredential = {
 function baseInput(): ProvisionEcdsaInput {
   return {
     walletId,
+    walletKeyId,
     rpId,
     chainTarget,
     keyHandle: 'ecdsa-key-handle',
@@ -163,7 +173,7 @@ function relayerOutput(input: ProvisionEcdsaInput): BootstrapEcdsaSessionRouteOu
   return {
     kind: 'bootstrap_ecdsa_session_route_output_v1',
     walletId: input.walletId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     keyHandle: input.keyHandle,
     relayerPublicIdentity: {
@@ -186,7 +196,7 @@ function relayerOutput(input: ProvisionEcdsaInput): BootstrapEcdsaSessionRouteOu
 function publicFacts(input: ProvisionEcdsaInput) {
   return buildEcdsaRoleLocalPublicFacts({
     walletId: input.walletId,
-    rpId: input.rpId,
+    walletKeyId: input.walletKeyId,
     chainTarget: input.chainTarget,
     keyHandle: input.keyHandle,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
@@ -343,7 +353,7 @@ test('provisions passkey ECDSA material through signer, relayer, finalize, and p
   expect(captures.relayerInputs[0]).toMatchObject({
     kind: 'bootstrap_ecdsa_session_route_v1',
     walletId,
-    rpId,
+    walletKeyId,
     keyScope: 'evm-family',
     runtimePolicyScope,
     clientBootstrap: preparedOutput().clientBootstrap,
@@ -353,7 +363,7 @@ test('provisions passkey ECDSA material through signer, relayer, finalize, and p
   expect(captures.persistInputs[0]).toMatchObject({
     storageKeyFacts: {
       walletId,
-      rpId,
+      walletKeyId,
       keyHandle: input.keyHandle,
       authMethod: {
         kind: 'passkey',

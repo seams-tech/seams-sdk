@@ -10,11 +10,21 @@ import { ActionType } from '../../packages/sdk-web/src/core/types/actions';
 import { requiredNearTransactionSignatureUses } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/signatureUses';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const PASSKEY_AUTH = {
+  kind: 'passkey' as const,
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-near-step-up',
+};
+const EMAIL_OTP_AUTH = {
+  kind: 'email_otp' as const,
+  providerSubjectId: 'google:near-step-up',
+};
 
 test.describe('requireNearStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {
@@ -31,6 +41,7 @@ test.describe('requireNearStepUpAuth', () => {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm'),
       storageSource: 'login',
@@ -80,6 +91,7 @@ test.describe('requireNearStepUpAuth', () => {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm-one'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
         'threshold-session-warm-one',
@@ -105,6 +117,7 @@ test.describe('requireNearStepUpAuth', () => {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      auth: EMAIL_OTP_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
@@ -141,6 +154,7 @@ test.describe('requireNearStepUpAuth', () => {
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-passkey'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',

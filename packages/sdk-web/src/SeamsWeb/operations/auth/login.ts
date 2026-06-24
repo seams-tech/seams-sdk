@@ -94,6 +94,7 @@ import type {
   AvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
+  availableEcdsaSigningLaneAuthMethod,
   ecdsaAvailableLaneForTarget,
   ecdsaAvailableLaneTargets,
   isConcreteAvailableSigningLane,
@@ -109,6 +110,7 @@ import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapa
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
+  deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
   evmFamilyEcdsaWalletKeyToIdentity,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
@@ -1758,14 +1760,23 @@ function resolveLoginThresholdEcdsaBootstrapKey(args: {
       runtimePolicyScope,
     },
   });
+  const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
+    record: { ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId },
+  });
+  const walletKeyId = deriveEvmFamilyWalletKeyIdFromSigningRootFacts({
+    walletId: args.walletId,
+    ecdsaThresholdKeyId,
+    signingRootId: String(signingRootBinding.signingRootId),
+    signingRootVersion: String(signingRootBinding.signingRootVersion),
+    participantIds: keyRef.participantIds || bootstrap.keygen.participantIds,
+    thresholdOwnerAddress: String(args.thresholdOwnerAddress || '').trim(),
+  });
   return {
     keyHandle,
     key: buildBaseEvmFamilyEcdsaKeyIdentity({
       walletId: args.walletId,
-      rpId: args.rpId,
-      ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({
-        record: { ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId },
-      }),
+      walletKeyId,
+      ecdsaThresholdKeyId,
       signingRootId: String(signingRootBinding.signingRootId),
       signingRootVersion: String(signingRootBinding.signingRootVersion),
       participantIds: keyRef.participantIds || bootstrap.keygen.participantIds,
@@ -3532,7 +3543,10 @@ function snapshotLaneToDisplaySigningSessionStatus(
         : lane.state === 'expired'
           ? 'expired'
           : 'exhausted',
-    ...(lane.authMethod ? { authMethod: lane.authMethod } : {}),
+    authMethod:
+      lane.curve === 'ecdsa'
+        ? availableEcdsaSigningLaneAuthMethod(lane)
+        : lane.authMethod,
   };
   if (Number.isFinite(remainingUses) && remainingUses >= 0) {
     status.remainingUses = remainingUses;

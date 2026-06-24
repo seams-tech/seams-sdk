@@ -27,18 +27,16 @@ test.describe('Router A/B ECDSA-HSS presignature pool policy', () => {
     return {
       kind: 'router_ab_ecdsa_hss_signing_worker_pool',
       scope: {
+        wallet_key_id: 'localhost',
+        wallet_id: 'alice.testnet',
+        ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+        signing_root_id: 'project:dev',
+        signing_root_version: 'default',
         context: {
-          wallet_id: 'alice.testnet',
-          rp_id: 'localhost',
-          key_scope: 'evm-family',
-          ecdsa_threshold_key_id: ecdsaThresholdKeyId,
-          signing_root_id: 'project:dev',
-          signing_root_version: 'default',
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
+          application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
         },
         public_identity: {
-          context_binding_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          context_binding_b64u: 'OyVzuOm6z7oD9lROMqtIK1MZuxTy-l6AMUji9knVQ6w',
           client_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           server_public_key33_b64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
           threshold_public_key33_b64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',

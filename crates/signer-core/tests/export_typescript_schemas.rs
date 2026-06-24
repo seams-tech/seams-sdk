@@ -5,11 +5,9 @@ use std::{env, fs, path::PathBuf};
 use signer_core::commands::{
     Base64UrlEncodingV1, BuildEcdsaRoleLocalExportArtifactCommandKindV1,
     BuildEcdsaRoleLocalExportArtifactCommandV1, BuildEcdsaRoleLocalExportArtifactErrorCodeV1,
-    BuildEcdsaRoleLocalExportArtifactOutputV1, EcdsaBootstrapEmailOtpWorkerSessionHandleV1,
-    EcdsaBootstrapSecretSourceV1, EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1,
-    EcdsaClientBootstrapFactsV1, EcdsaClientBootstrapKeyPurposeV1,
-    EcdsaClientBootstrapKeyVersionV1, EcdsaClientBootstrapParticipantsV1,
-    EcdsaPreparePublicFactsV1, EcdsaReadyPublicFactsV1, EcdsaRoleLocalExportAuthorizationV1,
+    BuildEcdsaRoleLocalExportArtifactOutputV1, EcdsaBootstrapSecretSourceV1,
+    EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1, EcdsaClientBootstrapFactsV1,
+    EcdsaClientBootstrapParticipantsV1, EcdsaPreparePublicFactsV1, EcdsaReadyPublicFactsV1,
     EcdsaRoleLocalExportPublicFactsV1, EcdsaRoleLocalPendingStateBlobV1,
     EcdsaRoleLocalReadyStateBlobV1, Ed25519CreateClientPresignFromWorkerMaterialRequestKindV1,
     Ed25519CreateClientPresignFromWorkerMaterialRequestV1,
@@ -38,15 +36,13 @@ use signer_core::commands::{
     Ed25519WorkerMaterialKdfV1, Ed25519WorkerMaterialKeyIdentityKindV1,
     Ed25519WorkerMaterialKeyIdentityV1, Ed25519WorkerMaterialProtocolV1,
     Ed25519WorkerMaterialSessionBindingKindV1, Ed25519WorkerMaterialSessionBindingV1,
-    Ed25519WorkerMaterialStoredV1, EmailOtpWorkerSessionHandleActionV1,
-    EmailOtpWorkerSessionHandleKindV1, EmailOtpWorkerSessionHandleOperationV1, EvmNamespaceV1,
-    FinalizeEcdsaClientBootstrapCommandKindV1, FinalizeEcdsaClientBootstrapCommandV1,
-    FinalizeEcdsaClientBootstrapErrorCodeV1, FinalizeEcdsaClientBootstrapOutputV1,
-    PendingStateBlobKindV1, PrepareEcdsaClientBootstrapCommandKindV1,
-    PrepareEcdsaClientBootstrapCommandV1, PrepareEcdsaClientBootstrapErrorCodeV1,
-    PrepareEcdsaClientBootstrapOutputV1, ReadyStateBlobKindV1, RelayerPublicIdentityV1,
-    Secp256k1CurveNameV1, SignerCommandVersion, SignerCoreProducerV1, ThresholdEcdsaChainTargetV1,
-    ThresholdRuntimePolicyScopeV1,
+    Ed25519WorkerMaterialStoredV1, FinalizeEcdsaClientBootstrapCommandKindV1,
+    FinalizeEcdsaClientBootstrapCommandV1, FinalizeEcdsaClientBootstrapErrorCodeV1,
+    FinalizeEcdsaClientBootstrapOutputV1, PendingStateBlobKindV1,
+    PrepareEcdsaClientBootstrapCommandKindV1, PrepareEcdsaClientBootstrapCommandV1,
+    PrepareEcdsaClientBootstrapErrorCodeV1, PrepareEcdsaClientBootstrapOutputV1,
+    ReadyStateBlobKindV1, RelayerPublicIdentityV1, Secp256k1CurveNameV1, SignerCommandVersion,
+    SignerCoreProducerV1, ThresholdRuntimePolicyScopeV1,
 };
 use ts_rs::{Config, TS};
 
@@ -79,16 +75,8 @@ fn generated_signer_core_commands_ts() -> String {
     let mut out = String::from(GENERATED_HEADER);
 
     push_decl::<SignerCommandVersion>(&mut out, &cfg);
-    push_decl::<EvmNamespaceV1>(&mut out, &cfg);
-    push_decl::<ThresholdEcdsaChainTargetV1>(&mut out, &cfg);
-    push_decl::<EmailOtpWorkerSessionHandleKindV1>(&mut out, &cfg);
-    push_decl::<EmailOtpWorkerSessionHandleActionV1>(&mut out, &cfg);
-    push_decl::<EmailOtpWorkerSessionHandleOperationV1>(&mut out, &cfg);
-    push_decl::<EcdsaBootstrapEmailOtpWorkerSessionHandleV1>(&mut out, &cfg);
     push_decl::<EcdsaBootstrapSecretSourceV1>(&mut out, &cfg);
     push_decl::<EcdsaClientBootstrapAlgorithmV1>(&mut out, &cfg);
-    push_decl::<EcdsaClientBootstrapKeyPurposeV1>(&mut out, &cfg);
-    push_decl::<EcdsaClientBootstrapKeyVersionV1>(&mut out, &cfg);
     push_decl::<EcdsaClientBootstrapContextV1>(&mut out, &cfg);
     push_decl::<EcdsaClientBootstrapParticipantsV1>(&mut out, &cfg);
     push_decl::<PrepareEcdsaClientBootstrapCommandKindV1>(&mut out, &cfg);
@@ -112,7 +100,6 @@ fn generated_signer_core_commands_ts() -> String {
     push_decl::<FinalizeEcdsaClientBootstrapErrorCodeV1>(&mut out, &cfg);
     push_decl::<BuildEcdsaRoleLocalExportArtifactCommandKindV1>(&mut out, &cfg);
     push_decl::<EcdsaRoleLocalExportPublicFactsV1>(&mut out, &cfg);
-    push_decl::<EcdsaRoleLocalExportAuthorizationV1>(&mut out, &cfg);
     push_decl::<BuildEcdsaRoleLocalExportArtifactCommandV1>(&mut out, &cfg);
     push_decl::<BuildEcdsaRoleLocalExportArtifactOutputV1>(&mut out, &cfg);
     push_decl::<BuildEcdsaRoleLocalExportArtifactErrorCodeV1>(&mut out, &cfg);

@@ -434,6 +434,10 @@ function normalizeEcdsaRestoreMetadata(
   const sessionKind =
     sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
+  const walletKeyId = normalizeOptionalNonEmptyString(obj.walletKeyId);
+  const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
+  const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
+  const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const ethereumAddress = normalizeEthereumAddress(obj.ethereumAddress);
@@ -448,7 +452,6 @@ function normalizeEcdsaRestoreMetadata(
     : [];
   if (
     !chainTarget ||
-    !rpId ||
     !sessionKind ||
     !keyHandle ||
     !ethereumAddress ||
@@ -457,11 +460,22 @@ function normalizeEcdsaRestoreMetadata(
   ) {
     return undefined;
   }
+  const authBranch =
+    credentialIdB64u && rpId
+      ? ({ rpId, credentialIdB64u } as const)
+      : walletKeyId && (providerSubjectId || authSubjectId)
+        ? ({
+            walletKeyId,
+            ...(providerSubjectId ? { providerSubjectId } : {}),
+            ...(authSubjectId ? { authSubjectId } : {}),
+          } as const)
+        : null;
+  if (!authBranch) return undefined;
   const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
   return {
     chainTarget,
-    rpId,
+    ...authBranch,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     sessionKind,
     keyHandle,
@@ -488,6 +502,9 @@ function normalizeEd25519RestoreMetadata(
   const nearAccountId = normalizeOptionalNonEmptyString(obj.nearAccountId);
   const ed25519KeyScopeId = normalizeOptionalNonEmptyString(obj.ed25519KeyScopeId);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
+  const credentialIdB64u = normalizeOptionalNonEmptyString(obj.credentialIdB64u);
+  const providerSubjectId = normalizeOptionalNonEmptyString(obj.providerSubjectId);
+  const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
   const sessionKindRaw = String(obj.sessionKind || '').trim();
   const sessionKind =
@@ -527,6 +544,9 @@ function normalizeEd25519RestoreMetadata(
     nearAccountId,
     ed25519KeyScopeId,
     rpId,
+    ...(credentialIdB64u ? { credentialIdB64u } : {}),
+    ...(providerSubjectId ? { providerSubjectId } : {}),
+    ...(authSubjectId ? { authSubjectId } : {}),
     relayerKeyId,
     participantIds,
     ...(walletSessionJwt ? { walletSessionJwt } : {}),

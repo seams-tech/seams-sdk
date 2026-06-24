@@ -86,7 +86,7 @@ function canonicalEcdsaRecord(overrides?: Record<string, unknown>): Record<strin
     clientVerifyingShareB64u: 'AQ',
     participantIds: [1, 2],
     ethereumAddress: `0x${'aa'.repeat(20)}`,
-    authMetadata: { rpId: 'example.localhost' },
+    authMetadata: { walletKeyId: 'example.localhost' },
     rpId: 'example.localhost',
     thresholdSessionKind: 'jwt',
     walletSessionJwt: 'jwt-ecdsa',

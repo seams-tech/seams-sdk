@@ -18,6 +18,7 @@ import {
   getThresholdEcdsaSessionRecordByKey,
   listStoredThresholdEd25519SessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
+  thresholdEd25519LaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
@@ -27,6 +28,7 @@ import {
   listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
   classifyRouterAbEd25519PersistedSigningRecord,
@@ -303,9 +305,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
           deps.ecdsaSessions,
           recordWalletId,
         )) {
-          if (args.authMethod && args.authMethod !== runtimeLane.authMethod) continue;
+          const runtimeLaneAuthMethod = signingLaneAuthMethod(runtimeLane.auth);
+          if (args.authMethod && args.authMethod !== runtimeLaneAuthMethod) continue;
           if (!runtimeLane.routerAbEcdsaHssNormalSigning) continue;
           const baseRecord = {
+            auth: runtimeLane.auth,
             key: runtimeLane.key,
             routerAbEcdsaHssNormalSigning: runtimeLane.routerAbEcdsaHssNormalSigning,
             keyHandle: runtimeLane.keyHandle,
@@ -326,7 +330,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
           await pushRuntimeEcdsaRecord(
             records,
             seen,
-            runtimeLane.authMethod === 'passkey'
+            runtimeLaneAuthMethod === 'passkey'
               ? {
                   ...baseRecord,
                   authMethod: 'passkey',
@@ -356,7 +360,12 @@ export async function readPersistedAvailableSigningLanesForTargets(
             runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
           if (args.authMethod && args.authMethod !== authMethod) continue;
           if (!runtimeRecord.routerAbNormalSigning) continue;
+          const candidate = thresholdEd25519LaneCandidateFromSessionRecord({
+            record: runtimeRecord,
+          });
+          if (!candidate) continue;
           pushRecord({
+            auth: candidate.auth,
             authMethod,
             curve: 'ed25519',
             chain: 'near',

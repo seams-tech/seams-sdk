@@ -9,7 +9,6 @@ type BaseVerifiedWalletSessionAuth = {
   thresholdSessionId: string;
   signingGrantId: string;
   userId: string;
-  rpId: string;
   relayerKeyId: string;
   participantIds: readonly number[];
   expiresAtMs: number;
@@ -17,14 +16,18 @@ type BaseVerifiedWalletSessionAuth = {
 
 export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ecdsa';
+  walletKeyId: string;
   keyHandle: string;
+  rpId?: never;
   ed25519RelayerKeyId?: never;
 };
 
 export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   curve: 'ed25519';
+  rpId: string;
   ed25519RelayerKeyId: string;
   keyHandle?: never;
+  walletKeyId?: never;
   ecdsaThresholdKeyId?: never;
 };
 
@@ -41,7 +44,7 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     thresholdSessionId: claims.thresholdSessionId,
     signingGrantId: claims.signingGrantId,
     userId: claims.walletId,
-    rpId: claims.rpId,
+    walletKeyId: claims.walletKeyId,
     relayerKeyId: claims.relayerKeyId,
     participantIds: claims.participantIds,
     expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),

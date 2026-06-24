@@ -24,6 +24,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
   const walletCommittedRemainingUses = input.walletCommittedRemainingUses ?? walletRemainingUses + 3;
   const walletReservedUses = input.walletReservedUses ?? 3;
   const walletAvailableUses = input.walletAvailableUses ?? walletRemainingUses;
+  const walletKeyId = `wallet-key-curve-collision-${label}`;
   const claims = {
     sub: `budget-curve-collision-${label}.testnet`,
     walletId: `budget-curve-collision-${label}.testnet`,
@@ -41,21 +42,18 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
     ecdsaThresholdKeyId: `ecdsa-key-curve-collision-${label}`,
     keyHandle: `key-handle-curve-collision-${label}`,
     relayerKeyId: `ecdsa-relayer-key-curve-collision-${label}`,
-    rpId: 'example.localhost',
+    walletKeyId,
     thresholdExpiresAtMs: input.claimExpiresAtMs ?? nowMs + 60_000,
     participantIds: [1, 2],
     routerAbEcdsaHssNormalSigning: {
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
+        wallet_key_id: walletKeyId,
         context: {
           wallet_id: `budget-curve-collision-${label}.testnet`,
-          rp_id: 'example.localhost',
-          key_scope: 'evm-family',
           ecdsa_threshold_key_id: `ecdsa-key-curve-collision-${label}`,
           signing_root_id: `signing-root-curve-collision-${label}`,
           signing_root_version: 'v1',
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
@@ -81,16 +79,30 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
     thresholdSessionId: string;
     relayerKeyId: string;
     remainingUses: number;
-  }) => ({
-    curve: input.curve,
+  }) => {
+    const base = {
     thresholdSessionId: input.thresholdSessionId,
     userId: claims.walletId,
     expiresAtMs: nowMs + 60_000,
     remainingUses: input.remainingUses,
     relayerKeyId: input.relayerKeyId,
-    rpId: claims.rpId,
     participantIds: [...claims.participantIds],
-  });
+    };
+    switch (input.curve) {
+      case 'ecdsa':
+        return {
+          ...base,
+          curve: 'ecdsa' as const,
+          walletKeyId,
+        };
+      case 'ed25519':
+        return {
+          ...base,
+          curve: 'ed25519' as const,
+          rpId: 'example.localhost',
+        };
+    }
+  };
   const makeThresholdStatus = (input: {
     curve: 'ecdsa' | 'ed25519';
     thresholdSessionId: string;

@@ -46,20 +46,18 @@ const ecdsaServerBigR33B64u = hexB64u(
 );
 
 const stableContext = {
-  wallet_id: 'wallet-1',
-  rp_id: 'localhost',
-  key_scope: 'evm-family',
-  ecdsa_threshold_key_id: 'ecdsa-key-1',
-  signing_root_id: 'root-1',
-  signing_root_version: 'root-v1',
-  key_purpose: 'evm-signing',
-  key_version: 'v1',
+  application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
 } as const;
 
 let scope: RouterAbEcdsaHssNormalSigningScopeV1;
 
 async function buildScope(): Promise<RouterAbEcdsaHssNormalSigningScopeV1> {
   return {
+    wallet_key_id: 'wallet-key-localhost',
+    wallet_id: 'wallet-1',
+    ecdsa_threshold_key_id: 'ecdsa-key-1',
+    signing_root_id: 'root-1',
+    signing_root_version: 'root-v1',
     context: stableContext,
     public_identity: {
       context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(stableContext),
@@ -172,7 +170,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
 
   test('rejects request digests when scope context binding does not match context', async () => {
     const mismatchedScope: RouterAbEcdsaHssNormalSigningScopeV1 = {
-      context: scope.context,
+      ...scope,
       public_identity: {
         context_binding_b64u: b64u(99, 32),
         client_public_key33_b64u: scope.public_identity.client_public_key33_b64u,
@@ -182,8 +180,6 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
         client_share_retry_counter: scope.public_identity.client_share_retry_counter,
         server_share_retry_counter: scope.public_identity.server_share_retry_counter,
       },
-      signing_worker: scope.signing_worker,
-      activation_epoch: scope.activation_epoch,
     };
     const request = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
       scope: mismatchedScope,

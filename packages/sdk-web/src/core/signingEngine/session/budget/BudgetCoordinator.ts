@@ -68,7 +68,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
     const spend = normalizedInput.spend;
     const operationId = normalizeRequired(spend.operationId, 'operationId');
     const signingGrantId = normalizeRequired(
-      spend.signingGrantId,
+      spend.lane.signingGrantId,
       'signingGrantId',
     );
     const existingSpend = this.successfulSpendsByOperationId.get(operationId);
@@ -440,7 +440,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
     }
     const spend = input.spend;
     const signingGrantId = normalizeRequired(
-      spend.signingGrantId,
+      spend.lane.signingGrantId,
       'signingGrantId',
     );
     this.emitTrace(input, 'wallet_signing_budget_spend_started', {});
@@ -466,7 +466,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         : {}),
     });
     if (!status) {
-      return budgetStatusUnavailable('missing_status', spend.signingGrantId);
+      return budgetStatusUnavailable('missing_status', spend.lane.signingGrantId);
     }
     if (status.status === 'not_found') {
       return status;

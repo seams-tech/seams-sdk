@@ -4,6 +4,7 @@ import type {
   EcdsaLaneCandidate,
   ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
+import { laneCandidateAuthMethod } from '../../session/identity/laneIdentity';
 import { SigningSessionIds } from '../../session/operationState/types';
 import {
   buildEvmTransactionSigningLane,
@@ -54,7 +55,7 @@ export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyEcdsaSessionReaderDeps;
 
 type EcdsaSelectionLaneCandidateDiagnosticsBase = {
-  authMethod: EcdsaLaneCandidate['authMethod'];
+  authMethod: EvmFamilyEcdsaAuthMethod;
   chain: EcdsaLaneCandidate['chain'];
   chainTarget: ThresholdEcdsaChainTarget;
   state: EcdsaLaneCandidate['state'];
@@ -64,6 +65,18 @@ type EcdsaSelectionLaneCandidateDiagnosticsBase = {
   expiresAtMs: number | null;
   updatedAtMs: number | null;
 };
+
+function ecdsaLaneCandidateAuthMethod(candidate: EcdsaLaneCandidate): EvmFamilyEcdsaAuthMethod {
+  const authMethod = laneCandidateAuthMethod(candidate);
+  switch (authMethod) {
+    case SIGNER_AUTH_METHODS.emailOtp:
+      return SIGNER_AUTH_METHODS.emailOtp;
+    case SIGNER_AUTH_METHODS.passkey:
+      return SIGNER_AUTH_METHODS.passkey;
+  }
+  authMethod satisfies never;
+  throw new Error('[SigningEngine][ecdsa] unsupported ECDSA lane auth method');
+}
 
 type EcdsaSelectionLaneCandidateDiagnostics =
   | (EcdsaSelectionLaneCandidateDiagnosticsBase & {
@@ -206,7 +219,7 @@ function reauthRequiredSelection(args: {
       reason: args.reason,
       reauthAnchor: args.reauthAnchor,
     };
-    if (args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    if (ecdsaLaneCandidateAuthMethod(args.candidate) === SIGNER_AUTH_METHODS.emailOtp) {
       return {
         ...base,
         authMethod: SIGNER_AUTH_METHODS.emailOtp,
@@ -226,7 +239,7 @@ function reauthRequiredSelection(args: {
     ...common,
     reason: args.reason,
   };
-  if (args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+  if (ecdsaLaneCandidateAuthMethod(args.candidate) === SIGNER_AUTH_METHODS.emailOtp) {
     return {
       ...base,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
@@ -261,16 +274,16 @@ function signingLaneFromExactLaneCandidate(
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(candidate.thresholdSessionId),
   };
   const lane = buildLane(
-    candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
+    candidate.auth.kind === 'email_otp'
       ? {
           ...base,
-          authMethod: SIGNER_AUTH_METHODS.emailOtp,
+          auth: candidate.auth,
           retention: 'session',
           sessionOrigin: 'per_operation',
         }
       : {
           ...base,
-          authMethod: SIGNER_AUTH_METHODS.passkey,
+          auth: candidate.auth,
           storageSource: 'manual-bootstrap',
         },
   );
@@ -285,7 +298,7 @@ function laneCandidateDiagnosticsBase(
   candidate: EcdsaLaneCandidate,
 ): EcdsaSelectionLaneCandidateDiagnosticsBase {
   return {
-    authMethod: candidate.authMethod,
+    authMethod: ecdsaLaneCandidateAuthMethod(candidate),
     chain: candidate.chain,
     chainTarget: candidate.chainTarget,
     state: candidate.state,
@@ -540,13 +553,20 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     walletId: args.walletId,
     chainTarget: materialChainTarget,
   });
+  const candidateAuthMethod = ecdsaLaneCandidateAuthMethod(args.laneCandidate);
+  const visibleEmailOtpRecord =
+    emailOtpRecord ||
+    (candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp &&
+    exactRecordForCandidate?.source === SIGNER_AUTH_METHODS.emailOtp
+      ? exactRecordForCandidate
+      : undefined);
   const passkeyVisibleMaterials = listPasskeyVisibleMaterials({
     deps: args.deps,
     walletId: args.walletId,
     chainTarget: materialChainTarget,
   });
   const exactCandidateMaterial =
-    args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
       ? buildEcdsaMaterialStateForCandidate({
           candidate: args.laneCandidate,
           record:
@@ -568,7 +588,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         }).material;
 
   const selectedPasskeyMaterial: PasskeyMaterialDiagnosticsSelection =
-    args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
+    candidateAuthMethod === SIGNER_AUTH_METHODS.emailOtp
       ? { kind: 'not_applicable', reason: 'email_otp_candidate' }
       : selectPasskeyMaterialForCandidate({
           candidate: args.laneCandidate,
@@ -580,7 +600,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         });
 
   const walletAuthInputs = selectSessionSourceForWalletAuth({
-    ...(emailOtpRecord ? { emailOtpRecord } : {}),
+    ...(visibleEmailOtpRecord ? { emailOtpRecord: visibleEmailOtpRecord } : {}),
     passkeySelection: selectedPasskeyMaterial,
   });
   const walletAuth = await resolveEvmFamilyTransactionWalletAuth({
@@ -595,13 +615,13 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   });
   const selectedAccountAuth = walletAuthWithSelectedPrimary(
     walletAuth,
-    args.laneCandidate.authMethod,
+    candidateAuthMethod,
   );
 
   const diagnostics = buildEcdsaSelectionDiagnostics({
     candidate: args.laneCandidate,
     exactCandidateMaterial,
-    ...(emailOtpRecord ? { emailOtpRecord } : {}),
+    ...(visibleEmailOtpRecord ? { emailOtpRecord: visibleEmailOtpRecord } : {}),
     passkeyVisibleMaterials,
     materialChainTarget,
     passkeySelection: selectedPasskeyMaterial,
@@ -615,7 +635,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     return {
       kind: 'missing_material',
       accountAuth: selectedAccountAuth,
-      authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+      authMethod: candidateAuthMethod,
       candidate: args.laneCandidate,
       material: exactCandidateMaterial,
       diagnostics,
@@ -660,7 +680,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     });
   }
 
-  if (args.laneCandidate.authMethod !== exactCandidateMaterial.authMethod) {
+  if (candidateAuthMethod !== exactCandidateMaterial.authMethod) {
     logEvmFamilyEcdsaLaneDiagnostic('selected ECDSA material auth method mismatch', {
       lane: summarizeEvmFamilyEcdsaLane(lane),
       material: summarizeEcdsaMaterialState(exactCandidateMaterial),
@@ -671,7 +691,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   return {
     kind: 'ready',
     accountAuth: selectedAccountAuth,
-    authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+    authMethod: candidateAuthMethod,
     source: exactCandidateMaterial.source,
     lane,
     material: exactCandidateMaterial,

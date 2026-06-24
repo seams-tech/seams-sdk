@@ -611,7 +611,7 @@ export async function exportEcdsaKeyWithAuthorization(
         otpCode: exportInput.otpCode,
         shamirPrimeB64u: exportInput.shamirPrimeB64u,
         routePlan: exportInput.routePlan,
-        rpId: exportInput.rpId,
+        walletKeyId: exportInput.roleLocalMaterial.readyRecord.publicFacts.walletKeyId,
         walletSessionJwt: walletSessionAuth.walletSessionJwt,
         ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
         relayerKeyId: record.relayerKeyId,

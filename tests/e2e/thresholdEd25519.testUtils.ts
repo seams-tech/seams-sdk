@@ -448,7 +448,7 @@ function makeRouterAbEcdsaHssPoolFillReceipt(
 ) {
   return {
     active_signing_worker_state: {
-      account_id: request.scope.context.wallet_id,
+      account_id: request.scope.wallet_id,
       session_id: routerAbEcdsaHssActiveStateSessionId({
         kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
         scope: request.scope,

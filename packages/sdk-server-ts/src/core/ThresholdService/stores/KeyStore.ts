@@ -127,7 +127,7 @@ function thresholdEcdsaIndexedIdentityMatchesRecord(args: {
   const rowKeyHandle = toOptionalTrimmedString(args.row.key_handle);
   const rowThresholdKeyId = toOptionalTrimmedString(args.row.threshold_key_id);
   const rowWalletId = toOptionalTrimmedString(args.row.wallet_id);
-  const rowRpId = toOptionalTrimmedString(args.row.rp_id);
+  const rowWalletKeyId = toOptionalTrimmedString(args.row.rp_id);
   const rowSigningRootId = toOptionalTrimmedString(args.row.signing_root_id);
   const rowSigningRootVersion = toOptionalTrimmedString(args.row.signing_root_version) || 'default';
   const rowOwnerAddress = toOptionalTrimmedString(args.row.owner_address);
@@ -136,7 +136,7 @@ function thresholdEcdsaIndexedIdentityMatchesRecord(args: {
     rowKeyHandle !== args.record.keyHandle ||
     rowThresholdKeyId !== args.record.ecdsaThresholdKeyId ||
     rowWalletId !== args.record.walletId ||
-    rowRpId !== args.record.rpId ||
+    rowWalletKeyId !== args.record.walletKeyId ||
     rowSigningRootId !== args.record.signingRootId ||
     rowSigningRootVersion !== ecdsaSigningRootVersion(args.record) ||
     rowOwnerAddress !== args.record.ethereumAddress ||
@@ -155,7 +155,7 @@ function thresholdEcdsaSharedIdentityGuard(
     contextKey: [
       'evm-family',
       record.walletId,
-      record.rpId,
+      record.walletKeyId,
       record.signingRootId,
       ecdsaSigningRootVersion(record),
     ]
@@ -802,7 +802,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           args.record.keyHandle,
           args.record.ecdsaThresholdKeyId,
           args.record.walletId,
-          args.record.rpId,
+          args.record.walletKeyId,
           args.record.signingRootId,
           ecdsaSigningRootVersion(args.record),
           args.record.ethereumAddress,
@@ -902,7 +902,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         this.namespace,
         id,
         parsed.walletId,
-        parsed.rpId,
+        parsed.walletKeyId,
         parsed.signingRootId,
         ecdsaSigningRootVersion(parsed),
       ],
@@ -946,7 +946,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           parsed.keyHandle,
           parsed.ecdsaThresholdKeyId,
           parsed.walletId,
-          parsed.rpId,
+          parsed.walletKeyId,
           parsed.signingRootId,
           ecdsaSigningRootVersion(parsed),
           parsed.ethereumAddress,

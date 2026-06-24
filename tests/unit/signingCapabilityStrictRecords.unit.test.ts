@@ -19,6 +19,7 @@ import {
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  toRpId,
   toEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
@@ -55,6 +56,7 @@ const ecdsaChainTarget: ThresholdEcdsaChainTarget = {
   networkSlug: 'tempo-strict',
 };
 const ecdsaThresholdKeyId = 'ecdsa-strict-threshold-key';
+const ecdsaWalletKeyId = 'wallet-key-strict-ecdsa';
 const ecdsaSigningRootId = 'proj_strict:dev';
 const ecdsaSigningRootVersion = '1';
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-strict-threshold-key');
@@ -63,6 +65,15 @@ const ecdsaClientPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ecdsaRelayerPublicKeyB64u = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const ecdsaContextBindingB64u = base64UrlEncode(new Uint8Array(32).fill(7));
 const ecdsaStateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(8));
+const passkeyAuth = {
+  kind: 'passkey' as const,
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-strict-capability',
+};
+const emailOtpAuth = {
+  kind: 'email_otp' as const,
+  providerSubjectId: 'google:strict-capability',
+};
 
 function makeTestWalletSessionJwt(payload: Record<string, unknown>): string {
   return [
@@ -77,7 +88,7 @@ function makeLane() {
     walletId: ed25519WalletId,
     nearAccountId: accountId,
     ed25519KeyScopeId,
-    authMethod: 'passkey',
+    auth: passkeyAuth,
     signingGrantId,
     thresholdSessionId,
     storageSource: 'login',
@@ -92,6 +103,7 @@ function makeEd25519Record(
     nearAccountId: accountId,
     ed25519KeyScopeId,
     rpId: 'localhost',
+    passkeyCredentialIdB64u: 'credential-ed25519-strict-capability',
     relayerUrl: 'https://router.example.test',
     relayerKeyId: 'ed25519:strict-capability-relayer',
     participantIds: [1, 2],
@@ -142,7 +154,7 @@ function ecdsaOwnerAddress20B64u(): string {
 function makeEcdsaKey() {
   return buildBaseEvmFamilyEcdsaKeyIdentity({
     walletId: ecdsaWalletId,
-    rpId: 'localhost',
+    walletKeyId: ecdsaWalletKeyId,
     ecdsaThresholdKeyId,
     signingRootId: ecdsaSigningRootId,
     signingRootVersion: ecdsaSigningRootVersion,
@@ -157,6 +169,7 @@ function makeEcdsaLane() {
     key,
     keyHandle: ecdsaKeyHandle,
     walletId: ecdsaWalletId,
+    auth: emailOtpAuth,
     chainTarget: ecdsaChainTarget,
     signingGrantId: ecdsaSigningGrantId,
     thresholdSessionId: ecdsaThresholdSessionId,
@@ -167,15 +180,13 @@ function makeEcdsaRouterAbNormalSigning(): RouterAbEcdsaHssNormalSigningStateV1 
   return {
     kind: 'router_ab_ecdsa_hss_normal_signing_v1',
     scope: {
+      wallet_key_id: ecdsaWalletKeyId,
+      wallet_id: ecdsaWalletId,
+      ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+      signing_root_id: ecdsaSigningRootId,
+      signing_root_version: ecdsaSigningRootVersion,
       context: {
-        wallet_id: ecdsaWalletId,
-        rp_id: 'localhost',
-        key_scope: 'evm-family',
-        ecdsa_threshold_key_id: ecdsaThresholdKeyId,
-        signing_root_id: ecdsaSigningRootId,
-        signing_root_version: ecdsaSigningRootVersion,
-        key_purpose: 'evm-family-signing',
-        key_version: 'strict-test',
+        application_binding_digest_b64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       },
       public_identity: {
         context_binding_b64u: ecdsaContextBindingB64u,
@@ -208,6 +219,7 @@ function makeEcdsaRoleLocalReadyRecord() {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: ecdsaWalletId,
+      walletKeyId: ecdsaWalletKeyId,
       rpId: 'localhost',
       chainTarget: ecdsaChainTarget,
       keyHandle: ecdsaKeyHandle,
@@ -234,7 +246,7 @@ function makeEcdsaRecord(
 ): ThresholdEcdsaSessionRecord {
   return {
     walletId: ecdsaWalletId,
-    authMetadata: { rpId: 'localhost' },
+    authMetadata: { walletKeyId: 'localhost' },
     chainTarget: ecdsaChainTarget,
     relayerUrl: 'https://router.example.test',
     keyHandle: ecdsaKeyHandle,
@@ -568,10 +580,7 @@ test.describe('selected signing capability strict persisted records', () => {
         ...makeEcdsaRouterAbNormalSigning(),
         scope: {
           ...makeEcdsaRouterAbNormalSigning().scope,
-          context: {
-            ...makeEcdsaRouterAbNormalSigning().scope.context,
-            ecdsa_threshold_key_id: 'other-ecdsa-threshold-key',
-          },
+          ecdsa_threshold_key_id: 'other-ecdsa-threshold-key',
         },
       },
     });
@@ -589,10 +598,7 @@ test.describe('selected signing capability strict persisted records', () => {
         ...makeEcdsaRouterAbNormalSigning(),
         scope: {
           ...makeEcdsaRouterAbNormalSigning().scope,
-          context: {
-            ...makeEcdsaRouterAbNormalSigning().scope.context,
-            signing_root_version: '2',
-          },
+          signing_root_version: '2',
         },
       },
     });

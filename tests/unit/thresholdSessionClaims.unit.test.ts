@@ -60,6 +60,7 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
   if (kind !== 'threshold_ecdsa_session_v2') return claims;
   return {
     ...claims,
+    walletKeyId: 'wallet-key-alice',
     keyScope: 'evm-family',
     keyHandle: 'ehss-key-test',
   };
@@ -95,11 +96,12 @@ function routerAbEcdsaIssuerBinding(overrides: Record<string, unknown> = {}) {
   return {
     stableKeyContext: {
       walletId: 'alice.testnet',
-      rpId: 'example.localhost',
+      walletKeyId: 'wallet-key-alice',
       keyScope: 'evm-family',
       ecdsaThresholdKeyId: 'ehss-key-id',
       signingRootId: 'signing-root',
       signingRootVersion: 'default',
+      applicationBindingDigestB64u: b64u(Array.from({ length: 32 }, () => 7)),
       contextBinding32B64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
     },
     publicIdentity: {
@@ -166,9 +168,10 @@ function routerAbEcdsaBootstrap(): EcdsaHssServerBootstrapResponse {
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: 'alice.testnet',
-    rpId: 'example.localhost',
+    walletKeyId: 'wallet-key-alice',
     ecdsaThresholdKeyId: issuer.stableKeyContext.ecdsaThresholdKeyId,
     relayerKeyId: 'ecdsa-relayer-key-1',
+    applicationBindingDigestB64u: issuer.stableKeyContext.applicationBindingDigestB64u,
     contextBinding32B64u: issuer.stableKeyContext.contextBinding32B64u,
     publicIdentity: issuer.publicIdentity,
     clientShareRetryCounter: 0,
@@ -477,7 +480,7 @@ test.describe('threshold session auth token claims', () => {
       signRouterAbEcdsaHssWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        rpId: 'example.localhost',
+        walletKeyId: ecdsaBootstrap.walletKeyId,
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: {
           sessionKind: 'jwt',
@@ -528,7 +531,7 @@ test.describe('threshold session auth token claims', () => {
       signRouterAbEcdsaHssWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        rpId: 'example.localhost',
+        walletKeyId: 'wallet-key-alice-testnet',
         relayerKeyId: 'ecdsa-relayer-key-1',
         sessionInfo: {
           sessionKind: 'jwt',
@@ -566,7 +569,7 @@ test.describe('threshold session auth token claims', () => {
       signRouterAbEcdsaHssWalletSessionJwt({
         session,
         userId: 'alice.testnet',
-        rpId: 'example.localhost',
+        walletKeyId: ecdsaBootstrap.walletKeyId,
         relayerKeyId: ecdsaBootstrap.relayerKeyId,
         sessionInfo: issuerBindingOnlySessionInfo,
         requireJwtErrorMessage: 'jwt required',

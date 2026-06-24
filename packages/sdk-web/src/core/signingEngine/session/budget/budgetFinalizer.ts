@@ -25,6 +25,7 @@ import {
   type SigningAuthMethod,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
+import { signingLaneAuthMethod } from '../identity/signingLaneAuthBinding';
 
 export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
@@ -68,7 +69,7 @@ export function createSigningSessionBudgetFinalizer(
   const budget = args.budgetMode === 'with_budget' ? args.signingSessionBudget : null;
   if (
     spend &&
-    args.budgetIdentity.signingGrantId !== String(spend.signingGrantId)
+    args.budgetIdentity.signingGrantId !== String(spend.lane.signingGrantId)
   ) {
     throw new Error('[SigningSessionBudget] prepared budget identity does not match spend lane');
   }
@@ -129,7 +130,7 @@ function buildZeroSpendRecord(
       ...args.finalization,
       reason: inferSigningSessionBudgetZeroSpendReason({
         error,
-        authMethod: args.finalization.lane.authMethod,
+        authMethod: signingLaneAuthMethod(args.finalization.lane.auth),
       }),
       error,
     };
@@ -149,7 +150,7 @@ function buildZeroSpendRecord(
       lane: spend.lane,
       reason: inferSigningSessionBudgetZeroSpendReason({
         error,
-        authMethod: spend.lane.authMethod,
+        authMethod: signingLaneAuthMethod(spend.lane.auth),
       }),
       error,
     },

@@ -40,7 +40,7 @@ async function makeRoleLocalKeyRecord(
     version: 'threshold_ecdsa_hss_role_local_v2',
     ecdsaThresholdKeyId: 'threshold-key',
     walletId: 'alice.testnet',
-    rpId: 'example.localhost',
+    walletKeyId: 'wallet-key-example-localhost',
     signingRootId: 'signing-root',
     signingRootVersion: 'default',
     keyScope: 'evm-family',

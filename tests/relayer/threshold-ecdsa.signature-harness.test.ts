@@ -8,7 +8,6 @@ import {
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { RouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
-import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
@@ -25,7 +24,10 @@ import {
   open_ecdsa_role_local_signing_share_v1,
   threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
-import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
+import {
+  prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest,
+  sdkEcdsaHssApplicationBindingDigestB64u,
+} from '../helpers/thresholdEcdsaClientBootstrap';
 
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
@@ -190,18 +192,25 @@ function buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrapJson: Record<string
   const clientBootstrap = (bootstrapJson.clientBootstrap || {}) as Record<string, unknown>;
   const sessionExpiresAtMs = Number(bootstrapJson.expiresAtMs || Date.now() + 60_000);
   const expiresAtMs = Math.max(1, Math.min(sessionExpiresAtMs - 1, Date.now() + 30_000));
+  const walletId = String(bootstrapJson.walletId || '');
+  const ecdsaThresholdKeyId = String(bootstrapJson.ecdsaThresholdKeyId || '');
+  const signingRootId = String(bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID);
+  const signingRootVersion = String(
+    bootstrapJson.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion || 'default',
+  );
   const scope: RouterAbEcdsaHssNormalSigningScopeV1 = {
+    wallet_key_id: String(bootstrapJson.walletKeyId || ''),
+    wallet_id: walletId,
+    ecdsa_threshold_key_id: ecdsaThresholdKeyId,
+    signing_root_id: signingRootId,
+    signing_root_version: signingRootVersion,
     context: {
-      wallet_id: String(bootstrapJson.walletId || ''),
-      rp_id: String(bootstrapJson.rpId || ''),
-      key_scope: 'evm-family',
-      ecdsa_threshold_key_id: String(bootstrapJson.ecdsaThresholdKeyId || ''),
-      signing_root_id: String(bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID),
-      signing_root_version: String(
-        bootstrapJson.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion || 'default',
-      ),
-      key_purpose: 'normal-signing',
-      key_version: 'v1',
+      application_binding_digest_b64u: sdkEcdsaHssApplicationBindingDigestB64u({
+        walletId,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion,
+      }),
     },
     public_identity: {
       context_binding_b64u: String(
@@ -250,15 +259,16 @@ async function stagedBootstrapThresholdEcdsa(args: {
 }) {
   const signingRootId = TEST_SIGNING_ROOT_ID;
   const signingRootVersion = TEST_RUNTIME_SCOPE.signingRootVersion;
+  const walletKeyId = `wallet-key-${args.userId}`;
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
     walletId: args.userId,
-    rpId: args.rpId,
+    walletKeyId,
     signingRootId,
     signingRootVersion,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
     walletId: args.userId,
-    rpId: args.rpId,
+    walletKeyId,
   });
   const signingGrantId = `${args.sessionId}:wallet-signing`;
   const ttlMs = args.ttlMs ?? 60_000;
@@ -268,8 +278,6 @@ async function stagedBootstrapThresholdEcdsa(args: {
   const preparedClientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
     context: {
       walletId: args.userId,
-      rpId: args.rpId,
-      chainTarget: TEST_ECDSA_CHAIN_TARGET,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
@@ -283,7 +291,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     body: JSON.stringify({
       formatVersion: 'ecdsa-hss-role-local',
       walletId: args.userId,
-      rpId: args.rpId,
+      walletKeyId,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
@@ -300,6 +308,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
       participantIds: args.participantIds,
       passkeyBootstrapAuthorization: {
         kind: 'passkey_bootstrap',
+        rpId: args.rpId,
         webauthn_authentication: fakeWebAuthnAuthentication(),
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
       },
@@ -330,53 +339,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     ...readyClientBootstrap,
     clientAdditiveShare32B64u: openedClientSigningShare.signingShare32B64u,
   };
-  const jwt = await args.session.signJwt(args.userId, {
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-    walletId: args.userId,
-    thresholdSessionId: String(value.thresholdSessionId || value.sessionId || args.sessionId),
-    signingGrantId: String(value.signingGrantId || signingGrantId),
-    keyScope: 'evm-family',
-    keyHandle: String(value.keyHandle || ''),
-    relayerKeyId: String(value.relayerKeyId || relayerKeyId),
-    rpId: args.rpId,
-    thresholdExpiresAtMs: Number(value.expiresAtMs || Date.now() + ttlMs),
-    participantIds: Array.isArray(value.participantIds)
-      ? value.participantIds
-      : args.participantIds,
-    runtimePolicyScope: TEST_RUNTIME_SCOPE,
-    routerAbEcdsaHssNormalSigning: {
-      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
-      scope: {
-        context: {
-          wallet_id: args.userId,
-          rp_id: args.rpId,
-          key_scope: 'evm-family',
-          ecdsa_threshold_key_id: ecdsaThresholdKeyId,
-          signing_root_id: signingRootId,
-          signing_root_version: signingRootVersion,
-          key_purpose: 'evm-signing',
-          key_version: 'v1',
-        },
-        public_identity: {
-          context_binding_b64u: preparedClientBootstrap.contextBinding32B64u,
-          client_public_key33_b64u: preparedClientBootstrap.hssClientSharePublicKey33B64u,
-          server_public_key33_b64u: String(publicIdentity.relayerPublicKey33B64u || ''),
-          threshold_public_key33_b64u: String(publicIdentity.groupPublicKey33B64u || ''),
-          ethereum_address20_b64u: hexAddress20ToB64u(
-            String(publicIdentity.ethereumAddress || ''),
-          ),
-          client_share_retry_counter: Number(preparedClientBootstrap.clientShareRetryCounter || 0),
-          server_share_retry_counter: Number(value.relayerShareRetryCounter || 0),
-        },
-        signing_worker: {
-          server_id: 'signing-worker-test',
-          key_epoch: 'signing-worker-output-epoch',
-          recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
-        },
-        activation_epoch: String(value.sessionId || args.sessionId),
-      },
-    },
-  });
+  const jwt = String(value.jwt || '');
 
   return {
     ...bootstrap,
@@ -431,13 +394,13 @@ async function stagedExplicitExportThresholdEcdsa(args: {
           stateBlobB64u: String(clientBootstrap.stateBlobB64u || ''),
         },
         publicFacts: {
-          walletId: args.userId,
-          rpId: args.rpId,
-          chainTarget: TEST_ECDSA_CHAIN_TARGET,
           keyHandle: String(args.bootstrapJson.keyHandle || ''),
-          ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-          signingRootId,
-          signingRootVersion,
+          applicationBindingDigestB64u: sdkEcdsaHssApplicationBindingDigestB64u({
+            walletId: args.userId,
+            ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+            signingRootId,
+            signingRootVersion,
+          }),
           clientParticipantId: 1,
           relayerParticipantId: 2,
           participantIds: Array.isArray(args.bootstrapJson.participantIds)
@@ -454,12 +417,6 @@ async function stagedExplicitExportThresholdEcdsa(args: {
           relayerPublicKey33B64u: String(publicIdentity.relayerPublicKey33B64u || ''),
           groupPublicKey33B64u: String(publicIdentity.groupPublicKey33B64u || ''),
           ethereumAddress: String(publicIdentity.ethereumAddress || ''),
-        },
-        authorization: {
-          kind: 'passkey_export_authorized',
-          walletId: args.userId,
-          rpId: args.rpId,
-          credentialIdB64u: base64UrlEncode(new Uint8Array([1])),
         },
         serverExportShare32B64u: String(exportValue.serverExportShare32B64u || ''),
       }),
@@ -488,6 +445,7 @@ async function buildRoleLocalExportShareRequest(args: {
   bootstrapJson: Record<string, unknown>;
 }) {
   const keyHandle = String(args.bootstrapJson.keyHandle || '');
+  const walletKeyId = String(args.bootstrapJson.walletKeyId || '');
   const relayerKeyId = String(args.bootstrapJson.relayerKeyId || '');
   const signingRootId = String(args.bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID);
   const signingRootVersion = String(
@@ -501,7 +459,7 @@ async function buildRoleLocalExportShareRequest(args: {
   const requestWithoutDigests = {
     formatVersion: 'ecdsa-hss-role-local-export',
     walletId: args.userId,
-    rpId: args.rpId,
+    walletKeyId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -515,7 +473,7 @@ async function buildRoleLocalExportShareRequest(args: {
   const confirmationDigest32B64u = await digestB64u({
     version: EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId: args.userId,
-    rpId: args.rpId,
+    walletKeyId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -534,7 +492,7 @@ async function buildRoleLocalExportShareRequest(args: {
       operation: 'explicit_key_export',
       keyHandle,
       walletId: args.userId,
-      rpId: args.rpId,
+      walletKeyId,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       relayerKeyId,
       signingRootId,
@@ -547,7 +505,7 @@ async function buildRoleLocalExportShareRequest(args: {
       expiresAtUnixMs,
       clientDeviceId: requestWithoutDigests.clientDeviceId,
       clientSessionId: requestWithoutDigests.clientSessionId,
-      thresholdSessionId: String(args.bootstrapJson.sessionId || ''),
+      thresholdSessionId: String(args.bootstrapJson.thresholdSessionId || ''),
       signingGrantId: String(args.bootstrapJson.signingGrantId || ''),
       thresholdExpiresAtMs: Number(args.bootstrapJson.expiresAtMs || 0),
       participantIds: args.bootstrapJson.participantIds,

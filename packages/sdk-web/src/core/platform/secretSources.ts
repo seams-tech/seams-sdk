@@ -10,6 +10,7 @@ import {
   toEmailOtpAuthSubjectId,
   type EmailOtpAuthSubjectId,
 } from '../signingEngine/session/identity/emailOtpHssIdentity';
+import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
 import type { RelayerKeyId } from './ecdsaRoleLocalRecords';
 
 const clientSecretSourceBrand: unique symbol = Symbol('ClientSecretSource');
@@ -46,11 +47,12 @@ export type EmailOtpWorkerIssuedSessionHandle = {
       kind: 'email_otp_worker_session_handle_v1';
       sessionId: string;
       walletId: WalletId;
-      rpId: RpId;
+      walletKeyId: WalletKeyId;
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ecdsa_bootstrap';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
       chainTarget: ThresholdEcdsaChainTarget;
+      rpId?: never;
     }
   | {
       kind: 'email_otp_worker_session_handle_v1';
@@ -60,6 +62,7 @@ export type EmailOtpWorkerIssuedSessionHandle = {
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ed25519_session';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
+      walletKeyId?: never;
       chainTarget?: never;
     }
 );
@@ -74,11 +77,12 @@ export type EmailOtpWorkerIssuedSessionHandleInput =
   | {
       sessionId: string;
       walletId: WalletId;
-      rpId: RpId;
+      walletKeyId: WalletKeyId;
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ecdsa_bootstrap';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
       chainTarget: ThresholdEcdsaChainTarget;
+      rpId?: never;
     }
   | {
       sessionId: string;
@@ -87,6 +91,7 @@ export type EmailOtpWorkerIssuedSessionHandleInput =
       authSubjectId: EmailOtpAuthSubjectId;
       action: 'threshold_ed25519_session';
       operation: 'registration' | 'wallet_unlock' | 'sign' | 'export';
+      walletKeyId?: never;
       chainTarget?: never;
     };
 
@@ -111,6 +116,14 @@ function requirePlatformObject(value: unknown, field: string): Record<string, un
     throw new Error(`[platform] ${field} must be an object`);
   }
   return value as Record<string, unknown>;
+}
+
+function requirePlatformWalletKeyId(value: unknown, field: string): WalletKeyId {
+  const parsed = parseWalletKeyId(value);
+  if (!parsed.ok) {
+    throw new Error(`[platform] ${field} is invalid: ${parsed.error.message}`);
+  }
+  return parsed.value;
 }
 
 export type RequiredPrfSecretSourceInput = {
@@ -147,26 +160,28 @@ export function buildEmailOtpWorkerIssuedSessionHandle(
   input: EmailOtpWorkerIssuedSessionHandleInput,
 ): EmailOtpWorkerIssuedSessionHandle {
   const sessionId = requirePlatformString(input.sessionId, 'sessionId');
-  const base = {
-    kind: 'email_otp_worker_session_handle_v1' as const,
-    sessionId,
-    walletId: input.walletId,
-    rpId: input.rpId,
-    authSubjectId: input.authSubjectId,
-    operation: input.operation,
-  };
   switch (input.action) {
     case 'threshold_ecdsa_bootstrap':
       return {
-        ...base,
+        kind: 'email_otp_worker_session_handle_v1',
+        sessionId,
+        walletId: input.walletId,
+        walletKeyId: input.walletKeyId,
+        authSubjectId: input.authSubjectId,
         action: 'threshold_ecdsa_bootstrap',
+        operation: input.operation,
         chainTarget: input.chainTarget,
         [emailOtpWorkerSessionHandleBrand]: 'email_otp_worker_session_handle',
       };
     case 'threshold_ed25519_session':
       return {
-        ...base,
+        kind: 'email_otp_worker_session_handle_v1',
+        sessionId,
+        walletId: input.walletId,
+        rpId: input.rpId,
+        authSubjectId: input.authSubjectId,
         action: 'threshold_ed25519_session',
+        operation: input.operation,
         [emailOtpWorkerSessionHandleBrand]: 'email_otp_worker_session_handle',
       };
     default: {
@@ -212,14 +227,22 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
       'email OTP worker-issued handle sessionId',
     ),
     walletId: toWalletId(payload.walletId),
-    rpId: toRpId(payload.rpId),
     authSubjectId: toEmailOtpAuthSubjectId(payload.authSubjectId),
     operation: normalizedOperation,
   };
   if (action === 'threshold_ecdsa_bootstrap') {
+    if ('rpId' in payload) {
+      throw new Error(
+        '[platform] email OTP ECDSA worker-issued handles cannot include rpId',
+      );
+    }
     return buildEmailOtpWorkerIssuedSessionHandle({
       ...base,
       action,
+      walletKeyId: requirePlatformWalletKeyId(
+        payload.walletKeyId,
+        'email OTP worker-issued handle walletKeyId',
+      ),
       chainTarget: thresholdEcdsaChainTargetFromRequest(
         requirePlatformObject(payload.chainTarget, 'email OTP worker-issued handle chainTarget'),
       ),
@@ -231,9 +254,15 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
         '[platform] email OTP Ed25519 worker-issued handles cannot include chainTarget',
       );
     }
+    if ('walletKeyId' in payload) {
+      throw new Error(
+        '[platform] email OTP Ed25519 worker-issued handles cannot include walletKeyId',
+      );
+    }
     return buildEmailOtpWorkerIssuedSessionHandle({
       ...base,
       action,
+      rpId: toRpId(payload.rpId),
     });
   }
   throw new Error(`[platform] unsupported email OTP worker-issued handle action: ${action}`);

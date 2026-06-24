@@ -111,7 +111,7 @@ function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsa
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: requireEmailRecoveryString(value.walletId, 'walletId'),
-    rpId: requireEmailRecoveryString(value.rpId, 'rpId'),
+    walletKeyId: requireEmailRecoveryString(value.walletKeyId, 'walletKeyId'),
     ecdsaThresholdKeyId: requireEmailRecoveryString(
       value.ecdsaThresholdKeyId,
       'ecdsaThresholdKeyId',
@@ -158,7 +158,7 @@ function parseEmailRecoveryEcdsaWalletKeys(value: unknown): WalletRegistrationEc
       keyScope: 'evm-family',
       chainTarget,
       walletId: requireEmailRecoveryString(raw.walletId, 'walletId'),
-      rpId: requireEmailRecoveryString(raw.rpId, 'rpId'),
+      walletKeyId: requireEmailRecoveryString(raw.walletKeyId, 'walletKeyId'),
       keyHandle: requireEmailRecoveryString(raw.keyHandle, 'keyHandle'),
       ecdsaThresholdKeyId: requireEmailRecoveryString(
         raw.ecdsaThresholdKeyId,
@@ -503,6 +503,7 @@ export class EmailRecoveryDomain {
       const preparedClientBootstrap = await context.signingEngine.preparePasskeyEcdsaBootstrap({
         prepare: ecdsaPrepare,
         chainTarget: primaryEcdsaProvisionTarget.chainTarget,
+        rpId,
         passkeyPrfFirstB64u,
         credentialIdB64u: String(credential.rawId || credential.id || '').trim(),
       });
