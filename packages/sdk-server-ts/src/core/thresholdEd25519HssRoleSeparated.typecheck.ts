@@ -75,6 +75,7 @@ const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScop
   rpId: 'wallet.example.test',
   intentDigestB64u: 'intent-digest',
   signingRootId: 'project:env',
+  signingRootVersion: 'v1',
   ed25519KeyScopeId: 'alice.near',
   signerSlot: 1,
   keyPurpose: 'near-ed25519',

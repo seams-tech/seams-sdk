@@ -5,12 +5,8 @@ use std::{fs, path::PathBuf};
 
 fn sample_context() -> production::shared::CanonicalContext {
     production::shared::CanonicalContext {
-        org_id: "acme".to_string(),
-        account_id: "alice".to_string(),
-        key_purpose: "signing".to_string(),
-        key_version: "v1".to_string(),
+        application_binding_digest: [0x42; 32],
         participant_ids: vec![7, 11],
-        derivation_version: 1,
     }
 }
 

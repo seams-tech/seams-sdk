@@ -2549,20 +2549,14 @@ async function registerWalletInternal(
               credential: passkeyAuthority!.credential,
               runtimePolicyScope: thresholdRuntimePolicyScope,
               ed25519KeyScopeId,
-              keyPurpose: ed25519Selection.keyPurpose,
-              ed25519HssKeyVersion: parseEd25519HssKeyVersion(ed25519Selection.keyVersion),
               participantIds: ed25519Selection.participantIds,
-              derivationVersion: ed25519Selection.derivationVersion,
             })
           : await prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst({
               context,
               prfFirstB64u: ed25519PrfFirstB64u,
               runtimePolicyScope: thresholdRuntimePolicyScope,
               ed25519KeyScopeId,
-              keyPurpose: ed25519Selection.keyPurpose,
-              ed25519HssKeyVersion: parseEd25519HssKeyVersion(ed25519Selection.keyVersion),
               participantIds: ed25519Selection.participantIds,
-              derivationVersion: ed25519Selection.derivationVersion,
             }),
     );
     const preparedRegistrationOutcome = await registrationTiming.measure(
@@ -3197,10 +3191,7 @@ export async function addWalletSigner(args: {
         credential: webauthnAuthentication,
         runtimePolicyScope: thresholdRuntimePolicyScope,
         ed25519KeyScopeId,
-        keyPurpose: signerSelection.ed25519.keyPurpose,
-        ed25519HssKeyVersion: parseEd25519HssKeyVersion(signerSelection.ed25519.keyVersion),
         participantIds: signerSelection.ed25519.participantIds,
-        derivationVersion: signerSelection.ed25519.derivationVersion,
       });
       const startedCeremony = await startWalletAddSigner({
         relayerUrl,

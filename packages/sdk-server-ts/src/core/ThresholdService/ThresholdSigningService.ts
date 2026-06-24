@@ -7,7 +7,9 @@ import {
   parseSdkEcdsaHssThresholdKeyId,
   type EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEd25519HssApplicationBindingDigestB64u } from '@shared/threshold/ed25519HssBinding';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import { isObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   deriveImplicitNearAccountIdFromEd25519PublicKey,
@@ -934,43 +936,66 @@ function parseThresholdEd25519HssCanonicalContext(
   if (!isObject(raw)) {
     return { ok: false, code: 'invalid_body', message: 'context is required' };
   }
-  const signingRootId = toOptionalTrimmedString(raw.signingRootId);
-  const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
-  const keyPurpose = toOptionalTrimmedString(raw.keyPurpose);
-  const keyVersion = toOptionalTrimmedString(raw.keyVersion);
+  const forbidden = [
+    'signingRootId',
+    'signing_root_id',
+    'nearAccountId',
+    'near_account_id',
+    'accountId',
+    'account_id',
+    'keyPurpose',
+    'key_purpose',
+    'keyVersion',
+    'key_version',
+    'ed25519KeyScopeId',
+    'ed25519_key_scope_id',
+    'signingRootVersion',
+    'signing_root_version',
+    'derivationVersion',
+    'derivation_version',
+  ] as const;
+  for (const field of forbidden) {
+    if (Object.prototype.hasOwnProperty.call(raw, field)) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `context.${field} is not allowed in Ed25519-HSS context`,
+      };
+    }
+  }
+  const applicationBindingDigestB64u = toOptionalTrimmedString(raw.applicationBindingDigestB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  const derivationVersion = Number(raw.derivationVersion);
-  if (!signingRootId) {
-    return { ok: false, code: 'invalid_body', message: 'context.signingRootId is required' };
+  if (!applicationBindingDigestB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'context.applicationBindingDigestB64u is required',
+    };
   }
-  if (!nearAccountId) {
-    return { ok: false, code: 'invalid_body', message: 'context.nearAccountId is required' };
-  }
-  if (!keyPurpose) {
-    return { ok: false, code: 'invalid_body', message: 'context.keyPurpose is required' };
-  }
-  if (!keyVersion) {
-    return { ok: false, code: 'invalid_body', message: 'context.keyVersion is required' };
+  try {
+    const decoded = base64UrlDecode(applicationBindingDigestB64u);
+    if (decoded.length !== 32) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'context.applicationBindingDigestB64u must decode to 32 bytes',
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'context.applicationBindingDigestB64u must be valid base64url',
+    };
   }
   if (!participantIds || participantIds.length < 2) {
     return { ok: false, code: 'invalid_body', message: 'context.participantIds is required' };
   }
-  if (!Number.isFinite(derivationVersion) || derivationVersion < 1) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'context.derivationVersion must be a positive number',
-    };
-  }
   return {
     ok: true,
     value: {
-      signingRootId,
-      nearAccountId,
-      keyPurpose,
-      keyVersion,
+      applicationBindingDigestB64u,
       participantIds,
-      derivationVersion,
     },
   };
 }
@@ -990,6 +1015,7 @@ function parseThresholdEd25519RegistrationAccountScope(
   const rpId = toOptionalTrimmedString(raw.rpId);
   const intentDigestB64u = toOptionalTrimmedString(raw.intentDigestB64u);
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
   const ed25519KeyScopeId = toOptionalTrimmedString(raw.ed25519KeyScopeId);
   const keyPurpose = toOptionalTrimmedString(raw.keyPurpose);
   const keyVersion = toOptionalTrimmedString(raw.keyVersion);
@@ -1001,6 +1027,7 @@ function parseThresholdEd25519RegistrationAccountScope(
     !rpId ||
     !intentDigestB64u ||
     !signingRootId ||
+    !signingRootVersion ||
     !ed25519KeyScopeId ||
     !keyPurpose ||
     !keyVersion ||
@@ -1015,7 +1042,7 @@ function parseThresholdEd25519RegistrationAccountScope(
       ok: false,
       code: 'invalid_body',
       message:
-        'registrationAccountScope requires walletId, rpId, intentDigestB64u, signingRootId, ed25519KeyScopeId, signerSlot, keyPurpose, keyVersion, derivationVersion, and participantIds',
+        'registrationAccountScope requires walletId, rpId, intentDigestB64u, signingRootId, signingRootVersion, ed25519KeyScopeId, signerSlot, keyPurpose, keyVersion, derivationVersion, and participantIds',
     };
   }
   const common = {
@@ -1023,6 +1050,7 @@ function parseThresholdEd25519RegistrationAccountScope(
     rpId,
     intentDigestB64u,
     signingRootId,
+    signingRootVersion,
     ed25519KeyScopeId,
     signerSlot,
     keyPurpose,
@@ -1110,6 +1138,7 @@ function thresholdEd25519RegistrationAccountScopesEqual(
     left.rpId !== right.rpId ||
     left.intentDigestB64u !== right.intentDigestB64u ||
     left.signingRootId !== right.signingRootId ||
+    left.signingRootVersion !== right.signingRootVersion ||
     left.ed25519KeyScopeId !== right.ed25519KeyScopeId ||
     left.signerSlot !== right.signerSlot ||
     left.keyPurpose !== right.keyPurpose ||
@@ -2320,7 +2349,6 @@ export class ThresholdSigningService {
 
   private async maybeRepairRelayerKeyMaterialFromSessionHssFinalize(input: {
     claims: ThresholdEd25519SessionClaims;
-    context: ThresholdEd25519HssCanonicalContext;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
     serverOutput: { contextBindingB64u: string; xRelayerBaseB64u: string };
   }): Promise<{ repaired: boolean }> {
@@ -2329,7 +2357,6 @@ export class ThresholdSigningService {
     const nearAccountId = toOptionalTrimmedString(input.claims.nearAccountId);
     const ed25519KeyScopeId = toOptionalTrimmedString(input.claims.ed25519KeyScopeId);
     const rpId = toOptionalTrimmedString(input.claims.rpId);
-    const keyVersion = toOptionalTrimmedString(input.context.keyVersion);
     const relayerSigningShareB64u = toOptionalTrimmedString(input.serverOutput.xRelayerBaseB64u);
     if (
       !relayerKeyId ||
@@ -2337,13 +2364,13 @@ export class ThresholdSigningService {
       !nearAccountId ||
       !ed25519KeyScopeId ||
       !rpId ||
-      !keyVersion ||
       !relayerSigningShareB64u
     ) {
       throw new Error('[threshold-ed25519] missing scope while attempting relayer share self-heal');
     }
 
     const startedAt = Date.now();
+    let repairKeyVersion = '';
     try {
       const relayerVerifyingShare = await deriveThresholdEd25519VerifyingShareFromSigningShare({
         signingShareB64u: relayerSigningShareB64u,
@@ -2355,40 +2382,31 @@ export class ThresholdSigningService {
         throw new Error('[threshold-ed25519] relayer share self-heal produced no verifying share');
       }
 
-      const repairedRecord: ThresholdEd25519KeyRecord = {
-        walletId,
-        nearAccountId,
-        ed25519KeyScopeId,
-        rpId,
-        publicKey: relayerKeyId,
-        relayerSigningShareB64u,
-        relayerVerifyingShareB64u,
-        keyVersion,
-        recoveryExportCapable: true,
-      };
-
       const existing = await this.keyStore.get(relayerKeyId);
-      if (existing) {
-        if (
-          existing.nearAccountId !== nearAccountId ||
-          existing.walletId !== walletId ||
-          existing.ed25519KeyScopeId !== ed25519KeyScopeId ||
-          existing.rpId !== rpId ||
-          existing.publicKey !== relayerKeyId
-        ) {
-          throw new Error(
-            '[threshold-ed25519] relayer share self-heal refused conflicting key identity',
-          );
-        }
-        const existingSigningShareB64u = toOptionalTrimmedString(existing.relayerSigningShareB64u);
-        const existingVerifyingShareB64u = toOptionalTrimmedString(
-          existing.relayerVerifyingShareB64u,
+      if (!existing) {
+        throw new Error(
+          '[threshold-ed25519] relayer share self-heal requires an existing key record',
         );
-        if (!existingSigningShareB64u || !existingVerifyingShareB64u) {
-          throw new Error(
-            '[threshold-ed25519] relayer share self-heal refused incomplete existing key material',
-          );
-        }
+      }
+      if (
+        existing.nearAccountId !== nearAccountId ||
+        existing.walletId !== walletId ||
+        existing.ed25519KeyScopeId !== ed25519KeyScopeId ||
+        existing.rpId !== rpId ||
+        existing.publicKey !== relayerKeyId
+      ) {
+        throw new Error(
+          '[threshold-ed25519] relayer share self-heal refused conflicting key identity',
+        );
+      }
+      const keyVersion = toOptionalTrimmedString(existing.keyVersion);
+      if (!keyVersion) {
+        throw new Error('[threshold-ed25519] relayer share self-heal found no keyVersion');
+      }
+      repairKeyVersion = keyVersion;
+      const existingSigningShareB64u = toOptionalTrimmedString(existing.relayerSigningShareB64u);
+      const existingVerifyingShareB64u = toOptionalTrimmedString(existing.relayerVerifyingShareB64u);
+      if (existingSigningShareB64u && existingVerifyingShareB64u) {
         const derivedExistingVerifyingShare =
           await deriveThresholdEd25519VerifyingShareFromSigningShare({
             signingShareB64u: existingSigningShareB64u,
@@ -2402,10 +2420,9 @@ export class ThresholdSigningService {
           );
         }
         if (
-          existing.relayerSigningShareB64u === repairedRecord.relayerSigningShareB64u &&
-          existing.relayerVerifyingShareB64u === repairedRecord.relayerVerifyingShareB64u &&
-          existing.keyVersion === repairedRecord.keyVersion &&
-          existing.recoveryExportCapable === repairedRecord.recoveryExportCapable
+          existing.relayerSigningShareB64u === relayerSigningShareB64u &&
+          existing.relayerVerifyingShareB64u === relayerVerifyingShareB64u &&
+          existing.recoveryExportCapable === true
         ) {
           return { repaired: false };
         }
@@ -2414,14 +2431,20 @@ export class ThresholdSigningService {
         );
       }
 
+      const repairedRecord: ThresholdEd25519KeyRecord = {
+        ...existing,
+        relayerSigningShareB64u,
+        relayerVerifyingShareB64u,
+        recoveryExportCapable: true,
+      };
       await this.keyStore.put(relayerKeyId, repairedRecord);
       this.logger?.warn?.('[threshold-ed25519] relayer share self-heal', {
         relayerKeyId,
         nearAccountId,
         rpId,
-        keyVersion,
+        keyVersion: repairKeyVersion,
         durationMs: Date.now() - startedAt,
-        outcome: 'created_missing',
+        outcome: 'repaired_existing',
       });
       return { repaired: true };
     } catch (error: unknown) {
@@ -2429,7 +2452,7 @@ export class ThresholdSigningService {
         relayerKeyId,
         nearAccountId,
         rpId,
-        keyVersion,
+        keyVersion: repairKeyVersion,
         durationMs: Date.now() - startedAt,
         outcome: 'failure',
         message: errorMessage(error),
@@ -4403,12 +4426,24 @@ export class ThresholdSigningService {
     }
   }
 
-  private validateThresholdEd25519HssSessionScope(input: {
+  private async expectedThresholdEd25519HssApplicationBindingDigestB64u(input: {
+    ed25519KeyScopeId: unknown;
+    signingRootId: unknown;
+    signingRootVersion: unknown;
+  }): Promise<string> {
+    return await computeSdkEd25519HssApplicationBindingDigestB64u({
+      ed25519KeyScopeId: ed25519KeyScopeIdFromString(String(input.ed25519KeyScopeId || '')),
+      signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
+      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
+    });
+  }
+
+  private async validateThresholdEd25519HssSessionScope(input: {
     claims: ThresholdEd25519SessionClaims;
     relayerKeyId: string;
     context: ThresholdEd25519HssCanonicalContext;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  }): ThresholdEd25519HssSessionError | null {
+  }): Promise<ThresholdEd25519HssSessionError | null> {
     const sessionId = toOptionalTrimmedString(input.claims?.thresholdSessionId);
     if (!sessionId) {
       return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
@@ -4438,13 +4473,6 @@ export class ThresholdSigningService {
         };
       }
     }
-    if (input.context.nearAccountId !== userId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'context.nearAccountId does not match threshold session scope',
-      };
-    }
     if (!haveSameParticipantIds(input.context.participantIds, input.claims.participantIds)) {
       return {
         ok: false,
@@ -4459,14 +4487,25 @@ export class ThresholdSigningService {
         message: 'preparedSession.contextBindingB64u is required',
       };
     }
-    const claimSigningRootId = resolveEcdsaSigningRootFromScope(
-      input.claims.runtimePolicyScope,
-    )?.signingRootId;
-    if (claimSigningRootId && claimSigningRootId !== input.context.signingRootId) {
+    const claimSigningRoot = resolveEcdsaSigningRootFromScope(input.claims.runtimePolicyScope);
+    const ed25519KeyScopeId = toOptionalTrimmedString(input.claims.ed25519KeyScopeId);
+    if (!claimSigningRoot?.signingRootId || !claimSigningRoot.signingRootVersion || !ed25519KeyScopeId) {
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'context.signingRootId does not match threshold session scope',
+        message: 'Wallet Session is missing Ed25519 HSS binding facts',
+      };
+    }
+    const expectedDigest = await this.expectedThresholdEd25519HssApplicationBindingDigestB64u({
+      ed25519KeyScopeId,
+      signingRootId: claimSigningRoot.signingRootId,
+      signingRootVersion: claimSigningRoot.signingRootVersion,
+    });
+    if (input.context.applicationBindingDigestB64u !== expectedDigest) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'context.applicationBindingDigestB64u does not match threshold session scope',
       };
     }
     return null;
@@ -4493,49 +4532,26 @@ export class ThresholdSigningService {
     return null;
   }
 
-  private validateThresholdEd25519HssRegistrationScope(input: {
+  private async validateThresholdEd25519HssRegistrationScope(input: {
     orgId: string;
     registrationAccountScope: ThresholdEd25519RegistrationAccountScope;
     context: ThresholdEd25519HssCanonicalContext;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  }): ThresholdEd25519HssSessionError | null {
+  }): Promise<ThresholdEd25519HssSessionError | null> {
     const scope = input.registrationAccountScope;
     if (!input.orgId) {
       return { ok: false, code: 'unauthorized', message: 'Missing registration orgId' };
     }
-    if (input.context.signingRootId !== scope.signingRootId) {
+    const expectedDigest = await this.expectedThresholdEd25519HssApplicationBindingDigestB64u({
+      ed25519KeyScopeId: scope.ed25519KeyScopeId,
+      signingRootId: scope.signingRootId,
+      signingRootVersion: scope.signingRootVersion,
+    });
+    if (input.context.applicationBindingDigestB64u !== expectedDigest) {
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'context.signingRootId does not match registration scope',
-      };
-    }
-    if (input.context.nearAccountId !== scope.ed25519KeyScopeId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'context.nearAccountId does not match registration ed25519KeyScopeId',
-      };
-    }
-    if (input.context.keyPurpose !== scope.keyPurpose) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'context.keyPurpose does not match registration scope',
-      };
-    }
-    if (input.context.keyVersion !== scope.keyVersion) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'context.keyVersion does not match registration scope',
-      };
-    }
-    if (input.context.derivationVersion !== scope.derivationVersion) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'context.derivationVersion does not match registration scope',
+        message: 'context.applicationBindingDigestB64u does not match registration scope',
       };
     }
     if (!haveSameParticipantIds(input.context.participantIds, scope.participantIds)) {
@@ -4552,15 +4568,16 @@ export class ThresholdSigningService {
   }
 
   private validateThresholdEd25519HssSigningRootConstraint(input: {
-    context: ThresholdEd25519HssCanonicalContext;
+    actualSigningRootId?: unknown;
     expectedSigningRootId?: unknown;
   }): ThresholdEd25519HssSessionError | null {
     const expectedSigningRootId = toOptionalTrimmedString(input.expectedSigningRootId);
-    if (expectedSigningRootId && expectedSigningRootId !== input.context.signingRootId) {
+    const actualSigningRootId = toOptionalTrimmedString(input.actualSigningRootId);
+    if (expectedSigningRootId && actualSigningRootId && expectedSigningRootId !== actualSigningRootId) {
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'context.signingRootId does not match authenticated signing root scope',
+        message: 'signingRootId does not match authenticated signing root scope',
       };
     }
     return null;
@@ -4568,6 +4585,7 @@ export class ThresholdSigningService {
 
   private async deriveSigningRootEd25519HssServerInputsForContext(
     context: ThresholdEd25519HssCanonicalContext,
+    signingRootId: string | undefined,
     signingRoot?: { readonly signingRootVersion?: unknown },
   ): Promise<ThresholdEd25519HssCanonicalContext & ThresholdEd25519HssServerInputs> {
     if (!this.signingRootShareResolver) {
@@ -4578,8 +4596,13 @@ export class ThresholdSigningService {
     const signingRootVersion =
       toOptionalTrimmedString(signingRoot?.signingRootVersion) ||
       toOptionalTrimmedString(fixedScope?.signingRootVersion);
+    const resolvedSigningRootId =
+      toOptionalTrimmedString(signingRootId) || toOptionalTrimmedString(fixedScope?.signingRootId);
+    if (!resolvedSigningRootId) {
+      throw new Error('threshold-ed25519 HSS requires a signingRootId');
+    }
     const derived = await deriveEd25519HssServerInputsFromSigningRootShareResolver({
-      signingRootId: context.signingRootId,
+      signingRootId: resolvedSigningRootId,
       ...(signingRootVersion ? { signingRootVersion } : {}),
       resolver: this.signingRootShareResolver,
       context,
@@ -4610,7 +4633,7 @@ export class ThresholdSigningService {
         ? signingRootScopeFromRuntimePolicyScope(input.claims.runtimePolicyScope)
         : undefined;
       const signingRootConstraintError = this.validateThresholdEd25519HssSigningRootConstraint({
-        context: context.value,
+        actualSigningRootId: expectedSigningRoot?.signingRootId,
         expectedSigningRootId: expectedSigningRoot?.signingRootId,
       });
       if (signingRootConstraintError) return signingRootConstraintError;
@@ -4635,6 +4658,7 @@ export class ThresholdSigningService {
           try {
             return await this.deriveSigningRootEd25519HssServerInputsForContext(
               context.value,
+              expectedSigningRoot?.signingRootId,
               expectedSigningRoot,
             );
           } finally {
@@ -4665,7 +4689,7 @@ export class ThresholdSigningService {
         yRelayerBytes: base64UrlDecode(serverInputs.yRelayerB64u),
         tauRelayerBytes: base64UrlDecode(serverInputs.tauRelayerB64u),
       };
-      const scopeError = this.validateThresholdEd25519HssSessionScope({
+      const scopeError = await this.validateThresholdEd25519HssSessionScope({
         claims: input.claims,
         relayerKeyId,
         context: context.value,
@@ -4690,7 +4714,7 @@ export class ThresholdSigningService {
 
       this.logger?.info?.('[threshold-ed25519] hss prepare timings', {
         relayerKeyId,
-        nearAccountId: context.value.nearAccountId,
+        nearAccountId: input.claims.nearAccountId,
         requestBytes: jsonBytes(input.request || {}),
         parseMs,
         ensureReadyMs: wasmStartedAt - ensureReadyStartedAt,
@@ -4746,22 +4770,22 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const rpId = toOptionalTrimmedString(rec.rp_id);
+      const rpId = toOptionalTrimmedString(rec.wallet_key_id);
       if (!rpId) {
-        return { ok: false, code: 'invalid_body', message: 'rp_id is required' };
+        return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
       }
       if (registrationAccountScope.value.rpId !== rpId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.rpId does not match rp_id',
+          message: 'registrationAccountScope.rpId does not match wallet_key_id',
         };
       }
       const ed25519KeyScopeId = registrationAccountScope.value.ed25519KeyScopeId;
       const context = parseThresholdEd25519HssCanonicalContext(rec.context);
       if (!context.ok) return context;
       const signingRootConstraintError = this.validateThresholdEd25519HssSigningRootConstraint({
-        context: context.value,
+        actualSigningRootId: registrationAccountScope.value.signingRootId,
         expectedSigningRootId: input.signingRootId,
       });
       if (signingRootConstraintError) return signingRootConstraintError;
@@ -4784,9 +4808,13 @@ export class ThresholdSigningService {
         (async () => {
           const startedAt = Date.now();
           try {
-            return await this.deriveSigningRootEd25519HssServerInputsForContext(context.value, {
-              signingRootVersion: input.signingRootVersion,
-            });
+            return await this.deriveSigningRootEd25519HssServerInputsForContext(
+              context.value,
+              input.signingRootId || registrationAccountScope.value.signingRootId,
+              {
+                signingRootVersion: input.signingRootVersion,
+              },
+            );
           } finally {
             serverInputDeriveMs = Date.now() - startedAt;
           }
@@ -4815,7 +4843,7 @@ export class ThresholdSigningService {
         yRelayerBytes: base64UrlDecode(serverInputs.yRelayerB64u),
         tauRelayerBytes: base64UrlDecode(serverInputs.tauRelayerB64u),
       };
-      const scopeError = this.validateThresholdEd25519HssRegistrationScope({
+      const scopeError = await this.validateThresholdEd25519HssRegistrationScope({
         orgId: toOptionalTrimmedString(input.orgId) || '',
         registrationAccountScope: registrationAccountScope.value,
         context: context.value,
@@ -4901,7 +4929,7 @@ export class ThresholdSigningService {
       );
       if (!clientRequest.ok) return clientRequest;
 
-      const scopeError = this.validateThresholdEd25519HssSessionScope({
+      const scopeError = await this.validateThresholdEd25519HssSessionScope({
         claims: input.claims,
         relayerKeyId: ceremony.value.relayerKeyId,
         context: ceremony.value.context,
@@ -4938,7 +4966,7 @@ export class ThresholdSigningService {
 
       this.logger?.info?.('[threshold-ed25519] hss respond timings', {
         relayerKeyId: ceremony.value.relayerKeyId,
-        nearAccountId: ceremony.value.context.nearAccountId,
+        nearAccountId: input.claims.nearAccountId,
         requestBytes: jsonBytes(input.request || {}),
         clientRequestBytes: jsonBytes(clientRequest.value),
         clientRequestMessageBytes: utf8Bytes(clientRequest.value.clientRequestMessageB64u),
@@ -4986,15 +5014,15 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const rpId = toOptionalTrimmedString(rec.rp_id);
+      const rpId = toOptionalTrimmedString(rec.wallet_key_id);
       if (!rpId) {
-        return { ok: false, code: 'invalid_body', message: 'rp_id is required' };
+        return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
       }
       if (registrationAccountScope.value.rpId !== rpId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.rpId does not match rp_id',
+          message: 'registrationAccountScope.rpId does not match wallet_key_id',
         };
       }
       const ed25519KeyScopeId = registrationAccountScope.value.ed25519KeyScopeId;
@@ -5020,7 +5048,7 @@ export class ThresholdSigningService {
       );
       if (!clientRequest.ok) return clientRequest;
 
-      const scopeError = this.validateThresholdEd25519HssRegistrationScope({
+      const scopeError = await this.validateThresholdEd25519HssRegistrationScope({
         orgId: ceremony.value.orgId,
         registrationAccountScope: registrationAccountScope.value,
         context: ceremony.value.context,
@@ -5122,7 +5150,7 @@ export class ThresholdSigningService {
         };
       }
 
-      const scopeError = this.validateThresholdEd25519HssSessionScope({
+      const scopeError = await this.validateThresholdEd25519HssSessionScope({
         claims: input.claims,
         relayerKeyId: ceremony.value.relayerKeyId,
         context: ceremony.value.context,
@@ -5155,7 +5183,6 @@ export class ThresholdSigningService {
         const relayerShareRepairStartedAt = Date.now();
         const repair = await this.maybeRepairRelayerKeyMaterialFromSessionHssFinalize({
           claims: input.claims,
-          context: takenCeremony.value.context,
           preparedSession: takenCeremony.value.preparedSession,
           serverOutput: result.serverOutput,
         });
@@ -5165,7 +5192,7 @@ export class ThresholdSigningService {
 
         this.logger?.info?.('[threshold-ed25519] hss finalize timings', {
           relayerKeyId: ceremony.value.relayerKeyId,
-          nearAccountId: ceremony.value.context.nearAccountId,
+          nearAccountId: input.claims.nearAccountId,
           requestBytes: jsonBytes(input.request || {}),
           evaluationResultBytes: utf8Bytes(evaluationResult.value.stagedEvaluatorArtifactB64u),
           evaluationResultPayloadBytes: base64UrlPayloadBytes(
@@ -5207,15 +5234,15 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const rpId = toOptionalTrimmedString(rec.rp_id);
+      const rpId = toOptionalTrimmedString(rec.wallet_key_id);
       if (!rpId) {
-        return { ok: false, code: 'invalid_body', message: 'rp_id is required' };
+        return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
       }
       if (registrationAccountScope.value.rpId !== rpId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.rpId does not match rp_id',
+          message: 'registrationAccountScope.rpId does not match wallet_key_id',
         };
       }
       const ed25519KeyScopeId = registrationAccountScope.value.ed25519KeyScopeId;
@@ -5251,7 +5278,7 @@ export class ThresholdSigningService {
         };
       }
 
-      const scopeError = this.validateThresholdEd25519HssRegistrationScope({
+      const scopeError = await this.validateThresholdEd25519HssRegistrationScope({
         orgId: ceremony.value.orgId,
         registrationAccountScope: registrationAccountScope.value,
         context: ceremony.value.context,
@@ -5283,7 +5310,7 @@ export class ThresholdSigningService {
           await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
             preparedSession: takenCeremony.value.preparedSession,
             preparedServerSession: takenCeremony.value.preparedServerSession,
-            keyVersion: takenCeremony.value.context.keyVersion,
+            keyVersion: registrationAccountScope.value.keyVersion,
             finalizedReport: result.finalizedReport,
             serverOutput: result.serverOutput,
           });
@@ -5301,7 +5328,7 @@ export class ThresholdSigningService {
           publicKey: registrationMaterial.publicKey,
           relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
           relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
-          keyVersion: takenCeremony.value.context.keyVersion,
+          keyVersion: registrationAccountScope.value.keyVersion,
           recoveryExportCapable: true,
         });
         const keyStorePutMs = Date.now() - keyStorePutStartedAt;

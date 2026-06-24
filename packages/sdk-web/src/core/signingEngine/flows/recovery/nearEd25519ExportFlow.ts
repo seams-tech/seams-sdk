@@ -50,7 +50,6 @@ export type NearEd25519SingleKeyExportDeps = {
       challengeId: string;
       otpCode: string;
       record: ThresholdEd25519SessionRecord;
-      keyVersion: string;
       participantIds: number[];
       thresholdSessionId: string;
       walletSessionJwt: string;
@@ -222,8 +221,8 @@ async function runNearEd25519HssExportAndViewer(
   deps: NearEd25519SingleKeyExportDeps,
   args: {
     nearAccountId: AccountId;
+    ed25519KeyScopeId: ExactNearEd25519ExportLane['signer']['ed25519KeyScopeId'];
     expectedPublicKey: string;
-    keyVersion: string;
     participantIds: number[];
     thresholdSessionId: string;
     walletSessionJwt: string;
@@ -243,18 +242,19 @@ async function runNearEd25519HssExportAndViewer(
     nearAccountId: args.nearAccountId,
     onEvent: args.onEvent,
   });
-  const signingRootId = String(
-    signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope).signingRootId || '',
-  ).trim();
-  if (!signingRootId) {
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  const signingRootId = String(signingRootScope.signingRootId || '').trim();
+  const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
+  if (!signingRootId || !signingRootVersion) {
     throw new Error(`Missing signing root scope for ${args.errorContext} Ed25519 seed export`);
   }
   const hssTask = runNearEd25519SingleKeyHssExport(
     { getSignerWorkerContext: deps.getSignerWorkerContext },
     {
       signingRootId,
+      signingRootVersion,
+      ed25519KeyScopeId: args.ed25519KeyScopeId,
       nearAccountId: args.nearAccountId,
-      keyVersion: args.keyVersion,
       participantIds: args.participantIds,
       thresholdSessionId: args.thresholdSessionId,
       walletSessionJwt: args.walletSessionJwt,
@@ -487,7 +487,6 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
         challengeId: authorization.challengeId,
         otpCode: authorization.otpCode,
         record: sessionRecord,
-        keyVersion,
         participantIds,
         thresholdSessionId,
         walletSessionJwt,
@@ -541,7 +540,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     return await runNearEd25519HssExportAndViewer(deps, {
       runtimePolicyScope: defaultRuntimePolicyScope,
       nearAccountId,
-      keyVersion,
+      ed25519KeyScopeId: args.exportLane.signer.ed25519KeyScopeId,
       participantIds,
       thresholdSessionId,
       walletSessionJwt,

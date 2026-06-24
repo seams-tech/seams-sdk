@@ -69,13 +69,8 @@ pub(crate) struct StoreWorkerMaterialFromHssOutputRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrepareHssClientOutputMaskHandleRequest {
-    #[serde(rename = "signingRootId")]
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
     context_binding_b64u: String,
     operation: String,
     relayer_key_id: String,
@@ -667,12 +662,8 @@ fn prepare_hss_client_output_mask_handle(
     let stored_context_binding_b64u = context_binding_b64u.clone();
     let output = derive_threshold_ed25519_hss_client_output_mask(
         ThresholdEd25519HssDeriveClientOutputMaskArgs {
-            org_id: request.org_id,
-            near_account_id: request.near_account_id,
-            key_purpose: request.key_purpose,
-            key_version: request.key_version,
+            application_binding_digest_b64u: request.application_binding_digest_b64u,
             participant_ids: request.participant_ids,
-            derivation_version: request.derivation_version,
             context_binding_b64u,
             operation: request.operation,
             relayer_key_id: request.relayer_key_id,
@@ -2485,12 +2476,8 @@ mod tests {
     fn build_hss_worker_material_fixture() -> HssWorkerMaterialFixture {
         let binding = sample_material_binding();
         let context = CanonicalContext {
-            org_id: binding.signing_root_id.clone(),
-            account_id: binding.near_account_id.clone(),
-            key_purpose: "wallet-signing".to_string(),
-            key_version: binding.key_version.clone(),
+            application_binding_digest: [0x42; 32],
             participant_ids: vec![1, 2],
-            derivation_version: 1,
         };
         let prepared = prepare_prime_order_succinct_hss(&context).unwrap();
         let evaluator_driver_state = prepared.evaluator_driver_state();

@@ -46,39 +46,24 @@ use wasm_bindgen::prelude::*;
 #[serde(rename_all = "camelCase")]
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
-    #[serde(rename = "signingRootId")]
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssPrepareSessionArgs {
-    #[serde(rename = "signingRootId")]
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssPrepareSessionOutput {
-    #[serde(rename = "signingRootId")]
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
     context_binding_b64u: String,
     evaluator_driver_state_b64u: String,
 }
@@ -105,13 +90,8 @@ pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssDeriveClientOutputMaskArgs {
-    #[serde(rename = "signingRootId")]
-    pub(crate) org_id: String,
-    pub(crate) near_account_id: String,
-    pub(crate) key_purpose: String,
-    pub(crate) key_version: String,
+    pub(crate) application_binding_digest_b64u: String,
     pub(crate) participant_ids: Vec<u16>,
-    pub(crate) derivation_version: u32,
     pub(crate) context_binding_b64u: String,
     pub(crate) operation: String,
     pub(crate) relayer_key_id: String,
@@ -148,13 +128,8 @@ pub(crate) struct ThresholdEd25519HssBuildClientOwnedStagedArtifactOutput {
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-server-exports")]
 pub(crate) struct ThresholdEd25519HssPrepareServerSessionArgs {
-    #[serde(rename = "signingRootId")]
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -947,30 +922,18 @@ pub fn threshold_ed25519_role_separated_client_verifying_share_from_base_share(
 fn canonical_context_from_args(
     args: ThresholdEd25519HssCanonicalContextArgs,
 ) -> Result<CanonicalContext, JsValue> {
-    let org_id = args.org_id.trim().to_string();
-    let near_account_id = args.near_account_id.trim().to_string();
-    let key_purpose = args.key_purpose.trim().to_string();
-    let key_version = args.key_version.trim().to_string();
-    if org_id.is_empty() {
-        return Err(JsValue::from_str("Missing signingRootId"));
+    let application_binding_digest_b64u = args.application_binding_digest_b64u.trim();
+    if application_binding_digest_b64u.is_empty() {
+        return Err(JsValue::from_str("Missing applicationBindingDigestB64u"));
     }
-    if near_account_id.is_empty() {
-        return Err(JsValue::from_str("Missing nearAccountId"));
-    }
-    if key_purpose.is_empty() {
-        return Err(JsValue::from_str("Missing keyPurpose"));
-    }
-    if key_version.is_empty() {
-        return Err(JsValue::from_str("Missing keyVersion"));
-    }
+    let application_binding_digest = decode_fixed_32(
+        application_binding_digest_b64u,
+        "applicationBindingDigestB64u",
+    )?;
 
     Ok(CanonicalContext {
-        org_id,
-        account_id: near_account_id,
-        key_purpose,
-        key_version,
+        application_binding_digest,
         participant_ids: args.participant_ids,
-        derivation_version: args.derivation_version,
     })
 }
 
@@ -1061,24 +1024,16 @@ pub(crate) fn prepare_threshold_ed25519_hss_session(
     args: ThresholdEd25519HssPrepareSessionArgs,
 ) -> Result<ThresholdEd25519HssPrepareSessionOutput, String> {
     let context = canonical_context_from_args(ThresholdEd25519HssCanonicalContextArgs {
-        org_id: args.org_id,
-        near_account_id: args.near_account_id,
-        key_purpose: args.key_purpose,
-        key_version: args.key_version,
+        application_binding_digest_b64u: args.application_binding_digest_b64u,
         participant_ids: args.participant_ids,
-        derivation_version: args.derivation_version,
     })
     .map_err(js_value_to_string)?;
     let evaluator_driver_state =
         prepare_prime_order_succinct_hss_client(&context).map_err(|e| e.to_string())?;
 
     Ok(ThresholdEd25519HssPrepareSessionOutput {
-        org_id: context.org_id,
-        near_account_id: context.account_id,
-        key_purpose: context.key_purpose,
-        key_version: context.key_version,
+        application_binding_digest_b64u: base64_url_encode(&context.application_binding_digest),
         participant_ids: context.participant_ids,
-        derivation_version: context.derivation_version,
         context_binding_b64u: base64_url_encode(
             &evaluator_driver_state.evaluator_session.context_binding,
         ),
@@ -1091,12 +1046,8 @@ pub(crate) fn prepare_threshold_ed25519_hss_server_session(
     args: ThresholdEd25519HssPrepareServerSessionArgs,
 ) -> Result<ThresholdEd25519HssPrepareServerSessionOutput, String> {
     let context = canonical_context_from_args(ThresholdEd25519HssCanonicalContextArgs {
-        org_id: args.org_id,
-        near_account_id: args.near_account_id,
-        key_purpose: args.key_purpose,
-        key_version: args.key_version,
+        application_binding_digest_b64u: args.application_binding_digest_b64u,
         participant_ids: args.participant_ids,
-        derivation_version: args.derivation_version,
     })
     .map_err(js_value_to_string)?;
     let prepare_session_started = Date::now();
@@ -1185,12 +1136,8 @@ pub(crate) fn derive_threshold_ed25519_hss_client_output_mask(
     let context_binding = decode_fixed_32(&args.context_binding_b64u, "contextBindingB64u")
         .map_err(js_value_to_string)?;
     let canonical_context = canonical_context_from_args(ThresholdEd25519HssCanonicalContextArgs {
-        org_id: args.org_id,
-        near_account_id: args.near_account_id,
-        key_purpose: args.key_purpose,
-        key_version: args.key_version,
+        application_binding_digest_b64u: args.application_binding_digest_b64u,
         participant_ids: args.participant_ids,
-        derivation_version: args.derivation_version,
     })
     .map_err(js_value_to_string)?;
     let client_output_mask = derive_client_output_mask(

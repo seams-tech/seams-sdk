@@ -195,12 +195,8 @@ test('self-host signing-root resolver derives Ed25519 HSS inputs through policy-
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const context = {
-    signingRootId: PROJECT_ID,
-    nearAccountId: 'alice.near',
-    keyPurpose: 'wallet',
-    keyVersion: 'v1',
+    applicationBindingDigestB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
     participantIds: [1, 2],
-    derivationVersion: 1,
   };
   const resolver = createSelfHostedSigningRootShareResolver({
     signingRootId: PROJECT_ID,

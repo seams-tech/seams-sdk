@@ -48,10 +48,9 @@ fn candidate_template_is_context_bound_and_fixed_function_only() {
         candidate.backend.family,
         CandidateBackendFamily::PrimeOrderSizeOptimized
     );
-    assert_eq!(candidate.context_descriptor.org_id, "org.wraparound");
     assert_eq!(
-        candidate.context_descriptor.account_id,
-        "wraparound.test.near"
+        candidate.context_descriptor.application_binding_digest,
+        fixture.input.context.application_binding_digest
     );
     assert_eq!(candidate.context_descriptor.participant_ids, vec![1, 2]);
     assert_eq!(

@@ -65,18 +65,10 @@ struct ClientOutputMaskInfo<'a> {
     label: &'static str,
     #[serde(rename = "projectionMode")]
     projection_mode: &'static str,
-    #[serde(rename = "signingRootId")]
-    signing_root_id: &'a str,
-    #[serde(rename = "nearAccountId")]
-    near_account_id: &'a str,
-    #[serde(rename = "keyPurpose")]
-    key_purpose: &'a str,
-    #[serde(rename = "keyVersion")]
-    key_version: &'a str,
+    #[serde(rename = "applicationBindingDigestB64u")]
+    application_binding_digest_b64u: String,
     #[serde(rename = "participantIds")]
     participant_ids: &'a [u16],
-    #[serde(rename = "derivationVersion")]
-    derivation_version: u32,
     #[serde(rename = "contextBindingB64u")]
     context_binding_b64u: String,
     operation: &'static str,
@@ -86,17 +78,16 @@ struct ClientOutputMaskInfo<'a> {
 
 pub fn encode_client_output_mask_info(context: &ClientOutputMaskContext) -> ProtoResult<Vec<u8>> {
     validate_context(context)?;
+    let canonical_context = context.canonical_context.normalized()?;
+    let application_binding_digest_b64u = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(canonical_context.application_binding_digest);
     let context_binding_b64u =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(context.context_binding);
     let info = ClientOutputMaskInfo {
         label: CLIENT_OUTPUT_MASK_INFO_LABEL,
         projection_mode: "ClientMaskedProjection",
-        signing_root_id: &context.canonical_context.org_id,
-        near_account_id: &context.canonical_context.account_id,
-        key_purpose: &context.canonical_context.key_purpose,
-        key_version: &context.canonical_context.key_version,
-        participant_ids: &context.canonical_context.participant_ids,
-        derivation_version: context.canonical_context.derivation_version,
+        application_binding_digest_b64u,
+        participant_ids: &canonical_context.participant_ids,
         context_binding_b64u,
         operation: context.operation.as_str(),
         server_key_id: &context.server_key_id,
@@ -122,21 +113,8 @@ pub fn derive_client_output_mask(
 }
 
 fn validate_context(context: &ClientOutputMaskContext) -> ProtoResult<()> {
-    validate_non_empty("signingRootId", &context.canonical_context.org_id)?;
-    validate_non_empty("nearAccountId", &context.canonical_context.account_id)?;
-    validate_non_empty("keyPurpose", &context.canonical_context.key_purpose)?;
-    validate_non_empty("keyVersion", &context.canonical_context.key_version)?;
     validate_non_empty("serverKeyId", &context.server_key_id)?;
-    if context.canonical_context.participant_ids.is_empty() {
-        return Err(ProtoError::InvalidInput(
-            "participantIds must contain at least one identifier".to_string(),
-        ));
-    }
-    if context.canonical_context.derivation_version == 0 {
-        return Err(ProtoError::InvalidInput(
-            "derivationVersion must be positive".to_string(),
-        ));
-    }
+    let _ = context.canonical_context.normalized()?;
     Ok(())
 }
 
@@ -156,12 +134,8 @@ mod tests {
     fn test_context() -> ClientOutputMaskContext {
         ClientOutputMaskContext {
             canonical_context: CanonicalContext {
-                org_id: "org_threshold_scope_test".to_string(),
-                account_id: "alice.testnet".to_string(),
-                key_purpose: "near-ed25519-signing".to_string(),
-                key_version: "threshold-ed25519-hss-v1".to_string(),
+                application_binding_digest: [9u8; 32],
                 participant_ids: vec![1, 2],
-                derivation_version: 1,
             },
             context_binding: [7u8; 32],
             operation: ClientOutputMaskOperation::WarmSessionReconstruction,
@@ -174,7 +148,7 @@ mod tests {
         let info = encode_client_output_mask_info(&test_context()).expect("encode info");
         assert_eq!(
             std::str::from_utf8(&info).expect("utf8"),
-            "{\"label\":\"ed25519-hss/client-output-mask/context/v1\",\"projectionMode\":\"ClientMaskedProjection\",\"signingRootId\":\"org_threshold_scope_test\",\"nearAccountId\":\"alice.testnet\",\"keyPurpose\":\"near-ed25519-signing\",\"keyVersion\":\"threshold-ed25519-hss-v1\",\"participantIds\":[1,2],\"derivationVersion\":1,\"contextBindingB64u\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"operation\":\"warm_session_reconstruction\",\"serverKeyId\":\"ed25519:server-key\"}"
+            "{\"label\":\"ed25519-hss/client-output-mask/context/v1\",\"projectionMode\":\"ClientMaskedProjection\",\"applicationBindingDigestB64u\":\"CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk\",\"participantIds\":[1,2],\"contextBindingB64u\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"operation\":\"warm_session_reconstruction\",\"serverKeyId\":\"ed25519:server-key\"}"
         );
     }
 

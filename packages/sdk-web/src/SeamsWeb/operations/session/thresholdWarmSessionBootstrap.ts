@@ -95,6 +95,14 @@ import {
   parseEd25519HssKeyVersion,
   type Ed25519HssKeyVersion,
 } from '@/core/signingEngine/session/keyMaterialBrands';
+import {
+  computeSdkEd25519HssApplicationBindingDigestB64u,
+  type SdkEd25519HssBindingFacts,
+} from '@shared/threshold/ed25519HssBinding';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
@@ -119,6 +127,18 @@ function signingRootIdFromRuntimePolicyScope(
     throw new Error(`${errorContext} is missing signing root scope`);
   }
   return signingRootId;
+}
+
+function thresholdEd25519HssBindingFactsFromRuntimePolicyScope(args: {
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  ed25519KeyScopeId: Ed25519KeyScopeId;
+}): SdkEd25519HssBindingFacts {
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  return {
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    signingRootId: parseSdkEcdsaHssSigningRootId(signingRootScope.signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion),
+  };
 }
 
 export type RegisteredThresholdEd25519SessionAuth =
@@ -251,6 +271,7 @@ export type ThresholdEd25519RegistrationHssContext = ThresholdEd25519HssCanonica
 
 export type ThresholdEd25519RegistrationHssClientMaterial = {
   hssContext: ThresholdEd25519RegistrationHssContext;
+  bindingFacts: SdkEd25519HssBindingFacts;
   prfFirstB64u: string;
   clientInputs: {
     contextBindingB64u: string;
@@ -1424,25 +1445,18 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   ed25519KeyScopeId: Ed25519KeyScopeId;
-  keyPurpose: string;
-  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   participantIds: number[];
-  derivationVersion: number;
   onProgress?: (message: string) => void;
 }): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
-  const signingRootId = signingRootIdFromRuntimePolicyScope(
-    args.runtimePolicyScope,
-    'Threshold Ed25519 registration HSS material',
-  );
+  const bindingFacts = thresholdEd25519HssBindingFactsFromRuntimePolicyScope({
+    runtimePolicyScope: args.runtimePolicyScope,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+  });
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
-      signingRootId,
-      nearAccountId: String(args.ed25519KeyScopeId),
-      keyPurpose: args.keyPurpose,
-      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
+      hssBindingFacts: bindingFacts,
       participantIds: args.participantIds,
-      derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
     });
   if (!prepared.ok) {
@@ -1454,14 +1468,8 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   }
 
   return {
-    hssContext: {
-      signingRootId,
-      nearAccountId: args.ed25519KeyScopeId,
-      keyPurpose: args.keyPurpose,
-      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
-      participantIds: prepared.participantIds,
-      derivationVersion: args.derivationVersion,
-    },
+    hssContext: prepared.hssContext,
+    bindingFacts,
     prfFirstB64u,
     clientInputs: {
       contextBindingB64u: prepared.contextBindingB64u,
@@ -1476,29 +1484,22 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
   prfFirstB64u: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   ed25519KeyScopeId: Ed25519KeyScopeId;
-  keyPurpose: string;
-  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   participantIds: number[];
-  derivationVersion: number;
   onProgress?: (message: string) => void;
 }): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
   const prfFirstB64u = String(args.prfFirstB64u || '').trim();
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first material for threshold Ed25519 HSS registration');
   }
-  const signingRootId = signingRootIdFromRuntimePolicyScope(
-    args.runtimePolicyScope,
-    'Threshold Ed25519 registration HSS material',
-  );
+  const bindingFacts = thresholdEd25519HssBindingFactsFromRuntimePolicyScope({
+    runtimePolicyScope: args.runtimePolicyScope,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+  });
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromPrfFirst({
       prfFirstB64u,
-      signingRootId,
-      nearAccountId: String(args.ed25519KeyScopeId),
-      keyPurpose: args.keyPurpose,
-      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
+      hssBindingFacts: bindingFacts,
       participantIds: args.participantIds,
-      derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
     });
   if (!prepared.ok) {
@@ -1506,14 +1507,8 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
   }
 
   return {
-    hssContext: {
-      signingRootId,
-      nearAccountId: args.ed25519KeyScopeId,
-      keyPurpose: args.keyPurpose,
-      keyVersion: formatEd25519HssKeyVersionForWire(args.ed25519HssKeyVersion),
-      participantIds: prepared.participantIds,
-      derivationVersion: args.derivationVersion,
-    },
+    hssContext: prepared.hssContext,
+    bindingFacts,
     prfFirstB64u,
     clientInputs: {
       contextBindingB64u: prepared.contextBindingB64u,
@@ -1737,22 +1732,28 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   );
 }
 
-function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(args: {
+async function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(args: {
   ed25519KeyScopeId: Ed25519KeyScopeId;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   material: ThresholdEd25519RegistrationHssClientMaterial;
   prfFirstB64u: string;
-}): void {
+}): Promise<void> {
   const material = args.material;
-  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
-  const signingRootId = String(signingRootScope.signingRootId || '').trim();
-  const materialSigningRootId = String(material.hssContext.signingRootId || '').trim();
-  const materialNearAccountId = String(material.hssContext.nearAccountId || '').trim();
-  if (!signingRootId || materialSigningRootId !== signingRootId) {
-    throw new Error('Email OTP Ed25519 registration HSS signing-root binding mismatch');
+  const expectedBindingFacts = thresholdEd25519HssBindingFactsFromRuntimePolicyScope({
+    runtimePolicyScope: args.runtimePolicyScope,
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+  });
+  if (
+    material.bindingFacts.ed25519KeyScopeId !== expectedBindingFacts.ed25519KeyScopeId ||
+    material.bindingFacts.signingRootId !== expectedBindingFacts.signingRootId ||
+    material.bindingFacts.signingRootVersion !== expectedBindingFacts.signingRootVersion
+  ) {
+    throw new Error('Email OTP Ed25519 registration HSS SDK binding facts mismatch');
   }
-  if (materialNearAccountId !== String(args.ed25519KeyScopeId || '').trim()) {
-    throw new Error('Email OTP Ed25519 registration HSS key-scope binding mismatch');
+  const expectedDigest =
+    await computeSdkEd25519HssApplicationBindingDigestB64u(expectedBindingFacts);
+  if (material.hssContext.applicationBindingDigestB64u !== expectedDigest) {
+    throw new Error('Email OTP Ed25519 registration HSS digest binding mismatch');
   }
   const materialPrfFirstB64u = String(material.prfFirstB64u || '').trim();
   if (materialPrfFirstB64u !== String(args.prfFirstB64u || '').trim()) {
@@ -1841,7 +1842,7 @@ export async function persistRegisteredThresholdEd25519Session(
     if (!runtimePolicyScope) {
       throw new Error('Email OTP Ed25519 registration warm session requires runtimePolicyScope');
     }
-    validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial({
+    await validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial({
       ed25519KeyScopeId: args.ed25519KeyScopeId,
       runtimePolicyScope,
       material: registrationHssClientMaterial,
@@ -2052,14 +2053,7 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
     walletSessionJwt: args.jwt,
     relayerKeyId: args.relayerKeyId,
     operation: 'warm_session_reconstruction',
-    context: {
-      signingRootId,
-      nearAccountId: args.ed25519KeyScopeId,
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion: args.keyVersion,
-      participantIds: args.participantIds,
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-    },
+    context: args.registrationHssClientMaterial.hssContext,
     clientInputs: args.registrationHssClientMaterial.clientInputs,
     outputProjection: {
       kind: 'client-masked-projection',
@@ -2167,15 +2161,16 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
   }
+  const hssBindingFacts: SdkEd25519HssBindingFacts = {
+    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
+  };
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
-      signingRootId,
-      nearAccountId: args.nearAccountId,
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion,
+      hssBindingFacts,
       participantIds,
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     });
   if (!prepared.ok) {
     throw new Error(
@@ -2224,14 +2219,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
       walletSessionJwt,
       relayerKeyId,
       operation: 'warm_session_reconstruction',
-      context: {
-        signingRootId,
-        nearAccountId: args.nearAccountId,
-        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-        keyVersion,
-        participantIds,
-        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-      },
+      context: prepared.hssContext,
       clientInputs: {
         contextBindingB64u: prepared.contextBindingB64u,
         yClientB64u: prepared.yClientB64u,

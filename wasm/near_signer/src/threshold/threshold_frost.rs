@@ -45,24 +45,16 @@ pub(crate) struct ThresholdEd25519SeedExportArtifactFromSeedOutput {
 #[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssServerInputsArgs {
     master_secret_b64u: String,
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssServerInputsOutput {
-    org_id: String,
-    near_account_id: String,
-    key_purpose: String,
-    key_version: String,
+    application_binding_digest_b64u: String,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
     context_binding_b64u: String,
     y_relayer_b64u: String,
     tau_relayer_b64u: String,
@@ -152,26 +144,22 @@ pub fn threshold_ed25519_hss_server_inputs(args: JsValue) -> Result<JsValue, JsV
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
     let master_secret = base64_url_decode(&args.master_secret_b64u)
         .map_err(|e| JsValue::from_str(&format!("Invalid masterSecretB64u: {e}")))?;
+    let application_binding_digest = decode_fixed_32(
+        &args.application_binding_digest_b64u,
+        "applicationBindingDigestB64u",
+    )?;
     let out = signer_core::near_ed25519_recovery::derive_ed25519_hss_server_inputs_v1(
         master_secret.as_slice(),
         &signer_core::near_ed25519_recovery::Ed25519HssCanonicalContextV1 {
-            org_id: args.org_id.clone(),
-            account_id: args.near_account_id.clone(),
-            key_purpose: args.key_purpose.clone(),
-            key_version: args.key_version.clone(),
+            application_binding_digest,
             participant_ids: args.participant_ids,
-            derivation_version: args.derivation_version,
         },
     )
     .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     serde_wasm_bindgen::to_value(&ThresholdEd25519HssServerInputsOutput {
-        org_id: out.context.org_id,
-        near_account_id: out.context.account_id,
-        key_purpose: out.context.key_purpose,
-        key_version: out.context.key_version,
+        application_binding_digest_b64u: args.application_binding_digest_b64u,
         participant_ids: out.context.participant_ids,
-        derivation_version: out.context.derivation_version,
         context_binding_b64u: base64_url_encode(&out.context_binding),
         y_relayer_b64u: base64_url_encode(&out.y_server),
         tau_relayer_b64u: base64_url_encode(&out.tau_server),

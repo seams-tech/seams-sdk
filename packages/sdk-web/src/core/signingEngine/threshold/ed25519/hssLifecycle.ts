@@ -1,4 +1,4 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
@@ -40,6 +40,15 @@ import {
   validateThresholdEd25519HssOutputProjectionPolicy,
   type ThresholdEd25519HssOutputProjectionPolicy,
 } from './clientOutputMask';
+import {
+  computeSdkEd25519HssApplicationBindingDigestB64u,
+  type SdkEd25519HssBindingFacts,
+} from '@shared/threshold/ed25519HssBinding';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { ed25519KeyScopeIdFromString, type Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
 
 export type ThresholdEd25519LifecycleDeps = {
   signingKeyOps: Pick<
@@ -68,12 +77,7 @@ export type DeriveThresholdEd25519ClientVerifyingShareResult =
 
 type ThresholdEd25519HssClientInputsSuccess = {
   ok: true;
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
-  participantIds: number[];
-  derivationVersion: number;
+  hssContext: ThresholdEd25519HssCanonicalContext;
   contextBindingB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
@@ -85,14 +89,9 @@ type ThresholdEd25519HssClientInputsFailure<
   Code extends 'derive_client_inputs_failed' | 'prepare_client_ceremony_failed',
 > = {
   ok: false;
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
-  participantIds: number[];
-  derivationVersion: number;
   code: Code;
   message: string;
+  hssContext?: never;
   contextBindingB64u?: never;
   yClientB64u?: never;
   tauClientB64u?: never;
@@ -253,16 +252,65 @@ function jsonBytes(value: unknown): number {
   return utf8Bytes(JSON.stringify(value));
 }
 
+type ThresholdEd25519HssBindingFactsInput = {
+  ed25519KeyScopeId: Ed25519KeyScopeId | string;
+  signingRootId: string;
+  signingRootVersion: string;
+};
+
+function normalizeThresholdEd25519HssBindingFacts(
+  input: ThresholdEd25519HssBindingFactsInput,
+): SdkEd25519HssBindingFacts {
+  return {
+    ed25519KeyScopeId: ed25519KeyScopeIdFromString(String(input.ed25519KeyScopeId || '')),
+    signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
+    signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
+  };
+}
+
+async function buildThresholdEd25519HssCanonicalContext(args: {
+  hssBindingFacts: ThresholdEd25519HssBindingFactsInput;
+  participantIds: number[];
+}): Promise<ThresholdEd25519HssCanonicalContext> {
+  const participantIds = Array.isArray(args.participantIds)
+    ? args.participantIds.map((value) => Number(value))
+    : [];
+  if (!participantIds.length || participantIds.some((value) => !Number.isSafeInteger(value))) {
+    throw new Error('participantIds are required for threshold Ed25519 HSS context');
+  }
+  return {
+    applicationBindingDigestB64u: await computeSdkEd25519HssApplicationBindingDigestB64u(
+      normalizeThresholdEd25519HssBindingFacts(args.hssBindingFacts),
+    ),
+    participantIds,
+  };
+}
+
+function assertMatchingThresholdEd25519HssDerivedContext(args: {
+  expected: ThresholdEd25519HssCanonicalContext;
+  actual: {
+    applicationBindingDigestB64u: string;
+    participantIds: number[];
+  };
+}): void {
+  const actualDigest = String(args.actual.applicationBindingDigestB64u || '').trim();
+  if (actualDigest !== args.expected.applicationBindingDigestB64u) {
+    throw new Error('Threshold Ed25519 HSS application binding digest mismatch');
+  }
+  const actualParticipants = Array.isArray(args.actual.participantIds)
+    ? args.actual.participantIds.map((value) => Number(value))
+    : [];
+  if (
+    actualParticipants.length !== args.expected.participantIds.length ||
+    actualParticipants.some((value, index) => value !== args.expected.participantIds[index])
+  ) {
+    throw new Error('Threshold Ed25519 HSS participant set mismatch');
+  }
+}
+
 function summarizePrepareRequestSize(args: {
   relayerKeyId: string;
-  context: {
-    signingRootId: string;
-    nearAccountId: string;
-    keyPurpose: string;
-    keyVersion: string;
-    participantIds: number[];
-    derivationVersion: number;
-  };
+  context: ThresholdEd25519HssCanonicalContext;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
 }): Record<string, number> {
   return {
@@ -386,57 +434,37 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    signingRootId: string;
-    nearAccountId: AccountId;
-    keyPurpose: string;
-    keyVersion: string;
+    hssBindingFacts: ThresholdEd25519HssBindingFactsInput;
     participantIds: number[];
-    derivationVersion: number;
   },
 ): Promise<DeriveThresholdEd25519HssClientInputsResult> {
-  const signingRootId = String(args.signingRootId || '').trim();
-  const nearAccountId = args.nearAccountId;
-  const keyPurpose = String(args.keyPurpose || '').trim();
-  const keyVersion = String(args.keyVersion || '').trim();
-  const participantIds = Array.isArray(args.participantIds)
-    ? args.participantIds.map((value) => Number(value))
-    : [];
-  const derivationVersion = Number(args.derivationVersion);
-
   try {
+    const hssContext = await buildThresholdEd25519HssCanonicalContext({
+      hssBindingFacts: args.hssBindingFacts,
+      participantIds: args.participantIds,
+    });
     const prfFirstB64u = requirePrfFirstB64uFromCredential(args.credential);
     const sessionId = deps.createSessionId('threshold-ed25519-hss-client-inputs');
     const derived = await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
       sessionId,
-      signingRootId,
-      nearAccountId,
-      keyPurpose,
-      keyVersion,
-      participantIds,
-      derivationVersion,
+      applicationBindingDigestB64u: hssContext.applicationBindingDigestB64u,
+      participantIds: hssContext.participantIds,
       prfFirstB64u,
     });
     if (!derived.success) {
       return {
         ok: false,
-        signingRootId,
-        nearAccountId,
-        keyPurpose,
-        keyVersion,
-        participantIds,
-        derivationVersion,
         code: 'derive_client_inputs_failed',
         message: String(derived.error || 'Failed to derive threshold Ed25519 HSS client inputs'),
       };
     }
+    assertMatchingThresholdEd25519HssDerivedContext({
+      expected: hssContext,
+      actual: derived,
+    });
     return {
       ok: true,
-      signingRootId: derived.signingRootId,
-      nearAccountId: derived.nearAccountId,
-      keyPurpose: derived.keyPurpose,
-      keyVersion: derived.keyVersion,
-      participantIds: derived.participantIds,
-      derivationVersion: derived.derivationVersion,
+      hssContext,
       contextBindingB64u: derived.contextBindingB64u,
       yClientB64u: derived.yClientB64u,
       tauClientB64u: derived.tauClientB64u,
@@ -445,12 +473,6 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
       ok: false,
-      signingRootId,
-      nearAccountId,
-      keyPurpose,
-      keyVersion,
-      participantIds,
-      derivationVersion,
       code: 'derive_client_inputs_failed',
       message,
     };
@@ -461,60 +483,41 @@ export async function deriveThresholdEd25519HssClientInputsFromPrfFirst(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     prfFirstB64u: string;
-    signingRootId: string;
-    nearAccountId: AccountId;
-    keyPurpose: string;
-    keyVersion: string;
+    hssBindingFacts: ThresholdEd25519HssBindingFactsInput;
     participantIds: number[];
-    derivationVersion: number;
   },
 ): Promise<DeriveThresholdEd25519HssClientInputsResult> {
-  const signingRootId = String(args.signingRootId || '').trim();
-  const nearAccountId = args.nearAccountId;
-  const keyPurpose = String(args.keyPurpose || '').trim();
-  const keyVersion = String(args.keyVersion || '').trim();
-  const participantIds = Array.isArray(args.participantIds)
-    ? args.participantIds.map((value) => Number(value))
-    : [];
-  const derivationVersion = Number(args.derivationVersion);
   const prfFirstB64u = String(args.prfFirstB64u || '').trim();
 
   try {
     if (!prfFirstB64u) {
       throw new Error('prfFirstB64u is required for threshold Ed25519 HSS client inputs');
     }
+    const hssContext = await buildThresholdEd25519HssCanonicalContext({
+      hssBindingFacts: args.hssBindingFacts,
+      participantIds: args.participantIds,
+    });
     const sessionId = deps.createSessionId('threshold-ed25519-hss-client-inputs');
     const derived = await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
       sessionId,
-      signingRootId,
-      nearAccountId,
-      keyPurpose,
-      keyVersion,
-      participantIds,
-      derivationVersion,
+      applicationBindingDigestB64u: hssContext.applicationBindingDigestB64u,
+      participantIds: hssContext.participantIds,
       prfFirstB64u,
     });
     if (!derived.success) {
       return {
         ok: false,
-        signingRootId,
-        nearAccountId,
-        keyPurpose,
-        keyVersion,
-        participantIds,
-        derivationVersion,
         code: 'derive_client_inputs_failed',
         message: String(derived.error || 'Failed to derive threshold Ed25519 HSS client inputs'),
       };
     }
+    assertMatchingThresholdEd25519HssDerivedContext({
+      expected: hssContext,
+      actual: derived,
+    });
     return {
       ok: true,
-      signingRootId: derived.signingRootId,
-      nearAccountId: derived.nearAccountId,
-      keyPurpose: derived.keyPurpose,
-      keyVersion: derived.keyVersion,
-      participantIds: derived.participantIds,
-      derivationVersion: derived.derivationVersion,
+      hssContext,
       contextBindingB64u: derived.contextBindingB64u,
       yClientB64u: derived.yClientB64u,
       tauClientB64u: derived.tauClientB64u,
@@ -523,12 +526,6 @@ export async function deriveThresholdEd25519HssClientInputsFromPrfFirst(
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
       ok: false,
-      signingRootId,
-      nearAccountId,
-      keyPurpose,
-      keyVersion,
-      participantIds,
-      derivationVersion,
       code: 'derive_client_inputs_failed',
       message,
     };
@@ -539,12 +536,8 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    signingRootId: string;
-    nearAccountId: AccountId;
-    keyPurpose: string;
-    keyVersion: string;
+    hssBindingFacts: ThresholdEd25519HssBindingFactsInput;
     participantIds: number[];
-    derivationVersion: number;
     onProgress?: (message: string) => void;
   },
 ): Promise<PrepareThresholdEd25519HssClientCeremonyResult> {
@@ -553,12 +546,6 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   if (!derived.ok) {
     return {
       ok: false,
-      signingRootId: derived.signingRootId,
-      nearAccountId: derived.nearAccountId,
-      keyPurpose: derived.keyPurpose,
-      keyVersion: derived.keyVersion,
-      participantIds: derived.participantIds,
-      derivationVersion: derived.derivationVersion,
       code: derived.code,
       message: derived.message,
     };
@@ -567,12 +554,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   try {
     return {
       ok: true,
-      signingRootId: derived.signingRootId,
-      nearAccountId: derived.nearAccountId,
-      keyPurpose: derived.keyPurpose,
-      keyVersion: derived.keyVersion,
-      participantIds: derived.participantIds,
-      derivationVersion: derived.derivationVersion,
+      hssContext: derived.hssContext,
       contextBindingB64u: derived.contextBindingB64u,
       yClientB64u: derived.yClientB64u,
       tauClientB64u: derived.tauClientB64u,
@@ -581,12 +563,6 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
       ok: false,
-      signingRootId: derived.signingRootId,
-      nearAccountId: derived.nearAccountId,
-      keyPurpose: derived.keyPurpose,
-      keyVersion: derived.keyVersion,
-      participantIds: derived.participantIds,
-      derivationVersion: derived.derivationVersion,
       code: 'prepare_client_ceremony_failed',
       message,
     };
@@ -597,12 +573,8 @@ export async function prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     prfFirstB64u: string;
-    signingRootId: string;
-    nearAccountId: AccountId;
-    keyPurpose: string;
-    keyVersion: string;
+    hssBindingFacts: ThresholdEd25519HssBindingFactsInput;
     participantIds: number[];
-    derivationVersion: number;
     onProgress?: (message: string) => void;
   },
 ): Promise<PrepareThresholdEd25519HssClientCeremonyResult> {
@@ -611,24 +583,13 @@ export async function prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
   if (!derived.ok) {
     return {
       ok: false,
-      signingRootId: derived.signingRootId,
-      nearAccountId: derived.nearAccountId,
-      keyPurpose: derived.keyPurpose,
-      keyVersion: derived.keyVersion,
-      participantIds: derived.participantIds,
-      derivationVersion: derived.derivationVersion,
       code: derived.code,
       message: derived.message,
     };
   }
   return {
     ok: true,
-    signingRootId: derived.signingRootId,
-    nearAccountId: derived.nearAccountId,
-    keyPurpose: derived.keyPurpose,
-    keyVersion: derived.keyVersion,
-    participantIds: derived.participantIds,
-    derivationVersion: derived.derivationVersion,
+    hssContext: derived.hssContext,
     contextBindingB64u: derived.contextBindingB64u,
     yClientB64u: derived.yClientB64u,
     tauClientB64u: derived.tauClientB64u,

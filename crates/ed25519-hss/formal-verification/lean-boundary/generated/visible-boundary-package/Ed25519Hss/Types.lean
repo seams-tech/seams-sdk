@@ -11,16 +11,12 @@ set_option maxHeartbeats 1000000
 
 namespace ed25519_hss
 
-/-- [ed25519_hss::shared::context::CanonicalContext]
-    Source: 'src/shared/context.rs', lines 7:0-14:1
+/-- [ed25519_hss::shared::context::Ed25519HssStableKeyContext]
+    Source: 'src/shared/context.rs', lines 13:0-16:1
     Visibility: public -/
-structure shared.context.CanonicalContext where
-  org_id : String
-  account_id : String
-  key_purpose : String
-  key_version : String
+structure shared.context.Ed25519HssStableKeyContext where
+  application_binding_digest : Array Std.U8 32#usize
   participant_ids : alloc.vec.Vec Std.U16
-  derivation_version : Std.U32
 
 /-- [ed25519_hss::shared::error::ProtoError]
     Source: 'src/shared/error.rs', lines 4:0-7:1
@@ -34,7 +30,7 @@ inductive shared.error.ProtoError where
     Source: 'src/shared/reference.rs', lines 8:0-14:1
     Visibility: public -/
 structure shared.reference.FExpandInput where
-  context : shared.context.CanonicalContext
+  context : shared.context.Ed25519HssStableKeyContext
   y_client : Array Std.U8 32#usize
   y_server : Array Std.U8 32#usize
   tau_client : Array Std.U8 32#usize

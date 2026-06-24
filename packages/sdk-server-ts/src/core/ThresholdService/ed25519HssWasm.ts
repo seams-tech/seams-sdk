@@ -54,12 +54,8 @@ const NATIVE_MANIFEST_PATH_CANDIDATES = [
 const threshold_ed25519_hss_prepare_server_session_server = (
   wasmSignerServerModule as Record<string, unknown>
 ).threshold_ed25519_hss_prepare_server_session as (args: {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
 }) => {
   contextBindingB64u: string;
   evaluatorDriverStateB64u: string;
@@ -464,12 +460,8 @@ export async function prepareThresholdEd25519HssServerSession(input: {
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_prepare_server_session_server({
-    signingRootId: input.context.signingRootId,
-    nearAccountId: input.context.nearAccountId,
-    keyPurpose: input.context.keyPurpose,
-    keyVersion: input.context.keyVersion,
+    applicationBindingDigestB64u: input.context.applicationBindingDigestB64u,
     participantIds: input.context.participantIds,
-    derivationVersion: input.context.derivationVersion,
   }) as {
     contextBindingB64u: string;
     evaluatorDriverStateB64u: string;

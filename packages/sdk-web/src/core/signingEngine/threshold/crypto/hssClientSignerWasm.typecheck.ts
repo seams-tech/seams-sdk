@@ -269,12 +269,8 @@ const missingStagedArtifactMask: WasmBuildThresholdEd25519HssClientOwnedStagedEv
 void missingStagedArtifactMask;
 
 const clientOutputMaskDerivationRequest = {
-  signingRootId: 'root',
-  nearAccountId: 'alice.testnet',
-  keyPurpose: 'near-ed25519-signing',
-  keyVersion: 'v1',
+  applicationBindingDigestB64u: 'application-binding-digest',
   participantIds: [1, 2],
-  derivationVersion: 1,
   contextBindingB64u: 'context-binding',
   operation: 'tx_signing',
   relayerKeyId: 'relayer-key',
@@ -285,12 +281,8 @@ void clientOutputMaskDerivationRequest;
 // @ts-expect-error client output mask derivation requires recoverable client secret material.
 const missingClientOutputMaskDerivationSecret: WasmDeriveThresholdEd25519HssClientOutputMaskRequest =
   {
-    signingRootId: 'root',
-    nearAccountId: 'alice.testnet',
-    keyPurpose: 'near-ed25519-signing',
-    keyVersion: 'v1',
+    applicationBindingDigestB64u: 'application-binding-digest',
     participantIds: [1, 2],
-    derivationVersion: 1,
     contextBindingB64u: 'context-binding',
     operation: 'tx_signing',
     relayerKeyId: 'relayer-key',

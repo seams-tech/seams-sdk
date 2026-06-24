@@ -107,12 +107,8 @@ export async function resolveThresholdEd25519HssClientOutputMaskHandle(args: {
     case 'client-masked-projection': {
       const result = await prepareThresholdEd25519HssClientOutputMaskHandleNearSignerWasm({
         request: {
-          signingRootId: args.context.signingRootId,
-          nearAccountId: args.context.nearAccountId,
-          keyPurpose: args.context.keyPurpose,
-          keyVersion: args.context.keyVersion,
+          applicationBindingDigestB64u: args.context.applicationBindingDigestB64u,
           participantIds: args.context.participantIds,
-          derivationVersion: args.context.derivationVersion,
           contextBindingB64u: args.context.contextBindingB64u,
           operation: args.context.operation,
           relayerKeyId: args.context.relayerKeyId,

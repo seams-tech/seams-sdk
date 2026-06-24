@@ -175,12 +175,8 @@ export type ThresholdEd25519HssClientOutputMaskTransport =
   GeneratedEd25519HssClientOutputMaskTransport;
 
 export type ThresholdEd25519PrepareHssClientOutputMaskHandleRequest = {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   contextBindingB64u: string;
   operation: string;
   relayerKeyId: string;
@@ -532,41 +528,25 @@ type DirectPrfFields = {
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
 export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   sessionId: string;
   prfFirstB64u?: string;
 }
 export interface WasmDeriveThresholdEd25519HssClientInputsResult {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   contextBindingB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
 }
 export interface WasmPrepareThresholdEd25519HssSessionRequest {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
 }
 export interface WasmPrepareThresholdEd25519HssSessionResult {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   contextBindingB64u: string;
   evaluatorDriverStateB64u: string;
 }
@@ -600,12 +580,8 @@ export interface WasmPrepareThresholdEd25519HssClientRequestResult {
   workerSessionHandle?: string;
 }
 export interface WasmDeriveThresholdEd25519HssClientOutputMaskRequest {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   contextBindingB64u: string;
   operation: string;
   relayerKeyId: string;

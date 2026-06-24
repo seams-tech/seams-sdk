@@ -80,12 +80,8 @@ export interface SignerWasmConfig {
 }
 
 export interface ThresholdEd25519HssCanonicalContext {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
 }
 
 export type ThresholdEd25519RegistrationAccountScope =
@@ -95,6 +91,7 @@ export type ThresholdEd25519RegistrationAccountScope =
       rpId: string;
       intentDigestB64u: string;
       signingRootId: string;
+      signingRootVersion: string;
       ed25519KeyScopeId: string;
       signerSlot: number;
       keyPurpose: string;
@@ -110,6 +107,7 @@ export type ThresholdEd25519RegistrationAccountScope =
       rpId: string;
       intentDigestB64u: string;
       signingRootId: string;
+      signingRootVersion: string;
       ed25519KeyScopeId: string;
       signerSlot: number;
       keyPurpose: string;
@@ -125,6 +123,7 @@ export type ThresholdEd25519RegistrationAccountScope =
       rpId: string;
       intentDigestB64u: string;
       signingRootId: string;
+      signingRootVersion: string;
       ed25519KeyScopeId: string;
       signerSlot: number;
       keyPurpose: string;

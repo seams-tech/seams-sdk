@@ -9,8 +9,11 @@ pub const ED25519_HSS_CLIENT_ROOT_SHARE_SALT_V1: &[u8] = b"ed25519/root-share/cl
 pub const ED25519_HSS_CLIENT_TAU_SHARE_SALT_V1: &[u8] = b"ed25519/tau/client:v1";
 pub const ED25519_HSS_SERVER_ROOT_SHARE_SALT_V1: &[u8] = b"ed25519/root-share/server:v1";
 pub const ED25519_HSS_SERVER_TAU_SHARE_SALT_V1: &[u8] = b"ed25519/tau/server:v1";
-pub const ED25519_HSS_CONTEXT_BINDING_DOMAIN_V1: &[u8] =
-    b"succinct-garbling-proto/context-binding/v1";
+pub const ED25519_HSS_CONTEXT_VERSION: &str = "v2";
+pub const ED25519_HSS_SCHEME_ID: &str = "ed25519-hss-v2";
+pub const ED25519_HSS_CURVE: &str = "ed25519";
+pub const ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2: &[u8] =
+    b"succinct-garbling-proto/ed25519-hss/context-binding/v2";
 pub const NEAR_ED25519_SEED_EXPORT_ARTIFACT_KIND_V1: &str = "near-ed25519-seed-v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,22 +26,15 @@ pub struct ExpandedEd25519SeedMaterial {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Ed25519HssCanonicalContextV1 {
-    pub org_id: String,
-    pub account_id: String,
-    pub key_purpose: String,
-    pub key_version: String,
+pub struct Ed25519HssStableKeyContext {
+    pub application_binding_digest: [u8; 32],
     pub participant_ids: Vec<u16>,
-    pub derivation_version: u32,
 }
 
-impl Ed25519HssCanonicalContextV1 {
-    pub fn normalized(&self) -> CoreResult<Self> {
-        validate_nonempty_exact("orgId", &self.org_id)?;
-        validate_nonempty_exact("accountId", &self.account_id)?;
-        validate_nonempty_exact("keyPurpose", &self.key_purpose)?;
-        validate_nonempty_exact("keyVersion", &self.key_version)?;
+pub type Ed25519HssCanonicalContextV1 = Ed25519HssStableKeyContext;
 
+impl Ed25519HssStableKeyContext {
+    pub fn normalized(&self) -> CoreResult<Self> {
         let mut participant_ids: Vec<u16> = self
             .participant_ids
             .iter()
@@ -55,12 +51,8 @@ impl Ed25519HssCanonicalContextV1 {
         }
 
         Ok(Self {
-            org_id: self.org_id.clone(),
-            account_id: self.account_id.clone(),
-            key_purpose: self.key_purpose.clone(),
-            key_version: self.key_version.clone(),
+            application_binding_digest: self.application_binding_digest,
             participant_ids,
-            derivation_version: self.derivation_version,
         })
     }
 
@@ -68,16 +60,15 @@ impl Ed25519HssCanonicalContextV1 {
         let normalized = self.normalized()?;
         let mut hasher = Sha256::new();
 
-        hasher.update(ED25519_HSS_CONTEXT_BINDING_DOMAIN_V1);
-        update_len_prefixed(&mut hasher, &normalized.org_id);
-        update_len_prefixed(&mut hasher, &normalized.account_id);
-        update_len_prefixed(&mut hasher, &normalized.key_purpose);
-        update_len_prefixed(&mut hasher, &normalized.key_version);
+        hasher.update(ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2);
+        update_len_prefixed(&mut hasher, ED25519_HSS_CONTEXT_VERSION);
+        update_len_prefixed(&mut hasher, ED25519_HSS_SCHEME_ID);
+        update_len_prefixed(&mut hasher, ED25519_HSS_CURVE);
+        hasher.update(normalized.application_binding_digest);
         hasher.update((normalized.participant_ids.len() as u32).to_be_bytes());
         for participant_id in normalized.participant_ids {
             hasher.update(participant_id.to_be_bytes());
         }
-        hasher.update(normalized.derivation_version.to_be_bytes());
 
         let digest = hasher.finalize();
         let mut out = [0u8; 32];
@@ -121,20 +112,6 @@ fn require_nonempty<'a>(label: &str, value: &'a str) -> CoreResult<&'a str> {
         )));
     }
     Ok(trimmed)
-}
-
-fn validate_nonempty_exact(label: &str, value: &str) -> CoreResult<()> {
-    if value.is_empty() {
-        return Err(SignerCoreError::invalid_input(format!(
-            "{label} must be non-empty"
-        )));
-    }
-    if value.trim() != value {
-        return Err(SignerCoreError::invalid_input(format!(
-            "{label} must not contain leading or trailing whitespace"
-        )));
-    }
-    Ok(())
 }
 
 fn update_len_prefixed(hasher: &mut Sha256, value: &str) {
@@ -293,12 +270,8 @@ mod tests {
 
     fn sample_hss_context() -> Ed25519HssCanonicalContextV1 {
         Ed25519HssCanonicalContextV1 {
-            org_id: "org_123".to_string(),
-            account_id: "alice.near".to_string(),
-            key_purpose: "near-ed25519".to_string(),
-            key_version: "single-key-hss-v1".to_string(),
+            application_binding_digest: [0x42; 32],
             participant_ids: vec![2, 1, 2],
-            derivation_version: 1,
         }
     }
 
@@ -345,27 +318,18 @@ mod tests {
             derive_ed25519_hss_client_inputs_v1(&prf_first, &sample_hss_context()).expect("repeat");
         assert_eq!(same, repeat);
 
-        let different_account = derive_ed25519_hss_client_inputs_v1(
+        let different_digest = derive_ed25519_hss_client_inputs_v1(
             &prf_first,
             &Ed25519HssCanonicalContextV1 {
-                account_id: "bob.near".to_string(),
+                application_binding_digest: [0x43; 32],
                 ..sample_hss_context()
             },
         )
-        .expect("different account");
-        let different_purpose = derive_ed25519_hss_client_inputs_v1(
-            &prf_first,
-            &Ed25519HssCanonicalContextV1 {
-                key_purpose: "near-ed25519-export".to_string(),
-                ..sample_hss_context()
-            },
-        )
-        .expect("different purpose");
+        .expect("different digest");
 
-        assert_ne!(same.context_binding, different_account.context_binding);
-        assert_ne!(same.y_client, different_account.y_client);
-        assert_ne!(same.tau_client, different_account.tau_client);
-        assert_ne!(same.context_binding, different_purpose.context_binding);
+        assert_ne!(same.context_binding, different_digest.context_binding);
+        assert_ne!(same.y_client, different_digest.y_client);
+        assert_ne!(same.tau_client, different_digest.tau_client);
     }
 
     #[test]
@@ -391,18 +355,18 @@ mod tests {
             .expect("repeat");
         assert_eq!(same, repeat);
 
-        let different_version = derive_ed25519_hss_server_inputs_v1(
+        let different_digest = derive_ed25519_hss_server_inputs_v1(
             &master_secret,
             &Ed25519HssCanonicalContextV1 {
-                key_version: "single-key-hss-v2".to_string(),
+                application_binding_digest: [0x44; 32],
                 ..sample_hss_context()
             },
         )
-        .expect("different version");
+        .expect("different digest");
 
-        assert_ne!(same.context_binding, different_version.context_binding);
-        assert_ne!(same.y_server, different_version.y_server);
-        assert_ne!(same.tau_server, different_version.tau_server);
+        assert_ne!(same.context_binding, different_digest.context_binding);
+        assert_ne!(same.y_server, different_digest.y_server);
+        assert_ne!(same.tau_server, different_digest.tau_server);
     }
 
     #[test]

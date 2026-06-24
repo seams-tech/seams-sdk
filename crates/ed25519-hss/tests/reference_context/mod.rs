@@ -30,12 +30,8 @@ fn clamp_matches_rfc8032_bit_rules() {
 #[test]
 fn context_binding_normalizes_participant_ids() {
     let with_duplicates = CanonicalContext {
-        org_id: "org.binding".to_string(),
-        account_id: "binding.test.near".to_string(),
-        key_purpose: "near-signing".to_string(),
-        key_version: "v1".to_string(),
+        application_binding_digest: [0x21; 32],
         participant_ids: vec![2, 1, 2],
-        derivation_version: 1,
     };
     let normalized = CanonicalContext {
         participant_ids: vec![1, 2],
@@ -51,15 +47,11 @@ fn context_binding_normalizes_participant_ids() {
 #[test]
 fn context_binding_changes_when_context_changes() {
     let left = CanonicalContext {
-        org_id: "org.binding".to_string(),
-        account_id: "binding.test.near".to_string(),
-        key_purpose: "near-signing".to_string(),
-        key_version: "v1".to_string(),
+        application_binding_digest: [0x21; 32],
         participant_ids: vec![1, 2],
-        derivation_version: 1,
     };
     let right = CanonicalContext {
-        account_id: "binding-alt.test.near".to_string(),
+        application_binding_digest: [0x22; 32],
         ..left.clone()
     };
 

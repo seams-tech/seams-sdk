@@ -29,11 +29,15 @@ import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
   computeSdkEcdsaHssApplicationBindingDigestB64u,
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
   type EcdsaClientRootPublicKey33B64u,
   type EcdsaHssRoleLocalBootstrapIdentity,
   type EcdsaHssClientSharePublicKey33B64u,
   type EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEd25519HssApplicationBindingDigestB64u } from '@shared/threshold/ed25519HssBinding';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   EMAIL_OTP_HKDF_SALTS,
@@ -88,10 +92,6 @@ import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
-import {
-  THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-  THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-} from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import {
   finalizeThresholdEd25519HssServerCeremonyWithSession,
   prepareThresholdEd25519HssServerCeremonyWithSession,
@@ -2886,8 +2886,9 @@ function relayerKeyIdFromRouteAuth(auth: ThresholdEcdsaHssRouteAuth | undefined)
 async function runThresholdEd25519SeedExportFromPrfFirst(args: {
   relayUrl: string;
   nearAccountId: string;
+  ed25519KeyScopeId: string;
   signingRootId: string;
-  keyVersion: string;
+  signingRootVersion: string;
   participantIds: number[];
   thresholdSessionId: string;
   walletSessionJwt: string;
@@ -2901,8 +2902,11 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
   await ensureHssClientSignerWasm();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const nearAccountId = readString(args.nearAccountId, 'nearAccountId');
+  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
+    readString(args.ed25519KeyScopeId, 'ed25519KeyScopeId'),
+  );
   const signingRootId = readString(args.signingRootId, 'signingRootId');
-  const keyVersion = readString(args.keyVersion, 'keyVersion');
+  const signingRootVersion = readString(args.signingRootVersion, 'signingRootVersion');
   const walletSessionJwt = readString(args.walletSessionJwt, 'walletSessionJwt');
   const relayerKeyId = readString(args.relayerKeyId, 'relayerKeyId');
   const prfFirstB64u = readString(args.prfFirstB64u, 'prfFirstB64u');
@@ -2911,19 +2915,24 @@ async function runThresholdEd25519SeedExportFromPrfFirst(args: {
   if (!participantIds) {
     throw new Error('Email OTP Ed25519 export requires participantIds');
   }
+  const applicationBindingDigestB64u =
+    await computeSdkEd25519HssApplicationBindingDigestB64u({
+      ed25519KeyScopeId,
+      signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
+      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
+    });
   const context = {
-    signingRootId,
-    nearAccountId,
-    keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-    keyVersion,
+    applicationBindingDigestB64u,
     participantIds,
-    derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   };
   const clientInputs = derive_threshold_ed25519_hss_client_inputs({
     sessionId: `${readString(args.thresholdSessionId, 'thresholdSessionId')}:email-otp-hss-export-client-inputs`,
-    ...context,
+    applicationBindingDigestB64u: context.applicationBindingDigestB64u,
+    participantIds: context.participantIds,
     prfFirstB64u,
   }) as {
+    applicationBindingDigestB64u?: unknown;
+    participantIds?: unknown;
     contextBindingB64u?: unknown;
     yClientB64u?: unknown;
     tauClientB64u?: unknown;
@@ -4337,6 +4346,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
           nearAccountId: readString(payload.nearAccountId, 'nearAccountId'),
+          ed25519KeyScopeId: readString(payload.ed25519KeyScopeId, 'ed25519KeyScopeId'),
           userId: readString(payload.userId, 'userId'),
           challengeId: readString(payload.challengeId, 'challengeId'),
           otpCode: readString(payload.otpCode, 'otpCode'),
@@ -4349,7 +4359,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             payload.runtimePolicyScope,
             'Email OTP Ed25519 export',
           ),
-          keyVersion: readString(payload.keyVersion, 'keyVersion'),
           participantIds: Array.isArray(payload.participantIds)
             ? payload.participantIds.map((value: unknown) => Number(value))
             : [],
@@ -4976,8 +4985,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const artifact = await runThresholdEd25519SeedExportFromPrfFirst({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
             nearAccountId: readString(msg.payload.nearAccountId, 'nearAccountId'),
+            ed25519KeyScopeId: readString(msg.payload.ed25519KeyScopeId, 'ed25519KeyScopeId'),
             signingRootId: readString(signingRootScope.signingRootId, 'signingRootId'),
-            keyVersion: readString(msg.payload.keyVersion, 'keyVersion'),
+            signingRootVersion: readString(signingRootScope.signingRootVersion, 'signingRootVersion'),
             participantIds: msg.payload.participantIds,
             thresholdSessionId: readString(msg.payload.thresholdSessionId, 'thresholdSessionId'),
             walletSessionJwt: readString(msg.payload.walletSessionJwt, 'walletSessionJwt'),

@@ -7,6 +7,7 @@ import type { InitInput } from '../../../../../wasm/threshold_prf/pkg/threshold_
 import { createWasmLoader } from '../wasm-loader';
 import type { ThresholdEd25519HssCanonicalContext } from '../types';
 import type { ThresholdPrfPolicy } from './signingRootShareResolver';
+import { base64UrlDecode } from '@shared/utils/encoders';
 
 export type { ThresholdPrfPolicy } from './signingRootShareResolver';
 
@@ -187,12 +188,6 @@ function requireMatchingParticipantIds(input: {
   }
 }
 
-function requiredTrimmed(label: string, value: string): string {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) throw new Error(`${label} is required`);
-  return trimmed;
-}
-
 export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
   readonly policy: ThresholdPrfPolicy;
   readonly shareWires: readonly SigningRootShareWire[];
@@ -245,16 +240,17 @@ export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
   });
 
   const flattened = flattenSigningRootShareWireSet(shareWires);
+  const applicationBindingDigest = requireBase64UrlFixedBytes(
+    'applicationBindingDigestB64u',
+    input.context.applicationBindingDigestB64u,
+    32,
+  );
   try {
     const result = threshold_prf_derive_ed25519_hss_server_inputs(
       policy.threshold,
       policy.shareCount,
       flattened,
-      requiredTrimmed('signingRootId', input.context.signingRootId),
-      requiredTrimmed('nearAccountId', input.context.nearAccountId),
-      requiredTrimmed('keyPurpose', input.context.keyPurpose),
-      requiredTrimmed('keyVersion', input.context.keyVersion),
-      Number(input.context.derivationVersion),
+      applicationBindingDigest,
     ) as {
       contextBinding?: Uint8Array;
       yRelayer?: Uint8Array;
@@ -262,18 +258,26 @@ export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
     };
 
     return {
-      signingRootId: requiredTrimmed('signingRootId', input.context.signingRootId),
-      nearAccountId: requiredTrimmed('nearAccountId', input.context.nearAccountId),
-      keyPurpose: requiredTrimmed('keyPurpose', input.context.keyPurpose),
-      keyVersion: requiredTrimmed('keyVersion', input.context.keyVersion),
+      applicationBindingDigestB64u: input.context.applicationBindingDigestB64u,
       participantIds: shareIds,
-      derivationVersion: Number(input.context.derivationVersion),
       contextBinding: checkedResultBytes('contextBinding', result.contextBinding),
       yRelayer: checkedResultBytes('yRelayer', result.yRelayer),
       tauRelayer: checkedResultBytes('tauRelayer', result.tauRelayer),
     };
   } finally {
     flattened.fill(0);
+    applicationBindingDigest.fill(0);
     for (const wire of shareWires) wire.fill(0);
   }
+}
+
+function requireBase64UrlFixedBytes(label: string, value: unknown, byteLength: number): Uint8Array {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new Error(`${label} is required`);
+  const decoded = base64UrlDecode(normalized);
+  if (decoded.length !== byteLength) {
+    decoded.fill(0);
+    throw new Error(`${label} must decode to ${byteLength} bytes`);
+  }
+  return decoded;
 }

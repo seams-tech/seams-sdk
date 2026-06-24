@@ -58,7 +58,6 @@ export type ExportEd25519SeedWithAuthorizationArgs = {
   challengeId: string;
   otpCode: string;
   record: ThresholdEd25519SessionRecord;
-  keyVersion: string;
   participantIds: number[];
   thresholdSessionId: string;
   walletSessionJwt: string;

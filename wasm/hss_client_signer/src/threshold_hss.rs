@@ -1,7 +1,7 @@
 use crate::encoders::{base64_url_decode, base64_url_encode};
 use crate::js::{
-    get_optional_string, get_required_string, get_required_u16_vec, get_required_u32, object,
-    set_f64, set_string, set_u16_vec, set_u32,
+    get_optional_string, get_required_string, get_required_u16_vec, object, set_f64, set_string,
+    set_u16_vec, set_u32,
 };
 use ecdsa_hss::EcdsaHssStableKeyContext;
 use ed25519_hss::{
@@ -237,12 +237,12 @@ pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, J
         .map_err(|e| JsValue::from_str(&e))?;
 
     let out = object();
-    set_string(&out, "signingRootId", &context.org_id)?;
-    set_string(&out, "nearAccountId", &context.account_id)?;
-    set_string(&out, "keyPurpose", &context.key_purpose)?;
-    set_string(&out, "keyVersion", &context.key_version)?;
+    set_string(
+        &out,
+        "applicationBindingDigestB64u",
+        &base64_url_encode(&context.application_binding_digest),
+    )?;
     set_u16_vec(&out, "participantIds", &context.participant_ids)?;
-    set_u32(&out, "derivationVersion", context.derivation_version)?;
     set_string(
         &out,
         "contextBindingB64u",
@@ -1123,12 +1123,11 @@ pub fn open_ecdsa_role_local_signing_share_v1(args: JsValue) -> Result<JsValue, 
 
 fn canonical_context_from_js(args: &JsValue) -> Result<CanonicalContext, JsValue> {
     Ok(CanonicalContext {
-        org_id: get_required_string(args, "signingRootId")?,
-        account_id: get_required_string(args, "nearAccountId")?,
-        key_purpose: get_required_string(args, "keyPurpose")?,
-        key_version: get_required_string(args, "keyVersion")?,
+        application_binding_digest: decode_fixed_32(
+            &get_required_string(args, "applicationBindingDigestB64u")?,
+            "applicationBindingDigestB64u",
+        )?,
         participant_ids: get_required_u16_vec(args, "participantIds")?,
-        derivation_version: get_required_u32(args, "derivationVersion")?,
     })
 }
 

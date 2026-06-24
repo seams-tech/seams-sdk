@@ -186,12 +186,8 @@ async function requestHssEcdsaRoleLocalPresignOperation<
 }
 
 export type ThresholdEd25519HssCanonicalContext = {
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
 };
 
 function requireClientOutputMask32B64u(value: string): string {
@@ -448,45 +444,30 @@ export function parseServerPlannedEcdsaHssContext(input: {
 
 export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   sessionId: string;
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   prfFirstB64u: string;
   workerCtx: WorkerOperationContext;
 }): Promise<{
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  applicationBindingDigestB64u: string;
   participantIds: number[];
-  derivationVersion: number;
   contextBindingB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
 }> {
   const sessionId = String(args.sessionId || '').trim();
-  const signingRootId = String(args.signingRootId || '').trim();
-  const nearAccountId = String(args.nearAccountId || '').trim();
-  const keyPurpose = String(args.keyPurpose || '').trim();
-  const keyVersion = String(args.keyVersion || '').trim();
+  const applicationBindingDigestB64u = requireBase64UrlBytes({
+    fieldName: 'applicationBindingDigestB64u',
+    value: args.applicationBindingDigestB64u,
+    byteLength: 32,
+  });
   const prfFirstB64u = String(args.prfFirstB64u || '').trim();
   const participantIds = Array.isArray(args.participantIds)
     ? args.participantIds.map((value) => Number(value))
     : [];
-  const derivationVersion = Number(args.derivationVersion);
 
   if (!sessionId) throw new Error('Missing sessionId');
-  if (!signingRootId) throw new Error('Missing signingRootId');
-  if (!nearAccountId) throw new Error('Missing nearAccountId');
-  if (!keyPurpose) throw new Error('Missing keyPurpose');
-  if (!keyVersion) throw new Error('Missing keyVersion');
   if (!prfFirstB64u) throw new Error('Missing prfFirstB64u');
-  if (!Number.isInteger(derivationVersion) || derivationVersion < 0) {
-    throw new Error('Invalid derivationVersion');
-  }
 
   const response = await requestHssEd25519ProtocolOperation({
     workerCtx: args.workerCtx,
@@ -495,12 +476,8 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
       type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        signingRootId,
-        nearAccountId,
-        keyPurpose,
-        keyVersion,
+        applicationBindingDigestB64u,
         participantIds,
-        derivationVersion,
         prfFirstB64u,
       },
     },
@@ -521,12 +498,10 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   }
 
   return {
-    signingRootId: String(wasmResult?.signingRootId || signingRootId).trim(),
-    nearAccountId: String(wasmResult?.nearAccountId || nearAccountId).trim(),
-    keyPurpose: String(wasmResult?.keyPurpose || keyPurpose).trim(),
-    keyVersion: String(wasmResult?.keyVersion || keyVersion).trim(),
+    applicationBindingDigestB64u: String(
+      wasmResult?.applicationBindingDigestB64u || applicationBindingDigestB64u,
+    ).trim(),
     participantIds: normalizedParticipantIds,
-    derivationVersion: Number(wasmResult?.derivationVersion ?? derivationVersion),
     contextBindingB64u,
     yClientB64u,
     tauClientB64u,
@@ -543,12 +518,8 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
       type: WorkerRequestType.PrepareThresholdEd25519HssSession,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        signingRootId: input.context.signingRootId,
-        nearAccountId: input.context.nearAccountId,
-        keyPurpose: input.context.keyPurpose,
-        keyVersion: input.context.keyVersion,
+        applicationBindingDigestB64u: input.context.applicationBindingDigestB64u,
         participantIds: input.context.participantIds,
-        derivationVersion: input.context.derivationVersion,
       },
     },
   });
@@ -629,12 +600,8 @@ export async function deriveThresholdEd25519HssClientOutputMaskWasm(input: {
       type: WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        signingRootId: input.context.signingRootId,
-        nearAccountId: input.context.nearAccountId,
-        keyPurpose: input.context.keyPurpose,
-        keyVersion: input.context.keyVersion,
+        applicationBindingDigestB64u: input.context.applicationBindingDigestB64u,
         participantIds: input.context.participantIds,
-        derivationVersion: input.context.derivationVersion,
         contextBindingB64u: input.context.contextBindingB64u,
         operation: input.context.operation,
         relayerKeyId: input.context.relayerKeyId,

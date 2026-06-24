@@ -16,12 +16,11 @@ impl PreparedSession {
 
     pub fn prepared_context(&self) -> CanonicalContext {
         CanonicalContext {
-            org_id: self.candidate().context_descriptor.org_id.clone(),
-            account_id: self.candidate().context_descriptor.account_id.clone(),
-            key_purpose: self.candidate().context_descriptor.key_purpose.clone(),
-            key_version: self.candidate().context_descriptor.key_version.clone(),
+            application_binding_digest: self
+                .candidate()
+                .context_descriptor
+                .application_binding_digest,
             participant_ids: self.candidate().context_descriptor.participant_ids.clone(),
-            derivation_version: self.candidate().context_descriptor.derivation_version,
         }
     }
 

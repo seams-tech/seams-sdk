@@ -177,13 +177,10 @@ test('threshold-prf WASM wrapper derives Ed25519 HSS server inputs through polic
   const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const selectedIds = [1, 2] as const;
+  const applicationBindingDigest = new Uint8Array(32).fill(9);
   const context = {
-    signingRootId: 'project-alpha:dev',
-    nearAccountId: 'alice.near',
-    keyPurpose: 'wallet',
-    keyVersion: 'v1',
+    applicationBindingDigestB64u: base64UrlEncode(applicationBindingDigest),
     participantIds: [1, 2],
-    derivationVersion: 1,
   };
 
   const serverInputs = await deriveEd25519HssServerInputsFromSigningRootShares({
@@ -195,11 +192,7 @@ test('threshold-prf WASM wrapper derives Ed25519 HSS server inputs through polic
     policy.threshold,
     policy.shareCount,
     flattenShareWires(vector, selectedIds),
-    context.signingRootId,
-    context.nearAccountId,
-    context.keyPurpose,
-    context.keyVersion,
-    context.derivationVersion,
+    applicationBindingDigest,
   ) as {
     contextBinding: Uint8Array;
     yRelayer: Uint8Array;

@@ -84,8 +84,11 @@ fn prime_order_encoder_matches_backend_size_and_has_expected_sections() {
     assert_eq!(&header[..8], b"SGPPRM01");
 
     let context = section_bytes(&artifact, &bytes, PrimeOrderSectionKind::ContextDescriptor);
-    assert!(contains_subslice(context, b"org.wraparound"));
-    assert!(contains_subslice(context, b"wraparound.test.near"));
+    assert_eq!(&context[..8], b"CTXDESC2");
+    assert!(contains_subslice(
+        context,
+        &fixture.input.context.application_binding_digest
+    ));
 
     let round_constants = section_bytes(&artifact, &bytes, PrimeOrderSectionKind::RoundConstants);
     assert_eq!(&round_constants[..8], b"RNDCNST1");
@@ -231,11 +234,11 @@ fn prime_order_cpu_executor_executes_compiled_program() {
     assert_eq!(result.total_steps, 180);
     assert_eq!(
         format!("{:016x}", result.output_checksum),
-        "eadc05589e7e647a"
+        "492028569f5dd0b2"
     );
     assert_eq!(
         hex::encode(result.final_point_compressed),
-        "822fc83ea4e67c246d0a542d6cce294db092fa5573c9dd395d2cfd977c652938"
+        "e97ae5aabd5a1af00d1c46073a9d2c0745190ecca4adbac5d3c7a55d1eefd818"
     );
 }
 

@@ -454,12 +454,8 @@ export async function deriveEd25519HssServerInputsFromSigningRootShareResolver(
       return {
         ok: true,
         value: {
-          signingRootId: serverInputBytes.signingRootId,
-          nearAccountId: serverInputBytes.nearAccountId,
-          keyPurpose: serverInputBytes.keyPurpose,
-          keyVersion: serverInputBytes.keyVersion,
+          applicationBindingDigestB64u: serverInputBytes.applicationBindingDigestB64u,
           participantIds: serverInputBytes.participantIds,
-          derivationVersion: serverInputBytes.derivationVersion,
           contextBindingB64u: base64UrlEncode(serverInputBytes.contextBinding),
           yRelayerB64u: base64UrlEncode(serverInputBytes.yRelayer),
           tauRelayerB64u: base64UrlEncode(serverInputBytes.tauRelayer),

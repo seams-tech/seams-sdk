@@ -36,30 +36,19 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
       }
     },
     async deriveThresholdEd25519HssClientInputs(args) {
-      const signingRootId = String(args.signingRootId || '').trim();
-      const nearAccountId = String(args.nearAccountId);
-      const keyPurpose = String(args.keyPurpose || '').trim();
-      const keyVersion = String(args.keyVersion || '').trim();
+      const applicationBindingDigestB64u = String(args.applicationBindingDigestB64u || '').trim();
       try {
         const derived = await deriveThresholdEd25519HssClientInputsWasm({
           sessionId: args.sessionId,
-          signingRootId,
-          nearAccountId,
-          keyPurpose,
-          keyVersion,
+          applicationBindingDigestB64u,
           participantIds: args.participantIds,
-          derivationVersion: args.derivationVersion,
           prfFirstB64u: args.prfFirstB64u,
           workerCtx: getContext(),
         });
         return {
           success: true,
-          signingRootId: derived.signingRootId,
-          nearAccountId: derived.nearAccountId,
-          keyPurpose: derived.keyPurpose,
-          keyVersion: derived.keyVersion,
+          applicationBindingDigestB64u: derived.applicationBindingDigestB64u,
           participantIds: derived.participantIds,
-          derivationVersion: derived.derivationVersion,
           contextBindingB64u: derived.contextBindingB64u,
           yClientB64u: derived.yClientB64u,
           tauClientB64u: derived.tauClientB64u,
@@ -68,12 +57,8 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
         const message = error instanceof Error ? error.message : String(error);
         return {
           success: false,
-          signingRootId,
-          nearAccountId,
-          keyPurpose,
-          keyVersion,
+          applicationBindingDigestB64u,
           participantIds: args.participantIds,
-          derivationVersion: args.derivationVersion,
           contextBindingB64u: '',
           yClientB64u: '',
           tauClientB64u: '',

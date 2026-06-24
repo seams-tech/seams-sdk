@@ -262,3 +262,77 @@ test('Refactor 79 ECDSA-HSS context artifacts do not reintroduce product or auth
 
   expect(violations, violations.join('\n')).toEqual([]);
 });
+
+test('Refactor 79 Ed25519-HSS context artifacts do not reintroduce SDK identity fields', () => {
+  const wholeFileArtifacts = [
+    'crates/ed25519-hss/src/shared/context.rs',
+    'crates/ed25519-hss/src/candidate.rs',
+    'crates/ed25519-hss/src/artifact/prime_order_encoder.rs',
+    'crates/ed25519-hss/formal-verification/verus/src/shared/reference.rs',
+    'crates/ed25519-hss/formal-verification/lean-boundary/Ed25519Hss/Types.lean',
+    'crates/ed25519-hss/formal-verification/lean-boundary/generated/visible-boundary-package/Ed25519Hss/Types.lean',
+    'wasm/threshold_prf/pkg/threshold_prf.d.ts',
+  ];
+  const guardedRanges = [
+    {
+      path: 'packages/sdk-web/src/core/types/signer-worker.ts',
+      start: 'export interface WasmDeriveThresholdEd25519HssClientInputsRequest',
+      end: 'export interface WasmBuildThresholdEd25519SeedExportArtifactRequest',
+    },
+    {
+      path: 'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
+      start: 'export type ThresholdEd25519HssCanonicalContext = {',
+      end: 'export type ThresholdEcdsaHssStableKeyContext = {',
+    },
+    {
+      path: 'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
+      start: 'export async function deriveThresholdEd25519HssClientInputsWasm',
+      end: 'export async function buildThresholdEd25519SeedExportArtifactWasm',
+    },
+    {
+      path: 'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts',
+      start: 'export async function deriveEd25519HssServerInputsFromSigningRootShares',
+      end: 'function requireBase64UrlFixedBytes',
+    },
+  ];
+  const forbidden = [
+    'org_id',
+    'account_id',
+    'near_account_id',
+    'key_purpose',
+    'key_version',
+    'derivation_version',
+    'ed25519_key_scope_id',
+    'signing_root_id',
+    'signing_root_version',
+    'orgId',
+    'accountId',
+    'nearAccountId',
+    'keyPurpose',
+    'keyVersion',
+    'derivationVersion',
+    'ed25519KeyScopeId',
+    'signingRootId',
+    'signingRootVersion',
+  ];
+  const violations: string[] = [];
+
+  for (const relativePath of wholeFileArtifacts) {
+    const source = readRepoSource(relativePath);
+    for (const token of forbidden) {
+      if (source.includes(token)) {
+        violations.push(`${relativePath} contains ${token}`);
+      }
+    }
+  }
+  for (const range of guardedRanges) {
+    const source = sourceRangeBetween(readRepoSource(range.path), range.start, range.end);
+    for (const token of forbidden) {
+      if (source.includes(token)) {
+        violations.push(`${range.path} range ${range.start} contains ${token}`);
+      }
+    }
+  }
+
+  expect(violations, violations.join('\n')).toEqual([]);
+});

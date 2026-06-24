@@ -148,12 +148,8 @@ pub fn prepare_prime_order_succinct_hss_client(
     Ok(crate::client::ClientDriverState {
         runtime: crate::runtime::SharedRuntimeState {
             prepared_context: CanonicalContext {
-                org_id: candidate.context_descriptor.org_id.clone(),
-                account_id: candidate.context_descriptor.account_id.clone(),
-                key_purpose: candidate.context_descriptor.key_purpose.clone(),
-                key_version: candidate.context_descriptor.key_version.clone(),
+                application_binding_digest: candidate.context_descriptor.application_binding_digest,
                 participant_ids: candidate.context_descriptor.participant_ids.clone(),
-                derivation_version: candidate.context_descriptor.derivation_version,
             },
             projection_mode: OutputProjectionMode::trusted_server_projection(),
         },

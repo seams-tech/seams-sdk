@@ -21,21 +21,13 @@ export type NearSigningKeyOps = {
   }>;
   deriveThresholdEd25519HssClientInputs(args: {
     sessionId: string;
-    signingRootId: string;
-    nearAccountId: AccountId;
-    keyPurpose: string;
-    keyVersion: string;
+    applicationBindingDigestB64u: string;
     participantIds: number[];
-    derivationVersion: number;
     prfFirstB64u: string;
   }): Promise<{
     success: boolean;
-    signingRootId: string;
-    nearAccountId: string;
-    keyPurpose: string;
-    keyVersion: string;
+    applicationBindingDigestB64u: string;
     participantIds: number[];
-    derivationVersion: number;
     contextBindingB64u: string;
     yClientB64u: string;
     tauClientB64u: string;

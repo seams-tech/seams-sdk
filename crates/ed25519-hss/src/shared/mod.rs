@@ -3,7 +3,7 @@ pub mod error;
 pub mod reference;
 pub mod reference_boundary;
 
-pub use context::CanonicalContext;
+pub use context::{CanonicalContext, Ed25519HssStableKeyContext};
 pub use error::{ProtoError, ProtoResult};
 pub use reference::{
     add_le_bytes_mod_2_256, clamp_rfc8032, derive_output_shares, eval_f_expand,

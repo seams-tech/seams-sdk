@@ -21,12 +21,8 @@ pub type Bytes64 = [u8; 64];
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CanonicalContext {
-    pub org_id: String,
-    pub account_id: String,
-    pub key_purpose: String,
-    pub key_version: String,
+    pub application_binding_digest: Bytes32,
     pub participant_ids: Vec<u16>,
-    pub derivation_version: u32,
 }
 
 #[derive(Debug, PartialEq, Eq)]

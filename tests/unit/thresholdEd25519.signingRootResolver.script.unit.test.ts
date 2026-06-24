@@ -5,7 +5,16 @@ import { fileURLToPath } from 'node:url';
 import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import { createThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService';
 import type { SealedSigningRootShare } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
-import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
+import type {
+  ThresholdEd25519RegistrationAccountScope,
+  ThresholdStoreConfigInput,
+} from '../../packages/sdk-server-ts/src/core/types';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+} from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEd25519HssApplicationBindingDigestB64u } from '../../packages/shared-ts/src/threshold/ed25519HssBinding';
+import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 type ThresholdPrfFixtureShare = {
   readonly id: number;
@@ -31,14 +40,40 @@ const ORG_ID = 'org-alpha';
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'dev';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
-const CONTEXT = {
-  signingRootId: SIGNING_ROOT_ID,
-  nearAccountId: 'alice.near',
-  keyPurpose: 'wallet',
-  keyVersion: 'v1',
-  participantIds: [1, 2],
-  derivationVersion: 1,
-};
+const PARTICIPANT_IDS = [1, 2] as const;
+
+function createRegistrationAccountScopeFixture(): ThresholdEd25519RegistrationAccountScope {
+  return {
+    kind: 'generated_implicit_registration_scope',
+    walletId: 'alice.near',
+    rpId: 'example.localhost',
+    intentDigestB64u: 'intent-digest',
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: 'v1',
+    ed25519KeyScopeId: 'alice.near',
+    signerSlot: 1,
+    keyPurpose: 'wallet',
+    keyVersion: 'v1',
+    derivationVersion: 1,
+    participantIds: Array.from(PARTICIPANT_IDS),
+  };
+}
+
+async function createEd25519HssContextFixture(input: {
+  readonly ed25519KeyScopeId: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly participantIds: readonly number[];
+}) {
+  return {
+    applicationBindingDigestB64u: await computeSdkEd25519HssApplicationBindingDigestB64u({
+      ed25519KeyScopeId: ed25519KeyScopeIdFromString(input.ed25519KeyScopeId),
+      signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
+      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
+    }),
+    participantIds: [...input.participantIds],
+  };
+}
 
 function createAuthServiceMock(): AuthService {
   return {
@@ -119,30 +154,25 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
   });
 
   expect(service.hasSigningRootShareResolver()).toBe(true);
+  const registrationAccountScope = createRegistrationAccountScopeFixture();
+  const context = await createEd25519HssContextFixture({
+    ed25519KeyScopeId: registrationAccountScope.ed25519KeyScopeId,
+    signingRootId: registrationAccountScope.signingRootId,
+    signingRootVersion: registrationAccountScope.signingRootVersion,
+    participantIds: registrationAccountScope.participantIds,
+  });
   const prepared = await service.ed25519Hss.prepareForRegistration({
     orgId: ORG_ID,
     signingRootId: SIGNING_ROOT_ID,
     request: {
-      registrationAccountScope: {
-        kind: 'generated_implicit_registration_scope',
-        walletId: CONTEXT.nearAccountId,
-        rpId: 'example.localhost',
-        intentDigestB64u: 'intent-digest',
-        signingRootId: CONTEXT.signingRootId,
-        ed25519KeyScopeId: CONTEXT.nearAccountId,
-        signerSlot: 1,
-        keyPurpose: CONTEXT.keyPurpose,
-        keyVersion: CONTEXT.keyVersion,
-        derivationVersion: CONTEXT.derivationVersion,
-        participantIds: [...CONTEXT.participantIds],
-      },
+      registrationAccountScope,
       wallet_key_id: 'example.localhost',
-      context: CONTEXT,
+      context,
     },
   });
 
-  expect(prepared.ok).toBe(true);
   if (!prepared.ok) throw new Error(prepared.message);
+  expect(prepared.ok).toBe(true);
   expect(prepared.ceremonyHandle).toBeTruthy();
   expect(prepared.preparedSession.contextBindingB64u).toBeTruthy();
   expect(prepared.preparedSession.evaluatorDriverStateB64u).toBeTruthy();
@@ -154,27 +184,15 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
     orgId: ORG_ID,
     signingRootId: `${PROJECT_ID}:staging`,
     request: {
-      registrationAccountScope: {
-        kind: 'generated_implicit_registration_scope',
-        walletId: CONTEXT.nearAccountId,
-        rpId: 'example.localhost',
-        intentDigestB64u: 'intent-digest',
-        signingRootId: CONTEXT.signingRootId,
-        ed25519KeyScopeId: CONTEXT.nearAccountId,
-        signerSlot: 1,
-        keyPurpose: CONTEXT.keyPurpose,
-        keyVersion: CONTEXT.keyVersion,
-        derivationVersion: CONTEXT.derivationVersion,
-        participantIds: [...CONTEXT.participantIds],
-      },
+      registrationAccountScope,
       wallet_key_id: 'example.localhost',
-      context: CONTEXT,
+      context,
     },
   });
 
   expect(mismatchedPrepared.ok).toBe(false);
   if (mismatchedPrepared.ok) throw new Error('expected mismatched signing root to fail');
   expect(mismatchedPrepared.code).toBe('unauthorized');
-  expect(mismatchedPrepared.message).toContain('context.signingRootId');
+  expect(mismatchedPrepared.message).toContain('signingRootId');
   expect(decryptCalls).toHaveLength(resolverCallCount);
 });

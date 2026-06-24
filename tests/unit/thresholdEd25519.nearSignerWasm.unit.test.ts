@@ -161,12 +161,8 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
     const calls: unknown[] = [];
     const result = await prepareThresholdEd25519HssClientOutputMaskHandleNearSignerWasm({
       request: {
-        signingRootId: 'root',
-        nearAccountId: 'alice.testnet',
-        keyPurpose: 'near-ed25519-signing',
-        keyVersion: 'threshold-ed25519-hss-v1',
+        applicationBindingDigestB64u: 'CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk',
         participantIds: [1, 2],
-        derivationVersion: 1,
         contextBindingB64u: 'context-binding',
         operation: 'registration',
         relayerKeyId: 'ed25519:relayer',

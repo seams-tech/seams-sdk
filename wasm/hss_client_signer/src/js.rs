@@ -23,20 +23,6 @@ pub fn get_optional_string(value: &JsValue, field_name: &str) -> Result<Option<S
         .filter(|s| !s.is_empty()))
 }
 
-pub fn get_required_u32(value: &JsValue, field_name: &str) -> Result<u32, JsValue> {
-    let field = Reflect::get(value, &JsValue::from_str(field_name))
-        .map_err(|_| JsValue::from_str(&format!("Invalid args: missing {field_name}")))?;
-    let number = field
-        .as_f64()
-        .ok_or_else(|| JsValue::from_str(&format!("Invalid args: missing {field_name}")))?;
-    if !number.is_finite() || number < 0.0 || number.fract() != 0.0 || number > u32::MAX as f64 {
-        return Err(JsValue::from_str(&format!(
-            "Invalid args: {field_name} must be a non-negative integer"
-        )));
-    }
-    Ok(number as u32)
-}
-
 pub fn get_required_u16_vec(value: &JsValue, field_name: &str) -> Result<Vec<u16>, JsValue> {
     let field = Reflect::get(value, &JsValue::from_str(field_name))
         .map_err(|_| JsValue::from_str(&format!("Invalid args: missing {field_name}")))?;

@@ -42,12 +42,8 @@ pub struct FixedHiddenCoreCandidate {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidateContextDescriptor {
-    pub org_id: String,
-    pub account_id: String,
-    pub key_purpose: String,
-    pub key_version: String,
+    pub application_binding_digest: [u8; 32],
     pub participant_ids: Vec<u16>,
-    pub derivation_version: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,7 +174,6 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
         round_template_digest,
         estimated_public_data_bytes: backend.public_data_bytes,
         participant_ids: normalized_context.participant_ids.clone(),
-        derivation_version: normalized_context.derivation_version,
     };
 
     let template_descriptor_bytes = bincode::serialize(&template_descriptor)
@@ -345,12 +340,8 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
         candidate_version: FIXED_HIDDEN_CORE_CANDIDATE_VERSION.to_string(),
         fixed_function_id: FIXED_HIDDEN_CORE_FUNCTION_ID.to_string(),
         context_descriptor: CandidateContextDescriptor {
-            org_id: normalized_context.org_id,
-            account_id: normalized_context.account_id,
-            key_purpose: normalized_context.key_purpose,
-            key_version: normalized_context.key_version,
+            application_binding_digest: normalized_context.application_binding_digest,
             participant_ids: normalized_context.participant_ids,
-            derivation_version: normalized_context.derivation_version,
         },
         context_binding,
         backend,
@@ -709,7 +700,6 @@ struct TemplateDescriptorDigestView {
     round_template_digest: [u8; 32],
     estimated_public_data_bytes: u64,
     participant_ids: Vec<u16>,
-    derivation_version: u32,
 }
 
 impl CandidateBackendFamily {

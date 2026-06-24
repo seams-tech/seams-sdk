@@ -98,6 +98,9 @@ const VALID_ECDSA_PRIVATE_SHARE_B64U = Buffer.from(new Uint8Array(32).fill(4)).t
 const VALID_ECDSA_CONTEXT_BINDING_B64U = Buffer.from(new Uint8Array(32).fill(5)).toString(
   'base64url',
 );
+const VALID_ECDSA_APPLICATION_BINDING_DIGEST_B64U = Buffer.from(
+  new Uint8Array(32).fill(6),
+).toString('base64url');
 const DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA = {
   kind: 'defer',
   reason: 'not_needed_for_ecdsa',
@@ -141,6 +144,7 @@ function makeEmailOtpRoleLocalReadyRecord(args: {
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
+      applicationBindingDigestB64u: VALID_ECDSA_APPLICATION_BINDING_DIGEST_B64U,
       contextBinding32B64u: VALID_ECDSA_CONTEXT_BINDING_B64U,
       hssClientSharePublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
       relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
@@ -1259,7 +1263,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
       nearAccountId: 'alice.testnet',
       challengeId: 'challenge-1',
       otpCode: '123456',
-      keyVersion: 'v1',
       participantIds: [1, 2],
       thresholdSessionId: 'ed25519-restored-session',
       walletSessionJwt: walletSessionJwt,
@@ -1303,7 +1306,6 @@ test.describe('EmailOtpWalletSessionCoordinator', () => {
         challengeId: 'challenge-1',
         otpCode: '123456',
         runtimePolicyScope,
-        keyVersion: 'v1',
         participantIds: [1, 2],
         thresholdSessionId: 'ed25519-restored-session',
         walletSessionJwt: walletSessionJwt,

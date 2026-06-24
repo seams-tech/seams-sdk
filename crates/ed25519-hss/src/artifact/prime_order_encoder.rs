@@ -345,10 +345,10 @@ fn encode_header_section(
 }
 
 fn encode_context_descriptor_section(candidate: &FixedHiddenCoreCandidate, out: &mut Vec<u8>) {
-    out.extend_from_slice(b"CTXDESC1");
+    out.extend_from_slice(b"CTXDESC2");
     out.extend_from_slice(&candidate.context_binding);
     push_u64(out, candidate.template.template_descriptor_bytes);
-    push_u32(out, candidate.context_descriptor.derivation_version);
+    out.extend_from_slice(&candidate.context_descriptor.application_binding_digest);
     push_u16(
         out,
         candidate.context_descriptor.participant_ids.len() as u16,
@@ -356,10 +356,6 @@ fn encode_context_descriptor_section(candidate: &FixedHiddenCoreCandidate, out: 
     for participant_id in &candidate.context_descriptor.participant_ids {
         push_u16(out, *participant_id);
     }
-    push_len_prefixed_str_infallible(out, &candidate.context_descriptor.org_id);
-    push_len_prefixed_str_infallible(out, &candidate.context_descriptor.account_id);
-    push_len_prefixed_str_infallible(out, &candidate.context_descriptor.key_purpose);
-    push_len_prefixed_str_infallible(out, &candidate.context_descriptor.key_version);
     push_len_prefixed_str_infallible(out, candidate.backend.family.as_str());
 }
 

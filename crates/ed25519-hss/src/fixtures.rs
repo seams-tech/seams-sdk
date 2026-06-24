@@ -32,12 +32,8 @@ pub struct FixtureRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextRecord {
-    pub org_id: String,
-    pub account_id: String,
-    pub key_purpose: String,
-    pub key_version: String,
+    pub application_binding_digest_hex: String,
     pub participant_ids: Vec<u16>,
-    pub derivation_version: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,12 +63,8 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
         (
             "wraparound-seed",
             CanonicalContext {
-                org_id: "org.wraparound".to_string(),
-                account_id: "wraparound.test.near".to_string(),
-                key_purpose: "near-signing".to_string(),
-                key_version: "v1-wrap".to_string(),
+                application_binding_digest: derive_bytes32("wraparound-seed/application-binding"),
                 participant_ids: vec![2, 1, 2],
-                derivation_version: 1,
             },
             [0xff; 32],
             one_le_u256(),
@@ -82,12 +74,8 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
         (
             "patterned-le-seed",
             CanonicalContext {
-                org_id: "org.pattern".to_string(),
-                account_id: "pattern.test.near".to_string(),
-                key_purpose: "near-signing".to_string(),
-                key_version: "v1-pattern".to_string(),
+                application_binding_digest: derive_bytes32("patterned-le-seed/application-binding"),
                 participant_ids: vec![1, 2],
-                derivation_version: 1,
             },
             ascending_bytes(),
             descending_bytes(),
@@ -97,12 +85,8 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
         (
             "derived-alpha",
             CanonicalContext {
-                org_id: "org.alpha".to_string(),
-                account_id: "alpha.test.near".to_string(),
-                key_purpose: "near-signing".to_string(),
-                key_version: "v1-alpha".to_string(),
+                application_binding_digest: derive_bytes32("derived-alpha/application-binding"),
                 participant_ids: vec![1, 2],
-                derivation_version: 2,
             },
             derive_bytes32("derived-alpha/y-client"),
             derive_bytes32("derived-alpha/y-server"),
@@ -112,12 +96,8 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
         (
             "derived-beta",
             CanonicalContext {
-                org_id: "org.beta".to_string(),
-                account_id: "beta.test.near".to_string(),
-                key_purpose: "near-export".to_string(),
-                key_version: "v2-beta".to_string(),
+                application_binding_digest: derive_bytes32("derived-beta/application-binding"),
                 participant_ids: vec![9, 4, 9, 4],
-                derivation_version: 3,
             },
             derive_bytes32("derived-beta/y-client"),
             derive_bytes32("derived-beta/y-server"),
@@ -127,12 +107,8 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
         (
             "derived-gamma",
             CanonicalContext {
-                org_id: "org.gamma".to_string(),
-                account_id: "gamma.test.near".to_string(),
-                key_purpose: "link-device".to_string(),
-                key_version: "v3-gamma".to_string(),
+                application_binding_digest: derive_bytes32("derived-gamma/application-binding"),
                 participant_ids: vec![11, 7],
-                derivation_version: 5,
             },
             derive_bytes32("derived-gamma/y-client"),
             derive_bytes32("derived-gamma/y-server"),
@@ -203,12 +179,10 @@ impl FixtureRecord {
         Self {
             name: fixture.name.clone(),
             context: ContextRecord {
-                org_id: fixture.input.context.org_id.clone(),
-                account_id: fixture.input.context.account_id.clone(),
-                key_purpose: fixture.input.context.key_purpose.clone(),
-                key_version: fixture.input.context.key_version.clone(),
+                application_binding_digest_hex: hex::encode(
+                    fixture.input.context.application_binding_digest,
+                ),
                 participant_ids: fixture.input.context.participant_ids.clone(),
-                derivation_version: fixture.input.context.derivation_version,
             },
             inputs: FixtureInputsRecord {
                 y_client_hex: hex::encode(fixture.input.y_client),
@@ -236,12 +210,11 @@ impl FixtureRecord {
             name: self.name.clone(),
             input: FExpandInput {
                 context: CanonicalContext {
-                    org_id: self.context.org_id.clone(),
-                    account_id: self.context.account_id.clone(),
-                    key_purpose: self.context.key_purpose.clone(),
-                    key_version: self.context.key_version.clone(),
+                    application_binding_digest: decode_hex_32(
+                        "application_binding_digest_hex",
+                        &self.context.application_binding_digest_hex,
+                    )?,
                     participant_ids: self.context.participant_ids.clone(),
-                    derivation_version: self.context.derivation_version,
                 },
                 y_client: decode_hex_32("y_client_hex", &self.inputs.y_client_hex)?,
                 y_server: decode_hex_32("y_server_hex", &self.inputs.y_server_hex)?,

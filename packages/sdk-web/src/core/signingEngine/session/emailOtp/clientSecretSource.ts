@@ -11,6 +11,10 @@ import type {
 } from '@/core/types/signer-worker';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  computeSdkEd25519HssApplicationBindingDigestB64u,
+  type SdkEd25519HssBindingFacts,
+} from '@shared/threshold/ed25519HssBinding';
 
 const WORKER_DEFAULT_MATERIAL_AUTHORIZATION_EXPIRES_AT_MS = 0;
 
@@ -79,23 +83,17 @@ export async function recoveryCodeBindingDigestForEmailOtpMaterial(args: {
 
 export async function deriveThresholdEd25519HssClientInputsFromEmailOtpRecoveryCode(args: {
   sessionId: string;
-  signingRootId: string;
-  nearAccountId: string;
-  keyPurpose: string;
-  keyVersion: string;
+  hssBindingFacts: SdkEd25519HssBindingFacts;
   participantIds: number[];
-  derivationVersion: number;
   recoveryCodeSecret32B64u: string;
   workerCtx: WorkerOperationContext;
 }): ReturnType<typeof deriveThresholdEd25519HssClientInputsWasm> {
+  const applicationBindingDigestB64u =
+    await computeSdkEd25519HssApplicationBindingDigestB64u(args.hssBindingFacts);
   return await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: args.sessionId,
-    signingRootId: args.signingRootId,
-    nearAccountId: args.nearAccountId,
-    keyPurpose: args.keyPurpose,
-    keyVersion: args.keyVersion,
+    applicationBindingDigestB64u,
     participantIds: args.participantIds,
-    derivationVersion: args.derivationVersion,
     prfFirstB64u: args.recoveryCodeSecret32B64u,
     workerCtx: args.workerCtx,
   });

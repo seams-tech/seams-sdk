@@ -548,6 +548,7 @@ export interface EmailOtpWorkerOperationMap {
       relayUrl: string;
       walletId: string;
       nearAccountId: string;
+      ed25519KeyScopeId: string;
       userId: string;
       challengeId: string;
       otpCode: string;
@@ -555,7 +556,6 @@ export interface EmailOtpWorkerOperationMap {
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       runtimePolicyScope: ThresholdRuntimePolicyScope;
-      keyVersion: string;
       participantIds: number[];
       thresholdSessionId: string;
       walletSessionJwt: string;

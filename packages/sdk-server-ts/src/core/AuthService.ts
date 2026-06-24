@@ -106,6 +106,7 @@ import type {
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
   SignerWasmModuleSupplier,
+  ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519RegistrationAccountScope,
 } from './types';
 import { registrationPreparationIdFromString } from './types';
@@ -225,7 +226,10 @@ import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/uti
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEd25519HssApplicationBindingDigestB64u } from '@shared/threshold/ed25519HssBinding';
 import {
   createRegistrationCeremonyStore,
   createWalletId,
@@ -1216,6 +1220,7 @@ function thresholdEd25519RegistrationAccountScope(input: {
   rpId: string;
   intentDigestB64u: string;
   signingRootId: string;
+  signingRootVersion: string;
   ed25519KeyScopeId: string;
   signerSlot: number;
   keyPurpose: string;
@@ -1229,6 +1234,7 @@ function thresholdEd25519RegistrationAccountScope(input: {
     rpId: input.rpId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
     ed25519KeyScopeId: String(input.ed25519KeyScopeId),
     signerSlot: input.signerSlot,
     keyPurpose: input.keyPurpose,
@@ -1258,6 +1264,7 @@ function thresholdEd25519KnownAccountRegistrationScope(input: {
   rpId: string;
   intentDigestB64u: string;
   signingRootId: string;
+  signingRootVersion: string;
   nearAccountId: string;
   signerSlot: number;
   keyPurpose: string;
@@ -1276,6 +1283,7 @@ function thresholdEd25519KnownAccountRegistrationScope(input: {
     rpId: input.rpId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
+    signingRootVersion: input.signingRootVersion,
     ed25519KeyScopeId,
     signerSlot: input.signerSlot,
     keyPurpose: input.keyPurpose,
@@ -1283,6 +1291,19 @@ function thresholdEd25519KnownAccountRegistrationScope(input: {
     derivationVersion: input.derivationVersion,
     participantIds: [...input.participantIds],
     nearAccountId,
+  };
+}
+
+async function thresholdEd25519HssContextFromRegistrationAccountScope(
+  scope: ThresholdEd25519RegistrationAccountScope,
+): Promise<ThresholdEd25519HssCanonicalContext> {
+  return {
+    applicationBindingDigestB64u: await computeSdkEd25519HssApplicationBindingDigestB64u({
+      ed25519KeyScopeId: ed25519KeyScopeIdFromString(scope.ed25519KeyScopeId),
+      signingRootId: parseSdkEcdsaHssSigningRootId(scope.signingRootId),
+      signingRootVersion: parseSdkEcdsaHssSigningRootVersion(scope.signingRootVersion),
+    }),
+    participantIds: [...scope.participantIds],
   };
 }
 
@@ -6472,33 +6493,30 @@ export class AuthService {
         message: 'threshold signing is not configured on this server',
       };
     }
+    const registrationAccountScope = thresholdEd25519RegistrationAccountScope({
+      walletId: walletIdFromString(input.scope.walletId),
+      rpId: input.scope.rpId,
+      intentDigestB64u: input.scope.registrationIntentDigestB64u,
+      signingRootId: input.scope.signingRootId,
+      signingRootVersion: input.scope.signingRootVersion,
+      ed25519KeyScopeId: input.scope.ed25519KeyScopeId,
+      signerSlot: input.scope.signerSlot,
+      keyPurpose: input.scope.keyPurpose,
+      keyVersion: input.scope.keyVersion,
+      derivationVersion: input.scope.derivationVersion,
+      participantIds: input.scope.participantIds,
+      accountProvisioning: input.accountProvisioning,
+    });
     return await threshold.ed25519Hss.prepareForRegistration({
       orgId: input.scope.orgId,
       signingRootId: input.scope.signingRootId,
       signingRootVersion: input.scope.signingRootVersion,
       request: {
-        registrationAccountScope: thresholdEd25519RegistrationAccountScope({
-          walletId: walletIdFromString(input.scope.walletId),
-          rpId: input.scope.rpId,
-          intentDigestB64u: input.scope.registrationIntentDigestB64u,
-          signingRootId: input.scope.signingRootId,
-          ed25519KeyScopeId: input.scope.ed25519KeyScopeId,
-          signerSlot: input.scope.signerSlot,
-          keyPurpose: input.scope.keyPurpose,
-          keyVersion: input.scope.keyVersion,
-          derivationVersion: input.scope.derivationVersion,
-          participantIds: input.scope.participantIds,
-          accountProvisioning: input.accountProvisioning,
-        }),
+        registrationAccountScope,
         wallet_key_id: input.scope.rpId,
-        context: {
-          signingRootId: input.scope.signingRootId,
-          nearAccountId: input.scope.ed25519KeyScopeId,
-          keyPurpose: input.scope.keyPurpose,
-          keyVersion: input.scope.keyVersion,
-          participantIds: input.scope.participantIds,
-          derivationVersion: input.scope.derivationVersion,
-        },
+        context: await thresholdEd25519HssContextFromRegistrationAccountScope(
+          registrationAccountScope,
+        ),
       },
     });
   }
@@ -7107,6 +7125,10 @@ export class AuthService {
                     signingRootId: ceremony.signingRootId,
                     intent: ceremony.intent,
                   }),
+                  signingRootVersion: registrationIntentSigningRootVersion({
+                    signingRootVersion: ceremony.signingRootVersion,
+                    intent: ceremony.intent,
+                  }),
                   ed25519KeyScopeId,
                   signerSlot: ed25519.signerSlot,
                   keyPurpose: ed25519.keyPurpose,
@@ -7302,6 +7324,10 @@ export class AuthService {
               intentDigestB64u: ceremony.digestB64u,
               signingRootId: registrationIntentSigningRootId({
                 signingRootId: ceremony.signingRootId,
+                intent: ceremony.intent,
+              }),
+              signingRootVersion: registrationIntentSigningRootVersion({
+                signingRootVersion: ceremony.signingRootVersion,
                 intent: ceremony.intent,
               }),
               ed25519KeyScopeId,
@@ -8293,6 +8319,10 @@ export class AuthService {
                   signingRootId: ceremony.signingRootId,
                   intent: ceremony.intent,
                 }),
+                signingRootVersion: registrationIntentSigningRootVersion({
+                  signingRootVersion: ceremony.signingRootVersion,
+                  intent: ceremony.intent,
+                }),
                 ed25519KeyScopeId,
                 signerSlot: ed25519.signerSlot,
                 keyPurpose: ed25519.keyPurpose,
@@ -8776,6 +8806,10 @@ export class AuthService {
               signingRootId: ceremony.signingRootId,
               intent: ceremony.intent,
             }),
+            signingRootVersion: registrationIntentSigningRootVersion({
+              signingRootVersion: ceremony.signingRootVersion,
+              intent: ceremony.intent,
+            }),
             ed25519KeyScopeId,
             signerSlot: ed25519.signerSlot,
             keyPurpose: ed25519.keyPurpose,
@@ -9226,35 +9260,32 @@ export class AuthService {
       const addSignerCeremonyId = `wasc_${randomBase64Url(24)}`;
       if (selection.mode === 'ed25519') {
         const ed25519 = selection.ed25519;
+        const registrationAccountScope = thresholdEd25519KnownAccountRegistrationScope({
+          walletId: storedIntent.intent.walletId,
+          rpId: storedIntent.intent.rpId,
+          intentDigestB64u: storedIntent.digestB64u,
+          signingRootId: addSignerIntentSigningRootId({
+            signingRootId: storedIntent.signingRootId,
+            intent: storedIntent.intent,
+          }),
+          signingRootVersion,
+          nearAccountId: ed25519.nearAccountId,
+          signerSlot: ed25519.signerSlot,
+          keyPurpose: ed25519.keyPurpose,
+          keyVersion: ed25519.keyVersion,
+          derivationVersion: ed25519.derivationVersion,
+          participantIds: ed25519.participantIds,
+        });
         const prepared = await threshold.ed25519Hss.prepareForRegistration({
           orgId: storedIntent.orgId,
           ...(signingRootId ? { signingRootId } : {}),
           ...(signingRootVersion ? { signingRootVersion } : {}),
           request: {
-            registrationAccountScope: thresholdEd25519KnownAccountRegistrationScope({
-              walletId: storedIntent.intent.walletId,
-              rpId: storedIntent.intent.rpId,
-              intentDigestB64u: storedIntent.digestB64u,
-              signingRootId: addSignerIntentSigningRootId({
-                signingRootId: storedIntent.signingRootId,
-                intent: storedIntent.intent,
-              }),
-              nearAccountId: ed25519.nearAccountId,
-              signerSlot: ed25519.signerSlot,
-              keyPurpose: ed25519.keyPurpose,
-              keyVersion: ed25519.keyVersion,
-              derivationVersion: ed25519.derivationVersion,
-              participantIds: ed25519.participantIds,
-            }),
+            registrationAccountScope,
             wallet_key_id: storedIntent.intent.rpId,
-            context: {
-              signingRootId: signingRootId || '',
-              nearAccountId: ed25519.nearAccountId,
-              keyPurpose: ed25519.keyPurpose,
-              keyVersion: ed25519.keyVersion,
-              participantIds: ed25519.participantIds,
-              derivationVersion: ed25519.derivationVersion,
-            },
+            context: await thresholdEd25519HssContextFromRegistrationAccountScope(
+              registrationAccountScope,
+            ),
           },
         });
         if (!prepared.ok) {
@@ -9938,6 +9969,7 @@ export class AuthService {
               signingRootId: ceremony.signingRootId,
               intent: ceremony.intent,
             }),
+            signingRootVersion: toOptionalTrimmedString(ceremony.signingRootVersion) || 'default',
             nearAccountId: ed25519.nearAccountId,
             signerSlot: ed25519.signerSlot,
             keyPurpose: ed25519.keyPurpose,
@@ -10072,6 +10104,7 @@ export class AuthService {
           signingRootId: ceremony.signingRootId,
           intent: ceremony.intent,
         }),
+        signingRootVersion: toOptionalTrimmedString(ceremony.signingRootVersion) || 'default',
         nearAccountId: ed25519.nearAccountId,
         signerSlot: ed25519.signerSlot,
         keyPurpose: ed25519.keyPurpose,

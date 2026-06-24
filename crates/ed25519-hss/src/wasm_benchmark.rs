@@ -222,12 +222,8 @@ fn parse_checkpoint(stage: &str) -> ProtoResult<DdhHiddenEvalCheckpoint> {
 fn browser_benchmark_input() -> FExpandInput {
     FExpandInput {
         context: CanonicalContext {
-            org_id: "org.wraparound".to_string(),
-            account_id: "wraparound.test.near".to_string(),
-            key_purpose: "near-signing".to_string(),
-            key_version: "v1-wrap".to_string(),
+            application_binding_digest: derive_bytes32("wraparound-seed/application-binding"),
             participant_ids: vec![2, 1, 2],
-            derivation_version: 1,
         },
         y_client: [0xff; 32],
         y_server: one_le_u256(),
@@ -245,6 +241,13 @@ fn derive_scalar_bytes(label: &str) -> [u8; 32] {
         return Scalar::ONE.to_bytes();
     }
     scalar.to_bytes()
+}
+
+fn derive_bytes32(label: &str) -> [u8; 32] {
+    let digest = Sha512::digest(format!("succinct-garbling-proto/{label}/bytes32"));
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest[..32]);
+    out
 }
 
 fn one_le_u256() -> [u8; 32] {

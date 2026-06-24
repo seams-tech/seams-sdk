@@ -3,23 +3,20 @@ use sha2::{Digest, Sha256};
 
 use crate::shared::{ProtoError, ProtoResult};
 
+pub const ED25519_HSS_CONTEXT_VERSION: &str = "v2";
+pub const ED25519_HSS_SCHEME_ID: &str = "ed25519-hss-v2";
+pub const ED25519_HSS_CURVE: &str = "ed25519";
+pub const ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2: &[u8] =
+    b"succinct-garbling-proto/ed25519-hss/context-binding/v2";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CanonicalContext {
-    pub org_id: String,
-    pub account_id: String,
-    pub key_purpose: String,
-    pub key_version: String,
+pub struct Ed25519HssStableKeyContext {
+    pub application_binding_digest: [u8; 32],
     pub participant_ids: Vec<u16>,
-    pub derivation_version: u32,
 }
 
-impl CanonicalContext {
+impl Ed25519HssStableKeyContext {
     pub fn normalized(&self) -> ProtoResult<Self> {
-        validate_field("org_id", &self.org_id)?;
-        validate_field("account_id", &self.account_id)?;
-        validate_field("key_purpose", &self.key_purpose)?;
-        validate_field("key_version", &self.key_version)?;
-
         let mut participant_ids: Vec<u16> = self
             .participant_ids
             .iter()
@@ -36,12 +33,8 @@ impl CanonicalContext {
         }
 
         Ok(Self {
-            org_id: self.org_id.clone(),
-            account_id: self.account_id.clone(),
-            key_purpose: self.key_purpose.clone(),
-            key_version: self.key_version.clone(),
+            application_binding_digest: self.application_binding_digest,
             participant_ids,
-            derivation_version: self.derivation_version,
         })
     }
 
@@ -49,16 +42,15 @@ impl CanonicalContext {
         let normalized = self.normalized()?;
         let mut hasher = Sha256::new();
 
-        hasher.update(b"succinct-garbling-proto/context-binding/v1");
-        update_len_prefixed(&mut hasher, &normalized.org_id);
-        update_len_prefixed(&mut hasher, &normalized.account_id);
-        update_len_prefixed(&mut hasher, &normalized.key_purpose);
-        update_len_prefixed(&mut hasher, &normalized.key_version);
+        hasher.update(ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2);
+        update_len_prefixed(&mut hasher, ED25519_HSS_CONTEXT_VERSION);
+        update_len_prefixed(&mut hasher, ED25519_HSS_SCHEME_ID);
+        update_len_prefixed(&mut hasher, ED25519_HSS_CURVE);
+        hasher.update(normalized.application_binding_digest);
         hasher.update((normalized.participant_ids.len() as u32).to_be_bytes());
         for participant_id in normalized.participant_ids {
             hasher.update(participant_id.to_be_bytes());
         }
-        hasher.update(normalized.derivation_version.to_be_bytes());
 
         let digest = hasher.finalize();
         let mut out = [0u8; 32];
@@ -67,19 +59,7 @@ impl CanonicalContext {
     }
 }
 
-fn validate_field(label: &str, value: &str) -> ProtoResult<()> {
-    if value.is_empty() {
-        return Err(ProtoError::InvalidInput(format!(
-            "{label} must be non-empty"
-        )));
-    }
-    if value.trim() != value {
-        return Err(ProtoError::InvalidInput(format!(
-            "{label} must not contain leading or trailing whitespace"
-        )));
-    }
-    Ok(())
-}
+pub type CanonicalContext = Ed25519HssStableKeyContext;
 
 fn update_len_prefixed(hasher: &mut Sha256, value: &str) {
     hasher.update((value.len() as u32).to_be_bytes());

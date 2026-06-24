@@ -88,36 +88,25 @@ fn encode_ecdsa_hss_context_with_participants(
     Ok(out)
 }
 
-fn validate_ed25519_field(label: &str, value: &str) -> Result<(), JsValue> {
-    if value.is_empty() {
-        return Err(js_error(format!("{label} must be non-empty")));
-    }
-    if value.trim() != value {
-        return Err(js_error(format!(
-            "{label} must not contain leading or trailing whitespace"
-        )));
-    }
-    Ok(())
-}
+const ED25519_HSS_CONTEXT_VERSION: &str = "v2";
+const ED25519_HSS_SCHEME_ID: &str = "ed25519-hss-v2";
+const ED25519_HSS_CURVE: &str = "ed25519";
+const ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2: &[u8] =
+    b"succinct-garbling-proto/ed25519-hss/context-binding/v2";
 
 fn update_len32(hasher: &mut Sha256, value: &str) {
     hasher.update((value.len() as u32).to_be_bytes());
     hasher.update(value.as_bytes());
 }
 
-fn ed25519_hss_context_binding_v1_with_min_participants(
-    signing_root_id: &str,
-    account_id: &str,
-    key_purpose: &str,
-    key_version: &str,
+fn ed25519_hss_context_binding_v2_with_min_participants(
+    application_binding_digest: &[u8],
     mut participant_ids: Vec<u16>,
-    derivation_version: u32,
     min_participants: usize,
 ) -> Result<[u8; 32], JsValue> {
-    validate_ed25519_field("signing_root_id", signing_root_id)?;
-    validate_ed25519_field("account_id", account_id)?;
-    validate_ed25519_field("key_purpose", key_purpose)?;
-    validate_ed25519_field("key_version", key_version)?;
+    if application_binding_digest.len() != 32 {
+        return Err(js_error("application_binding_digest must be 32 bytes"));
+    }
 
     participant_ids.retain(|value| *value > 0);
     participant_ids.sort_unstable();
@@ -129,16 +118,15 @@ fn ed25519_hss_context_binding_v1_with_min_participants(
     }
 
     let mut hasher = Sha256::new();
-    hasher.update(b"succinct-garbling-proto/context-binding/v1");
-    update_len32(&mut hasher, signing_root_id);
-    update_len32(&mut hasher, account_id);
-    update_len32(&mut hasher, key_purpose);
-    update_len32(&mut hasher, key_version);
+    hasher.update(ED25519_HSS_CONTEXT_BINDING_DOMAIN_V2);
+    update_len32(&mut hasher, ED25519_HSS_CONTEXT_VERSION);
+    update_len32(&mut hasher, ED25519_HSS_SCHEME_ID);
+    update_len32(&mut hasher, ED25519_HSS_CURVE);
+    hasher.update(application_binding_digest);
     hasher.update((participant_ids.len() as u32).to_be_bytes());
     for participant_id in participant_ids {
         hasher.update(participant_id.to_be_bytes());
     }
-    hasher.update(derivation_version.to_be_bytes());
 
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
@@ -336,10 +324,8 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
 ) -> Result<Vec<u8>, JsValue> {
     let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
     let participant_ids = sorted_share_ids(&shares);
-    let context_bytes = encode_ecdsa_hss_context_with_participants(
-        &application_binding_digest,
-        &participant_ids,
-    )?;
+    let context_bytes =
+        encode_ecdsa_hss_context_with_participants(&application_binding_digest, &participant_ids)?;
     derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYServer, context_bytes)
 }
 
@@ -379,21 +365,13 @@ pub fn threshold_prf_derive_ed25519_hss_server_inputs(
     threshold: u32,
     share_count: u32,
     share_wires: Vec<u8>,
-    signing_root_id: String,
-    account_id: String,
-    key_purpose: String,
-    key_version: String,
-    derivation_version: u32,
+    application_binding_digest: Vec<u8>,
 ) -> Result<JsValue, JsValue> {
     let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
     let participant_ids = sorted_share_ids(&shares);
-    let binding = ed25519_hss_context_binding_v1_with_min_participants(
-        &signing_root_id,
-        &account_id,
-        &key_purpose,
-        &key_version,
+    let binding = ed25519_hss_context_binding_v2_with_min_participants(
+        &application_binding_digest,
         participant_ids,
-        derivation_version,
         usize::from(shares.policy().threshold().get()),
     )?;
     let y_relayer =
