@@ -186,7 +186,6 @@ void emailOtpLaneWithResolvedKey;
 
 const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   auth: passkeyAuth,
-  authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
   walletId: ed25519WalletId,
@@ -198,21 +197,24 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
 };
 void ed25519Lane;
 
-// @ts-expect-error ready Ed25519 lanes require auth method identity.
-const readyEd25519LaneMissingAuthMethod: ConcreteAvailableEd25519SigningLane = {
+const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane = {
   auth: passkeyAuth,
+  // @ts-expect-error Ed25519 lanes derive auth method from the auth binding.
+  authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
+  walletId: ed25519WalletId,
+  nearAccountId: ed25519NearAccountId,
+  ed25519KeyScopeId,
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
 };
-void readyEd25519LaneMissingAuthMethod;
+void readyEd25519LaneWithStoredAuthMethod;
 
 // @ts-expect-error ready Ed25519 lanes require a signing grant id.
 const readyEd25519LaneMissingSigningGrantId: ConcreteAvailableEd25519SigningLane = {
   auth: passkeyAuth,
-  authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',
@@ -223,7 +225,6 @@ void readyEd25519LaneMissingSigningGrantId;
 // @ts-expect-error ready Ed25519 lanes require a threshold session id.
 const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519SigningLane = {
   auth: passkeyAuth,
-  authMethod: 'passkey',
   curve: 'ed25519',
   chain: 'near',
   state: 'ready',

@@ -308,16 +308,16 @@ export async function readPersistedAvailableSigningLanesForTargets(
           const runtimeLaneAuthMethod = signingLaneAuthMethod(runtimeLane.auth);
           if (args.authMethod && args.authMethod !== runtimeLaneAuthMethod) continue;
           if (!runtimeLane.routerAbEcdsaHssNormalSigning) continue;
+          const publicFactsFields = runtimeLane.verifiedPublicFacts
+            ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
+            : {};
           const baseRecord = {
-            auth: runtimeLane.auth,
             key: runtimeLane.key,
             routerAbEcdsaHssNormalSigning: runtimeLane.routerAbEcdsaHssNormalSigning,
             keyHandle: runtimeLane.keyHandle,
-            ...(runtimeLane.verifiedPublicFacts
-              ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
-              : {}),
+            ...publicFactsFields,
             thresholdEcdsaPublicKeyB64u: runtimeLane.thresholdEcdsaPublicKeyB64u,
-            curve: 'ecdsa',
+            curve: 'ecdsa' as const,
             chainTarget: runtimeLane.chainTarget,
             thresholdSessionId: runtimeLane.thresholdSessionId,
             signingGrantId: runtimeLane.signingGrantId,
@@ -326,21 +326,21 @@ export async function readPersistedAvailableSigningLanesForTargets(
               : { remainingUses: runtimeLane.remainingUses }),
             ...(runtimeLane.expiresAtMs == null ? {} : { expiresAtMs: runtimeLane.expiresAtMs }),
             ...(runtimeLane.updatedAtMs == null ? {} : { updatedAtMs: runtimeLane.updatedAtMs }),
-          } satisfies Omit<AvailableSigningLanesRuntimeEcdsaRecord, 'authMethod' | 'resolvedKey'>;
-          await pushRuntimeEcdsaRecord(
-            records,
-            seen,
-            runtimeLaneAuthMethod === 'passkey'
-              ? {
-                  ...baseRecord,
-                  authMethod: 'passkey',
-                  ...(runtimeLane.resolvedKey ? { resolvedKey: runtimeLane.resolvedKey } : {}),
-                }
-              : {
-                  ...baseRecord,
-                  authMethod: 'email_otp',
-                },
-          );
+          };
+          if (runtimeLane.auth.kind === 'passkey') {
+            const record: AvailableSigningLanesRuntimeEcdsaRecord = {
+              ...baseRecord,
+              auth: runtimeLane.auth,
+              ...(runtimeLane.resolvedKey ? { resolvedKey: runtimeLane.resolvedKey } : {}),
+            };
+            await pushRuntimeEcdsaRecord(records, seen, record);
+            continue;
+          }
+          const record: AvailableSigningLanesRuntimeEcdsaRecord = {
+            ...baseRecord,
+            auth: runtimeLane.auth,
+          };
+          await pushRuntimeEcdsaRecord(records, seen, record);
         }
         return records;
       },
@@ -366,7 +366,6 @@ export async function readPersistedAvailableSigningLanesForTargets(
           if (!candidate) continue;
           pushRecord({
             auth: candidate.auth,
-            authMethod,
             curve: 'ed25519',
             chain: 'near',
             walletId: runtimeRecord.walletId,
@@ -400,7 +399,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             const ecdsaRecord = getThresholdEcdsaSessionRecordByKey(deps.ecdsaSessions, {
               walletId: toWalletId(runtimeRecord.key.walletId),
               keyHandle,
-              authMethod: runtimeRecord.authMethod,
+              authMethod: signingLaneAuthMethod(runtimeRecord.auth),
               curve: 'ecdsa',
               chainTarget: runtimeRecord.chainTarget,
               signingGrantId,

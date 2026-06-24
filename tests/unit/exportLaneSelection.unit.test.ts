@@ -298,7 +298,9 @@ function depsForTargets(
 }
 
 function ed25519Lane(
-  overrides: Partial<ConcreteAvailableEd25519SigningLane>,
+  overrides: Partial<ConcreteAvailableEd25519SigningLane> & {
+    authMethod?: 'email_otp' | 'passkey';
+  },
 ): ConcreteAvailableEd25519SigningLane {
   const { auth: authOverride, authMethod: authMethodOverride, ...laneOverrides } = overrides;
   const authMethod = authMethodOverride || 'passkey';
@@ -316,7 +318,6 @@ function ed25519Lane(
         });
   return {
     auth,
-    authMethod,
     curve: 'ed25519',
     chain: 'near',
     walletId: NEAR_EXPORT_SIGNER.account.wallet.walletId,

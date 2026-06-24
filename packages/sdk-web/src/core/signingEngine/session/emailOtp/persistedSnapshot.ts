@@ -51,7 +51,7 @@ function runtimeEcdsaRecordBoundaryKey(
   const publicKeyB64u = String(verifiedPublicFacts.publicKeyB64u || '').trim();
   if (!keyHandle || !thresholdOwnerAddress || !publicKeyB64u || !participantIds) return null;
   return [
-    record.authMethod,
+    signingLaneAuthMethod(record.auth),
     record.curve,
     thresholdEcdsaChainTargetKey(record.chainTarget),
     record.key.walletId,
@@ -148,7 +148,6 @@ export async function readEmailOtpPersistedSessionSnapshot(
               ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
               : {}),
             thresholdEcdsaPublicKeyB64u: runtimeLane.thresholdEcdsaPublicKeyB64u,
-            authMethod: 'email_otp',
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
             thresholdSessionId: runtimeLane.thresholdSessionId,
@@ -187,7 +186,6 @@ export async function readEmailOtpPersistedSessionSnapshot(
           if (!runtimeRecord.routerAbNormalSigning) continue;
           pushRecord({
             auth: laneCandidate.auth,
-            authMethod: candidateAuthMethod,
             curve: 'ed25519',
             chain: 'near',
             walletId: runtimeRecord.walletId,

@@ -731,6 +731,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 networkSlug: 'tempo-testnet',
               },
               rpId: 'example.localhost',
+              credentialIdB64u: 'credential-ecdsa-login',
+              walletKeyId: 'wallet-key-login-tempo',
               walletSessionJwt: ecdsaWalletSessionJwt,
               sessionKind: 'jwt',
               keyHandle: 'ehss-key-login-tempo',
@@ -1872,6 +1874,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             ecdsaThresholdKeyId: 'ecdsa-key-id',
             signingRootId: 'proj-a:env-a',
             signingRootVersion: 'default',
+            applicationBindingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             clientParticipantId: 1,
             relayerParticipantId: 2,
             participantIds: [1, 2],
@@ -1890,11 +1893,12 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           kind: 'router_ab_ecdsa_hss_normal_signing_v1',
           scope: {
             wallet_key_id: 'wallet-key-router-ab-ed25519',
+            wallet_id: 'alice.testnet',
+            ecdsa_threshold_key_id: 'ecdsa-key-id',
+            signing_root_id: 'proj-a:env-a',
+            signing_root_version: 'default',
             context: {
-              wallet_id: 'alice.testnet',
-              ecdsa_threshold_key_id: 'ecdsa-key-id',
-              signing_root_id: 'proj-a:env-a',
-              signing_root_version: 'default',
+              application_binding_digest_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             },
             public_identity: {
               context_binding_b64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -1945,7 +1949,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             },
             keygen: {
               ok: true,
-              walletKeyId: 'example.localhost',
+              walletKeyId: 'wallet-key-router-ab-ed25519',
               ecdsaThresholdKeyId: 'ecdsa-key-id',
               clientVerifyingShareB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               relayerKeyId: 'rk-ecdsa',

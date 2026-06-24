@@ -76,7 +76,6 @@ function ed25519Lane(
   options: TestLaneOptions = {},
 ): ConcreteAvailableEd25519SigningLane {
   return {
-    authMethod,
     auth: authMethod === 'passkey' ? PASSKEY_AUTH : EMAIL_OTP_AUTH,
     curve: 'ed25519',
     chain: 'near',

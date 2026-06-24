@@ -8,7 +8,10 @@ import type {
   ConcreteAvailableEcdsaSigningLane,
   ConcreteAvailableEd25519SigningLane,
 } from '../availability/availableSigningLanes';
-import { availableEcdsaSigningLaneAuthMethod } from '../availability/availableSigningLanes';
+import {
+  availableEd25519SigningLaneAuthMethod,
+  availableEcdsaSigningLaneAuthMethod,
+} from '../availability/availableSigningLanes';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
 export type RuntimePostconditionAuthMethod = 'email_otp' | 'passkey';
@@ -130,7 +133,9 @@ function readReadyEd25519Lane(args: {
 }): ReadyRuntimeLane | WalletRuntimePostconditionFailureCode {
   const lane = args.lane;
   if (lane.state === 'missing') return 'ed25519_lane_missing';
-  if (lane.authMethod !== args.authMethod) return 'auth_method_route_mismatch';
+  if (availableEd25519SigningLaneAuthMethod(lane) !== args.authMethod) {
+    return 'auth_method_route_mismatch';
+  }
   if (lane.state !== 'ready') return 'ed25519_lane_missing';
   const remainingSignatureUses = positiveInteger(lane.remainingUses);
   const expiresAtMs = futureEpochMs(lane.expiresAtMs, args.nowMs);

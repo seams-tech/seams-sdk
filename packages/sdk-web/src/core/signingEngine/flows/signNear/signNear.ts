@@ -369,7 +369,7 @@ function summarizeNearEd25519Lane(lane: AvailableEd25519SigningLane): Record<str
     };
   }
   return {
-    authMethod: lane.authMethod,
+    authMethod: signingLaneAuthMethod(lane.auth),
     state: lane.state,
     source: lane.source || 'unknown',
     signingGrantId: lane.signingGrantId,
@@ -1133,10 +1133,11 @@ function concreteNearEd25519AvailableAuthMethods(
 ): Array<'email_otp' | 'passkey'> {
   const methods = new Set<'email_otp' | 'passkey'>();
   for (const lane of availableLanes?.candidates.ed25519.near || []) {
-    if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
+    if (lane.state === 'missing') continue;
+    const authMethod = signingLaneAuthMethod(lane.auth);
     if (!String(lane.signingGrantId || '').trim()) continue;
     if (!String(lane.thresholdSessionId || '').trim()) continue;
-    methods.add(lane.authMethod);
+    methods.add(authMethod);
   }
   return [...methods].sort();
 }
@@ -1146,14 +1147,15 @@ function hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(
 ): boolean {
   const authMethodsByIdentity = new Map<string, Set<'email_otp' | 'passkey'>>();
   for (const lane of availableLanes?.candidates.ed25519.near || []) {
-    if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
+    if (lane.state === 'missing') continue;
+    const laneAuthMethod = signingLaneAuthMethod(lane.auth);
     const signingGrantId = String(lane.signingGrantId || '').trim();
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
     if (!signingGrantId || !thresholdSessionId) continue;
     const identityKey = `${signingGrantId}:${thresholdSessionId}`;
     const authMethods =
       authMethodsByIdentity.get(identityKey) || new Set<'email_otp' | 'passkey'>();
-    authMethods.add(lane.authMethod);
+    authMethods.add(laneAuthMethod);
     authMethodsByIdentity.set(identityKey, authMethods);
   }
   for (const authMethods of authMethodsByIdentity.values()) {
@@ -1168,7 +1170,8 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
 }): NearEd25519AvailableLane[] {
   const runtimeLanes: NearEd25519AvailableLane[] = [];
   for (const lane of args.availableLanes?.candidates.ed25519.near || []) {
-    if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
+    if (lane.state === 'missing') continue;
+    const laneAuthMethod = signingLaneAuthMethod(lane.auth);
     if (lane.source !== 'runtime_session_record' && lane.source !== 'runtime_and_durable') continue;
     if (lane.source === 'runtime_session_record' && lane.state !== 'ready') continue;
     const signingGrantId = String(lane.signingGrantId || '').trim();
@@ -1178,7 +1181,7 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
     if (!runtimeRecord) continue;
     if (
-      authMethodForThresholdEd25519Record(runtimeRecord) !== lane.authMethod ||
+      authMethodForThresholdEd25519Record(runtimeRecord) !== laneAuthMethod ||
       String(runtimeRecord.walletId || '').trim() !== String(args.walletId || '').trim() ||
       String(runtimeRecord.nearAccountId || '').trim() !== String(lane.nearAccountId || '').trim() ||
       String(runtimeRecord.ed25519KeyScopeId || '').trim() !==
@@ -1217,7 +1220,7 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
   });
   if (runtimeLanes.length === 1) {
     const runtimeLane = runtimeLanes[0]!;
-    return selectByAuthMethod(runtimeLane.authMethod, runtimeLane);
+    return selectByAuthMethod(signingLaneAuthMethod(runtimeLane.auth), runtimeLane);
   }
   if (hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(args.availableLanes)) {
     const emailOtpSelection = selectByAuthMethod('email_otp');
@@ -1246,7 +1249,7 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
   if (runtimeLanes.length > 1) {
     if (accountAuthMethod) {
       const matchingRuntimeLanes = runtimeLanes.filter(
-        (lane) => lane.authMethod === accountAuthMethod,
+        (lane) => signingLaneAuthMethod(lane.auth) === accountAuthMethod,
       );
       if (matchingRuntimeLanes.length === 1) {
         return selectByAuthMethod(accountAuthMethod, matchingRuntimeLanes[0]!);

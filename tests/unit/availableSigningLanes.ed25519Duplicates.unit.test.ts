@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { isConcreteAvailableSigningLane } from '@/core/signingEngine/session/availability/availableSigningLanes';
+import {
+  isConcreteAvailableSigningLane,
+  type AvailableEd25519SigningLane,
+} from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   buildCurrentSealedSessionRecord,
   type SigningSessionSealedStoreRecord,
@@ -28,6 +31,15 @@ const EMAIL_OTP_AUTH = {
   kind: 'email_otp',
   providerSubjectId: 'google:ed25519-duplicates',
 } as const;
+
+function concreteEd25519AuthKinds(lanes: AvailableEd25519SigningLane[]): string[] {
+  const authKinds: string[] = [];
+  for (const lane of lanes) {
+    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
+    authKinds.push(lane.auth.kind);
+  }
+  return authKinds.sort();
+}
 
 function sealedEd25519Record(args: {
   authMethod: 'email_otp' | 'passkey';
@@ -129,7 +141,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
 
     expect(availableLanes.candidates.ed25519.near).toHaveLength(1);
     expect(availableLanes.candidates.ed25519.near[0]).toMatchObject({
-      authMethod: 'email_otp',
+      auth: { kind: 'email_otp' },
       source: 'durable_sealed_record',
       signingGrantId: 'wsess-1',
       thresholdSessionId: 'tsess-1',
@@ -150,7 +162,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       runtimeEd25519Records: [
         {
           auth: EMAIL_OTP_AUTH,
-          authMethod: 'email_otp',
           curve: 'ed25519',
           chain: 'near',
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
@@ -176,7 +187,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
 
     expect(availableLanes.candidates.ed25519.near).toHaveLength(1);
     expect(availableLanes.candidates.ed25519.near[0]).toMatchObject({
-      authMethod: 'email_otp',
+      auth: { kind: 'email_otp' },
       state: 'ready',
       source: 'runtime_and_durable',
       signingGrantId: 'wsess-1',
@@ -190,7 +201,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       runtimeEd25519Records: [
         {
           auth: PASSKEY_AUTH,
-          authMethod: 'passkey',
           curve: 'ed25519',
           chain: 'near',
           signingGrantId: 'wsess-stale-router-ab',
@@ -274,7 +284,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       runtimeEd25519Records: [
         {
           auth: PASSKEY_AUTH,
-          authMethod: 'passkey',
           curve: 'ed25519',
           chain: 'near',
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
@@ -286,7 +295,6 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
         },
         {
           auth: EMAIL_OTP_AUTH,
-          authMethod: 'email_otp',
           curve: 'ed25519',
           chain: 'near',
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
@@ -311,7 +319,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     });
 
     expect(availableLanes.candidates.ed25519.near).toHaveLength(2);
-    expect(availableLanes.candidates.ed25519.near.map((lane) => lane.authMethod).sort()).toEqual([
+    expect(concreteEd25519AuthKinds(availableLanes.candidates.ed25519.near)).toEqual([
       'email_otp',
       'passkey',
     ]);
@@ -362,7 +370,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+      auth: { kind: 'email_otp' },
       source: 'runtime_session_record',
       state: 'exhausted',
       remainingUses: 0,
@@ -371,7 +379,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     });
     expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
     expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+      auth: { kind: 'email_otp' },
       source: 'evm_family_shared_key',
       sourceChainTarget: ECDSA_TARGET,
       state: 'exhausted',
@@ -413,7 +421,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
     expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+      auth: { kind: 'email_otp' },
       source: 'runtime_session_record',
       state: 'ready',
       remainingUses: 1,
@@ -422,7 +430,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     });
     expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
     expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey][0]).toMatchObject({
-      authMethod: 'email_otp',
+      auth: { kind: 'email_otp' },
       source: 'evm_family_shared_key',
       sourceChainTarget: ECDSA_TARGET,
       state: 'ready',

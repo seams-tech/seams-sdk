@@ -164,11 +164,8 @@ function missingConcreteFields(
 ): string[] {
   if (!lane) return ['lane'];
   const missing: string[] = [];
-  if (
-    !('authMethod' in lane) ||
-    (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey')
-  ) {
-    missing.push('authMethod');
+  if (!('auth' in lane) || (lane.auth.kind !== 'email_otp' && lane.auth.kind !== 'passkey')) {
+    missing.push('auth');
   }
   if (!('signingGrantId' in lane) || !String(lane.signingGrantId || '').trim()) {
     missing.push('signingGrantId');

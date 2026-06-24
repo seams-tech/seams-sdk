@@ -271,7 +271,6 @@ test.describe('step-up freshness identity', () => {
       walletId: NEAR_WALLET_ID,
       ...makeOperation(),
       lane: {
-        authMethod: 'passkey',
         auth: PASSKEY_AUTH,
         curve: 'ed25519',
         chain: 'near',

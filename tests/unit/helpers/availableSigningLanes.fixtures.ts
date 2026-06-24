@@ -302,7 +302,6 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
     ? {
         ...base,
         auth: { kind: 'email_otp', providerSubjectId: 'google:available-lanes' },
-        authMethod: 'email_otp',
       }
     : {
         ...base,
@@ -311,7 +310,6 @@ export function runtimeEcdsaAvailableLaneRecord(args: {
           rpId: toRpId(AVAILABLE_LANES_ECDSA_RP_ID),
           credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
         },
-        authMethod: 'passkey',
       };
 }
 

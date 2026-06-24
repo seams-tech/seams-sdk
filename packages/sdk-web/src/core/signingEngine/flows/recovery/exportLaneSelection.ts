@@ -1,6 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
 import {
+  availableEd25519SigningLaneAuthMethod,
   availableEcdsaSigningLaneAuthMethod,
   ecdsaAvailableLaneCandidatesForTarget,
   ed25519AvailableLaneIdentityKey,
@@ -95,7 +96,8 @@ function isConcreteEd25519ExportLane(
     Boolean(lane) &&
     lane!.curve === 'ed25519' &&
     lane!.chain === 'near' &&
-    (lane!.authMethod === 'email_otp' || lane!.authMethod === 'passkey') &&
+    lane!.state !== 'missing' &&
+    (lane!.auth.kind === 'email_otp' || lane!.auth.kind === 'passkey') &&
     Boolean(String(lane!.signingGrantId || '').trim()) &&
     Boolean(String(lane!.thresholdSessionId || '').trim())
   );
@@ -103,7 +105,9 @@ function isConcreteEd25519ExportLane(
 
 function summarizeExportAvailableLane(lane: ConcreteExportAvailableLane): Record<string, unknown> {
   const authMethod =
-    lane.curve === 'ecdsa' ? availableEcdsaSigningLaneAuthMethod(lane) : lane.authMethod;
+    lane.curve === 'ecdsa'
+      ? availableEcdsaSigningLaneAuthMethod(lane)
+      : availableEd25519SigningLaneAuthMethod(lane);
   return {
     authMethod,
     curve: lane.curve,
@@ -434,7 +438,7 @@ async function resolveNearEd25519ExportLane(
   });
   const concreteCandidates = availableLanes.candidates.ed25519.near.filter(isConcreteEd25519ExportLane);
   const emailOtpCandidates = concreteCandidates.filter(
-    (candidate) => candidate.authMethod === 'email_otp',
+    (candidate) => availableEd25519SigningLaneAuthMethod(candidate) === 'email_otp',
   );
   const selectionCandidates = emailOtpCandidates.length ? emailOtpCandidates : concreteCandidates;
 
@@ -447,7 +451,7 @@ async function resolveNearEd25519ExportLane(
     chain: 'near',
     signer: args.signer,
     nearAccountId,
-    authMethod: selected.authMethod,
+    authMethod: availableEd25519SigningLaneAuthMethod(selected),
     signingGrantId: selected.signingGrantId,
     thresholdSessionId: selected.thresholdSessionId,
     state: selected.state,

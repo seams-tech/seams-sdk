@@ -1218,7 +1218,20 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     !chainTarget ||
     !ethereumAddress
   ) {
-    throw new Error('Invalid threshold ECDSA canonical session record');
+    throw new Error(
+      formatMissingThresholdEcdsaCanonicalRecordFields({
+        relayerUrl,
+        walletKeyId,
+        keyHandle,
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        participantIds,
+        thresholdSessionId,
+        signingGrantId,
+        chainTarget,
+        ethereumAddress,
+      }),
+    );
   }
   if (normalizeOptionalNonEmptyString(obj.subjectId)) {
     throw new Error('Invalid threshold ECDSA canonical session record: unexpected subjectId');
@@ -1316,6 +1329,32 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ...sharedRecord,
     source,
   };
+}
+
+function formatMissingThresholdEcdsaCanonicalRecordFields(args: {
+  relayerUrl: string;
+  walletKeyId: string;
+  keyHandle: string | null | undefined;
+  relayerKeyId: string;
+  clientVerifyingShareB64u: string;
+  participantIds: number[] | null;
+  thresholdSessionId: string;
+  signingGrantId: string | null | undefined;
+  chainTarget: ThresholdEcdsaChainTarget | null;
+  ethereumAddress: string | null | undefined;
+}): string {
+  const missing: string[] = [];
+  if (!args.relayerUrl) missing.push('relayerUrl');
+  if (!args.walletKeyId) missing.push('walletKeyId');
+  if (!args.keyHandle) missing.push('keyHandle');
+  if (!args.relayerKeyId) missing.push('relayerKeyId');
+  if (!args.clientVerifyingShareB64u) missing.push('clientVerifyingShareB64u');
+  if (!args.participantIds) missing.push('participantIds');
+  if (!args.thresholdSessionId) missing.push('thresholdSessionId');
+  if (!args.signingGrantId) missing.push('signingGrantId');
+  if (!args.chainTarget) missing.push('chainTarget');
+  if (!args.ethereumAddress) missing.push('ethereumAddress');
+  return `Invalid threshold ECDSA canonical session record: missing ${missing.join(', ')}`;
 }
 
 export function parseRawThresholdEcdsaSessionRecord(

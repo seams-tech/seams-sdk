@@ -474,7 +474,7 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
   });
 
   test('rejects runtime ECDSA lanes without keyHandle', async () => {
-    const record = runtimeEcdsaRecord({
+    const recordWithKeyHandle = runtimeEcdsaRecord({
       authMethod: 'email_otp',
       chainTarget: ECDSA_TARGET,
       thresholdSessionId: 'tsess-runtime-missing-key-handle',
@@ -482,10 +482,11 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
       thresholdOwnerAddress: `0x${'AB'.repeat(20)}`,
       ecdsaThresholdKeyId: 'shared-ecdsa-key-missing-handle',
     });
-    delete record.keyHandle;
+    const { keyHandle: omittedKeyHandle, ...record } = recordWithKeyHandle;
+    expect(omittedKeyHandle).toBeDefined();
 
     const availableLanes = await readAvailableLanes({
-      runtimeEcdsaRecords: [record],
+      runtimeEcdsaRecords: [record as never],
     });
 
     const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);

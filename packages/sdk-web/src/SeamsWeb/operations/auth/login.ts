@@ -94,6 +94,7 @@ import type {
   AvailableEd25519SigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
+  availableEd25519SigningLaneAuthMethod,
   availableEcdsaSigningLaneAuthMethod,
   ecdsaAvailableLaneForTarget,
   ecdsaAvailableLaneTargets,
@@ -3546,7 +3547,7 @@ function snapshotLaneToDisplaySigningSessionStatus(
     authMethod:
       lane.curve === 'ecdsa'
         ? availableEcdsaSigningLaneAuthMethod(lane)
-        : lane.authMethod,
+        : availableEd25519SigningLaneAuthMethod(lane),
   };
   if (Number.isFinite(remainingUses) && remainingUses >= 0) {
     status.remainingUses = remainingUses;
