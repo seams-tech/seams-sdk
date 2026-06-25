@@ -10,9 +10,12 @@ import {
   nearAccountRefFromAccountId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -24,9 +27,12 @@ const STICKY_WALLET_SESSION = walletSessionRefFromSession({
   walletSessionUserId: 'sticky.testnet',
 });
 const STICKY_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
-  walletId: STICKY_WALLET_SESSION.walletId,
-  nearAccountId: 'sticky.testnet',
-  ed25519KeyScopeId: ed25519KeyScopeIdFromString('sticky.testnet'),
+  signer: nearEd25519SignerBindingFromBoundaryFields({
+    walletId: STICKY_WALLET_SESSION.walletId,
+    nearAccountId: 'sticky.testnet',
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('sticky.testnet'),
+    signerSlot: 1,
+  }),
   auth: {
     kind: 'passkey',
     rpId: toRpId('example.test'),

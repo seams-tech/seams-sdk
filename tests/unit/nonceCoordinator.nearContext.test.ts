@@ -25,15 +25,15 @@ function createFakeEvmNonceBackend(): EvmNonceBackend {
 
 function createNearLane(args?: {
   walletId?: string;
-  accountId?: string;
+  nearAccountId?: string;
   publicKey?: string;
 }): NearNonceLane {
-  const accountId = args?.accountId || 'nonce-coordinator.testnet';
+  const nearAccountId = args?.nearAccountId || 'nonce-coordinator.testnet';
   return {
     family: 'near',
     networkKey: 'near-testnet',
     walletId: args?.walletId || 'nonce-coordinator.testnet',
-    accountId,
+    nearAccountId,
     publicKey: args?.publicKey || 'ed25519:test-key',
   };
 }
@@ -191,7 +191,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     let caught: unknown = null;
     try {
       await coordinator.fetchNearContext({
-        lane: createNearLane({ walletId, accountId: nearAccountId, publicKey }),
+        lane: createNearLane({ walletId, nearAccountId, publicKey }),
         nearClient,
         force: true,
       });
@@ -252,7 +252,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
 
     coordinator.initializeNearAccessKey({
       walletId: lane.walletId,
-      accountId: lane.accountId,
+      nearAccountId: lane.nearAccountId,
       publicKey: lane.publicKey,
     });
     const [second] = await coordinator.reserveBatch({
@@ -265,7 +265,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     const switchedLane = createNearLane({ publicKey: 'ed25519:other-key' });
     coordinator.initializeNearAccessKey({
       walletId: switchedLane.walletId,
-      accountId: switchedLane.accountId,
+      nearAccountId: switchedLane.nearAccountId,
       publicKey: switchedLane.publicKey,
     });
     await expect(

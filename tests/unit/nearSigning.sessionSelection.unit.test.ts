@@ -45,7 +45,7 @@ function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
 function buildRouterAbEd25519WalletSessionJwtFixture(args: {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
@@ -55,7 +55,7 @@ function buildRouterAbEd25519WalletSessionJwtFixture(args: {
     sub: args.walletId,
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     relayerKeyId: args.relayerKeyId,
@@ -67,18 +67,19 @@ function buildRouterAbEd25519WalletSessionJwtFixture(args: {
 function createStatusBackedPasskeyEd25519WarmSessionReader(args: {
   walletId?: string;
   nearAccountId: string;
-  ed25519KeyScopeId?: string;
+  nearEd25519SigningKeyId?: string;
   signingGrantId: string;
   thresholdSessionId: string;
   expiresAtMs: number;
   status: SigningSessionStatus;
 }) {
   const walletId = args.walletId || args.nearAccountId;
-  const ed25519KeyScopeId = args.ed25519KeyScopeId || walletId;
+  const nearEd25519SigningKeyId = args.nearEd25519SigningKeyId || walletId;
   const record = {
     walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
+    signerSlot: 1,
     rpId: 'example.localhost',
     passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
     relayerUrl: 'https://relay.example.test',
@@ -152,6 +153,8 @@ test.describe('near signing session selection', () => {
             record: {
               walletId: nearAccountId,
               nearAccountId,
+              nearEd25519SigningKeyId: nearAccountId,
+              signerSlot: 1,
               rpId: 'example.localhost',
               passkeyCredentialIdB64u: 'credential-ed25519-auth-missing',
               relayerUrl: 'https://relay.example.test',
@@ -223,7 +226,7 @@ test.describe('near signing session selection', () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = 'pending-material-passkey-ed25519.testnet';
     const walletId = nearAccountId;
-    const ed25519KeyScopeId = nearAccountId;
+    const nearEd25519SigningKeyId = nearAccountId;
     const signingGrantId = 'wallet-pending-material-passkey-ed25519';
     const thresholdSessionId = 'threshold-pending-material-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
@@ -231,7 +234,7 @@ test.describe('near signing session selection', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       thresholdSessionId,
       signingGrantId,
       relayerKeyId,
@@ -241,7 +244,7 @@ test.describe('near signing session selection', () => {
       passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
       walletId: walletId as any,
       nearAccountId: nearAccountId as any,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId,
@@ -316,7 +319,7 @@ test.describe('near signing session selection', () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = 'auth-only-pending-passkey-ed25519.testnet';
     const walletId = nearAccountId;
-    const ed25519KeyScopeId = nearAccountId;
+    const nearEd25519SigningKeyId = nearAccountId;
     const signingGrantId = 'wallet-auth-only-pending-passkey-ed25519';
     const thresholdSessionId = 'threshold-auth-only-pending-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
@@ -324,7 +327,7 @@ test.describe('near signing session selection', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       thresholdSessionId,
       signingGrantId,
       relayerKeyId,
@@ -334,7 +337,7 @@ test.describe('near signing session selection', () => {
       passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
       walletId: walletId as any,
       nearAccountId: nearAccountId as any,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId,
@@ -394,7 +397,7 @@ test.describe('near signing session selection', () => {
   test('fails closed when restored passkey Ed25519 material cannot be refreshed', async () => {
     const nearAccountId = 'refresh-failed-passkey-ed25519.testnet';
     const walletId = nearAccountId;
-    const ed25519KeyScopeId = nearAccountId;
+    const nearEd25519SigningKeyId = nearAccountId;
     const signingGrantId = 'wallet-refresh-failed-passkey-ed25519';
     const thresholdSessionId = 'threshold-refresh-failed-passkey-ed25519';
     const expiresAtMs = Date.now() + 60_000;
@@ -402,7 +405,7 @@ test.describe('near signing session selection', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       thresholdSessionId,
       signingGrantId,
       relayerKeyId,
@@ -410,7 +413,7 @@ test.describe('near signing session selection', () => {
     const record = {
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       rpId: 'localhost',
       passkeyCredentialIdB64u: 'credential-ed25519-refresh-failed',
       relayerUrl: 'https://localhost:9444',
@@ -599,14 +602,14 @@ test.describe('near signing session selection', () => {
     expect(context.nearAccountId).toBe(nearAccountId);
     expect(String(context.lane.walletId)).toBe(walletId);
     expect(String(context.lane.nearAccountId)).toBe(nearAccountId);
-    expect(String(context.lane.ed25519KeyScopeId)).toBe(walletId);
+    expect(String(context.lane.nearEd25519SigningKeyId)).toBe(walletId);
     expect(context.coordinatorInput.lane.curve).toBe('ed25519');
     if (context.coordinatorInput.lane.curve !== 'ed25519') {
       throw new Error('expected Ed25519 coordinator lane');
     }
     expect(String(context.coordinatorInput.lane.walletId)).toBe(walletId);
     expect(String(context.coordinatorInput.lane.nearAccountId)).toBe(nearAccountId);
-    expect(String(context.coordinatorInput.lane.ed25519KeyScopeId)).toBe(walletId);
+    expect(String(context.coordinatorInput.lane.nearEd25519SigningKeyId)).toBe(walletId);
   });
 
   test('retains prior same-account Ed25519 worker material when minting a new login session', () => {
@@ -623,7 +626,7 @@ test.describe('near signing session selection', () => {
       passkeyCredentialIdB64u: 'credential-ed25519-session-selection',
       walletId: nearAccountId as any,
       nearAccountId: nearAccountId as any,
-      ed25519KeyScopeId: nearAccountId,
+      nearEd25519SigningKeyId: nearAccountId,
       rpId: 'localhost',
       relayerUrl: 'https://localhost:9444',
       relayerKeyId: 'ed25519:retain-material-relayer-key',

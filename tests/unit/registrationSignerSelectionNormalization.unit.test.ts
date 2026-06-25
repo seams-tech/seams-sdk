@@ -47,7 +47,7 @@ test.describe('registration signer-selection normalization', () => {
             requestedAccountId: ' alice.testnet ',
             sponsor: 'relayer',
           },
-          signerSlot: 0,
+          signerSlot: 1,
           participantIds: [1, '2', 0, -1, 2.5, 'three'],
           keyPurpose: ' near_tx ',
           keyVersion: ' threshold-ed25519-hss-v1 ',

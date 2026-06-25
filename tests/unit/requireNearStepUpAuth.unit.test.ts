@@ -11,11 +11,11 @@ import { requiredNearTransactionSignatureUses } from '../../packages/sdk-web/src
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
-const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId('localhost'),
@@ -40,7 +40,8 @@ test.describe('requireNearStepUpAuth', () => {
     const signingLane = buildEd25519PasskeySigningLane({
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+      signerSlot: 1,
       auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm'),
@@ -90,7 +91,8 @@ test.describe('requireNearStepUpAuth', () => {
     const signingLane = buildEd25519PasskeySigningLane({
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+      signerSlot: 1,
       auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-warm-one'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
@@ -116,7 +118,8 @@ test.describe('requireNearStepUpAuth', () => {
     const signingLane = buildEd25519EmailOtpSigningLane({
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+      signerSlot: 1,
       auth: EMAIL_OTP_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
@@ -153,7 +156,8 @@ test.describe('requireNearStepUpAuth', () => {
     const signingLane = buildEd25519PasskeySigningLane({
       walletId: WALLET_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+      signerSlot: 1,
       auth: PASSKEY_AUTH,
       signingGrantId: SigningSessionIds.signingGrant('wallet-session-passkey'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),

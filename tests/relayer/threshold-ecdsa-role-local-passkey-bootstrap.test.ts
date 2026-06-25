@@ -386,7 +386,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
           sub: WALLET_SESSION_USER_ID,
           walletId: WALLET_SESSION_USER_ID,
           nearAccountId: NEAR_ACCOUNT_ID,
-          ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+          nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
           thresholdSessionId: 'threshold-ed25519-login-session',
           signingGrantId: body.signingGrantId,
           relayerKeyId: 'ed25519-relayer-key',

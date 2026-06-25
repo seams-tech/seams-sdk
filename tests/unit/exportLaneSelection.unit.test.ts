@@ -24,8 +24,10 @@ import {
   type EvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   buildNamedNearAccountBinding,
@@ -33,7 +35,7 @@ import {
   buildWalletIdentity,
 } from '@shared/utils/walletCapabilityBindings';
 import { parseNamedNearAccountId } from '@shared/utils/near';
-import { ed25519KeyScopeIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -67,8 +69,8 @@ const NEAR_EXPORT_SIGNER = buildNearEd25519SignerBinding({
     wallet: buildWalletIdentity({ walletId: walletIdFromString(WALLET_ID) }),
     nearAccountId: namedNearAccountIdForTest(WALLET_ID),
   }),
-  ed25519KeyScopeId: ed25519KeyScopeIdFromString(WALLET_ID),
-  signerSlot: 0,
+  nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(WALLET_ID),
+  signerSlot: 1,
 });
 
 type EcdsaLaneOverrides = Partial<ConcreteAvailableEcdsaSigningLane> & {
@@ -325,7 +327,7 @@ function ed25519Lane(
     chain: 'near',
     walletId: NEAR_EXPORT_SIGNER.account.wallet.walletId,
     nearAccountId: NEAR_EXPORT_SIGNER.account.nearAccountId,
-    ed25519KeyScopeId: NEAR_EXPORT_SIGNER.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: NEAR_EXPORT_SIGNER.nearEd25519SigningKeyId,
     state: 'restorable',
     signingGrantId: 'wallet-ed25519-session-1',
     thresholdSessionId: 'threshold-ed25519-session-1',
@@ -336,14 +338,18 @@ function ed25519Lane(
     updatedAtMs: 1_800_000_000_000,
     source: 'durable_sealed_record',
     ...laneOverrides,
+    signerSlot: laneOverrides.signerSlot ?? NEAR_EXPORT_SIGNER.signerSlot,
   };
 }
 
 function ed25519LaneIdentity(lane: ConcreteAvailableEd25519SigningLane) {
   return exactEd25519SigningLaneIdentity({
-    walletId: lane.walletId,
-    nearAccountId: lane.nearAccountId,
-    ed25519KeyScopeId: lane.ed25519KeyScopeId,
+    signer: nearEd25519SignerBindingFromBoundaryFields({
+      walletId: lane.walletId,
+      nearAccountId: lane.nearAccountId,
+      nearEd25519SigningKeyId: lane.nearEd25519SigningKeyId,
+      signerSlot: lane.signerSlot,
+    }),
     auth: lane.auth,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
@@ -355,10 +361,12 @@ function ecdsaLaneIdentity(
   chainTarget: ThresholdEcdsaChainTarget = lane.chainTarget,
 ) {
   return exactEcdsaSigningLaneIdentity({
-    walletId: lane.key.walletId,
-    chainTarget,
-    keyHandle: lane.publicFacts.keyHandle,
-    key: lane.key,
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: lane.key.walletId,
+      chainTarget,
+      keyHandle: lane.publicFacts.keyHandle,
+      key: lane.key,
+    }),
     auth: lane.auth,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,

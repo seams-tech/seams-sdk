@@ -144,31 +144,72 @@ test('Refactor 79 keeps ExactSigningLaneIdentity as the only public exact author
   expect(exactSigningLaneExports).toEqual([canonicalExactIdentityPath]);
 });
 
+test('Refactor 79 selected and planning lanes carry exact identity authority', () => {
+  const selectedLaneSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts',
+  );
+  const exactLaneSource = readRepoSource(canonicalExactIdentityPath);
+  const planningLaneSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
+  );
+
+  expect(selectedLaneSource).toContain('identity: ExactSigningLaneIdentity;');
+  expect(selectedLaneSource).toContain('identity: ExactEd25519SigningLaneIdentity;');
+  expect(selectedLaneSource).toContain('identity: ExactEcdsaSigningLaneIdentity;');
+  expect(selectedLaneSource).toContain('const identity = exactEd25519SigningLaneIdentity({');
+  expect(selectedLaneSource).toContain('const identity = exactEcdsaSigningLaneIdentity({');
+  expect(planningLaneSource).toContain('identity: ExactEd25519SigningLaneIdentity;');
+  expect(planningLaneSource).toContain('identity: ExactEcdsaSigningLaneIdentity;');
+  expect(exactLaneSource).not.toContain('SelectedEd25519LaneIdentityFields');
+  expect(exactLaneSource).not.toContain('SelectedEcdsaLaneIdentityFields');
+  expect(exactLaneSource).not.toContain('nearAccountId: lane.nearAccountId');
+  expect(exactLaneSource).not.toContain('chainTarget: lane.chainTarget');
+});
+
 test('Refactor 79 ECDSA exact identity carries wallet id, key handle, and full key identity', () => {
   const source = readRepoSource(canonicalExactIdentityPath);
+  const ecdsaSigner = sourceRangeBetween(
+    source,
+    'export type EvmFamilyEcdsaSignerBinding = {',
+    'export type ExactEd25519SigningLaneIdentity = {',
+  );
   const ecdsaIdentity = sourceRangeBetween(
     source,
     'export type ExactEcdsaSigningLaneIdentity = {',
     'export type ExactSigningLaneIdentity =',
   );
 
-  expect(ecdsaIdentity).toContain('walletId: WalletId;');
-  expect(ecdsaIdentity).toContain('keyHandle: EvmFamilyEcdsaKeyHandle;');
-  expect(ecdsaIdentity).toContain('key: EvmFamilyEcdsaKeyIdentity;');
+  expect(ecdsaSigner).toContain("readonly kind: 'evm_family_ecdsa_signer';");
+  expect(ecdsaSigner).toContain('readonly walletId: WalletId;');
+  expect(ecdsaSigner).toContain('readonly keyHandle: EvmFamilyEcdsaKeyHandle;');
+  expect(ecdsaSigner).toContain('readonly key: EvmFamilyEcdsaKeyIdentity;');
+  expect(ecdsaIdentity).toContain('readonly signer: EvmFamilyEcdsaSignerBinding;');
+  expect(ecdsaIdentity).not.toContain('walletId: WalletId;');
+  expect(ecdsaIdentity).not.toContain('keyHandle: EvmFamilyEcdsaKeyHandle;');
+  expect(ecdsaIdentity).not.toContain('key: EvmFamilyEcdsaKeyIdentity;');
   expect(ecdsaIdentity).not.toContain('walletId: AccountId;');
   expect(ecdsaIdentity).not.toContain('keyHandle?: never;');
 });
 
 test('Refactor 79 Ed25519 exact identity carries a NEAR-specific account brand', () => {
   const source = readRepoSource(canonicalExactIdentityPath);
+  const capabilitySource = readRepoSource('packages/shared-ts/src/utils/walletCapabilityBindings.ts');
   const ed25519Identity = sourceRangeBetween(
     source,
     'export type ExactEd25519SigningLaneIdentity = {',
     'export type ExactEcdsaSigningLaneIdentity = {',
   );
+  const nearSigner = sourceRangeBetween(
+    capabilitySource,
+    'export type NearEd25519SignerBinding = {',
+    'export type WalletCapabilityBindingParseError = {',
+  );
 
-  expect(source).toContain("import { parseNearAccountId, type NearAccountId } from '@shared/utils/near';");
-  expect(ed25519Identity).toContain('nearAccountId: NearAccountId;');
+  expect(source).toContain('type NearAccountId,');
+  expect(ed25519Identity).toContain('readonly signer: NearEd25519SignerBinding;');
+  expect(ed25519Identity).not.toContain('nearAccountId: NearAccountId;');
+  expect(nearSigner).toContain('readonly account: NearAccountBinding;');
+  expect(nearSigner).toContain('readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;');
   expect(ed25519Identity).not.toContain('nearAccountId: AccountId;');
 });
 
@@ -318,7 +359,7 @@ test('Refactor 79 Ed25519 registration HSS scope keeps passkey rpId out of walle
 
   expect(scopeType).toContain('walletKeyId: string;');
   expect(scopeType).not.toContain('rpId: string;');
-  expect(registrationScopeBuilder).toContain('walletKeyId: ed25519KeyScopeId');
+  expect(registrationScopeBuilder).toContain('walletKeyId: nearEd25519SigningKeyId');
   expect(parser).toContain('const walletKeyId = toOptionalTrimmedString(raw.walletKeyId);');
   expect(parser).toContain('registrationAccountScope.rpId is not valid for Ed25519 HSS');
 });
@@ -347,6 +388,69 @@ test('Refactor 79 wallet-scoped authority state uses WalletId, not AccountId', (
     }
     if (/toAccountId\([^)\n]*(walletId|exactWalletId)[^)\n]*\)/.test(source)) {
       violations.push(`${relativePath}: walletId coerced through toAccountId`);
+    }
+  }
+
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Refactor 79 ECDSA authority ranges read signer binding instead of flat lane projections', () => {
+  const guardedRanges = [
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
+      start: 'export function requireResolvedEvmFamilyEcdsaSigningLane(args:',
+      end: 'export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args:',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
+      start: 'export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args:',
+      end: 'export function requireEvmFamilyEcdsaAuthMethod(',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
+      start: 'function getSelectedEcdsaRecordLaneMismatchReason(args:',
+      end: '  return null;\n}',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts',
+      start: 'export function buildEcdsaMaterialStateForResolvedLane(args:',
+      end: 'export function resolvedEcdsaMaterialInputFromOptionalRecord(args:',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts',
+      start: 'export function materialIdentityMatchesResolvedLane(args:',
+      end: '  );\n}',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts',
+      start: 'export async function ensureEvmFamilyThresholdEcdsaRecordReady(',
+      end: '  return refreshedRecord;\n}',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
+      start: "if (args.senderSignatureAlgorithm !== 'secp256k1') return undefined;",
+      end: 'const passkeyBootstrapDigest32B64u =',
+    },
+    {
+      file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
+      start: 'const transactionLaneSigner = requireEvmFamilyEcdsaSigner(',
+      end: 'const result = await args.deps.restorePersistedSessionForSigning({',
+    },
+  ];
+  const forbiddenPatterns = [
+    /\blane\.(walletId|keyHandle|chainTarget|key)\b/,
+    /\bargs\.lane\.(walletId|keyHandle|chainTarget|key)\b/,
+    /\btransactionLane\.(walletId|keyHandle|chainTarget|key)\b/,
+    /\bresolvedLane\.(walletId|keyHandle|chainTarget|key)\b/,
+  ];
+  const violations: string[] = [];
+
+  for (const range of guardedRanges) {
+    const source = sourceRangeBetween(readRepoSource(range.file), range.start, range.end);
+    for (const pattern of forbiddenPatterns) {
+      if (pattern.test(source)) {
+        violations.push(`${range.file}: ${range.start} contains ${pattern.source}`);
+      }
     }
   }
 
@@ -425,7 +529,7 @@ test('Refactor 79 Ed25519-HSS context artifacts do not reintroduce SDK identity 
     'key_purpose',
     'key_version',
     'derivation_version',
-    'ed25519_key_scope_id',
+    'near_ed25519_signing_key_id',
     'signing_root_id',
     'signing_root_version',
     'orgId',
@@ -434,7 +538,7 @@ test('Refactor 79 Ed25519-HSS context artifacts do not reintroduce SDK identity 
     'keyPurpose',
     'keyVersion',
     'derivationVersion',
-    'ed25519KeyScopeId',
+    'nearEd25519SigningKeyId',
     'signingRootId',
     'signingRootVersion',
   ];
@@ -510,6 +614,152 @@ test('Refactor 79 Ed25519 finalize-derived HSS material does not echo keyVersion
   const helperSource = source.slice(start);
   const forbidden = ['keyVersion', 'key_version', 'ed25519HssKeyVersion'];
   const violations = forbidden.filter((token) => helperSource.includes(token));
+
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
+test('Refactor 79 wallet budget sessions do not synthesize NEAR signer identity', () => {
+  const serviceSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  );
+  const storeSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts',
+  );
+  const ensureBudgetSource = sourceRangeBetween(
+    serviceSource,
+    'private async ensureSigningGrantBudget(',
+    'private async resolveWalletOrCurveBudgetStore',
+  );
+  const budgetRecordSource = sourceRangeBetween(
+    storeSource,
+    'export type WalletSigningBudgetSessionRecord = {',
+    'export type WalletSessionRecord =',
+  );
+
+  expect(ensureBudgetSource).toContain('this.walletBudgetSessionStore');
+  expect(ensureBudgetSource).toContain("kind: 'wallet_signing_budget_session'");
+  expect(ensureBudgetSource).not.toContain('nearAccountId: input.userId');
+  expect(ensureBudgetSource).not.toContain('nearEd25519SigningKeyId: input.userId');
+  expect(ensureBudgetSource).not.toContain('rpId: budgetScopeId');
+  expect(budgetRecordSource).toContain('budgetScope:');
+  expect(budgetRecordSource).toContain('binding: WalletSigningBudgetBinding;');
+  expect(budgetRecordSource).not.toContain('nearAccountId');
+  expect(budgetRecordSource).not.toContain('nearEd25519SigningKeyId');
+  expect(budgetRecordSource).not.toContain('rpId: string;');
+});
+
+test('Refactor 79 ECDSA MPC sessions are native wallet-key records', () => {
+  const serviceSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+  );
+  const sessionStoreSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts',
+  );
+  const ecdsaMpcType = sourceRangeBetween(
+    sessionStoreSource,
+    'export type ThresholdEcdsaMpcSessionRecord = {',
+    'export type ThresholdMpcSessionRecord =',
+  );
+
+  expect(ecdsaMpcType).toContain('walletSessionUserId: string;');
+  expect(ecdsaMpcType).toContain('walletKeyId: string;');
+  expect(ecdsaMpcType).not.toContain('userId: string;');
+  expect(ecdsaMpcType).not.toContain('rpId: string;');
+  expect(sessionStoreSource).not.toContain(
+    "export type ThresholdEcdsaMpcSessionRecord = Omit<",
+  );
+  expect(serviceSource).not.toContain('toThresholdEcdsaMpcSessionRecord');
+  expect(serviceSource).not.toContain('walletKeyId: record.rpId');
+  expect(serviceSource).not.toContain('rpId: record.walletKeyId');
+});
+
+test('Refactor 79 canonical NEAR Ed25519 signer binding rejects signer slot zero', () => {
+  const source = readRepoSource('packages/shared-ts/src/utils/walletCapabilityBindings.ts');
+  const parseSignerSlotSource = sourceRangeBetween(
+    source,
+    'function parseSignerSlot(raw: unknown):',
+    'function missingObject(typeName: string):',
+  );
+
+  expect(parseSignerSlotSource).toContain('signerSlot < 1');
+  expect(parseSignerSlotSource).toContain('signerSlot must be an integer >= 1');
+  expect(parseSignerSlotSource).not.toContain('signerSlot < 0');
+  expect(parseSignerSlotSource).not.toContain('integer >= 0');
+});
+
+test('Refactor 79 Ed25519 session lane keys use full exact identity', () => {
+  const recordsSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
+  );
+  const keyTypeSource = sourceRangeBetween(
+    recordsSource,
+    'export type ThresholdEd25519SessionRecordKey = {',
+    '};',
+  );
+  const serializerSource = sourceRangeBetween(
+    recordsSource,
+    'export function serializeThresholdEd25519SessionLaneKey(args: {',
+    'function getThresholdEd25519SessionLaneKeyForRecord',
+  );
+  const matcherSource = sourceRangeBetween(
+    recordsSource,
+    'function thresholdEd25519RecordMatchesLane(',
+    'function rememberInMemoryThresholdEcdsaRecord',
+  );
+
+  for (const field of [
+    'walletId',
+    'nearAccountId',
+    'nearEd25519SigningKeyId',
+    'authMethod',
+    'signingGrantId',
+    'thresholdSessionId',
+    'signerSlot',
+  ]) {
+    expect(keyTypeSource).toContain(field);
+    expect(serializerSource).toContain(field);
+  }
+  expect(serializerSource).toContain('encodeLaneToken(walletId)');
+  expect(serializerSource).toContain('encodeLaneToken(nearAccountId)');
+  expect(serializerSource).toContain('encodeLaneToken(nearEd25519SigningKeyId)');
+  expect(serializerSource).toContain('encodeLaneToken(authMethod)');
+  expect(serializerSource).toContain('encodeLaneToken(signingGrantId)');
+  expect(serializerSource).toContain('encodeLaneToken(thresholdSessionId)');
+  expect(serializerSource).toContain('encodeLaneToken(String(signerSlot))');
+  expect(matcherSource).toContain('record.walletId');
+  expect(matcherSource).toContain('lane.walletId');
+  expect(matcherSource).toContain('record.nearEd25519SigningKeyId');
+  expect(matcherSource).toContain('lane.nearEd25519SigningKeyId');
+  expect(matcherSource).toContain('record.signerSlot');
+  expect(matcherSource).toContain('lane.signerSlot');
+});
+
+test('Refactor 79 selected wallet profile writes are wallet-id only', () => {
+  const files = [
+    'packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/registration/public.ts',
+    'packages/sdk-web/src/core/signingEngine/flows/registration/services/registrationAccounts.ts',
+    'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts',
+    'packages/sdk-web/src/SeamsWeb/operations/auth/login.ts',
+    'packages/sdk-web/src/core/runtime/createSigningRuntime.ts',
+  ];
+  const violations: string[] = [];
+
+  for (const relativePath of files) {
+    const source = readRepoSource(relativePath);
+    for (const pattern of [
+      'WalletId | AccountId',
+      'AccountId | WalletId',
+      'EcdsaWalletId | AccountId',
+      'walletOrNearAccountId',
+      'setLastUser(nearAccountId',
+      'updateLastLogin(nearAccountId',
+    ]) {
+      if (source.includes(pattern)) {
+        violations.push(`${relativePath} contains ${pattern}`);
+      }
+    }
+  }
 
   expect(violations, violations.join('\n')).toEqual([]);
 });

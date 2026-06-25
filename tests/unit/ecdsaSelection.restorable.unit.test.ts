@@ -22,7 +22,7 @@ import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
 } from '@/core/signingEngine/session/operationState/lanes';
-import { exactSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { exactSigningLaneIdentityFromSelectedLane } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { buildFreshStepUpRequired } from '@/core/signingEngine/session/operationState/stepUpFreshness';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import {
@@ -227,7 +227,7 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
           storageSource: 'login',
         },
   );
-  const laneIdentity = exactSigningLaneIdentity(lane);
+  const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
   const freshness = buildFreshStepUpRequired({
     walletId: input.walletId,
     operationId: SigningSessionIds.signingOperation(`operation-${input.thresholdSessionId}`),

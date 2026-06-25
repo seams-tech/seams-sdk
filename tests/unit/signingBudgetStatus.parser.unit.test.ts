@@ -183,7 +183,7 @@ function makeEd25519Claims(overrides: Record<string, unknown> = {}): Record<stri
     walletId: 'wallet-ed25519',
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     nearAccountId: 'alice.testnet',
-    ed25519KeyScopeId: 'wallet-ed25519',
+    nearEd25519SigningKeyId: 'wallet-ed25519',
     thresholdSessionId: 'threshold-session-ed25519',
     signingGrantId: 'signing-grant-ed25519',
     relayerKeyId: 'ed25519-relayer-1',

@@ -54,7 +54,7 @@ function writeEd25519Record(args: {
   const record = upsertStoredThresholdEd25519SessionRecord({
     walletId: ACCOUNT_ID,
     nearAccountId: ACCOUNT_ID,
-    ed25519KeyScopeId: ACCOUNT_ID,
+    nearEd25519SigningKeyId: ACCOUNT_ID,
     rpId: RP_ID,
     relayerUrl: RELAYER_URL,
     relayerKeyId: RELAYER_KEY_ID,

@@ -4,7 +4,7 @@ import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerA
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
-  ed25519KeyScopeIdFromString,
+  nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import { toAccountId } from '@/core/types/accountIds';
@@ -44,7 +44,7 @@ import type {
 
 const accountId = toAccountId('strict-ed25519-capability.testnet');
 const ed25519WalletId = walletIdFromString('strict-ed25519-wallet');
-const ed25519KeyScopeId = ed25519KeyScopeIdFromString('strict-ed25519-key-scope');
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('strict-ed25519-key-scope');
 const signingGrantId = SigningSessionIds.signingGrant('wsess-strict-ed25519');
 const thresholdSessionId = SigningSessionIds.thresholdEd25519Session('tsess-strict-ed25519');
 const ecdsaWalletId = toWalletId('strict-ecdsa-capability.testnet');
@@ -87,8 +87,9 @@ function makeLane() {
   return buildNearTransactionSigningLane({
     walletId: ed25519WalletId,
     nearAccountId: accountId,
-    ed25519KeyScopeId,
-    auth: passkeyAuth,
+    nearEd25519SigningKeyId,
+  signerSlot: 1,
+  auth: passkeyAuth,
     signingGrantId,
     thresholdSessionId,
     storageSource: 'login',
@@ -101,7 +102,7 @@ function makeEd25519Record(
   return {
     walletId: ed25519WalletId,
     nearAccountId: accountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: 'localhost',
     passkeyCredentialIdB64u: 'credential-ed25519-strict-capability',
     relayerUrl: 'https://router.example.test',
@@ -132,7 +133,7 @@ function makeEd25519Record(
       sub: ed25519WalletId,
       walletId: ed25519WalletId,
       nearAccountId: accountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       thresholdSessionId,
       signingGrantId,
       version: 1,
@@ -385,7 +386,7 @@ test.describe('selected signing capability strict persisted records', () => {
         sub: ed25519WalletId,
         walletId: ed25519WalletId,
         nearAccountId: accountId,
-        ed25519KeyScopeId,
+        nearEd25519SigningKeyId,
         thresholdSessionId,
         signingGrantId,
         version: 2,

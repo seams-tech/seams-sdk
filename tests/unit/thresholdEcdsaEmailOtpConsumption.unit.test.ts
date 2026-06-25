@@ -96,6 +96,7 @@ function ecdsaEmailOtpRecord(args: {
         ecdsaThresholdKeyId,
         signingRootId: 'signing-root',
         signingRootVersion: 'v1',
+        applicationBindingDigestB64u: VALID_STATE_BLOB_B64U,
         clientParticipantId: 1,
         relayerParticipantId: 2,
         participantIds,
@@ -338,7 +339,10 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
         ...selectedLane.laneRef,
         exactIdentity: {
           ...selectedLane.laneRef.exactIdentity,
-          chainTarget: SECOND_EVM_TARGET,
+          signer: {
+            ...selectedLane.laneRef.exactIdentity.signer,
+            chainTarget: SECOND_EVM_TARGET,
+          },
         },
       },
     };
@@ -354,7 +358,10 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
         ...selectedLane.laneRef,
         exactIdentity: {
           ...selectedLane.laneRef.exactIdentity,
-          keyHandle: otherLane.laneRef.exactIdentity.keyHandle,
+          signer: {
+            ...selectedLane.laneRef.exactIdentity.signer,
+            keyHandle: otherLane.laneRef.exactIdentity.signer.keyHandle,
+          },
         },
       },
     };
@@ -372,7 +379,10 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
         ...selectedLane.laneRef,
         exactIdentity: {
           ...selectedLane.laneRef.exactIdentity,
-          key: otherLane.laneRef.exactIdentity.key,
+          signer: {
+            ...selectedLane.laneRef.exactIdentity.signer,
+            key: otherLane.laneRef.exactIdentity.signer.key,
+          },
         },
       },
     };

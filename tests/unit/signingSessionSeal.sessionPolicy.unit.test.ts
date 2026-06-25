@@ -1,8 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type {
+  EcdsaWalletSessionStatus,
+  EcdsaWalletSessionStore,
   Ed25519WalletSessionStatus,
   Ed25519WalletSessionStore,
   WalletSessionConsumeUsesResult,
+  WalletSigningBudgetSessionStatus,
+  WalletSigningBudgetSessionStore,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
 import { walletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
 import { createSigningSessionSealPolicyFromWalletSessionStores } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
@@ -24,12 +28,69 @@ function makeStatus(input: {
       userId: input.userId,
       walletId: input.userId,
       nearAccountId: input.userId,
-      ed25519KeyScopeId: input.userId,
+      nearEd25519SigningKeyId: input.userId,
       rpId: input.rpId,
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
       ...(input.walletBudgetBinding ? { walletBudgetBinding: input.walletBudgetBinding } : {}),
+    },
+    expiresAtMs: input.expiresAtMs,
+    committedRemainingUses: input.remainingUses,
+    reservedUses: 0,
+    availableUses: input.remainingUses,
+    remainingUses: input.remainingUses,
+  };
+}
+
+function makeEcdsaStatus(input: {
+  userId: string;
+  walletKeyId: string;
+  relayerKeyId: string;
+  participantIds: number[];
+  expiresAtMs: number;
+  remainingUses: number;
+}): EcdsaWalletSessionStatus {
+  return {
+    record: {
+      walletSessionUserId: input.userId,
+      walletId: input.userId,
+      walletKeyId: input.walletKeyId,
+      relayerKeyId: input.relayerKeyId,
+      participantIds: input.participantIds,
+      expiresAtMs: input.expiresAtMs,
+    },
+    expiresAtMs: input.expiresAtMs,
+    committedRemainingUses: input.remainingUses,
+    reservedUses: 0,
+    availableUses: input.remainingUses,
+    remainingUses: input.remainingUses,
+  };
+}
+
+function makeBudgetStatus(input: {
+  userId: string;
+  budgetScope:
+    | { kind: 'passkey_rp'; rpId: string }
+    | { kind: 'wallet_key'; walletKeyId: string };
+  binding: {
+    curve: 'ed25519' | 'ecdsa';
+    thresholdSessionId: string;
+  };
+  relayerKeyId: string;
+  participantIds: number[];
+  expiresAtMs: number;
+  remainingUses: number;
+}): WalletSigningBudgetSessionStatus {
+  return {
+    record: {
+      kind: 'wallet_signing_budget_session',
+      walletId: input.userId,
+      budgetScope: input.budgetScope,
+      binding: input.binding,
+      relayerKeyId: input.relayerKeyId,
+      participantIds: input.participantIds,
+      expiresAtMs: input.expiresAtMs,
     },
     expiresAtMs: input.expiresAtMs,
     committedRemainingUses: input.remainingUses,
@@ -93,10 +154,118 @@ function makeStore(entries: {
   };
 }
 
+function makeEcdsaStore(entries: {
+  sessions?: Record<string, EcdsaWalletSessionStatus | null>;
+  consume?: Record<string, WalletSessionConsumeUsesResult>;
+}): EcdsaWalletSessionStore {
+  const sessions = entries.sessions || {};
+  const consume = entries.consume || {};
+  return {
+    async putSession(): Promise<void> {
+      throw new Error('not implemented');
+    },
+    async getSession(id: string) {
+      return sessions[id]?.record || null;
+    },
+    async getSessionStatus(id: string) {
+      return sessions[id] || null;
+    },
+    async consumeUseCount(id: string) {
+      return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async consumeUseCountOnce(id: string) {
+      return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async reserveUseCountOnce() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async commitReservedUseCountOnce() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async validateReservedUseCount() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async releaseReservedUseCount() {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'missing',
+      };
+    },
+    async releaseReservedUseCountForIdentity() {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'missing',
+      };
+    },
+    async hasConsumedUseCountOnce() {
+      return { ok: true, consumed: false };
+    },
+    async reserveReplayGuard() {
+      return { ok: true };
+    },
+  };
+}
+
+function makeBudgetStore(entries: {
+  sessions?: Record<string, WalletSigningBudgetSessionStatus | null>;
+  consume?: Record<string, WalletSessionConsumeUsesResult>;
+}): WalletSigningBudgetSessionStore {
+  const sessions = entries.sessions || {};
+  const consume = entries.consume || {};
+  return {
+    async putSession(): Promise<void> {
+      throw new Error('not implemented');
+    },
+    async getSession(id: string) {
+      return sessions[id]?.record || null;
+    },
+    async getSessionStatus(id: string) {
+      return sessions[id] || null;
+    },
+    async consumeUseCount(id: string) {
+      return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async consumeUseCountOnce(id: string) {
+      return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async reserveUseCountOnce() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async commitReservedUseCountOnce() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async validateReservedUseCount() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async releaseReservedUseCount() {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'missing',
+      };
+    },
+    async releaseReservedUseCountForIdentity() {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'missing',
+      };
+    },
+    async hasConsumedUseCountOnce() {
+      return { ok: true, consumed: false };
+    },
+    async reserveReplayGuard() {
+      return { ok: true };
+    },
+  };
+}
+
 test.describe('signing session seal session policy', () => {
   test('looks up threshold sessions only within the requested curve family', async () => {
     const thresholdSessionId = 'shared-threshold-session';
-    const walletBudgetStore = makeStore({});
+    const walletBudgetStore = makeBudgetStore({});
     const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
@@ -113,11 +282,11 @@ test.describe('signing session seal session policy', () => {
         }),
       ],
       ecdsaStores: [
-        makeStore({
+        makeEcdsaStore({
           sessions: {
-            [thresholdSessionId]: makeStatus({
+            [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              rpId: 'rp-ecdsa.example',
+              walletKeyId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,
@@ -155,14 +324,14 @@ test.describe('signing session seal session policy', () => {
       userId: 'alice',
       expiresAtMs: 222_000,
       relayerKeyId: 'relayer-ecdsa',
-      rpId: 'rp-ecdsa.example',
+      walletKeyId: 'wallet-key-ecdsa.example',
       participantIds: [3, 4],
     });
   });
 
   test('looks up threshold session status only within the requested curve family', async () => {
     const thresholdSessionId = 'shared-threshold-session';
-    const walletBudgetStore = makeStore({});
+    const walletBudgetStore = makeBudgetStore({});
     const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
@@ -179,11 +348,11 @@ test.describe('signing session seal session policy', () => {
         }),
       ],
       ecdsaStores: [
-        makeStore({
+        makeEcdsaStore({
           sessions: {
-            [thresholdSessionId]: makeStatus({
+            [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              rpId: 'rp-ecdsa.example',
+              walletKeyId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,
@@ -228,7 +397,7 @@ test.describe('signing session seal session policy', () => {
         expiresAtMs: 222_000,
         remainingUses: 9,
         relayerKeyId: 'relayer-ecdsa',
-        rpId: 'rp-ecdsa.example',
+        walletKeyId: 'wallet-key-ecdsa.example',
         participantIds: [3, 4],
       },
     ]);
@@ -238,19 +407,19 @@ test.describe('signing session seal session policy', () => {
     const budgetSessionId = 'budget-session';
     const walletBudgetThresholdSessionId = 'threshold-ed25519-budget-session';
     const walletBudgetStoreSessionId = walletSigningBudgetSessionId(budgetSessionId);
-    const walletBudgetStore = makeStore({
+    const walletBudgetStore = makeBudgetStore({
       sessions: {
-        [walletBudgetStoreSessionId]: makeStatus({
+        [walletBudgetStoreSessionId]: makeBudgetStatus({
           userId: 'alice',
-          rpId: 'rp-wallet-budget.example',
+          budgetScope: { kind: 'passkey_rp', rpId: 'rp-wallet-budget.example' },
+          binding: {
+            curve: 'ed25519',
+            thresholdSessionId: walletBudgetThresholdSessionId,
+          },
           relayerKeyId: 'relayer-wallet-budget',
           participantIds: [5, 6],
           expiresAtMs: 333_000,
           remainingUses: 2,
-          walletBudgetBinding: {
-            curve: 'ed25519',
-            thresholdSessionId: walletBudgetThresholdSessionId,
-          },
         }),
       },
     });
@@ -270,11 +439,11 @@ test.describe('signing session seal session policy', () => {
         }),
       ],
       ecdsaStores: [
-        makeStore({
+        makeEcdsaStore({
           sessions: {
-            [walletBudgetThresholdSessionId]: makeStatus({
+            [walletBudgetThresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              rpId: 'rp-ecdsa.example',
+              walletKeyId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [7, 8],
               expiresAtMs: 444_000,
@@ -314,33 +483,23 @@ test.describe('signing session seal session policy', () => {
         signingGrantId: budgetSessionId,
         thresholdSessionId: walletBudgetThresholdSessionId,
       }),
-    ).resolves.toEqual({
-      kind: 'wallet_budget',
-      curve: 'ecdsa',
-      thresholdSessionId: walletBudgetThresholdSessionId,
-      signingGrantId: budgetSessionId,
-      userId: 'alice',
-      expiresAtMs: 333_000,
-      remainingUses: 2,
-      committedRemainingUses: 2,
-      reservedUses: 0,
-      availableUses: 2,
-      relayerKeyId: 'relayer-wallet-budget',
-      rpId: 'rp-wallet-budget.example',
-      participantIds: [5, 6],
-    });
+    ).resolves.toBeNull();
   });
 
-  test('shares one wallet budget across signers under one signing grant id', async () => {
+  test('wallet budget status requires exact curve and threshold binding', async () => {
     const signingGrantId = 'shared-wallet-session';
     const ed25519ThresholdSessionId = 'threshold-ed25519-shared-wallet';
     const ecdsaThresholdSessionId = 'threshold-ecdsa-shared-wallet';
     const walletBudgetSessionId = walletSigningBudgetSessionId(signingGrantId);
-    const walletBudgetStore = makeStore({
+    const walletBudgetStore = makeBudgetStore({
       sessions: {
-        [walletBudgetSessionId]: makeStatus({
+        [walletBudgetSessionId]: makeBudgetStatus({
           userId: 'alice',
-          rpId: 'rp-wallet-budget.example',
+          budgetScope: { kind: 'passkey_rp', rpId: 'rp-wallet-budget.example' },
+          binding: {
+            curve: 'ed25519',
+            thresholdSessionId: ed25519ThresholdSessionId,
+          },
           relayerKeyId: 'relayer-wallet-budget',
           participantIds: [1, 2],
           expiresAtMs: 333_000,
@@ -371,27 +530,19 @@ test.describe('signing session seal session policy', () => {
         signingGrantId,
         thresholdSessionId: ecdsaThresholdSessionId,
       }),
-    ).resolves.toMatchObject({
-      curve: 'ecdsa',
-      thresholdSessionId: ecdsaThresholdSessionId,
-      remainingUses: 2,
-    });
+    ).resolves.toBeNull();
     await expect(
       policy.getWalletBudgetStatus?.({
-        curve: 'ecdsa',
+        curve: 'ed25519',
         signingGrantId,
-        thresholdSessionId: ed25519ThresholdSessionId,
+        thresholdSessionId: ecdsaThresholdSessionId,
       }),
-    ).resolves.toMatchObject({
-      curve: 'ecdsa',
-      thresholdSessionId: ed25519ThresholdSessionId,
-      remainingUses: 2,
-    });
+    ).resolves.toBeNull();
   });
 
   test('consumes use counts only within the requested curve family', async () => {
     const thresholdSessionId = 'shared-threshold-session';
-    const walletBudgetStore = makeStore({});
+    const walletBudgetStore = makeBudgetStore({});
     const policy = createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [
         makeStore({
@@ -411,11 +562,11 @@ test.describe('signing session seal session policy', () => {
         }),
       ],
       ecdsaStores: [
-        makeStore({
+        makeEcdsaStore({
           sessions: {
-            [thresholdSessionId]: makeStatus({
+            [thresholdSessionId]: makeEcdsaStatus({
               userId: 'alice',
-              rpId: 'rp-ecdsa.example',
+              walletKeyId: 'wallet-key-ecdsa.example',
               relayerKeyId: 'relayer-ecdsa',
               participantIds: [3, 4],
               expiresAtMs: 222_000,

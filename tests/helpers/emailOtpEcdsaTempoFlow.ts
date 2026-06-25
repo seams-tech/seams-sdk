@@ -216,10 +216,12 @@ export async function setupEmailOtpEcdsaTempoHarness(
   const thresholdWalletSessionStores = threshold as unknown as {
     walletSessionStore?: unknown;
     ecdsaWalletSessionStore?: unknown;
+    walletBudgetSessionStore?: unknown;
   };
   if (
     !thresholdWalletSessionStores.walletSessionStore ||
-    !thresholdWalletSessionStores.ecdsaWalletSessionStore
+    !thresholdWalletSessionStores.ecdsaWalletSessionStore ||
+    !thresholdWalletSessionStores.walletBudgetSessionStore
   ) {
     throw new Error(
       'Missing Wallet Session stores for Email OTP signing-session seal policy',
@@ -247,7 +249,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
       sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
         ed25519Stores: [thresholdWalletSessionStores.walletSessionStore as any],
         ecdsaStores: [thresholdWalletSessionStores.ecdsaWalletSessionStore as any],
-        walletBudgetStores: [thresholdWalletSessionStores.walletSessionStore as any],
+        walletBudgetStores: [thresholdWalletSessionStores.walletBudgetSessionStore as any],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
@@ -726,7 +728,7 @@ export async function runEmailOtpEcdsaTempoFlow(
             ? (exactMod as any).exactEd25519SigningLaneIdentity({
                 walletId: candidate.walletId,
                 nearAccountId: candidate.nearAccountId,
-                ed25519KeyScopeId: candidate.ed25519KeyScopeId,
+                nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
                 auth: candidate.auth,
                 signingGrantId: candidate.signingGrantId,
                 thresholdSessionId: candidate.thresholdSessionId,
@@ -2038,7 +2040,7 @@ export async function runEmailOtpReloadPhase(
                 ? (exactMod as any).exactEd25519SigningLaneIdentity({
                     walletId: candidate.walletId,
                     nearAccountId: candidate.nearAccountId,
-                    ed25519KeyScopeId: candidate.ed25519KeyScopeId,
+                    nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
                     auth: candidate.auth,
                     signingGrantId: candidate.signingGrantId,
                     thresholdSessionId: candidate.thresholdSessionId,

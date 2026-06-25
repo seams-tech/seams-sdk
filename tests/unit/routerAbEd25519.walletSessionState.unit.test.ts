@@ -36,7 +36,7 @@ function buildUnsignedJwtFixture(payload: Record<string, unknown>): string {
 function buildRouterAbEd25519WalletSessionJwtFixture(args: {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
@@ -46,7 +46,7 @@ function buildRouterAbEd25519WalletSessionJwtFixture(args: {
     sub: args.walletId,
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     relayerKeyId: args.relayerKeyId,
@@ -70,7 +70,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const common = {
           nearAccountId,
           walletId: nearAccountId,
-          ed25519KeyScopeId: nearAccountId,
+          nearEd25519SigningKeyId: nearAccountId,
+          signerSlot: 1,
           rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -140,26 +141,35 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             ),
             oldPasskeyLanePresent: Boolean(
               storeMod.getStoredThresholdEd25519SessionRecordForLane({
+                walletId: nearAccountId,
                 nearAccountId,
+                nearEd25519SigningKeyId: nearAccountId,
                 authMethod: 'passkey',
                 signingGrantId: 'old-passkey-wallet-session',
                 thresholdSessionId: 'old-passkey-session',
+                signerSlot: 1,
               }),
             ),
             oldOtpLanePresent: Boolean(
               storeMod.getStoredThresholdEd25519SessionRecordForLane({
+                walletId: nearAccountId,
                 nearAccountId,
+                nearEd25519SigningKeyId: nearAccountId,
                 authMethod: 'email_otp',
                 signingGrantId: 'old-otp-wallet-session',
                 thresholdSessionId: 'old-otp-session',
+                signerSlot: 1,
               }),
             ),
             freshOtpLanePresent: Boolean(
               storeMod.getStoredThresholdEd25519SessionRecordForLane({
+                walletId: nearAccountId,
                 nearAccountId,
+                nearEd25519SigningKeyId: nearAccountId,
                 authMethod: 'email_otp',
                 signingGrantId: 'fresh-otp-wallet-session',
                 thresholdSessionId: 'fresh-otp-session',
+                signerSlot: 1,
               }),
             ),
           };
@@ -191,7 +201,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'canonical-threshold-session',
       signingGrantId: 'canonical-wallet-session',
       relayerKeyId: 'rk-1',
@@ -207,7 +217,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         storeMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId: 'alice.testnet',
           walletId: 'alice.testnet',
-          ed25519KeyScopeId: 'alice.testnet',
+          nearEd25519SigningKeyId: 'alice.testnet',
           rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -306,18 +316,18 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
   }) => {
     const walletId = 'frost-vermillion-k7p9m2';
     const nearAccountId = 'a'.repeat(64);
-    const ed25519KeyScopeId = 'wallet-scope-frost-vermillion-k7p9m2';
+    const nearEd25519SigningKeyId = 'wallet-scope-frost-vermillion-k7p9m2';
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       thresholdSessionId: 'implicit-threshold-session',
       signingGrantId: 'implicit-wallet-session',
       relayerKeyId: 'rk-implicit',
     });
 
     const result = await page.evaluate(
-      async ({ paths, walletId, nearAccountId, ed25519KeyScopeId, walletSessionJwt }) => {
+      async ({ paths, walletId, nearAccountId, nearEd25519SigningKeyId, walletSessionJwt }) => {
         const helperMod = await import(paths.routerAbEd25519WalletSessionState);
         const routerAbMod = await import(paths.routerAbWalletSessionCredential);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
@@ -327,7 +337,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         storeMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId,
           walletId,
-          ed25519KeyScopeId,
+          nearEd25519SigningKeyId,
           rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -385,7 +395,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS, walletId, nearAccountId, ed25519KeyScopeId, walletSessionJwt },
+      { paths: IMPORT_PATHS, walletId, nearAccountId, nearEd25519SigningKeyId, walletSessionJwt },
     );
 
     expect(result).toEqual({
@@ -439,7 +449,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               sub: 'alice.testnet',
               walletId: 'alice.testnet',
               nearAccountId: 'alice.testnet',
-              ed25519KeyScopeId: 'alice.testnet',
+              nearEd25519SigningKeyId: 'alice.testnet',
               thresholdSessionId: input.sessionId,
               signingGrantId: input.grantId,
               relayerKeyId: 'rk-1',
@@ -453,7 +463,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -626,7 +636,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           sub: 'alice.testnet',
           walletId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
-          ed25519KeyScopeId: 'alice.testnet',
+          nearEd25519SigningKeyId: 'alice.testnet',
           thresholdSessionId,
           signingGrantId,
           relayerKeyId: 'rk-1',
@@ -681,7 +691,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -749,7 +759,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             },
 	            ed25519Restore: {
 	              nearAccountId: 'alice.testnet',
-	              ed25519KeyScopeId: 'alice.testnet',
+	              nearEd25519SigningKeyId: 'alice.testnet',
 	              rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               participantIds: [1, 2],
@@ -971,7 +981,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               sub: 'alice.testnet',
               walletId: 'alice.testnet',
               nearAccountId: 'alice.testnet',
-              ed25519KeyScopeId: 'alice.testnet',
+              nearEd25519SigningKeyId: 'alice.testnet',
               thresholdSessionId: input.sessionId,
               signingGrantId: input.grantId,
               relayerKeyId: 'rk-1',
@@ -985,7 +995,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -1133,7 +1143,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'runtime-threshold-session',
       signingGrantId: 'runtime-signing-grant',
       relayerKeyId: 'rk-1',
@@ -1177,7 +1187,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -1294,7 +1304,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'restore-auth-threshold-session',
       signingGrantId: 'restore-auth-signing-grant',
       relayerKeyId: 'rk-1',
@@ -1334,7 +1344,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -1486,7 +1496,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'email-restore-auth-threshold-session',
       signingGrantId: 'email-restore-auth-signing-grant',
       relayerKeyId: 'rk-1',
@@ -1522,7 +1532,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -1642,7 +1652,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'partial-threshold-session',
       signingGrantId: 'partial-wallet-session',
       relayerKeyId: 'rk-1',
@@ -1659,7 +1669,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -1714,7 +1724,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const walletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'missing-material-identity-session',
       signingGrantId: 'missing-material-identity-grant',
       relayerKeyId: 'rk-1',
@@ -1731,7 +1741,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId: 'alice.testnet',
             walletId: 'alice.testnet',
-            ed25519KeyScopeId: 'alice.testnet',
+            nearEd25519SigningKeyId: 'alice.testnet',
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -1791,7 +1801,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
     const ed25519WalletSessionJwt = buildRouterAbEd25519WalletSessionJwtFixture({
       walletId: 'alice.testnet',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       thresholdSessionId: 'shared-session-id',
       signingGrantId: 'shared-wallet-session',
       relayerKeyId: 'rk-ed25519',
@@ -1814,7 +1824,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         storeMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId: 'alice.testnet',
           walletId: 'alice.testnet',
-          ed25519KeyScopeId: 'alice.testnet',
+          nearEd25519SigningKeyId: 'alice.testnet',
           rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -2029,7 +2039,8 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId,
             walletId: nearAccountId,
-            ed25519KeyScopeId: nearAccountId,
+            nearEd25519SigningKeyId: nearAccountId,
+            signerSlot: 1,
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -2049,7 +2060,6 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
             signingGrantId: 'wallet-session',
             walletSessionJwt: 'jwt-ed25519',
             materialCreatedAtMs: 1_700_000_000_000,
-            signerSlot: 1,
             keyVersion: 'threshold-ed25519-hss-v1',
             routerAbNormalSigning: {
               kind: 'router_ab_ed25519_normal_signing_v1',
@@ -2111,7 +2121,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
               sub: nearAccountId,
               walletId: nearAccountId,
               nearAccountId,
-              ed25519KeyScopeId: nearAccountId,
+              nearEd25519SigningKeyId: nearAccountId,
               thresholdSessionId: input.sessionId,
               signingGrantId: input.grantId,
               relayerKeyId: 'rk-ed25519',
@@ -2124,7 +2134,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId,
             walletId: nearAccountId,
-            ed25519KeyScopeId: nearAccountId,
+            nearEd25519SigningKeyId: nearAccountId,
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -2243,7 +2253,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
           const upserted = storeMod.upsertStoredThresholdEd25519SessionRecord({
             nearAccountId,
             walletId: nearAccountId,
-            ed25519KeyScopeId: nearAccountId,
+            nearEd25519SigningKeyId: nearAccountId,
             rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -2278,10 +2288,13 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
                 'stale-threshold-session',
               ),
             laneRecord: storeMod.getStoredThresholdEd25519SessionRecordForLane({
+              walletId: nearAccountId,
               nearAccountId,
+              nearEd25519SigningKeyId: nearAccountId,
               authMethod: 'passkey',
               signingGrantId: 'stale-wallet-session',
               thresholdSessionId: 'stale-threshold-session',
+              signerSlot: 1,
             }),
             listed: storeMod.listStoredThresholdEd25519SessionRecordsForWallet(nearAccountId),
           };
@@ -2311,7 +2324,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const baseRecord = {
           nearAccountId: 'alice.testnet',
           walletId: 'alice.testnet',
-          ed25519KeyScopeId: 'alice.testnet',
+          nearEd25519SigningKeyId: 'alice.testnet',
           rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',
@@ -2397,7 +2410,7 @@ test.describe('Router A/B Ed25519 Wallet Session state', () => {
         const makeBaseRecord = (thresholdSessionId: string): Record<string, unknown> => ({
           nearAccountId: `${thresholdSessionId}.testnet`,
           walletId: `${thresholdSessionId}.testnet`,
-          ed25519KeyScopeId: `${thresholdSessionId}.testnet`,
+          nearEd25519SigningKeyId: `${thresholdSessionId}.testnet`,
           rpId: 'example.localhost',
             passkeyCredentialIdB64u: 'credential-router-ab-ed25519',
             relayerUrl: 'https://relay.example',

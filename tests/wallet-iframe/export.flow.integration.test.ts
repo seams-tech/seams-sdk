@@ -13,15 +13,17 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -35,9 +37,12 @@ const EXPORT_FLOW_WALLET_SESSION = walletSessionRefFromSession({
   walletSessionUserId: EXPORT_FLOW_SUBJECT_ID,
 });
 const EXPORT_FLOW_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
-  walletId: EXPORT_FLOW_SUBJECT_ID,
-  nearAccountId: 'export-flow.testnet',
-  ed25519KeyScopeId: ed25519KeyScopeIdFromString('export-flow.testnet'),
+  signer: nearEd25519SignerBindingFromBoundaryFields({
+    walletId: EXPORT_FLOW_SUBJECT_ID,
+    nearAccountId: 'export-flow.testnet',
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('export-flow.testnet'),
+    signerSlot: 1,
+  }),
   auth: {
     kind: 'passkey',
     rpId: toRpId('example.test'),
@@ -52,9 +57,12 @@ const ISOLATION_WALLET_SESSION = walletSessionRefFromSession({
   walletSessionUserId: ISOLATION_SUBJECT_ID,
 });
 const ISOLATION_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
-  walletId: ISOLATION_SUBJECT_ID,
-  nearAccountId: 'isolation.testnet',
-  ed25519KeyScopeId: ed25519KeyScopeIdFromString('isolation.testnet'),
+  signer: nearEd25519SignerBindingFromBoundaryFields({
+    walletId: ISOLATION_SUBJECT_ID,
+    nearAccountId: 'isolation.testnet',
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('isolation.testnet'),
+    signerSlot: 1,
+  }),
   auth: {
     kind: 'passkey',
     rpId: toRpId('example.test'),
@@ -78,10 +86,12 @@ const EXPORT_FLOW_ECDSA_KEY = buildEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
 const EXPORT_FLOW_ECDSA_EXPORT_LANE = exactEcdsaSigningLaneIdentity({
-  walletId: EXPORT_FLOW_SUBJECT_ID,
-  chainTarget: EXPORT_FLOW_EVM_TARGET,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-key-handle-export-flow'),
-  key: EXPORT_FLOW_ECDSA_KEY,
+  signer: buildEvmFamilyEcdsaSignerBinding({
+    walletId: EXPORT_FLOW_SUBJECT_ID,
+    chainTarget: EXPORT_FLOW_EVM_TARGET,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-key-handle-export-flow'),
+    key: EXPORT_FLOW_ECDSA_KEY,
+  }),
   auth: {
     kind: 'passkey',
     rpId: toRpId('example.test'),
@@ -571,7 +581,7 @@ test.describe('wallet-origin export flow integration', () => {
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
-      expect(result.success).toBe(true);
+      expect(result, result.error).toEqual(expect.objectContaining({ success: true }));
       return;
     }
 
@@ -590,7 +600,7 @@ test.describe('wallet-origin export flow integration', () => {
         accountId: 'export-flow.testnet',
       },
       laneIdentity: {
-        kind: 'exact_ed25519_signing_lane_identity',
+        kind: 'exact_signing_lane',
         signingGrantId: 'grant-export-flow',
         thresholdSessionId: 'threshold-export-flow',
       },
@@ -716,7 +726,7 @@ test.describe('wallet-origin export flow integration', () => {
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
-      expect(result.success).toBe(true);
+      expect(result, result.error).toEqual(expect.objectContaining({ success: true }));
       return;
     }
 
@@ -851,7 +861,7 @@ test.describe('wallet-origin export flow integration', () => {
 
     if (!result.success) {
       if (handleInfrastructureErrors(result)) return;
-      expect(result.success).toBe(true);
+      expect(result, result.error).toEqual(expect.objectContaining({ success: true }));
       return;
     }
 

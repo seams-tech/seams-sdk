@@ -63,7 +63,7 @@ function sealedEd25519Record(args: {
     signingRootVersion: 'default',
     ed25519Restore: {
       nearAccountId: String(ED25519_NEAR_ACCOUNT_ID),
-      ed25519KeyScopeId: String(ED25519_KEY_SCOPE_ID),
+      nearEd25519SigningKeyId: String(ED25519_KEY_SCOPE_ID),
       rpId: 'wallet.example.localhost',
       ...(args.authMethod === 'passkey'
         ? { credentialIdB64u: PASSKEY_AUTH.credentialIdB64u }
@@ -167,7 +167,8 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
           walletId: ED25519_WALLET_ID,
           nearAccountId: ED25519_NEAR_ACCOUNT_ID,
-          ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+          nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+          signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },
@@ -289,7 +290,8 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
           walletId: ED25519_WALLET_ID,
           nearAccountId: ED25519_NEAR_ACCOUNT_ID,
-          ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+          nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+          signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },
@@ -300,7 +302,8 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
           walletId: ED25519_WALLET_ID,
           nearAccountId: ED25519_NEAR_ACCOUNT_ID,
-          ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+          nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+          signerSlot: 1,
           signingGrantId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },

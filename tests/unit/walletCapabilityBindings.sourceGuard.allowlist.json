@@ -3,7 +3,7 @@
     {
       "file": "packages/shared-ts/src/utils/registrationIntent.ts",
       "pattern": "as-ed25519-key-scope",
-      "reason": "Boundary brand constructor for Ed25519KeyScopeId.",
+      "reason": "Boundary brand constructor for NearEd25519SigningKeyId.",
       "disposition": "permanent-boundary: shared domain parser constructs the brand after validation."
     },
     {

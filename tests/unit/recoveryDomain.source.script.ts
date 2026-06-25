@@ -46,7 +46,7 @@ const pending: PendingEmailRecovery = {
   accountId: subject.nearAccountId,
   walletId: subject.nearAccountId,
   nearAccountId: subject.nearAccountId,
-  ed25519KeyScopeId: subject.nearAccountId,
+  nearEd25519SigningKeyId: subject.nearAccountId,
   signerSlot: 1,
   requestId: 'REQ123',
   recoverySessionId: subject.recoverySessionId,

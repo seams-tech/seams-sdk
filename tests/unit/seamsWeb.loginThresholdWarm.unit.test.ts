@@ -218,7 +218,7 @@ function loginReadySigningLanes(args: {
     chain: 'near',
     walletId,
     nearAccountId: ACCOUNT_ID,
-    ed25519KeyScopeId: String(ACCOUNT_ID),
+    nearEd25519SigningKeyId: String(ACCOUNT_ID),
     state: 'ready',
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     thresholdSessionId: 'tsess-login-ed25519',
@@ -279,7 +279,7 @@ async function persistReadyEd25519WarmRecord(args: {
   sessionId: string;
   walletId?: string;
   nearAccountId?: ReturnType<typeof toAccountId>;
-  ed25519KeyScopeId?: string;
+  nearEd25519SigningKeyId?: string;
   signingGrantId?: string;
   walletSessionJwt?: string;
   expiresAtMs?: number;
@@ -287,7 +287,7 @@ async function persistReadyEd25519WarmRecord(args: {
 }): Promise<void> {
   const nearAccountId = args.nearAccountId || ACCOUNT_ID;
   const walletId = args.walletId || String(nearAccountId);
-  const ed25519KeyScopeId = args.ed25519KeyScopeId || String(nearAccountId);
+  const nearEd25519SigningKeyId = args.nearEd25519SigningKeyId || String(nearAccountId);
   const materialCreatedAtMs = Date.now();
   const material = await buildRouterAbEd25519WorkerMaterialBinding({
     nearAccountId,
@@ -304,7 +304,7 @@ async function persistReadyEd25519WarmRecord(args: {
   upsertStoredThresholdEd25519SessionRecord({
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: 'example.localhost',
     relayerUrl: 'https://relay.example',
     relayerKeyId: 'rk-1',
@@ -705,7 +705,7 @@ async function withMockedMostRecentProjection<T>(
     upsertStoredThresholdEd25519SessionRecord({
       walletId: mockNearAccountId,
       nearAccountId: mockNearAccount,
-      ed25519KeyScopeId: mockNearAccountId,
+      nearEd25519SigningKeyId: mockNearAccountId,
       rpId: 'example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',
@@ -805,7 +805,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: toWalletId(IMPLICIT_WALLET_ID),
       nearAccountId: IMPLICIT_NEAR_ACCOUNT_ID,
-      ed25519KeyScopeId: IMPLICIT_ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: IMPLICIT_ED25519_KEY_SCOPE_ID,
       rpId: 'example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',
@@ -845,7 +845,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: ACCOUNT_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ACCOUNT_ID,
+      nearEd25519SigningKeyId: ACCOUNT_ID,
       rpId: 'example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',
@@ -969,14 +969,14 @@ test.describe('unlock threshold warm-session requirements', () => {
     clearAllStoredThresholdEd25519SessionRecords();
     const nearAccountId = IMPLICIT_NEAR_ACCOUNT_ID;
     const walletId = IMPLICIT_WALLET_ID;
-    const ed25519KeyScopeId = IMPLICIT_ED25519_KEY_SCOPE_ID;
+    const nearEd25519SigningKeyId = IMPLICIT_ED25519_KEY_SCOPE_ID;
     await persistReadyEd25519WarmRecord({
       sessionId: 'implicit-seed-ed25519-session',
       signingGrantId: 'implicit-seed-ed25519-grant',
       walletSessionJwt: 'jwt-implicit-seed',
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,
     });
@@ -1052,7 +1052,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             walletSessionJwt: 'jwt-implicit-ed25519',
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
           });
@@ -1128,7 +1128,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(connectCalls).toHaveLength(1);
       expect(connectCalls[0]?.walletId).toBe(walletId);
       expect(connectCalls[0]?.nearAccountId).toBe(String(nearAccountId));
-      expect(connectCalls[0]?.ed25519KeyScopeId).toBe(ed25519KeyScopeId);
+      expect(connectCalls[0]?.nearEd25519SigningKeyId).toBe(nearEd25519SigningKeyId);
       expect(clearCalls).toEqual([walletId]);
       expect(listCalls.length).toBeGreaterThan(0);
       expect(listCalls.every((call) => String(call.walletId) === walletId)).toBe(true);
@@ -2532,7 +2532,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: ACCOUNT_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ACCOUNT_ID,
+      nearEd25519SigningKeyId: ACCOUNT_ID,
       rpId: 'example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',
@@ -3515,7 +3515,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: ACCOUNT_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ACCOUNT_ID,
+      nearEd25519SigningKeyId: ACCOUNT_ID,
       rpId: 'wallet.example.localhost',
       relayerUrl: 'https://relay.example',
       relayerKeyId: 'rk-1',

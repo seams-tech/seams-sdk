@@ -60,6 +60,7 @@ function roleLocalReadyRecordForPostSign(args: {
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: 'signing-root',
       signingRootVersion: 'v1',
+      applicationBindingDigestB64u: VALID_CONTEXT_BINDING_B64U,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -120,6 +121,7 @@ function ecdsaRecord(args: {
     source: 'email_otp',
     emailOtpAuthContext: {
       authMethod: 'email_otp',
+      authSubjectId: String(WALLET_ID),
       policy: 'per_operation',
       reason: 'sign',
       retention: args.retention || 'single_use',
@@ -165,10 +167,10 @@ test.describe('SigningPostSignPolicy', () => {
     expect(consumed).toHaveLength(1);
     expect(consumed[0]?.command.kind).toBe('consume_single_use_email_otp_ecdsa_lane');
     expect(consumed[0]?.command.uses).toBe(1);
-    expect(consumed[0]?.command.lane.laneRef.exactIdentity.walletId).toBe(
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.signer.walletId).toBe(
       WALLET_ID,
     );
-    expect(consumed[0]?.command.lane.laneRef.exactIdentity.chainTarget).toEqual(EVM_CHAIN_TARGET);
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.signer.chainTarget).toEqual(EVM_CHAIN_TARGET);
     expect(consumed[0]?.command.lane.laneRef.exactIdentity.signingGrantId).toBe(
       'wallet-otp-session',
     );

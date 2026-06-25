@@ -55,9 +55,25 @@ function validLoginOptionsBody(overrides?: Partial<any>): any {
   };
 }
 
+function validAuthLoginOptionsBody(overrides?: Partial<any>): any {
+  return {
+    user_id: 'bob.testnet',
+    rp_id: 'example.localhost',
+    ...overrides,
+  };
+}
+
 function validLoginVerifyBody(overrides?: Partial<any>): any {
   return {
     unlockBackend: 'passkey',
+    challengeId: 'challenge-123',
+    webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
+    ...overrides,
+  };
+}
+
+function validAuthLoginVerifyBody(overrides?: Partial<any>): any {
+  return {
     challengeId: 'challenge-123',
     webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
     ...overrides,
@@ -983,7 +999,7 @@ test.describe('relayer router (express) – P0', () => {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validLoginOptionsBody()),
+        body: JSON.stringify(validAuthLoginOptionsBody()),
       });
       expect(res.status).toBe(200);
       expect(res.json?.challengeId).toBe('cid-123');
@@ -997,7 +1013,7 @@ test.describe('relayer router (express) – P0', () => {
     const walletBinding = {
       walletId: 'frost-vermillion-k7p9m2',
       nearAccountId: 'b'.repeat(64),
-      ed25519KeyScopeId: 'ed25519ks_sync_scope',
+      nearEd25519SigningKeyId: 'ed25519ks_sync_scope',
       rpId: 'example.localhost',
       signerSlot: 3,
     };
@@ -1037,7 +1053,7 @@ test.describe('relayer router (express) – P0', () => {
     const walletBinding = {
       walletId: 'frost-vermillion-k7p9m2',
       nearAccountId: 'b'.repeat(64),
-      ed25519KeyScopeId: 'ed25519ks_sync_scope',
+      nearEd25519SigningKeyId: 'ed25519ks_sync_scope',
       rpId: 'example.localhost',
       signerSlot: 3,
     };
@@ -1048,7 +1064,7 @@ test.describe('relayer router (express) – P0', () => {
         accountId: walletBinding.walletId,
         walletId: walletBinding.walletId,
         nearAccountId: walletBinding.nearAccountId,
-        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
         walletBinding,
         rpId: walletBinding.rpId,
         signerSlot: walletBinding.signerSlot,
@@ -1062,7 +1078,7 @@ test.describe('relayer router (express) – P0', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/sync-account/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.localhost' },
         body: JSON.stringify({
           challengeId: 'sync-cid-123',
           webauthn_authentication: { id: 'cred-a' },
@@ -1071,7 +1087,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(200);
       expect(res.json?.walletId).toBe(walletBinding.walletId);
       expect(res.json?.nearAccountId).toBe(walletBinding.nearAccountId);
-      expect(res.json?.ed25519KeyScopeId).toBe(walletBinding.ed25519KeyScopeId);
+      expect(res.json?.nearEd25519SigningKeyId).toBe(walletBinding.nearEd25519SigningKeyId);
       expect(res.json?.walletBinding).toEqual(walletBinding);
     } finally {
       await srv.close();
@@ -1109,8 +1125,8 @@ test.describe('relayer router (express) – P0', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validLoginVerifyBody()),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.localhost' },
+        body: JSON.stringify(validAuthLoginVerifyBody()),
       });
       expect(res.status).toBe(400);
       expect(res.json?.code).toBe('not_verified');
@@ -1134,8 +1150,8 @@ test.describe('relayer router (express) – P0', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validLoginVerifyBody({ sessionKind: 'jwt' })),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.localhost' },
+        body: JSON.stringify(validAuthLoginVerifyBody()),
       });
       expect(res.status).toBe(200);
       expect(res.json?.verified).toBe(true);
@@ -1163,8 +1179,8 @@ test.describe('relayer router (express) – P0', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validLoginVerifyBody({ sessionKind: 'cookie' })),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.localhost' },
+        body: JSON.stringify(validAuthLoginVerifyBody()),
       });
       expect(res.status).toBe(200);
       expect(res.headers.get('set-cookie')).toBeNull();
@@ -1194,8 +1210,8 @@ test.describe('relayer router (express) – P0', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/auth/passkey/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validLoginVerifyBody({ sessionKind: 'jwt' })),
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.localhost' },
+        body: JSON.stringify(validAuthLoginVerifyBody()),
       });
       expect(res.status).toBe(200);
       expect(res.json?.verified).toBe(true);
@@ -1227,8 +1243,7 @@ test.describe('relayer router (express) – P0', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionKind: 'cookie',
-          idToken: 'header.payload.signature',
+          id_token: 'header.payload.signature',
         }),
       });
       expect(res.status).toBe(200);

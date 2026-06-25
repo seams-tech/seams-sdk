@@ -106,7 +106,7 @@ const ROUTER_AB_ED25519_CLAIMS = {
   sub: 'alice.testnet',
   walletId: 'alice.testnet',
   nearAccountId: 'alice.testnet',
-  ed25519KeyScopeId: 'alice.testnet',
+  nearEd25519SigningKeyId: 'alice.testnet',
   thresholdSessionId: 'threshold-session-1',
   signingGrantId: 'signing-grant-1',
   relayerKeyId: 'relayer-key-1',

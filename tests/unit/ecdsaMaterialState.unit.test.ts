@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { buildEcdsaMaterialStateForCandidate } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
+import {
+  buildEcdsaMaterialStateForCandidate,
+  materialIdentityMatchesResolvedLane,
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
 import { resolveEvmFamilyEcdsaPlannerReadiness } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning';
 import {
   toWalletId,
@@ -32,7 +35,10 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
-import { requireResolvedEvmFamilyEcdsaSigningLane } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
+import {
+  requireResolvedEvmFamilyEcdsaSigningLane,
+  validateSelectedEcdsaRecordCandidateForLane,
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
 
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -198,6 +204,7 @@ function makeRoleLocalReadyRecord() {
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: SIGNING_ROOT_VERSION,
+      applicationBindingDigestB64u: CONTEXT_BINDING_32_B64U,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -231,6 +238,7 @@ function makeEmailOtpRoleLocalReadyRecord() {
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: SIGNING_ROOT_VERSION,
+      applicationBindingDigestB64u: CONTEXT_BINDING_32_B64U,
       clientParticipantId: 1,
       relayerParticipantId: 2,
       participantIds: [1, 2],
@@ -395,6 +403,55 @@ test.describe('ecdsa material state', () => {
     if (state.kind !== 'ready_to_sign') return;
     expect(state.signerSession.clientShare.kind).toBe('role_local_worker_share');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
+  });
+
+  test('matches ready material against exact signer identity when flat lane projections are stale', () => {
+    const record = makeRecord();
+    expect(markRouterAbEcdsaHssWorkerMaterialRuntimeValidated(record)).toBe(true);
+    const state = buildEcdsaMaterialStateForCandidate({
+      candidate: makeCandidate(),
+      record,
+      authMethod: 'passkey',
+      source: 'login',
+      chainTarget: EVM_CHAIN_TARGET,
+      materialChainTarget: EVM_CHAIN_TARGET,
+    });
+    expect(state.kind).toBe('ready_to_sign');
+    if (state.kind !== 'ready_to_sign') return;
+
+    const lane = makeResolvedLane();
+    const staleProjectionLane = {
+      ...lane,
+      keyHandle: toEvmFamilyEcdsaKeyHandle('stale-projection-key-handle'),
+      chainTarget: TEMPO_CHAIN_TARGET,
+    };
+
+    expect(
+      materialIdentityMatchesResolvedLane({
+        state,
+        lane: staleProjectionLane,
+      }),
+    ).toBe(true);
+  });
+
+  test('rejects ECDSA records that mismatch exact signer identity even when flat projections match', () => {
+    const staleProjectionKeyHandle = toEvmFamilyEcdsaKeyHandle('stale-projection-key-handle');
+    const record = makeRecord({ keyHandle: staleProjectionKeyHandle });
+    const lane = makeResolvedLane();
+    const staleProjectionLane = {
+      ...lane,
+      keyHandle: staleProjectionKeyHandle,
+    };
+
+    expect(() =>
+      validateSelectedEcdsaRecordCandidateForLane({
+        lane: staleProjectionLane,
+        record,
+        context: 'stale projection fixture',
+      }),
+    ).toThrow(
+      '[SigningEngine][ecdsa] selected ECDSA record candidate does not match resolved lane for stale projection fixture',
+    );
   });
 
   test('treats Email OTP record policy as reauth readiness until worker material is live', async () => {

@@ -20,7 +20,10 @@ import {
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
-import { exactEcdsaSigningLaneIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  buildEvmFamilyEcdsaSignerBinding,
+  exactEcdsaSigningLaneIdentity,
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   deriveThresholdEcdsaRuntimeLaneKey,
   type ThresholdEcdsaSessionRecord,
@@ -319,10 +322,12 @@ async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<Exa
   return {
     curve: 'ecdsa',
     laneIdentity: exactEcdsaSigningLaneIdentity({
-      walletId: record.walletId,
-      chainTarget: record.chainTarget,
-      keyHandle: publicFacts.keyHandle,
-      key,
+      signer: buildEvmFamilyEcdsaSignerBinding({
+        walletId: record.walletId,
+        chainTarget: record.chainTarget,
+        keyHandle: publicFacts.keyHandle,
+        key,
+      }),
         auth:
           record.source === 'email_otp'
           ? { kind: 'email_otp', providerSubjectId: record.emailOtpAuthContext?.authSubjectId || 'google:export' }

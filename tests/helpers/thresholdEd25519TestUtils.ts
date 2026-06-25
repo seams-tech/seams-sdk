@@ -4,6 +4,7 @@ import { createThresholdEcdsaSessionStore } from '@server/core/ThresholdService/
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
+  createWalletSigningBudgetSessionStore,
   type Ed25519WalletSessionStore,
 } from '@server/core/ThresholdService/stores/WalletSessionStore';
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
@@ -130,7 +131,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
   keyRecord?: {
     walletId?: string;
     nearAccountId?: string;
-    ed25519KeyScopeId?: string;
+    nearEd25519SigningKeyId?: string;
     rpId?: string;
     publicKey: string;
     relayerSigningShareB64u: string;
@@ -185,6 +186,11 @@ export function createThresholdSigningServiceForUnitTests(input: {
       logger,
       isNode: true,
     });
+  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
+    config: { kind: 'in-memory' },
+    logger,
+    isNode: true,
+  });
   const {
     poolFillSessionStore: ecdsaPoolFillSessionStore,
     presignaturePool: ecdsaPresignaturePool,
@@ -200,8 +206,8 @@ export function createThresholdSigningServiceForUnitTests(input: {
       ? {
           walletId: keyRecord.walletId || keyRecord.nearAccountId || 'alice.testnet',
           nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
-          ed25519KeyScopeId:
-            keyRecord.ed25519KeyScopeId || keyRecord.nearAccountId || 'alice.testnet',
+          nearEd25519SigningKeyId:
+            keyRecord.nearEd25519SigningKeyId || keyRecord.nearAccountId || 'alice.testnet',
           rpId: keyRecord.rpId || 'wallet.example.test',
           publicKey: keyRecord.publicKey,
           relayerSigningShareB64u: keyRecord.relayerSigningShareB64u,
@@ -244,6 +250,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
     },
     sessionStore,
     walletSessionStore,
+    walletBudgetSessionStore,
     ecdsaKeyStore,
     ecdsaSessionStore,
     ecdsaWalletSessionStore,

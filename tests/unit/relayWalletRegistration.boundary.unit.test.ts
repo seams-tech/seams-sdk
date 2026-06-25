@@ -1046,12 +1046,12 @@ test.describe('wallet registration route boundaries', () => {
             resolvedAccount: {
               kind: 'sponsored_named_account',
               nearAccountId: 'alice.testnet',
-              ed25519KeyScopeId: 'wallet_alice',
+              nearEd25519SigningKeyId: 'wallet_alice',
               transactionHash: 'tx-123',
             },
             ed25519: {
               nearAccountId: 'alice.testnet',
-              ed25519KeyScopeId: 'wallet_alice',
+              nearEd25519SigningKeyId: 'wallet_alice',
               publicKey: 'ed25519:public',
               relayerKeyId: 'ed-relayer-key',
               keyVersion: 'threshold-ed25519-hss-v1',
@@ -1061,7 +1061,7 @@ test.describe('wallet registration route boundaries', () => {
                 sessionKind: 'jwt',
                 walletId: 'wallet_alice',
                 nearAccountId: 'alice.testnet',
-                ed25519KeyScopeId: 'wallet_alice',
+                nearEd25519SigningKeyId: 'wallet_alice',
                 thresholdSessionId: 'ed-session-1',
                 signingGrantId: 'ed-wallet-session-1',
                 expiresAtMs: Date.now() + 300_000,
@@ -1121,11 +1121,11 @@ test.describe('wallet registration route boundaries', () => {
             resolvedAccount: {
               kind: 'implicit_account',
               nearAccountId,
-              ed25519KeyScopeId: walletId,
+              nearEd25519SigningKeyId: walletId,
             },
             ed25519: {
               nearAccountId,
-              ed25519KeyScopeId: walletId,
+              nearEd25519SigningKeyId: walletId,
               publicKey,
               relayerKeyId: 'ed-relayer-key',
               keyVersion: 'threshold-ed25519-hss-v1',
@@ -1135,7 +1135,7 @@ test.describe('wallet registration route boundaries', () => {
                 sessionKind: 'jwt',
                 walletId,
                 nearAccountId,
-                ed25519KeyScopeId: walletId,
+                nearEd25519SigningKeyId: walletId,
                 thresholdSessionId: 'ed-session-1',
                 signingGrantId: 'ed-wallet-session-1',
                 expiresAtMs: Date.now() + 300_000,
@@ -1167,11 +1167,11 @@ test.describe('wallet registration route boundaries', () => {
       resolvedAccount: {
         kind: 'implicit_account',
         nearAccountId,
-        ed25519KeyScopeId: walletId,
+        nearEd25519SigningKeyId: walletId,
       },
       ed25519: {
         nearAccountId,
-        ed25519KeyScopeId: walletId,
+        nearEd25519SigningKeyId: walletId,
         publicKey,
       },
     });

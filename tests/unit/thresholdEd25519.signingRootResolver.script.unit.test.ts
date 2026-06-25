@@ -14,7 +14,7 @@ import {
   parseSdkEcdsaHssSigningRootVersion,
 } from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
 import { computeSdkEd25519HssApplicationBindingDigestB64u } from '../../packages/shared-ts/src/threshold/ed25519HssBinding';
-import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 type ThresholdPrfFixtureShare = {
   readonly id: number;
@@ -50,7 +50,7 @@ function createRegistrationAccountScopeFixture(): ThresholdEd25519RegistrationAc
     intentDigestB64u: 'intent-digest',
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: 'v1',
-    ed25519KeyScopeId: 'alice.near',
+    nearEd25519SigningKeyId: 'alice.near',
     signerSlot: 1,
     keyPurpose: 'wallet',
     keyVersion: 'v1',
@@ -60,14 +60,14 @@ function createRegistrationAccountScopeFixture(): ThresholdEd25519RegistrationAc
 }
 
 async function createEd25519HssContextFixture(input: {
-  readonly ed25519KeyScopeId: string;
+  readonly nearEd25519SigningKeyId: string;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
   readonly participantIds: readonly number[];
 }) {
   return {
     applicationBindingDigestB64u: await computeSdkEd25519HssApplicationBindingDigestB64u({
-      ed25519KeyScopeId: ed25519KeyScopeIdFromString(input.ed25519KeyScopeId),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(input.nearEd25519SigningKeyId),
       signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
       signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
     }),
@@ -156,7 +156,7 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
   expect(service.hasSigningRootShareResolver()).toBe(true);
   const registrationAccountScope = createRegistrationAccountScopeFixture();
   const context = await createEd25519HssContextFixture({
-    ed25519KeyScopeId: registrationAccountScope.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: registrationAccountScope.nearEd25519SigningKeyId,
     signingRootId: registrationAccountScope.signingRootId,
     signingRootVersion: registrationAccountScope.signingRootVersion,
     participantIds: registrationAccountScope.participantIds,

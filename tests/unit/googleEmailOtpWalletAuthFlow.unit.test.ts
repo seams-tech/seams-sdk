@@ -4,7 +4,9 @@ import {
   type GoogleEmailOtpWalletAuthDeps,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { RegistrationResult } from '@/core/types/seams';
 import { buildEmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   registrationProvisioningScopeKey,
   walletIdFromString,
@@ -22,6 +24,25 @@ const EVM_TARGET = {
   chainId: 11155111,
   networkSlug: 'ethereum-sepolia',
 } as const satisfies ThresholdEcdsaChainTarget;
+
+const TEST_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org-test',
+  projectId: 'project-test',
+  envId: 'env-test',
+  signingRootVersion: 'v1',
+} as const;
+
+const APP_SESSION_JWT = jwtWithPayload({
+  kind: 'app_session_v1',
+  sub: 'alice.testnet',
+  runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
+});
+
+function jwtWithPayload(payload: Record<string, unknown>): string {
+  const header = base64UrlEncode(new TextEncoder().encode(JSON.stringify({ alg: 'none' })));
+  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${header}.${body}.fixture`;
+}
 
 function testConfigs(): GoogleEmailOtpWalletAuthDeps['configs'] {
   return {
@@ -155,6 +176,16 @@ function makeStartedPrecompute(
   } as ReturnType<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>;
 }
 
+function successfulEcdsaRegistrationResult(walletId: string): RegistrationResult {
+  return {
+    success: true,
+    kind: 'ecdsa_wallet_registered',
+    walletId: walletIdFromString(walletId),
+    thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+    thresholdEcdsaPublicKeyB64u: 'public-key',
+  };
+}
+
 function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
   deps: GoogleEmailOtpWalletAuthDeps;
   calls: Array<{ type: string; args: unknown }>;
@@ -164,9 +195,7 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
     overrides?.registerWallet ??
     (async (args: Parameters<GoogleEmailOtpWalletAuthDeps['registerWallet']>[0]) => {
       calls.push({ type: 'registerWallet', args });
-      return { success: true, walletId: walletIdFromString('alice.testnet') } satisfies Awaited<
-        ReturnType<GoogleEmailOtpWalletAuthDeps['registerWallet']>
-      >;
+      return successfulEcdsaRegistrationResult('alice.testnet');
     });
   const registerWalletWithStartedPrecomputeImpl =
     overrides?.registerWalletWithStartedPrecompute ??
@@ -204,7 +233,7 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
                   },
                 },
         },
-        jwt: 'app-session-jwt',
+        jwt: APP_SESSION_JWT,
       } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
     },
     requestEmailOtpChallenge: async (args) => {
@@ -271,8 +300,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       relayUrl: 'https://relay.example',
       walletId: 'alice.testnet',
       userId: 'google-subject-1',
-      rpId: 'localhost',
-      appSessionJwt: 'app-session-jwt',
+      appSessionJwt: APP_SESSION_JWT,
     });
 
     const completed = await started.value.completeRegistration();
@@ -282,7 +310,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(completed.value.walletId).toBe('alice.testnet');
     expect(completed.value.mode).toBe('register');
     expect(JSON.stringify(completed.value)).not.toContain('recoveryKeys');
-    expect(JSON.stringify(completed.value)).not.toContain('app-session-jwt');
+    expect(JSON.stringify(completed.value)).not.toContain(APP_SESSION_JWT);
     const registerCall = calls.find((call) => call.type === 'registerWallet');
     expect(registerCall?.args).toMatchObject({
       wallet: { kind: 'provided', walletId: 'alice.testnet' },
@@ -290,7 +318,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
         kind: 'email_otp',
         proofKind: 'google_sso_registration',
         email: 'alice@example.com',
-        appSessionJwt: 'app-session-jwt',
+        appSessionJwt: APP_SESSION_JWT,
         googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
         googleEmailOtpRegistrationOfferId: 'registration-offer-1',
         googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
@@ -354,7 +382,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
             email: 'alice@example.com',
             googleEmailOtpResolution: withoutExpiry,
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -387,7 +415,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               expiresAt: 'not-a-date',
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -429,7 +457,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
                 expiresAtMs: nowMs + 1_000,
               },
             },
-            jwt: 'app-session-jwt',
+            jwt: APP_SESSION_JWT,
           } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
         },
         prepareEmailOtpRegistrationEnrollmentMaterial: async (args) => {
@@ -645,7 +673,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       challengeId: 'login-challenge-1',
       otpCode: '123456',
       relayUrl: 'https://relay.example',
-      appSessionJwt: 'app-session-jwt',
+      appSessionJwt: APP_SESSION_JWT,
       walletSession: {
         walletId: 'alice.testnet',
         walletSessionUserId: 'google-subject-1',
@@ -689,7 +717,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               },
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -732,7 +760,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               expiresAt: new Date(Date.now() + 60_000).toISOString(),
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -771,7 +799,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               },
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -811,7 +839,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               },
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -851,7 +879,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               },
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
       loginWithEmailOtpEcdsaCapability: async (args) => {
@@ -931,7 +959,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     if (completed.ok) throw new Error('expected backup failure');
     expect(completed.error.code).toBe('recovery_code_backup_incomplete');
     expect(JSON.stringify(completed)).not.toContain('recoveryKeys');
-    expect(JSON.stringify(completed)).not.toContain('app-session-jwt');
+    expect(JSON.stringify(completed)).not.toContain(APP_SESSION_JWT);
   });
 
   test('reroll changes wallet id without requesting an Email OTP challenge', async () => {
@@ -977,7 +1005,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
             email: 'alice@example.com',
             googleEmailOtpResolution: makeRegisterResolution(),
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });
@@ -1024,7 +1052,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
               },
             },
           },
-          jwt: 'app-session-jwt',
+          jwt: APP_SESSION_JWT,
         } as Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['exchangeGoogleEmailOtpSession']>>;
       },
     });

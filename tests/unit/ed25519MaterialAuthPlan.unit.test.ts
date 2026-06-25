@@ -16,7 +16,7 @@ const SIGNING_GRANT_ID = 'sg-ed25519-auth-plan';
 const BASE_RECORD = {
   walletId: 'ed25519-auth-plan.testnet',
   nearAccountId: 'ed25519-auth-plan.testnet',
-  ed25519KeyScopeId: 'ed25519-auth-plan.testnet',
+  nearEd25519SigningKeyId: 'ed25519-auth-plan.testnet',
   rpId: 'localhost',
   relayerUrl: 'https://localhost:9444',
   relayerKeyId: 'ed25519:auth-plan-relayer',

@@ -43,7 +43,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 type ReservedSuccessInput = Extract<SigningSessionBudgetSuccessInput, { kind: 'reserved_success' }>;
 type UnreservedSuccessInput = Extract<
@@ -57,7 +57,7 @@ type ExternallyConsumedSuccessInput = Extract<
 
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
-const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId('localhost'),
@@ -71,7 +71,8 @@ function makeLane(args?: {
   return buildNearTransactionSigningLane({
     walletId: NEAR_WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
-    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+    nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+    signerSlot: 1,
     auth: PASSKEY_AUTH,
     signingGrantId: SigningSessionIds.signingGrant(
       args?.signingGrantId || 'wallet-session-1',

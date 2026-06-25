@@ -226,7 +226,7 @@ function plannedEcdsaWalletKeyId(walletId: unknown): string {
 function ed25519WalletSessionJwt(args: {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   sessionId: string;
   signingGrantId: string;
   relayerKeyId: string;
@@ -238,7 +238,7 @@ function ed25519WalletSessionJwt(args: {
     sub: args.walletId,
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     thresholdSessionId: args.sessionId,
     signingGrantId: args.signingGrantId,
     relayerKeyId: args.relayerKeyId,
@@ -690,7 +690,7 @@ function createContext(captures: Record<string, unknown>): any {
           nearAccountId:
             mockedRegistrationRequestedAccountId((captures.intent as any)?.signerSelection) ||
             'combined.testnet',
-          ed25519KeyScopeId: walletId,
+          nearEd25519SigningKeyId: walletId,
           auth,
           source: 'runtime_session_record',
           state: 'ready',
@@ -937,12 +937,12 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         const nearAccountId =
           mockedRegistrationRequestedAccountId((captures.intent as any)?.signerSelection) ||
           'combined.testnet';
-        const ed25519KeyScopeId = responseWalletId;
+        const nearEd25519SigningKeyId = responseWalletId;
         responseBody.accountProvisioning = namedProvisioning(nearAccountId);
         responseBody.resolvedAccount = {
           kind: 'sponsored_named_account',
           nearAccountId,
-          ed25519KeyScopeId,
+          nearEd25519SigningKeyId,
           transactionHash: 'create-account-tx',
         };
         const thresholdSessionId = String(
@@ -952,7 +952,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         const ed25519SessionExpiresAtMs = Date.now() + 60_000;
         responseBody.ed25519 = {
           nearAccountId,
-          ed25519KeyScopeId,
+          nearEd25519SigningKeyId,
           publicKey: 'ed25519:public-key',
           relayerKeyId: 'relayer-ed25519',
           keyVersion: 'threshold-ed25519-hss-v1',
@@ -964,7 +964,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 	            sessionKind: 'jwt',
 	            walletId: responseWalletId,
 	            nearAccountId,
-	            ed25519KeyScopeId,
+	            nearEd25519SigningKeyId,
 	            thresholdSessionId,
 	            signingGrantId,
 	            expiresAtMs: ed25519SessionExpiresAtMs,
@@ -975,7 +975,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 	            jwt: ed25519WalletSessionJwt({
 	              walletId: responseWalletId,
 	              nearAccountId,
-	              ed25519KeyScopeId,
+	              nearEd25519SigningKeyId,
 	              sessionId: thresholdSessionId,
 	              signingGrantId,
 	              relayerKeyId: 'relayer-ed25519',
@@ -1805,7 +1805,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         rpId: RP_ID,
         ed25519: {
           nearAccountId: 'later.testnet',
-          ed25519KeyScopeId: 'later.testnet',
+          nearEd25519SigningKeyId: 'later.testnet',
           publicKey: 'ed25519:public-key',
           relayerKeyId: 'relayer-ed25519',
           keyVersion: 'threshold-ed25519-hss-v1',
@@ -1817,7 +1817,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
 	            sessionKind: 'jwt',
 	            walletId: WALLET_SUBJECT_ID,
 	            nearAccountId: 'later.testnet',
-	            ed25519KeyScopeId: 'later.testnet',
+	            nearEd25519SigningKeyId: 'later.testnet',
 	            thresholdSessionId,
 	            signingGrantId,
 	            expiresAtMs: ed25519SessionExpiresAtMs,
@@ -1828,7 +1828,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
 	            jwt: ed25519WalletSessionJwt({
 	              walletId: WALLET_SUBJECT_ID,
 	              nearAccountId: 'later.testnet',
-	              ed25519KeyScopeId: 'later.testnet',
+	              nearEd25519SigningKeyId: 'later.testnet',
 	              sessionId: thresholdSessionId,
 	              signingGrantId,
 	              relayerKeyId: 'relayer-ed25519',
@@ -1996,7 +1996,7 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
     ]);
     expect(captures.ed25519MaterialArgs).toMatchObject({
       hssBindingFacts: {
-        ed25519KeyScopeId: 'later.testnet',
+        nearEd25519SigningKeyId: 'later.testnet',
         signingRootId: 'project_matrix:dev',
         signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
       },

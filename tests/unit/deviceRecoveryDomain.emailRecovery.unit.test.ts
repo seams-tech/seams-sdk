@@ -13,7 +13,7 @@ const TEST_ED25519_KEY_SCOPE_ID = 'ed25519ks_email_recovery_scope';
 const TEST_WALLET_BINDING = {
   walletId: TEST_WALLET_ID,
   nearAccountId: TEST_NEAR_ACCOUNT_ID,
-  ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+  nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
   rpId: 'example.test',
   signerSlot: 7,
 };
@@ -65,7 +65,7 @@ function createPendingEmailRecoveryRecord(overrides?: Record<string, unknown>) {
     accountId: TEST_WALLET_ID,
     walletId: TEST_WALLET_ID,
     nearAccountId: TEST_NEAR_ACCOUNT_ID,
-    ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+    nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
     nearPublicKey: 'ed25519:recovery-key',
     newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
     recoverySessionId: 'ABC123',
@@ -358,7 +358,7 @@ test.describe('EmailRecoveryDomain', () => {
               accountId: TEST_WALLET_ID,
               walletId: TEST_WALLET_ID,
               nearAccountId: TEST_NEAR_ACCOUNT_ID,
-              ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+              nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
               walletBinding: TEST_WALLET_BINDING,
               thresholdEd25519: {
                 keyVersion: 'threshold-ed25519-hss-v1',
@@ -372,7 +372,7 @@ test.describe('EmailRecoveryDomain', () => {
                   sessionKind: 'jwt',
                   walletId: TEST_WALLET_ID,
                   nearAccountId: TEST_NEAR_ACCOUNT_ID,
-                  ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+                  nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
                   thresholdSessionId: 'sync-session-1',
                   signingGrantId: 'signing-grant-1',
                   expiresAtMs: Date.now() + 60_000,
@@ -430,7 +430,7 @@ test.describe('EmailRecoveryDomain', () => {
             accountId: TEST_WALLET_ID,
             walletId: TEST_WALLET_ID,
             nearAccountId: TEST_NEAR_ACCOUNT_ID,
-            ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+            nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
             walletBinding: TEST_WALLET_BINDING,
             thresholdEd25519: {
               keyVersion: 'threshold-ed25519-hss-v1',
@@ -444,7 +444,7 @@ test.describe('EmailRecoveryDomain', () => {
                 sessionKind: 'jwt',
                 walletId: TEST_WALLET_ID,
                 nearAccountId: TEST_NEAR_ACCOUNT_ID,
-                ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+                nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
                 thresholdSessionId: 'sync-session-1',
                 signingGrantId: 'signing-grant-1',
                 expiresAtMs: Date.now() + 60_000,
@@ -542,7 +542,7 @@ test.describe('EmailRecoveryDomain', () => {
       expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:threshold-public-key');
       expect(pendingStore.setCalls[0]?.walletId).toBe(TEST_WALLET_ID);
       expect(pendingStore.setCalls[0]?.nearAccountId).toBe(TEST_NEAR_ACCOUNT_ID);
-      expect(pendingStore.setCalls[0]?.ed25519KeyScopeId).toBe(TEST_ED25519_KEY_SCOPE_ID);
+      expect(pendingStore.setCalls[0]?.nearEd25519SigningKeyId).toBe(TEST_ED25519_KEY_SCOPE_ID);
       expect(
         Object.prototype.hasOwnProperty.call(pendingStore.setCalls[0] || {}, 'ecdsaThresholdKeyId'),
       ).toBe(false);
@@ -576,7 +576,7 @@ test.describe('EmailRecoveryDomain', () => {
       expect(persistedWarmSession).toMatchObject({
         walletId: TEST_WALLET_ID,
         nearAccountId: TEST_NEAR_ACCOUNT_ID,
-        ed25519KeyScopeId: TEST_ED25519_KEY_SCOPE_ID,
+        nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
       });
       expect(thresholdMaterialWrites).toHaveLength(1);
       expect(thresholdMaterialWrites[0]?.publicKey).toBe('ed25519:threshold-public-key');

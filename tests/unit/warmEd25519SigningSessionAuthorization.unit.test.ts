@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import {
-  ed25519KeyScopeIdFromString,
+  nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import type { SigningSessionStatus } from '@/core/types/seams';
@@ -10,7 +10,7 @@ import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/si
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
 const WALLET_ID = walletIdFromString('alice-wallet');
-const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('alice-key-scope');
+const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString('alice-key-scope');
 
 const runtimePolicyScope = {
   orgId: 'org-test',
@@ -41,7 +41,7 @@ function ed25519Record(
   return {
     walletId: WALLET_ID,
     nearAccountId: ACCOUNT_ID,
-    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+    nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
     rpId: 'localhost',
     relayerUrl: 'https://router.test',
     relayerKeyId: 'near-key-1',
@@ -68,7 +68,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record(),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -98,7 +98,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -120,7 +120,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record({ walletSessionJwt: undefined }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -137,7 +137,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record(),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ availableUses: 0 }),
       nowMs: 1_800_000_000_000,
@@ -154,7 +154,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record({ expiresAtMs: 1 }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -171,7 +171,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record({ remainingUses: 2.5 }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -185,7 +185,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record({ expiresAtMs: 1_900_000_000_000.5 }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,
@@ -201,7 +201,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record(),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ remainingUses: 2.5 }),
       nowMs: 1_800_000_000_000,
@@ -215,7 +215,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record(),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ availableUses: 2.5 }),
       nowMs: 1_800_000_000_000,
@@ -229,7 +229,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record(),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus({ expiresAtMs: 1_900_000_000_000.5 }),
       nowMs: 1_800_000_000_000,
@@ -245,7 +245,7 @@ test.describe('warm Ed25519 signing session authorization', () => {
       record: ed25519Record({ source: 'email_otp' }),
       walletId: WALLET_ID,
       nearAccountId: ACCOUNT_ID,
-      ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+      nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
       authMethod: 'passkey',
       signingSessionStatus: activeStatus(),
       nowMs: 1_800_000_000_000,

@@ -337,14 +337,14 @@ export function seedEd25519WarmSessionRecord(
   const relayerKeyId = args.relayerKeyId || 'rk-ed25519';
   const participantIds = args.participantIds || [1, 2];
   const walletId = String(args.walletId || args.nearAccountId);
-  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || args.nearAccountId);
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || args.nearAccountId);
   const walletSessionJwt =
     args.walletSessionJwt === ''
       ? ''
       : toFixtureEd25519WalletSessionJwt(args.walletSessionJwt || '', {
           walletId,
           nearAccountId: args.nearAccountId,
-          ed25519KeyScopeId,
+          nearEd25519SigningKeyId,
           sessionId: args.thresholdSessionId,
           signingGrantId,
           relayerKeyId,
@@ -354,7 +354,7 @@ export function seedEd25519WarmSessionRecord(
   const record = upsertStoredThresholdEd25519SessionRecord({
     walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: args.rpId || 'wallet.example.test',
     relayerUrl: args.relayerUrl || 'https://relay.example',
     relayerKeyId,
@@ -412,7 +412,7 @@ function toFixtureEd25519WalletSessionJwt(
   args: {
     walletId: string;
     nearAccountId: string;
-    ed25519KeyScopeId: string;
+    nearEd25519SigningKeyId: string;
     sessionId: string;
     signingGrantId: string;
     relayerKeyId: string;
@@ -427,7 +427,7 @@ function toFixtureEd25519WalletSessionJwt(
       sub: args.walletId,
       walletId: args.walletId,
       nearAccountId: args.nearAccountId,
-      ed25519KeyScopeId: args.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
       kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
       thresholdSessionId: args.sessionId,
       signingGrantId: args.signingGrantId,

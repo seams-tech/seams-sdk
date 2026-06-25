@@ -15,7 +15,7 @@ import {
   type CloudflareDurableObjectNamespaceLike,
 } from '@server/core/types';
 import {
-  ed25519KeyScopeIdFromWalletId,
+  nearEd25519SigningKeyIdFromWalletId,
   registrationIntentGrantFromString,
   requireGeneratedImplicitWalletId,
   sponsoredNamedNearAccountProvisioning,
@@ -217,7 +217,7 @@ function makePreparationBase(
       signingRootId: 'project:dev',
       signingRootVersion: 'default',
       registrationIntentDigestB64u: 'digest',
-      ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(INTENT.walletId),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(INTENT.walletId),
       signerSlot: SIGNER_SELECTION.ed25519.signerSlot,
       keyPurpose: SIGNER_SELECTION.ed25519.keyPurpose,
       keyVersion: SIGNER_SELECTION.ed25519.keyVersion,
@@ -373,12 +373,12 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
       resolvedAccount: {
         kind: 'sponsored_named_account',
         nearAccountId: namedAccountId('registration-store.testnet'),
-        ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(INTENT.walletId),
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(INTENT.walletId),
         transactionHash: 'create-account-tx',
       },
       ed25519: {
         nearAccountId: 'registration-store.testnet',
-        ed25519KeyScopeId: String(ed25519KeyScopeIdFromWalletId(INTENT.walletId)),
+        nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromWalletId(INTENT.walletId)),
         publicKey: 'ed25519-public-key',
         relayerKeyId: 'relayer-key',
         keyVersion: 'threshold-ed25519-hss-v1',
@@ -490,12 +490,12 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
         resolvedAccount: {
           kind: 'sponsored_named_account',
           nearAccountId: namedAccountId('registration-store.testnet'),
-          ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(INTENT.walletId),
+          nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(INTENT.walletId),
           transactionHash: 'create-account-tx',
         },
         ed25519: {
           nearAccountId: 'registration-store.testnet',
-          ed25519KeyScopeId: String(ed25519KeyScopeIdFromWalletId(INTENT.walletId)),
+          nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromWalletId(INTENT.walletId)),
           publicKey: 'ed25519-public-key',
           relayerKeyId: 'relayer-key',
           keyVersion: 'threshold-ed25519-hss-v1',
@@ -504,7 +504,7 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
             sessionKind: 'jwt',
             walletId: INTENT.walletId,
             nearAccountId: 'registration-store.testnet',
-            ed25519KeyScopeId: String(ed25519KeyScopeIdFromWalletId(INTENT.walletId)),
+            nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromWalletId(INTENT.walletId)),
             thresholdSessionId: 'session',
             signingGrantId: 'wallet-session',
             expiresAtMs: Date.now() + 60_000,
@@ -592,7 +592,7 @@ test('registration ceremony store consumes an intent only when the preparation s
       registrationPreparationId: mismatchedPreparation.registrationPreparationId,
       ed25519Scope: {
         ...mismatchedPreparation.ed25519Scope,
-        ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(walletIdFromString('different-wallet')),
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(walletIdFromString('different-wallet')),
       },
     }),
   ).resolves.toMatchObject({

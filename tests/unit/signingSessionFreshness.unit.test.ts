@@ -9,7 +9,7 @@ import {
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildReauthAnchorIdentityFromAvailableLane } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
-  exactSigningLaneIdentity,
+  exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
@@ -35,12 +35,12 @@ import {
   buildSigningBudgetReservationIdentity,
   signingBudgetReservationKey,
 } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
-import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const tempoChainTarget = { kind: 'tempo', chainId: 4242, networkSlug: 'tempo-test' } as const;
 const NEAR_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('freshness-alice.testnet');
-const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const PASSKEY_AUTH = {
   kind: 'passkey' as const,
   rpId: toRpId('localhost'),
@@ -55,7 +55,8 @@ function makeNearLane(args?: { thresholdSessionId?: string }) {
   return buildNearTransactionSigningLane({
     walletId: NEAR_WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
-    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+    nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+    signerSlot: 1,
     auth: PASSKEY_AUTH,
     signingGrantId: SigningSessionIds.signingGrant('wallet-session-near'),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
@@ -102,7 +103,7 @@ function makeOperation() {
 test.describe('step-up freshness identity', () => {
   test('builds an admission-ready Ed25519 freshness state only with a known projection', () => {
     const lane = makeNearLane();
-    const laneIdentity = exactSigningLaneIdentity(lane);
+    const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
     const operation = makeOperation();
 
     const satisfied = buildFreshStepUpSatisfied({
@@ -134,7 +135,7 @@ test.describe('step-up freshness identity', () => {
 
   test('rejects admission when ECDSA freshness has no projection', () => {
     const lane = makeEcdsaLane();
-    const laneIdentity = exactSigningLaneIdentity(lane);
+    const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
     const operation = makeOperation();
 
     const satisfied = buildFreshStepUpSatisfied({
@@ -164,7 +165,7 @@ test.describe('step-up freshness identity', () => {
     const required = buildFreshStepUpRequired({
       walletId: NEAR_WALLET_ID,
       ...operation,
-      laneIdentity: exactSigningLaneIdentity(sourceLane),
+      laneIdentity: exactSigningLaneIdentityFromSelectedLane(sourceLane),
       projection: { kind: 'known', version: 'projection-1' },
       expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
       provenance: {
@@ -178,7 +179,7 @@ test.describe('step-up freshness identity', () => {
     expect(() =>
       assertFreshnessMatchesLane({
         freshness: required,
-        laneIdentity: exactSigningLaneIdentity(targetLane),
+        laneIdentity: exactSigningLaneIdentityFromSelectedLane(targetLane),
       }),
     ).toThrow('[StepUpFreshness] freshness does not match exact lane identity');
   });
@@ -189,7 +190,7 @@ test.describe('step-up freshness identity', () => {
     const required = buildFreshStepUpRequired({
       walletId: lane.walletId,
       ...operation,
-      laneIdentity: exactSigningLaneIdentity(lane),
+      laneIdentity: exactSigningLaneIdentityFromSelectedLane(lane),
       projection: { kind: 'unavailable', reason: 'budget_status_unavailable' },
       expiry: { kind: 'unavailable', reason: 'budget_status_unavailable' },
       provenance: {
@@ -276,7 +277,8 @@ test.describe('step-up freshness identity', () => {
         chain: 'near',
         walletId: NEAR_WALLET_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
-        ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+        nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+        signerSlot: 1,
         state: 'expired',
         source: 'durable_sealed_record',
         signingGrantId: 'wallet-session-near',
@@ -305,7 +307,7 @@ test.describe('step-up freshness identity', () => {
 
   test('builds satisfied and required freshness from trusted budget status', () => {
     const lane = makeNearLane();
-    const laneIdentity = exactSigningLaneIdentity(lane);
+    const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
     const operation = makeOperation();
 
     const satisfied = buildStepUpFreshnessFromTrustedBudgetStatus({
@@ -350,7 +352,7 @@ test.describe('step-up freshness identity', () => {
 
   test('builds restored-record freshness with unavailable projection', () => {
     const lane = makeEcdsaLane();
-    const laneIdentity = exactSigningLaneIdentity(lane);
+    const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
     const operation = makeOperation();
 
     const restored = buildStepUpFreshnessFromRestoredSealedRecord({
@@ -388,7 +390,7 @@ test.describe('step-up freshness identity', () => {
 
   test('admits transaction budget only from matching admission freshness', () => {
     const lane = makeNearLane();
-    const laneIdentity = exactSigningLaneIdentity(lane);
+    const laneIdentity = exactSigningLaneIdentityFromSelectedLane(lane);
     const operation = makeOperation();
     const satisfied = buildFreshStepUpSatisfied({
       walletId: NEAR_WALLET_ID,

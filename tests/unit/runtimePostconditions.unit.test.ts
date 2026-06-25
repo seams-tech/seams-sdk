@@ -24,12 +24,12 @@ import {
   toRpId,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = 'runtime-postconditions.testnet';
 const ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 const ED25519_NEAR_ACCOUNT_ID = toAccountId('runtime-postconditions.testnet');
-const ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString(
+const ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString(
   'scope-frost-vermillion-k7p9m2',
 );
 const TARGET: ThresholdEcdsaChainTarget = {
@@ -81,7 +81,8 @@ function ed25519Lane(
     chain: 'near',
     walletId: ED25519_WALLET_ID,
     nearAccountId: ED25519_NEAR_ACCOUNT_ID,
-    ed25519KeyScopeId: ED25519_KEY_SCOPE_ID,
+    nearEd25519SigningKeyId: ED25519_KEY_SCOPE_ID,
+    signerSlot: 1,
     state: options.state ?? 'ready',
     signingGrantId: `wss-ed25519-${suffix}`,
     thresholdSessionId: `tsess-ed25519-${suffix}`,

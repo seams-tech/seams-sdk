@@ -120,10 +120,12 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
   const thresholdWalletSessionStores = threshold as unknown as {
     walletSessionStore?: unknown;
     ecdsaWalletSessionStore?: unknown;
+    walletBudgetSessionStore?: unknown;
   };
   if (
     !thresholdWalletSessionStores.walletSessionStore ||
-    !thresholdWalletSessionStores.ecdsaWalletSessionStore
+    !thresholdWalletSessionStores.ecdsaWalletSessionStore ||
+    !thresholdWalletSessionStores.walletBudgetSessionStore
   ) {
     throw new Error('Missing Wallet Session stores for Tempo signing-session policy');
   }
@@ -191,7 +193,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
         ed25519Stores: [thresholdWalletSessionStores.walletSessionStore as any],
         ecdsaStores: [thresholdWalletSessionStores.ecdsaWalletSessionStore as any],
-        walletBudgetStores: [thresholdWalletSessionStores.walletSessionStore as any],
+        walletBudgetStores: [thresholdWalletSessionStores.walletBudgetSessionStore as any],
       }),
       cipher: createPassthroughSigningSessionSealCipherAdapter(),
     }),

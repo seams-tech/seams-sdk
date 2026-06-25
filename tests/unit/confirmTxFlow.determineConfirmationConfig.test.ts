@@ -45,13 +45,14 @@ test.describe('determineConfirmationConfig', () => {
     );
 
     expect(res.cfg).toEqual({
+      kind: 'auto_proceed',
       uiMode: 'drawer',
       behavior: 'skipClick',
       autoProceedDelay: 7,
     });
   });
 
-  test('decryptPrivateKeyWithPrf defaults to uiMode=none and preserves behavior', async ({
+  test('decryptPrivateKeyWithPrf defaults to normalized silent mode', async ({
     page,
   }) => {
     const res = await page.evaluate(
@@ -78,7 +79,8 @@ test.describe('determineConfirmationConfig', () => {
     );
 
     expect(res.cfg.uiMode).toBe('none');
-    expect(res.cfg.behavior).toBe('requireClick');
+    expect(res.cfg.kind).toBe('silent');
+    expect(res.cfg.behavior).toBeUndefined();
   });
 
   test('SHOW_SECURE_PRIVATE_KEY_UI uses modal/drawer UI', async ({ page }) => {
@@ -151,9 +153,9 @@ test.describe('determineConfirmationConfig', () => {
     );
 
     expect(res.cfg).toEqual({
+      kind: 'interactive',
       uiMode: 'modal',
       behavior: 'requireClick',
-      autoProceedDelay: 12,
     });
   });
 
@@ -200,9 +202,8 @@ test.describe('determineConfirmationConfig', () => {
     );
 
     expect(res.cfg).toEqual({
+      kind: 'silent',
       uiMode: 'none',
-      behavior: 'skipClick',
-      autoProceedDelay: 0,
     });
   });
 
@@ -253,9 +254,9 @@ test.describe('determineConfirmationConfig', () => {
     );
 
     expect(res.cfg).toEqual({
+      kind: 'interactive',
       uiMode: 'modal',
       behavior: 'requireClick',
-      autoProceedDelay: 10,
     });
   });
 
@@ -325,8 +326,16 @@ test.describe('determineConfirmationConfig', () => {
     })();
 
     // Should clamp to safe modal/requireClick.
-    expect(result.cfg1).toEqual({ uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 5 });
-    expect(result.cfg2).toEqual({ uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 5 });
+    expect(result.cfg1).toEqual({
+      kind: 'interactive',
+      uiMode: 'modal',
+      behavior: 'requireClick',
+    });
+    expect(result.cfg2).toEqual({
+      kind: 'interactive',
+      uiMode: 'modal',
+      behavior: 'requireClick',
+    });
   });
 
   test('in iframe + registration/link clamps request-level skipClick overrides', async ({
@@ -391,8 +400,16 @@ test.describe('determineConfirmationConfig', () => {
       );
     })();
 
-    expect(result.cfg1).toEqual({ uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 });
-    expect(result.cfg2).toEqual({ uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 });
+    expect(result.cfg1).toEqual({
+      kind: 'interactive',
+      uiMode: 'modal',
+      behavior: 'requireClick',
+    });
+    expect(result.cfg2).toEqual({
+      kind: 'interactive',
+      uiMode: 'modal',
+      behavior: 'requireClick',
+    });
   });
 
   test('in iframe + registration activation proof can skip the second modal click', async ({
@@ -452,6 +469,6 @@ test.describe('determineConfirmationConfig', () => {
       );
     })();
 
-    expect(result).toEqual({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 });
+    expect(result).toEqual({ kind: 'silent', uiMode: 'none' });
   });
 });

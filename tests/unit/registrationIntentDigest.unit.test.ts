@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   computeAddSignerIntentDigestB64u,
-  computeRegistrationEd25519KeyScopeId,
+  computeRegistrationNearEd25519SigningKeyId,
   computeRegistrationIntentDigestB64u,
   implicitNearAccountProvisioning,
   parseGeneratedImplicitWalletId,
@@ -171,22 +171,22 @@ test.describe('registration intent digest canonicalization', () => {
     await expect(computeRegistrationIntentDigestB64u(ecdsaOnly)).resolves.not.toBe(baseDigest);
   });
 
-  test('derives implicit Ed25519 key scope from pre-finalize registration scope', async () => {
-    const keyScope = await computeRegistrationEd25519KeyScopeId({
+  test('derives implicit NEAR Ed25519 signing key from pre-finalize registration scope', async () => {
+    const keyScope = await computeRegistrationNearEd25519SigningKeyId({
       walletId: generatedImplicitWalletId,
       rpId: baseIntent.rpId,
       signingRootId: 'project_1:env_1',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
-    const sameKeyScope = await computeRegistrationEd25519KeyScopeId({
+    const sameKeyScope = await computeRegistrationNearEd25519SigningKeyId({
       walletId: generatedImplicitWalletId,
       rpId: baseIntent.rpId,
       signingRootId: 'project_1:env_1',
       signingRootVersion,
       ed25519: implicitEd25519Spec,
     });
-    const differentKeyScope = await computeRegistrationEd25519KeyScopeId({
+    const differentKeyScope = await computeRegistrationNearEd25519SigningKeyId({
       walletId: generatedImplicitWalletId,
       rpId: baseIntent.rpId,
       signingRootId: 'project_1:env_2',
@@ -219,9 +219,9 @@ test.describe('registration intent digest canonicalization', () => {
     });
   });
 
-  test('keeps sponsored Ed25519 key scope on the durable wallet identity', async () => {
+  test('keeps sponsored NEAR Ed25519 signing key on the durable wallet identity', async () => {
     await expect(
-      computeRegistrationEd25519KeyScopeId({
+      computeRegistrationNearEd25519SigningKeyId({
         walletId: baseIntent.walletId,
         rpId: baseIntent.rpId,
         signingRootId: 'project_1:env_1',

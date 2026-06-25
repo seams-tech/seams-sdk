@@ -12,7 +12,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   deriveEvmFamilyWalletKeyIdFromSigningRootFacts,
@@ -41,7 +41,7 @@ import {
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
 export const AVAILABLE_LANES_ED25519_WALLET_ID = toWalletId('frost-vermillion-k7p9m2');
 export const AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
-export const AVAILABLE_LANES_ED25519_KEY_SCOPE_ID = ed25519KeyScopeIdFromString(
+export const AVAILABLE_LANES_ED25519_KEY_SCOPE_ID = nearEd25519SigningKeyIdFromString(
   'scope-frost-vermillion-k7p9m2',
 );
 export const AVAILABLE_LANES_ECDSA_RP_ID = 'wallet.example.localhost';

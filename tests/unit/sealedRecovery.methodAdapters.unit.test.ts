@@ -1,12 +1,22 @@
 import { expect, test } from '@playwright/test';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { claimPasskeyEcdsaPrfFirst } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery';
 import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
 import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
-import type { ThresholdEcdsaSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import {
+  clearAllThresholdEcdsaSessionRecords,
+  upsertRestoredThresholdEcdsaSessionRecord,
+  type ThresholdEcdsaSessionRecord,
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 
 const TEMPO_CHAIN_TARGET = {
   kind: 'tempo' as const,
@@ -15,6 +25,16 @@ const TEMPO_CHAIN_TARGET = {
 };
 const EMAIL_OTP_WALLET_KEY_ID = 'wallet-key-alice';
 const EMAIL_OTP_PROVIDER_SUBJECT_ID = 'google:alice';
+
+function bytesB64u(length: number, fill: number): string {
+  return base64UrlEncode(new Uint8Array(length).fill(fill));
+}
+
+function compressedPublicKeyB64u(prefix: 2 | 3, fill: number): string {
+  const bytes = new Uint8Array(33).fill(fill);
+  bytes[0] = prefix;
+  return base64UrlEncode(bytes);
+}
 
 function legacySigningGrantFieldName(): string {
   return ['wallet', 'SigningSessionId'].join('');
@@ -61,7 +81,7 @@ function makeEmailOtpEcdsaSealedRecord(
     },
 	    ed25519Restore: {
 	      nearAccountId: 'alice.testnet',
-	      ed25519KeyScopeId: 'alice.testnet',
+	      nearEd25519SigningKeyId: 'alice.testnet',
 	      rpId: 'example.com',
       relayerKeyId: 'relayer-key-ed25519',
       participantIds: [1, 2],
@@ -124,7 +144,90 @@ function makeEmailOtpEcdsaCurrentRecord(
   } as never;
 }
 
+function makePasskeyEcdsaCurrentRecord(
+  overrides?: Partial<ThresholdEcdsaSessionRecord>,
+): ThresholdEcdsaSessionRecord {
+  const now = Date.now();
+  const hssClientSharePublicKey33B64u = compressedPublicKeyB64u(2, 11);
+  const relayerPublicKey33B64u = compressedPublicKeyB64u(3, 12);
+  const groupPublicKey33B64u = compressedPublicKeyB64u(2, 13);
+  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: bytesB64u(48, 9),
+    },
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: 'alice.testnet',
+      walletKeyId: 'wallet-key-passkey',
+      chainTarget: TEMPO_CHAIN_TARGET,
+      keyHandle: 'key-handle-passkey-ecdsa',
+      ecdsaThresholdKeyId: 'ecdsa-passkey-key',
+      signingRootId: 'root-passkey-1',
+      signingRootVersion: 'v1',
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      applicationBindingDigestB64u: bytesB64u(32, 8),
+      contextBinding32B64u: bytesB64u(32, 6),
+      hssClientSharePublicKey33B64u,
+      relayerPublicKey33B64u,
+      groupPublicKey33B64u,
+      ethereumAddress: `0x${'44'.repeat(20)}`,
+    }),
+    authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+      credentialIdB64u: 'passkey-credential-id',
+      rpId: 'example.com',
+    }),
+  });
+  return {
+    source: 'login',
+    walletId: 'alice.testnet',
+    authMetadata: { walletKeyId: 'wallet-key-passkey' },
+    chainTarget: TEMPO_CHAIN_TARGET,
+    relayerUrl: 'https://relay.example',
+    keyHandle: 'key-handle-passkey-ecdsa',
+    ecdsaThresholdKeyId: 'ecdsa-passkey-key',
+    signingRootId: 'root-passkey-1',
+    signingRootVersion: 'v1',
+    relayerKeyId: 'relayer-key-passkey',
+    clientVerifyingShareB64u: hssClientSharePublicKey33B64u,
+    ecdsaRoleLocalReadyRecord,
+    participantIds: [1, 2],
+    thresholdSessionKind: 'jwt',
+    walletSessionJwt: 'jwt-current-passkey-ecdsa',
+    signingSessionSealShamirPrimeB64u: 'prime-b64u',
+    signingSessionSealKeyVersion: 'signing-session-seal-kek-test-r1',
+    thresholdSessionId: 'tsess-passkey-ecdsa',
+    signingGrantId: 'wsess-passkey-ecdsa',
+    expiresAtMs: now + 60_000,
+    remainingUses: 3,
+    thresholdEcdsaPublicKeyB64u: groupPublicKey33B64u,
+    verifiedPublicFacts: {
+      kind: 'verified_ecdsa_public_facts',
+      keyHandle: 'key-handle-passkey-ecdsa',
+      publicKeyB64u: groupPublicKey33B64u,
+      participantIds: [1, 2],
+      thresholdOwnerAddress: `0x${'44'.repeat(20)}`,
+    },
+    ethereumAddress: `0x${'44'.repeat(20)}`,
+    relayerVerifyingShareB64u: relayerPublicKey33B64u,
+    updatedAtMs: now,
+    ...overrides,
+  } as never;
+}
+
 test.describe('sealed recovery method adapters', () => {
+  test.beforeEach(() => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+  });
+
+  test.afterEach(() => {
+    clearAllThresholdEcdsaSessionRecords({ recordsByLane: new Map() });
+  });
+
   test('normalizes legacy sealed-recovery id fields at the storage boundary', () => {
     const now = Date.now();
     const normalized = normalizeSealedRecoveryRecord({
@@ -243,7 +346,7 @@ test.describe('sealed recovery method adapters', () => {
       keyVersion: 'signing-session-seal-kek-test-r1',
 	      ed25519Restore: {
 	        nearAccountId: 'alice.testnet',
-	        ed25519KeyScopeId: 'alice.testnet',
+	        nearEd25519SigningKeyId: 'alice.testnet',
 	        rpId: 'example.com',
         relayerKeyId: 'relayer-key-ed25519',
         participantIds: [1, 2],
@@ -268,6 +371,8 @@ test.describe('sealed recovery method adapters', () => {
   });
 
   test('restores before claiming passkey ECDSA PRF material', async () => {
+    upsertRestoredThresholdEcdsaSessionRecord(makePasskeyEcdsaCurrentRecord());
+
     const calls: Array<{ kind: 'restore' | 'claim'; args: Record<string, unknown> }> = [];
     const prfFirstB64u = await claimPasskeyEcdsaPrfFirst({
       touchConfirm: {
@@ -530,7 +635,7 @@ test.describe('sealed recovery method adapters', () => {
       keyVersion: 'signing-session-seal-kek-test-r1',
 	      ed25519Restore: {
 	        nearAccountId: 'alice.testnet',
-	        ed25519KeyScopeId: 'alice.testnet',
+	        nearEd25519SigningKeyId: 'alice.testnet',
 	        rpId: 'example.com',
         relayerKeyId: 'relayer-key-ed25519',
         participantIds: [1, 2],

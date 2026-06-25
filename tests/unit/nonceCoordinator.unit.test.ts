@@ -6,6 +6,7 @@ import {
   createNonceCoordinator,
   evmNonceLeaseToManagedReservation,
   reduceNonceLeaseState,
+  tryReduceNonceLeaseState,
   type EvmNonceLane,
   type NearNonceLane,
   type NonceCoordinator,
@@ -94,9 +95,13 @@ function createNearLane(): NearNonceLane {
     family: 'near',
     networkKey: 'near-testnet',
     walletId: 'nonce-coordinator.testnet',
-    accountId: 'nonce-coordinator.testnet',
+    nearAccountId: 'nonce-coordinator.testnet',
     publicKey: 'ed25519:test-key',
   };
+}
+
+function nonceCoordinationRecordWalletId(record: NonceLaneCoordinationRecord): string {
+  return record.family === 'near' ? record.walletId : record.accountId;
 }
 
 function createMemoryNonceLaneCoordinationStore(initial?: NonceLaneCoordinationRecord[]): {
@@ -118,14 +123,14 @@ function createMemoryNonceLaneCoordinationStore(initial?: NonceLaneCoordinationR
         }),
     readAll: async (input) =>
       Array.from(records.values())
-        .filter((record) => !input?.accountId || record.accountId === input.accountId)
+        .filter((record) => !input?.walletId || nonceCoordinationRecordWalletId(record) === input.walletId)
         .flatMap((record) => {
           const parsed = parseNonceLaneCoordinationRecord(toRawCoordinationRecord(record));
           return parsed.ok ? [parsed.parsed] : [];
         }),
     readAllForRecovery: async (input) =>
       Array.from(records.values())
-        .filter((record) => !input?.accountId || record.accountId === input.accountId)
+        .filter((record) => !input?.walletId || nonceCoordinationRecordWalletId(record) === input.walletId)
         .map((record) => parseNonceLaneCoordinationRecord(toRawCoordinationRecord(record))),
     upsert: async (record) => {
       records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
@@ -133,9 +138,9 @@ function createMemoryNonceLaneCoordinationStore(initial?: NonceLaneCoordinationR
     remove: async ({ laneKey, leaseId }) => {
       records.delete(`${laneKey}:${leaseId}`);
     },
-    clearForAccount: async (accountId) => {
+    clearForWallet: async (walletId) => {
       for (const [key, record] of records.entries()) {
-        if (record.accountId === accountId) records.delete(key);
+        if (nonceCoordinationRecordWalletId(record) === walletId) records.delete(key);
       }
     },
     clearAll: async () => records.clear(),
@@ -201,7 +206,7 @@ function toRawCoordinationRecord(record: NonceLaneCoordinationRecord): Record<st
     updatedAtMs: record.updatedAtMs,
     family: 'near',
     walletId: record.walletId,
-    accountId: record.accountId,
+    nearAccountId: record.nearAccountId,
     publicKey: record.publicKey,
   };
   if (record.runtimeId) raw.runtimeId = record.runtimeId;
@@ -256,6 +261,12 @@ test.describe('NonceCoordinator', () => {
     expect(() => reduceNonceLeaseState('signed', 'release')).toThrow(
       'illegal nonce lease transition',
     );
+    expect(tryReduceNonceLeaseState('reserved', 'broadcast_accepted')).toEqual({
+      ok: false,
+      current: 'reserved',
+      transition: 'broadcast_accepted',
+      reason: 'illegal_transition',
+    });
   });
 
   test('reserves and releases an EVM-family nonce lease with operation binding', async () => {
@@ -574,7 +585,7 @@ test.describe('NonceCoordinator', () => {
     });
   });
 
-  test('account-scoped expiry locks each EVM lane before mutating it', async () => {
+  test('wallet-scoped expiry locks each EVM lane before mutating it', async () => {
     const now = { value: 1_000 };
     const lockKeys: string[] = [];
     const coordinator = createNonceCoordinator({
@@ -612,7 +623,7 @@ test.describe('NonceCoordinator', () => {
     lockKeys.length = 0;
     now.value = 2_000;
     const expired = await coordinator.expireLeases({
-      accountId: 'wallet-a.testnet',
+      walletId: 'wallet-a.testnet',
     });
 
     expect(expired).toHaveLength(2);
@@ -985,7 +996,7 @@ test.describe('NonceCoordinator', () => {
     });
 
     expect(second.leases.map((lease) => String(lease.nonce))).toEqual(['31']);
-    expect(coordinator.getDiagnostics({ accountId: lane.accountId })).toMatchObject({
+    expect(coordinator.getDiagnostics({ accountId: lane.walletId })).toMatchObject({
       leasesByState: {
         reserved: 1,
         expired: 1,
@@ -1120,7 +1131,7 @@ test.describe('NonceCoordinator', () => {
 
     nowMs = 1_051;
     const expired = await coordinator.expireLeases({
-      accountId: 'nonce-coordinator.testnet',
+      walletId: 'nonce-coordinator.testnet',
     });
 
     expect(expired).toHaveLength(1);
@@ -1166,7 +1177,7 @@ test.describe('NonceCoordinator', () => {
 
     nowMs = 1_036;
     const expired = await coordinator.expireLeases({
-      accountId: 'nonce-coordinator.testnet',
+      walletId: 'nonce-coordinator.testnet',
     });
 
     expect(expired).toHaveLength(1);
@@ -1282,9 +1293,9 @@ test.describe('NonceCoordinator', () => {
       remove: async ({ laneKey, leaseId }: { laneKey: string; leaseId: string }) => {
         records.delete(`${laneKey}:${leaseId}`);
       },
-      clearForAccount: async (accountId: string) => {
+      clearForWallet: async (walletId: string) => {
         for (const [key, record] of records.entries()) {
-          if (record.accountId === accountId) records.delete(key);
+          if (nonceCoordinationRecordWalletId(record) === walletId) records.delete(key);
         }
       },
       clearAll: async () => records.clear(),
@@ -1490,7 +1501,7 @@ test.describe('NonceCoordinator', () => {
       now: () => 2_000,
     });
 
-    await coordinator.recoverDurableLeases({ accountId: 'nonce-coordinator.testnet' });
+    await coordinator.recoverDurableLeases({ walletId: 'nonce-coordinator.testnet' });
 
     expect(records.size).toBe(0);
     expect(calls).toEqual([
@@ -1557,7 +1568,7 @@ test.describe('NonceCoordinator', () => {
     expect(records.size).toBe(3);
   });
 
-  test('account clear removes durable nonce lease records', async () => {
+  test('wallet clear removes durable nonce lease records', async () => {
     const calls: unknown[] = [];
     const { store, records } = createMemoryNonceLaneCoordinationStore();
     const coordinator = createNonceCoordinator({
@@ -1569,7 +1580,7 @@ test.describe('NonceCoordinator', () => {
     await coordinator.reserve({ lane: createLane(), operation: createOperation() });
     expect(records.size).toBe(1);
 
-    coordinator.clearForAccount('nonce-coordinator.testnet');
+    coordinator.clearForWallet('nonce-coordinator.testnet');
     await Promise.resolve();
 
     expect(records.size).toBe(0);
@@ -1593,7 +1604,7 @@ test.describe('NonceCoordinator', () => {
         throw new Error('indexeddb failed');
       },
       remove: async () => undefined,
-      clearForAccount: async () => undefined,
+      clearForWallet: async () => undefined,
       clearAll: async () => undefined,
       pruneExpired: async () => undefined,
       withLock: async (_input, task) => await task(),
@@ -1691,7 +1702,7 @@ test.describe('NonceCoordinator', () => {
     );
   });
 
-  test('clearForAccount clears EVM lanes and full active NEAR access-key state', async () => {
+  test('clearForWallet clears EVM lanes and full active NEAR access-key state', async () => {
     const calls: unknown[] = [];
     const coordinator = createNonceCoordinator({
       evmNonceBackend: createFakeEvmNonceBackend(calls),
@@ -1720,7 +1731,7 @@ test.describe('NonceCoordinator', () => {
       }),
     });
 
-    coordinator.clearForAccount('nonce-coordinator.testnet');
+    coordinator.clearForWallet('nonce-coordinator.testnet');
 
     expect(coordinator.getActiveNearPublicKey()).toBeNull();
     expect(coordinator.getDiagnostics().leaseCount).toBe(0);

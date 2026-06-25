@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
 import {
   buildNearTransactionSigningLane,
@@ -64,7 +64,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       kind: 'fresh_ed25519_provisioning',
       walletId: 'transition-ed25519.testnet',
       nearAccountId: 'transition-ed25519.testnet',
-      ed25519KeyScopeId: 'transition-ed25519.testnet',
+      nearEd25519SigningKeyId: 'transition-ed25519.testnet',
       relayerKeyId: 'rk-ed25519-transition',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -103,7 +103,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
 
     const accountId = toAccountId('transition-ed25519-pending.testnet');
     const walletId = toWalletId(accountId);
-    const ed25519KeyScopeId = ed25519KeyScopeIdFromString(
+    const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
       'scope-transition-ed25519-pending',
     );
     const sessionId = 'ed25519-pending-material-session';
@@ -154,7 +154,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       kind: 'fresh_ed25519_provisioning',
       walletId,
       nearAccountId: accountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       relayerKeyId: 'rk-ed25519-pending-material',
       participantIds: [1, 2],
       sessionKind: 'jwt',
@@ -174,8 +174,9 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     const lane = buildNearTransactionSigningLane({
       walletId,
       nearAccountId: accountId,
-      ed25519KeyScopeId,
-      auth: {
+      nearEd25519SigningKeyId,
+  signerSlot: 1,
+  auth: {
         kind: 'passkey',
         rpId: 'localhost' as any,
         credentialIdB64u: 'credential-ed25519-pending-material',
@@ -227,7 +228,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         kind: 'fresh_ed25519_provisioning',
         walletId: 'transition-unpersisted.testnet',
         nearAccountId: 'transition-unpersisted.testnet',
-        ed25519KeyScopeId: 'transition-unpersisted.testnet',
+        nearEd25519SigningKeyId: 'transition-unpersisted.testnet',
         relayerKeyId: 'rk-ed25519-unpersisted',
         participantIds: [1, 2],
         sessionKind: 'jwt',

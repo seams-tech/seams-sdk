@@ -70,7 +70,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
       requestExportState.lastPayload = payload;
       return {
         ok: true,
-        accountId: String(payload.nearAccountId || ''),
+        accountId: String(payload.walletId || ''),
         exportedSchemes: ['secp256k1'],
       };
     };
@@ -90,7 +90,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
         getRpId: () => 'wallet.example.test',
       },
       {
-        nearAccountId: 'alice.testnet' as any,
+        walletId: 'alice.testnet',
         artifact: {
           artifactKind: 'ecdsa-hss-secp256k1-export',
           chainTarget: {
@@ -113,8 +113,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
     });
     expect(requestExportState.callCount).toBe(1);
     expect(requestExportState.lastPayload).toMatchObject({
-      nearAccountId: 'alice.testnet',
-      signerSlot: 4,
+      walletId: 'alice.testnet',
       artifactKind: 'ecdsa-hss-secp256k1-export',
       chainTarget: {
         kind: 'evm',
@@ -151,7 +150,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
           getRpId: () => 'wallet.example.test',
         },
         {
-          nearAccountId: 'alice.testnet' as any,
+          walletId: 'alice.testnet',
           artifact: {
             artifactKind: 'ecdsa-hss-secp256k1-key-v1',
             chainTarget: {

@@ -4,13 +4,13 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   EmailOtpAppSessionJwtCache,
   emailOtpRefreshIdentity,
   refreshEmailOtpAppSessionJwt,
 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache';
-import { exactSigningLaneIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { exactSigningLaneIdentityFromSelectedLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { buildNearTransactionSigningLane } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
@@ -33,12 +33,13 @@ function base64UrlJson(value: unknown): string {
 function makeIdentity() {
   const walletId = toWalletId('wallet.testnet');
   const nearAccountId = toAccountId('wallet.testnet');
-  const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-wallet-testnet');
+  const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-wallet-testnet');
   const lane = buildNearTransactionSigningLane({
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
-    auth: {
+    nearEd25519SigningKeyId,
+  signerSlot: 1,
+  auth: {
       kind: 'email_otp',
       providerSubjectId: 'google:wallet.testnet',
     },
@@ -50,7 +51,7 @@ function makeIdentity() {
     walletSessionUserId: String(walletId),
     operationId: SigningSessionIds.signingOperation('operation-1'),
     operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
-    laneIdentity: exactSigningLaneIdentity(lane),
+    laneIdentity: exactSigningLaneIdentityFromSelectedLane(lane),
   });
 }
 

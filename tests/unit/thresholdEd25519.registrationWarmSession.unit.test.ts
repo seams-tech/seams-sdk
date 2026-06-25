@@ -5,7 +5,7 @@ import {
   parseSdkEcdsaHssSigningRootVersion,
 } from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
 import { computeSdkEd25519HssApplicationBindingDigestB64u } from '../../packages/shared-ts/src/threshold/ed25519HssBinding';
-import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const IMPORT_PATHS = {
   thresholdWarmSessionBootstrap:
@@ -26,7 +26,7 @@ async function evaluateMismatchedWarmSessionIdentity(args: {
     bootstrapMod.completeRegisteredThresholdEd25519Registration({
       thresholdEd25519: {
         nearAccountId: 'registration-alice.testnet',
-        ed25519KeyScopeId: 'registration-alice.testnet',
+        nearEd25519SigningKeyId: 'registration-alice.testnet',
         keyVersion: 'threshold-ed25519-hss-v1',
         recoveryExportCapable: true,
         publicKey: 'ed25519:registration-public-key',
@@ -38,7 +38,7 @@ async function evaluateMismatchedWarmSessionIdentity(args: {
           sessionKind: 'jwt',
           walletId: 'wallet_alice',
           nearAccountId: 'registration-alice.testnet',
-          ed25519KeyScopeId: 'wrong-scope',
+          nearEd25519SigningKeyId: 'wrong-scope',
           thresholdSessionId: 'registration-session-1',
           signingGrantId: 'signing-grant-1',
           expiresAtMs: now + 60_000,
@@ -55,7 +55,7 @@ async function evaluateMismatchedWarmSessionIdentity(args: {
         version: 'threshold_session_v1',
         walletId: 'wallet_alice',
         nearAccountId: 'registration-alice.testnet',
-        ed25519KeyScopeId: 'registration-alice.testnet',
+        nearEd25519SigningKeyId: 'registration-alice.testnet',
         rpId: 'example.localhost',
         relayerKeyId: 'rk-1',
         thresholdSessionId: 'registration-session-1',
@@ -71,7 +71,7 @@ async function evaluateMismatchedWarmSessionIdentity(args: {
       expectedIdentity: {
         walletId: 'wallet_alice',
         nearAccountId: 'registration-alice.testnet',
-        ed25519KeyScopeId: 'registration-alice.testnet',
+        nearEd25519SigningKeyId: 'registration-alice.testnet',
       },
     });
     return null;
@@ -92,7 +92,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
       paths: IMPORT_PATHS,
     });
 
-    expect(message).toBe('threshold-ed25519 warm session ed25519KeyScopeId mismatch');
+    expect(message).toBe('threshold-ed25519 warm session nearEd25519SigningKeyId mismatch');
   });
 
   test('awaits warm-session hydrate before registration persistence returns', async ({ page }) => {
@@ -106,7 +106,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         const walletId = 'frost-vermillion-k7p9m2';
         const nearAccountId = 'a'.repeat(64);
-        const ed25519KeyScopeId = 'ed25519-scope-frost-vermillion-k7p9m2';
+        const nearEd25519SigningKeyId = 'ed25519-scope-frost-vermillion-k7p9m2';
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -191,7 +191,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             signingEngine: context.signingEngine,
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             signerSlot: 1,
             auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
             rpId: 'example.localhost',
@@ -201,7 +201,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               version: 'threshold_session_v1',
               walletId,
               nearAccountId,
-              ed25519KeyScopeId,
+              nearEd25519SigningKeyId,
               rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               sessionId: 'registration-session-1',
@@ -230,7 +230,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   sessionKind: 'jwt',
                   walletId,
                   nearAccountId,
-                  ed25519KeyScopeId,
+                  nearEd25519SigningKeyId,
                   thresholdSessionId: 'registration-session-1',
                   signingGrantId: 'signing-grant-1',
                   expiresAtMs: now + 60_000,
@@ -299,7 +299,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const now = Date.now();
         const walletId = 'frost-reconstruct-k7p9m2';
         const nearAccountId = 'registration-reconstruct.testnet';
-        const ed25519KeyScopeId = 'ed25519-scope-frost-reconstruct-k7p9m2';
+        const nearEd25519SigningKeyId = 'ed25519-scope-frost-reconstruct-k7p9m2';
         const thresholdSessionId = 'registration-session-reconstruct';
         const runtimePolicyScope = {
           orgId: 'org-registration',
@@ -319,7 +319,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-reconstruct',
@@ -400,7 +400,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             relayerKeyId: 'rk-reconstruct',
@@ -461,7 +461,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         const walletId = 'frost-parity-k7p9m2';
         const nearAccountId = 'b'.repeat(64);
-        const ed25519KeyScopeId = 'ed25519-scope-frost-parity-k7p9m2';
+        const nearEd25519SigningKeyId = 'ed25519-scope-frost-parity-k7p9m2';
         const now = Date.now();
         const routerAbNormalSigning = {
           kind: 'router_ab_ed25519_normal_signing_v1',
@@ -545,7 +545,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             signingEngine: context.signingEngine,
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             signerSlot: 1,
             auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
             rpId: 'example.localhost',
@@ -555,7 +555,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               version: 'threshold_session_v1',
               walletId,
               nearAccountId,
-              ed25519KeyScopeId,
+              nearEd25519SigningKeyId,
               rpId: 'example.localhost',
               relayerKeyId: 'rk-1',
               sessionId: 'registration-session-parity',
@@ -584,7 +584,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   sessionKind: 'jwt',
                   walletId,
                   nearAccountId,
-                  ed25519KeyScopeId,
+                  nearEd25519SigningKeyId,
                   thresholdSessionId: 'registration-session-parity',
                   signingGrantId: 'signing-grant-parity',
                   expiresAtMs: now + 60_000,
@@ -636,7 +636,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     page,
   }) => {
     const emailOtpBindingFacts = {
-      ed25519KeyScopeId: ed25519KeyScopeIdFromString('registration-email-otp.testnet'),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('registration-email-otp.testnet'),
       signingRootId: parseSdkEcdsaHssSigningRootId('proj-registration:env-registration'),
       signingRootVersion: parseSdkEcdsaHssSigningRootVersion('default'),
     };
@@ -650,7 +650,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         const nearAccountId = 'registration-email-otp.testnet';
         const walletId = nearAccountId;
-        const ed25519KeyScopeId = nearAccountId;
+        const nearEd25519SigningKeyId = nearAccountId;
         const now = Date.now();
         const runtimePolicyScope = {
           orgId: 'org-registration',
@@ -739,7 +739,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             signerSlot: 1,
             auth: {
               kind: 'email_otp',
@@ -757,7 +757,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             prfFirstB64u: recoveryCodeSecret32B64u,
             registrationHssClientMaterial: {
               bindingFacts: {
-                ed25519KeyScopeId,
+                nearEd25519SigningKeyId,
                 signingRootId,
                 signingRootVersion: runtimePolicyScope.signingRootVersion,
               },
@@ -776,7 +776,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               version: 'threshold_session_v1',
               walletId,
               nearAccountId,
-              ed25519KeyScopeId,
+              nearEd25519SigningKeyId,
               rpId: 'example.localhost',
               relayerKeyId: 'rk-email-otp',
               sessionId: 'registration-session-email-otp',
@@ -800,7 +800,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   sessionKind: 'jwt',
                   walletId,
                   nearAccountId,
-                  ed25519KeyScopeId,
+                  nearEd25519SigningKeyId,
                   thresholdSessionId: 'registration-session-email-otp',
                   signingGrantId: 'signing-grant-email-otp',
                   expiresAtMs: now + 60_000,

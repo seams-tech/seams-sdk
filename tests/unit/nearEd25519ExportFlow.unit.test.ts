@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import {
-  ed25519KeyScopeIdFromString,
+  nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
@@ -13,7 +13,7 @@ function makeRecord(
   return {
     walletId: walletIdFromString('alice-wallet'),
     nearAccountId: 'alice.testnet' as any,
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString('alice-key-scope'),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('alice-key-scope'),
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:relayer-key',

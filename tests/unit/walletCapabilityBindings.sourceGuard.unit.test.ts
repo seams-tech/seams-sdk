@@ -35,15 +35,27 @@ const FORBIDDEN_PATTERNS: ForbiddenPattern[] = [
   { id: 'account-id-from-wallet-id', regex: /\baccountId:\s*walletId\b/g },
   {
     id: 'ed25519-scope-near-fallback',
-    regex: /\bed25519KeyScopeId\s*(?:\|\||\?\?)\s*nearAccountId\b/g,
+    regex: /\bnearEd25519SigningKeyId\s*(?:\|\||\?\?)\s*nearAccountId\b/g,
   },
   {
     id: 'ed25519-scope-from-near-account',
-    regex: /\bed25519KeyScopeId:\s*nearAccountId\b/g,
+    regex: /\bnearEd25519SigningKeyId:\s*nearAccountId\b/g,
   },
   {
     id: 'ed25519-scope-from-wallet-id',
-    regex: /\bed25519KeyScopeId:\s*walletId\b/g,
+    regex: /\bnearEd25519SigningKeyId:\s*walletId\b/g,
+  },
+  {
+    id: 'legacy-ed25519-key-scope-id',
+    regex: /\bed25519KeyScopeId\b/g,
+  },
+  {
+    id: 'legacy-ed25519-key-scope-type',
+    regex: /\bEd25519KeyScopeId\b/g,
+  },
+  {
+    id: 'legacy-ed25519-key-scope-snake',
+    regex: /\bed25519_key_scope\b/g,
   },
   { id: 'args-wallet-near-fallback', regex: /\bargs\.walletId\s*\|\|\s*nearAccountId\b/g },
   {
@@ -68,7 +80,7 @@ const FORBIDDEN_PATTERNS: ForbiddenPattern[] = [
       /\{\s*(?:readonly\s+)?kind:\s*['"](?:implicit_near_account|named_near_account)['"][\s\S]*?\bnearAccountId:/g,
   },
   { id: 'as-wallet-id', regex: /\bas WalletId\b/g },
-  { id: 'as-ed25519-key-scope', regex: /\bas Ed25519KeyScopeId\b/g },
+  { id: 'as-ed25519-key-scope', regex: /\bas NearEd25519SigningKeyId\b/g },
 ];
 
 const FORBIDDEN_UNIT_FIXTURE_PATTERNS: ForbiddenPattern[] = [
@@ -89,7 +101,7 @@ const CORE_COMMAND_IDENTITY_GUARD_DIRS = [
 
 const OPTIONAL_CORE_IDENTITY_FIELD_PATTERN: ForbiddenPattern = {
   id: 'core-optional-identity-field',
-  regex: /\b(?:walletId|nearAccountId|ed25519KeyScopeId|walletSession)\?:/g,
+  regex: /\b(?:walletId|nearAccountId|nearEd25519SigningKeyId|walletSession)\?:/g,
 };
 
 function repoRoot(): string {

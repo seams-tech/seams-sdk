@@ -13,15 +13,17 @@ import {
   toThresholdOwnerAddress,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
 } from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
 import {
-  ed25519KeyScopeIdFromString,
+  nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -68,10 +70,12 @@ function ecdsaRestoreInput(
     materialRestoreIdentity: {
       kind: 'ecdsa_role_local_restore',
       lane: exactEcdsaSigningLaneIdentity({
-        walletId: wallet,
-        chainTarget,
-        keyHandle: TEST_ECDSA_KEY_HANDLE,
-        key,
+        signer: buildEvmFamilyEcdsaSignerBinding({
+          walletId: wallet,
+          chainTarget,
+          keyHandle: TEST_ECDSA_KEY_HANDLE,
+          key,
+        }),
         auth:
           authMethod === 'passkey'
             ? {
@@ -96,7 +100,7 @@ function ed25519RestoreInput(
   const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
   const wallet = walletIdFromString(args.walletId || 'restore.testnet');
   const walletId = String(wallet);
-  const ed25519KeyScopeId = ed25519KeyScopeIdFromString('restore.testnet');
+  const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('restore.testnet');
   return {
     walletId,
     authMethod,
@@ -108,9 +112,12 @@ function ed25519RestoreInput(
     materialRestoreIdentity: {
       kind: 'ed25519_worker_material_restore',
       lane: exactEd25519SigningLaneIdentity({
-        walletId: wallet,
-        nearAccountId: 'restore.testnet',
-        ed25519KeyScopeId,
+        signer: nearEd25519SignerBindingFromBoundaryFields({
+          walletId: wallet,
+          nearAccountId: 'restore.testnet',
+          nearEd25519SigningKeyId,
+          signerSlot: 1,
+        }),
         auth:
           authMethod === 'passkey'
             ? {
@@ -206,7 +213,7 @@ function makeSealedRecord(args: {
       : {
 	          ed25519Restore: {
 	            nearAccountId: 'restore.testnet',
-	            ed25519KeyScopeId: 'restore.testnet',
+	            nearEd25519SigningKeyId: 'restore.testnet',
 	            rpId: 'example.com',
 	            providerSubjectId: 'google:restore',
 		            credentialIdB64u: 'credential-restore',
@@ -279,7 +286,7 @@ function makeEcdsaRecordWithEd25519Companion(args: {
     }),
 	    ed25519Restore: {
 	      nearAccountId: 'restore.testnet',
-	      ed25519KeyScopeId: 'restore.testnet',
+	      nearEd25519SigningKeyId: 'restore.testnet',
 	      rpId: 'example.com',
 	      providerSubjectId: 'google:restore',
 	      relayerKeyId: 'relayer-key-restore',
@@ -458,7 +465,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
             ...makeSealedRecord({ curve: 'ed25519' }),
 	            ed25519Restore: {
 	              nearAccountId: 'restore.testnet',
-	              ed25519KeyScopeId: 'restore.testnet',
+	              nearEd25519SigningKeyId: 'restore.testnet',
 	              rpId: 'example.com',
               relayerKeyId: 'relayer-key-restore',
               participantIds: [1, 2],

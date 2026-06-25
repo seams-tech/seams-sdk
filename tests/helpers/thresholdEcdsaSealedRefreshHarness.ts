@@ -719,10 +719,12 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
   const thresholdWalletSessionStores = threshold as unknown as {
     walletSessionStore?: unknown;
     ecdsaWalletSessionStore?: unknown;
+    walletBudgetSessionStore?: unknown;
   };
   if (
     !thresholdWalletSessionStores.walletSessionStore ||
-    !thresholdWalletSessionStores.ecdsaWalletSessionStore
+    !thresholdWalletSessionStores.ecdsaWalletSessionStore ||
+    !thresholdWalletSessionStores.walletBudgetSessionStore
   ) {
     throw new Error('Missing Wallet Session stores for signing-session seal policy');
   }
@@ -750,7 +752,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
       sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
         ed25519Stores: [thresholdWalletSessionStores.walletSessionStore as any],
         ecdsaStores: [thresholdWalletSessionStores.ecdsaWalletSessionStore as any],
-        walletBudgetStores: [thresholdWalletSessionStores.walletSessionStore as any],
+        walletBudgetStores: [thresholdWalletSessionStores.walletBudgetSessionStore as any],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: TEST_KEY_VERSION,

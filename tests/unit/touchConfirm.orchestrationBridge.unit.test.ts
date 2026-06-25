@@ -10,14 +10,14 @@ import {
   getSigningAuthMode,
 } from '@/core/signingEngine/uiConfirm/handlers/flows/adapters/request';
 import type { WebAuthnChallenge } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
+import type { EmailOtpConfirmPrompt, SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 
-const passkeyPlan: SigningAuthPlan = {
+const passkeyPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }> = {
   kind: 'passkeyReauth',
   method: 'passkey',
 };
 
-function warmSessionPlan(sessionId: string): SigningAuthPlan {
+function warmSessionPlan(sessionId: string): Extract<SigningAuthPlan, { kind: 'warmSession' }> {
   return {
     kind: 'warmSession',
     method: 'passkey',
@@ -28,6 +28,13 @@ function warmSessionPlan(sessionId: string): SigningAuthPlan {
     retention: 'session',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
+  };
+}
+
+function emailOtpPrompt(challengeId: string): EmailOtpConfirmPrompt {
+  return {
+    challengeId,
+    emailHint: 'a***e@example.com',
   };
 }
 
@@ -94,6 +101,8 @@ test.describe('touchConfirm orchestration manager bridge', () => {
   test('forwards signing auth plans as canonical auth input', async () => {
     let capturedRequest: any;
 
+    const prompt = emailOtpPrompt('email-otp-plan-challenge');
+
     await orchestrateSigningConfirmation({
       ctx: {
         touchConfirm: {
@@ -116,11 +125,9 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       signingAuthPlan: {
         kind: 'emailOtpReauth',
         method: 'email_otp',
-        emailOtpPrompt: {
-          challengeId: 'email-otp-plan-challenge',
-          emailHint: 'a***e@example.com',
-        },
+        emailOtpPrompt: prompt,
       },
+      emailOtpPrompt: prompt,
     });
 
     expect(capturedRequest?.payload?.signingAuthPlan?.kind).toBe('emailOtpReauth');

@@ -30,12 +30,17 @@ function makeExportKeypairReq(requestId: string): any {
       },
       nearAccount: { kind: 'named', accountId: 'alice.testnet' },
       laneIdentity: {
-        kind: 'exact_ed25519_signing_lane_identity',
-        curve: 'ed25519',
-        chainFamily: 'near',
-        walletId: 'wallet-export-host',
-        nearAccountId: 'alice.testnet',
-        ed25519KeyScopeId: 'alice.testnet',
+        kind: 'exact_signing_lane',
+        signer: {
+          kind: 'near_ed25519_signer',
+          account: {
+            kind: 'named_near_account',
+            wallet: { walletId: 'wallet-export-host' },
+            nearAccountId: 'alice.testnet',
+          },
+          nearEd25519SigningKeyId: 'alice.testnet',
+          signerSlot: 1,
+        },
         auth: { kind: 'passkey', rpId: 'example.test', credentialIdB64u: 'cred-export-host' },
         signingGrantId: 'grant-export-host',
         thresholdSessionId: 'threshold-export-host',
@@ -91,7 +96,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     expect(exportCalls).toBe(1);
     expect(exportedInput.laneIdentity).toEqual(
       expect.objectContaining({
-        kind: 'exact_ed25519_signing_lane_identity',
+        kind: 'exact_signing_lane',
         signingGrantId: 'grant-export-host',
         thresholdSessionId: 'threshold-export-host',
       }),

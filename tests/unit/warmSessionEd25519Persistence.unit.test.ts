@@ -21,7 +21,7 @@ import {
 
 const nearAccountId = toAccountId('ed25519-material-retention.testnet');
 const walletId = 'frost-vermillion-k7p9m2';
-const ed25519KeyScopeId = walletId;
+const nearEd25519SigningKeyId = walletId;
 const thresholdSessionId = 'threshold-ed25519-material-retention';
 const signingGrantId = 'signing-grant-ed25519-material-retention';
 const runtimePolicyScope = {
@@ -66,7 +66,7 @@ function fixtureEd25519WalletSessionJwt(args: {
       sub: walletId,
       walletId,
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       thresholdSessionId: args.sessionId,
       signingGrantId: args.grantId,
       relayerKeyId: 'ed25519:material-retention-relayer',
@@ -85,7 +85,7 @@ function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -121,7 +121,7 @@ function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): voi
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -153,7 +153,7 @@ function remintSessionWithoutMaterial(args: { signingWorkerId: string }): void {
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -184,7 +184,7 @@ function remintNewSessionWithoutMaterial(args: {
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',

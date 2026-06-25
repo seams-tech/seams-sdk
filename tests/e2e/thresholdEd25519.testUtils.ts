@@ -771,7 +771,7 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
 	  const keygen = await schemeAny.registration.keygenFromRegistrationMaterial({
 	    walletId: input.nearAccountId,
 	    nearAccountId: input.nearAccountId,
-	    ed25519KeyScopeId: input.nearAccountId,
+	    nearEd25519SigningKeyId: input.nearAccountId,
 	    rpId: input.rpId,
     keyVersion: input.keyVersion,
     recoveryExportCapable: true,

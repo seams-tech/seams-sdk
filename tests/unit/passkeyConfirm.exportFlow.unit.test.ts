@@ -197,8 +197,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-2',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                nearAccountId: 'alice.testnet',
-                signerSlot: 1,
+                walletId: 'alice.testnet',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',
@@ -428,8 +427,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-4',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                nearAccountId: 'alice.testnet',
-                signerSlot: 1,
+                walletId: 'alice.testnet',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',
@@ -802,8 +800,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-ecdsa-hss-happy-path',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                nearAccountId: 'alice.testnet',
-                signerSlot: 1,
+                walletId: 'alice.testnet',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',
@@ -915,8 +912,7 @@ test.describe('passkey-confirm export flow worker', () => {
               id: 'export-op-retired-ecdsa-hss-kind',
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
-                nearAccountId: 'alice.testnet',
-                signerSlot: 1,
+                walletId: 'alice.testnet',
                 chainTarget: {
                   kind: 'evm',
                   namespace: 'eip155',

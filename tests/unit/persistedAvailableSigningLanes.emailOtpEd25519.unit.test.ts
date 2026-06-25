@@ -34,7 +34,7 @@ function testEd25519WalletSessionJwt(args: {
     sub: WALLET_ID,
     walletId: WALLET_ID,
     nearAccountId: WALLET_ID,
-    ed25519KeyScopeId: WALLET_ID,
+    nearEd25519SigningKeyId: WALLET_ID,
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId: args.signingGrantId,
     relayerKeyId: 'rk-email-otp-ed25519',
@@ -64,7 +64,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
-      ed25519KeyScopeId: WALLET_ID,
+      nearEd25519SigningKeyId: WALLET_ID,
       rpId: 'localhost',
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
@@ -144,7 +144,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
-      ed25519KeyScopeId: WALLET_ID,
+      nearEd25519SigningKeyId: WALLET_ID,
       rpId: 'localhost',
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',
@@ -223,7 +223,7 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
-      ed25519KeyScopeId: WALLET_ID,
+      nearEd25519SigningKeyId: WALLET_ID,
       rpId: 'localhost',
       relayerUrl: 'https://relay.example.test',
       relayerKeyId: 'rk-email-otp-ed25519',

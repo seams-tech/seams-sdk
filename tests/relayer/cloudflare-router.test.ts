@@ -61,9 +61,25 @@ function validLoginOptionsBody(overrides?: Partial<any>): any {
   };
 }
 
+function validAuthLoginOptionsBody(overrides?: Partial<any>): any {
+  return {
+    user_id: 'bob.testnet',
+    rp_id: 'example.localhost',
+    ...overrides,
+  };
+}
+
 function validLoginVerifyBody(overrides?: Partial<any>): any {
   return {
     unlockBackend: 'passkey',
+    challengeId: 'challenge-123',
+    webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
+    ...overrides,
+  };
+}
+
+function validAuthLoginVerifyBody(overrides?: Partial<any>): any {
+  return {
     challengeId: 'challenge-123',
     webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
     ...overrides,
@@ -1099,7 +1115,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       method: 'POST',
       path: '/auth/passkey/options',
       origin: 'https://example.localhost',
-      body: validLoginOptionsBody(),
+      body: validAuthLoginOptionsBody(),
     });
 
     expect(res.status).toBe(200);
@@ -1111,7 +1127,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const walletBinding = {
       walletId: 'frost-vermillion-k7p9m2',
       nearAccountId: 'b'.repeat(64),
-      ed25519KeyScopeId: 'ed25519ks_sync_scope',
+      nearEd25519SigningKeyId: 'ed25519ks_sync_scope',
       rpId: 'example.localhost',
       signerSlot: 3,
     };
@@ -1149,7 +1165,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const walletBinding = {
       walletId: 'frost-vermillion-k7p9m2',
       nearAccountId: 'b'.repeat(64),
-      ed25519KeyScopeId: 'ed25519ks_sync_scope',
+      nearEd25519SigningKeyId: 'ed25519ks_sync_scope',
       rpId: 'example.localhost',
       signerSlot: 3,
     };
@@ -1160,7 +1176,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         accountId: walletBinding.walletId,
         walletId: walletBinding.walletId,
         nearAccountId: walletBinding.nearAccountId,
-        ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+        nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
         walletBinding,
         rpId: walletBinding.rpId,
         signerSlot: walletBinding.signerSlot,
@@ -1184,7 +1200,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(res.json?.walletId).toBe(walletBinding.walletId);
     expect(res.json?.nearAccountId).toBe(walletBinding.nearAccountId);
-    expect(res.json?.ed25519KeyScopeId).toBe(walletBinding.ed25519KeyScopeId);
+    expect(res.json?.nearEd25519SigningKeyId).toBe(walletBinding.nearEd25519SigningKeyId);
     expect(res.json?.walletBinding).toEqual(walletBinding);
   });
 
@@ -1218,7 +1234,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       method: 'POST',
       path: '/auth/passkey/verify',
       origin: 'https://example.localhost',
-      body: validLoginVerifyBody(),
+      body: validAuthLoginVerifyBody(),
     });
 
     expect(res.status).toBe(400);
@@ -1244,7 +1260,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       method: 'POST',
       path: '/auth/passkey/verify',
       origin: 'https://example.localhost',
-      body: validLoginVerifyBody({ sessionKind: 'jwt' }),
+      body: validAuthLoginVerifyBody(),
     });
 
     expect(res.status).toBe(200);
@@ -1274,7 +1290,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       method: 'POST',
       path: '/auth/passkey/verify',
       origin: 'https://example.localhost',
-      body: validLoginVerifyBody({ sessionKind: 'cookie' }),
+      body: validAuthLoginVerifyBody(),
     });
 
     expect(res.status).toBe(200);
@@ -1306,7 +1322,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       method: 'POST',
       path: '/auth/passkey/verify',
       origin: 'https://example.localhost',
-      body: validLoginVerifyBody({ sessionKind: 'jwt' }),
+      body: validAuthLoginVerifyBody(),
     });
 
     expect(res.status).toBe(200);
@@ -1339,8 +1355,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       path: '/auth/google/verify',
       origin: 'https://example.localhost',
       body: {
-        sessionKind: 'cookie',
-        idToken: 'header.payload.signature',
+        id_token: 'header.payload.signature',
       },
     });
 

@@ -49,11 +49,14 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(
       kind: 'router_ab_ecdsa_hss_normal_signing_v1',
       scope: {
         wallet_key_id: walletKeyId,
+        wallet_id: `budget-curve-collision-${label}.testnet`,
+        ecdsa_threshold_key_id: `ecdsa-key-curve-collision-${label}`,
+        signing_root_id: `signing-root-curve-collision-${label}`,
+        signing_root_version: 'v1',
         context: {
-          wallet_id: `budget-curve-collision-${label}.testnet`,
-          ecdsa_threshold_key_id: `ecdsa-key-curve-collision-${label}`,
-          signing_root_id: `signing-root-curve-collision-${label}`,
-          signing_root_version: 'v1',
+          application_binding_digest_b64u: b64u(
+            Array.from({ length: 32 }, (_, index) => index + 4),
+          ),
         },
         public_identity: {
           context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),

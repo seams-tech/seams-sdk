@@ -12,7 +12,7 @@ import type {
 } from '../../packages/sdk-web/src/core/types/webauthn';
 import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
-  ed25519KeyScopeIdFromString,
+  nearEd25519SigningKeyIdFromString,
   walletIdFromString,
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 
@@ -176,7 +176,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
   const result = await storeWalletEd25519RegistrationData(deps as any, {
     walletId: walletIdFromString('wallet_alice'),
     nearAccountId: toAccountId('alice.testnet'),
-    ed25519KeyScopeId: String(ed25519KeyScopeIdFromString('wallet_alice')),
+    nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString('wallet_alice')),
     credential,
     signerSlot: 2,
     operationalPublicKey: 'ed25519:public',
@@ -212,7 +212,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
       metadata: {
         walletId: 'wallet_alice',
         nearAccountId: 'alice.testnet',
-        ed25519KeyScopeId: 'wallet_alice',
+        nearEd25519SigningKeyId: 'wallet_alice',
         operationalPublicKey: 'ed25519:public',
         relayerKeyId: 'relayer-key',
       },
@@ -280,7 +280,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
   const result = await finalizeWalletEd25519SignerRegistration(deps as any, {
     walletId: walletIdFromString('wallet_alice'),
     nearAccountId: toAccountId('alice.testnet'),
-    ed25519KeyScopeId: String(ed25519KeyScopeIdFromString('alice.testnet')),
+    nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString('alice.testnet')),
     credential: authenticationCredential,
     signerSlot: 3,
     operationalPublicKey: 'ed25519:public',
@@ -310,7 +310,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
       metadata: {
         walletId: 'wallet_alice',
         nearAccountId: 'alice.testnet',
-        ed25519KeyScopeId: 'alice.testnet',
+        nearEd25519SigningKeyId: 'alice.testnet',
         operationalPublicKey: 'ed25519:public',
         relayerKeyId: 'relayer-key',
       },
@@ -322,7 +322,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
     payload: {
       walletId: 'wallet_alice',
       nearAccountId: 'alice.testnet',
-      ed25519KeyScopeId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'alice.testnet',
       relayerKeyId: 'relayer-key',
       keyVersion: 'threshold-ed25519-hss-v1',
     },
@@ -614,7 +614,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
   await storeWalletEd25519RegistrationData(ed25519ThenEcdsa.deps as any, {
     walletId,
     nearAccountId: toAccountId('matrix.testnet'),
-    ed25519KeyScopeId: String(ed25519KeyScopeIdFromString(String(walletId))),
+    nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString(String(walletId))),
     credential,
     signerSlot: 1,
     operationalPublicKey: 'ed25519:public',
@@ -640,7 +640,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
   await finalizeWalletEd25519SignerRegistration(ecdsaThenEd25519.deps as any, {
     walletId,
     nearAccountId: toAccountId('matrix.testnet'),
-    ed25519KeyScopeId: String(ed25519KeyScopeIdFromString('matrix.testnet')),
+    nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString('matrix.testnet')),
     credential: authenticationCredential,
     signerSlot: 2,
     operationalPublicKey: 'ed25519:public',
