@@ -375,7 +375,7 @@ async function attachEd25519WalletSessionJwt(
       thresholdSessionId: session.thresholdSessionId,
       walletId: session.walletId,
       nearAccountId: session.nearAccountId,
-      ed25519KeyScopeId: session.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
       runtimePolicyScope: session.runtimePolicyScope,
       routerAbNormalSigning: session.routerAbNormalSigning,
     },

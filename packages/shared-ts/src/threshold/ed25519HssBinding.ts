@@ -1,6 +1,6 @@
 import { sha256Bytes } from '../utils/digests';
 import { base64UrlEncode } from '../utils/encoders';
-import type { Ed25519KeyScopeId } from '../utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '../utils/registrationIntent';
 import type { SigningRootId, SigningRootVersion } from './ecdsaHssRoleLocalBootstrap';
 
 const SDK_ED25519_HSS_APPLICATION_BINDING_DOMAIN_V1 =
@@ -11,7 +11,7 @@ export type Ed25519HssApplicationBindingDigestB64u = string & {
 };
 
 export type SdkEd25519HssBindingFacts = {
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
 };
@@ -42,7 +42,7 @@ export function encodeSdkEd25519HssBindingFactsV1(input: SdkEd25519HssBindingFac
   const domainBytes = new TextEncoder().encode(SDK_ED25519_HSS_APPLICATION_BINDING_DOMAIN_V1);
   pushU32(out, domainBytes.length);
   out.push(...domainBytes);
-  pushLengthDelimitedField(out, 'ed25519KeyScopeId', input.ed25519KeyScopeId);
+  pushLengthDelimitedField(out, 'nearEd25519SigningKeyId', input.nearEd25519SigningKeyId);
   pushLengthDelimitedField(out, 'signingRootId', input.signingRootId);
   pushLengthDelimitedField(out, 'signingRootVersion', input.signingRootVersion);
   return new Uint8Array(out);

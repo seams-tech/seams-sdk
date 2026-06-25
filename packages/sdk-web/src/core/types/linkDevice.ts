@@ -39,13 +39,15 @@ export interface DeviceLinkingSession {
   tempPrivateKey?: string; // For Option F flow - temporary private key before replacement
 }
 
-export interface LinkDeviceResult extends ActionResult {
-  /** Public key added on Device1 (ephemeral key for device linking). */
-  device2PublicKey: string;
-  transactionId?: string;
-  fundingAmount: string;
-  linkedToAccount?: string; // The account ID that the device key was added to
-}
+export type LinkDeviceResult =
+  | (Extract<ActionResult, { success: true }> & {
+      /** Public key added on Device1 (ephemeral key for device linking). */
+      device2PublicKey: string;
+      transactionId?: string;
+      fundingAmount: string;
+      linkedToAccount?: string; // The account ID that the device key was added to
+    })
+  | Extract<ActionResult, { success: false }>;
 
 export class DeviceLinkingError extends Error {
   constructor(

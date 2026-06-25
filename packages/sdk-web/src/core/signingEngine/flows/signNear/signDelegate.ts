@@ -73,6 +73,7 @@ import {
   type SigningOperationCommand,
 } from '../shared/signingStateMachine';
 import {
+  buildSigningConfirmationAuthParams,
   confirmationConfigForSigningAuthPlan,
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
@@ -268,15 +269,27 @@ export async function runNearDelegateActionSigning({
     signingSessionPlan: resolvedSigningSession.signingSessionPlan,
     signingOperation,
     runtime: touchConfirm,
-      request: {
-        ctx: { touchConfirm },
-        sessionId,
-        chain: 'near',
-        kind: 'delegate',
-        ...confirmationAuthPayload,
-	        walletId: String(commandSubject.walletSession.walletId),
-        nearAccountId,
-        delegate: delegateSigningPayloads.confirmationDelegate,
+    request: {
+      ctx: { touchConfirm },
+      sessionId,
+      chain: 'near',
+      kind: 'delegate',
+      ...buildSigningConfirmationAuthParams({
+        signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
+        emailOtpPrompt:
+          preparedStepUp.kind === 'email_otp' ? preparedStepUp.emailOtpPrompt : undefined,
+        webauthnChallenge:
+          preparedStepUp.kind === 'passkey' &&
+          preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
+            ? {
+                kind: 'threshold_session_policy' as const,
+                digest32B64u: preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
+              }
+            : undefined,
+      }),
+      walletId: String(commandSubject.walletSession.walletId),
+      nearAccountId,
+      delegate: delegateSigningPayloads.confirmationDelegate,
       rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
       confirmationConfigOverride: confirmationConfigForSigningAuthPlan({

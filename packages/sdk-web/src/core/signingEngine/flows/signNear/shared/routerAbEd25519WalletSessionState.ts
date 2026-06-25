@@ -77,7 +77,8 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
         ? buildNearTransactionSigningLane({
             walletId: record.walletId,
             nearAccountId: record.nearAccountId,
-            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+            signerSlot: recordCandidate.signerSlot,
             auth: recordCandidate.auth,
             signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
             thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
@@ -90,7 +91,8 @@ function resolveRouterAbEd25519WalletSessionStateFromParsedSession(args: {
         ? buildNearTransactionSigningLane({
             walletId: record.walletId,
             nearAccountId: record.nearAccountId,
-            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+            signerSlot: recordCandidate.signerSlot,
             auth: recordCandidate.auth,
             signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
             thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),

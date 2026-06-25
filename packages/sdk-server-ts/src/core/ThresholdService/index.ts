@@ -18,8 +18,11 @@ export {
 export {
   createEd25519WalletSessionStore,
   createEcdsaWalletSessionStore,
+  createWalletSigningBudgetSessionStore,
   type Ed25519WalletSessionStore,
   type Ed25519WalletSessionRecord,
+  type WalletSigningBudgetSessionStore,
+  type WalletSigningBudgetSessionRecord,
 } from './stores/WalletSessionStore';
 export {
   ensureThresholdEd25519HssWasm,

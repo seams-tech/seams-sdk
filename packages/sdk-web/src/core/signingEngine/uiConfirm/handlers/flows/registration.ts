@@ -1,5 +1,5 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
-import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
 import {
   TransactionSummary,
   RegistrationUserConfirmRequest,
@@ -74,7 +74,7 @@ export async function handleRegistrationFlow(
   request: RegistrationUserConfirmRequest,
   worker: UserConfirmResponsePort,
   opts: {
-    confirmationConfig: ConfirmationConfig;
+    confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeName;
   },

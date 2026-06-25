@@ -1,4 +1,6 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import { normalizeConfirmationConfig } from '@/core/types/confirmationConfig';
 import type { UiConfirmContext } from '../uiConfirm.types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
@@ -30,7 +32,7 @@ import { isObject, isString } from '@shared/utils/validation';
 export function determineConfirmationConfig(
   ctx: UiConfirmContext,
   request: UserConfirmRequest | undefined,
-): ConfirmationConfig {
+): NormalizedConfirmationConfig {
   // Merge request‑level override over user preferences
   // Important: drop undefined/null fields from the override so they don't clobber
   // persisted preferences (e.g., behavior) with an undefined value.
@@ -45,16 +47,15 @@ export function determineConfirmationConfig(
   // WebAuthn credentials silently and the worker may follow up with a
   // SHOW_SECURE_PRIVATE_KEY_UI request to display the key.
   if (request?.type === UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF) {
-    return {
+    return normalizeConfirmationConfig({
       uiMode: 'none',
       behavior: cfg.behavior,
       autoProceedDelay: cfg.autoProceedDelay,
-      // container selection handled by uiMode only
-    } as ConfirmationConfig;
+    });
   }
 
   // Detect if running inside an iframe (wallet host context)
-  const inIframe = (() => window.self !== window.top)();
+  const inIframe = window.self !== window.top;
 
   // On Safari/iOS or mobile devices without a fresh user activation,
   // clamp to a clickable UI to reliably satisfy WebAuthn requirements.
@@ -82,21 +83,21 @@ export function determineConfirmationConfig(
       request.type === UserConfirmationType.REGISTER_ACCOUNT &&
       hasWalletIframeRegistrationActivation(request.payload)
     ) {
-      return {
+      return normalizeConfirmationConfig({
         uiMode: 'none',
         behavior: 'skipClick',
         autoProceedDelay: 0,
-      } as ConfirmationConfig;
+      });
     }
-    return {
+    return normalizeConfirmationConfig({
       uiMode: 'modal',
       behavior: 'requireClick',
       autoProceedDelay: cfg.autoProceedDelay,
-    } as ConfirmationConfig;
+    });
   }
 
   // Otherwise honor caller/user configuration
-  return cfg;
+  return normalizeConfirmationConfig(cfg);
 }
 
 function hasWalletIframeRegistrationActivation(payload: unknown): boolean {

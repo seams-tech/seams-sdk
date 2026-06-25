@@ -4,15 +4,25 @@ export type SignNEP413MessageParams = {
   state?: string;
 };
 
-export type SignNEP413MessageResult = {
-  success: boolean;
-  accountId?: string;
-  publicKey?: string;
-  signature?: string;
-  nonce?: string;
-  state?: string;
-  error?: string;
-};
+export type SignNEP413MessageResult =
+  | {
+      success: true;
+      accountId: string;
+      publicKey: string;
+      signature: string;
+      nonce: string;
+      state?: string;
+      error?: never;
+    }
+  | {
+      success: false;
+      error: string;
+      accountId?: never;
+      publicKey?: never;
+      signature?: never;
+      nonce?: never;
+      state?: never;
+    };
 
 export type SyncAccountResult =
   | {
@@ -20,7 +30,7 @@ export type SyncAccountResult =
       accountId: string;
       walletId: string;
       nearAccountId: string;
-      ed25519KeyScopeId: string;
+      nearEd25519SigningKeyId: string;
       publicKey: string;
       message: string;
       loginState: {
@@ -39,5 +49,5 @@ export type SyncAccountResult =
       };
       walletId?: never;
       nearAccountId?: never;
-      ed25519KeyScopeId?: never;
+      nearEd25519SigningKeyId?: never;
     };

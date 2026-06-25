@@ -30,7 +30,7 @@ const invalidEd25519WriteInput: BuildCurrentEd25519SealedSessionRecordInput = {
   relayerUrl: 'https://relay.example',
 	  ed25519Restore: {
 	    nearAccountId: 'wallet.testnet',
-	    ed25519KeyScopeId: 'wallet.testnet',
+	    nearEd25519SigningKeyId: 'wallet.testnet',
 	    rpId: 'wallet.example.localhost',
     relayerKeyId: 'relayer-key',
     participantIds: [1, 2, 3],

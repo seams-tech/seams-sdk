@@ -1,6 +1,6 @@
 import {
   addAuthMethodIntentGrantFromString,
-  ed25519KeyScopeIdFromWalletId,
+  nearEd25519SigningKeyIdFromWalletId,
   implicitNearAccountProvisioning,
   registrationIntentGrantFromString,
   walletIdFromString,
@@ -157,7 +157,7 @@ const preparationBase = {
     orgId: allocatedIntent.orgId,
     signingRootId: 'project:env',
     signingRootVersion: 'default',
-    ed25519KeyScopeId: ed25519KeyScopeIdFromWalletId(intent.walletId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromWalletId(intent.walletId),
     signerSlot: intent.signerSelection.ed25519.signerSlot,
     keyPurpose: intent.signerSelection.ed25519.keyPurpose,
     keyVersion: intent.signerSelection.ed25519.keyVersion,

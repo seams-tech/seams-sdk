@@ -267,12 +267,12 @@ export type NonceLaneLeaseStoreRecord =
       chainTarget: ThresholdEcdsaChainTarget;
       sender: `0x${string}` | string;
       nonceKey?: string;
-      accountId?: string;
+      accountId: string;
     })
   | (NonceLaneLeaseStoreRecordBase & {
       family: 'near';
-      walletId?: string;
-      accountId: string;
+      walletId: string;
+      nearAccountId: string;
       publicKey: string;
     });
 

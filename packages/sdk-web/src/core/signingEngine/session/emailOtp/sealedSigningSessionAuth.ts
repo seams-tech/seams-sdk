@@ -32,12 +32,13 @@ export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
     return null;
   }
   const record = normalized.record;
+  const signer = input.lane.signer;
   if (record.authMethod !== 'email_otp') return null;
-  if (String(record.walletId || '').trim() !== String(input.lane.walletId)) return null;
+  if (String(record.walletId || '').trim() !== String(signer.walletId)) return null;
   if (String(record.thresholdSessionId || '').trim() !== thresholdSessionId) return null;
   if (String(record.signingGrantId || '').trim() !== String(input.lane.signingGrantId)) return null;
-  if (String(record.keyHandle || '').trim() !== String(input.lane.keyHandle)) return null;
-  if (String(record.ecdsaThresholdKeyId || '').trim() !== String(input.lane.key.ecdsaThresholdKeyId)) {
+  if (String(record.keyHandle || '').trim() !== String(signer.keyHandle)) return null;
+  if (String(record.ecdsaThresholdKeyId || '').trim() !== String(signer.key.ecdsaThresholdKeyId)) {
     return null;
   }
   if (String(record.providerSubjectId || '').trim() !== String(input.lane.auth.providerSubjectId)) {
@@ -45,7 +46,7 @@ export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
   }
   if (
     thresholdEcdsaChainTargetKey(record.chainTarget) !==
-    thresholdEcdsaChainTargetKey(input.lane.chainTarget)
+    thresholdEcdsaChainTargetKey(signer.chainTarget)
   ) {
     return null;
   }

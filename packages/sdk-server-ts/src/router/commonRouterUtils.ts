@@ -177,7 +177,7 @@ export type RouterAbEd25519WalletSessionJwtSigningInput = RouterAbWalletSessionJ
     sessionKind: 'jwt';
     walletId: unknown;
     nearAccountId: unknown;
-    ed25519KeyScopeId: unknown;
+    nearEd25519SigningKeyId: unknown;
     runtimePolicyScope: unknown;
     routerAbNormalSigning: unknown;
   };
@@ -210,7 +210,7 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
   if (
     !('walletId' in input) ||
     !('nearAccountId' in input) ||
-    !('ed25519KeyScopeId' in input) ||
+    !('nearEd25519SigningKeyId' in input) ||
     !('runtimePolicyScope' in input) ||
     !('routerAbNormalSigning' in input)
   )
@@ -219,7 +219,7 @@ export function parseRouterAbEd25519WalletSessionJwtSessionInfo(
     sessionKind: 'jwt',
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
-    ed25519KeyScopeId: input.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     thresholdSessionId: input.thresholdSessionId,
     signingGrantId: input.signingGrantId,
     expiresAtMs: input.expiresAtMs,
@@ -237,7 +237,7 @@ export function parseRouterAbEd25519BootstrapSessionJwtSessionInfo(
     sessionKind: input.sessionKind,
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
-    ed25519KeyScopeId: input.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     thresholdSessionId: input.thresholdSessionId,
     signingGrantId: input.signingGrantId,
     expiresAtMs: input.expiresAtMs,
@@ -328,7 +328,7 @@ function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519WalletSessionJ
       ok: true;
       walletId: string;
       nearAccountId: string;
-      ed25519KeyScopeId: string;
+      nearEd25519SigningKeyId: string;
       runtimePolicyScope: RuntimePolicyScope;
       routerAbNormalSigning: RouterAbEd25519NormalSigningState;
     }
@@ -336,9 +336,9 @@ function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519WalletSessionJ
   try {
     const walletId = String(args.sessionInfo.walletId || '').trim();
     const nearAccountId = String(args.sessionInfo.nearAccountId || '').trim();
-    const ed25519KeyScopeId = String(args.sessionInfo.ed25519KeyScopeId || '').trim();
+    const nearEd25519SigningKeyId = String(args.sessionInfo.nearEd25519SigningKeyId || '').trim();
     const subjectWalletId = String(args.userId || '').trim();
-    if (!walletId || !nearAccountId || !ed25519KeyScopeId || walletId !== subjectWalletId) {
+    if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || walletId !== subjectWalletId) {
       throw new Error('invalid Ed25519 wallet session identity');
     }
     const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
@@ -348,7 +348,7 @@ function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519WalletSessionJ
     const runtimePolicyScope = normalizeRuntimePolicyScope(
       args.sessionInfo.runtimePolicyScope as Record<string, unknown>,
     );
-    return { ok: true, walletId, nearAccountId, ed25519KeyScopeId, runtimePolicyScope, routerAbNormalSigning };
+    return { ok: true, walletId, nearAccountId, nearEd25519SigningKeyId, runtimePolicyScope, routerAbNormalSigning };
   } catch {
     return {
       ok: false,
@@ -553,7 +553,7 @@ type RouterAbEd25519WalletSessionClaimsBuildInput = {
   rpId: string;
   binding: {
     nearAccountId: string;
-    ed25519KeyScopeId: string;
+    nearEd25519SigningKeyId: string;
     runtimePolicyScope: RuntimePolicyScope;
     routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   };
@@ -577,7 +577,7 @@ function buildRouterAbEd25519WalletSessionClaims(
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
     walletId: input.base.userId,
     nearAccountId: input.binding.nearAccountId,
-    ed25519KeyScopeId: input.binding.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: input.binding.nearEd25519SigningKeyId,
     thresholdSessionId: input.base.thresholdSessionId,
     signingGrantId: input.base.signingGrantId,
     relayerKeyId: input.base.relayerKeyId,

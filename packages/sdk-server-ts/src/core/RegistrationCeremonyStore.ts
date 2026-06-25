@@ -145,7 +145,7 @@ export type StoredEd25519RegistrationPrepareScope = {
   orgId: string;
   signingRootId: string;
   signingRootVersion: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   signerSlot: number;
   keyPurpose: string;
   keyVersion: string;
@@ -281,7 +281,7 @@ export function storedEd25519RegistrationPrepareScopesMatch(
     left.orgId === right.orgId &&
     left.signingRootId === right.signingRootId &&
     left.signingRootVersion === right.signingRootVersion &&
-    left.ed25519KeyScopeId === right.ed25519KeyScopeId &&
+    left.nearEd25519SigningKeyId === right.nearEd25519SigningKeyId &&
     left.signerSlot === right.signerSlot &&
     left.keyPurpose === right.keyPurpose &&
     left.keyVersion === right.keyVersion &&
@@ -940,13 +940,13 @@ function parseFinalizeReplayResponse(
   if (value.ed25519 !== undefined) {
     if (!isRecord(value.ed25519) || value.ed25519.session !== undefined) return null;
     const nearAccountId = trimString(value.ed25519.nearAccountId);
-    const ed25519KeyScopeId = trimString(value.ed25519.ed25519KeyScopeId);
+    const nearEd25519SigningKeyId = trimString(value.ed25519.nearEd25519SigningKeyId);
     const publicKey = trimString(value.ed25519.publicKey);
     const relayerKeyId = trimString(value.ed25519.relayerKeyId);
     const keyVersion = trimString(value.ed25519.keyVersion);
     if (
       !nearAccountId ||
-      !ed25519KeyScopeId ||
+      !nearEd25519SigningKeyId ||
       !publicKey ||
       !relayerKeyId ||
       !keyVersion ||
@@ -962,7 +962,7 @@ function parseFinalizeReplayResponse(
     if (participantIds && participantIds.some((id) => !Number.isSafeInteger(id))) return null;
     ed25519 = {
       nearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       publicKey,
       relayerKeyId,
       keyVersion,
@@ -1080,7 +1080,7 @@ function parseStoredEd25519RegistrationPrepareScope(
   const orgId = typeof value.orgId === 'string' ? value.orgId : null;
   const signingRootId = trimString(value.signingRootId);
   const signingRootVersion = trimString(value.signingRootVersion);
-  const ed25519KeyScopeId = trimString(value.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = trimString(value.nearEd25519SigningKeyId);
   const signerSlot = Number(value.signerSlot);
   const keyPurpose = trimString(value.keyPurpose);
   const keyVersion = trimString(value.keyVersion);
@@ -1095,7 +1095,7 @@ function parseStoredEd25519RegistrationPrepareScope(
     (authMethodKind !== 'passkey' && authMethodKind !== 'email_otp') ||
     orgId === null ||
     !signingRootVersion ||
-    !ed25519KeyScopeId ||
+    !nearEd25519SigningKeyId ||
     !Number.isSafeInteger(signerSlot) ||
     signerSlot < 1 ||
     !keyPurpose ||
@@ -1115,7 +1115,7 @@ function parseStoredEd25519RegistrationPrepareScope(
     orgId,
     signingRootId,
     signingRootVersion,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     signerSlot,
     keyPurpose,
     keyVersion,
@@ -1725,7 +1725,7 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
               AND preparation.record_json #>> '{ed25519Scope,orgId}' = $11
               AND preparation.record_json #>> '{ed25519Scope,signingRootId}' = $12
               AND preparation.record_json #>> '{ed25519Scope,signingRootVersion}' = $13
-              AND preparation.record_json #>> '{ed25519Scope,ed25519KeyScopeId}' = $14
+              AND preparation.record_json #>> '{ed25519Scope,nearEd25519SigningKeyId}' = $14
               AND (preparation.record_json #>> '{ed25519Scope,signerSlot}')::integer = $15
               AND preparation.record_json #>> '{ed25519Scope,keyPurpose}' = $16
               AND preparation.record_json #>> '{ed25519Scope,keyVersion}' = $17
@@ -1748,7 +1748,7 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
         input.ed25519Scope.orgId,
         input.ed25519Scope.signingRootId,
         input.ed25519Scope.signingRootVersion,
-        input.ed25519Scope.ed25519KeyScopeId,
+        input.ed25519Scope.nearEd25519SigningKeyId,
         input.ed25519Scope.signerSlot,
         input.ed25519Scope.keyPurpose,
         input.ed25519Scope.keyVersion,

@@ -19,7 +19,7 @@ import type {
   WalletAuthMethod,
 } from '@shared/utils';
 import type {
-  Ed25519KeyScopeId,
+  NearEd25519SigningKeyId,
   RegistrationNearAccountProvisioning,
   ResolvedRegistrationNearAccount,
   WalletId,
@@ -399,15 +399,61 @@ export interface AppearanceConfig {
 export type RegistrationResult =
   | {
       success: true;
+      kind: 'near_wallet_registered';
       walletId: WalletId;
-      accountProvisioning?: RegistrationNearAccountProvisioning;
-      resolvedAccount?: ResolvedRegistrationNearAccount;
-      ed25519KeyScopeId?: Ed25519KeyScopeId;
-      operationalPublicKey?: string | null;
-      nearAccountId?: AccountId;
-      transactionId?: string | null;
+      accountProvisioning: RegistrationNearAccountProvisioning;
+      resolvedAccount: ResolvedRegistrationNearAccount;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      operationalPublicKey: string | null;
+      nearAccountId: AccountId;
+      transactionId: string | null;
       thresholdEcdsaEthereumAddress?: string;
       thresholdEcdsaPublicKeyB64u?: string;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      success: true;
+      kind: 'ecdsa_wallet_registered';
+      walletId: WalletId;
+      thresholdEcdsaEthereumAddress: string;
+      thresholdEcdsaPublicKeyB64u: string;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      success: true;
+      kind: 'near_ed25519_signer_added';
+      walletId: WalletId;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+      operationalPublicKey: string | null;
+      nearAccountId: AccountId;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      transactionId?: never;
+      thresholdEcdsaEthereumAddress?: never;
+      thresholdEcdsaPublicKeyB64u?: never;
+      error?: never;
+      errorCode?: never;
+    }
+  | {
+      success: true;
+      kind: 'ecdsa_signer_added';
+      walletId: WalletId;
+      accountProvisioning?: never;
+      resolvedAccount?: never;
+      nearEd25519SigningKeyId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      transactionId?: never;
+      thresholdEcdsaEthereumAddress: string;
+      thresholdEcdsaPublicKeyB64u: string;
       error?: never;
       errorCode?: never;
     }
@@ -415,10 +461,11 @@ export type RegistrationResult =
       success: false;
       error: string;
       errorCode?: RegistrationErrorCode;
+      kind?: never;
       walletId?: never;
       accountProvisioning?: never;
       resolvedAccount?: never;
-      ed25519KeyScopeId?: never;
+      nearEd25519SigningKeyId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
       transactionId?: never;
@@ -462,15 +509,23 @@ export type RegistrationErrorCode =
   | RelayBootstrapTokenErrorCode
   | string;
 
-export interface LoginResult {
-  success: boolean;
-  error?: string;
-  loggedInNearAccountId?: string;
-  operationalPublicKey?: string | null;
-  nearAccountId?: AccountId;
-  // Present when session.kind === 'jwt' and verification succeeded
-  jwt?: string;
-}
+export type LoginResult =
+  | {
+      success: true;
+      loggedInNearAccountId: string;
+      operationalPublicKey: string | null;
+      nearAccountId: AccountId;
+      jwt?: string;
+      error?: never;
+    }
+  | {
+      success: false;
+      error: string;
+      loggedInNearAccountId?: never;
+      operationalPublicKey?: never;
+      nearAccountId?: never;
+      jwt?: never;
+    };
 
 export interface SigningSessionStatus {
   sessionId: string;
@@ -487,14 +542,20 @@ export interface SigningSessionStatus {
   projectionVersion?: string;
 }
 
-export interface LoginAndCreateSessionResult extends LoginResult {
-  signingSession?: SigningSessionStatus;
-}
+export type LoginAndCreateSessionResult =
+  | (Extract<LoginResult, { success: true }> & {
+      signingSession?: SigningSessionStatus;
+    })
+  | (Extract<LoginResult, { success: false }> & {
+      signingSession?: never;
+    });
 
-export interface ThresholdWarmLoginAndCreateSessionResult extends LoginAndCreateSessionResult {
-  success: true;
+export type ThresholdWarmLoginAndCreateSessionResult = Extract<
+  LoginAndCreateSessionResult,
+  { success: true }
+> & {
   signingSession: SigningSessionStatus & { status: 'active' };
-}
+};
 
 export interface WalletSession {
   login: LoginState;
@@ -506,14 +567,22 @@ export interface WalletSession {
   nonceDiagnostics?: NonceCoordinatorDiagnostics | null;
 }
 
-export interface ActionResult {
-  success: boolean;
-  error?: string;
-  // Optional structured error details when available (e.g., NEAR RPC error payload)
-  errorDetails?: unknown;
-  transactionId?: string;
-  result?: FinalExecutionOutcome;
-}
+export type ActionResult =
+  | {
+      success: true;
+      transactionId?: string;
+      result?: FinalExecutionOutcome;
+      error?: never;
+      errorDetails?: never;
+    }
+  | {
+      success: false;
+      error: string;
+      // Optional structured error details when available (e.g., NEAR RPC error payload)
+      errorDetails?: unknown;
+      transactionId?: never;
+      result?: never;
+    };
 
 export interface SignTransactionResult {
   signedTransaction: SignedTransaction;

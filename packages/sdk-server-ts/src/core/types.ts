@@ -92,7 +92,7 @@ export type ThresholdEd25519RegistrationAccountScope =
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
-      ed25519KeyScopeId: string;
+      nearEd25519SigningKeyId: string;
       signerSlot: number;
       keyPurpose: string;
       keyVersion: string;
@@ -108,7 +108,7 @@ export type ThresholdEd25519RegistrationAccountScope =
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
-      ed25519KeyScopeId: string;
+      nearEd25519SigningKeyId: string;
       signerSlot: number;
       keyPurpose: string;
       keyVersion: string;
@@ -124,7 +124,7 @@ export type ThresholdEd25519RegistrationAccountScope =
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
-      ed25519KeyScopeId: string;
+      nearEd25519SigningKeyId: string;
       signerSlot: number;
       keyPurpose: string;
       keyVersion: string;
@@ -635,7 +635,7 @@ export type WalletAddSignerFinalizeResponse =
       rpId: string;
       ed25519?: {
         nearAccountId: string;
-        ed25519KeyScopeId: string;
+        nearEd25519SigningKeyId: string;
         publicKey: string;
         relayerKeyId: string;
         keyVersion: string;
@@ -949,7 +949,7 @@ export type WalletRegistrationFinalizeResponse =
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ed25519: {
         nearAccountId: string;
-        ed25519KeyScopeId: string;
+        nearEd25519SigningKeyId: string;
         publicKey: string;
         relayerKeyId: string;
         keyVersion: string;
@@ -995,7 +995,7 @@ export type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;
@@ -1225,6 +1225,7 @@ export type ThresholdStoreEnvInput = {
    * - `THRESHOLD_ED25519_WALLET_SESSION_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:wallet-session:`
    * - `THRESHOLD_ED25519_SESSION_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:sess:`
    * - `THRESHOLD_ED25519_KEYSTORE_PREFIX` = `${THRESHOLD_PREFIX}:threshold-ed25519:key:`
+   * - `THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX` = `${THRESHOLD_PREFIX}:wallet-session:budget:`
    *
    * Trailing `:` is optional.
    */
@@ -1232,6 +1233,7 @@ export type ThresholdStoreEnvInput = {
   THRESHOLD_ED25519_KEYSTORE_PREFIX?: string;
   THRESHOLD_ED25519_SESSION_PREFIX?: string;
   THRESHOLD_ED25519_WALLET_SESSION_PREFIX?: string;
+  THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX?: string;
   /**
    * Ed25519 relayer-share source mode. This remains Ed25519-specific because
    * it controls the Ed25519 threshold signing protocol, not the shared store.
@@ -1575,7 +1577,7 @@ export type Ed25519SessionPolicy = {
   version: 'threshold_session_v1';
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   relayerKeyId: string;
   thresholdSessionId: string;
@@ -1605,7 +1607,7 @@ export interface ThresholdEd25519SessionResponse {
   message?: string;
   walletId?: string;
   nearAccountId?: string;
-  ed25519KeyScopeId?: string;
+  nearEd25519SigningKeyId?: string;
   thresholdSessionId?: string;
   signingGrantId?: string;
   /** Server-enforced expiry (ms since epoch). */

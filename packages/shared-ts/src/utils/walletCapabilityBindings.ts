@@ -6,8 +6,8 @@ import {
   type NamedNearAccountId,
 } from './near';
 import {
-  ed25519KeyScopeIdFromString,
-  type Ed25519KeyScopeId,
+  nearEd25519SigningKeyIdFromString,
+  type NearEd25519SigningKeyId,
 } from './registrationIntent';
 
 export type RpId = string & {
@@ -59,8 +59,9 @@ export type NearAccountBinding =
     };
 
 export type NearEd25519SignerBinding = {
+  readonly kind: 'near_ed25519_signer';
   readonly account: NearAccountBinding;
-  readonly ed25519KeyScopeId: Ed25519KeyScopeId;
+  readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   readonly signerSlot: number;
 };
 
@@ -98,12 +99,12 @@ function parseStringField(
 
 function parseSignerSlot(raw: unknown): WalletCapabilityBindingParseResult<number> {
   const signerSlot = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isSafeInteger(signerSlot) || signerSlot < 0) {
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
     return {
       ok: false,
       error: {
         code: 'invalid',
-        message: 'signerSlot must be a non-negative integer',
+        message: 'signerSlot must be an integer >= 1',
       },
     };
   }
@@ -337,14 +338,15 @@ export function nearAccountBindingFromRaw(
 
 export function buildNearEd25519SignerBinding(args: {
   account: NearAccountBinding;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
 }): NearEd25519SignerBinding {
   const signerSlot = parseSignerSlot(args.signerSlot);
   if (!signerSlot.ok) throw new Error(signerSlot.error.message);
   return {
+    kind: 'near_ed25519_signer',
     account: args.account,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     signerSlot: signerSlot.value,
   };
 }
@@ -356,7 +358,7 @@ export function nearEd25519SignerBindingFromRaw(
   if (!record) return missingObject('NearEd25519SignerBinding');
   const account = nearAccountBindingFromRaw(record.account);
   if (!account.ok) return account;
-  const keyScopeRaw = parseStringField(record.ed25519KeyScopeId, 'ed25519KeyScopeId');
+  const keyScopeRaw = parseStringField(record.nearEd25519SigningKeyId, 'nearEd25519SigningKeyId');
   if (!keyScopeRaw.ok) return keyScopeRaw;
   const signerSlot = parseSignerSlot(record.signerSlot);
   if (!signerSlot.ok) return signerSlot;
@@ -364,7 +366,7 @@ export function nearEd25519SignerBindingFromRaw(
     ok: true,
     value: buildNearEd25519SignerBinding({
       account: account.value,
-      ed25519KeyScopeId: ed25519KeyScopeIdFromString(keyScopeRaw.value),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(keyScopeRaw.value),
       signerSlot: signerSlot.value,
     }),
   };

@@ -4,6 +4,7 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
+  buildSigningConfirmationAuthParams,
   confirmSigningOperation,
   type ConfirmIntentDigestSigningOperationRequest,
   type ConfirmIntentDigestSigningOperationResult,
@@ -44,6 +45,8 @@ export type {
   ConfirmTransactionSigningOperationRequest,
   ConfirmTransactionSigningOperationResult,
 } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
+
+export { buildSigningConfirmationAuthParams };
 
 export function makeRequestId(prefix: string): string {
   return secureRandomId(prefix, 32, 'signing confirmation request IDs');

@@ -99,6 +99,7 @@ import {
 } from '../shared/signingStateMachine';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import {
+  buildSigningConfirmationAuthParams,
   confirmationConfigForSigningAuthPlan,
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
@@ -431,15 +432,27 @@ export async function runNearTransactionWithActionsSigning({
     signingSessionPlan: ed25519SigningBoundary.signingSessionPlan,
     signingOperation,
     runtime: touchConfirm,
-      request: {
-        ctx: { touchConfirm },
-        sessionId,
-        chain: 'near',
-        kind: 'transaction',
-        ...confirmationAuthPayload,
-        walletId: String(signingLane.walletId),
-        txSigningRequests: [confirmationTransaction],
-        rpcCall: resolvedRpcCall,
+    request: {
+      ctx: { touchConfirm },
+      sessionId,
+      chain: 'near',
+      kind: 'transaction',
+      ...buildSigningConfirmationAuthParams({
+        signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
+        emailOtpPrompt:
+          preparedStepUp.kind === 'email_otp' ? preparedStepUp.emailOtpPrompt : undefined,
+        webauthnChallenge:
+          preparedStepUp.kind === 'passkey' &&
+          preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
+            ? {
+                kind: 'threshold_session_policy' as const,
+                digest32B64u: preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
+              }
+            : undefined,
+      }),
+      walletId: String(signingLane.walletId),
+      txSigningRequests: [confirmationTransaction],
+      rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
       confirmationConfigOverride: confirmationConfigForSigningAuthPlan({
         signingAuthPlan: confirmationAuthPayload.signingAuthPlan,
@@ -454,18 +467,6 @@ export async function runNearTransactionWithActionsSigning({
               body: body
                 ? `${body}\n\nFinalizing NEAR signing session...`
                 : 'Finalizing NEAR signing session...',
-            },
-          }
-        : {}),
-      ...(preparedStepUp.kind === 'email_otp'
-        ? { emailOtpPrompt: preparedStepUp.emailOtpPrompt }
-        : {}),
-      ...(preparedStepUp.kind === 'passkey' &&
-      preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
-        ? {
-            webauthnChallenge: {
-              kind: 'threshold_session_policy' as const,
-              digest32B64u: preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
             },
           }
         : {}),

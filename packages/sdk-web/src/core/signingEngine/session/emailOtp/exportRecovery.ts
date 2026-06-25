@@ -532,7 +532,7 @@ export async function exportEd25519SeedWithAuthorization(
         relayUrl,
         walletId: String(walletId),
         nearAccountId: String(nearAccountId),
-        ed25519KeyScopeId: String(args.record.ed25519KeyScopeId || '').trim(),
+        nearEd25519SigningKeyId: String(args.record.nearEd25519SigningKeyId || '').trim(),
         userId,
         challengeId: args.challengeId,
         otpCode: args.otpCode,

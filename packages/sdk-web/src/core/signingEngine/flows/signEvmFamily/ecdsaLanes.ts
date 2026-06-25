@@ -49,6 +49,7 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 
 export type EvmFamilyEcdsaAuthMethod =
   | typeof SIGNER_AUTH_METHODS.emailOtp
@@ -142,7 +143,10 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     });
     throw new Error(`[SigningEngine][ecdsa] ${args.context} requires an ECDSA signing lane`);
   }
-  if (lane.chainFamily !== args.chain) {
+  const identity = lane.identity;
+  const signer = requireEvmFamilyEcdsaSigner(identity, `${args.context} resolved ECDSA lane`);
+  const chainTarget = signer.chainTarget;
+  if (chainTarget.kind !== args.chain) {
     logEvmFamilyEcdsaLaneDiagnostic('selected signing lane chain mismatch', {
       context: args.context,
       expectedChain: args.chain,
@@ -152,27 +156,7 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     throw new Error(`[SigningEngine][ecdsa] ${args.context} chain does not match selected lane`);
   }
 
-  const laneIdentity = tryBuildEcdsaSessionIdentity(lane);
-  if (!laneIdentity) {
-    logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing ECDSA session identity', {
-      context: args.context,
-      expectedChain: args.chain,
-      lane: summarizeEvmFamilyEcdsaLane(lane),
-      ...args.diagnostics,
-    });
-    throw new Error(`[SigningEngine][ecdsa] missing ECDSA session identity for ${args.context}`);
-  }
-  const chainTarget = (lane as { chainTarget?: ThresholdEcdsaChainTarget }).chainTarget;
-  if (!chainTarget || chainTarget.kind !== args.chain) {
-    logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing concrete chain target', {
-      context: args.context,
-      expectedChain: args.chain,
-      lane: summarizeEvmFamilyEcdsaLane(lane),
-      ...args.diagnostics,
-    });
-    throw new Error(`[SigningEngine][ecdsa] missing concrete chain target for ${args.context}`);
-  }
-  const key = (lane as { key?: EvmFamilyEcdsaKeyIdentity }).key;
+  const key = signer.key;
   if (!key?.ecdsaThresholdKeyId || !key.signingRootId || !key.signingRootVersion) {
     logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing full ECDSA identity', {
       context: args.context,
@@ -184,8 +168,8 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   }
   if (
     !key ||
-    String(key.walletId) !== String(lane.walletId) ||
-    String(lane.keyHandle || '').trim() === ''
+    String(key.walletId) !== String(signer.walletId) ||
+    String(signer.keyHandle || '').trim() === ''
   ) {
     logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing matching shared key identity', {
       context: args.context,
@@ -198,11 +182,11 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
 
   const selectedLane = selectedEcdsaLane({
     key,
-    keyHandle: lane.keyHandle,
-    walletId: lane.walletId,
-    auth: lane.auth,
-    signingGrantId: laneIdentity.signingGrantId,
-    thresholdSessionId: laneIdentity.thresholdSessionId,
+    keyHandle: signer.keyHandle,
+    walletId: signer.walletId,
+    auth: identity.auth,
+    signingGrantId: identity.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
     chainTarget,
   });
 
@@ -211,7 +195,7 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     ...selectedLane,
     key,
     keyKind: 'threshold_ecdsa_secp256k1',
-    chainFamily: args.chain,
+    chainFamily: signer.chainTarget.kind,
   };
 }
 
@@ -256,7 +240,11 @@ export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args: {
   context: string;
 }): SelectedEcdsaLane {
   const keyHandle = String(args.identity.keyHandle || '').trim();
-  const laneKeyHandle = String(args.lane.keyHandle || '').trim();
+  const signer = requireEvmFamilyEcdsaSigner(
+    args.lane.identity,
+    `${args.context} material identity`,
+  );
+  const laneKeyHandle = String(signer.keyHandle || '').trim();
   if (!keyHandle) {
     throw new Error(
       `[SigningEngine][ecdsa] ${args.context} received incomplete ECDSA material identity`,
@@ -268,9 +256,9 @@ export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args: {
     );
   }
   return selectedEcdsaLane({
-    key: args.lane.key,
+    key: signer.key,
     keyHandle,
-    walletId: args.lane.walletId,
+    walletId: signer.walletId,
     auth: args.lane.auth,
     chainTarget: args.chainTarget,
     signingGrantId: args.lane.signingGrantId,
@@ -584,7 +572,8 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   if (lane.chain !== 'tempo' && lane.chain !== 'evm') {
     return 'lane chain is not an EVM-family chain';
   }
-  if (String(record.walletId || '') !== String(lane.walletId)) {
+  const signer = requireEvmFamilyEcdsaSigner(lane.identity, 'selected ECDSA record validation');
+  if (String(record.walletId || '') !== String(signer.walletId)) {
     return 'wallet id mismatch';
   }
   if (
@@ -604,7 +593,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   if (recordIdentity.signingGrantId !== laneIdentity.signingGrantId) {
     return 'signing grant id mismatch';
   }
-  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)) {
+  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, signer.chainTarget)) {
     return 'chain mismatch';
   }
   try {
@@ -612,7 +601,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   } catch {
     return 'record key identity mismatch';
   }
-  if (String(record.keyHandle || '').trim() !== String(lane.keyHandle || '').trim()) {
+  if (String(record.keyHandle || '').trim() !== String(signer.keyHandle || '').trim()) {
     return 'key handle mismatch';
   }
   return null;

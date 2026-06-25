@@ -35,7 +35,7 @@ import {
 type PersistWarmSessionEd25519CapabilityIdentity = {
   walletId: string;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -352,14 +352,14 @@ export function persistWarmSessionEd25519Capability(
   const authMethod = args.kind === 'jwt_email_otp' ? 'email_otp' : 'passkey';
   const source = args.source;
   const walletId = nonEmptyString(args.walletId);
-  const ed25519KeyScopeId = nonEmptyString(args.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = nonEmptyString(args.nearEd25519SigningKeyId);
   const passkeyCredentialIdB64u =
     args.kind === 'jwt_passkey' ? nonEmptyString(args.passkeyCredentialIdB64u) : '';
   if (!walletId) {
     throw new Error('Missing walletId for warm threshold-ed25519 capability');
   }
-  if (!ed25519KeyScopeId) {
-    throw new Error('Missing ed25519KeyScopeId for warm threshold-ed25519 capability');
+  if (!nearEd25519SigningKeyId) {
+    throw new Error('Missing nearEd25519SigningKeyId for warm threshold-ed25519 capability');
   }
   if (args.kind === 'jwt_passkey' && !passkeyCredentialIdB64u) {
     throw new Error('Missing passkeyCredentialIdB64u for warm threshold-ed25519 capability');
@@ -385,7 +385,7 @@ export function persistWarmSessionEd25519Capability(
   const record = upsertStoredThresholdEd25519SessionRecord({
     walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: String(args.rpId || '').trim(),
     ...(args.kind === 'jwt_passkey'
       ? { passkeyCredentialIdB64u }

@@ -30,8 +30,8 @@ export type GeneratedImplicitWalletId = WalletId & {
   readonly __generatedImplicitWalletIdBrand: unique symbol;
 };
 
-export type Ed25519KeyScopeId = string & {
-  readonly __ed25519KeyScopeIdBrand: unique symbol;
+export type NearEd25519SigningKeyId = string & {
+  readonly __nearEd25519SigningKeyIdBrand: unique symbol;
 };
 
 export type RegisterWalletInput =
@@ -274,13 +274,13 @@ export type ResolvedRegistrationNearAccount =
   | {
       kind: 'implicit_account';
       nearAccountId: ImplicitNearAccountId;
-      ed25519KeyScopeId: Ed25519KeyScopeId;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       transactionHash?: never;
     }
   | {
       kind: 'sponsored_named_account';
       nearAccountId: NamedNearAccountId;
-      ed25519KeyScopeId: Ed25519KeyScopeId;
+      nearEd25519SigningKeyId: NearEd25519SigningKeyId;
       transactionHash: string;
     };
 
@@ -453,20 +453,20 @@ export function requireGeneratedImplicitWalletId(value: unknown): GeneratedImpli
   return parsed.value;
 }
 
-export function ed25519KeyScopeIdFromString(value: string): Ed25519KeyScopeId {
+export function nearEd25519SigningKeyIdFromString(value: string): NearEd25519SigningKeyId {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    throw new Error('ed25519KeyScopeId is required');
+    throw new Error('nearEd25519SigningKeyId is required');
   }
-  return normalized as Ed25519KeyScopeId;
+  return normalized as NearEd25519SigningKeyId;
 }
 
-export function ed25519KeyScopeIdFromWalletId(walletId: WalletId): Ed25519KeyScopeId {
-  return ed25519KeyScopeIdFromString(String(walletId));
+export function nearEd25519SigningKeyIdFromWalletId(walletId: WalletId): NearEd25519SigningKeyId {
+  return nearEd25519SigningKeyIdFromString(String(walletId));
 }
 
-export type GeneratedImplicitKeyScopeDigestInput = {
-  kind: 'generated_implicit_ed25519_key_scope_v1';
+export type GeneratedImplicitNearEd25519SigningKeyDigestInput = {
+  kind: 'generated_implicit_near_ed25519_signing_key_v1';
   walletId: GeneratedImplicitWalletId;
   rpId: string;
   signingRootId: string;
@@ -478,9 +478,9 @@ export type GeneratedImplicitKeyScopeDigestInput = {
   derivationVersion: number;
 };
 
-export async function computeGeneratedImplicitEd25519KeyScopeId(
-  input: GeneratedImplicitKeyScopeDigestInput,
-): Promise<Ed25519KeyScopeId> {
+export async function computeGeneratedImplicitNearEd25519SigningKeyId(
+  input: GeneratedImplicitNearEd25519SigningKeyDigestInput,
+): Promise<NearEd25519SigningKeyId> {
   const canonical = alphabetizeStringify({
     kind: input.kind,
     walletId: String(input.walletId),
@@ -494,20 +494,20 @@ export async function computeGeneratedImplicitEd25519KeyScopeId(
     derivationVersion: input.derivationVersion,
   });
   const digest = base64UrlEncode(await sha256BytesUtf8(canonical));
-  return ed25519KeyScopeIdFromString(`ed25519ks_${digest}`);
+  return nearEd25519SigningKeyIdFromString(`ed25519ks_${digest}`);
 }
 
-export async function computeRegistrationEd25519KeyScopeId(input: {
+export async function computeRegistrationNearEd25519SigningKeyId(input: {
   walletId: WalletId;
   rpId: string;
   signingRootId: string;
   signingRootVersion: string;
   ed25519: ThresholdEd25519RegistrationSpec;
-}): Promise<Ed25519KeyScopeId> {
+}): Promise<NearEd25519SigningKeyId> {
   switch (input.ed25519.accountProvisioning.kind) {
     case 'implicit_account':
-      return await computeGeneratedImplicitEd25519KeyScopeId({
-        kind: 'generated_implicit_ed25519_key_scope_v1',
+      return await computeGeneratedImplicitNearEd25519SigningKeyId({
+        kind: 'generated_implicit_near_ed25519_signing_key_v1',
         walletId: requireGeneratedImplicitWalletId(input.walletId),
         rpId: input.rpId,
         signingRootId: input.signingRootId,
@@ -519,7 +519,7 @@ export async function computeRegistrationEd25519KeyScopeId(input: {
         derivationVersion: input.ed25519.derivationVersion,
       });
     case 'sponsored_named_account':
-      return ed25519KeyScopeIdFromWalletId(input.walletId);
+      return nearEd25519SigningKeyIdFromWalletId(input.walletId);
     default: {
       const exhaustive: never = input.ed25519.accountProvisioning;
       return exhaustive;

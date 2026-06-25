@@ -97,17 +97,24 @@ export function awaitUserConfirmationV2(
       if (resolveEnvelopeRequestId(env) !== request.requestId) return;
       if (!isMatchingChannelToken(env, channelToken)) return;
       cleanup();
-      const response: WorkerConfirmationResponse = {
-        request_id: request.requestId,
-        intent_digest: env.data.intentDigest,
-        confirmed: env.data.confirmed,
-        credential: env.data.credential,
-        otp_code: env.data.otpCode,
-        email_otp_challenge_id: env.data.emailOtpChallengeId,
-        transaction_context: env.data.transactionContext,
-        registration_diagnostics: env.data.registrationDiagnostics,
-        error: env.data.error,
-      };
+      const response: WorkerConfirmationResponse = env.data.confirmed
+        ? {
+            request_id: request.requestId,
+            intent_digest: env.data.intentDigest,
+            confirmed: true,
+            credential: env.data.credential,
+            otp_code: env.data.otpCode,
+            email_otp_challenge_id: env.data.emailOtpChallengeId,
+            transaction_context: env.data.transactionContext,
+            registration_diagnostics: env.data.registrationDiagnostics,
+          }
+        : {
+            request_id: request.requestId,
+            intent_digest: env.data.intentDigest,
+            confirmed: false,
+            registration_diagnostics: env.data.registrationDiagnostics,
+            error: env.data.error,
+          };
       return resolve(response);
     };
     self.addEventListener('message', onDecisionReceived);

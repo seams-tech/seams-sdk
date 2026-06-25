@@ -412,7 +412,6 @@ export async function executeActionInternal({
       error: e.message,
       // propagate structured RPC details when present so UIs can render helpful errors
       errorDetails: details,
-      transactionId: undefined,
     };
     afterCall?.(false, undefined, e);
     return result;

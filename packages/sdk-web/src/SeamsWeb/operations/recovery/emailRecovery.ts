@@ -30,9 +30,9 @@ import { prepareRecoveryEmails, getLocalRecoveryEmails } from '@/utils/emailReco
 import { restoreLocalLoginState } from '@/SeamsWeb/operations/session/restoreLocalLoginState';
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
 import {
-  ed25519KeyScopeIdFromString,
+  nearEd25519SigningKeyIdFromString,
   walletIdFromString,
-  type Ed25519KeyScopeId,
+  type NearEd25519SigningKeyId,
   type WalletId,
 } from '@shared/utils/registrationIntent';
 import {
@@ -638,7 +638,7 @@ export class EmailRecoveryDomain {
         context,
         walletId: String(recoveredWalletBinding.walletId),
         nearAccountId: recoveredWalletBinding.nearAccountId,
-        ed25519KeyScopeId: String(recoveredWalletBinding.ed25519KeyScopeId),
+        nearEd25519SigningKeyId: String(recoveredWalletBinding.nearEd25519SigningKeyId),
         relayerUrl,
         rpId,
         relayerKeyId,
@@ -655,7 +655,7 @@ export class EmailRecoveryDomain {
         credential,
         walletId: String(recoveredWalletBinding.walletId),
         nearAccountId: recoveredWalletBinding.nearAccountId,
-        ed25519KeyScopeId: recoveredWalletBinding.ed25519KeyScopeId,
+        nearEd25519SigningKeyId: recoveredWalletBinding.nearEd25519SigningKeyId,
         rpId,
         relayerUrl,
         relayerKeyId,
@@ -676,7 +676,7 @@ export class EmailRecoveryDomain {
         accountId: String(recoveredWalletBinding.walletId),
         walletId: String(recoveredWalletBinding.walletId),
         nearAccountId: recoveredWalletBinding.nearAccountId,
-        ed25519KeyScopeId: String(recoveredWalletBinding.ed25519KeyScopeId),
+        nearEd25519SigningKeyId: String(recoveredWalletBinding.nearEd25519SigningKeyId),
         signerSlot,
         requestId,
         recoverySessionId,
@@ -838,7 +838,7 @@ export class EmailRecoveryDomain {
       await this.tryAutoLoginAfterRecovery({
         walletId,
         nearAccountId,
-        ed25519KeyScopeId: ed25519KeyScopeIdFromString(String(pending.ed25519KeyScopeId)),
+        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(String(pending.nearEd25519SigningKeyId)),
         signerSlot,
         flowId,
         requestId,
@@ -877,7 +877,7 @@ export class EmailRecoveryDomain {
   private async tryAutoLoginAfterRecovery(args: {
     walletId: WalletId;
     nearAccountId: AccountId;
-    ed25519KeyScopeId: Ed25519KeyScopeId;
+    nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     signerSlot: number;
     flowId: string;
     requestId?: string;
@@ -901,7 +901,7 @@ export class EmailRecoveryDomain {
         context,
         walletId: args.walletId,
         nearAccountId: args.nearAccountId,
-        ed25519KeyScopeId: args.ed25519KeyScopeId,
+        nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
         signerSlot,
       });
       if (!restored.isLoggedIn) {

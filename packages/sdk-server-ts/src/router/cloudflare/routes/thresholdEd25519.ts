@@ -39,12 +39,7 @@ import {
 } from '../../routerAbPrivateSigningWorker';
 
 function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
-  return (
-    body.kind === 'email_otp_registration' &&
-    typeof body.registrationAttemptId === 'string' &&
-    typeof body.new_account_id === 'string' &&
-    typeof body.rp_id === 'string'
-  );
+  return body.kind === 'email_otp_registration';
 }
 
 function rejectLegacyEmailOtpRegistrationHssRequest(): {
@@ -275,7 +270,7 @@ export async function handleThresholdEd25519(
       }
       const walletId = String(result.walletId || '').trim();
       const nearAccountId = String(result.nearAccountId || '').trim();
-      const ed25519KeyScopeId = String(result.ed25519KeyScopeId || '').trim();
+      const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId || '').trim();
       const rpId = String(b.sessionPolicy?.rpId || '').trim();
       const relayerKeyId = String(b.relayerKeyId || '').trim();
       const thresholdExpiresAtMs = (() => {
@@ -287,12 +282,12 @@ export async function handleThresholdEd25519(
               : NaN;
         return Number.isFinite(ms) && ms > 0 ? ms : undefined;
       })();
-      if (!walletId || !nearAccountId || !ed25519KeyScopeId) {
+      if (!walletId || !nearAccountId || !nearEd25519SigningKeyId) {
         return json(
           {
             ok: false,
             code: 'internal',
-            message: 'threshold session missing walletId/nearAccountId/ed25519KeyScopeId',
+            message: 'threshold session missing walletId/nearAccountId/nearEd25519SigningKeyId',
           },
           { status: 500 },
         );
@@ -327,7 +322,7 @@ export async function handleThresholdEd25519(
           sessionKind: 'jwt',
           walletId,
           nearAccountId,
-          ed25519KeyScopeId,
+          nearEd25519SigningKeyId,
           thresholdSessionId,
           signingGrantId: result.signingGrantId,
           expiresAtMs: thresholdExpiresAtMs,

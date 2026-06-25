@@ -23,6 +23,7 @@ import {
   toThresholdEd25519SessionPrefix,
   toThresholdEd25519PrefixFromBase,
   parseThresholdEd25519MpcSessionRecord,
+  parseThresholdEcdsaMpcSessionRecord,
   parseRouterAbEd25519PresignRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
@@ -52,14 +53,41 @@ export type ThresholdEd25519MpcSessionRecord = {
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
-export type ThresholdEd25519ReadMpcSessionResult = {
-  record: ThresholdEd25519MpcSessionRecord;
+export type ThresholdEcdsaMpcSessionRecord = {
+  expiresAtMs: number;
+  ecdsaThresholdKeyId?: string;
+  keyHandle?: string;
+  relayerKeyId: string;
+  purpose: string;
+  intentDigestB64u: string;
+  signingDigestB64u: string;
+  walletSessionUserId: string;
+  walletKeyId: string;
+  clientVerifyingShareB64u?: string;
+  participantIds: number[];
+} & Partial<ThresholdEcdsaSigningRootMetadata>;
+
+export type ThresholdMpcSessionRecord =
+  | ThresholdEd25519MpcSessionRecord
+  | ThresholdEcdsaMpcSessionRecord;
+
+export type ThresholdReadMpcSessionResult<TRecord extends ThresholdMpcSessionRecord> = {
+  record: TRecord;
   version: string;
 };
 
-export type ThresholdEd25519ClaimMpcSessionResult =
-  | { ok: true; record: ThresholdEd25519MpcSessionRecord }
+export type ThresholdClaimMpcSessionResult<TRecord extends ThresholdMpcSessionRecord> =
+  | { ok: true; record: TRecord }
   | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' | 'invalid_record' };
+
+export type ThresholdEd25519ReadMpcSessionResult =
+  ThresholdReadMpcSessionResult<ThresholdEd25519MpcSessionRecord>;
+export type ThresholdEcdsaReadMpcSessionResult =
+  ThresholdReadMpcSessionResult<ThresholdEcdsaMpcSessionRecord>;
+export type ThresholdEd25519ClaimMpcSessionResult =
+  ThresholdClaimMpcSessionResult<ThresholdEd25519MpcSessionRecord>;
+export type ThresholdEcdsaClaimMpcSessionResult =
+  ThresholdClaimMpcSessionResult<ThresholdEcdsaMpcSessionRecord>;
 
 export type ThresholdEd25519SigningSessionRecord = {
   expiresAtMs: number;
@@ -142,11 +170,15 @@ export type RouterAbEd25519ConsumePresignRefillRateLimitResult =
   | { ok: true }
   | { ok: false; code: 'rate_limited' };
 
-export interface ThresholdEd25519SessionStore {
-  putMpcSession(id: string, record: ThresholdEd25519MpcSessionRecord, ttlMs: number): Promise<void>;
-  readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null>;
-  claimMpcSession(id: string, version: string): Promise<ThresholdEd25519ClaimMpcSessionResult>;
-  takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null>;
+export interface ThresholdMpcSessionStore<TRecord extends ThresholdMpcSessionRecord> {
+  putMpcSession(id: string, record: TRecord, ttlMs: number): Promise<void>;
+  readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TRecord> | null>;
+  claimMpcSession(id: string, version: string): Promise<ThresholdClaimMpcSessionResult<TRecord>>;
+  takeMpcSession(id: string): Promise<TRecord | null>;
+}
+
+export interface ThresholdEd25519SessionStore
+  extends ThresholdMpcSessionStore<ThresholdEd25519MpcSessionRecord> {
   putSigningSession(
     id: string,
     record: ThresholdEd25519SigningSessionRecord,
@@ -182,6 +214,9 @@ export interface ThresholdEd25519SessionStore {
     expectedScope: RouterAbEd25519PresignExpectedScope,
   ): Promise<RouterAbEd25519TakePresignForFinalizeResult>;
 }
+
+export type ThresholdEcdsaSessionStore =
+  ThresholdMpcSessionStore<ThresholdEcdsaMpcSessionRecord>;
 
 function runtimePolicyScopesMatch(
   left: RouterAbEd25519PresignRecord['runtimePolicyScope'],
@@ -268,18 +303,31 @@ function ttlSeconds(ttlMs: number): number {
   return Math.max(1, Math.ceil(Math.max(0, Number(ttlMs) || 0) / 1000));
 }
 
-class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
+type ThresholdMpcSessionRecordParser<TRecord extends ThresholdMpcSessionRecord> = (
+  raw: unknown,
+) => TRecord | null;
+
+class InMemoryThresholdEd25519SessionStore<
+  TMpcRecord extends ThresholdMpcSessionRecord = ThresholdEd25519MpcSessionRecord,
+> {
   private readonly map = new Map<string, { value: unknown; expiresAtMs: number }>();
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
   private readonly presignPrefix: string;
   private readonly presignRateLimitPrefix: string;
+  private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
-  constructor(input: { keyPrefix?: string }) {
+  constructor(input: {
+    keyPrefix?: string;
+    parseMpcSessionRecord?: ThresholdMpcSessionRecordParser<TMpcRecord>;
+  }) {
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
     this.presignPrefix = `${this.keyPrefix}presign:`;
     this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
+    this.parseMpcSessionRecord =
+      input.parseMpcSessionRecord ||
+      (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
   }
 
   private key(id: string): string {
@@ -344,7 +392,7 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putMpcSession(
     id: string,
-    record: ThresholdEd25519MpcSessionRecord,
+    record: TMpcRecord,
     ttlMs: number,
   ): Promise<void> {
     const key = this.key(id);
@@ -352,17 +400,17 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     this.map.set(key, { value: record, expiresAtMs });
   }
 
-  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+  async readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TMpcRecord> | null> {
     const key = this.key(id);
     const raw = this.getRaw(key);
-    const record = parseThresholdEd25519MpcSessionRecord(raw);
+    const record = this.parseMpcSessionRecord(raw);
     return record ? { record, version: stableStoreVersion(raw) } : null;
   }
 
   async claimMpcSession(
     id: string,
     version: string,
-  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+  ): Promise<ThresholdClaimMpcSessionResult<TMpcRecord>> {
     const key = this.key(id);
     const entry = this.map.get(key);
     if (!entry) return { ok: false, code: 'not_found' };
@@ -373,16 +421,16 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     if (stableStoreVersion(entry.value) !== version) {
       return { ok: false, code: 'version_mismatch' };
     }
-    const record = parseThresholdEd25519MpcSessionRecord(entry.value);
+    const record = this.parseMpcSessionRecord(entry.value);
     this.map.delete(key);
     return record ? { ok: true, record } : { ok: false, code: 'invalid_record' };
   }
 
-  async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
+  async takeMpcSession(id: string): Promise<TMpcRecord | null> {
     const key = this.key(id);
     const raw = this.getRaw(key);
     this.map.delete(key);
-    return parseThresholdEd25519MpcSessionRecord(raw);
+    return this.parseMpcSessionRecord(raw);
   }
 
   async putSigningSession(
@@ -519,14 +567,22 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 }
 
-class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
+class UpstashRedisRestThresholdEd25519SessionStore<
+  TMpcRecord extends ThresholdMpcSessionRecord = ThresholdEd25519MpcSessionRecord,
+> {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
   private readonly presignPrefix: string;
   private readonly presignRateLimitPrefix: string;
+  private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
-  constructor(input: { url: string; token: string; keyPrefix?: string }) {
+  constructor(input: {
+    url: string;
+    token: string;
+    keyPrefix?: string;
+    parseMpcSessionRecord?: ThresholdMpcSessionRecordParser<TMpcRecord>;
+  }) {
     const url = toOptionalTrimmedString(input.url);
     const token = toOptionalTrimmedString(input.token);
     if (!url) throw new Error('Upstash session store missing url');
@@ -536,6 +592,9 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
     this.presignPrefix = `${this.keyPrefix}presign:`;
     this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
+    this.parseMpcSessionRecord =
+      input.parseMpcSessionRecord ||
+      (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
   }
 
   private key(id: string): string {
@@ -560,7 +619,7 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
 
   async putMpcSession(
     id: string,
-    record: ThresholdEd25519MpcSessionRecord,
+    record: TMpcRecord,
     ttlMs: number,
   ): Promise<void> {
     const k = id;
@@ -568,12 +627,12 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     await this.client.setJson(this.key(k), record, ttlMs);
   }
 
-  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+  async readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TMpcRecord> | null> {
     const k = id;
     if (!k) return null;
     const raw = await this.client.getRaw(this.key(k));
     const version = typeof raw === 'string' ? raw : stableStoreVersion(raw);
-    const record = parseThresholdEd25519MpcSessionRecord(
+    const record = this.parseMpcSessionRecord(
       typeof raw === 'string' ? parseRawJson(raw) : raw,
     );
     return record ? { record, version } : null;
@@ -582,7 +641,7 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
   async claimMpcSession(
     id: string,
     version: string,
-  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+  ): Promise<ThresholdClaimMpcSessionResult<TMpcRecord>> {
     const k = id;
     if (!k) return { ok: false, code: 'not_found' };
     const raw = await this.client.eval(
@@ -593,17 +652,17 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     if (raw === '__err__:not_found') return { ok: false, code: 'not_found' };
     if (raw === '__err__:expired') return { ok: false, code: 'expired' };
     if (raw === '__err__:version_mismatch') return { ok: false, code: 'version_mismatch' };
-    const parsed = parseThresholdEd25519MpcSessionRecord(
+    const parsed = this.parseMpcSessionRecord(
       parseRawJson(typeof raw === 'string' ? raw : null),
     );
     return parsed ? { ok: true, record: parsed } : { ok: false, code: 'invalid_record' };
   }
 
-  async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
+  async takeMpcSession(id: string): Promise<TMpcRecord | null> {
     const k = id;
     if (!k) return null;
     const raw = await this.client.getdelJson(this.key(k));
-    return parseThresholdEd25519MpcSessionRecord(raw);
+    return this.parseMpcSessionRecord(raw);
   }
 
   async putSigningSession(
@@ -809,14 +868,21 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
   }
 }
 
-class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
+class RedisTcpThresholdEd25519SessionStore<
+  TMpcRecord extends ThresholdMpcSessionRecord = ThresholdEd25519MpcSessionRecord,
+> {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
   private readonly presignPrefix: string;
   private readonly presignRateLimitPrefix: string;
+  private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
-  constructor(input: { redisUrl: string; keyPrefix?: string }) {
+  constructor(input: {
+    redisUrl: string;
+    keyPrefix?: string;
+    parseMpcSessionRecord?: ThresholdMpcSessionRecordParser<TMpcRecord>;
+  }) {
     const url = toOptionalTrimmedString(input.redisUrl);
     if (!url) throw new Error('redis-tcp session store missing redisUrl');
     this.client = new RedisTcpClient(url);
@@ -824,6 +890,9 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
     this.presignPrefix = `${this.keyPrefix}presign:`;
     this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
+    this.parseMpcSessionRecord =
+      input.parseMpcSessionRecord ||
+      (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
   }
 
   private key(id: string): string {
@@ -848,7 +917,7 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putMpcSession(
     id: string,
-    record: ThresholdEd25519MpcSessionRecord,
+    record: TMpcRecord,
     ttlMs: number,
   ): Promise<void> {
     const k = id;
@@ -856,18 +925,18 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     await redisSetJson(this.client, this.key(k), record, ttlMs);
   }
 
-  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+  async readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TMpcRecord> | null> {
     const k = id;
     if (!k) return null;
     const raw = await redisGetRaw(this.client, this.key(k));
-    const record = parseThresholdEd25519MpcSessionRecord(parseRawJson(raw));
+    const record = this.parseMpcSessionRecord(parseRawJson(raw));
     return record && raw ? { record, version: raw } : null;
   }
 
   async claimMpcSession(
     id: string,
     version: string,
-  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+  ): Promise<ThresholdClaimMpcSessionResult<TMpcRecord>> {
     const k = id;
     if (!k) return { ok: false, code: 'not_found' };
     const raw = await redisEval(
@@ -880,15 +949,15 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     if (value === '__err__:not_found') return { ok: false, code: 'not_found' };
     if (value === '__err__:expired') return { ok: false, code: 'expired' };
     if (value === '__err__:version_mismatch') return { ok: false, code: 'version_mismatch' };
-    const parsed = parseThresholdEd25519MpcSessionRecord(parseRawJson(value));
+    const parsed = this.parseMpcSessionRecord(parseRawJson(value));
     return parsed ? { ok: true, record: parsed } : { ok: false, code: 'invalid_record' };
   }
 
-  async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
+  async takeMpcSession(id: string): Promise<TMpcRecord | null> {
     const k = id;
     if (!k) return null;
     const raw = await redisGetdelJson(this.client, this.key(k));
-    return parseThresholdEd25519MpcSessionRecord(raw);
+    return this.parseMpcSessionRecord(raw);
   }
 
   async putSigningSession(
@@ -1109,13 +1178,23 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 }
 
-class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
+class PostgresThresholdEd25519SessionStore<
+  TMpcRecord extends ThresholdMpcSessionRecord = ThresholdEd25519MpcSessionRecord,
+> {
   private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
   private readonly namespace: string;
+  private readonly parseMpcSessionRecord: ThresholdMpcSessionRecordParser<TMpcRecord>;
 
-  constructor(input: { postgresUrl: string; namespace: string }) {
+  constructor(input: {
+    postgresUrl: string;
+    namespace: string;
+    parseMpcSessionRecord?: ThresholdMpcSessionRecordParser<TMpcRecord>;
+  }) {
     this.poolPromise = getPostgresPool(input.postgresUrl);
     this.namespace = input.namespace;
+    this.parseMpcSessionRecord =
+      input.parseMpcSessionRecord ||
+      (parseThresholdEd25519MpcSessionRecord as ThresholdMpcSessionRecordParser<TMpcRecord>);
   }
 
   private async insertOrUpdate(input: {
@@ -1166,19 +1245,20 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   async putMpcSession(
     id: string,
-    record: ThresholdEd25519MpcSessionRecord,
+    record: TMpcRecord,
     ttlMs: number,
   ): Promise<void> {
     const k = id;
     if (!k) throw new Error('Missing mpcSessionId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const parsed = parseCurrentThresholdEd25519MpcSessionRecord(record);
+    const parsed = this.parseMpcSessionRecord(record);
     if (!parsed) throw new Error('Invalid threshold ed25519 mpc session record');
-    const storedRecord = { ...parsed, expiresAtMs } satisfies ThresholdEd25519MpcSessionRecord;
+    const storedRecord = this.parseMpcSessionRecord({ ...parsed, expiresAtMs });
+    if (!storedRecord) throw new Error('Invalid threshold mpc session record');
     await this.insertOrUpdate({ kind: 'mpc', sessionId: k, record: storedRecord, expiresAtMs });
   }
 
-  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+  async readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TMpcRecord> | null> {
     const k = id;
     if (!k) return null;
     const pool = await this.poolPromise;
@@ -1196,20 +1276,19 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       | { record_json?: unknown; version?: unknown; expires_at_ms?: unknown }
       | undefined;
     const parsed = row
-      ? parseCurrentThresholdEd25519StoreSessionRow({
-          kind: 'mpc',
-          recordJson: row.record_json,
+      ? this.parseMpcSessionRecord({
+          ...(isObject(row.record_json) ? row.record_json : {}),
           expiresAtMs: row.expires_at_ms,
         })
       : null;
     const version = typeof row?.version === 'string' ? row.version : null;
-    return parsed?.kind === 'mpc' && version ? { record: parsed.record, version } : null;
+    return parsed && version ? { record: parsed, version } : null;
   }
 
   async claimMpcSession(
     id: string,
     version: string,
-  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+  ): Promise<ThresholdClaimMpcSessionResult<TMpcRecord>> {
     const k = id;
     if (!k) return { ok: false, code: 'not_found' };
     const pool = await this.poolPromise;
@@ -1231,28 +1310,25 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       const current = await this.readMpcSession(k);
       return current ? { ok: false, code: 'version_mismatch' } : { ok: false, code: 'not_found' };
     }
-    const parsed = parseCurrentThresholdEd25519StoreSessionRow({
-      kind: 'mpc',
-      recordJson: row.record_json,
+    const parsed = this.parseMpcSessionRecord({
+      ...(isObject(row.record_json) ? row.record_json : {}),
       expiresAtMs: row.expires_at_ms,
     });
-    return parsed?.kind === 'mpc'
-      ? { ok: true, record: parsed.record }
+    return parsed
+      ? { ok: true, record: parsed }
       : { ok: false, code: 'invalid_record' };
   }
 
-  async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
+  async takeMpcSession(id: string): Promise<TMpcRecord | null> {
     const k = id;
     if (!k) return null;
     const row = await this.takeRow('mpc', k);
-    const parsed = row
-      ? parseCurrentThresholdEd25519StoreSessionRow({
-          kind: 'mpc',
-          recordJson: row.record_json,
+    return row
+      ? this.parseMpcSessionRecord({
+          ...(isObject(row.record_json) ? row.record_json : {}),
           expiresAtMs: row.expires_at_ms,
         })
       : null;
-    return parsed?.kind === 'mpc' ? parsed.record : null;
   }
 
   async putSigningSession(
@@ -1704,7 +1780,7 @@ export function createThresholdEcdsaSessionStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): ThresholdEd25519SessionStore {
+}): ThresholdEcdsaSessionStore {
   const doStores = createCloudflareDurableObjectThresholdEcdsaStores({
     config: input.config,
     logger: input.logger,
@@ -1728,10 +1804,13 @@ export function createThresholdEcdsaSessionStore(input: {
         '[threshold-ecdsa] In-memory session store is not supported in this runtime; configure Upstash/Redis or Durable Objects',
       );
     }
-    return new InMemoryThresholdEd25519SessionStore({ keyPrefix: envPrefix });
+    return new InMemoryThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
+      keyPrefix: envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+    });
   }
   if (kind === 'upstash-redis-rest') {
-    return new UpstashRedisRestThresholdEd25519SessionStore({
+    return new UpstashRedisRestThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
       url:
         toOptionalTrimmedString(config.url) ||
         toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL),
@@ -1739,6 +1818,7 @@ export function createThresholdEcdsaSessionStore(input: {
         toOptionalTrimmedString(config.token) ||
         toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     });
   }
   if (kind === 'redis-tcp') {
@@ -1751,12 +1831,16 @@ export function createThresholdEcdsaSessionStore(input: {
       input.logger.warn(
         '[threshold-ecdsa] redis-tcp session store is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryThresholdEd25519SessionStore({ keyPrefix: envPrefix });
+      return new InMemoryThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
+        keyPrefix: envPrefix,
+        parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+      });
     }
-    return new RedisTcpThresholdEd25519SessionStore({
+    return new RedisTcpThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
       redisUrl:
         toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL),
       keyPrefix: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     });
   }
   if (kind === 'postgres') {
@@ -1771,9 +1855,10 @@ export function createThresholdEcdsaSessionStore(input: {
     input.logger.info(
       '[threshold-ecdsa] Using Postgres session store for signing session persistence',
     );
-    return new PostgresThresholdEd25519SessionStore({
+    return new PostgresThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
       postgresUrl,
       namespace: toOptionalTrimmedString(config.keyPrefix) || envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     });
   }
 
@@ -1789,10 +1874,11 @@ export function createThresholdEcdsaSessionStore(input: {
     input.logger.info(
       '[threshold-ecdsa] Using Upstash REST session store for signing session persistence',
     );
-    return new UpstashRedisRestThresholdEd25519SessionStore({
+    return new UpstashRedisRestThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
       url: upstashUrl,
       token: upstashToken,
       keyPrefix: envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     });
   }
 
@@ -1807,12 +1893,19 @@ export function createThresholdEcdsaSessionStore(input: {
       input.logger.warn(
         '[threshold-ecdsa] REDIS_URL is set but TCP Redis is not supported in this runtime; falling back to in-memory',
       );
-      return new InMemoryThresholdEd25519SessionStore({ keyPrefix: envPrefix });
+      return new InMemoryThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
+        keyPrefix: envPrefix,
+        parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+      });
     }
     input.logger.info(
       '[threshold-ecdsa] Using redis-tcp session store for signing session persistence',
     );
-    return new RedisTcpThresholdEd25519SessionStore({ redisUrl, keyPrefix: envPrefix });
+    return new RedisTcpThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
+      redisUrl,
+      keyPrefix: envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+    });
   }
 
   const postgresUrl = getPostgresUrlFromConfig(config);
@@ -1825,7 +1918,11 @@ export function createThresholdEcdsaSessionStore(input: {
     input.logger.info(
       '[threshold-ecdsa] Using Postgres session store for signing session persistence',
     );
-    return new PostgresThresholdEd25519SessionStore({ postgresUrl, namespace: envPrefix });
+    return new PostgresThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
+      postgresUrl,
+      namespace: envPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+    });
   }
 
   if (requirePersistent) {
@@ -1836,5 +1933,8 @@ export function createThresholdEcdsaSessionStore(input: {
   input.logger.info(
     '[threshold-ecdsa] Using in-memory session store for threshold signing sessions (non-persistent)',
   );
-  return new InMemoryThresholdEd25519SessionStore({ keyPrefix: envPrefix });
+  return new InMemoryThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
+    keyPrefix: envPrefix,
+    parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
+  });
 }

@@ -1,5 +1,5 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
-import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { ThemeName } from '@/core/types/seams';
 import type { NonceLease } from '@/core/signingEngine/nonce/NonceCoordinator';
@@ -233,7 +233,7 @@ export async function handleTransactionSigningFlow(
   request: SigningUserConfirmRequest,
   worker: Worker,
   opts: {
-    confirmationConfig: ConfirmationConfig;
+    confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeName;
   },
@@ -612,7 +612,7 @@ export async function handleIntentDigestSigningFlow(
   request: IntentDigestUserConfirmRequest,
   worker: Worker,
   opts: {
-    confirmationConfig: ConfirmationConfig;
+    confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeName;
   },
@@ -635,8 +635,7 @@ export async function handleIntentDigestSigningFlow(
     const signingAuthMode = getIntentDigestSigningAuthMode(request);
     let resolvedIntentDigest = String(getIntentDigest(request) || '').trim() || undefined;
     let resolvedChallengeB64u = String(request.payload.challengeB64u || '').trim();
-    const requiresExplicitConfirmClick =
-      confirmationConfig.uiMode !== 'none' && confirmationConfig.behavior === 'requireClick';
+    const requiresExplicitConfirmClick = confirmationConfig.kind === 'interactive';
     const rpId = adapters.security.getRpId();
     const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
       ? { rpId }

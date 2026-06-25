@@ -69,12 +69,12 @@ export function createIndexedDBNonceLaneCoordinationStore(
         operationFingerprint: record.operationFingerprint,
         reservedAtMs: record.reservedAtMs,
         expiresAtMs: record.expiresAtMs,
-        updatedAtMs: record.updatedAtMs,
-        family: 'near',
-        walletId: record.walletId,
-        accountId: record.accountId,
-        publicKey: record.publicKey,
-      };
+          updatedAtMs: record.updatedAtMs,
+          family: 'near',
+          walletId: record.walletId,
+          nearAccountId: record.nearAccountId,
+          publicKey: record.publicKey,
+        };
       if (record.runtimeId) serialized.runtimeId = record.runtimeId;
       if (record.fencingToken) serialized.fencingToken = record.fencingToken;
       if (record.batchId) serialized.batchId = record.batchId;
@@ -84,8 +84,8 @@ export function createIndexedDBNonceLaneCoordinationStore(
     remove: async (input) => {
       await deps.indexedDB.removeNonceLaneLeaseRecord({ leaseId: input.leaseId });
     },
-    clearForAccount: async (accountId) => {
-      await deps.indexedDB.clearNonceLaneLeaseRecordsForAccount(accountId);
+    clearForWallet: async (walletId) => {
+      await deps.indexedDB.clearNonceLaneLeaseRecordsForWallet(walletId);
     },
     clearAll: async () => {
       await deps.indexedDB.clearAllNonceLaneLeaseRecords();

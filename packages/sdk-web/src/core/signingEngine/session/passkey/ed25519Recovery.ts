@@ -186,7 +186,7 @@ function retainPasskeyEd25519ReconnectWorkerMaterialFacts(args: {
   const updated = upsertStoredThresholdEd25519SessionRecord({
     walletId: targetRecord.walletId,
     nearAccountId: targetRecord.nearAccountId,
-    ed25519KeyScopeId: targetRecord.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: targetRecord.nearEd25519SigningKeyId,
     rpId: targetRecord.rpId,
     passkeyCredentialIdB64u: targetRecord.passkeyCredentialIdB64u,
     relayerUrl: targetRecord.relayerUrl,
@@ -265,7 +265,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     kind: 'exact_ed25519_provisioning',
     walletId: String(args.record.walletId),
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId: String(args.record.ed25519KeyScopeId),
+    nearEd25519SigningKeyId: String(args.record.nearEd25519SigningKeyId),
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,
     source: 'login',
@@ -360,7 +360,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
     upsertStoredThresholdEd25519SessionRecord({
       walletId: args.record.walletId,
       nearAccountId: args.record.nearAccountId,
-      ed25519KeyScopeId: args.record.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
       rpId: args.record.rpId,
       passkeyCredentialIdB64u: args.record.credentialIdB64u,
       relayerUrl: args.record.relayerUrl,

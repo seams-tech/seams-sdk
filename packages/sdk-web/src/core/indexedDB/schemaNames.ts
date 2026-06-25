@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 6 as const;
+export const SEAMS_WALLET_DB_VERSION = 8 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -29,9 +29,11 @@ export const SEAMS_WALLET_INDEXES = {
   walletIdRpId: 'wallet_id_rp_id',
   walletIdKind: 'wallet_id_kind',
   walletKindNearSignerSlot: 'wallet_kind_near_signer_slot',
+  walletKindNearEd25519SigningKeyId: 'wallet_kind_near_ed25519_signing_key_id',
   walletKindChainTargetKeyHandle: 'wallet_kind_chain_target_key_handle',
   walletKindChainTargetKeyFacts: 'wallet_kind_chain_target_key_facts',
   walletSignerId: 'wallet_signer_id',
+  nearEd25519SigningKeyId: 'near_ed25519_signing_key_id',
   nearAccountId: 'near_account_id',
   rpId: 'rp_id',
   rpIdCredentialId: 'rp_id_credential_id',
@@ -53,7 +55,7 @@ export const SEAMS_WALLET_INDEXES = {
   expiresAtMs: 'expires_at_ms',
   recoveryCodesIssuedAtMs: 'recovery_codes_issued_at_ms',
   laneState: 'lane_state',
-  accountExpiresAt: 'account_expires_at',
+  walletExpiresAt: 'wallet_expires_at',
   ownerId: 'owner_id',
   chainIdKeyKeyKind: 'chain_id_key_key_kind',
   publicKey: 'public_key',
@@ -162,6 +164,11 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         unique: true,
       },
       {
+        name: SEAMS_WALLET_INDEXES.walletKindNearEd25519SigningKeyId,
+        keyPath: ['wallet_id', 'kind', 'near_ed25519_signing_key_id'],
+        unique: true,
+      },
+      {
         name: SEAMS_WALLET_INDEXES.walletKindChainTargetKeyHandle,
         keyPath: ['wallet_id', 'kind', 'chain_target_key', 'key_handle'],
         unique: true,
@@ -221,13 +228,14 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     keyPath: 'lease_id',
     indexes: [
       { name: SEAMS_WALLET_INDEXES.laneKey, keyPath: 'lane_key', unique: false },
-      { name: SEAMS_WALLET_INDEXES.accountId, keyPath: 'account_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.nearAccountId, keyPath: 'near_account_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.state, keyPath: 'state', unique: false },
       { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
       { name: SEAMS_WALLET_INDEXES.laneState, keyPath: ['lane_key', 'state'], unique: false },
       {
-        name: SEAMS_WALLET_INDEXES.accountExpiresAt,
-        keyPath: ['account_id', 'expires_at_ms'],
+        name: SEAMS_WALLET_INDEXES.walletExpiresAt,
+        keyPath: ['wallet_id', 'expires_at_ms'],
         unique: false,
       },
     ],

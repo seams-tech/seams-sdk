@@ -299,8 +299,8 @@ export function createWarmSessionStatusReader(
     source?: ThresholdEcdsaSessionStoreSource;
   }): ResolveExactEcdsaRecordResult {
     const records = listWarmSessionEcdsaRecordsForWalletTarget({
-      walletId: args.lane.walletId,
-      chainTarget: args.lane.chainTarget,
+      walletId: args.lane.signer.walletId,
+      chainTarget: args.lane.signer.chainTarget,
     }).filter((record) => {
       if (args.source && record.source !== args.source) return false;
       return recordMatchesExactEcdsaLane(record, args.lane);

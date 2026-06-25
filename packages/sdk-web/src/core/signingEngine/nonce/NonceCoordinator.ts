@@ -70,7 +70,7 @@ import {
   reduceNonceLeaseState,
   type NonceLeaseTransition,
 } from './nonceLeaseState';
-export { reduceNonceLeaseState } from './nonceLeaseState';
+export { reduceNonceLeaseState, tryReduceNonceLeaseState } from './nonceLeaseState';
 import {
   assertEvmLease,
   assertOperationMatches,
@@ -109,11 +109,16 @@ import {
 import {
   clearNearAccessKeyState as clearNearAccessKeyLaneState,
   clearNearPrefetchTimer,
+  commitNearTransactionContextForState,
   createNearNonceLaneState,
   fetchNearFreshDataForState,
+  hasNearInflightFetch,
   initializeNearAccessKeyState,
   isAccessKeyViewLike,
   markNearBroadcastAcceptedState,
+  readNearActiveAccountId,
+  readNearActivePublicKey,
+  readNearAccessKeySubject,
   reconcileNearLaneState,
   refreshNearNonceAfterBroadcastRejectedState,
   releaseAllNearNoncesFromState,
@@ -615,7 +620,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const initializeNearAccessKey = (input: {
     walletId: string;
-    accountId: string;
+    nearAccountId: string;
     publicKey: string;
   }): void => {
     initializeNearAccessKeyState({ state: nearState, ...input });
@@ -659,7 +664,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   }): Promise<TransactionContext> => {
     initializeNearAccessKey({
       walletId: input.lane.walletId,
-      accountId: input.lane.accountId,
+      nearAccountId: input.lane.nearAccountId,
       publicKey: input.lane.publicKey,
     });
     return {
@@ -835,11 +840,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return expired;
   };
 
-  const expireDueLeasesForAccount = async (input?: { accountId?: string }): Promise<NonceLease[]> => {
-    const accountId = input?.accountId ? String(input.accountId).trim() : '';
+  const expireDueLeasesForWallet = async (input?: { walletId?: string }): Promise<NonceLease[]> => {
+    const walletId = input?.walletId ? String(input.walletId).trim() : '';
     const laneByKey = new Map<string, NonceLane>();
     for (const lease of Array.from(leases.values())) {
-      if (accountId && nonceLaneSubjectId(lease.lane) !== accountId) continue;
+      if (walletId && nonceLaneSubjectId(lease.lane) !== walletId) continue;
       laneByKey.set(nonceLaneKey(lease.lane), lease.lane);
     }
     const expired: NonceLease[] = [];
@@ -849,7 +854,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return expired;
   };
 
-  const recoverDurableLeases = async (input?: { accountId?: string }): Promise<void> => {
+  const recoverDurableLeases = async (input?: { walletId?: string }): Promise<void> => {
     if (!nonceLaneCoordinationStore) {
       if (shouldWarnOnMissingCoordinationStore) {
         emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.IndexedDBUnavailable);
@@ -888,7 +893,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
             leaseId: record.leaseId,
           });
           emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.MalformedDurableRecord, {
-            accountId: record.accountId,
+            accountId: nonceLaneSubjectId(lane),
             networkKey: record.networkKey,
             laneFamily: record.family,
             fallback: NonceCoordinatorFallback.None,
@@ -941,7 +946,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         if (record.family === 'near' && deps.nearClient) {
           try {
             const accessKey = await deps.nearClient.viewAccessKey(
-              record.accountId,
+              record.nearAccountId,
               record.publicKey,
             );
             if (isAccessKeyViewLike(accessKey) && BigInt(accessKey.nonce) >= recordNonce) {
@@ -1057,7 +1062,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       return await withLaneLock(input.lane, async () => {
         initializeNearAccessKey({
           walletId: input.lane.walletId,
-          accountId: input.lane.accountId,
+          nearAccountId: input.lane.nearAccountId,
           publicKey: input.lane.publicKey,
         });
         const context = {
@@ -1069,9 +1074,14 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
                 force: input.force === false ? false : true,
               })),
         };
-        nearState.transactionContext = context;
-        nearState.lastNonceUpdate = now();
-        nearState.lastBlockHeightUpdate = now();
+        commitNearTransactionContextForState({
+          state: nearState,
+          walletId: input.lane.walletId,
+          nearAccountId: input.lane.nearAccountId,
+          publicKey: input.lane.publicKey,
+          transactionContext: context,
+          nowMs: now(),
+        });
         const leases = await reserveNearNonceBatchUnlocked({
           lane: input.lane,
           operation: input.operation,
@@ -1087,7 +1097,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     initializeNearAccessKey,
 
     getActiveNearPublicKey() {
-      return String(nearState.publicKey || '').trim() || null;
+      return readNearActivePublicKey(nearState);
     },
 
     async fetchNearContext(input) {
@@ -1098,16 +1108,16 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       if (input?.kind === 'access_key_subject') {
         initializeNearAccessKey({
           walletId: input.walletId,
-          accountId: input.accountId,
+          nearAccountId: input.nearAccountId,
           publicKey: input.publicKey,
         });
       }
-      if (!nearState.accountId || !nearState.publicKey) return;
+      if (!readNearAccessKeySubject(nearState)) return;
       clearNearPrefetchTimer(nearState);
       const nearClient = requireNearClient(input?.nearClient);
       nearState.prefetchTimer = setTimeout(() => {
         nearState.prefetchTimer = null;
-        if (nearState.inflightFetch) return;
+        if (hasNearInflightFetch(nearState)) return;
         if (
           !shouldPrefetchNearContext({
             state: nearState,
@@ -1280,7 +1290,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async expireLeases(input) {
-      return await expireDueLeasesForAccount(input);
+      return await expireDueLeasesForWallet(input);
     },
 
     async recoverDurableLeases(input) {
@@ -1298,32 +1308,32 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       });
     },
 
-    clearForAccount(accountId) {
-      const normalizedAccountId = String(accountId || '').trim();
-      if (!normalizedAccountId) return;
+    clearForWallet(walletId) {
+      const normalizedWalletId = String(walletId || '').trim();
+      if (!normalizedWalletId) return;
       void nonceLaneCoordinationStore
-        ?.clearForAccount(normalizedAccountId)
+        ?.clearForWallet(normalizedWalletId)
         .catch(() =>
           emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError),
         );
-      const evmLaneKeys = evmAccountLaneKeys.get(normalizedAccountId);
+      const evmLaneKeys = evmAccountLaneKeys.get(normalizedWalletId);
       if (evmLaneKeys) {
         for (const key of evmLaneKeys) {
           evmStates.delete(key);
         }
-        evmAccountLaneKeys.delete(normalizedAccountId);
+        evmAccountLaneKeys.delete(normalizedWalletId);
       }
-      if (nearState.accountId === normalizedAccountId) {
+      if (readNearAccessKeySubject(nearState)?.walletId === normalizedWalletId) {
         clearNearAccessKeyState();
       }
       for (const [leaseId, lease] of leases.entries()) {
-        if (nonceLaneSubjectId(lease.lane) === normalizedAccountId) {
+        if (nonceLaneSubjectId(lease.lane) === normalizedWalletId) {
           leases.delete(leaseId);
         }
       }
       emit({
         event: NonceCoordinatorTraceEventName.LanesCleared,
-        accountId: normalizedAccountId,
+        accountId: normalizedWalletId,
         reason: 'clear_for_account',
       });
     },
@@ -1417,7 +1427,7 @@ function buildNearCoordinationRecord(
     runtimeId: args.runtimeId,
     family: 'near',
     walletId: lease.lane.walletId,
-    accountId: lease.lane.accountId,
+    nearAccountId: lease.lane.nearAccountId,
     publicKey: lease.lane.publicKey,
   };
   addLeaseRecordMetadata(record, lease);

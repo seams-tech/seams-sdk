@@ -14,7 +14,7 @@ import {
   parseSdkEcdsaHssSigningRootId,
   parseSdkEcdsaHssSigningRootVersion,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export type NearEd25519SingleKeyHssExportDeps = {
   getSignerWorkerContext: () => WorkerOperationContext;
@@ -25,7 +25,7 @@ export async function runNearEd25519SingleKeyHssExport(
   args: {
     signingRootId: string;
     signingRootVersion: string;
-    ed25519KeyScopeId: Ed25519KeyScopeId;
+    nearEd25519SigningKeyId: NearEd25519SigningKeyId;
     nearAccountId: AccountId;
     participantIds: number[];
     thresholdSessionId: string;
@@ -40,7 +40,7 @@ export async function runNearEd25519SingleKeyHssExport(
 }> {
   const workerCtx = deps.getSignerWorkerContext();
   const hssBindingFacts: SdkEd25519HssBindingFacts = {
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     signingRootId: parseSdkEcdsaHssSigningRootId(args.signingRootId),
     signingRootVersion: parseSdkEcdsaHssSigningRootVersion(args.signingRootVersion),
   };

@@ -101,16 +101,38 @@ export interface UseAccountInputReturn extends AccountInputState {
 }
 
 export type SDKFlowKind = 'login' | 'register' | 'sync' | null;
-export type SDKFlowStatus = 'idle' | 'in-progress' | 'success' | 'error';
+export type ActiveSDKFlowKind = Exclude<SDKFlowKind, null>;
 
-export type SDKFlowState = {
+type SDKFlowStateBase = {
   seq: number;
-  kind: SDKFlowKind;
-  status: SDKFlowStatus;
   eventsText: string;
-  accountId?: string;
-  error?: string;
 };
+
+export type SDKFlowState =
+  | (SDKFlowStateBase & {
+      status: 'idle';
+      kind: null;
+      accountId?: never;
+      error?: never;
+    })
+  | (SDKFlowStateBase & {
+      status: 'in-progress';
+      kind: ActiveSDKFlowKind;
+      accountId?: string;
+      error?: never;
+    })
+  | (SDKFlowStateBase & {
+      status: 'success';
+      kind: ActiveSDKFlowKind;
+      accountId?: string;
+      error?: never;
+    })
+  | (SDKFlowStateBase & {
+      status: 'error';
+      kind: ActiveSDKFlowKind;
+      error: string;
+      accountId?: string;
+    });
 
 export type SDKFlowRuntime = SDKFlowState & {
   /**
@@ -121,7 +143,7 @@ export type SDKFlowRuntime = SDKFlowState & {
    * Resolves with the next started flow sequence number (or null if it doesn't start in time).
    */
   awaitNextStart: (
-    kind: Exclude<SDKFlowKind, null>,
+    kind: ActiveSDKFlowKind,
     seqAfter: number,
     timeoutMs: number,
   ) => Promise<number | null>;
@@ -130,7 +152,7 @@ export type SDKFlowRuntime = SDKFlowState & {
    * If no flow starts in `startTimeoutMs`, it returns without error.
    */
   awaitNextCompletion: (
-    kind: Exclude<SDKFlowKind, null>,
+    kind: ActiveSDKFlowKind,
     seqAfter: number,
     startTimeoutMs: number,
     completionTimeoutMs: number,

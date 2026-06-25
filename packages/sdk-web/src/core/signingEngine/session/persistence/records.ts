@@ -45,7 +45,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString, type Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString, type NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import {
   buildPasskeyEcdsaAuthBinding,
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
@@ -66,8 +66,11 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
 import {
-  exactSigningLaneIdentity,
+  buildEvmFamilyEcdsaSignerBinding,
+  exactEcdsaSigningLaneIdentity,
+  exactEcdsaSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
+  isExactEcdsaSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
 } from '../identity/exactSigningLaneIdentity';
@@ -300,7 +303,7 @@ export type ReadExactThresholdEcdsaSessionRecordResult =
 export type ThresholdEd25519SessionRecord = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   rpId: string;
   passkeyCredentialIdB64u?: string;
   relayerUrl: string;
@@ -1433,26 +1436,26 @@ function normalizeThresholdEcdsaEmailOtpAuthContext(
 function migrateLegacyThresholdEd25519SessionIdentity(obj: Record<string, unknown>): {
   walletId: ReturnType<typeof toWalletId>;
   nearAccountId: ReturnType<typeof toAccountId>;
-  ed25519KeyScopeId: ReturnType<typeof ed25519KeyScopeIdFromString>;
+  nearEd25519SigningKeyId: ReturnType<typeof nearEd25519SigningKeyIdFromString>;
 } {
   const nearAccountIdRaw = String(obj.nearAccountId || '').trim();
   const walletIdRaw = String(obj.walletId || '').trim();
-  const ed25519KeyScopeIdRaw = String(obj.ed25519KeyScopeId || '').trim();
+  const nearEd25519SigningKeyIdRaw = String(obj.nearEd25519SigningKeyId || '').trim();
   const migratedWalletIdRaw = walletIdRaw ? walletIdRaw : nearAccountIdRaw;
-  const migratedKeyScopeRaw = ed25519KeyScopeIdRaw ? ed25519KeyScopeIdRaw : nearAccountIdRaw;
+  const migratedKeyScopeRaw = nearEd25519SigningKeyIdRaw ? nearEd25519SigningKeyIdRaw : nearAccountIdRaw;
   if (!migratedWalletIdRaw || !nearAccountIdRaw || !migratedKeyScopeRaw) {
     throw new Error('Invalid threshold Ed25519 canonical session record: missing identity binding');
   }
   return {
     walletId: toWalletId(migratedWalletIdRaw),
     nearAccountId: toAccountId(nearAccountIdRaw),
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(migratedKeyScopeRaw),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(migratedKeyScopeRaw),
   };
 }
 
 function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd25519SessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const { walletId, nearAccountId, ed25519KeyScopeId } =
+  const { walletId, nearAccountId, nearEd25519SigningKeyId } =
     migrateLegacyThresholdEd25519SessionIdentity(obj);
   const rpId = String(obj.rpId || '').trim();
   const passkeyCredentialIdB64u = normalizeOptionalNonEmptyString(obj.passkeyCredentialIdB64u);
@@ -1535,7 +1538,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   return {
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId,
     ...(passkeyCredentialIdB64u ? { passkeyCredentialIdB64u } : {}),
     relayerUrl,
@@ -1744,10 +1747,13 @@ function forgetInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRec
 type ThresholdEd25519SessionAuthMethod = 'email_otp' | 'passkey';
 
 export type ThresholdEd25519SessionRecordKey = {
+  walletId: WalletId;
   nearAccountId: AccountId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   authMethod: ThresholdEd25519SessionAuthMethod;
   signingGrantId: string;
   thresholdSessionId: string;
+  signerSlot: number;
 };
 
 function thresholdEd25519AuthMethodForRecord(
@@ -1773,11 +1779,11 @@ function thresholdEd25519AuthBindingForRecord(
   if (!credentialIdB64u) {
     throw new Error('[SigningEngine] passkey Ed25519 record is missing credential id');
   }
-	  return {
-	    kind: 'passkey',
-	    rpId: toRpId(record.rpId),
-	    credentialIdB64u,
-	  };
+  return {
+    kind: 'passkey',
+    rpId: toRpId(record.rpId),
+    credentialIdB64u,
+  };
 }
 
 function isRawOnlyEd25519ClientBaseInput(value: unknown): boolean {
@@ -1797,11 +1803,14 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
 }): Ed25519LaneCandidate | null {
   const signingGrantId = normalizeOptionalNonEmptyString(args.record.signingGrantId);
   if (!signingGrantId) return null;
+  const signerSlot = normalizeInteger(args.record.signerSlot);
+  if (signerSlot == null || signerSlot < 1) return null;
   return {
     kind: 'lane_candidate',
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
-    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
+    signerSlot,
     auth: thresholdEd25519AuthBindingForRecord(args.record),
     curve: 'ed25519',
     chain: 'near',
@@ -1820,28 +1829,43 @@ export function thresholdEd25519LaneCandidateFromSessionRecord(args: {
 }
 
 export function serializeThresholdEd25519SessionLaneKey(args: {
+  walletId: WalletId | string;
   nearAccountId: AccountId | string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
   authMethod: ThresholdEd25519SessionAuthMethod;
   signingGrantId: string;
   thresholdSessionId: string;
+  signerSlot: unknown;
 }): string {
+  const walletId = String(toWalletId(args.walletId)).trim();
   const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
+  const nearEd25519SigningKeyId = String(
+    nearEd25519SigningKeyIdFromString(args.nearEd25519SigningKeyId),
+  ).trim();
   const authMethod = String(args.authMethod || '').trim();
   const signingGrantId = normalizeOptionalNonEmptyString(args.signingGrantId);
   const thresholdSessionId = normalizeOptionalNonEmptyString(args.thresholdSessionId);
+  const signerSlot = normalizeInteger(args.signerSlot);
   if (
+    !walletId ||
     !nearAccountId ||
+    !nearEd25519SigningKeyId ||
     (authMethod !== 'email_otp' && authMethod !== 'passkey') ||
     !signingGrantId ||
-    !thresholdSessionId
+    !thresholdSessionId ||
+    signerSlot == null ||
+    signerSlot < 1
   ) {
     throw new Error('[SigningEngine] invalid threshold Ed25519 lane key input');
   }
   return [
+    encodeLaneToken(walletId),
     encodeLaneToken(nearAccountId),
+    encodeLaneToken(nearEd25519SigningKeyId),
     encodeLaneToken(authMethod),
     encodeLaneToken(signingGrantId),
     encodeLaneToken(thresholdSessionId),
+    encodeLaneToken(String(signerSlot)),
   ].join('|');
 }
 
@@ -1853,10 +1877,13 @@ function getThresholdEd25519SessionLaneKeyForRecord(
   if (!signingGrantId || !thresholdSessionId) return null;
   try {
     return serializeThresholdEd25519SessionLaneKey({
+      walletId: record.walletId,
       nearAccountId: record.nearAccountId,
+      nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
       authMethod: thresholdEd25519AuthMethodForRecord(record),
       signingGrantId,
       thresholdSessionId,
+      signerSlot: record.signerSlot,
     });
   } catch {
     return null;
@@ -1868,10 +1895,13 @@ function thresholdEd25519RecordMatchesLane(
   lane: ThresholdEd25519SessionRecordKey,
 ): boolean {
   return (
+    String(record.walletId) === String(lane.walletId) &&
     String(record.nearAccountId) === String(lane.nearAccountId) &&
+    String(record.nearEd25519SigningKeyId) === String(lane.nearEd25519SigningKeyId) &&
     thresholdEd25519AuthMethodForRecord(record) === lane.authMethod &&
     String(record.signingGrantId || '').trim() === lane.signingGrantId &&
-    String(record.thresholdSessionId || '').trim() === lane.thresholdSessionId
+    String(record.thresholdSessionId || '').trim() === lane.thresholdSessionId &&
+    Number(record.signerSlot) === lane.signerSlot
   );
 }
 
@@ -2030,33 +2060,32 @@ export function toExactEcdsaSigningLaneIdentity(
   input: ThresholdEcdsaSessionRecord | (SelectedEcdsaLane & { auth: SigningLaneAuthBinding }),
 ): ExactEcdsaSigningLaneIdentity {
   if (isSelectedEcdsaLane(input)) {
-    return {
-      kind: 'exact_ecdsa_signing_lane_identity',
-      curve: 'ecdsa',
-      chainFamily: input.chainTarget.kind,
-      walletId: toWalletId(input.walletId),
+    return exactEcdsaSigningLaneIdentity({
+      signer: buildEvmFamilyEcdsaSignerBinding({
+        walletId: toWalletId(input.walletId),
+        chainTarget: input.chainTarget,
+        keyHandle: input.keyHandle,
+        key: input.key,
+      }),
       auth: input.auth,
-      chainTarget: input.chainTarget,
-      keyHandle: input.keyHandle,
-      key: input.key,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
-    };
+    });
   }
-  return {
-    kind: 'exact_ecdsa_signing_lane_identity',
-    curve: 'ecdsa',
-    chainFamily: input.chainTarget.kind,
-    walletId: toWalletId(input.walletId),
-    auth: thresholdEcdsaAuthBindingForRecord(input),
-    chainTarget: input.chainTarget,
-    keyHandle: toEvmFamilyEcdsaKeyHandle(input.keyHandle),
-    key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
-      record: input,
+  const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
+    record: input,
+  });
+  return exactEcdsaSigningLaneIdentity({
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: toWalletId(input.walletId),
+      chainTarget: input.chainTarget,
+      keyHandle: toEvmFamilyEcdsaKeyHandle(input.keyHandle),
+      key,
     }),
+    auth: thresholdEcdsaAuthBindingForRecord(input),
     signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-  };
+  });
 }
 
 function thresholdEcdsaExactRecordCandidateSummaryBase(
@@ -2628,8 +2657,8 @@ export function getThresholdEcdsaSessionRecordByKey(
   identity: ThresholdEcdsaSessionRecordLookupKey,
 ): ThresholdEcdsaSessionRecord | null {
   if ('auth' in identity) {
-    const exactIdentity = exactSigningLaneIdentity(identity);
-    if (exactIdentity.curve !== 'ecdsa') return null;
+    const exactIdentity = exactEcdsaSigningLaneIdentityFromSelectedLane(identity);
+    if (!isExactEcdsaSigningLaneIdentity(exactIdentity)) return null;
     const result = readExactThresholdEcdsaSessionRecord(deps, exactIdentity);
     if (result.kind === 'found') return result.record;
     if (result.kind === 'duplicate_records') {
@@ -2864,14 +2893,18 @@ function exactEcdsaLaneIdentityMismatchReason(args: {
   if (exactSigningLaneIdentityKey(args.actual) === exactSigningLaneIdentityKey(args.expected)) {
     return null;
   }
-  if (String(args.actual.walletId) !== String(args.expected.walletId)) return 'wallet_mismatch';
+  if (String(args.actual.signer.walletId) !== String(args.expected.signer.walletId)) {
+    return 'wallet_mismatch';
+  }
   if (signingLaneAuthMethod(args.actual.auth) !== signingLaneAuthMethod(args.expected.auth)) {
     return 'auth_method_mismatch';
   }
-  if (!thresholdEcdsaChainTargetsEqual(args.actual.chainTarget, args.expected.chainTarget)) {
+  if (
+    !thresholdEcdsaChainTargetsEqual(args.actual.signer.chainTarget, args.expected.signer.chainTarget)
+  ) {
     return 'chain_target_mismatch';
   }
-  if (String(args.actual.keyHandle) !== String(args.expected.keyHandle)) {
+  if (String(args.actual.signer.keyHandle) !== String(args.expected.signer.keyHandle)) {
     return 'key_handle_mismatch';
   }
   if (
@@ -3048,7 +3081,7 @@ export function getThresholdEcdsaSessionRecordByThresholdSessionId(
 export function upsertStoredThresholdEd25519SessionRecord(args: {
   walletId: WalletId | string;
   nearAccountId: AccountId | string;
-  ed25519KeyScopeId: Ed25519KeyScopeId | string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
   rpId: string;
   passkeyCredentialIdB64u?: string;
   relayerUrl: string;
@@ -3081,16 +3114,16 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   if (isRawOnlyEd25519ClientBaseInput(args)) return null;
   const nearAccountId = toAccountId(args.nearAccountId);
   const rawWalletId = String(args.walletId || '').trim();
-  const rawEd25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
-  if (!rawWalletId || !rawEd25519KeyScopeId) {
-    throw new Error('Threshold Ed25519 session persistence requires walletId and ed25519KeyScopeId');
+  const rawNearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || '').trim();
+  if (!rawWalletId || !rawNearEd25519SigningKeyId) {
+    throw new Error('Threshold Ed25519 session persistence requires walletId and nearEd25519SigningKeyId');
   }
   const walletId = toWalletId(rawWalletId);
-  const ed25519KeyScopeId = ed25519KeyScopeIdFromString(rawEd25519KeyScopeId);
+  const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(rawNearEd25519SigningKeyId);
   const record = normalizeThresholdEd25519SessionRecord({
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: String(args.rpId || '').trim(),
     ...(String(args.passkeyCredentialIdB64u || '').trim()
       ? { passkeyCredentialIdB64u: String(args.passkeyCredentialIdB64u || '').trim() }
@@ -3191,7 +3224,7 @@ export function persistStoredThresholdEd25519SessionMaterialHandle(args: {
   return upsertStoredThresholdEd25519SessionRecord({
     walletId: existing.walletId,
     nearAccountId: existing.nearAccountId,
-    ed25519KeyScopeId: existing.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: existing.nearEd25519SigningKeyId,
     rpId: existing.rpId,
     ...(existing.passkeyCredentialIdB64u
       ? { passkeyCredentialIdB64u: existing.passkeyCredentialIdB64u }
@@ -3444,19 +3477,29 @@ export function getThresholdEcdsaRuntimeRecordCandidateByKey(
 }
 
 export function getStoredThresholdEd25519SessionRecordForLane(args: {
+  walletId: WalletId | string;
   nearAccountId: AccountId | string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
   authMethod: ThresholdEd25519SessionAuthMethod;
   signingGrantId: string;
   thresholdSessionId: string;
+  signerSlot: unknown;
 }): ThresholdEd25519SessionRecord | null {
   let lane: ThresholdEd25519SessionRecordKey;
   let laneKey: string;
   try {
+    const signerSlot = normalizeInteger(args.signerSlot);
+    if (signerSlot == null || signerSlot < 1) return null;
     lane = {
+      walletId: toWalletId(args.walletId),
       nearAccountId: toAccountId(args.nearAccountId),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+        args.nearEd25519SigningKeyId,
+      ),
       authMethod: args.authMethod,
       signingGrantId: String(args.signingGrantId || '').trim(),
       thresholdSessionId: String(args.thresholdSessionId || '').trim(),
+      signerSlot,
     };
     laneKey = serializeThresholdEd25519SessionLaneKey(lane);
   } catch {
@@ -3494,7 +3537,7 @@ export function markThresholdEd25519EmailOtpSessionConsumedForWallet(args: {
   return upsertStoredThresholdEd25519SessionRecord({
     walletId: record.walletId,
     nearAccountId: record.nearAccountId,
-    ed25519KeyScopeId: record.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
     rpId: record.rpId,
     relayerUrl: record.relayerUrl,
     relayerKeyId: record.relayerKeyId,

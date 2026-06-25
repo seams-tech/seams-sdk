@@ -1,5 +1,6 @@
 import { createEcdsaWalletSessionStore } from '../../../core/ThresholdService';
 import { createEd25519WalletSessionStore } from '../../../core/ThresholdService';
+import { createWalletSigningBudgetSessionStore } from '../../../core/ThresholdService';
 import type { ThresholdStoreConfigInput } from '../../../core/types';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createSigningSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
@@ -111,12 +112,17 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
     logger: console,
     isNode: input.isNode === true,
   });
+  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({
+    config: input.thresholdStoreConfig,
+    logger: console,
+    isNode: input.isNode === true,
+  });
 
   return createSigningSessionSealRoutesOptions({
     sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
       ed25519Stores: [walletSessionStore],
       ecdsaStores: [ecdsaWalletSessionStore],
-      walletBudgetStores: [walletSessionStore],
+      walletBudgetStores: [walletBudgetSessionStore],
     }),
     cipher: createShamir3PassCipher({
       signingSessionSealKeyVersion,

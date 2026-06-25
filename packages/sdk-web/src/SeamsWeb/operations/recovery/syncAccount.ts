@@ -184,7 +184,7 @@ export async function syncAccount(
       thresholdEd25519SessionRequest = buildThresholdWarmSessionRequestEnvelope({
         walletId: String(optionsWalletBinding.walletId),
         nearAccountId: String(optionsWalletBinding.nearAccountId),
-        ed25519KeyScopeId: String(optionsWalletBinding.ed25519KeyScopeId),
+        nearEd25519SigningKeyId: String(optionsWalletBinding.nearEd25519SigningKeyId),
         rpId,
         requestedPolicy: thresholdWarmPolicyDraft,
       });
@@ -322,7 +322,7 @@ export async function syncAccount(
           context,
           walletId: String(resolvedWalletBinding.walletId),
           nearAccountId: normalizedNearAccountId,
-          ed25519KeyScopeId: String(resolvedWalletBinding.ed25519KeyScopeId),
+          nearEd25519SigningKeyId: String(resolvedWalletBinding.nearEd25519SigningKeyId),
           relayerUrl,
           rpId,
           relayerKeyId,
@@ -339,7 +339,7 @@ export async function syncAccount(
           credential,
           walletId: String(resolvedWalletBinding.walletId),
           nearAccountId: normalizedNearAccountId,
-          ed25519KeyScopeId: resolvedWalletBinding.ed25519KeyScopeId,
+          nearEd25519SigningKeyId: resolvedWalletBinding.nearEd25519SigningKeyId,
           rpId,
           relayerUrl,
           relayerKeyId,
@@ -364,7 +364,7 @@ export async function syncAccount(
       context,
       walletId: resolvedWalletBinding.walletId,
       nearAccountId: normalizedNearAccountId,
-      ed25519KeyScopeId: resolvedWalletBinding.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: resolvedWalletBinding.nearEd25519SigningKeyId,
       signerSlot,
     });
     const isLoggedIn = restoredLogin.isLoggedIn;
@@ -380,7 +380,7 @@ export async function syncAccount(
       accountId: String(resolvedWalletBinding.walletId),
       walletId: String(resolvedWalletBinding.walletId),
       nearAccountId: String(resolvedWalletBinding.nearAccountId),
-      ed25519KeyScopeId: String(resolvedWalletBinding.ed25519KeyScopeId),
+      nearEd25519SigningKeyId: String(resolvedWalletBinding.nearEd25519SigningKeyId),
       publicKey,
       message: 'Account synced successfully',
       loginState: { isLoggedIn },

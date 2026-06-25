@@ -33,7 +33,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
 }): Promise<void> {
   const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
-  const persistKey = `${thresholdSessionId}:${thresholdEcdsaChainTargetKey(args.lane.chainTarget)}`;
+  const persistKey = `${thresholdSessionId}:${thresholdEcdsaChainTargetKey(args.lane.signer.chainTarget)}`;
   let persistPromise = args.sealPersistInFlightBySessionId.get(persistKey);
   if (!persistPromise) {
     persistPromise = (async (): Promise<void> => {

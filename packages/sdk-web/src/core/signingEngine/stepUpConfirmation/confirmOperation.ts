@@ -40,25 +40,70 @@ export type OrchestrateSigningConfirmationBaseParams = {
   chain: SigningConfirmationChain;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   onProgress?: (progress: UserConfirmProgressEvent) => void;
-  emailOtpPrompt?: EmailOtpConfirmPrompt;
   confirmationReadiness?: ConfirmationReadiness;
 };
 
+type WarmSessionSigningConfirmationAuthParams = {
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+  webauthnChallenge?: never;
+  emailOtpPrompt?: never;
+};
+
+type PasskeySigningConfirmationAuthParams = {
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+  webauthnChallenge?: WebAuthnChallenge;
+  emailOtpPrompt?: never;
+};
+
+type EmailOtpSigningConfirmationAuthParams = {
+  signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+  webauthnChallenge?: never;
+  emailOtpPrompt: EmailOtpConfirmPrompt;
+};
+
 type OrchestrateSigningConfirmationAuthParams =
-  {
-    signingAuthPlan: SigningAuthPlan;
-    webauthnChallenge?: WebAuthnChallenge;
-  };
+  | WarmSessionSigningConfirmationAuthParams
+  | PasskeySigningConfirmationAuthParams
+  | EmailOtpSigningConfirmationAuthParams;
 
 type OrchestrateIntentDigestSigningConfirmationAuthParams =
-  | {
-      signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
-      webauthnChallenge: WebAuthnChallenge;
+  | (PasskeySigningConfirmationAuthParams & { webauthnChallenge: WebAuthnChallenge })
+  | WarmSessionSigningConfirmationAuthParams
+  | EmailOtpSigningConfirmationAuthParams;
+
+export function buildSigningConfirmationAuthParams(args: {
+  signingAuthPlan: SigningAuthPlan;
+  webauthnChallenge?: WebAuthnChallenge;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
+}): OrchestrateSigningConfirmationAuthParams {
+  switch (args.signingAuthPlan.kind) {
+    case SigningAuthPlanKinds.WarmSession:
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+      };
+    case SigningAuthPlanKinds.PasskeyReauth:
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+        ...(args.webauthnChallenge ? { webauthnChallenge: args.webauthnChallenge } : {}),
+      };
+    case SigningAuthPlanKinds.EmailOtpReauth: {
+      const emailOtpPrompt = args.emailOtpPrompt ?? args.signingAuthPlan.emailOtpPrompt;
+      if (!emailOtpPrompt) {
+        throw new Error('[SigningConfirmation] missing_email_otp_prompt');
+      }
+      return {
+        signingAuthPlan: args.signingAuthPlan,
+        emailOtpPrompt,
+      };
     }
-  | {
-      signingAuthPlan: Exclude<SigningAuthPlan, Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>>;
-      webauthnChallenge?: WebAuthnChallenge;
-    };
+    default:
+      return assertNeverSigningAuthPlan(args.signingAuthPlan);
+  }
+}
+
+function assertNeverSigningAuthPlan(value: never): never {
+  throw new Error(`Unsupported signing auth plan: ${String((value as { kind?: unknown }).kind)}`);
+}
 
 export type OrchestrateNearTransactionSigningConfirmationParams =
   OrchestrateSigningConfirmationBaseParams &
@@ -186,31 +231,6 @@ export type ConfirmSigningOperationResult =
   | SigningConfirmationResultIntentDigest
   | SigningConfirmationResultSignatureOnly;
 
-function assertSigningConfirmationAuthRoute(request: OrchestrateSigningConfirmationParams): void {
-  if (
-    request.signingAuthPlan.kind === SigningAuthPlanKinds.PasskeyReauth &&
-    request.emailOtpPrompt
-  ) {
-    console.warn('[SigningConfirmation] Email OTP prompt attached to passkey auth plan', {
-      chain: request.chain,
-      kind: request.kind,
-      signingAuthPlanKind: request.signingAuthPlan.kind,
-    });
-    throw new Error('[SigningConfirmation] auth_method_route_mismatch');
-  }
-  if (
-    request.signingAuthPlan.kind === SigningAuthPlanKinds.EmailOtpReauth &&
-    request.webauthnChallenge
-  ) {
-    console.warn('[SigningConfirmation] WebAuthn challenge attached to Email OTP auth plan', {
-      chain: request.chain,
-      kind: request.kind,
-      signingAuthPlanKind: request.signingAuthPlan.kind,
-    });
-    throw new Error('[SigningConfirmation] auth_method_route_mismatch');
-  }
-}
-
 export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: ConfirmIntentDigestSigningOperationRequest;
@@ -230,7 +250,6 @@ export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: OrchestrateSigningConfirmationParams;
 }): Promise<ConfirmSigningOperationResult> {
-  assertSigningConfirmationAuthRoute(args.request);
   const orchestrate = args.runtime.orchestrateSigningConfirmation as (
     request: OrchestrateSigningConfirmationParams,
   ) => Promise<ConfirmSigningOperationResult>;

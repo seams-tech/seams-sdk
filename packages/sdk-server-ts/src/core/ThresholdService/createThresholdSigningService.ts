@@ -6,6 +6,7 @@ import { ThresholdSigningService } from './ThresholdSigningService';
 import {
   createEcdsaWalletSessionStore,
   createEd25519WalletSessionStore,
+  createWalletSigningBudgetSessionStore,
 } from './stores/WalletSessionStore';
 import { createThresholdEcdsaSigningStores } from './stores/EcdsaSigningStore';
 import { createThresholdEcdsaKeyStore, createThresholdEd25519KeyStore } from './stores/KeyStore';
@@ -51,6 +52,8 @@ export function createThresholdSigningService(input: {
         THRESHOLD_ED25519_KEYSTORE_PREFIX: env.THRESHOLD_ED25519_KEYSTORE_PREFIX,
         THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,
         THRESHOLD_ED25519_WALLET_SESSION_PREFIX: env.THRESHOLD_ED25519_WALLET_SESSION_PREFIX,
+        THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX:
+          env.THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX,
         THRESHOLD_ECDSA_KEYSTORE_PREFIX: env.THRESHOLD_ECDSA_KEYSTORE_PREFIX,
         THRESHOLD_ECDSA_SESSION_PREFIX: env.THRESHOLD_ECDSA_SESSION_PREFIX,
         THRESHOLD_ECDSA_WALLET_SESSION_PREFIX: env.THRESHOLD_ECDSA_WALLET_SESSION_PREFIX,
@@ -112,6 +115,7 @@ export function createThresholdSigningService(input: {
   const keyStore = createThresholdEd25519KeyStore({ config, logger, isNode });
   const sessionStore = createThresholdEd25519SessionStore({ config, logger, isNode });
   const walletSessionStore = createEd25519WalletSessionStore({ config, logger, isNode });
+  const walletBudgetSessionStore = createWalletSigningBudgetSessionStore({ config, logger, isNode });
 
   // ECDSA scaffolding uses the same store backends but keeps prefixes distinct so
   // keys/sessions/auth records do not collide with Ed25519 state.
@@ -131,6 +135,7 @@ export function createThresholdSigningService(input: {
     keyStore,
     sessionStore,
     walletSessionStore,
+    walletBudgetSessionStore,
     ecdsaKeyStore,
     ecdsaSessionStore,
     ecdsaWalletSessionStore,

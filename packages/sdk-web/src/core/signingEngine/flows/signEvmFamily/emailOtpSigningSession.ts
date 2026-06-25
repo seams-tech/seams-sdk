@@ -19,7 +19,8 @@ import {
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import {
-  exactEcdsaSigningLaneIdentity,
+  exactEcdsaSigningLaneIdentityFromSelectedLane,
+  isExactEcdsaSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type {
@@ -103,7 +104,7 @@ function emailOtpReauthAuthorityFromAnchor(
   anchor: ReauthAnchorIdentity,
 ): ExactEcdsaSigningLaneIdentity | null {
   const identity = anchor.laneIdentity;
-  if (identity.curve !== 'ecdsa') return null;
+  if (!isExactEcdsaSigningLaneIdentity(identity)) return null;
   if (signingLaneAuthMethod(identity.auth) !== 'email_otp') return null;
   return identity;
 }
@@ -113,7 +114,7 @@ function exactEcdsaEmailOtpLaneForAuth(args: {
   record?: ThresholdEcdsaSessionRecord;
 }): ExactEcdsaSigningLaneIdentity | null {
   if (args.selectedLane) {
-    return exactEcdsaSigningLaneIdentity(args.selectedLane);
+    return exactEcdsaSigningLaneIdentityFromSelectedLane(args.selectedLane);
   }
   if (!args.record) return null;
   try {
@@ -240,7 +241,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       }
       const bootstrapChainTarget =
         emailOtpRecord?.chainTarget ||
-        anchorAuthority?.chainTarget ||
+        anchorAuthority?.signer.chainTarget ||
         args.chainTarget;
       return await args.loginWithEmailOtpEcdsaCapabilityForSigning({
         walletSession: args.walletSession,

@@ -886,6 +886,10 @@ export type WasmConfirmationUIMode =
 export type WasmConfirmationBehavior =
   (typeof WASM_CONFIRMATION_BEHAVIOR)[keyof typeof WASM_CONFIRMATION_BEHAVIOR];
 
+function assertNeverSignerWorkerConfirmation(value: never): never {
+  throw new Error(`Unsupported confirmation option: ${String(value)}`);
+}
+
 // Mapping functions to convert string literals to numeric enum values
 export const mapUIModeToWasm = (uiMode: ConfirmationUIMode): number => {
   switch (uiMode) {
@@ -897,7 +901,7 @@ export const mapUIModeToWasm = (uiMode: ConfirmationUIMode): number => {
     case 'drawer':
       return WASM_CONFIRMATION_UI_MODE.Drawer;
     default:
-      return WASM_CONFIRMATION_UI_MODE.Modal;
+      return assertNeverSignerWorkerConfirmation(uiMode);
   }
 };
 
@@ -908,7 +912,7 @@ export const mapBehaviorToWasm = (behavior: ConfirmationBehavior): number => {
     case 'skipClick':
       return WASM_CONFIRMATION_BEHAVIOR.AutoProceed;
     default:
-      return WASM_CONFIRMATION_BEHAVIOR.RequireClick;
+      return assertNeverSignerWorkerConfirmation(behavior);
   }
 };
 export type WasmRequestResult =

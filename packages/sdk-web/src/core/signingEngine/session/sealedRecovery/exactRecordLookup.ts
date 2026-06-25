@@ -34,14 +34,15 @@ function ecdsaRestoreRecordMatchesLaneIdentity(
   record: EcdsaRestoreRecord,
   lane: ExactEcdsaSigningLaneIdentity,
 ): boolean {
-  if (!sameString(record.walletId, lane.walletId)) return false;
-  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)) return false;
-  if (!sameString(record.keyHandle, lane.keyHandle)) return false;
-  if (!sameString(record.ecdsaThresholdKeyId, lane.key.ecdsaThresholdKeyId)) return false;
-  if (!sameString(record.signingRootId, lane.key.signingRootId)) return false;
-  if (!sameString(record.signingRootVersion, lane.key.signingRootVersion)) return false;
-  if (!sameStringLower(record.ethereumAddress, lane.key.thresholdOwnerAddress)) return false;
-  if (!sameParticipantIds(record.participantIds, lane.key.participantIds)) return false;
+  const signer = lane.signer;
+  if (!sameString(record.walletId, signer.walletId)) return false;
+  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, signer.chainTarget)) return false;
+  if (!sameString(record.keyHandle, signer.keyHandle)) return false;
+  if (!sameString(record.ecdsaThresholdKeyId, signer.key.ecdsaThresholdKeyId)) return false;
+  if (!sameString(record.signingRootId, signer.key.signingRootId)) return false;
+  if (!sameString(record.signingRootVersion, signer.key.signingRootVersion)) return false;
+  if (!sameStringLower(record.ethereumAddress, signer.key.thresholdOwnerAddress)) return false;
+  if (!sameParticipantIds(record.participantIds, signer.key.participantIds)) return false;
   if (record.authMethod !== lane.auth.kind) return false;
   if (record.authMethod === 'passkey') {
     return (
@@ -57,9 +58,10 @@ function ed25519RestoreRecordMatchesLaneIdentity(
   record: Ed25519RestoreRecord,
   lane: ExactEd25519SigningLaneIdentity,
 ): boolean {
-  if (!sameString(record.walletId, lane.walletId)) return false;
-  if (!sameString(record.nearAccountId, lane.nearAccountId)) return false;
-  if (!sameString(record.ed25519KeyScopeId, lane.ed25519KeyScopeId)) return false;
+  const signer = lane.signer;
+  if (!sameString(record.walletId, signer.account.wallet.walletId)) return false;
+  if (!sameString(record.nearAccountId, signer.account.nearAccountId)) return false;
+  if (!sameString(record.nearEd25519SigningKeyId, signer.nearEd25519SigningKeyId)) return false;
   if (record.authMethod !== lane.auth.kind) return false;
   if (record.authMethod === 'passkey') {
     return (
@@ -143,13 +145,13 @@ function exactPurposeForAcceptedRecord(
     }
     if (
       String(exactRecord.walletId || '').trim() !==
-      String(input.materialRestoreIdentity.lane.walletId)
+      String(input.materialRestoreIdentity.lane.signer.walletId)
     ) {
       return null;
     }
     if (
       String(exactRecord.keyHandle || '').trim() !==
-      String(input.materialRestoreIdentity.lane.keyHandle)
+      String(input.materialRestoreIdentity.lane.signer.keyHandle)
     ) {
       return null;
     }
@@ -172,19 +174,19 @@ function exactPurposeForAcceptedRecord(
     }
     if (
       String(exactRecord.walletId || '').trim() !==
-      String(input.materialRestoreIdentity.lane.walletId)
+      String(input.materialRestoreIdentity.lane.signer.account.wallet.walletId)
     ) {
       return null;
     }
     if (
       String(exactRecord.nearAccountId || '').trim() !==
-      String(input.materialRestoreIdentity.lane.nearAccountId)
+      String(input.materialRestoreIdentity.lane.signer.account.nearAccountId)
     ) {
       return null;
     }
     if (
-      String(exactRecord.ed25519KeyScopeId || '').trim() !==
-      String(input.materialRestoreIdentity.lane.ed25519KeyScopeId)
+      String(exactRecord.nearEd25519SigningKeyId || '').trim() !==
+      String(input.materialRestoreIdentity.lane.signer.nearEd25519SigningKeyId)
     ) {
       return null;
     }

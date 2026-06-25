@@ -52,19 +52,35 @@ export type ForbiddenMainThreadSecrets = {
   prfKey?: never;
 };
 
-export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
+export type UserConfirmDecisionBase = ForbiddenMainThreadSecrets & {
   requestId: string;
   intentDigest?: string;
-  confirmed: boolean;
+  _confirmHandle?: { close: (confirmed: boolean) => void };
+};
+
+export type UserConfirmSuccessDecision = UserConfirmDecisionBase & {
+  confirmed: true;
   credential?: SerializableCredential;
   otpCode?: string;
   emailOtpChallengeId?: string;
   transactionContext?: TransactionContext;
   nonceLeases?: NonceLeaseRef[];
-  _confirmHandle?: { close: (confirmed: boolean) => void };
   registrationDiagnostics?: RegistrationConfirmationDiagnostics;
+  error?: never;
+};
+
+export type UserConfirmFailureDecision = UserConfirmDecisionBase & {
+  confirmed: false;
   error?: string;
-}
+  registrationDiagnostics?: RegistrationConfirmationDiagnostics;
+  credential?: never;
+  otpCode?: never;
+  emailOtpChallengeId?: never;
+  transactionContext?: never;
+  nonceLeases?: never;
+};
+
+export type UserConfirmDecision = UserConfirmSuccessDecision | UserConfirmFailureDecision;
 
 export type SigningAuthMode = 'webauthn' | 'warmSession' | 'emailOtp';
 

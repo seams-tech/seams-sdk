@@ -1,6 +1,6 @@
 import type { WalletId } from './domainIds';
 import type { NamedNearAccountId } from './near';
-import type { Ed25519KeyScopeId } from './registrationIntent';
+import type { NearEd25519SigningKeyId } from './registrationIntent';
 import type {
   CurrentWalletAuthMethod,
   NearAccountBinding,
@@ -17,7 +17,7 @@ declare const credentialIdB64u: string;
 declare const emailHashHex: string;
 declare const registrationAuthorityId: string;
 declare const namedNearAccountId: NamedNearAccountId;
-declare const ed25519KeyScopeId: Ed25519KeyScopeId;
+declare const nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 
 const validPasskeyBinding = {
   kind: 'passkey',
@@ -84,8 +84,8 @@ const validNearAccount = {
 
 const invalidSignerWithFlatWalletId = {
   account: validNearAccount,
-  ed25519KeyScopeId,
-  signerSlot: 0,
+  nearEd25519SigningKeyId,
+  signerSlot: 1,
   // @ts-expect-error signer binding must read wallet identity through account binding.
   walletId,
 } satisfies NearEd25519SignerBinding;
@@ -93,7 +93,7 @@ void invalidSignerWithFlatWalletId;
 
 const invalidSignerWithoutKeyScope = {
   account: validNearAccount,
-  signerSlot: 0,
-  // @ts-expect-error Ed25519 signer binding requires ed25519KeyScopeId.
+  signerSlot: 1,
+  // @ts-expect-error Ed25519 signer binding requires nearEd25519SigningKeyId.
 } satisfies NearEd25519SignerBinding;
 void invalidSignerWithoutKeyScope;

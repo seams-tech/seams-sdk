@@ -164,7 +164,7 @@ export async function linkDeviceWithScannedQRData(
       }
     }
 
-    const result = {
+    const result: LinkDeviceResult = {
       success: true,
       device2PublicKey,
       transactionId: addKeyTxResult?.transaction?.hash || 'unknown',

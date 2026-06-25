@@ -50,6 +50,7 @@ import {
   type SigningOperationCommand,
 } from '../shared/signingStateMachine';
 import {
+  buildSigningConfirmationAuthParams,
   confirmationConfigForSigningAuthPlan,
   runSigningConfirmationCommand,
 } from '../shared/signingConfirmation';
@@ -71,20 +72,31 @@ type RouterAbNearNep413SigningPayload = {
  * @param payload - NEP-413 signing parameters including message, recipient, nonce, and state
  * @returns Promise resolving to signing result with account ID, public key, and signature
  */
+type InternalSignNep413MessageResult =
+  | {
+      success: true;
+      accountId: string;
+      publicKey: string;
+      signature: string;
+      state?: string;
+      error?: never;
+    }
+  | {
+      success: false;
+      error: string;
+      accountId?: never;
+      publicKey?: never;
+      signature?: never;
+      state?: never;
+    };
+
 export async function signNep413Message({
   ctx,
   commandSubject,
   nearAccount,
   signingSessionCoordinator,
   payload,
-}: NearNep413Payload): Promise<{
-  success: boolean;
-  accountId: string;
-  publicKey: string;
-  signature: string;
-  state?: string;
-  error?: string;
-}> {
+}: NearNep413Payload): Promise<InternalSignNep413MessageResult> {
   try {
     const sessionId = payload.sessionId ?? generateNearSigningSessionId();
     const relayerUrl = ctx.relayerUrl;
@@ -177,15 +189,27 @@ export async function signNep413Message({
       signingSessionPlan: resolvedSigningSession.signingSessionPlan,
       signingOperation,
       runtime: touchConfirm,
-        request: {
-          ctx: { touchConfirm },
-          sessionId,
-          chain: 'near',
-          kind: 'nep413',
-          ...preparedStepUp.confirmationAuthPayload,
-	          walletId: String(commandSubject.walletSession.walletId),
-          nearAccountId,
-          nearPublicKeyStr: signingContext.nearPublicKey,
+      request: {
+        ctx: { touchConfirm },
+        sessionId,
+        chain: 'near',
+        kind: 'nep413',
+        ...buildSigningConfirmationAuthParams({
+          signingAuthPlan: preparedStepUp.confirmationAuthPayload.signingAuthPlan,
+          emailOtpPrompt:
+            preparedStepUp.kind === 'email_otp' ? preparedStepUp.emailOtpPrompt : undefined,
+          webauthnChallenge:
+            preparedStepUp.kind === 'passkey' &&
+            preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
+              ? {
+                  kind: 'threshold_session_policy' as const,
+                  digest32B64u: preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
+                }
+              : undefined,
+        }),
+        walletId: String(commandSubject.walletSession.walletId),
+        nearAccountId,
+        nearPublicKeyStr: signingContext.nearPublicKey,
         message: payload.message,
         recipient: payload.recipient,
         title: payload.title,
@@ -335,9 +359,6 @@ export async function signNep413Message({
     console.error('SignerWorkerManager: NEP-413 signing error:', error);
     return {
       success: false,
-      accountId: '',
-      publicKey: '',
-      signature: '',
       error:
         error && typeof (error as { message?: unknown }).message === 'string'
           ? (error as { message: string }).message

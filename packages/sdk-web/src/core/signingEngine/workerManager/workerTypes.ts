@@ -548,7 +548,7 @@ export interface EmailOtpWorkerOperationMap {
       relayUrl: string;
       walletId: string;
       nearAccountId: string;
-      ed25519KeyScopeId: string;
+      nearEd25519SigningKeyId: string;
       userId: string;
       challengeId: string;
       otpCode: string;

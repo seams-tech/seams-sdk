@@ -1,57 +1,33 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { isObject, json, readJson } from '../http';
+import { json, readJson } from '../http';
 import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
+import {
+  parseSyncAccountOptionsRequest,
+  parseSyncAccountVerifyRequest,
+} from '../../syncAccountRequestValidation';
 
 export async function handleSyncAccount(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
 
   if (ctx.pathname === '/sync-account/options') {
     const body = await readJson(ctx.request);
-    if (!isObject(body)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-        { status: 400 },
-      );
-    }
-    const result = await ctx.service.createWebAuthnSyncAccountOptions(body as any);
+    const parsed = parseSyncAccountOptionsRequest(body);
+    if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+    const result = await ctx.service.createWebAuthnSyncAccountOptions(parsed.request);
     return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
   }
 
   if (ctx.pathname === '/sync-account/verify') {
     const body = await readJson(ctx.request);
-    if (!isObject(body)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-        { status: 400 },
-      );
-    }
-    const challengeId = String(
-      (body as any).challengeId ?? (body as any).challenge_id ?? '',
-    ).trim();
-    if (!challengeId) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'challengeId is required' },
-        { status: 400 },
-      );
-    }
-    if (!isObject((body as any).webauthn_authentication)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'webauthn_authentication is required' },
-        { status: 400 },
-      );
-    }
-    const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
-    const result = await ctx.service.verifyWebAuthnSyncAccount({
-      challengeId,
-      webauthn_authentication: (body as any).webauthn_authentication,
-      ...(isObject((body as any).threshold_ed25519)
-        ? { threshold_ed25519: (body as any).threshold_ed25519 }
-        : {}),
-      expected_origin: origin,
+    const parsed = parseSyncAccountVerifyRequest({
+      body,
+      origin: ctx.request.headers.get('origin'),
     });
+    if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+    const result = await ctx.service.verifyWebAuthnSyncAccount(parsed.request);
     if (result.ok && result.verified && result.thresholdEd25519?.session) {
       if (result.thresholdEd25519.session.sessionKind !== 'jwt') {
         return json(

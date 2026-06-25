@@ -81,7 +81,7 @@ export type Ed25519SessionPolicy = {
   version: typeof THRESHOLD_SESSION_POLICY_VERSION;
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   relayerKeyId: string;
   thresholdSessionId: string;
@@ -181,7 +181,7 @@ export async function computeEcdsaSessionPolicyDigest32(
 export async function buildEd25519SessionPolicy(params: {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -208,7 +208,7 @@ export async function buildEd25519SessionPolicy(params: {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     walletId: params.walletId,
     nearAccountId: params.nearAccountId,
-    ed25519KeyScopeId: params.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: params.nearEd25519SigningKeyId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     thresholdSessionId,

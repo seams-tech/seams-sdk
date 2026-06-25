@@ -118,7 +118,7 @@ export async function signNEP413Message(args: {
         publicKey: result.publicKey,
         signature: result.signature,
         nonce,
-        state: result.state,
+        ...(result.state ? { state: result.state } : {}),
       };
     } else {
       throw new Error(`NEP-413 signing failed: ${result.error || 'Unknown error'}`);

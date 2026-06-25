@@ -48,7 +48,7 @@ import {
   parseSdkEcdsaHssSigningRootId,
   parseSdkEcdsaHssSigningRootVersion,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import { ed25519KeyScopeIdFromString, type Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString, type NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export type ThresholdEd25519LifecycleDeps = {
   signingKeyOps: Pick<
@@ -253,7 +253,7 @@ function jsonBytes(value: unknown): number {
 }
 
 type ThresholdEd25519HssBindingFactsInput = {
-  ed25519KeyScopeId: Ed25519KeyScopeId | string;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId | string;
   signingRootId: string;
   signingRootVersion: string;
 };
@@ -262,7 +262,7 @@ function normalizeThresholdEd25519HssBindingFacts(
   input: ThresholdEd25519HssBindingFactsInput,
 ): SdkEd25519HssBindingFacts {
   return {
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(String(input.ed25519KeyScopeId || '')),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(String(input.nearEd25519SigningKeyId || '')),
     signingRootId: parseSdkEcdsaHssSigningRootId(input.signingRootId),
     signingRootVersion: parseSdkEcdsaHssSigningRootVersion(input.signingRootVersion),
   };

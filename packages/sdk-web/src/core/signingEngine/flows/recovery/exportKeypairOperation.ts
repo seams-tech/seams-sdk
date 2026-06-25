@@ -4,18 +4,6 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  buildImplicitNearAccountBinding,
-  buildNamedNearAccountBinding,
-  buildNearEd25519SignerBinding,
-  buildWalletIdentity,
-} from '@shared/utils/walletCapabilityBindings';
-import {
-  isImplicitNearAccountId,
-  parseImplicitNearAccountId,
-  parseNamedNearAccountId,
-} from '@shared/utils/near';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
-import {
   ecdsaSigningTargetFromChainTarget,
   resolveEcdsaExportMaterialForLane,
   type EcdsaExportMaterial,
@@ -40,7 +28,6 @@ import {
   tryExportNearEd25519SingleKeyHssWithAuthorization,
   type NearEd25519SingleKeyExportDeps,
 } from './nearEd25519ExportFlow';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../../session/persistence/records';
 
 export type ExportKeypairWithUIDeps = {
   laneSelection: ExportLaneSelectionDeps;
@@ -51,26 +38,6 @@ export type ExportKeypairWithUIDeps = {
 type ExportedKeySchemes = Array<'ed25519' | 'secp256k1'>;
 type ExportKeypairResult = { accountId: string; exportedSchemes: ExportedKeySchemes };
 
-function buildNearAccountBindingForExport(args: {
-  wallet: ReturnType<typeof buildWalletIdentity>;
-  nearAccountId: ReturnType<typeof toAccountId>;
-}) {
-  if (isImplicitNearAccountId(args.nearAccountId)) {
-    const parsed = parseImplicitNearAccountId(args.nearAccountId);
-    if (!parsed.ok) throw new Error(parsed.message);
-    return buildImplicitNearAccountBinding({
-      wallet: args.wallet,
-      nearAccountId: parsed.value,
-    });
-  }
-  const parsed = parseNamedNearAccountId(args.nearAccountId);
-  if (!parsed.ok) throw new Error(parsed.message);
-  return buildNamedNearAccountBinding({
-    wallet: args.wallet,
-    nearAccountId: parsed.value,
-  });
-}
-
 function resolveNearEd25519SignerBindingForExport(
   args: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'near' }>,
 ) {
@@ -79,28 +46,14 @@ function resolveNearEd25519SignerBindingForExport(
   if (!walletId) {
     throw new Error('NEAR Ed25519 export requires wallet session identity');
   }
-  const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-  if (!record) {
-    throw new Error('NEAR Ed25519 export requires a stored signer binding');
-  }
-  if (String(record.walletId) !== walletId) {
+  const signer = args.laneIdentity.signer;
+  if (String(signer.account.wallet.walletId) !== walletId) {
     throw new Error('NEAR Ed25519 export wallet identity mismatch');
   }
-  if (String(record.nearAccountId) !== String(nearAccountId)) {
+  if (String(signer.account.nearAccountId) !== String(nearAccountId)) {
     throw new Error('NEAR Ed25519 export account identity mismatch');
   }
-  const rawEd25519KeyScopeId = String(record.ed25519KeyScopeId || '').trim();
-  if (!rawEd25519KeyScopeId) {
-    throw new Error('NEAR Ed25519 export requires ed25519KeyScopeId');
-  }
-  const signerSlot = Number(record.signerSlot ?? 0);
-  const wallet = buildWalletIdentity({ walletId: record.walletId });
-  const account = buildNearAccountBindingForExport({ wallet, nearAccountId });
-  return buildNearEd25519SignerBinding({
-    account,
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(rawEd25519KeyScopeId),
-    signerSlot,
-  });
+  return signer;
 }
 
 function emitEcdsaExportFailureDiagnostics(args: {

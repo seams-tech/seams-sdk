@@ -5,7 +5,7 @@ import type {
   VolatileWarmSessionMaterialClearer,
 } from '../../uiConfirm/uiConfirm.types';
 import {
-  getStoredThresholdEd25519SessionRecordForAccount,
+  getStoredThresholdEd25519SessionRecordForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
@@ -50,7 +50,7 @@ function collectWarmSigningSessionIdsForWallet(
 ): VolatileWarmSessionId[] {
   const sessionIds = new Set<VolatileWarmSessionId>();
   const ed25519SessionId = parseVolatileWarmSessionId(
-    getStoredThresholdEd25519SessionRecordForAccount(walletId)?.thresholdSessionId,
+    getStoredThresholdEd25519SessionRecordForWallet(walletId)?.thresholdSessionId,
   );
   if (ed25519SessionId) {
     sessionIds.add(ed25519SessionId);

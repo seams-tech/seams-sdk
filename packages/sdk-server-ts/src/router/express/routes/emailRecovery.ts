@@ -4,6 +4,10 @@ import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
+import {
+  parsePrepareEmailRecoveryRequest,
+  parseRespondEmailRecoveryEcdsaRequest,
+} from '../../emailRecoveryRequestValidation';
 
 export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   async function signEmailRecoveryThresholdSession(
@@ -50,23 +54,19 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
 
   router.post('/email-recovery/prepare', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
+      const parsed = parsePrepareEmailRecoveryRequest({ body: req?.body, origin });
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
-      const result = await ctx.service.prepareEmailRecovery({
-        ...(req.body || {}),
-        ...(origin ? { expected_origin: origin } : {}),
-      });
+      const result = await ctx.service.prepareEmailRecovery(parsed.request);
       if (!result.ok) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
       }
 
-      if (!(await signEmailRecoveryThresholdSession(result, (req.body || {}).rp_id, res))) return;
+      if (!(await signEmailRecoveryThresholdSession(result, parsed.request.rp_id, res))) return;
 
       res.status(200).json(result);
     } catch (e: any) {
@@ -78,13 +78,12 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
 
   router.post('/email-recovery/ecdsa/respond', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseRespondEmailRecoveryEcdsaRequest(req?.body);
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const result = await ctx.service.respondEmailRecoveryEcdsa({ ...(req.body || {}) });
+      const result = await ctx.service.respondEmailRecoveryEcdsa(parsed.request);
       if (!result.ok) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;

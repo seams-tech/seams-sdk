@@ -1,5 +1,6 @@
 import type { UiConfirmContext } from '../../../uiConfirm.types';
-import type { ConfirmationConfig, ConfirmationUIMode } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import { assertNeverConfirmationConfig } from '@/core/types/confirmationConfig';
 import { TransactionContext } from '@/core/types';
 import type { BlockReference, AccessKeyView } from '@near-js/types';
 import { errorMessage } from '@shared/utils/errors';
@@ -340,7 +341,7 @@ function createNearNonceLane(
     family: 'near' as const,
     networkKey: resolveNearNonceNetworkKey(ctx),
     walletId: String(args.walletId || '').trim(),
-    accountId: toAccountId(args.nearAccountId),
+    nearAccountId: toAccountId(args.nearAccountId),
     publicKey: String(args.nearPublicKeyStr || '').trim(),
   };
 }
@@ -424,6 +425,112 @@ function closeModalSafely(confirmed: boolean, handle?: ConfirmUIHandle) {
   handle?.close?.(confirmed);
 }
 
+type RenderConfirmUIResult = {
+  confirmed: boolean;
+  confirmHandle?: ConfirmUIHandle;
+  error?: string;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
+  diagnostics: ConfirmUIPromptDiagnostics;
+};
+
+type BaseRenderConfirmUIArgs = {
+  ctx: UiConfirmContext;
+  request: UserConfirmRequest;
+  confirmationConfig: NormalizedConfirmationConfig;
+  transactionSummary: TransactionSummary;
+  securityContext?: Partial<UserConfirmSecurityContext>;
+  loading?: boolean;
+  theme: ThemeName;
+  onMounted?: (handle: ConfirmUIHandle) => void;
+};
+
+type VisibleRenderConfirmUIArgs = BaseRenderConfirmUIArgs & {
+  confirmationConfig: Exclude<NormalizedConfirmationConfig, { kind: 'silent' }>;
+  txSigningRequests: ReturnType<typeof getSignTransactionPayload>['txSigningRequests'] | [];
+  model: ReturnType<typeof getDisplayModel>;
+  signingAuthMode: ReturnType<typeof getSigningAuthMode>;
+  emailOtpPrompt: ReturnType<typeof getEmailOtpPrompt>;
+  nearAccountIdForUi: string;
+};
+
+function emptyConfirmDiagnostics(): ConfirmUIPromptDiagnostics {
+  return {
+    kind: 'confirm_ui_prompt_diagnostics_v1',
+    elementDefineMs: 0,
+    mountMs: 0,
+    hostFirstUpdateMs: 0,
+    hostInteractiveMs: 0,
+    confirmEventMs: 0,
+    decisionWaitMs: 0,
+  };
+}
+
+async function renderAutoProceedConfirmUI(
+  args: VisibleRenderConfirmUIArgs & {
+    confirmationConfig: Extract<NormalizedConfirmationConfig, { kind: 'auto_proceed' }>;
+  },
+): Promise<RenderConfirmUIResult> {
+  const mountStartedAt = performance.now();
+  const handle = await mountConfirmUI({
+    ctx: args.ctx,
+    summary: args.transactionSummary,
+    txSigningRequests: args.txSigningRequests,
+    model: args.model,
+    securityContext: args.securityContext,
+    loading: args.loading ?? true,
+    theme: args.theme,
+    uiMode: args.confirmationConfig.uiMode,
+    nearAccountIdOverride: args.nearAccountIdForUi,
+    signingAuthMode: args.signingAuthMode,
+    emailOtpPrompt: args.emailOtpPrompt,
+  });
+  const mountMs = Math.max(0, Math.round(performance.now() - mountStartedAt));
+  args.onMounted?.(handle);
+  const decisionWaitStartedAt = performance.now();
+  await new Promise((resolve) => setTimeout(resolve, args.confirmationConfig.autoProceedDelay));
+  const decisionWaitMs = Math.max(0, Math.round(performance.now() - decisionWaitStartedAt));
+  return {
+    confirmed: true,
+    confirmHandle: handle,
+    diagnostics: {
+      ...emptyConfirmDiagnostics(),
+      mountMs,
+      decisionWaitMs,
+    },
+  };
+}
+
+async function renderInteractiveConfirmUI(
+  args: VisibleRenderConfirmUIArgs & {
+    confirmationConfig: Extract<NormalizedConfirmationConfig, { kind: 'interactive' }>;
+  },
+): Promise<RenderConfirmUIResult> {
+  const { confirmed, handle, error, otpCode, emailOtpChallengeId, diagnostics } =
+    await awaitConfirmUIDecision({
+      ctx: args.ctx,
+      summary: args.transactionSummary,
+      txSigningRequests: args.txSigningRequests,
+      model: args.model,
+      securityContext: args.securityContext,
+      loading: args.loading,
+      theme: args.theme,
+      uiMode: args.confirmationConfig.uiMode,
+      nearAccountIdOverride: args.nearAccountIdForUi,
+      onMounted: args.onMounted,
+      signingAuthMode: args.signingAuthMode,
+      emailOtpPrompt: args.emailOtpPrompt,
+    });
+  return {
+    confirmed,
+    confirmHandle: handle,
+    error,
+    otpCode,
+    emailOtpChallengeId,
+    diagnostics,
+  };
+}
+
 async function renderConfirmUI({
   ctx,
   request,
@@ -433,26 +540,9 @@ async function renderConfirmUI({
   loading,
   theme,
   onMounted,
-}: {
-  ctx: UiConfirmContext;
-  request: UserConfirmRequest;
-  confirmationConfig: ConfirmationConfig;
-  transactionSummary: TransactionSummary;
-  securityContext?: Partial<UserConfirmSecurityContext>;
-  loading?: boolean;
-  theme: ThemeName;
-  onMounted?: (handle: ConfirmUIHandle) => void;
-}): Promise<{
-  confirmed: boolean;
-  confirmHandle?: ConfirmUIHandle;
-  error?: string;
-  otpCode?: string;
-  emailOtpChallengeId?: string;
-  diagnostics: ConfirmUIPromptDiagnostics;
-}> {
+}: BaseRenderConfirmUIArgs): Promise<RenderConfirmUIResult> {
   const nearAccountIdForUi = getNearAccountId(request);
 
-  const uiMode = confirmationConfig.uiMode as ConfirmationUIMode;
   const txSigningRequests =
     request.type === UserConfirmationType.SIGN_TRANSACTION
       ? getSignTransactionPayload(request).txSigningRequests
@@ -461,94 +551,50 @@ async function renderConfirmUI({
   const signingAuthMode = getSigningAuthMode(request);
   const emailOtpPrompt = getEmailOtpPrompt(request);
 
-  const renderDrawerOrModal = async (mode: 'drawer' | 'modal') => {
-    if (confirmationConfig.behavior === 'skipClick') {
-      const mountStartedAt = performance.now();
-      const handle = await mountConfirmUI({
-        ctx,
-        summary: transactionSummary,
-        txSigningRequests,
-        model,
-        securityContext,
-        loading: loading ?? true,
-        theme,
-        uiMode: mode,
-        nearAccountIdOverride: nearAccountIdForUi,
-        signingAuthMode,
-        emailOtpPrompt,
-      });
-      const mountMs = Math.max(0, Math.round(performance.now() - mountStartedAt));
-      onMounted?.(handle);
-      const delay = confirmationConfig.autoProceedDelay ?? 0;
-      const decisionWaitStartedAt = performance.now();
-      await new Promise((r) => setTimeout(r, delay));
-      const decisionWaitMs = Math.max(0, Math.round(performance.now() - decisionWaitStartedAt));
-      return {
-        confirmed: true,
-        confirmHandle: handle,
-        diagnostics: {
-          kind: 'confirm_ui_prompt_diagnostics_v1',
-          elementDefineMs: 0,
-          mountMs,
-          hostFirstUpdateMs: 0,
-          hostInteractiveMs: 0,
-          confirmEventMs: 0,
-          decisionWaitMs,
-        },
-      } as const;
-    }
-
-    const { confirmed, handle, error, otpCode, emailOtpChallengeId, diagnostics } =
-      await awaitConfirmUIDecision({
-        ctx,
-        summary: transactionSummary,
-        txSigningRequests,
-        model,
-        securityContext,
-        loading,
-        theme,
-        uiMode: mode,
-        nearAccountIdOverride: nearAccountIdForUi,
-        onMounted,
-        signingAuthMode,
-        emailOtpPrompt,
-      });
-    return {
-      confirmed,
-      confirmHandle: handle,
-      error,
-      otpCode,
-      emailOtpChallengeId,
-      diagnostics,
-    } as const;
-  };
-
-  switch (uiMode) {
-    case 'none': {
+  switch (confirmationConfig.kind) {
+    case 'silent': {
       return {
         confirmed: true,
         confirmHandle: undefined,
-        diagnostics: {
-          kind: 'confirm_ui_prompt_diagnostics_v1',
-          elementDefineMs: 0,
-          mountMs: 0,
-          hostFirstUpdateMs: 0,
-          hostInteractiveMs: 0,
-          confirmEventMs: 0,
-          decisionWaitMs: 0,
-        },
+        diagnostics: emptyConfirmDiagnostics(),
       };
     }
-    case 'drawer': {
-      return await renderDrawerOrModal('drawer');
+    case 'auto_proceed': {
+      return await renderAutoProceedConfirmUI({
+        ctx,
+        request,
+        confirmationConfig,
+        transactionSummary,
+        securityContext,
+        loading,
+        theme,
+        onMounted,
+        txSigningRequests,
+        model,
+        signingAuthMode,
+        emailOtpPrompt,
+        nearAccountIdForUi,
+      });
     }
-    case 'modal': {
-      return await renderDrawerOrModal('modal');
+    case 'interactive': {
+      return await renderInteractiveConfirmUI({
+        ctx,
+        request,
+        confirmationConfig,
+        transactionSummary,
+        securityContext,
+        loading,
+        theme,
+        onMounted,
+        txSigningRequests,
+        model,
+        signingAuthMode,
+        emailOtpPrompt,
+        nearAccountIdForUi,
+      });
     }
     default: {
-      // Defensive fallback for unexpected uiMode values:
-      // treat as modal flow instead of auto-confirming.
-      return await renderDrawerOrModal('modal');
+      return assertNeverConfirmationConfig(confirmationConfig);
     }
   }
 }
@@ -600,7 +646,7 @@ export function createConfirmSession({
   adapters: ConfirmTxFlowAdapters;
   worker: UserConfirmResponsePort;
   request: KnownUserConfirmRequest;
-  confirmationConfig: ConfirmationConfig;
+  confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
   theme: ThemeName;
 }): {

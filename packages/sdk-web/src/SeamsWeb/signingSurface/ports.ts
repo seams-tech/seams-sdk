@@ -1,4 +1,5 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
+import type { WalletId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId as EcdsaWalletId,
@@ -174,8 +175,8 @@ export interface UserProfileStoreSurface {
   getUserBySignerSlot(nearAccountId: AccountId, signerSlot: number): Promise<ClientUserData | null>;
   getLastUser(): Promise<ClientUserData | null>;
   nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]>;
-  updateLastLogin(nearAccountId: AccountId): Promise<void>;
-  setLastUser(nearAccountId: AccountId, signerSlot: number): Promise<void>;
+  updateLastLogin(walletId: WalletId): Promise<void>;
+  setLastUser(walletId: WalletId, signerSlot: number): Promise<void>;
 }
 
 export type UserAccountLookupSurface = Pick<

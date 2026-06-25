@@ -196,7 +196,7 @@ function firstSigningSessionSealKeyVersion(
 function ed25519SealedWorkerMaterialMissingFields(
   value: {
     nearAccountId?: unknown;
-    ed25519KeyScopeId?: unknown;
+    nearEd25519SigningKeyId?: unknown;
     clientVerifyingShareB64u?: unknown;
     ed25519WorkerMaterialBindingDigest?: unknown;
     sealedWorkerMaterialRef?: unknown;
@@ -211,8 +211,8 @@ function ed25519SealedWorkerMaterialMissingFields(
   if (!String(value?.nearAccountId || '').trim()) {
     missing.push('nearAccountId');
   }
-  if (!String(value?.ed25519KeyScopeId || '').trim()) {
-    missing.push('ed25519KeyScopeId');
+  if (!String(value?.nearEd25519SigningKeyId || '').trim()) {
+    missing.push('nearEd25519SigningKeyId');
   }
   if (!String(value?.clientVerifyingShareB64u || '').trim()) {
     missing.push('clientVerifyingShareB64u');
@@ -1170,7 +1170,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ? {
             rpId: ed25519Record.rpId,
             nearAccountId: ed25519Record.nearAccountId,
-            ed25519KeyScopeId: ed25519Record.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: ed25519Record.nearEd25519SigningKeyId,
             relayerKeyId: ed25519Record.relayerKeyId,
             participantIds: ed25519Record.participantIds,
             ...persistedRestoreWalletSessionAuthFields(ed25519Record),

@@ -1,6 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionRetention } from '@/core/types/seams';
-import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
@@ -59,7 +59,8 @@ type BaseSigningLaneInput = {
 type BaseEd25519SigningLaneInput = BaseSigningLaneInput & {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
 };
 type BaseEcdsaSigningLaneInput = BaseSigningLaneInput & {
   key: EvmFamilyEcdsaKeyIdentity;
@@ -131,7 +132,8 @@ export function buildEd25519PasskeySigningLane(
     ...selectedEd25519Lane({
       walletId: input.walletId,
       nearAccountId: input.nearAccountId,
-      ed25519KeyScopeId: input.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      signerSlot: input.signerSlot,
       auth: input.auth,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
@@ -151,7 +153,8 @@ export function buildEd25519EmailOtpSigningLane(
     ...selectedEd25519Lane({
       walletId: input.walletId,
       nearAccountId: input.nearAccountId,
-      ed25519KeyScopeId: input.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      signerSlot: input.signerSlot,
       auth: input.auth,
       signingGrantId: input.signingGrantId,
       thresholdSessionId: input.thresholdSessionId,
@@ -523,8 +526,8 @@ function readEcdsaCapabilityRecord(
       'ECDSA signing lane must target threshold secp256k1 signing',
     );
   }
-  const chainTarget = ecdsaChainTargetFromLane(lane);
-  if (!chainTarget) {
+  const signer = lane.identity.signer;
+  if (signer.kind !== 'evm_family_ecdsa_signer' || lane.chainFamily !== signer.chainTarget.kind) {
     return readError(
       lane,
       'record_mismatch',
@@ -535,13 +538,13 @@ function readEcdsaCapabilityRecord(
   const record =
     signingLaneAuthMethod(lane.auth) === 'email_otp'
       ? deps.readEmailOtpEcdsaSessionRecord?.({
-          walletId: lane.walletId,
-          chainTarget,
-          keyHandle: lane.keyHandle,
+          walletId: signer.walletId,
+          chainTarget: signer.chainTarget,
+          keyHandle: signer.keyHandle,
           thresholdSessionId: lane.thresholdSessionId,
           signingGrantId: lane.signingGrantId,
         })
-      : readPasskeyEcdsaRecord(deps, lane, chainTarget);
+      : readPasskeyEcdsaRecord(deps, lane, signer);
   if (!record) {
     return readError(lane, 'missing_record', 'Missing selected-lane ECDSA session record');
   }
@@ -574,14 +577,14 @@ function readEcdsaCapabilityRecord(
 function readPasskeyEcdsaRecord(
   deps: SigningCapabilityReaderDeps,
   lane: SelectedEcdsaSigningSessionPlanningLane,
-  chainTarget: ThresholdEcdsaChainTarget,
+  signer: Extract<SelectedEcdsaSigningSessionPlanningLane['identity']['signer'], { kind: 'evm_family_ecdsa_signer' }>,
 ): ThresholdEcdsaSessionRecord | null | undefined {
   if (!isEcdsaPasskeyStorageSource(lane.storageSource)) return null;
   return deps.readPasskeyEcdsaSessionRecord?.({
-    walletId: lane.walletId,
-    chainTarget,
+    walletId: signer.walletId,
+    chainTarget: signer.chainTarget,
     storageSource: lane.storageSource,
-    keyHandle: lane.keyHandle,
+    keyHandle: signer.keyHandle,
     thresholdSessionId: lane.thresholdSessionId,
     signingGrantId: lane.signingGrantId,
   });
@@ -592,26 +595,36 @@ function validateLaneCandidateForSigningLane(
   candidate: Ed25519LaneCandidate | EcdsaLaneCandidate,
 ): SigningCapabilityReadError | null {
   if (candidate.curve === 'ecdsa') {
-    if (lane.curve !== 'ecdsa' || String(candidate.walletId) !== String(lane.walletId)) {
+    const signer = lane.identity.signer;
+    if (
+      signer.kind !== 'evm_family_ecdsa_signer' ||
+      String(candidate.walletId) !== String(signer.walletId) ||
+      String(candidate.keyHandle || '').trim() !== String(signer.keyHandle || '').trim() ||
+      !thresholdEcdsaChainTargetsEqual(candidate.chainTarget, signer.chainTarget)
+    ) {
       return readError(
         lane,
         'record_mismatch',
-        'Session record wallet does not match selected lane',
+        'Session record signer does not match selected lane',
       );
     }
-  } else if (
-    lane.curve !== 'ed25519' ||
-    String(candidate.walletId) !== String(lane.walletId) ||
-    String(candidate.nearAccountId) !== String(lane.nearAccountId) ||
-    String(candidate.ed25519KeyScopeId) !== String(lane.ed25519KeyScopeId)
-  ) {
-    return readError(
-      lane,
-      'record_mismatch',
-      'Session record account does not match selected lane',
-    );
+  } else {
+    const signer = lane.identity.signer;
+    if (
+      signer.kind !== 'near_ed25519_signer' ||
+      String(candidate.walletId) !== String(signer.account.wallet.walletId) ||
+      String(candidate.nearAccountId) !== String(signer.account.nearAccountId) ||
+      String(candidate.nearEd25519SigningKeyId) !== String(signer.nearEd25519SigningKeyId) ||
+      Number(candidate.signerSlot) !== Number(signer.signerSlot)
+    ) {
+      return readError(
+        lane,
+        'record_mismatch',
+        'Session record signer does not match selected lane',
+      );
+    }
   }
-  if (signingLaneAuthMethod(candidate.auth) !== signingLaneAuthMethod(lane.auth)) {
+  if (signingLaneAuthMethod(candidate.auth) !== signingLaneAuthMethod(lane.identity.auth)) {
     return readError(
       lane,
       'record_mismatch',
@@ -621,14 +634,14 @@ function validateLaneCandidateForSigningLane(
   if (candidate.curve !== lane.curve) {
     return readError(lane, 'record_mismatch', 'Session record curve does not match selected lane');
   }
-  if (String(candidate.thresholdSessionId || '') !== String(lane.thresholdSessionId)) {
+  if (String(candidate.thresholdSessionId || '') !== String(lane.identity.thresholdSessionId)) {
     return readError(
       lane,
       'record_mismatch',
       'Session record threshold session does not match selected lane',
     );
   }
-  if (String(candidate.signingGrantId || '') !== String(lane.signingGrantId)) {
+  if (String(candidate.signingGrantId || '') !== String(lane.identity.signingGrantId)) {
     return readError(
       lane,
       'record_mismatch',
@@ -636,17 +649,18 @@ function validateLaneCandidateForSigningLane(
     );
   }
   if (candidate.curve === 'ecdsa') {
-    if (lane.curve !== 'ecdsa') {
+    const signer = lane.identity.signer;
+    if (signer.kind !== 'evm_family_ecdsa_signer') {
       return readError(lane, 'record_mismatch', 'ECDSA session record requires an ECDSA lane');
     }
-    if (!thresholdEcdsaChainTargetsEqual(candidate.chainTarget, lane.chainTarget)) {
+    if (!thresholdEcdsaChainTargetsEqual(candidate.chainTarget, signer.chainTarget)) {
       return readError(
         lane,
         'record_mismatch',
         'Session record chain target does not match selected lane',
       );
     }
-    if (String(candidate.keyHandle || '').trim() !== String(lane.keyHandle || '').trim()) {
+    if (String(candidate.keyHandle || '').trim() !== String(signer.keyHandle || '').trim()) {
       return readError(
         lane,
         'record_mismatch',
@@ -665,14 +679,6 @@ function validateThresholdRecordStorageSourceForLane(
     return readError(lane, 'record_mismatch', 'Session record source does not match selected lane');
   }
   return null;
-}
-
-function ecdsaChainTargetFromLane(
-  lane: SelectedSigningSessionPlanningLane,
-): ThresholdEcdsaChainTarget | null {
-  const chainTarget = lane.chainTarget;
-  if (!chainTarget || lane.chainFamily !== chainTarget.kind) return null;
-  return chainTarget;
 }
 
 function isEcdsaPasskeyStorageSource(

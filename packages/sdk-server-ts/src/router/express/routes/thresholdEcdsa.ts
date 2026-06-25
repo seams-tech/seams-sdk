@@ -52,6 +52,10 @@ import {
   type RouterAbEcdsaHssPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 import type { VerifiedEcdsaWalletSessionAuth } from '../../verifiedWalletSessionAuth';
+import {
+  parseRouterAbEcdsaHssKeyIdentitiesRequest,
+  thresholdEcdsaRouteDiagnosticMetadata,
+} from '../../thresholdEcdsaRequestValidation';
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
 type ThresholdEd25519SessionClaims = NonNullable<
@@ -595,7 +599,9 @@ export function registerThresholdEcdsaRoutes(
 
   router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, async (req: Request, res: Response) => {
     await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, {}, async () => {
-      if (parseSessionKind(req.body || {}) === 'cookie') {
+      const parsed = parseRouterAbEcdsaHssKeyIdentitiesRequest(req.body || {});
+      if (!parsed.ok) return parsed.body;
+      if (parsed.request.sessionKind === 'cookie') {
         return {
           ok: false,
           code: 'invalid_body',
@@ -615,14 +621,10 @@ export function registerThresholdEcdsaRoutes(
           message: 'Threshold Ed25519 session is expired',
         };
       }
-      const bodyRecord =
-        req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-          ? (req.body as Record<string, unknown>)
-          : {};
       const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
         userId: validated.walletSessionAuth.userId,
         rpId: validated.walletSessionAuth.rpId,
-        keyTargets: Array.isArray(bodyRecord.keyTargets) ? bodyRecord.keyTargets : [],
+        keyTargets: parsed.request.keyTargets,
       });
       ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {
         walletId: validated.walletSessionAuth.userId,
@@ -643,28 +645,13 @@ export function registerThresholdEcdsaRoutes(
       req,
       res,
       ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
-      {
-        walletId:
-          typeof (body as { walletId?: unknown }).walletId === 'string'
-            ? (body as { walletId: string }).walletId
-            : undefined,
-        walletKeyId:
-          typeof (body as { walletKeyId?: unknown }).walletKeyId === 'string'
-            ? (body as { walletKeyId: string }).walletKeyId
-            : undefined,
-        ecdsaThresholdKeyId:
-          typeof (body as { ecdsaThresholdKeyId?: unknown }).ecdsaThresholdKeyId === 'string'
-            ? (body as { ecdsaThresholdKeyId: string }).ecdsaThresholdKeyId
-            : undefined,
-        relayerKeyId:
-          typeof (body as { relayerKeyId?: unknown }).relayerKeyId === 'string'
-            ? (body as { relayerKeyId: string }).relayerKeyId
-            : undefined,
-        requestId:
-          typeof (body as { requestId?: unknown }).requestId === 'string'
-            ? (body as { requestId: string }).requestId
-            : undefined,
-      },
+      thresholdEcdsaRouteDiagnosticMetadata(body, [
+        'walletId',
+        'walletKeyId',
+        'ecdsaThresholdKeyId',
+        'relayerKeyId',
+        'requestId',
+      ]),
       async () => {
         if (parseSessionKind(body) === 'cookie') {
           return {
@@ -771,28 +758,13 @@ export function registerThresholdEcdsaRoutes(
       req,
       res,
       ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
-      {
-        walletId:
-          typeof (body as { walletId?: unknown }).walletId === 'string'
-            ? (body as { walletId: string }).walletId
-            : undefined,
-        walletKeyId:
-          typeof (body as { walletKeyId?: unknown }).walletKeyId === 'string'
-            ? (body as { walletKeyId: string }).walletKeyId
-            : undefined,
-        ecdsaThresholdKeyId:
-          typeof (body as { ecdsaThresholdKeyId?: unknown }).ecdsaThresholdKeyId === 'string'
-            ? (body as { ecdsaThresholdKeyId: string }).ecdsaThresholdKeyId
-            : undefined,
-        relayerKeyId:
-          typeof (body as { relayerKeyId?: unknown }).relayerKeyId === 'string'
-            ? (body as { relayerKeyId: string }).relayerKeyId
-            : undefined,
-        clientDeviceId:
-          typeof (body as { clientDeviceId?: unknown }).clientDeviceId === 'string'
-            ? (body as { clientDeviceId: string }).clientDeviceId
-            : undefined,
-      },
+      thresholdEcdsaRouteDiagnosticMetadata(body, [
+        'walletId',
+        'walletKeyId',
+        'ecdsaThresholdKeyId',
+        'relayerKeyId',
+        'clientDeviceId',
+      ]),
       async () => {
         if (parseSessionKind(body) === 'cookie') {
           return {

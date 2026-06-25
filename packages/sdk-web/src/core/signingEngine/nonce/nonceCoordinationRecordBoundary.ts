@@ -30,6 +30,7 @@ export function parseNonceLaneCoordinationRecord(
   const family = rawString(obj.family);
   const networkKey = rawString(obj.networkKey);
   const accountId = rawString(obj.accountId);
+  const nearAccountId = rawString(obj.nearAccountId);
 
   if (obj.v !== 1) {
     return malformedRecordResult(obj, laneKey, leaseId, family);
@@ -65,6 +66,7 @@ export function parseNonceLaneCoordinationRecord(
       laneKey,
       networkKey,
       accountId,
+      nearAccountId,
       nonce,
       state,
       operationId,
@@ -81,6 +83,7 @@ export function parseNonceLaneCoordinationRecord(
     laneKey,
     networkKey,
     accountId,
+    nearAccountId,
     nonce,
     state,
     operationId,
@@ -97,6 +100,7 @@ type ParsedBaseInput = {
   laneKey: string;
   networkKey: string;
   accountId: string;
+  nearAccountId: string;
   nonce: bigint;
   state: NonceLaneCoordinationRecord['state'];
   operationId: string;
@@ -152,7 +156,7 @@ function parseEvmRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResult
 function parseNearRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResult {
   const publicKey = rawString(input.obj.publicKey);
   const walletId = rawString(input.obj.walletId);
-  if (!input.accountId || !walletId || !publicKey) {
+  if (!input.nearAccountId || !walletId || !publicKey) {
     return malformedRecordResult(input.obj, input.laneKey, input.leaseId, 'near');
   }
 
@@ -160,14 +164,14 @@ function parseNearRecord(input: ParsedBaseInput): NonceLaneCoordinationReadResul
     ...buildBaseRecord(input),
     family: 'near',
     walletId,
-    accountId: input.accountId,
+    nearAccountId: input.nearAccountId,
     publicKey,
   };
   const lane = {
     family: 'near' as const,
     networkKey: record.networkKey,
     walletId: record.walletId,
-    accountId: record.accountId,
+    nearAccountId: record.nearAccountId,
     publicKey: record.publicKey,
   };
 
@@ -263,7 +267,7 @@ function malformedRecordResult(
   }
   const networkKey = rawString(obj.networkKey);
   if (networkKey) degradation.networkKey = networkKey;
-  const accountId = rawString(obj.accountId);
+  const accountId = rawString(obj.walletId) || rawString(obj.accountId) || rawString(obj.nearAccountId);
   if (accountId) degradation.accountId = accountId;
   return {
     ok: false,

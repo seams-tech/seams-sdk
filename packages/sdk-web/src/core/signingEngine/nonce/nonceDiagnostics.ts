@@ -22,7 +22,12 @@ import {
 } from './nonceLaneKeys';
 import { isInFlightNonceLeaseState } from './nonceLeaseState';
 import { normalizeMetricReason } from './nonceUtils';
-import type { NearNonceLaneState } from './nearNonceLane';
+import {
+  hasNearTransactionContext,
+  readNearActiveAccountId,
+  readNearActivePublicKey,
+  type NearNonceLaneState,
+} from './nearNonceLane';
 
 export type NonceOutcomeMetricKind =
   | 'dropped'
@@ -294,6 +299,8 @@ export function createNonceCoordinatorDiagnostics(input: {
     releasedLeaseCount: leasesByState[NonceLeaseState.Released],
     outcomes: readOutcomeMetrics(input.outcomeMetricEvents, accountId),
   };
+  const nearActiveAccountId = readNearActiveAccountId(input.nearState);
+  const nearActivePublicKey = readNearActivePublicKey(input.nearState);
 
   return {
     leaseCount,
@@ -315,9 +322,9 @@ export function createNonceCoordinatorDiagnostics(input: {
       states: { ...entry.states },
     })),
     near: {
-      ...(input.nearState.accountId ? { activeAccountId: input.nearState.accountId } : {}),
-      ...(input.nearState.publicKey ? { activePublicKey: input.nearState.publicKey } : {}),
-      hasContext: !!input.nearState.transactionContext,
+      ...(nearActiveAccountId ? { activeAccountId: nearActiveAccountId } : {}),
+      ...(nearActivePublicKey ? { activePublicKey: nearActivePublicKey } : {}),
+      hasContext: hasNearTransactionContext(input.nearState),
       reservedNonceCount: input.nearState.reservedNonces.size,
       ...(input.nearState.lastReservedNonce
         ? { lastReservedNonce: input.nearState.lastReservedNonce }

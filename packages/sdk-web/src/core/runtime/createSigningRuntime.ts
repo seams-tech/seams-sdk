@@ -57,10 +57,10 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
     getLastUser: async () => (await getRegistrationAccounts()).getLastUser(),
     nearAuthenticatorsByAccount: async (nearAccountId) =>
       (await getRegistrationAccounts()).nearAuthenticatorsByAccount(nearAccountId),
-    updateLastLogin: async (nearAccountId) =>
-      (await getRegistrationAccounts()).updateLastLogin(nearAccountId),
-    setLastUser: async (nearAccountId, signerSlot) =>
-      (await getRegistrationAccounts()).setLastUser(nearAccountId, signerSlot),
+    updateLastLogin: async (walletId) =>
+      (await getRegistrationAccounts()).updateLastLogin(walletId),
+    setLastUser: async (walletId, signerSlot) =>
+      (await getRegistrationAccounts()).setLastUser(walletId, signerSlot),
     activateAuthenticatedWalletState: async (input) =>
       (await getRegistrationAccounts()).activateAuthenticatedWalletState(input),
     storeAuthenticator: async (authenticatorData) =>

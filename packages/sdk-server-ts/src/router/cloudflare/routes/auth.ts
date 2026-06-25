@@ -1,25 +1,22 @@
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { headersToRecord, isObject, json, readJson } from '../http';
+import { headersToRecord, json, readJson } from '../http';
+import {
+  parseAuthIdentityMutationRequest,
+  parseAuthProviderActionPath,
+  parseGoogleLoginVerifyRequest,
+  parsePasskeyLoginOptionsRequest,
+  parsePasskeyLoginVerifyRequest,
+  type AuthPasskeyStepUpRequest,
+} from '../../authRequestValidation';
 
-type ProviderId = 'passkey' | 'google';
-type ActionId = 'options' | 'verify';
+function assertNeverAuthProviderAction(route: never): never {
+  throw new Error(`Unsupported auth provider action: ${String((route as any)?.kind || '')}`);
+}
 
-function parseAuthPath(pathname: string): { provider: ProviderId; action: ActionId } | null {
-  const parts = String(pathname || '')
-    .split('/')
-    .filter(Boolean);
-  if (parts.length !== 3) return null;
-  if (parts[0] !== 'auth') return null;
-  const provider = parts[1] as ProviderId;
-  const action = parts[2] as ActionId;
-  if (
-    (provider !== 'passkey' && provider !== 'google') ||
-    (action !== 'options' && action !== 'verify')
-  )
-    return null;
-  return { provider, action };
+function assertNeverAuthIdentityMutation(route: never): never {
+  throw new Error(`Unsupported auth identity mutation: ${String((route as any)?.kind || '')}`);
 }
 
 export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response | null> {
@@ -166,48 +163,9 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
   }
 
   async function requirePasskeyStepUp(
-    body: any,
-    input: { userId: string; origin?: string },
+    input: { userId: string; stepUp: AuthPasskeyStepUpRequest },
   ): Promise<{ ok: true } | { ok: false; response: Response }> {
-    const challengeId = String(
-      body?.stepUpChallengeId ??
-        body?.step_up_challenge_id ??
-        body?.challengeId ??
-        body?.challenge_id ??
-        '',
-    ).trim();
-    if (!challengeId) {
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: 'invalid_body', message: 'stepUpChallengeId is required' },
-          { status: 400 },
-        ),
-      };
-    }
-    const webauthnAuthentication =
-      body?.webauthn_authentication ??
-      body?.stepUpWebauthnAuthentication ??
-      body?.step_up_webauthn_authentication;
-    if (!isObject(webauthnAuthentication)) {
-      return {
-        ok: false,
-        response: json(
-          {
-            ok: false,
-            code: 'invalid_body',
-            message: 'webauthn_authentication is required for step-up',
-          },
-          { status: 400 },
-        ),
-      };
-    }
-
-    const result = await ctx.service.verifyWebAuthnLogin({
-      challengeId,
-      webauthn_authentication: webauthnAuthentication as any,
-      expected_origin: input.origin,
-    });
+    const result = await ctx.service.verifyWebAuthnLogin(input.stepUp);
     if (!result.ok || !result.verified || !result.userId) {
       return {
         ok: false,
@@ -235,68 +193,59 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
 
   if (ctx.method === 'POST' && (ctx.pathname === '/auth/link' || ctx.pathname === '/auth/unlink')) {
     const body = await readJson(ctx.request);
-    if (!isObject(body)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-        { status: 400 },
-      );
+    const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
+    const parsed = parseAuthIdentityMutationRequest({ pathname: ctx.pathname, body, origin });
+    if (!parsed) return null;
+    if (!parsed.ok) {
+      return json(parsed.body, { status: parsed.status });
     }
-    const sess = await requireAppSession({
-      source: ctx.pathname === '/auth/link' ? 'auth.link' : 'auth.unlink',
-    });
+
+    const command = parsed.request;
+    const sess = await requireAppSession({ source: command.source });
     if (!sess.ok) return sess.response;
 
-    const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
-    const stepUp = await requirePasskeyStepUp(body, { userId: sess.userId, origin });
+    const stepUpRequest = command.request.stepUp;
+    const stepUp = await requirePasskeyStepUp({ userId: sess.userId, stepUp: stepUpRequest });
     if (!stepUp.ok) return stepUp.response;
     await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
-    if (ctx.pathname === '/auth/link') {
-      const provider = String((body as any).provider || '').trim();
-      let subject = '';
-      if (provider === 'google') {
-        const idToken = String((body as any).idToken ?? (body as any).id_token ?? '').trim();
-        const verified = await ctx.service.verifyGoogleLogin({ idToken });
+    switch (command.kind) {
+      case 'link': {
+        const verified = await ctx.service.verifyGoogleLogin({
+          idToken: command.request.idToken,
+        });
         if (!verified.ok || !verified.verified || !verified.providerSubject) {
           return json(verified, { status: verified.code === 'internal' ? 500 : 400 });
         }
-        subject = verified.providerSubject;
-      } else {
+        const subject = verified.providerSubject;
+
+        const linked = await ctx.service.linkIdentity({
+          userId: sess.userId,
+          subject,
+          allowMoveIfSoleIdentity: true,
+        });
+        if (!linked.ok) {
+          return json(linked, { status: linked.code === 'internal' ? 500 : 400 });
+        }
+        const identities = await ctx.service.listIdentities({ userId: sess.userId });
         return json(
-          { ok: false, code: 'invalid_body', message: 'provider must be: google' },
-          { status: 400 },
+          {
+            ok: true,
+            linked: true,
+            subject,
+            ...(linked.movedFromUserId ? { movedFromUserId: linked.movedFromUserId } : {}),
+            ...(identities.ok ? { identities: identities.subjects } : {}),
+          },
+          { status: 200 },
         );
       }
-
-      const linked = await ctx.service.linkIdentity({
-        userId: sess.userId,
-        subject,
-        allowMoveIfSoleIdentity: true,
-      });
-      if (!linked.ok) {
-        return json(linked, { status: linked.code === 'internal' ? 500 : 400 });
-      }
-      const identities = await ctx.service.listIdentities({ userId: sess.userId });
-      return json(
-        {
-          ok: true,
-          linked: true,
-          subject,
-          ...(linked.movedFromUserId ? { movedFromUserId: linked.movedFromUserId } : {}),
-          ...(identities.ok ? { identities: identities.subjects } : {}),
-        },
-        { status: 200 },
-      );
+      case 'unlink':
+        break;
+      default:
+        assertNeverAuthIdentityMutation(command);
     }
 
-    // /auth/unlink
-    const subject = String((body as any).subject || '').trim();
-    if (!subject) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'subject is required' },
-        { status: 400 },
-      );
-    }
+    const subject = command.request.subject;
     if (subject.startsWith('near:')) {
       return json(
         { ok: false, code: 'not_supported', message: 'near: subjects cannot be unlinked' },
@@ -332,7 +281,7 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
 
     const authHeader = String(ctx.request.headers.get('authorization') || '').trim();
     const cookieHeader = String(ctx.request.headers.get('cookie') || '').trim();
-    const rawKind = (body as any).sessionKind ?? (body as any).session_kind;
+    const rawKind = command.request.session_kind;
     const requestedKind = rawKind === 'cookie' ? 'cookie' : rawKind === 'jwt' ? 'jwt' : null;
     const inferredKind =
       requestedKind ||
@@ -379,84 +328,50 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
 
   if (ctx.method !== 'POST') return null;
 
-  const parsedPath = parseAuthPath(ctx.pathname);
-  if (!parsedPath) return null;
-
-  const body = await readJson(ctx.request);
-  if (!isObject(body)) {
-    return json(
-      { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-      { status: 400 },
-    );
-  }
-
+  const parsedRoute = parseAuthProviderActionPath(ctx.pathname);
+  if (!parsedRoute) return null;
   const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
 
-  const providers: Record<ProviderId, Record<ActionId, () => Promise<Response>>> = {
-    passkey: {
-      options: async () => {
-        const result = await ctx.service.createWebAuthnLoginOptions(body as any);
-        return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
-      },
-      verify: async () => {
-        const challengeId = String(
-          (body as any).challengeId ?? (body as any).challenge_id ?? '',
-        ).trim();
-        if (!challengeId) {
-          return json(
-            { ok: false, code: 'invalid_body', message: 'challengeId is required' },
-            { status: 400 },
-          );
-        }
-        if (!isObject((body as any).webauthn_authentication)) {
-          return json(
-            { ok: false, code: 'invalid_body', message: 'webauthn_authentication is required' },
-            { status: 400 },
-          );
-        }
+  switch (parsedRoute.kind) {
+    case 'passkey_options': {
+      const parsed = parsePasskeyLoginOptionsRequest(await readJson(ctx.request));
+      if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+      const result = await ctx.service.createWebAuthnLoginOptions(parsed.request);
+      return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
+    }
+    case 'passkey_verify': {
+      const parsed = parsePasskeyLoginVerifyRequest({
+        body: await readJson(ctx.request),
+        origin,
+      });
+      if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+      const result = await ctx.service.verifyWebAuthnLogin(parsed.request);
+      if (!result.ok || !result.verified) {
+        return json(result, { status: result.code === 'internal' ? 500 : 400 });
+      }
 
-        const result = await ctx.service.verifyWebAuthnLogin({
-          challengeId,
-          webauthn_authentication: (body as any).webauthn_authentication,
-          expected_origin: origin,
-        });
-        if (!result.ok || !result.verified) {
-          return json(result, { status: result.code === 'internal' ? 500 : 400 });
-        }
+      return json({ ok: true, verified: true }, { status: 200 });
+    }
+    case 'google_options': {
+      const publicConfig = ctx.service.getGoogleOidcPublicConfig();
+      return json({ ok: true, ...publicConfig }, { status: 200 });
+    }
+    case 'google_verify': {
+      const parsed = parseGoogleLoginVerifyRequest(await readJson(ctx.request));
+      if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+      const result = await ctx.service.verifyGoogleLogin(parsed.request);
+      if (!result.ok || !result.verified || !result.userId) {
+        return json(result, { status: result.code === 'internal' ? 500 : 400 });
+      }
 
-        return json({ ok: true, verified: true }, { status: 200 });
-      },
-    },
-    google: {
-      options: async () => {
-        const publicConfig = ctx.service.getGoogleOidcPublicConfig();
-        return json({ ok: true, ...publicConfig }, { status: 200 });
-      },
-      verify: async () => {
-        const idToken = String((body as any).idToken ?? (body as any).id_token ?? '').trim();
-        if (!idToken) {
-          return json(
-            { ok: false, code: 'invalid_body', message: 'id_token is required' },
-            { status: 400 },
-          );
-        }
-
-        const result = await ctx.service.verifyGoogleLogin({ idToken });
-        if (!result.ok || !result.verified || !result.userId) {
-          return json(result, { status: result.code === 'internal' ? 500 : 400 });
-        }
-
-        const baseBody = {
-          ok: true,
-          verified: true,
-          ...(result.email ? { email: result.email } : {}),
-        };
-        return json(baseBody, { status: 200 });
-      },
-    },
-  };
-
-  const handler = providers[parsedPath.provider]?.[parsedPath.action];
-  if (!handler) return null;
-  return handler();
+      const baseBody = {
+        ok: true,
+        verified: true,
+        ...(result.email ? { email: result.email } : {}),
+      };
+      return json(baseBody, { status: 200 });
+    }
+    default:
+      return assertNeverAuthProviderAction(parsedRoute);
+  }
 }

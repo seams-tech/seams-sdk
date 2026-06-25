@@ -127,6 +127,7 @@ type WalletSignerRow = {
   kind: string;
   chain_target_key: string;
   near_signer_slot?: number;
+  near_ed25519_signing_key_id?: string;
   key_handle?: string;
   ecdsa_threshold_key_id?: string;
   threshold_owner_address?: string;
@@ -157,7 +158,8 @@ type RecoveryEmailRow = {
 type NonceLaneLeaseRow = {
   lease_id: string;
   lane_key: string;
-  account_id: string;
+  wallet_id: string;
+  near_account_id?: string;
   state: NonceLaneLeaseStoreRecordState;
   expires_at_ms: number;
   record: NonceLaneLeaseStoreRecord;
@@ -241,22 +243,28 @@ function createRandomToken(prefix: string): string {
   return `${prefix}-${suffix}`;
 }
 
-function nonceLeaseAccountId(record: NonceLaneLeaseStoreRecord): string {
-  if (record.family === 'near') return record.accountId;
-  return record.accountId || record.sender;
+function nonceLeaseWalletId(record: NonceLaneLeaseStoreRecord): string {
+  if (record.family === 'near') return record.walletId;
+  return record.accountId;
+}
+
+function nonceLeaseNearAccountId(record: NonceLaneLeaseStoreRecord): string {
+  return record.family === 'near' ? record.nearAccountId : '';
 }
 
 function nonceLeaseRow(record: NonceLaneLeaseStoreRecord): NonceLaneLeaseRow {
   const leaseId = toTrimmedString(record.leaseId || '');
   const laneKey = toTrimmedString(record.laneKey || '');
-  const accountId = toTrimmedString(nonceLeaseAccountId(record) || '');
-  if (!leaseId || !laneKey || !accountId) {
-    throw new Error('[SeamsWalletDB] nonce lease requires leaseId, laneKey, and account identity');
+  const walletId = toTrimmedString(nonceLeaseWalletId(record) || '');
+  const nearAccountId = toTrimmedString(nonceLeaseNearAccountId(record) || '');
+  if (!leaseId || !laneKey || !walletId) {
+    throw new Error('[SeamsWalletDB] nonce lease requires leaseId, laneKey, and wallet identity');
   }
   return {
     lease_id: leaseId,
     lane_key: laneKey,
-    account_id: accountId,
+    wallet_id: walletId,
+    ...(nearAccountId ? { near_account_id: nearAccountId } : {}),
     state: record.state,
     expires_at_ms: Math.floor(Number(record.expiresAtMs)),
     record,
@@ -270,7 +278,8 @@ function parseNonceLeaseRow(value: unknown): NonceLaneLeaseStoreRecord | null {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
   if (row.lease_id !== record.leaseId) return null;
   if (row.lane_key !== record.laneKey) return null;
-  if (row.account_id !== nonceLeaseAccountId(record)) return null;
+  if (row.wallet_id !== nonceLeaseWalletId(record)) return null;
+  if ((row.near_account_id || '') !== nonceLeaseNearAccountId(record)) return null;
   if (row.state !== record.state) return null;
   if (row.expires_at_ms !== Math.floor(Number(record.expiresAtMs))) return null;
   return record;
@@ -362,6 +371,7 @@ function normalizeEcdsaChainTargetKey(value: unknown): string {
 type WalletSignerScalarMirrors = {
   chainTargetKey: string;
   nearSignerSlot?: number;
+  nearEd25519SigningKeyId?: string;
   keyHandle?: string;
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
@@ -393,12 +403,19 @@ function walletSignerScalarMirrors(record: AccountSignerRecord): WalletSignerSca
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
     throw new Error('[SeamsWalletDB] Ed25519 signer requires a positive signerSlot');
   }
+  const nearEd25519SigningKeyId = toTrimmedString(
+    record.metadata?.nearEd25519SigningKeyId || '',
+  );
+  if (!nearEd25519SigningKeyId) {
+    throw new Error('[SeamsWalletDB] Ed25519 signer requires nearEd25519SigningKeyId');
+  }
   return {
     chainTargetKey: signerChainTargetKey({
       chainIdKey: record.chainIdKey,
       accountAddress: record.accountAddress,
     }),
     nearSignerSlot: signerSlot,
+    nearEd25519SigningKeyId,
   };
 }
 
@@ -932,6 +949,9 @@ function accountSignerRow(record: AccountSignerRecord): WalletSignerRow {
     kind: signerKind,
     chain_target_key: mirrors.chainTargetKey,
     ...(mirrors.nearSignerSlot != null ? { near_signer_slot: mirrors.nearSignerSlot } : {}),
+    ...(mirrors.nearEd25519SigningKeyId
+      ? { near_ed25519_signing_key_id: mirrors.nearEd25519SigningKeyId }
+      : {}),
     ...(mirrors.keyHandle ? { key_handle: mirrors.keyHandle } : {}),
     ...(mirrors.ecdsaThresholdKeyId
       ? { ecdsa_threshold_key_id: mirrors.ecdsaThresholdKeyId }
@@ -979,6 +999,12 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
       return null;
     }
     if (row.near_signer_slot !== undefined && row.near_signer_slot !== mirrors.nearSignerSlot) {
+      return null;
+    }
+    if (
+      row.near_ed25519_signing_key_id !== undefined &&
+      row.near_ed25519_signing_key_id !== mirrors.nearEd25519SigningKeyId
+    ) {
       return null;
     }
   } else if (row.chain_target_key !== mirrors.chainTargetKey) {
@@ -3173,13 +3199,13 @@ export class SeamsWalletRepositories {
   }
 
   async listNonceLaneLeaseRecords(args?: {
-    accountId?: string;
+    walletId?: string;
   }): Promise<NonceLaneLeaseStoreRecord[]> {
-    const accountId = toTrimmedString(args?.accountId || '');
+    const walletId = toTrimmedString(args?.walletId || '');
     const db = await this.manager.getDB();
     const tx = db.transaction(SEAMS_WALLET_STORES.nonceLaneLeases, 'readonly');
-    const rows = (accountId
-      ? await tx.store.index(SEAMS_WALLET_INDEXES.accountId).getAll(accountId)
+    const rows = (walletId
+      ? await tx.store.index(SEAMS_WALLET_INDEXES.walletId).getAll(walletId)
       : await tx.store.getAll()) as unknown[];
     await tx.done;
     return rows.flatMap((row) => {
@@ -3211,17 +3237,17 @@ export class SeamsWalletRepositories {
     );
   }
 
-  async clearNonceLaneLeaseRecordsForAccount(accountId: string): Promise<void> {
-    const normalizedAccountId = toTrimmedString(accountId || '');
-    if (!normalizedAccountId) return;
+  async clearNonceLaneLeaseRecordsForWallet(walletId: string): Promise<void> {
+    const normalizedWalletId = toTrimmedString(walletId || '');
+    if (!normalizedWalletId) return;
     await this.manager.runTransaction(
       [SEAMS_WALLET_STORES.nonceLaneLeases],
       'readwrite',
       async (ctx) => {
         const store = ctx.store(SEAMS_WALLET_STORES.nonceLaneLeases);
         const rows = (await store
-          .index(SEAMS_WALLET_INDEXES.accountId)
-          .getAll(normalizedAccountId)) as unknown[];
+          .index(SEAMS_WALLET_INDEXES.walletId)
+          .getAll(normalizedWalletId)) as unknown[];
         for (const row of rows) {
           const parsed = parseNonceLeaseRow(row);
           if (parsed) await store.delete(parsed.leaseId);

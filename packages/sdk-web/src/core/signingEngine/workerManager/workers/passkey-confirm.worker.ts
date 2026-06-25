@@ -14,6 +14,7 @@ import type {
   WarmSessionEd25519UnsealAuthorizationPutPayload,
 } from '@/core/types/secure-confirm-worker';
 import {
+  thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -21,6 +22,7 @@ import { parseClearVolatileWarmMaterialCommand } from '@/core/signingEngine/sess
 import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
+import { parseWalletId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { WALLET_SESSION_SEAL_BASE_PATH_V2 } from '@shared/utils/signingSessionSeal';
 import {
@@ -439,17 +441,17 @@ function labelForExportTarget(target: ExportWorkerTarget): string {
 function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorkerPayload | null {
   const payload = asRecord(value);
   if (!payload) return null;
-  const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
-  const signerSlot = Math.floor(Number(payload.signerSlot));
   const target = parseExportWorkerTarget(payload);
   const artifactKind = normalizeOptionalNonEmptyString(payload.artifactKind);
-  if (!nearAccountId || !Number.isFinite(signerSlot) || signerSlot < 1) return null;
   if (!target) return null;
   const variant = coerceVariant(payload.variant);
   const theme = coerceTheme(payload.theme);
   if (target.kind === 'near') {
+    const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
+    const signerSlot = Math.floor(Number(payload.signerSlot));
     const expectedPublicKey = normalizeOptionalNonEmptyString(payload.expectedPublicKey);
     const seedB64u = normalizeOptionalNonEmptyString(payload.seedB64u);
+    if (!nearAccountId || !Number.isFinite(signerSlot) || signerSlot < 1) return null;
     if (artifactKind === 'near-ed25519-seed-v1') {
       if (!expectedPublicKey || !seedB64u) {
         return null;
@@ -467,6 +469,9 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
     }
     return null;
   }
+  const parsedWalletId = parseWalletId(payload.walletId);
+  if (!parsedWalletId.ok) return null;
+  const walletId = String(parsedWalletId.value);
   if (artifactKind === 'ecdsa-hss-secp256k1-export') {
     const publicKeyHex = normalizeOptionalNonEmptyString(payload.publicKeyHex);
     const privateKeyHex = normalizeOptionalNonEmptyString(payload.privateKeyHex);
@@ -475,8 +480,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
       return null;
     }
     return {
-      nearAccountId,
-      signerSlot,
+      walletId,
       chainTarget: target.chainTarget,
       artifactKind,
       publicKeyHex,
@@ -490,8 +494,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
     return null;
   }
   return {
-    nearAccountId,
-    signerSlot,
+    walletId,
     chainTarget: target.chainTarget,
     variant,
     theme,
@@ -519,6 +522,28 @@ function requireEcdsaHssThresholdExportPayload(
     throw new Error('ecdsa-hss secp256k1 export artifact metadata missing or invalid');
   }
   return payload as EcdsaHssThresholdExportWorkerPayload;
+}
+
+function exportSubjectIdForPayload(payload: ExportPrivateKeysWithUiWorkerPayload): string {
+  if ('chain' in payload && payload.chain === 'near') {
+    return String(toAccountId(payload.nearAccountId));
+  }
+  if ('walletId' in payload) return payload.walletId;
+  throw new Error('Invalid export subject');
+}
+
+function exportIntentDigestForPayload(args: {
+  payload: ExportPrivateKeysWithUiWorkerPayload;
+  exportSubjectId: string;
+  exportTarget: ExportWorkerTarget;
+}): string {
+  if ('chain' in args.payload && args.payload.chain === 'near') {
+    return `export-keys:${args.exportSubjectId}:${args.payload.signerSlot}`;
+  }
+  if (args.exportTarget.kind !== 'ecdsa') {
+    throw new Error('Invalid ECDSA export target');
+  }
+  return `export-keys:${args.exportSubjectId}:${thresholdEcdsaChainTargetKey(args.exportTarget.chainTarget)}:secp256k1`;
 }
 
 function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTransport | null {
@@ -725,12 +750,12 @@ async function ensureHssClientSignerWasmReady(): Promise<void> {
 
 async function deriveSecp256k1FromPrfSecondInWorker(args: {
   prfSecondB64u: string;
-  nearAccountId: string;
+  derivationSubjectId: string;
 }): Promise<{ privateKeyHex: string; publicKeyHex: string; ethereumAddress: string }> {
   await ensureEthSignerWasmReady();
   const prfSecond = base64UrlDecode(args.prfSecondB64u);
   try {
-    const out = derive_secp256k1_keypair_from_prf_second(prfSecond, args.nearAccountId);
+    const out = derive_secp256k1_keypair_from_prf_second(prfSecond, args.derivationSubjectId);
     if (out.length !== 85) {
       throw new Error(
         `derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`,
@@ -782,7 +807,6 @@ async function runExportPrivateKeysWithUi(
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   // Worker-owned export flow boundary:
   // only this runtime initiates export confirmations via awaitUserConfirmationV2.
-  const nearAccountId = toAccountId(payload.nearAccountId);
   const exportTarget =
     'chain' in payload && payload.chain === 'near'
       ? ({ kind: 'near', scheme: 'ed25519' } as const)
@@ -790,6 +814,7 @@ async function runExportPrivateKeysWithUi(
         ? ({ kind: 'ecdsa', scheme: 'secp256k1', chainTarget: payload.chainTarget } as const)
         : null;
   if (!exportTarget) throw new Error('Invalid export target');
+  const exportSubjectId = exportSubjectIdForPayload(payload);
   const exportScheme = exportTarget.scheme;
   const nearSeedPayload =
     exportScheme === 'ed25519' &&
@@ -820,7 +845,11 @@ async function runExportPrivateKeysWithUi(
     : [];
   const requestId = toSessionId('export-keys');
   const viewerSessionId = `${requestId}-viewer`;
-  const intentDigest = `export-keys:${nearAccountId}:${payload.signerSlot}`;
+  const intentDigest = exportIntentDigestForPayload({
+    payload,
+    exportSubjectId,
+    exportTarget,
+  });
 
   let prfSecondB64u = '';
   const exportKeys: ExportPrivateKeyDisplayEntry[] = [];
@@ -831,7 +860,7 @@ async function runExportPrivateKeysWithUi(
       type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
       summary: {
         operation: exportOperation,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         publicKey: exportPublicKey || '(threshold export key)',
         warning:
           exportScheme === 'ed25519'
@@ -841,7 +870,9 @@ async function runExportPrivateKeysWithUi(
               : 'Authenticate with your passkey to prepare export keys.',
       },
       payload: {
-        nearAccountId,
+        ...(exportTarget.kind === 'near'
+          ? { nearAccountId: exportSubjectId }
+          : { walletId: exportSubjectId }),
         publicKey: exportPublicKey,
       },
       intentDigest,
@@ -851,7 +882,7 @@ async function runExportPrivateKeysWithUi(
       return {
         ok: false,
         cancelled: true,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         exportedSchemes: [],
         error: decision.error || 'User cancelled export request',
       };
@@ -869,12 +900,14 @@ async function runExportPrivateKeysWithUi(
       type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
       summary: {
         operation: exportOperation,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         publicKey: exportPublicKey || '(threshold export key)',
         warning: 'Preparing your private key export.',
       },
       payload: {
-        nearAccountId,
+        ...(exportTarget.kind === 'near'
+          ? { nearAccountId: exportSubjectId }
+          : { walletId: exportSubjectId }),
         viewerSessionId,
         publicKey: exportPublicKey,
         keys: loadingKeys,
@@ -889,7 +922,7 @@ async function runExportPrivateKeysWithUi(
       return {
         ok: false,
         cancelled: true,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         exportedSchemes: [],
         error: loadingDecision.error || 'User cancelled export viewer',
       };
@@ -925,7 +958,7 @@ async function runExportPrivateKeysWithUi(
     if (exportScheme === 'secp256k1' && !ecdsaHssExportPayload) {
       const derived = await deriveSecp256k1FromPrfSecondInWorker({
         prfSecondB64u,
-        nearAccountId,
+        derivationSubjectId: exportSubjectId,
       });
       exportKeys.push({
         scheme: 'secp256k1',
@@ -946,12 +979,14 @@ async function runExportPrivateKeysWithUi(
       type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
       summary: {
         operation: exportOperation,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         publicKey: first.publicKey,
         warning: 'Anyone with your private key can fully control your account. Never share it.',
       },
       payload: {
-        nearAccountId,
+        ...(exportTarget.kind === 'near'
+          ? { nearAccountId: exportSubjectId }
+          : { walletId: exportSubjectId }),
         viewerSessionId,
         publicKey: first.publicKey,
         privateKey: first.privateKey,
@@ -967,7 +1002,7 @@ async function runExportPrivateKeysWithUi(
       return {
         ok: false,
         cancelled: true,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         exportedSchemes: [],
         error: showDecision.error || 'User cancelled export viewer',
       };
@@ -975,7 +1010,7 @@ async function runExportPrivateKeysWithUi(
 
     return {
       ok: true,
-      accountId: nearAccountId,
+      accountId: exportSubjectId,
       exportedSchemes: exportKeys.map((entry) => entry.scheme),
     };
   } catch (error: unknown) {
@@ -983,7 +1018,7 @@ async function runExportPrivateKeysWithUi(
       return {
         ok: false,
         cancelled: true,
-        accountId: nearAccountId,
+        accountId: exportSubjectId,
         exportedSchemes: [],
         error:
           error instanceof Error ? error.message : String(error || 'User cancelled export request'),
@@ -996,12 +1031,14 @@ async function runExportPrivateKeysWithUi(
         type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
         summary: {
           operation: exportOperation,
-          accountId: nearAccountId,
+          accountId: exportSubjectId,
           publicKey: exportPublicKey || '(threshold export key)',
           warning: 'Private key export failed.',
         },
         payload: {
-          nearAccountId,
+          ...(exportTarget.kind === 'near'
+            ? { nearAccountId: exportSubjectId }
+            : { walletId: exportSubjectId }),
           viewerSessionId,
           publicKey: exportPublicKey,
           keys: loadingKeys,
@@ -1355,16 +1392,25 @@ function postUserConfirmWorkerResponse(
 function toDecisionFromWorkerResponse(
   response: Awaited<ReturnType<typeof awaitUserConfirmationV2>>,
 ): UserConfirmDecision {
+  const requestId = String(response.request_id || '').trim();
+  if (!response.confirmed) {
+    return {
+      requestId,
+      intentDigest: response.intent_digest,
+      confirmed: false,
+      registrationDiagnostics: response.registration_diagnostics,
+      error: response.error,
+    };
+  }
   return {
-    requestId: String(response.request_id || '').trim(),
+    requestId,
     intentDigest: response.intent_digest,
-    confirmed: !!response.confirmed,
+    confirmed: true,
     credential: response.credential,
     otpCode: response.otp_code,
     emailOtpChallengeId: response.email_otp_challenge_id,
     transactionContext: response.transaction_context,
     registrationDiagnostics: response.registration_diagnostics,
-    error: response.error,
   };
 }
 

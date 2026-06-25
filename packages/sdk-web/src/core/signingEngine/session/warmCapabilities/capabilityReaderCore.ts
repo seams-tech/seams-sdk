@@ -11,6 +11,8 @@ import {
 } from '../persistence/records';
 import {
   exactSigningLaneIdentityMatches,
+  isExactEcdsaSigningLaneIdentity,
+  isExactEd25519SigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
   type ExactEd25519SigningLaneIdentity,
   type ExactSigningLaneIdentity,
@@ -376,12 +378,20 @@ export function createWarmSessionCapabilityReaderCore(
   }): boolean {
     const record = args.record;
     const lane = args.lane;
+    const signer = lane.signer;
     if (!record) return false;
     if (record.source !== 'email_otp') return false;
     if (lane.auth.kind !== 'email_otp') return false;
-    if (String(record.walletId || '').trim() !== String(lane.walletId)) return false;
-    if (String(record.nearAccountId || '').trim() !== String(lane.nearAccountId)) return false;
-    if (String(record.ed25519KeyScopeId || '').trim() !== String(lane.ed25519KeyScopeId)) {
+    if (String(record.walletId || '').trim() !== String(signer.account.wallet.walletId)) {
+      return false;
+    }
+    if (String(record.nearAccountId || '').trim() !== String(signer.account.nearAccountId)) {
+      return false;
+    }
+    if (
+      String(record.nearEd25519SigningKeyId || '').trim() !==
+      String(signer.nearEd25519SigningKeyId)
+    ) {
       return false;
     }
     if (String(record.signingGrantId || '').trim() !== String(lane.signingGrantId)) return false;
@@ -413,7 +423,7 @@ export function createWarmSessionCapabilityReaderCore(
     const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return null;
     if (args.lane.auth.kind !== 'email_otp') return null;
-    if (args.lane.curve === 'ed25519') {
+    if (isExactEd25519SigningLaneIdentity(args.lane)) {
       const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
       if (!ed25519RecordMatchesExactLane({ record, lane: args.lane })) return null;
       const auth = resolveEd25519AuthMaterial(record);
@@ -426,6 +436,7 @@ export function createWarmSessionCapabilityReaderCore(
       });
       return lane?.kind === 'signing_session' && lane.curve === 'ed25519' ? lane : null;
     }
+    if (!isExactEcdsaSigningLaneIdentity(args.lane)) return null;
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
     if (!ecdsaRecordMatchesExactLane({ record, lane: args.lane })) return null;
     const auth = resolveEcdsaAuthMaterial(record);
@@ -437,7 +448,7 @@ export function createWarmSessionCapabilityReaderCore(
       thresholdSessionId: identity.thresholdSessionId,
       authorizingSigningGrantId: identity.signingGrantId,
       curve: 'ecdsa',
-      chainTarget: args.lane.chainTarget,
+      chainTarget: args.lane.signer.chainTarget,
     });
     return lane?.kind === 'signing_session' && lane.curve === 'ecdsa' ? lane : null;
   }

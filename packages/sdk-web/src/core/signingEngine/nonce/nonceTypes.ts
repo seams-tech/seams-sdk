@@ -128,7 +128,7 @@ export type NearNonceLane = {
   family: 'near';
   networkKey: string;
   walletId: string;
-  accountId: string;
+  nearAccountId: string;
   publicKey: string;
 };
 
@@ -139,16 +139,74 @@ export type PreparedNonceOperationContext = SigningOperationContext & {
   accountId: string;
 };
 
-type NonceLeaseBase = {
+type NonceLeaseBaseWithoutState = {
   leaseId: string;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  state: NonceLeaseState;
   reservedAtMs: number;
   expiresAtMs: number;
   batchId?: string;
   txIndex?: number;
 };
+
+export type ReservedNonceLeaseState = {
+  state: typeof NonceLeaseState.Reserved;
+};
+
+export type ReleasedNonceLeaseState = {
+  state: typeof NonceLeaseState.Released;
+};
+
+export type ExpiredNonceLeaseState = {
+  state: typeof NonceLeaseState.Expired;
+};
+
+export type SignedNonceLeaseState = {
+  state: typeof NonceLeaseState.Signed;
+};
+
+export type SignedLeaseExpiredNonceLeaseState = {
+  state: typeof NonceLeaseState.SignedLeaseExpired;
+};
+
+export type BroadcastAcceptedNonceLeaseState = {
+  state: typeof NonceLeaseState.BroadcastAccepted;
+};
+
+export type BroadcastRejectedNonceLeaseState = {
+  state: typeof NonceLeaseState.BroadcastRejected;
+};
+
+export type FinalizedNonceLeaseState = {
+  state: typeof NonceLeaseState.Finalized;
+};
+
+export type DroppedNonceLeaseState = {
+  state: typeof NonceLeaseState.Dropped;
+};
+
+export type ReplacedNonceLeaseState = {
+  state: typeof NonceLeaseState.Replaced;
+};
+
+export type ReconciledNonceLeaseState = {
+  state: typeof NonceLeaseState.Reconciled;
+};
+
+export type NonceLeaseLifecycleState =
+  | ReservedNonceLeaseState
+  | ReleasedNonceLeaseState
+  | ExpiredNonceLeaseState
+  | SignedNonceLeaseState
+  | SignedLeaseExpiredNonceLeaseState
+  | BroadcastAcceptedNonceLeaseState
+  | BroadcastRejectedNonceLeaseState
+  | FinalizedNonceLeaseState
+  | DroppedNonceLeaseState
+  | ReplacedNonceLeaseState
+  | ReconciledNonceLeaseState;
+
+type NonceLeaseBase = NonceLeaseBaseWithoutState & NonceLeaseLifecycleState;
 
 export type EvmNonceLease = NonceLeaseBase & {
   lane: EvmNonceLane;
@@ -220,7 +278,7 @@ export type NonceLaneCoordinationRecord =
   | (NonceLaneCoordinationRecordBase & {
       family: 'near';
       walletId: string;
-      accountId: string;
+      nearAccountId: string;
       publicKey: string;
     });
 
@@ -251,11 +309,11 @@ export type NonceLaneCoordinationReadResult =
 
 export type NonceLaneCoordinationStore = {
   readLane(laneKey: string): Promise<ParsedNonceLaneCoordinationRecord[]>;
-  readAll(input?: { accountId?: string }): Promise<ParsedNonceLaneCoordinationRecord[]>;
-  readAllForRecovery(input?: { accountId?: string }): Promise<NonceLaneCoordinationReadResult[]>;
+  readAll(input?: { walletId?: string }): Promise<ParsedNonceLaneCoordinationRecord[]>;
+  readAllForRecovery(input?: { walletId?: string }): Promise<NonceLaneCoordinationReadResult[]>;
   upsert(record: NonceLaneCoordinationRecord): Promise<void>;
   remove(input: { laneKey: string; leaseId: string }): Promise<void>;
-  clearForAccount(accountId: string): Promise<void>;
+  clearForWallet(walletId: string): Promise<void>;
   clearAll(): Promise<void>;
   pruneExpired(nowMs: number): Promise<void>;
   withLock?<T>(
@@ -365,7 +423,11 @@ export type NonceCoordinator = {
     nearClient?: NearClient;
     force?: boolean;
   }): Promise<{ context: TransactionContext; leases: NonceLease[] }>;
-  initializeNearAccessKey(input: { walletId: string; accountId: string; publicKey: string }): void;
+  initializeNearAccessKey(input: {
+    walletId: string;
+    nearAccountId: string;
+    publicKey: string;
+  }): void;
   getActiveNearPublicKey(): string | null;
   fetchNearContext(input: {
     lane: NearNonceLane;
@@ -381,7 +443,7 @@ export type NonceCoordinator = {
       | {
           kind: 'access_key_subject';
           walletId: string;
-          accountId: string;
+          nearAccountId: string;
           publicKey: string;
           nearClient?: NearClient;
         },
@@ -424,10 +486,10 @@ export type NonceCoordinator = {
     operationFingerprint: SigningOperationFingerprint | string;
     reason: NonceLeaseReleaseReason;
   }): Promise<void>;
-  expireLeases(input?: { accountId?: string }): Promise<NonceLease[]>;
-  recoverDurableLeases(input?: { accountId?: string }): Promise<void>;
+  expireLeases(input?: { walletId?: string }): Promise<NonceLease[]>;
+  recoverDurableLeases(input?: { walletId?: string }): Promise<void>;
   reconcile(input: { lane: NonceLane }): Promise<NonceLaneStatus>;
-  clearForAccount(accountId: string): void;
+  clearForWallet(walletId: string): void;
   clearAll(): void;
   getDiagnostics(input?: NonceCoordinatorDiagnosticsOptions): NonceCoordinatorDiagnostics;
 };

@@ -173,7 +173,7 @@ function ed25519ReconstructionKeyFromRecord(
   return {
     signer: buildNearEd25519SignerBinding({
       account: account.value,
-      ed25519KeyScopeId: record.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
       signerSlot,
     }),
     relayerKeyId: record.relayerKeyId,

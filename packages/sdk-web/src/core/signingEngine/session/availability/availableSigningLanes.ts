@@ -1,6 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import { ed25519KeyScopeIdFromString, type Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString, type NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import { parseSignerSlot } from '@shared/utils/signerSlot';
 import {
   decodeJwtPayloadRecord,
   ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
@@ -54,7 +55,7 @@ import {
   selectedEd25519Lane,
   type SelectedLane,
 } from '../identity/laneIdentity';
-import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import {
   signingLaneAuthMethod,
   type SigningLaneAuthBinding,
@@ -162,7 +163,8 @@ export type MissingAvailableEd25519SigningLane = {
   state: 'missing';
   walletId?: never;
   nearAccountId?: never;
-  ed25519KeyScopeId?: never;
+  nearEd25519SigningKeyId?: never;
+  signerSlot?: never;
   authMethod?: never;
   signingGrantId?: never;
   thresholdSessionId?: never;
@@ -179,7 +181,8 @@ export type ConcreteAvailableEd25519SigningLane = {
   chain: 'near';
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
   state: AvailableSigningLaneState;
   signingGrantId: string;
   thresholdSessionId: string;
@@ -338,7 +341,8 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   chain: 'near';
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   thresholdSessionId: string;
   signingGrantId: string;
@@ -547,7 +551,8 @@ export function ed25519LaneCandidateFromAvailableLane(args: {
     kind: 'lane_candidate',
     walletId: args.lane.walletId,
     nearAccountId: args.lane.nearAccountId,
-    ed25519KeyScopeId: args.lane.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.lane.nearEd25519SigningKeyId,
+    signerSlot: args.lane.signerSlot,
     auth: args.lane.auth,
     curve: 'ed25519',
     chain: 'near',
@@ -775,7 +780,7 @@ export function buildReauthAnchorIdentityFromAvailableLane(args: {
     walletId: toWalletId(args.walletId),
     operationId: args.operationId,
     operationFingerprint: args.operationFingerprint,
-    laneIdentity: exactSigningLaneIdentity(selectedLane),
+    laneIdentity: exactSigningLaneIdentityFromSelectedLane(selectedLane),
     recordVersion: availableLaneRecordVersion(args.lane),
     updatedAtMs: availableLaneUpdatedAtMs(args.lane),
     remainingUses: args.lane.remainingUses ?? null,
@@ -805,7 +810,8 @@ function selectedLaneFromConcreteAvailableLane(args: {
     return selectedEd25519Lane({
       walletId: args.lane.walletId,
       nearAccountId: args.lane.nearAccountId,
-      ed25519KeyScopeId: args.lane.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.lane.nearEd25519SigningKeyId,
+      signerSlot: args.lane.signerSlot,
       auth: args.lane.auth,
       signingGrantId: args.lane.signingGrantId,
       thresholdSessionId: args.lane.thresholdSessionId,
@@ -1190,6 +1196,8 @@ function recordToEd25519Lane(args: {
   const policyHint = durablePolicyHint(args.record);
   const auth = ed25519RecoveryRecordAuthBinding(recoveryRecord);
   if (!auth) return null;
+  const signerSlot = parseSignerSlot(recoveryRecord.signerSlot);
+  if (signerSlot == null) return null;
 
   return {
     auth,
@@ -1197,7 +1205,8 @@ function recordToEd25519Lane(args: {
     chain: 'near',
     walletId: toWalletId(recoveryRecord.walletId),
     nearAccountId: toAccountId(recoveryRecord.nearAccountId),
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(recoveryRecord.ed25519KeyScopeId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(recoveryRecord.nearEd25519SigningKeyId),
+    signerSlot,
     // IndexedDB policy fields are lookup hints until authenticated sealed
     // payload metadata or trusted runtime/server status confirms them.
     state: 'restorable',
@@ -1364,6 +1373,8 @@ function runtimeRecordToEd25519Lane(args: {
     ? nullablePositiveInteger(args.durableLane.updatedAtMs) || 0
     : 0;
   const updatedAtMs = Math.max(runtimeUpdatedAtMs, durableUpdatedAtMs);
+  const signerSlot = parseSignerSlot(args.record.signerSlot);
+  if (signerSlot == null) return null;
 
   return {
     auth: args.record.auth,
@@ -1371,7 +1382,8 @@ function runtimeRecordToEd25519Lane(args: {
     chain: 'near',
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
-    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
+    signerSlot,
     state: runtimeClaimToLaneState(
       claim,
       hasMatchingDurableLane ? args.durableLane : undefined,

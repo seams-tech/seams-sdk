@@ -4,17 +4,20 @@ import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
+import {
+  parseSyncAccountOptionsRequest,
+  parseSyncAccountVerifyRequest,
+} from '../../syncAccountRequestValidation';
 
 export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   router.post('/sync-account/options', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseSyncAccountOptionsRequest(req?.body);
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const result = await ctx.service.createWebAuthnSyncAccountOptions(req.body);
+      const result = await ctx.service.createWebAuthnSyncAccountOptions(parsed.request);
       if (!result.ok) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
@@ -29,36 +32,16 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRel
 
   router.post('/sync-account/verify', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
-      const body = req.body;
-      const challengeId = String(body.challengeId ?? body.challenge_id ?? '').trim();
-      if (!challengeId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
-        return;
-      }
-      if (!body.webauthn_authentication || typeof body.webauthn_authentication !== 'object') {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'webauthn_authentication is required',
-        });
+      const parsed = parseSyncAccountVerifyRequest({
+        body: req?.body,
+        origin: req.headers?.origin || req.headers?.Origin,
+      });
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
 
-      const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
-      const result = await ctx.service.verifyWebAuthnSyncAccount({
-        challengeId,
-        webauthn_authentication: body.webauthn_authentication,
-        ...(body.threshold_ed25519 ? { threshold_ed25519: body.threshold_ed25519 } : {}),
-        expected_origin: origin,
-      });
+      const result = await ctx.service.verifyWebAuthnSyncAccount(parsed.request);
       if (!result.ok || !result.verified) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;

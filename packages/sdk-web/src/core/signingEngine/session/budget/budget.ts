@@ -6,6 +6,7 @@ import {
   SigningSessionIds,
   summarizeSigningLane,
   type BackingMaterialSessionId,
+  type SelectedEcdsaSigningSessionPlanningLane,
   type SelectedSigningSessionPlanningLane,
   type SigningLaneSummary,
   type SigningOperationContext,
@@ -17,7 +18,8 @@ import {
   type WalletSigningSpendPlan,
 } from '../operationState/types';
 import {
-  exactSigningLaneIdentity,
+  exactEcdsaSigningLaneIdentityFromSelectedLane,
+  exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
   thresholdSessionIdsFromExactSigningLaneIdentity,
   type ExactSigningLaneIdentity,
@@ -677,7 +679,7 @@ function budgetUnknownError(spend: WalletSigningSpendPlan, reason: string): Erro
 }
 
 function formatSpendIdentityForError(spend: WalletSigningSpendPlan): string {
-  const laneIdentity = exactSigningLaneIdentity(spend.lane);
+  const laneIdentity = exactSigningLaneIdentityFromSelectedLane(spend.lane);
   const thresholdSessionIds = thresholdSessionIdsFromExactSigningLaneIdentity(laneIdentity);
   const backingMaterialSessionIds = backingMaterialSessionIdsForSpend(spend);
   return [
@@ -736,7 +738,7 @@ export function buildSigningBudgetReservationIdentity(args: {
 }): SigningBudgetReservationIdentity {
   const spend = normalizeWalletSigningSpendPlan(args.spend);
   const projectionVersion = normalizeRequired(args.projectionVersion, 'projectionVersion');
-  const laneIdentity = exactSigningLaneIdentity(spend.lane);
+  const laneIdentity = exactSigningLaneIdentityFromSelectedLane(spend.lane);
   const laneIdentityKey = exactSigningLaneIdentityKey(laneIdentity);
   const thresholdSessionIds = thresholdSessionIdsFromExactSigningLaneIdentity(laneIdentity);
   return {
@@ -805,7 +807,7 @@ export function createSigningSessionBudgetTraceEvent<
 ): SigningSessionBudgetTraceEventForKind<TEvent> {
   const spend = input.spend;
   const thresholdSessionCount = thresholdSessionIdsFromExactSigningLaneIdentity(
-    exactSigningLaneIdentity(spend.lane),
+    exactSigningLaneIdentityFromSelectedLane(spend.lane),
   ).length;
   const backingMaterialSessionCount = backingMaterialSessionIdsForSpend(spend).length;
   return {
@@ -995,9 +997,13 @@ export function ecdsaWalletBudgetOwner(walletId: WalletId): EcdsaWalletBudgetOwn
 export function walletBudgetOwnerForLane(
   lane: SelectedSigningSessionPlanningLane,
 ): WalletBudgetOwner {
-  return lane.curve === 'ecdsa'
-    ? ecdsaWalletBudgetOwner(toWalletId(lane.walletId))
-    : ed25519WalletBudgetOwner(lane.walletId);
+  const signer = exactSigningLaneIdentityFromSelectedLane(lane).signer;
+  switch (signer.kind) {
+    case 'evm_family_ecdsa_signer':
+      return ecdsaWalletBudgetOwner(toWalletId(signer.walletId));
+    case 'near_ed25519_signer':
+      return ed25519WalletBudgetOwner(signer.account.wallet.walletId);
+  }
 }
 
 export function walletBudgetOwnerId(owner: WalletBudgetOwner): WalletId {
@@ -1047,6 +1053,33 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
   });
+}
+
+export type EcdsaLaneBudgetStatusIdentityFields = {
+  key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  auth: SigningLaneAuthBinding;
+  chainTarget: ThresholdEcdsaChainTarget;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+};
+
+export function ecdsaLaneBudgetStatusIdentityFieldsForLane(
+  lane: SelectedEcdsaSigningSessionPlanningLane,
+): EcdsaLaneBudgetStatusIdentityFields {
+  const identity = exactEcdsaSigningLaneIdentityFromSelectedLane(lane);
+  const signer = identity.signer;
+  if (signer.kind !== 'evm_family_ecdsa_signer') {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires an ECDSA signer identity');
+  }
+  return {
+    key: signer.key,
+    keyHandle: signer.keyHandle,
+    auth: identity.auth,
+    chainTarget: signer.chainTarget,
+    signingGrantId: identity.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
+  };
 }
 
 export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
@@ -1124,24 +1157,17 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
 }): SigningSessionBudgetStatusCheck {
   const signingGrantId = signingGrantIdForSpend(args.spend);
   if (args.spend.lane.curve === 'ecdsa') {
+    const identityFields = ecdsaLaneBudgetStatusIdentityFieldsForLane(args.spend.lane);
     if (args.trustedStatusAuth) {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
-        key: args.spend.lane.key,
-        keyHandle: args.spend.lane.keyHandle,
-        auth: args.spend.lane.auth,
-        chainTarget: args.spend.lane.chainTarget,
+        ...identityFields,
         signingGrantId,
-        thresholdSessionId: args.spend.lane.thresholdSessionId,
         trustedStatusAuth: args.trustedStatusAuth,
       });
     }
     return buildEcdsaLaneBudgetStatusCheck({
-      key: args.spend.lane.key,
-      keyHandle: args.spend.lane.keyHandle,
-      auth: args.spend.lane.auth,
-      chainTarget: args.spend.lane.chainTarget,
+      ...identityFields,
       signingGrantId,
-      thresholdSessionId: args.spend.lane.thresholdSessionId,
     });
   }
   if (args.trustedStatusAuth) {
@@ -1149,13 +1175,13 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
       owner: walletBudgetOwnerForLane(args.spend.lane),
       signingGrantId,
       targetThresholdSessionIds: thresholdSessionIdsFromExactSigningLaneIdentity(
-        exactSigningLaneIdentity(args.spend.lane),
+        exactSigningLaneIdentityFromSelectedLane(args.spend.lane),
       ),
       trustedStatusAuth: args.trustedStatusAuth,
     });
   }
   const thresholdSessionIds = thresholdSessionIdsFromExactSigningLaneIdentity(
-    exactSigningLaneIdentity(args.spend.lane),
+    exactSigningLaneIdentityFromSelectedLane(args.spend.lane),
   );
   if (thresholdSessionIds.length) {
     return buildThresholdBudgetStatusCheck({

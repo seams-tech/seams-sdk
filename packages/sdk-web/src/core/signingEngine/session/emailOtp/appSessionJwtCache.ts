@@ -3,6 +3,7 @@ import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecd
 import type { EmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { authLaneAppSessionJwt } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
+  exactSigningLaneWalletId,
   exactSigningLaneIdentityKey,
   type ExactSigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
@@ -218,10 +219,7 @@ export function emailOtpRefreshIdentity(args: {
   operationFingerprint: SigningOperationFingerprint;
   laneIdentity: ExactSigningLaneIdentity;
 }): EmailOtpRefreshIdentity {
-  const laneWalletId =
-    args.laneIdentity.curve === 'ecdsa'
-      ? String(args.laneIdentity.walletId)
-      : String(args.laneIdentity.walletId);
+  const laneWalletId = String(exactSigningLaneWalletId(args.laneIdentity));
   if (String(args.walletId) !== laneWalletId) {
     throw new Error('[email-otp] refresh identity wallet does not match exact lane identity');
   }

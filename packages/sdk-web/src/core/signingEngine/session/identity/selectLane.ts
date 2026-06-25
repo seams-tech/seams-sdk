@@ -181,7 +181,8 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
     return selectedEd25519Lane({
       walletId: candidate.walletId,
       nearAccountId: candidate.nearAccountId,
-      ed25519KeyScopeId: candidate.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: candidate.nearEd25519SigningKeyId,
+      signerSlot: candidate.signerSlot,
       auth: candidate.auth,
       signingGrantId: candidate.signingGrantId,
       thresholdSessionId: candidate.thresholdSessionId,

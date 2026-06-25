@@ -52,6 +52,7 @@ import {
   type RouterAbEcdsaHssPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 import type { VerifiedEcdsaWalletSessionAuth } from '../../verifiedWalletSessionAuth';
+import { parseRouterAbEcdsaHssKeyIdentitiesRequest } from '../../thresholdEcdsaRequestValidation';
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
 type ThresholdEd25519SessionClaims = NonNullable<
@@ -508,7 +509,11 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
 
   if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1) {
-    if (parseSessionKind(body) === 'cookie') {
+    const parsed = parseRouterAbEcdsaHssKeyIdentitiesRequest(body);
+    if (!parsed.ok) {
+      return json(parsed.body, { status: thresholdEcdsaStatusCode(parsed.body) });
+    }
+    if (parsed.request.sessionKind === 'cookie') {
       const result = {
         ok: false,
         code: 'invalid_body',
@@ -532,14 +537,10 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       };
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     }
-    const bodyRecord =
-      body && typeof body === 'object' && !Array.isArray(body)
-        ? (body as Record<string, unknown>)
-        : {};
     const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
       userId: validated.walletSessionAuth.userId,
       rpId: validated.walletSessionAuth.rpId,
-      keyTargets: Array.isArray(bodyRecord.keyTargets) ? bodyRecord.keyTargets : [],
+      keyTargets: parsed.request.keyTargets,
     });
     ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {
       walletId: validated.walletSessionAuth.userId,

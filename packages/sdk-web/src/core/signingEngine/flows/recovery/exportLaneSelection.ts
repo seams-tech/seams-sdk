@@ -18,8 +18,10 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
   exactSigningLaneIdentityKey,
   type ExactEcdsaSigningLaneIdentity,
   type ExactEd25519SigningLaneIdentity,
@@ -212,9 +214,12 @@ function exactEd25519IdentityForExportLane(
   lane: ConcreteEd25519ExportAvailableLane,
 ): ExactEd25519SigningLaneIdentity {
   return exactEd25519SigningLaneIdentity({
-    walletId: lane.walletId,
-    nearAccountId: lane.nearAccountId,
-    ed25519KeyScopeId: lane.ed25519KeyScopeId,
+    signer: nearEd25519SignerBindingFromBoundaryFields({
+      walletId: lane.walletId,
+      nearAccountId: lane.nearAccountId,
+      nearEd25519SigningKeyId: lane.nearEd25519SigningKeyId,
+      signerSlot: lane.signerSlot,
+    }),
     auth: lane.auth,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
@@ -237,10 +242,12 @@ function exactEcdsaIdentityForExportLane(args: {
   chainTarget?: ThresholdEcdsaChainTarget;
 }): ExactEcdsaSigningLaneIdentity {
   return exactEcdsaSigningLaneIdentity({
-    walletId: args.lane.key.walletId,
-    chainTarget: args.chainTarget || args.lane.chainTarget,
-    keyHandle: args.lane.publicFacts.keyHandle,
-    key: args.lane.key,
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: args.lane.key.walletId,
+      chainTarget: args.chainTarget || args.lane.chainTarget,
+      keyHandle: args.lane.publicFacts.keyHandle,
+      key: args.lane.key,
+    }),
     auth: args.lane.auth,
     signingGrantId: args.lane.signingGrantId,
     thresholdSessionId: args.lane.thresholdSessionId,
@@ -359,7 +366,7 @@ async function resolveNearEd25519ExportLane(
     .filter((lane) => String(lane.nearAccountId) === String(nearAccountId))
     .filter(
       (lane) =>
-        String(lane.ed25519KeyScopeId) === String(args.signer.ed25519KeyScopeId),
+        String(lane.nearEd25519SigningKeyId) === String(args.signer.nearEd25519SigningKeyId),
     );
   const exactCandidates = concreteCandidates.filter((lane) =>
     ed25519ExportLaneMatchesIdentity({ lane, identity: args.laneIdentity }),

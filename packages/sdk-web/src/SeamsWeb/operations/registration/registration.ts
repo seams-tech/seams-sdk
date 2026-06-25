@@ -43,7 +43,7 @@ import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   AddSignerSelection,
-  Ed25519KeyScopeId,
+  NearEd25519SigningKeyId,
   RegistrationAuthMethodInput,
   RegistrationNearAccountProvisioning,
   RegisterWalletInput,
@@ -52,8 +52,8 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import {
-  computeRegistrationEd25519KeyScopeId,
-  ed25519KeyScopeIdFromString,
+  computeRegistrationNearEd25519SigningKeyId,
+  nearEd25519SigningKeyIdFromString,
   registrationProvisioningScopeKey,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
@@ -105,7 +105,7 @@ import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
-  getStoredThresholdEd25519SessionRecordForAccount,
+  getStoredThresholdEd25519SessionRecordForWallet,
   listStoredThresholdEcdsaSessionRecordsForWallet,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -1128,7 +1128,7 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
     signingRootVersion?: string;
   };
   signerSelection: RegistrationSignerSelection;
-}): Promise<Ed25519KeyScopeId> {
+}): Promise<NearEd25519SigningKeyId> {
   if (intent.signerSelection.mode === 'ecdsa_only') {
     throw new Error('Ed25519 registration key scope requires an Ed25519 signer selection');
   }
@@ -1136,7 +1136,7 @@ async function ed25519RegistrationKeyScopeIdFromIntent(intent: {
   if (!runtimePolicyScope?.signingRootVersion) {
     throw new Error('Ed25519 registration key scope requires signing root scope');
   }
-  return await computeRegistrationEd25519KeyScopeId({
+  return await computeRegistrationNearEd25519SigningKeyId({
     walletId: intent.walletId,
     rpId: intent.rpId,
     signingRootId: deriveSigningRootId(runtimePolicyScope),
@@ -1710,7 +1710,7 @@ type RegistrationPersistedSigningInventory = {
 function assertStrictRegistrationEd25519SigningRecord(args: {
   walletId: string;
 }): RegistrationPersistedSigningLane {
-  const record = getStoredThresholdEd25519SessionRecordForAccount(args.walletId);
+  const record = getStoredThresholdEd25519SessionRecordForWallet(args.walletId);
   const parsed = classifyRouterAbEd25519PersistedSigningRecord(record);
   if (parsed.kind !== 'runtime_validated') {
     throw new Error(
@@ -2253,6 +2253,7 @@ async function registerEcdsaWalletOnly(args: {
     const primaryKey = walletKeys[0];
     const result: RegistrationResult = {
       success: true,
+      kind: 'ecdsa_wallet_registered',
       walletId: finalized.walletId,
       thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
       thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
@@ -2417,7 +2418,7 @@ async function registerWalletInternal(
       thresholdRuntimePolicyScope,
     } = precomputeReady;
     eventAccountId = registrationEventAccountId(String(intentResponse.intent.walletId));
-    const ed25519KeyScopeId = await ed25519RegistrationKeyScopeIdFromIntent(
+    const nearEd25519SigningKeyId = await ed25519RegistrationKeyScopeIdFromIntent(
       intentResponse.intent,
     );
     let ed25519PrfFirstB64u = '';
@@ -2548,14 +2549,14 @@ async function registerWalletInternal(
               context,
               credential: passkeyAuthority!.credential,
               runtimePolicyScope: thresholdRuntimePolicyScope,
-              ed25519KeyScopeId,
+              nearEd25519SigningKeyId,
               participantIds: ed25519Selection.participantIds,
             })
           : await prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst({
               context,
               prfFirstB64u: ed25519PrfFirstB64u,
               runtimePolicyScope: thresholdRuntimePolicyScope,
-              ed25519KeyScopeId,
+              nearEd25519SigningKeyId,
               participantIds: ed25519Selection.participantIds,
             }),
     );
@@ -2771,13 +2772,13 @@ async function registerWalletInternal(
             requestedPolicy,
             walletId: finalized.walletId,
             nearAccountId: String(nearAccountId),
-            ed25519KeyScopeId: finalizedEd25519.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
             relayerKeyId: finalizedEd25519.relayerKeyId,
           }).session_policy,
           expectedIdentity: {
             walletId: finalized.walletId,
             nearAccountId: String(nearAccountId),
-            ed25519KeyScopeId: finalizedEd25519.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
           },
         }),
     );
@@ -2800,7 +2801,7 @@ async function registerWalletInternal(
             ? await context.signingEngine.storeWalletEd25519RegistrationData({
                 walletId: finalized.walletId,
                 nearAccountId,
-                ed25519KeyScopeId: finalizedEd25519.ed25519KeyScopeId,
+                nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
                 credential: passkeyAuthority!.credential,
                 operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
                 signerSlot: ed25519Selection.signerSlot,
@@ -2813,7 +2814,7 @@ async function registerWalletInternal(
             : await context.signingEngine.storeWalletEmailOtpEd25519RegistrationData({
                 walletId: finalized.walletId,
                 nearAccountId,
-                ed25519KeyScopeId: finalizedEd25519.ed25519KeyScopeId,
+                nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
                 email: emailOtpEmail,
                 registrationAuthorityId: emailOtpRegistrationAuthorityId,
                 operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
@@ -2844,7 +2845,7 @@ async function registerWalletInternal(
       requestedPolicy,
       walletId: finalized.walletId,
       nearAccountId: String(nearAccountId),
-      ed25519KeyScopeId: finalizedEd25519.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
       relayerKeyId: finalizedEd25519.relayerKeyId,
     }).session_policy;
     await registrationTiming.measure('thresholdEd25519SessionPersistenceMs', async () => {
@@ -2853,7 +2854,7 @@ async function registerWalletInternal(
           signingEngine: context.signingEngine,
           walletId: finalized.walletId,
           nearAccountId,
-          ed25519KeyScopeId: ed25519KeyScopeIdFromString(finalizedEd25519.ed25519KeyScopeId),
+          nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(finalizedEd25519.nearEd25519SigningKeyId),
           signerSlot,
           auth: {
             kind: 'email_otp',
@@ -2875,7 +2876,7 @@ async function registerWalletInternal(
           signingEngine: context.signingEngine,
           walletId: finalized.walletId,
           nearAccountId,
-          ed25519KeyScopeId: ed25519KeyScopeIdFromString(finalizedEd25519.ed25519KeyScopeId),
+          nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(finalizedEd25519.nearEd25519SigningKeyId),
           signerSlot,
           auth: {
             kind: 'passkey',
@@ -2898,7 +2899,7 @@ async function registerWalletInternal(
           credential: passkeyAuthority!.credential,
           walletId: finalized.walletId,
           nearAccountId,
-          ed25519KeyScopeId: ed25519KeyScopeIdFromString(finalizedEd25519.ed25519KeyScopeId),
+          nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(finalizedEd25519.nearEd25519SigningKeyId),
           rpId,
           relayerUrl,
           relayerKeyId: finalizedEd25519.relayerKeyId,
@@ -2994,11 +2995,12 @@ async function registerWalletInternal(
     const primaryEcdsaWalletKey = ecdsaWalletKeys[0] || null;
     const successResult: RegistrationResult = {
       success: true,
+      kind: 'near_wallet_registered',
       walletId: finalized.walletId,
       nearAccountId,
       accountProvisioning: finalized.accountProvisioning,
       resolvedAccount: finalized.resolvedAccount,
-      ed25519KeyScopeId: ed25519KeyScopeIdFromString(finalizedEd25519.ed25519KeyScopeId),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(finalizedEd25519.nearEd25519SigningKeyId),
       operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
       transactionId:
         finalized.resolvedAccount.kind === 'sponsored_named_account'
@@ -3185,12 +3187,12 @@ export async function addWalletSigner(args: {
         signingRootVersion: runtimePolicyScope.signingRootVersion,
       };
       const nearAccountId = toAccountId(signerSelection.ed25519.nearAccountId);
-      const ed25519KeyScopeId = ed25519KeyScopeIdFromString(String(nearAccountId));
+      const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(String(nearAccountId));
       const hssClientMaterial = await prepareThresholdEd25519RegistrationHssClientMaterial({
         context,
         credential: webauthnAuthentication,
         runtimePolicyScope: thresholdRuntimePolicyScope,
-        ed25519KeyScopeId,
+        nearEd25519SigningKeyId,
         participantIds: signerSelection.ed25519.participantIds,
       });
       const startedCeremony = await startWalletAddSigner({
@@ -3254,7 +3256,7 @@ export async function addWalletSigner(args: {
             requestedPolicy,
             walletId: String(walletId),
             nearAccountId: String(nearAccountId),
-            ed25519KeyScopeId: String(ed25519KeyScopeId),
+            nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
           }).session_policy,
           sessionKind: 'jwt',
         },
@@ -3269,13 +3271,13 @@ export async function addWalletSigner(args: {
           requestedPolicy,
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),
-          ed25519KeyScopeId: String(ed25519KeyScopeId),
+          nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
           relayerKeyId: finalized.ed25519.relayerKeyId,
         }).session_policy,
         expectedIdentity: {
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),
-          ed25519KeyScopeId: String(ed25519KeyScopeId),
+          nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
         },
       });
 
@@ -3287,7 +3289,7 @@ export async function addWalletSigner(args: {
         await context.signingEngine.finalizeWalletEd25519SignerRegistration({
           walletId,
           nearAccountId,
-          ed25519KeyScopeId,
+          nearEd25519SigningKeyId,
           credential: redactedAuthentication,
           operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
           signerSlot: signerSelection.ed25519.signerSlot,
@@ -3301,7 +3303,7 @@ export async function addWalletSigner(args: {
         signingEngine: context.signingEngine,
         walletId: String(walletId),
         nearAccountId,
-        ed25519KeyScopeId,
+        nearEd25519SigningKeyId,
         signerSlot: storedRegistration.signerSlot,
         auth: {
           kind: 'passkey',
@@ -3317,7 +3319,7 @@ export async function addWalletSigner(args: {
           requestedPolicy,
           walletId: String(walletId),
           nearAccountId: String(nearAccountId),
-          ed25519KeyScopeId: String(ed25519KeyScopeId),
+          nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
           relayerKeyId: finalized.ed25519.relayerKeyId,
         }).session_policy,
         completedRegistration: completedThresholdEd25519Registration,
@@ -3333,8 +3335,10 @@ export async function addWalletSigner(args: {
 
       const result: RegistrationResult = {
         success: true,
+        kind: 'near_ed25519_signer_added',
         walletId,
         nearAccountId,
+        nearEd25519SigningKeyId,
         operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
       };
       console.info('[Registration] add-signer flow timings', {
@@ -3432,6 +3436,7 @@ export async function addWalletSigner(args: {
     const primaryKey = walletKeys[0];
     const result: RegistrationResult = {
       success: true,
+      kind: 'ecdsa_signer_added',
       walletId,
       thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress,
       thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,

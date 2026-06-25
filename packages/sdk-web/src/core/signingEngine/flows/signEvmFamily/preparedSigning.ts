@@ -22,8 +22,10 @@ import {
 } from '../../session/availability/availableSigningLanes';
 import {
   exactEcdsaSigningLaneIdentity,
-  exactSigningLaneIdentity,
+  exactEcdsaSigningLaneIdentityFromSelectedLane,
+  exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
+  requireEvmFamilyEcdsaSigner,
 } from '../../session/identity/exactSigningLaneIdentity';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/sealedRecovery.types';
@@ -451,7 +453,7 @@ function assertPreparedMaterialBindingMatchesOperation(args: {
     throw new Error('[SigningEngine][ecdsa] prepared material fingerprint mismatch');
   }
   const laneIdentityKey = exactSigningLaneIdentityKey(
-    exactSigningLaneIdentity(args.preparedOperation.lane),
+    exactSigningLaneIdentityFromSelectedLane(args.preparedOperation.lane),
   );
   if (args.metadata.materialBinding.laneIdentityKey !== laneIdentityKey) {
     throw new Error('[SigningEngine][ecdsa] prepared material lane identity mismatch');
@@ -718,6 +720,10 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
           };
           try {
+            const transactionLaneSigner = requireEvmFamilyEcdsaSigner(
+              transactionLane.identity,
+              'EVM-family restore material identity',
+            );
             const result = await args.deps.restorePersistedSessionForSigning({
               walletId,
               authMethod,
@@ -728,8 +734,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               reason: 'transaction',
               materialRestoreIdentity: {
                 kind: 'ecdsa_role_local_restore',
-                lane: exactEcdsaSigningLaneIdentity(transactionLane),
-                ecdsaThresholdKeyId: transactionLane.key.ecdsaThresholdKeyId,
+                lane: exactEcdsaSigningLaneIdentityFromSelectedLane(transactionLane),
+                ecdsaThresholdKeyId: transactionLaneSigner.key.ecdsaThresholdKeyId,
               },
             });
             restoreResults[authMethod] = result;
@@ -898,7 +904,9 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               ...(args.signingOperation.operationFingerprint
                 ? { operationFingerprint: args.signingOperation.operationFingerprint }
                 : {}),
-              laneIdentityKey: exactSigningLaneIdentityKey(exactSigningLaneIdentity(resolvedLane)),
+              laneIdentityKey: exactSigningLaneIdentityKey(
+                exactSigningLaneIdentityFromSelectedLane(resolvedLane),
+              ),
               material: selection.material,
             },
             availableLanesGeneration: availableLanes.generation,

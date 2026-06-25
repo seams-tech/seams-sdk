@@ -75,18 +75,31 @@ export interface TransactionSummary {
   summary?: unknown;
 }
 
-// Payload to return to Rust WASM is snake_case
-export interface WorkerConfirmationResponse {
+type WorkerConfirmationResponseBase = {
   request_id: string;
   intent_digest?: string;
-  confirmed: boolean;
-  credential?: SerializableCredential;
-  otp_code?: string;
-  email_otp_challenge_id?: string;
-  transaction_context?: TransactionContext; // NEAR data fetched during confirmation
-  registration_diagnostics?: RegistrationConfirmationDiagnostics;
-  error?: string;
-}
+};
+
+// Payload to return to Rust WASM is snake_case.
+export type WorkerConfirmationResponse =
+  | (WorkerConfirmationResponseBase & {
+      confirmed: true;
+      credential?: SerializableCredential;
+      otp_code?: string;
+      email_otp_challenge_id?: string;
+      transaction_context?: TransactionContext;
+      registration_diagnostics?: RegistrationConfirmationDiagnostics;
+      error?: never;
+    })
+  | (WorkerConfirmationResponseBase & {
+      confirmed: false;
+      error?: string;
+      registration_diagnostics?: RegistrationConfirmationDiagnostics;
+      credential?: never;
+      otp_code?: never;
+      email_otp_challenge_id?: never;
+      transaction_context?: never;
+    });
 
 // ===== V2 MESSAGE TYPES =====
 

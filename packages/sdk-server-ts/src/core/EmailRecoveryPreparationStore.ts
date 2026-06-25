@@ -31,7 +31,7 @@ export type EmailRecoveryPreparedThresholdEd25519Record = {
 export type EmailRecoveryResolvedWalletBinding = {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   signerSlot: number;
 };
@@ -104,7 +104,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   const sessionKind = toOptionalTrimmedString(raw.sessionKind);
   const walletId = toOptionalTrimmedString(raw.walletId);
   const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
-  const ed25519KeyScopeId = toOptionalTrimmedString(raw.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = toOptionalTrimmedString(raw.nearEd25519SigningKeyId);
   const thresholdSessionId = toOptionalTrimmedString(raw.thresholdSessionId);
   const signingGrantId = toOptionalTrimmedString(raw.signingGrantId);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
@@ -112,7 +112,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
     (sessionKind !== 'jwt' && sessionKind !== 'cookie') ||
     !walletId ||
     !nearAccountId ||
-    !ed25519KeyScopeId ||
+    !nearEd25519SigningKeyId ||
     !thresholdSessionId ||
     !signingGrantId ||
     !expiresAtMs
@@ -128,7 +128,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
     sessionKind,
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     thresholdSessionId,
     signingGrantId,
     expiresAtMs,
@@ -149,14 +149,14 @@ function parseEmailRecoveryResolvedWalletBinding(
   if (!isObject(raw)) return null;
   const walletId = toOptionalTrimmedString(raw.walletId);
   const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
-  const ed25519KeyScopeId = toOptionalTrimmedString(raw.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = toOptionalTrimmedString(raw.nearEd25519SigningKeyId);
   const rpId = toOptionalTrimmedString(raw.rpId);
   const signerSlot = parsePositiveInteger(raw.signerSlot);
-  if (!walletId || !nearAccountId || !ed25519KeyScopeId || !rpId || !signerSlot) return null;
+  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !rpId || !signerSlot) return null;
   return {
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId,
     signerSlot,
   };

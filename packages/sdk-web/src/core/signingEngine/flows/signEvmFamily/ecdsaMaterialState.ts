@@ -16,6 +16,7 @@ import {
   type ReadyEvmFamilyEcdsaMaterial,
   type VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 import {
   thresholdEcdsaLaneCandidateFromSessionRecord,
   type ThresholdEcdsaSessionRecord,
@@ -336,12 +337,16 @@ export function buildEcdsaMaterialStateForResolvedLane(args: {
 }): EcdsaMaterialState {
   const record =
     args.material.kind === 'resolved_ecdsa_session_record' ? args.material.record : undefined;
+  const signer = requireEvmFamilyEcdsaSigner(
+    args.lane.identity,
+    'ECDSA material state resolved lane',
+  );
   return buildEcdsaMaterialStateForCandidate({
     candidate: {
       kind: 'lane_candidate',
-      walletId: args.lane.walletId,
-      key: args.lane.key,
-      keyHandle: args.lane.keyHandle,
+      walletId: signer.walletId,
+      key: signer.key,
+      keyHandle: signer.keyHandle,
       auth: args.lane.auth,
       curve: 'ecdsa',
       chain: args.lane.chainFamily,
@@ -352,13 +357,13 @@ export function buildEcdsaMaterialStateForResolvedLane(args: {
       expiresAtMs: null,
       updatedAtMs: null,
       source: 'runtime_session_record',
-      chainTarget: args.lane.chainTarget,
+      chainTarget: signer.chainTarget,
     },
     record,
     authMethod: args.authMethod,
     source: args.source,
-    chainTarget: args.lane.chainTarget,
-    materialChainTarget: args.lane.chainTarget,
+    chainTarget: signer.chainTarget,
+    materialChainTarget: signer.chainTarget,
   });
 }
 
@@ -686,12 +691,16 @@ export function materialIdentityMatchesResolvedLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
 }): boolean {
   const materialKeyHandle = String(args.state.record.keyHandle || '').trim();
-  const laneKeyHandle = String(args.lane.keyHandle || '').trim();
+  const signer = requireEvmFamilyEcdsaSigner(
+    args.lane.identity,
+    'ECDSA material identity comparison',
+  );
+  const laneKeyHandle = String(signer.keyHandle || '').trim();
   return (
     String(args.lane.thresholdSessionId) === args.state.identity.thresholdSessionId &&
     String(args.lane.signingGrantId) === args.state.identity.signingGrantId &&
     materialKeyHandle === laneKeyHandle &&
     String(args.state.record.keyHandle || '').trim() === laneKeyHandle &&
-    thresholdEcdsaChainTargetsEqual(args.lane.chainTarget, args.state.chainTarget)
+    thresholdEcdsaChainTargetsEqual(signer.chainTarget, args.state.chainTarget)
   );
 }

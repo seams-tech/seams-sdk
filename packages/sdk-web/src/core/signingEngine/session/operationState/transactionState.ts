@@ -35,7 +35,7 @@ import type {
   StepUpProjectionState,
 } from './stepUpFreshness';
 import { assertFreshnessMatchesLane } from './stepUpFreshness';
-import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import type { SigningPlannerDecisionTraceEvent } from '../planning/planner';
 import {
   prepareThresholdSigningOperation,
@@ -448,7 +448,7 @@ export function recordPreparedTransactionBudgetAdmissionFromFreshness<
 ): BudgetAdmittedLifecycle<TLane> {
   assertFreshnessMatchesLane({
     freshness,
-    laneIdentity: exactSigningLaneIdentity(operation.lane),
+    laneIdentity: exactSigningLaneIdentityFromSelectedLane(operation.lane),
   });
   if (freshness.projection.version !== budgetAdmission.budgetIdentity.projectionVersion) {
     throw new Error('[SigningSession] admission freshness projection does not match budget');

@@ -1,5 +1,4 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
-import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/types/seams';
@@ -173,6 +172,19 @@ function assertNearEd25519ExportRecordMatchesLane(args: {
   if (!record) {
     throw new Error('[SigningEngine][ed25519-export] exact export session record is not ready');
   }
+  const signer = args.exportLane.signer;
+  if (String(record.walletId) !== String(signer.account.wallet.walletId)) {
+    throw new Error('[SigningEngine][ed25519-export] exact export wallet identity drifted');
+  }
+  if (String(record.nearAccountId) !== String(signer.account.nearAccountId)) {
+    throw new Error('[SigningEngine][ed25519-export] exact export NEAR account drifted');
+  }
+  if (String(record.nearEd25519SigningKeyId) !== String(signer.nearEd25519SigningKeyId)) {
+    throw new Error('[SigningEngine][ed25519-export] exact export signing key drifted');
+  }
+  if (Number(record.signerSlot) !== signer.signerSlot) {
+    throw new Error('[SigningEngine][ed25519-export] exact export signer slot drifted');
+  }
   const recordAuthMethod =
     record.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
   if (recordAuthMethod !== args.exportLane.authMethod) {
@@ -221,7 +233,7 @@ async function runNearEd25519HssExportAndViewer(
   deps: NearEd25519SingleKeyExportDeps,
   args: {
     nearAccountId: AccountId;
-    ed25519KeyScopeId: ExactNearEd25519ExportLane['signer']['ed25519KeyScopeId'];
+    nearEd25519SigningKeyId: ExactNearEd25519ExportLane['signer']['nearEd25519SigningKeyId'];
     expectedPublicKey: string;
     participantIds: number[];
     thresholdSessionId: string;
@@ -253,7 +265,7 @@ async function runNearEd25519HssExportAndViewer(
     {
       signingRootId,
       signingRootVersion,
-      ed25519KeyScopeId: args.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
       nearAccountId: args.nearAccountId,
       participantIds: args.participantIds,
       thresholdSessionId: args.thresholdSessionId,
@@ -326,12 +338,16 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
   args: NearEd25519SingleKeyExportArgs,
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes } | null> {
   const nearAccountId = toAccountId(args.nearAccountId);
+  const signer = args.exportLane.signer;
   const sessionRecord = assertNearEd25519ExportRecordMatchesLane({
     record: getStoredThresholdEd25519SessionRecordForLane({
+      walletId: signer.account.wallet.walletId,
       nearAccountId,
+      nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
       authMethod: args.exportLane.authMethod,
       signingGrantId: args.exportLane.signingGrantId,
       thresholdSessionId: args.exportLane.thresholdSessionId,
+      signerSlot: signer.signerSlot,
     }),
     exportLane: args.exportLane,
   });
@@ -379,16 +395,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     signingRootVersion,
   };
 
-  const signerSlot = await getLastLoggedInSignerSlot(nearAccountId, deps.keyMaterialStore).catch(
-    () => null as number | null,
-  );
-  if (signerSlot == null) {
-    requireSingleKeyHssExportPrerequisite(
-      false,
-      'Missing signer slot for single-key HSS Ed25519 export',
-    );
-    return null;
-  }
+  const signerSlot = signer.signerSlot;
 
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
     {
@@ -540,7 +547,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
     return await runNearEd25519HssExportAndViewer(deps, {
       runtimePolicyScope: defaultRuntimePolicyScope,
       nearAccountId,
-      ed25519KeyScopeId: args.exportLane.signer.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.exportLane.signer.nearEd25519SigningKeyId,
       participantIds,
       thresholdSessionId,
       walletSessionJwt,

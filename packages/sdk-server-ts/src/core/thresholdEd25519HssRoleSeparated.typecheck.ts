@@ -76,7 +76,7 @@ const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScop
   intentDigestB64u: 'intent-digest',
   signingRootId: 'project:env',
   signingRootVersion: 'v1',
-  ed25519KeyScopeId: 'alice.near',
+  nearEd25519SigningKeyId: 'alice.near',
   signerSlot: 1,
   keyPurpose: 'near-ed25519',
   keyVersion: 'v1',

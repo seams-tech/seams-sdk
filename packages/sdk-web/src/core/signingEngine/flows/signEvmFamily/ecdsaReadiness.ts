@@ -12,7 +12,6 @@ import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import {
-  thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -20,6 +19,7 @@ import {
   getEcdsaProvisionPlanLaneIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -95,13 +95,17 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
 ): Promise<ThresholdEcdsaSessionRecord> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
-  const chain = args.lane.chainFamily;
-  const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
-    chain,
-    chainId: args.chainId,
-  });
+  const signer = requireEvmFamilyEcdsaSigner(
+    args.lane.identity,
+    'EVM-family threshold ECDSA readiness',
+  );
+  const chain = signer.chainTarget.kind;
+  const chainTarget = signer.chainTarget;
+  if (Number(chainTarget.chainId) !== Number(args.chainId)) {
+    throw new Error('[SigningEngine][ecdsa] reconnect chain id does not match selected lane');
+  }
   const source = requireEcdsaStoreSource(args.lane);
-  const walletId = toWalletId(args.lane.walletId);
+  const walletId = toWalletId(signer.walletId);
   const reconnectSessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: args.reconnectSessionIdentity.thresholdSessionId,
     signingGrantId: args.reconnectSessionIdentity.signingGrantId,

@@ -1,9 +1,9 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { buildNearTransactionSigningLane } from '../operationState/lanes';
 import { SigningSessionIds } from '../operationState/types';
-import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import {
   emailOtpRefreshIdentity,
   type EmailOtpRefreshIdentity,
@@ -12,12 +12,13 @@ import {
 
 const walletId = toWalletId('wallet.testnet');
 const nearAccountId = toAccountId('wallet.testnet');
-const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-wallet-testnet');
-const laneIdentity = exactSigningLaneIdentity(
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-wallet-testnet');
+const laneIdentity = exactSigningLaneIdentityFromSelectedLane(
   buildNearTransactionSigningLane({
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
+    signerSlot: 1,
     auth: {
       kind: 'email_otp',
       providerSubjectId: 'google:subject-1',

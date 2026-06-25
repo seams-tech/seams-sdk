@@ -123,7 +123,7 @@ import {
   type NearAccountBinding,
   type NearEd25519SignerBinding,
 } from '@shared/utils/walletCapabilityBindings';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
@@ -305,12 +305,12 @@ function emailOtpEd25519KeyIdentityFromSigner(
   const relayerKeyId = String(metadata.relayerKeyId || '').trim();
   const keyVersion = String(metadata.keyVersion || '').trim();
   const nearAccountId = String(metadata.nearAccountId || '').trim();
-  const ed25519KeyScopeId = String(metadata.ed25519KeyScopeId || '').trim();
+  const nearEd25519SigningKeyId = String(metadata.nearEd25519SigningKeyId || '').trim();
   const participantIds = participantIdsFromEmailOtpEd25519SignerMetadata({
     relayerKeyId,
     metadata,
   });
-  if (!relayerKeyId || !keyVersion || !nearAccountId || !ed25519KeyScopeId || !participantIds.length) {
+  if (!relayerKeyId || !keyVersion || !nearAccountId || !nearEd25519SigningKeyId || !participantIds.length) {
     return null;
   }
   const account = nearAccountBindingFromRaw({
@@ -321,7 +321,7 @@ function emailOtpEd25519KeyIdentityFromSigner(
   if (!account.ok) return null;
   const signerBinding = buildNearEd25519SignerBinding({
     account: account.value,
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(ed25519KeyScopeId),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(nearEd25519SigningKeyId),
     signerSlot: signer.signerSlot,
   });
   return {
@@ -399,10 +399,10 @@ function normalizeExportKeypairWithUIInput(
   switch (input.kind) {
     case 'near': {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
-      if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+      if (String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)) {
         throw new Error('[SeamsWeb] key export lane wallet does not match wallet session');
       }
-      if (String(laneIdentity.nearAccountId) !== String(input.nearAccount.accountId)) {
+      if (String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)) {
         throw new Error('[SeamsWeb] key export lane NEAR account does not match request account');
       }
       return {
@@ -418,10 +418,10 @@ function normalizeExportKeypairWithUIInput(
     }
     case 'ecdsa': {
       const laneIdentity = parseExactEcdsaSigningLaneIdentity(input.laneIdentity);
-      if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+      if (String(laneIdentity.signer.walletId) !== String(input.walletSession.walletId)) {
         throw new Error('[SeamsWeb] key export lane wallet does not match wallet session');
       }
-      if (!thresholdEcdsaChainTargetsEqual(laneIdentity.chainTarget, input.chainTarget)) {
+      if (!thresholdEcdsaChainTargetsEqual(laneIdentity.signer.chainTarget, input.chainTarget)) {
         throw new Error('[SeamsWeb] key export lane chain target does not match request target');
       }
       return {

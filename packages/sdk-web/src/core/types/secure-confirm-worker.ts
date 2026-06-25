@@ -148,8 +148,6 @@ export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-seed-v1';
 export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-export';
 
 type ExportPrivateKeysWithUiWorkerPayloadBase = {
-  nearAccountId: string;
-  signerSlot: number;
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
 };
@@ -158,10 +156,13 @@ export type ExportPrivateKeysWithUiWorkerPayload =
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       chain: 'near';
       artifactKind: 'near-ed25519-seed-v1';
+      nearAccountId: string;
+      signerSlot: number;
       expectedPublicKey: string;
       seedB64u: string;
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
+      walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
       artifactKind: 'ecdsa-hss-secp256k1-export';
       publicKeyHex: string;
@@ -169,6 +170,7 @@ export type ExportPrivateKeysWithUiWorkerPayload =
       ethereumAddress: string;
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
+      walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
     });
 

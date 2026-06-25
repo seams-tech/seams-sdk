@@ -88,7 +88,7 @@ import {
   requireOrRestoreRouterAbEd25519WalletSessionState,
   type RouterAbEd25519WorkerMaterialRestoreAuthorization,
 } from '@/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness';
-import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential } from '@/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization';
 import {
   formatEd25519HssKeyVersionForWire,
@@ -131,11 +131,11 @@ function signingRootIdFromRuntimePolicyScope(
 
 function thresholdEd25519HssBindingFactsFromRuntimePolicyScope(args: {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
 }): SdkEd25519HssBindingFacts {
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
   return {
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     signingRootId: parseSdkEcdsaHssSigningRootId(signingRootScope.signingRootId),
     signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootScope.signingRootVersion),
   };
@@ -184,7 +184,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     version: typeof THRESHOLD_SESSION_POLICY_VERSION;
     walletId?: string;
     nearAccountId?: string;
-    ed25519KeyScopeId?: string;
+    nearEd25519SigningKeyId?: string;
     rpId: string;
     relayerKeyId?: string;
     thresholdSessionId: string;
@@ -210,13 +210,13 @@ export type CompletedThresholdEd25519Registration = {
 type ExpectedThresholdEd25519SessionIdentity = {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
 };
 
 type PersistRegisteredThresholdEd25519SessionBaseArgs = {
   walletId: string;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
   rpId: string;
   relayerUrl: string;
@@ -387,8 +387,8 @@ function missingEd25519RestoreWorkerMaterialFields(
   if (!normalizedRestoreString(restore.nearAccountId)) {
     missing.push('nearAccountId');
   }
-  if (!normalizedRestoreString(restore.ed25519KeyScopeId)) {
-    missing.push('ed25519KeyScopeId');
+  if (!normalizedRestoreString(restore.nearEd25519SigningKeyId)) {
+    missing.push('nearEd25519SigningKeyId');
   }
   if (!normalizedRestoreString(restore.clientVerifyingShareB64u)) {
     missing.push('clientVerifyingShareB64u');
@@ -469,10 +469,10 @@ function ed25519RestoreIdentityMismatchReasons(args: {
     reasons.push('nearAccountId');
   }
   if (
-    normalizedRestoreString(restore.ed25519KeyScopeId) !==
-    normalizedRestoreString(current.ed25519KeyScopeId)
+    normalizedRestoreString(restore.nearEd25519SigningKeyId) !==
+    normalizedRestoreString(current.nearEd25519SigningKeyId)
   ) {
-    reasons.push('ed25519KeyScopeId');
+    reasons.push('nearEd25519SigningKeyId');
   }
   if (
     normalizedRestoreString(sealed.signingGrantId) !==
@@ -580,7 +580,7 @@ function sealedEd25519RestoreRecordMatchesExactSession(args: {
   record: CurrentEd25519RestoreSealedSessionRecord;
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   signingGrantId: string;
   thresholdSessionId: string;
 }): boolean {
@@ -588,8 +588,8 @@ function sealedEd25519RestoreRecordMatchesExactSession(args: {
     normalizedRestoreString(args.record.walletId) === normalizedRestoreString(args.walletId) &&
     normalizedRestoreString(args.record.ed25519Restore.nearAccountId) ===
       normalizedRestoreString(args.nearAccountId) &&
-    normalizedRestoreString(args.record.ed25519Restore.ed25519KeyScopeId) ===
-      normalizedRestoreString(args.ed25519KeyScopeId) &&
+    normalizedRestoreString(args.record.ed25519Restore.nearEd25519SigningKeyId) ===
+      normalizedRestoreString(args.nearEd25519SigningKeyId) &&
     normalizedRestoreString(args.record.signingGrantId) ===
       normalizedRestoreString(args.signingGrantId) &&
     ed25519ThresholdSessionIdFromSealedRecord(args.record) ===
@@ -621,7 +621,7 @@ function upsertEd25519SessionRecordFromExactSealedWorkerMaterial(args: {
   return upsertStoredThresholdEd25519SessionRecord({
     walletId: sealed.walletId,
     nearAccountId: restore.nearAccountId,
-    ed25519KeyScopeId: restore.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
     rpId: restore.rpId,
     ...(normalizedRestoreString(restore.credentialIdB64u)
       ? { passkeyCredentialIdB64u: normalizedRestoreString(restore.credentialIdB64u) }
@@ -700,7 +700,7 @@ async function listPasskeyEd25519RestoreSealedSessionsForWallet(
 export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(args: {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   signingGrantId: string;
   thresholdSessionId: string;
   source: ThresholdEd25519SessionStoreSource;
@@ -720,10 +720,10 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
 > {
   const walletId = normalizedRestoreString(args.walletId);
   const nearAccountId = normalizedRestoreString(args.nearAccountId);
-  const ed25519KeyScopeId = normalizedRestoreString(args.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = normalizedRestoreString(args.nearEd25519SigningKeyId);
   const signingGrantId = normalizedRestoreString(args.signingGrantId);
   const thresholdSessionId = normalizedRestoreString(args.thresholdSessionId);
-  if (!walletId || !nearAccountId || !ed25519KeyScopeId || !signingGrantId || !thresholdSessionId) {
+  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !signingGrantId || !thresholdSessionId) {
     return {
       kind: 'not_found',
       pendingReason: 'pending_material',
@@ -736,7 +736,7 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
         record,
         walletId,
         nearAccountId,
-        ed25519KeyScopeId,
+        nearEd25519SigningKeyId,
         signingGrantId,
         thresholdSessionId,
       }),
@@ -799,7 +799,7 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
 export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSealedWorkerMaterial(args: {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   source: ThresholdEd25519SessionStoreSource;
 }): Promise<
   | {
@@ -817,8 +817,8 @@ export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSeal
 > {
   const walletId = normalizedRestoreString(args.walletId);
   const nearAccountId = normalizedRestoreString(args.nearAccountId);
-  const ed25519KeyScopeId = normalizedRestoreString(args.ed25519KeyScopeId);
-  if (!walletId || !nearAccountId || !ed25519KeyScopeId) {
+  const nearEd25519SigningKeyId = normalizedRestoreString(args.nearEd25519SigningKeyId);
+  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId) {
     return {
       kind: 'not_found',
       pendingReason: 'pending_material',
@@ -828,7 +828,7 @@ export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSeal
   const records = (await listPasskeyEd25519RestoreSealedSessionsForWallet(walletId)).filter(
     (record) =>
       normalizedRestoreString(record.ed25519Restore.nearAccountId) === nearAccountId &&
-      normalizedRestoreString(record.ed25519Restore.ed25519KeyScopeId) === ed25519KeyScopeId,
+      normalizedRestoreString(record.ed25519Restore.nearEd25519SigningKeyId) === nearEd25519SigningKeyId,
   );
   const materialRecords = records.filter(sealedEd25519RestoreHasWorkerMaterial);
   if (!records.length) {
@@ -1042,7 +1042,7 @@ export async function hydrateCurrentEd25519SessionFromDurableSealedWorkerMateria
   const hydrated = upsertStoredThresholdEd25519SessionRecord({
     walletId: record.walletId,
     nearAccountId: record.nearAccountId,
-    ed25519KeyScopeId: record.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
     rpId: record.rpId,
     ...(record.passkeyCredentialIdB64u
       ? { passkeyCredentialIdB64u: record.passkeyCredentialIdB64u }
@@ -1410,7 +1410,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
   walletId?: string;
   nearAccountId?: string;
-  ed25519KeyScopeId?: string;
+  nearEd25519SigningKeyId?: string;
   relayerKeyId?: string;
 }): ThresholdWarmSessionRequestEnvelope {
   const rpId = String(args.rpId || '').trim();
@@ -1426,8 +1426,8 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       version: THRESHOLD_SESSION_POLICY_VERSION,
       ...(args.walletId ? { walletId: String(args.walletId || '').trim() } : {}),
       ...(args.nearAccountId ? { nearAccountId: String(args.nearAccountId || '').trim() } : {}),
-      ...(args.ed25519KeyScopeId
-        ? { ed25519KeyScopeId: String(args.ed25519KeyScopeId || '').trim() }
+      ...(args.nearEd25519SigningKeyId
+        ? { nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId || '').trim() }
         : {}),
       rpId,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
@@ -1448,13 +1448,13 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   context: ThresholdWarmSessionContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   participantIds: number[];
   onProgress?: (message: string) => void;
 }): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
   const bindingFacts = thresholdEd25519HssBindingFactsFromRuntimePolicyScope({
     runtimePolicyScope: args.runtimePolicyScope,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
   });
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
@@ -1487,7 +1487,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
   context: ThresholdWarmSessionContext;
   prfFirstB64u: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   participantIds: number[];
   onProgress?: (message: string) => void;
 }): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
@@ -1497,7 +1497,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
   }
   const bindingFacts = thresholdEd25519HssBindingFactsFromRuntimePolicyScope({
     runtimePolicyScope: args.runtimePolicyScope,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
   });
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromPrfFirst({
@@ -1596,15 +1596,15 @@ function assertThresholdEd25519WarmSessionIdentity(args: {
 }): void {
   const walletId = String(args.session.walletId || '').trim();
   const nearAccountId = String(args.session.nearAccountId || '').trim();
-  const ed25519KeyScopeId = String(args.session.ed25519KeyScopeId || '').trim();
+  const nearEd25519SigningKeyId = String(args.session.nearEd25519SigningKeyId || '').trim();
   if (walletId !== args.expectedIdentity.walletId) {
     throw new Error('threshold-ed25519 warm session walletId mismatch');
   }
   if (nearAccountId !== args.expectedIdentity.nearAccountId) {
     throw new Error('threshold-ed25519 warm session nearAccountId mismatch');
   }
-  if (ed25519KeyScopeId !== args.expectedIdentity.ed25519KeyScopeId) {
-    throw new Error('threshold-ed25519 warm session ed25519KeyScopeId mismatch');
+  if (nearEd25519SigningKeyId !== args.expectedIdentity.nearEd25519SigningKeyId) {
+    throw new Error('threshold-ed25519 warm session nearEd25519SigningKeyId mismatch');
   }
 }
 
@@ -1737,7 +1737,7 @@ export async function storeThresholdEd25519KeyMaterial(args: {
 }
 
 async function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(args: {
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   material: ThresholdEd25519RegistrationHssClientMaterial;
   prfFirstB64u: string;
@@ -1745,10 +1745,10 @@ async function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(arg
   const material = args.material;
   const expectedBindingFacts = thresholdEd25519HssBindingFactsFromRuntimePolicyScope({
     runtimePolicyScope: args.runtimePolicyScope,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
   });
   if (
-    material.bindingFacts.ed25519KeyScopeId !== expectedBindingFacts.ed25519KeyScopeId ||
+    material.bindingFacts.nearEd25519SigningKeyId !== expectedBindingFacts.nearEd25519SigningKeyId ||
     material.bindingFacts.signingRootId !== expectedBindingFacts.signingRootId ||
     material.bindingFacts.signingRootVersion !== expectedBindingFacts.signingRootVersion
   ) {
@@ -1847,7 +1847,7 @@ export async function persistRegisteredThresholdEd25519Session(
       throw new Error('Email OTP Ed25519 registration warm session requires runtimePolicyScope');
     }
     await validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial({
-      ed25519KeyScopeId: args.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
       runtimePolicyScope,
       material: registrationHssClientMaterial,
       prfFirstB64u,
@@ -1856,7 +1856,7 @@ export async function persistRegisteredThresholdEd25519Session(
       kind: 'jwt_email_otp',
       walletId: args.walletId,
       nearAccountId: String(args.nearAccountId),
-      ed25519KeyScopeId: args.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
       rpId: args.rpId,
       relayerUrl: args.relayerUrl,
       relayerKeyId: args.completedRegistration.registered.relayerKeyId,
@@ -1886,7 +1886,7 @@ export async function persistRegisteredThresholdEd25519Session(
       signingEngine: args.signingEngine,
       workerCtx: args.workerCtx,
       nearAccountId: args.nearAccountId,
-      ed25519KeyScopeId: args.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
       signerSlot: args.signerSlot,
       rpId: args.rpId,
       relayerUrl: args.relayerUrl,
@@ -1908,7 +1908,7 @@ export async function persistRegisteredThresholdEd25519Session(
       kind: 'jwt_passkey',
       walletId: args.walletId,
       nearAccountId: String(args.nearAccountId),
-      ed25519KeyScopeId: args.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
       rpId: args.rpId,
       relayerUrl: args.relayerUrl,
       relayerKeyId: args.completedRegistration.registered.relayerKeyId,
@@ -1987,7 +1987,7 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
   >;
   workerCtx: WorkerOperationContext;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
   rpId: string;
   relayerUrl: string;
@@ -2100,7 +2100,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
   walletId: string;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -2164,7 +2164,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
     throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
   }
   const hssBindingFacts: SdkEd25519HssBindingFacts = {
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     signingRootId: parseSdkEcdsaHssSigningRootId(signingRootId),
     signingRootVersion: parseSdkEcdsaHssSigningRootVersion(signingRootVersion),
   };
@@ -2284,7 +2284,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   context: ThresholdWarmSessionContext;
   walletId: string;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   relayerUrl: string;
   rpId: string;
   relayerKeyId: string;
@@ -2346,8 +2346,8 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   }
   const passkeyCredentialIdB64u = passkeyCredentialIdB64uFromCredential(args.credential);
   const walletId = String(args.walletId || '').trim();
-  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
-  if (!walletId || !ed25519KeyScopeId) {
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || '').trim();
+  if (!walletId || !nearEd25519SigningKeyId) {
     throw new Error('threshold-ed25519 bootstrap response missing wallet binding fields');
   }
 
@@ -2355,7 +2355,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     kind: 'jwt_passkey',
     walletId,
     nearAccountId: String(args.nearAccountId),
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),

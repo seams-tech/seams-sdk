@@ -490,7 +490,7 @@ const emailOtpEd25519ExportPayload: EmailOtpEd25519ExportPayload = {
   relayUrl: 'https://relay.example',
   walletId: 'wallet.testnet',
   nearAccountId: 'wallet.testnet',
-  ed25519KeyScopeId: 'wallet.testnet',
+  nearEd25519SigningKeyId: 'wallet.testnet',
   userId: 'wallet.testnet',
   challengeId: 'challenge-1',
   otpCode: '123456',

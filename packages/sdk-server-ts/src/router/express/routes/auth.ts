@@ -2,14 +2,24 @@ import type { Router as ExpressRouter } from 'express';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../relay';
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { ExpressRelayContext } from '../createRelayRouter';
-
-type ProviderId = 'passkey' | 'google';
-type ActionId = 'options' | 'verify';
+import {
+  parseAuthLinkIdentityRequest,
+  parseAuthProviderAction,
+  parseAuthUnlinkIdentityRequest,
+  parseGoogleLoginVerifyRequest,
+  parsePasskeyLoginOptionsRequest,
+  parsePasskeyLoginVerifyRequest,
+  type AuthPasskeyStepUpRequest,
+} from '../../authRequestValidation';
 
 function getOrigin(headers: any): string | undefined {
   const raw = headers?.origin ?? headers?.Origin;
   if (typeof raw === 'string') return raw.trim() || undefined;
   return undefined;
+}
+
+function assertNeverAuthProviderAction(route: never): never {
+  throw new Error(`Unsupported auth provider action: ${String((route as any)?.kind || '')}`);
 }
 
 export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
@@ -152,43 +162,10 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
   }
 
   async function requirePasskeyStepUp(
-    req: any,
     res: any,
-    input: { userId: string },
+    input: { userId: string; stepUp: AuthPasskeyStepUpRequest },
   ): Promise<boolean> {
-    const body = req.body || {};
-    const challengeId = String(
-      body.stepUpChallengeId ??
-        body.step_up_challenge_id ??
-        body.challengeId ??
-        body.challenge_id ??
-        '',
-    ).trim();
-    if (!challengeId) {
-      res
-        .status(400)
-        .json({ ok: false, code: 'invalid_body', message: 'stepUpChallengeId is required' });
-      return false;
-    }
-    const webauthnAuthentication =
-      body.webauthn_authentication ??
-      body.stepUpWebauthnAuthentication ??
-      body.step_up_webauthn_authentication;
-    if (!webauthnAuthentication || typeof webauthnAuthentication !== 'object') {
-      res.status(400).json({
-        ok: false,
-        code: 'invalid_body',
-        message: 'webauthn_authentication is required for step-up',
-      });
-      return false;
-    }
-
-    const origin = getOrigin(req.headers);
-    const result = await ctx.service.verifyWebAuthnLogin({
-      challengeId,
-      webauthn_authentication: webauthnAuthentication,
-      expected_origin: origin,
-    });
+    const result = await ctx.service.verifyWebAuthnLogin(input.stepUp);
     if (!result.ok || !result.verified || !result.userId) {
       res.status(result.code === 'internal' ? 500 : 400).json(result);
       return false;
@@ -215,37 +192,29 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
 
   router.post('/auth/link', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseAuthLinkIdentityRequest({
+        body: req?.body,
+        origin: getOrigin(req.headers),
+      });
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
       const sess = await requireAppSession(req, res, { source: 'auth.link' });
       if (!sess) return;
-      const stepUpOk = await requirePasskeyStepUp(req, res, { userId: sess.userId });
+      const stepUpOk = await requirePasskeyStepUp(res, {
+        userId: sess.userId,
+        stepUp: parsed.request.stepUp,
+      });
       if (!stepUpOk) return;
       await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
-      const body = req.body || {};
-      const provider = String(body.provider || '').trim();
-      const origin = getOrigin(req.headers);
-
-      let subject = '';
-      if (provider === 'google') {
-        const idToken = String(body.idToken ?? body.id_token ?? '').trim();
-        const verified = await ctx.service.verifyGoogleLogin({ idToken });
-        if (!verified.ok || !verified.verified || !verified.providerSubject) {
-          res.status(verified.code === 'internal' ? 500 : 400).json(verified);
-          return;
-        }
-        subject = verified.providerSubject;
-      } else {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'provider must be: google' });
+      const verified = await ctx.service.verifyGoogleLogin({ idToken: parsed.request.idToken });
+      if (!verified.ok || !verified.verified || !verified.providerSubject) {
+        res.status(verified.code === 'internal' ? 500 : 400).json(verified);
         return;
       }
+      const subject = verified.providerSubject;
 
       const linked = await ctx.service.linkIdentity({
         userId: sess.userId,
@@ -274,24 +243,24 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
 
   router.post('/auth/unlink', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseAuthUnlinkIdentityRequest({
+        body: req?.body,
+        origin: getOrigin(req.headers),
+      });
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
       const sess = await requireAppSession(req, res, { source: 'auth.unlink' });
       if (!sess) return;
-      const stepUpOk = await requirePasskeyStepUp(req, res, { userId: sess.userId });
+      const stepUpOk = await requirePasskeyStepUp(res, {
+        userId: sess.userId,
+        stepUp: parsed.request.stepUp,
+      });
       if (!stepUpOk) return;
       await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
-      const body = req.body || {};
-      const subject = String(body.subject || '').trim();
-      if (!subject) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'subject is required' });
-        return;
-      }
+      const subject = parsed.request.subject;
       if (subject.startsWith('near:')) {
         res
           .status(400)
@@ -321,7 +290,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
           | string
           | undefined;
         const cookieHeader = (req.headers?.cookie || req.headers?.Cookie) as string | undefined;
-        const rawKind = (body as any).sessionKind ?? (body as any).session_kind;
+        const rawKind = parsed.request.session_kind;
         const requestedKind = rawKind === 'cookie' ? 'cookie' : rawKind === 'jwt' ? 'jwt' : null;
         const inferredKind =
           requestedKind ||
@@ -388,107 +357,68 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
     }
   });
 
-  const providers: Record<ProviderId, Record<ActionId, (req: any, res: any) => Promise<void>>> = {
-    passkey: {
-      options: async (req, res) => {
-        if (!req?.body) {
-          res
-            .status(400)
-            .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-          return;
-        }
-        const result = await ctx.service.createWebAuthnLoginOptions(req.body);
-        res.status(result.ok ? 200 : result.code === 'internal' ? 500 : 400).json(result);
-      },
-      verify: async (req, res) => {
-        if (!req?.body) {
-          res
-            .status(400)
-            .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-          return;
-        }
-
-        const body = req.body;
-        const challengeId = String(body.challengeId ?? body.challenge_id ?? '').trim();
-        if (!challengeId) {
-          res
-            .status(400)
-            .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
-          return;
-        }
-        if (!body.webauthn_authentication || typeof body.webauthn_authentication !== 'object') {
-          res.status(400).json({
-            ok: false,
-            code: 'invalid_body',
-            message: 'webauthn_authentication is required',
-          });
-          return;
-        }
-
-        const origin = getOrigin(req.headers);
-        const result = await ctx.service.verifyWebAuthnLogin({
-          challengeId,
-          webauthn_authentication: body.webauthn_authentication,
-          expected_origin: origin,
-        });
-
-        if (!result.ok || !result.verified) {
-          res.status(result.code === 'internal' ? 500 : 400).json(result);
-          return;
-        }
-
-        res.status(200).json({ ok: true, verified: true });
-      },
-    },
-    google: {
-      options: async (_req, res) => {
-        const publicConfig = ctx.service.getGoogleOidcPublicConfig();
-        res.status(200).json({ ok: true, ...publicConfig });
-      },
-      verify: async (req, res) => {
-        if (!req?.body) {
-          res
-            .status(400)
-            .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-          return;
-        }
-        const body = req.body || {};
-        const idToken = String(body.idToken ?? body.id_token ?? '').trim();
-        if (!idToken) {
-          res
-            .status(400)
-            .json({ ok: false, code: 'invalid_body', message: 'id_token is required' });
-          return;
-        }
-
-        const result = await ctx.service.verifyGoogleLogin({ idToken });
-        if (!result.ok || !result.verified || !result.userId) {
-          res.status(result.code === 'internal' ? 500 : 400).json(result);
-          return;
-        }
-
-        res
-          .status(200)
-          .json({ ok: true, verified: true, ...(result.email ? { email: result.email } : {}) });
-      },
-    },
-  };
-
   router.post('/auth/:provider/:action', async (req: any, res: any) => {
     try {
-      const provider = String(req?.params?.provider || '').trim() as ProviderId;
-      const action = String(req?.params?.action || '').trim() as ActionId;
-      const p = (providers as any)[provider] as
-        | Record<ActionId, (req: any, res: any) => Promise<void>>
-        | undefined;
-      const handler = p
-        ? ((p as any)[action] as ((req: any, res: any) => Promise<void>) | undefined)
-        : undefined;
-      if (!handler) {
+      const route = parseAuthProviderAction({
+        provider: req?.params?.provider,
+        action: req?.params?.action,
+      });
+      if (!route) {
         res.status(404).json({ ok: false, code: 'not_found', message: 'Auth route not found' });
         return;
       }
-      await handler(req, res);
+      switch (route.kind) {
+        case 'passkey_options': {
+          const parsed = parsePasskeyLoginOptionsRequest(req?.body);
+          if (!parsed.ok) {
+            res.status(parsed.status).json(parsed.body);
+            return;
+          }
+          const result = await ctx.service.createWebAuthnLoginOptions(parsed.request);
+          res.status(result.ok ? 200 : result.code === 'internal' ? 500 : 400).json(result);
+          return;
+        }
+        case 'passkey_verify': {
+          const parsed = parsePasskeyLoginVerifyRequest({
+            body: req?.body,
+            origin: getOrigin(req.headers),
+          });
+          if (!parsed.ok) {
+            res.status(parsed.status).json(parsed.body);
+            return;
+          }
+          const result = await ctx.service.verifyWebAuthnLogin(parsed.request);
+          if (!result.ok || !result.verified) {
+            res.status(result.code === 'internal' ? 500 : 400).json(result);
+            return;
+          }
+          res.status(200).json({ ok: true, verified: true });
+          return;
+        }
+        case 'google_options': {
+          const publicConfig = ctx.service.getGoogleOidcPublicConfig();
+          res.status(200).json({ ok: true, ...publicConfig });
+          return;
+        }
+        case 'google_verify': {
+          const parsed = parseGoogleLoginVerifyRequest(req?.body);
+          if (!parsed.ok) {
+            res.status(parsed.status).json(parsed.body);
+            return;
+          }
+          const result = await ctx.service.verifyGoogleLogin(parsed.request);
+          if (!result.ok || !result.verified || !result.userId) {
+            res.status(result.code === 'internal' ? 500 : 400).json(result);
+            return;
+          }
+          res
+            .status(200)
+            .json({ ok: true, verified: true, ...(result.email ? { email: result.email } : {}) });
+          return;
+        }
+        default:
+          assertNeverAuthProviderAction(route);
+      }
     } catch (e: any) {
       res
         .status(500)

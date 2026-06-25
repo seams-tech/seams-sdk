@@ -30,7 +30,7 @@ import { DEFAULT_WAIT_STATUS } from '@/core/types/rpc';
 import { ActionType, type ActionArgsWasm } from '@/core/types/actions';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
-import { ed25519KeyScopeIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString, walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -677,10 +677,10 @@ export class LinkDeviceFlow {
     if (responseNearAccountId !== String(nearAccountId)) {
       throw new Error('link-device/prepare returned nearAccountId mismatch');
     }
-    const linkEd25519KeyScopeId = ed25519KeyScopeIdFromString(
+    const linkNearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
       requireLinkDeviceString(
-        thresholdSection.ed25519KeyScopeId,
-        'thresholdEd25519.ed25519KeyScopeId',
+        thresholdSection.nearEd25519SigningKeyId,
+        'thresholdEd25519.nearEd25519SigningKeyId',
       ),
     );
     await storeThresholdEd25519KeyMaterial({
@@ -703,7 +703,7 @@ export class LinkDeviceFlow {
       context: this.context,
       walletId: String(linkWalletId),
       nearAccountId,
-      ed25519KeyScopeId: String(linkEd25519KeyScopeId),
+      nearEd25519SigningKeyId: String(linkNearEd25519SigningKeyId),
       relayerUrl,
       rpId,
       relayerKeyId,
@@ -720,7 +720,7 @@ export class LinkDeviceFlow {
       credential,
       walletId: String(linkWalletId),
       nearAccountId,
-      ed25519KeyScopeId: linkEd25519KeyScopeId,
+      nearEd25519SigningKeyId: linkNearEd25519SigningKeyId,
       rpId,
       relayerUrl,
       relayerKeyId,
@@ -774,7 +774,7 @@ export class LinkDeviceFlow {
     await this.attemptAutoLogin({
       nearAccount,
       walletId: linkWalletId,
-      ed25519KeyScopeId: linkEd25519KeyScopeId,
+      nearEd25519SigningKeyId: linkNearEd25519SigningKeyId,
       signerSlot: resolvedSignerSlot,
     });
 
@@ -806,7 +806,7 @@ export class LinkDeviceFlow {
   private async attemptAutoLogin(input: {
     nearAccount: NearAccountRef;
     walletId: ReturnType<typeof walletIdFromString>;
-    ed25519KeyScopeId: ReturnType<typeof ed25519KeyScopeIdFromString>;
+    nearEd25519SigningKeyId: ReturnType<typeof nearEd25519SigningKeyIdFromString>;
     signerSlot: number;
   }): Promise<void> {
     try {
@@ -832,7 +832,7 @@ export class LinkDeviceFlow {
         context: this.context,
         walletId: input.walletId,
         nearAccountId,
-        ed25519KeyScopeId: input.ed25519KeyScopeId,
+        nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
         signerSlot,
       });
       if (!restored.isLoggedIn) {

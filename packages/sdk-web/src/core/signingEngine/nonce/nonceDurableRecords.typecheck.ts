@@ -82,7 +82,7 @@ void durableRecordWithStringNonce;
 
 const nearRecordWithNonceKey: NonceLaneCoordinationRecord = {
   v: 1,
-  laneKey: 'near|testnet|wallet.testnet|ed25519:public-key',
+  laneKey: 'near|testnet|wallet.testnet|a'.repeat(64) + '|ed25519:public-key',
   leaseId: 'lease-4',
   networkKey: 'testnet',
   nonce: 7n,
@@ -93,7 +93,8 @@ const nearRecordWithNonceKey: NonceLaneCoordinationRecord = {
   expiresAtMs: 2,
   updatedAtMs: 1,
   family: 'near',
-  accountId: 'wallet.testnet',
+  walletId: 'wallet.testnet',
+  nearAccountId: 'a'.repeat(64),
   publicKey: 'ed25519:public-key',
   // @ts-expect-error NEAR durable records do not carry EVM nonce keys.
   nonceKey: 7n,
@@ -129,7 +130,7 @@ const nearLeaseWithBigintNonce: NearNonceLease = {
 	    family: 'near',
 	    networkKey: 'testnet',
 	    walletId: 'wallet.testnet',
-	    accountId: 'wallet.testnet',
+	    nearAccountId: 'a'.repeat(64),
 	    publicKey: 'ed25519:public-key',
 	  },
   // @ts-expect-error NEAR leases carry RPC string nonces.

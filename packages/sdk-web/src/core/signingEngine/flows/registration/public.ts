@@ -103,17 +103,17 @@ export function nearAuthenticatorsByAccount(
 
 export function updateLastLogin(
   deps: RegistrationPublicDeps,
-  nearAccountId: AccountId,
+  walletId: WalletId,
 ): Promise<void> {
-  return updateLastLoginValue(deps.accountLifecycle, nearAccountId);
+  return updateLastLoginValue(deps.accountLifecycle, walletId);
 }
 
 export function setLastUser(
   deps: RegistrationPublicDeps,
-  nearAccountId: AccountId,
+  walletId: WalletId,
   signerSlot: number = 1,
 ): Promise<void> {
-  return setLastUserValue(deps.accountLifecycle, nearAccountId, signerSlot);
+  return setLastUserValue(deps.accountLifecycle, walletId, signerSlot);
 }
 
 export function activateAuthenticatedWalletState(

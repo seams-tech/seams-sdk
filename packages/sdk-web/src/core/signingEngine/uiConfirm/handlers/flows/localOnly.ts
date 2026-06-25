@@ -1,5 +1,6 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
-import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import { silentConfirmationConfig } from '@/core/types/confirmationConfig';
 import {
   UserConfirmationType,
   TransactionSummary,
@@ -52,7 +53,7 @@ function sanitizeThemeTokens(
 async function mountExportViewer(
   ctx: UiConfirmContext,
   payload: ShowSecurePrivateKeyUiPayload,
-  confirmationConfig: ConfirmationConfig,
+  confirmationConfig: NormalizedConfirmationConfig,
   theme: ThemeName,
 ): Promise<void> {
   const hostArgs: UpsertExportViewerHostArgs = {
@@ -72,12 +73,24 @@ async function mountExportViewer(
   await upsertExportViewerHost(hostArgs);
 }
 
+type ConfirmTxFlowAdapters = ReturnType<typeof createConfirmTxFlowAdapters>;
+
+function buildLocalOnlySecurityContext(
+  adapters: ConfirmTxFlowAdapters,
+): Partial<UserConfirmSecurityContext> {
+  try {
+    return { rpId: adapters.security.getRpId() };
+  } catch {
+    return {};
+  }
+}
+
 export async function handleLocalOnlyFlow(
   ctx: UiConfirmContext,
   request: LocalOnlyUserConfirmRequest,
   worker: Worker,
   opts: {
-    confirmationConfig: ConfirmationConfig;
+    confirmationConfig: NormalizedConfirmationConfig;
     transactionSummary: TransactionSummary;
     theme: ThemeName;
   },
@@ -127,10 +140,9 @@ export async function handleLocalOnlyFlow(
     // a previously mounted key viewer while Touch ID is still pending.
     removeExportViewerHostIfPresent();
 
-    if (__isWalletIframeHostMode()) {
-      confirmationConfig.uiMode = 'none';
-      confirmationConfig.behavior = 'skipClick';
-    }
+    const effectiveConfirmationConfig = __isWalletIframeHostMode()
+      ? silentConfirmationConfig()
+      : confirmationConfig;
 
     const challengeB64u =
       String((request.payload as { challengeB64u?: unknown })?.challengeB64u || '').trim() ||
@@ -139,7 +151,7 @@ export async function handleLocalOnlyFlow(
     // there is typically no transient user activation. If confirmationConfig chooses
     // a visible UI mode (modal/drawer), prompt first so the click lands inside the
     // wallet iframe and grants activation for the subsequent WebAuthn call.
-    if (confirmationConfig.uiMode !== 'none') {
+    if (effectiveConfirmationConfig.kind !== 'silent') {
       // Provide a sensible title/body for non-transaction flows so the confirmer
       // doesn't fall back to "Register with Passkey" (txSigningRequests is empty).
       try {
@@ -151,13 +163,7 @@ export async function handleLocalOnlyFlow(
         }
       } catch {}
 
-      const securityContext: Partial<UserConfirmSecurityContext> = (() => {
-        try {
-          return { rpId: adapters.security.getRpId() } as Partial<UserConfirmSecurityContext>;
-        } catch {
-          return {} as Partial<UserConfirmSecurityContext>;
-        }
-      })();
+      const securityContext = buildLocalOnlySecurityContext(adapters);
 
       const { confirmed, error: uiError } = await session.promptUser({ securityContext });
       if (!confirmed) {

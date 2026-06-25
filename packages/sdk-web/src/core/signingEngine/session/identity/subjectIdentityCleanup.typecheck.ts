@@ -8,6 +8,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from './evmFamilyEcdsaIdentity';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
 } from './exactSigningLaneIdentity';
@@ -70,14 +71,16 @@ const invalidPublicKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
 void invalidPublicKeyIdentity;
 
 const laneIdentity = exactEcdsaSigningLaneIdentity({
-  walletId,
+  signer: buildEvmFamilyEcdsaSignerBinding({
+    walletId,
+    chainTarget,
+    key,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+  }),
   auth: {
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  chainTarget,
-  key,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
   thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
 });
@@ -118,6 +121,7 @@ const ecdsaSpendPlan: WalletSigningSpendPlan = {
   operationId,
   operationFingerprint,
   lane: {
+    identity: laneIdentity,
     auth: laneIdentity.auth,
     curve: 'ecdsa',
     keyKind: 'threshold_ecdsa_secp256k1',
@@ -127,9 +131,9 @@ const ecdsaSpendPlan: WalletSigningSpendPlan = {
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
     chainTarget,
     signingGrantId: laneIdentity.signingGrantId,
-	    thresholdSessionId: laneIdentity.thresholdSessionId,
-	    runtimeState: 'no_runtime_material',
-	    sessionOrigin: 'per_operation',
+    thresholdSessionId: laneIdentity.thresholdSessionId,
+    runtimeState: 'no_runtime_material',
+    sessionOrigin: 'per_operation',
     storageSource: 'email_otp',
     retention: 'single_use',
   },

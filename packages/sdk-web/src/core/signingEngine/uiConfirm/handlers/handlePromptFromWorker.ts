@@ -1,5 +1,5 @@
 import type { UiConfirmContext } from '../uiConfirm.types';
-import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
 import { determineConfirmationConfig } from './determineConfirmationConfig';
 import {
   TransactionSummary,
@@ -48,7 +48,7 @@ export async function handlePromptFromWorker(
 
   // 1. Validate and parse request
   let request: UserConfirmRequest;
-  let confirmationConfig: ConfirmationConfig;
+  let confirmationConfig: NormalizedConfirmationConfig;
   let transactionSummary: TransactionSummary;
   let theme: ThemeName;
 
@@ -120,7 +120,7 @@ type HandlerArgs = {
   ctx: UiConfirmContext;
   request: UserConfirmRequest;
   worker: Worker;
-  confirmationConfig: ConfirmationConfig;
+  confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
   theme: ThemeName;
 };

@@ -15,83 +15,180 @@ export type NonceLeaseTransition =
   | 'replace'
   | 'reconcile';
 
+export type NonceLeaseTransitionResult =
+  | {
+      ok: true;
+      state: NonceLeaseState;
+    }
+  | {
+      ok: false;
+      current: NonceLeaseState;
+      transition: NonceLeaseTransition;
+      reason: 'illegal_transition';
+    };
+
 export function reduceNonceLeaseState(
   current: NonceLeaseState,
   transition: NonceLeaseTransition,
 ): NonceLeaseState {
-  if (transition === 'release') {
-    if (current === NonceLeaseState.Released) return current;
-    if (current === NonceLeaseState.Reserved) return NonceLeaseState.Released;
-    throw createIllegalNonceTransitionError(current, transition);
-  }
+  const result = tryReduceNonceLeaseState(current, transition);
+  if (result.ok) return result.state;
+  throw createIllegalNonceTransitionError(result.current, result.transition);
+}
 
-  if (transition === 'expire') {
-    if (current === NonceLeaseState.Reserved) return NonceLeaseState.Expired;
-    if (current === NonceLeaseState.Signed) return NonceLeaseState.SignedLeaseExpired;
-    if (current === NonceLeaseState.Expired || current === NonceLeaseState.SignedLeaseExpired) {
-      return current;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+export function tryReduceNonceLeaseState(
+  current: NonceLeaseState,
+  transition: NonceLeaseTransition,
+): NonceLeaseTransitionResult {
+  switch (transition) {
+    case 'release':
+      return reduceReleaseNonceLeaseState(current);
+    case 'expire':
+      return reduceExpireNonceLeaseState(current);
+    case 'mark_signed':
+      return reduceMarkSignedNonceLeaseState(current);
+    case 'broadcast_accepted':
+      return reduceBroadcastAcceptedNonceLeaseState(current);
+    case 'broadcast_rejected':
+      return reduceBroadcastRejectedNonceLeaseState(current);
+    case 'finalize':
+      return reduceFinalizeNonceLeaseState(current);
+    case 'drop':
+      return reduceDropNonceLeaseState(current);
+    case 'replace':
+      return reduceReplaceNonceLeaseState(current);
+    case 'reconcile':
+      return reduceReconcileNonceLeaseState(current);
+    default:
+      return assertNeverNonceLeaseTransition(transition);
   }
+}
 
-  if (transition === 'mark_signed') {
-    if (current === NonceLeaseState.Reserved || current === NonceLeaseState.Signed) {
-      return NonceLeaseState.Signed;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceReleaseNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.Released:
+      return acceptedNonceTransition(current);
+    case NonceLeaseState.Reserved:
+      return acceptedNonceTransition(NonceLeaseState.Released);
+    default:
+      return rejectedNonceTransition(current, 'release');
   }
+}
 
-  if (transition === 'broadcast_accepted') {
-    if (current === NonceLeaseState.Signed || current === NonceLeaseState.BroadcastAccepted) {
-      return NonceLeaseState.BroadcastAccepted;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceExpireNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.Reserved:
+      return acceptedNonceTransition(NonceLeaseState.Expired);
+    case NonceLeaseState.Signed:
+      return acceptedNonceTransition(NonceLeaseState.SignedLeaseExpired);
+    case NonceLeaseState.Expired:
+    case NonceLeaseState.SignedLeaseExpired:
+      return acceptedNonceTransition(current);
+    default:
+      return rejectedNonceTransition(current, 'expire');
   }
+}
 
-  if (transition === 'broadcast_rejected') {
-    if (current === NonceLeaseState.Signed || current === NonceLeaseState.BroadcastRejected) {
-      return NonceLeaseState.BroadcastRejected;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceMarkSignedNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.Reserved:
+    case NonceLeaseState.Signed:
+      return acceptedNonceTransition(NonceLeaseState.Signed);
+    default:
+      return rejectedNonceTransition(current, 'mark_signed');
   }
+}
 
-  if (transition === 'finalize') {
-    if (current === NonceLeaseState.BroadcastAccepted || current === NonceLeaseState.Finalized) {
-      return NonceLeaseState.Finalized;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceBroadcastAcceptedNonceLeaseState(
+  current: NonceLeaseState,
+): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.Signed:
+    case NonceLeaseState.BroadcastAccepted:
+      return acceptedNonceTransition(NonceLeaseState.BroadcastAccepted);
+    default:
+      return rejectedNonceTransition(current, 'broadcast_accepted');
   }
+}
 
-  if (transition === 'drop') {
-    if (current === NonceLeaseState.BroadcastAccepted || current === NonceLeaseState.Dropped) {
-      return NonceLeaseState.Dropped;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceBroadcastRejectedNonceLeaseState(
+  current: NonceLeaseState,
+): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.Signed:
+    case NonceLeaseState.BroadcastRejected:
+      return acceptedNonceTransition(NonceLeaseState.BroadcastRejected);
+    default:
+      return rejectedNonceTransition(current, 'broadcast_rejected');
   }
+}
 
-  if (transition === 'replace') {
-    if (current === NonceLeaseState.BroadcastAccepted || current === NonceLeaseState.Replaced) {
-      return NonceLeaseState.Replaced;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceFinalizeNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.BroadcastAccepted:
+    case NonceLeaseState.Finalized:
+      return acceptedNonceTransition(NonceLeaseState.Finalized);
+    default:
+      return rejectedNonceTransition(current, 'finalize');
   }
+}
 
-  if (transition === 'reconcile') {
-    if (
-      current === NonceLeaseState.Released ||
-      current === NonceLeaseState.Expired ||
-      current === NonceLeaseState.SignedLeaseExpired ||
-      current === NonceLeaseState.BroadcastRejected ||
-      current === NonceLeaseState.Dropped ||
-      current === NonceLeaseState.Replaced ||
-      current === NonceLeaseState.Reconciled
-    ) {
-      return NonceLeaseState.Reconciled;
-    }
-    throw createIllegalNonceTransitionError(current, transition);
+function reduceDropNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.BroadcastAccepted:
+    case NonceLeaseState.Dropped:
+      return acceptedNonceTransition(NonceLeaseState.Dropped);
+    default:
+      return rejectedNonceTransition(current, 'drop');
   }
+}
 
-  throw createIllegalNonceTransitionError(current, transition);
+function reduceReplaceNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.BroadcastAccepted:
+    case NonceLeaseState.Replaced:
+      return acceptedNonceTransition(NonceLeaseState.Replaced);
+    default:
+      return rejectedNonceTransition(current, 'replace');
+  }
+}
+
+function reduceReconcileNonceLeaseState(current: NonceLeaseState): NonceLeaseTransitionResult {
+  switch (current) {
+    case NonceLeaseState.Released:
+    case NonceLeaseState.Expired:
+    case NonceLeaseState.SignedLeaseExpired:
+    case NonceLeaseState.BroadcastRejected:
+    case NonceLeaseState.Dropped:
+    case NonceLeaseState.Replaced:
+    case NonceLeaseState.Reconciled:
+      return acceptedNonceTransition(NonceLeaseState.Reconciled);
+    default:
+      return rejectedNonceTransition(current, 'reconcile');
+  }
+}
+
+function acceptedNonceTransition(state: NonceLeaseState): NonceLeaseTransitionResult {
+  return {
+    ok: true,
+    state,
+  };
+}
+
+function rejectedNonceTransition(
+  current: NonceLeaseState,
+  transition: NonceLeaseTransition,
+): NonceLeaseTransitionResult {
+  return {
+    ok: false,
+    current,
+    transition,
+    reason: 'illegal_transition',
+  };
+}
+
+function assertNeverNonceLeaseTransition(value: never): never {
+  throw new Error(`[NonceCoordinator] unhandled nonce lease transition: ${String(value)}`);
 }
 
 export function isInFlightNonceLeaseState(state: NonceLeaseState): boolean {

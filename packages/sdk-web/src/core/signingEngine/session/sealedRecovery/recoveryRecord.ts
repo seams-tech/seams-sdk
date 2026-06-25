@@ -39,7 +39,7 @@ type RawEcdsaRestoreMetadata = {
 
 type RawEd25519RestoreMetadata = {
   nearAccountId?: unknown;
-  ed25519KeyScopeId?: unknown;
+  nearEd25519SigningKeyId?: unknown;
   rpId?: unknown;
   credentialIdB64u?: unknown;
   providerSubjectId?: unknown;
@@ -137,7 +137,7 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
 type Ed25519SealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   curve: 'ed25519';
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: readonly number[];
@@ -532,8 +532,8 @@ export function normalizeSealedRecoveryRecord(
         normalizeNonEmptyString(ed25519Restore.providerSubjectId) ||
         normalizeNonEmptyString(ed25519Restore.authSubjectId);
       const companionNearAccountId = normalizeNonEmptyString(ed25519Restore.nearAccountId);
-      const companionEd25519KeyScopeId = normalizeNonEmptyString(
-        ed25519Restore.ed25519KeyScopeId,
+      const companionNearEd25519SigningKeyId = normalizeNonEmptyString(
+        ed25519Restore.nearEd25519SigningKeyId,
       );
       const companionRelayerKeyId = normalizeNonEmptyString(ed25519Restore.relayerKeyId);
       const companionParticipantIds = normalizeParticipantIds(ed25519Restore.participantIds);
@@ -559,7 +559,7 @@ export function normalizeSealedRecoveryRecord(
         companionRpId &&
         companionProviderSubjectId &&
         companionNearAccountId &&
-        companionEd25519KeyScopeId &&
+        companionNearEd25519SigningKeyId &&
         companionRelayerKeyId &&
         companionParticipantIds.length &&
         companionSignerSlot > 0 &&
@@ -590,7 +590,7 @@ export function normalizeSealedRecoveryRecord(
             : {}),
 	          relayerUrl,
 	          nearAccountId: companionNearAccountId,
-	          ed25519KeyScopeId: companionEd25519KeyScopeId,
+	          nearEd25519SigningKeyId: companionNearEd25519SigningKeyId,
 	          ...normalizedEd25519WorkerMaterialFields(ed25519Restore),
 	          rpId: companionRpId,
           providerSubjectId: companionProviderSubjectId,
@@ -692,7 +692,7 @@ export function normalizeSealedRecoveryRecord(
   const restore = ed25519Restore;
   const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
   const nearAccountId = normalizeNonEmptyString(restore?.nearAccountId);
-  const ed25519KeyScopeId = normalizeNonEmptyString(restore?.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = normalizeNonEmptyString(restore?.nearEd25519SigningKeyId);
   const relayerKeyId = normalizeNonEmptyString(restore?.relayerKeyId);
   const rpId = normalizeNonEmptyString(restore?.rpId);
   const credentialIdB64u = normalizeNonEmptyString(restore?.credentialIdB64u);
@@ -710,7 +710,7 @@ export function normalizeSealedRecoveryRecord(
   if (
     !restore ||
     !nearAccountId ||
-    !ed25519KeyScopeId ||
+    !nearEd25519SigningKeyId ||
     !rpId ||
     (raw.authMethod === 'passkey' && !credentialIdB64u) ||
     (raw.authMethod === 'email_otp' && !providerSubjectId) ||
@@ -845,7 +845,7 @@ export function normalizeSealedRecoveryRecord(
             : {}),
           relayerUrl,
 	          nearAccountId,
-	          ed25519KeyScopeId,
+	          nearEd25519SigningKeyId,
 	          ...normalizedEd25519WorkerMaterialFields(restore),
 	          rpId,
           credentialIdB64u: credentialIdB64u!,
@@ -876,7 +876,7 @@ export function normalizeSealedRecoveryRecord(
             : {}),
           relayerUrl,
 	          nearAccountId,
-	          ed25519KeyScopeId,
+	          nearEd25519SigningKeyId,
 	          ...normalizedEd25519WorkerMaterialFields(restore),
 	          rpId,
           providerSubjectId: providerSubjectId!,

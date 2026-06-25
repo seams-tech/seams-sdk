@@ -6,7 +6,10 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
-import { exactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import {
+  buildEvmFamilyEcdsaSignerBinding,
+  exactEcdsaSigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
 import { SigningSessionIds } from './types';
 import {
   buildFreshStepUpRequired,
@@ -31,14 +34,16 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 const laneIdentity = exactEcdsaSigningLaneIdentity({
-  walletId,
+  signer: buildEvmFamilyEcdsaSignerBinding({
+    walletId,
+    chainTarget,
+    key,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+  }),
   auth: {
     kind: 'email_otp',
     providerSubjectId: 'google:subject-1',
   },
-  chainTarget,
-  key,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   signingGrantId: SigningSessionIds.signingGrant('wallet-session'),
   thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session'),
 });

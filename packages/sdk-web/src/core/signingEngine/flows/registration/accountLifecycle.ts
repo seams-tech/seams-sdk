@@ -64,7 +64,7 @@ export type StoredRegistrationData = {
 export type StoreWalletEd25519RegistrationInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   credential: WebAuthnRegistrationCredential;
   signerSlot: number;
   operationalPublicKey: string;
@@ -86,7 +86,7 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
 export type StoreWalletEd25519SignerRecordInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   credential: WebAuthnAuthenticationCredential;
   signerSlot: number;
   operationalPublicKey: string;
@@ -379,48 +379,46 @@ export async function nearAuthenticatorsByAccount(
 
 export async function updateLastLogin(
   deps: RegistrationAccountLifecycleDeps,
-  nearAccountId: AccountId,
+  walletId: WalletId,
 ): Promise<void> {
-  const accountId = toAccountId(nearAccountId);
-  const context = await resolveProfileAccountContextFromCandidates(
-    deps.accountStore,
-    buildNearAccountRefs(accountId),
-  ).catch(() => null);
-  if (!context?.profileId) return;
-  const [lastProfileState, profile] = await Promise.all([
-    deps.accountStore.getLastProfileState().catch(() => null),
-    deps.accountStore.getProfile(context.profileId).catch(() => null),
-  ]);
-  const defaultSignerSlot = Number(profile?.defaultSignerSlot);
+  const selectedId = String(walletId || '').trim();
+  if (!selectedId) {
+    throw new Error('SeamsWalletDB: selected wallet id is required');
+  }
+  const selectedProfile = await deps.accountStore.getProfile(selectedId).catch(() => null);
+  if (!selectedProfile?.profileId) return;
+  const lastProfileState = await deps.accountStore.getLastProfileState().catch(() => null);
+  const defaultSignerSlot = Number(selectedProfile.defaultSignerSlot);
   const signerSlot =
-    lastProfileState?.profileId === context.profileId
+    lastProfileState?.profileId === selectedProfile.profileId
       ? lastProfileState.activeSignerSlot
       : Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1
         ? defaultSignerSlot
         : 1;
-  await deps.accountStore.setLastProfileStateForProfile(context.profileId, signerSlot);
+  await deps.accountStore.setLastProfileStateForProfile(selectedProfile.profileId, signerSlot);
 }
 
 export async function setLastUser(
   deps: RegistrationAccountLifecycleDeps,
-  nearAccountId: AccountId,
+  walletId: WalletId,
   signerSlot: number = 1,
 ): Promise<void> {
   const normalizedSignerSlot = Number(signerSlot);
   if (!Number.isSafeInteger(normalizedSignerSlot) || normalizedSignerSlot < 1) {
     throw new Error('SeamsWalletDB: signerSlot must be an integer >= 1');
   }
-  const accountId = toAccountId(nearAccountId);
-  const context = await resolveProfileAccountContextFromCandidates(
-    deps.accountStore,
-    buildNearAccountRefs(accountId),
-  ).catch(() => null);
-  if (!context?.profileId) {
-    throw new Error(
-      `SeamsWalletDB: Missing profile/account mapping for NEAR account ${String(accountId)}`,
-    );
+  const selectedId = String(walletId || '').trim();
+  if (!selectedId) {
+    throw new Error('SeamsWalletDB: selected wallet id is required');
   }
-  await deps.accountStore.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
+  const selectedProfile = await deps.accountStore.getProfile(selectedId).catch(() => null);
+  if (!selectedProfile?.profileId) {
+    throw new Error(`SeamsWalletDB: Missing profile for wallet ${selectedId}`);
+  }
+  await deps.accountStore.setLastProfileStateForProfile(
+    selectedProfile.profileId,
+    normalizedSignerSlot,
+  );
 }
 
 export async function activateAuthenticatedWalletState(
@@ -459,7 +457,7 @@ export async function activateAuthenticatedWalletState(
   if (userData && userData.operationalPublicKey) {
     deps.nonceCoordinator.initializeNearAccessKey({
       walletId,
-      accountId,
+      nearAccountId: accountId,
       publicKey: userData.operationalPublicKey,
     });
   }
@@ -674,9 +672,9 @@ function keyMaterialForSignerActivation(args: {
     record.payload = {
       walletId: requireStoreWalletString(metadata.walletId, 'walletId'),
       nearAccountId: requireStoreWalletString(metadata.nearAccountId, 'nearAccountId'),
-      ed25519KeyScopeId: requireStoreWalletString(
-        metadata.ed25519KeyScopeId,
-        'ed25519KeyScopeId',
+      nearEd25519SigningKeyId: requireStoreWalletString(
+        metadata.nearEd25519SigningKeyId,
+        'nearEd25519SigningKeyId',
       ),
       relayerKeyId: requireStoreWalletString(metadata.relayerKeyId, 'relayerKeyId'),
       keyVersion: requireStoreWalletString(metadata.keyVersion, 'keyVersion'),
@@ -702,9 +700,9 @@ export async function storeWalletEd25519RegistrationData(
     throw new Error('SeamsWalletDB: walletId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
-  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
-  if (!ed25519KeyScopeId) {
-    throw new Error('SeamsWalletDB: ed25519KeyScopeId is required');
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || '').trim();
+  if (!nearEd25519SigningKeyId) {
+    throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
   const credentialPublicKey = await deps.extractCosePublicKey(args.credential.response.attestationObject);
   const passkeyCredential = {
@@ -715,7 +713,7 @@ export async function storeWalletEd25519RegistrationData(
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
@@ -825,7 +823,7 @@ export async function storeWalletEd25519RegistrationData(
         timestamp: keyMaterialTimestamp,
       }),
     ],
-    lastProfileState: { profileId: nearProfileId, activeSignerSlot: signerSlot },
+    lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
   });
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {
@@ -847,14 +845,14 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     throw new Error('SeamsWalletDB: walletId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
-  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
-  if (!ed25519KeyScopeId) {
-    throw new Error('SeamsWalletDB: ed25519KeyScopeId is required');
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || '').trim();
+  if (!nearEd25519SigningKeyId) {
+    throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
@@ -941,7 +939,7 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
         timestamp: keyMaterialTimestamp,
       }),
     ],
-    lastProfileState: { profileId: nearProfileId, activeSignerSlot: signerSlot },
+    lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
   });
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {
@@ -967,9 +965,9 @@ export async function finalizeWalletEd25519SignerRegistration(
     throw new Error('SeamsWalletDB: walletId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
-  const ed25519KeyScopeId = String(args.ed25519KeyScopeId || '').trim();
-  if (!ed25519KeyScopeId) {
-    throw new Error('SeamsWalletDB: ed25519KeyScopeId is required');
+  const nearEd25519SigningKeyId = String(args.nearEd25519SigningKeyId || '').trim();
+  if (!nearEd25519SigningKeyId) {
+    throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
   const passkeyCredential = {
     id: args.credential.id,
@@ -978,7 +976,7 @@ export async function finalizeWalletEd25519SignerRegistration(
   const signerMetadata = {
     walletId,
     nearAccountId: String(nearAccountId),
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     operationalPublicKey: args.operationalPublicKey,
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
@@ -1064,7 +1062,7 @@ export async function finalizeWalletEd25519SignerRegistration(
         timestamp: keyMaterialTimestamp,
       }),
     ],
-    lastProfileState: { profileId: nearProfileId, activeSignerSlot: signerSlot },
+    lastProfileState: { profileId: walletId, activeSignerSlot: signerSlot },
   });
   const storedNearActivation = result.signerActivations[1];
   if (!storedNearActivation) {

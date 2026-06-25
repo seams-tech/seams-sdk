@@ -16,10 +16,10 @@ function keyExportInputFromPayload(payload: PMExportKeypairUiPayload) {
   switch (payload.kind) {
     case 'near': {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(payload.laneIdentity);
-      if (String(laneIdentity.walletId) !== String(payload.walletSession.walletId)) {
+      if (String(laneIdentity.signer.account.wallet.walletId) !== String(payload.walletSession.walletId)) {
         throw new Error('[WalletIframe] key export lane wallet does not match wallet session');
       }
-      if (String(laneIdentity.nearAccountId) !== String(payload.nearAccount.accountId)) {
+      if (String(laneIdentity.signer.account.nearAccountId) !== String(payload.nearAccount.accountId)) {
         throw new Error('[WalletIframe] key export lane NEAR account does not match request account');
       }
       return {
@@ -35,10 +35,10 @@ function keyExportInputFromPayload(payload: PMExportKeypairUiPayload) {
     }
     case 'ecdsa': {
       const laneIdentity = parseExactEcdsaSigningLaneIdentity(payload.laneIdentity);
-      if (String(laneIdentity.walletId) !== String(payload.walletSession.walletId)) {
+      if (String(laneIdentity.signer.walletId) !== String(payload.walletSession.walletId)) {
         throw new Error('[WalletIframe] key export lane wallet does not match wallet session');
       }
-      if (!thresholdEcdsaChainTargetsEqual(laneIdentity.chainTarget, payload.chainTarget)) {
+      if (!thresholdEcdsaChainTargetsEqual(laneIdentity.signer.chainTarget, payload.chainTarget)) {
         throw new Error('[WalletIframe] key export lane chain target does not match request target');
       }
       return {

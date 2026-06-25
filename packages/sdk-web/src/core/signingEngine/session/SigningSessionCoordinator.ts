@@ -15,6 +15,7 @@ import {
   buildEcdsaLaneBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,
   buildWalletBudgetStatusCheck,
+  ecdsaLaneBudgetStatusIdentityFieldsForLane,
   isEcdsaLaneBudgetStatusCheck,
   ownerForBudgetStatusCheck,
   thresholdSessionIdsForBudgetStatusCheck,
@@ -70,6 +71,7 @@ import {
   type DiscoveredSigningSessionLane,
 } from './availability/readiness';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactSigningLaneIdentityMatches,
   type ExactEcdsaSigningLaneIdentity,
@@ -148,10 +150,12 @@ function exactEcdsaBudgetStatusLane(
 ): ExactEcdsaSigningLaneIdentity | null {
   if (!check || !isEcdsaLaneBudgetStatusCheck(check)) return null;
   return exactEcdsaSigningLaneIdentity({
-    walletId: check.key.walletId,
-    chainTarget: check.chainTarget,
-    keyHandle: check.keyHandle,
-    key: check.key,
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: check.key.walletId,
+      chainTarget: check.chainTarget,
+      keyHandle: check.keyHandle,
+      key: check.key,
+    }),
     auth: check.auth,
     signingGrantId: check.signingGrantId,
     thresholdSessionId: check.thresholdSessionId,
@@ -568,24 +572,15 @@ function buildBudgetStatusCheckForLane(args: {
 }): SigningSessionBudgetStatusCheck {
   const owner = walletBudgetOwnerForLane(args.lane);
   if (args.lane.curve === 'ecdsa') {
+    const identityFields = ecdsaLaneBudgetStatusIdentityFieldsForLane(args.lane);
     if (args.trustedStatusAuth) {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
-        key: args.lane.key,
-        keyHandle: args.lane.keyHandle,
-        auth: args.lane.auth,
-        chainTarget: args.lane.chainTarget,
-        signingGrantId: args.lane.signingGrantId,
-        thresholdSessionId: args.lane.thresholdSessionId,
+        ...identityFields,
         trustedStatusAuth: args.trustedStatusAuth,
       });
     }
     return buildEcdsaLaneBudgetStatusCheck({
-      key: args.lane.key,
-      keyHandle: args.lane.keyHandle,
-      auth: args.lane.auth,
-      chainTarget: args.lane.chainTarget,
-      signingGrantId: args.lane.signingGrantId,
-      thresholdSessionId: args.lane.thresholdSessionId,
+      ...identityFields,
     });
   }
   if (args.trustedStatusAuth && args.lane.thresholdSessionId) {

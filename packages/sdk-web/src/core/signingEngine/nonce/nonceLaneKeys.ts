@@ -73,7 +73,7 @@ export function nonceLaneNetworkKey(lane: NonceLane): string {
 }
 
 export function nonceLaneSubjectId(lane: NonceLane): string {
-  return lane.family === 'near' ? lane.accountId : lane.subjectId;
+  return lane.family === 'near' ? lane.walletId : lane.subjectId;
 }
 
 export function nonceLaneKey(lane: NonceLane): string {
@@ -90,7 +90,7 @@ export function nonceLaneKey(lane: NonceLane): string {
 }
 
 export function nearNonceLaneKey(lane: NearNonceLane): string {
-  return encodeNonceKeyParts(['near', lane.networkKey, lane.accountId, lane.publicKey]);
+  return encodeNonceKeyParts(['near', lane.networkKey, lane.walletId, lane.nearAccountId, lane.publicKey]);
 }
 
 export function assertEvmLease(

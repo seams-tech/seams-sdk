@@ -15,7 +15,7 @@ import {
 const commonArgs = {
   walletId: 'alice.testnet',
   nearAccountId: toAccountId('alice.testnet'),
-  ed25519KeyScopeId: 'alice.testnet',
+  nearEd25519SigningKeyId: 'alice.testnet',
   rpId: 'example.test',
   relayerUrl: 'https://relayer.test',
   relayerKeyId: 'relayer-key-1',
@@ -70,7 +70,7 @@ void persistWarmSessionEd25519Capability({
 void persistWarmSessionEd25519Capability({
   kind: 'jwt_passkey',
   nearAccountId: toAccountId('alice.testnet'),
-  ed25519KeyScopeId: 'alice.testnet',
+  nearEd25519SigningKeyId: 'alice.testnet',
   rpId: 'example.test',
   relayerUrl: 'https://relayer.test',
   relayerKeyId: 'relayer-key-1',
@@ -86,7 +86,7 @@ void persistWarmSessionEd25519Capability({
   passkeyCredentialIdB64u: 'credential-id',
 });
 
-// @ts-expect-error Warm-session persistence requires an explicit Ed25519 key scope.
+// @ts-expect-error Warm-session persistence requires an explicit NEAR Ed25519 signing key.
 void persistWarmSessionEd25519Capability({
   kind: 'jwt_passkey',
   walletId: 'alice.testnet',

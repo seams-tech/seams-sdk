@@ -14,14 +14,53 @@ import {
 import { nonceLaneKey } from './nonceLaneKeys';
 import { maxBigint, normalizeBigint, normalizeRequiredString } from './nonceUtils';
 
+export type NearAccessKeySubject = {
+  walletId: string;
+  nearAccountId: string;
+  publicKey: string;
+};
+
+type NearNonceMissingContext = {
+  kind: 'missing';
+};
+
+type NearNonceReadyContext = {
+  kind: 'ready';
+  transactionContext: TransactionContext;
+  lastNonceUpdateMs: number;
+  lastBlockHeightUpdateMs: number;
+};
+
+type NearNoncePreviousContext = NearNonceMissingContext | NearNonceReadyContext;
+
+export type NearNonceLaneLifecycle =
+  | {
+      kind: 'uninitialized';
+    }
+  | {
+      kind: 'access_key_bound';
+      subject: NearAccessKeySubject;
+      context: NearNoncePreviousContext;
+    }
+  | {
+      kind: 'access_key_lookup_pending';
+      subject: NearAccessKeySubject;
+      previousContext: NearNoncePreviousContext;
+      promise: Promise<TransactionContext>;
+    }
+  | {
+      kind: 'implicit_unfunded';
+      subject: NearAccessKeySubject;
+      readiness: Extract<NearExecutionReadiness, { kind: 'implicit_unfunded' }>;
+    }
+  | {
+      kind: 'lookup_failed';
+      subject: NearAccessKeySubject;
+      readiness: Extract<NearExecutionReadiness, { kind: 'account_lookup_failed' }>;
+    };
+
 export type NearNonceLaneState = {
-  walletId: string | null;
-  accountId: string | null;
-  publicKey: string | null;
-  transactionContext: TransactionContext | null;
-  lastNonceUpdate: number | null;
-  lastBlockHeightUpdate: number | null;
-  inflightFetch: Promise<TransactionContext> | null;
+  lifecycle: NearNonceLaneLifecycle;
   inflightId: number;
   refreshTimer: ReturnType<typeof setTimeout> | null;
   prefetchTimer: ReturnType<typeof setTimeout> | null;
@@ -126,15 +165,162 @@ export function classifyNearExecutionReadiness(input: {
   };
 }
 
+export function readNearAccessKeySubject(state: NearNonceLaneState): NearAccessKeySubject | null {
+  switch (state.lifecycle.kind) {
+    case 'uninitialized':
+      return null;
+    case 'access_key_bound':
+    case 'access_key_lookup_pending':
+    case 'implicit_unfunded':
+    case 'lookup_failed':
+      return state.lifecycle.subject;
+    default:
+      return assertNeverNearNonceLaneLifecycle(state.lifecycle);
+  }
+}
+
+export function requireNearAccessKeySubject(state: NearNonceLaneState): NearAccessKeySubject {
+  const subject = readNearAccessKeySubject(state);
+  if (!subject) {
+    throw new Error('[NonceCoordinator] NEAR access key is not initialized');
+  }
+  return subject;
+}
+
+export function readNearTransactionContext(state: NearNonceLaneState): TransactionContext | null {
+  const ready = readNearReadyContext(state.lifecycle);
+  return ready?.transactionContext ?? null;
+}
+
+export function hasNearTransactionContext(state: NearNonceLaneState): boolean {
+  return readNearTransactionContext(state) !== null;
+}
+
+export function hasNearInflightFetch(state: NearNonceLaneState): boolean {
+  return readNearInflightFetch(state) !== null;
+}
+
+export function readNearActiveAccountId(state: NearNonceLaneState): string | null {
+  return readNearAccessKeySubject(state)?.nearAccountId ?? null;
+}
+
+export function readNearActivePublicKey(state: NearNonceLaneState): string | null {
+  return readNearAccessKeySubject(state)?.publicKey ?? null;
+}
+
+function readNearReadyContext(lifecycle: NearNonceLaneLifecycle): NearNonceReadyContext | null {
+  switch (lifecycle.kind) {
+    case 'uninitialized':
+    case 'implicit_unfunded':
+    case 'lookup_failed':
+      return null;
+    case 'access_key_bound':
+      return lifecycle.context.kind === 'ready' ? lifecycle.context : null;
+    case 'access_key_lookup_pending':
+      return lifecycle.previousContext.kind === 'ready' ? lifecycle.previousContext : null;
+    default:
+      return assertNeverNearNonceLaneLifecycle(lifecycle);
+  }
+}
+
+function readNearPreviousContext(lifecycle: NearNonceLaneLifecycle): NearNoncePreviousContext {
+  const ready = readNearReadyContext(lifecycle);
+  return ready ?? { kind: 'missing' };
+}
+
+function readNearInflightFetch(state: NearNonceLaneState): Promise<TransactionContext> | null {
+  switch (state.lifecycle.kind) {
+    case 'access_key_lookup_pending':
+      return state.lifecycle.promise;
+    case 'uninitialized':
+    case 'access_key_bound':
+    case 'implicit_unfunded':
+    case 'lookup_failed':
+      return null;
+    default:
+      return assertNeverNearNonceLaneLifecycle(state.lifecycle);
+  }
+}
+
+function setNearAccessKeyReady(input: {
+  state: NearNonceLaneState;
+  subject: NearAccessKeySubject;
+  transactionContext: TransactionContext;
+  nowMs: number;
+  updateNonce: boolean;
+  updateBlock: boolean;
+}): void {
+  const previous = readNearReadyContext(input.state.lifecycle);
+  input.state.lifecycle = {
+    kind: 'access_key_bound',
+    subject: input.subject,
+    context: {
+      kind: 'ready',
+      transactionContext: input.transactionContext,
+      lastNonceUpdateMs: input.updateNonce
+        ? input.nowMs
+        : (previous?.lastNonceUpdateMs ?? input.nowMs),
+      lastBlockHeightUpdateMs: input.updateBlock
+        ? input.nowMs
+        : (previous?.lastBlockHeightUpdateMs ?? input.nowMs),
+    },
+  };
+}
+
+function setNearAccessKeyLookupPending(input: {
+  state: NearNonceLaneState;
+  subject: NearAccessKeySubject;
+  promise: Promise<TransactionContext>;
+}): void {
+  input.state.lifecycle = {
+    kind: 'access_key_lookup_pending',
+    subject: input.subject,
+    previousContext: readNearPreviousContext(input.state.lifecycle),
+    promise: input.promise,
+  };
+}
+
+function setNearImplicitUnfunded(input: {
+  state: NearNonceLaneState;
+  subject: NearAccessKeySubject;
+}): void {
+  input.state.lifecycle = {
+    kind: 'implicit_unfunded',
+    subject: input.subject,
+    readiness: {
+      kind: 'implicit_unfunded',
+      walletId: input.subject.walletId,
+      nearAccountId: input.subject.nearAccountId,
+      nearPublicKeyStr: input.subject.publicKey,
+    },
+  };
+}
+
+function setNearLookupFailed(input: {
+  state: NearNonceLaneState;
+  subject: NearAccessKeySubject;
+  message: string;
+}): void {
+  input.state.lifecycle = {
+    kind: 'lookup_failed',
+    subject: input.subject,
+    readiness: {
+      kind: 'account_lookup_failed',
+      walletId: input.subject.walletId,
+      nearAccountId: input.subject.nearAccountId,
+      nearPublicKeyStr: input.subject.publicKey,
+      message: input.message,
+    },
+  };
+}
+
+function assertNeverNearNonceLaneLifecycle(value: never): never {
+  throw new Error(`[NonceCoordinator] unhandled NEAR nonce lane lifecycle: ${String(value)}`);
+}
+
 export function createNearNonceLaneState(): NearNonceLaneState {
   return {
-    walletId: null,
-    accountId: null,
-    publicKey: null,
-    transactionContext: null,
-    lastNonceUpdate: null,
-    lastBlockHeightUpdate: null,
-    inflightFetch: null,
+    lifecycle: { kind: 'uninitialized' },
     inflightId: 0,
     refreshTimer: null,
     prefetchTimer: null,
@@ -157,10 +343,14 @@ export function clearNearPrefetchTimer(state: NearNonceLaneState): void {
 }
 
 export function clearNearTransactionContext(state: NearNonceLaneState): void {
-  state.transactionContext = null;
-  state.lastNonceUpdate = null;
-  state.lastBlockHeightUpdate = null;
-  state.inflightFetch = null;
+  const subject = readNearAccessKeySubject(state);
+  state.lifecycle = subject
+    ? {
+        kind: 'access_key_bound',
+        subject,
+        context: { kind: 'missing' },
+      }
+    : { kind: 'uninitialized' };
   state.reservedNonces.clear();
   state.lastReservedNonce = null;
   state.inFlight.clear();
@@ -169,35 +359,61 @@ export function clearNearTransactionContext(state: NearNonceLaneState): void {
 }
 
 export function clearNearAccessKeyState(state: NearNonceLaneState): void {
-  state.walletId = null;
-  state.accountId = null;
-  state.publicKey = null;
+  state.lifecycle = { kind: 'uninitialized' };
   clearNearTransactionContext(state);
 }
 
 export function initializeNearAccessKeyState(input: {
   state: NearNonceLaneState;
   walletId: string;
-  accountId: string;
+  nearAccountId: string;
   publicKey: string;
 }): void {
-  const accountId = normalizeRequiredString(input.accountId, 'accountId');
+  const nearAccountId = normalizeRequiredString(input.nearAccountId, 'nearAccountId');
   const publicKey = normalizeRequiredString(input.publicKey, 'publicKey');
   const walletId = normalizeRequiredString(input.walletId, 'walletId');
   if (!walletId) {
     throw new Error('[NonceCoordinator] NEAR access key walletId is required');
   }
+  const subject = { walletId, nearAccountId, publicKey };
+  const currentSubject = readNearAccessKeySubject(input.state);
   if (
-    input.state.walletId === walletId &&
-    input.state.accountId === accountId &&
-    input.state.publicKey === publicKey
+    currentSubject?.walletId === walletId &&
+    currentSubject.nearAccountId === nearAccountId &&
+    currentSubject.publicKey === publicKey
   ) {
     return;
   }
-  input.state.walletId = walletId;
-  input.state.accountId = accountId;
-  input.state.publicKey = publicKey;
+  input.state.lifecycle = {
+    kind: 'access_key_bound',
+    subject,
+    context: { kind: 'missing' },
+  };
   clearNearTransactionContext(input.state);
+}
+
+export function commitNearTransactionContextForState(input: {
+  state: NearNonceLaneState;
+  walletId: string;
+  nearAccountId: string;
+  publicKey: string;
+  transactionContext: TransactionContext;
+  nowMs: number;
+}): void {
+  initializeNearAccessKeyState({
+    state: input.state,
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    publicKey: input.publicKey,
+  });
+  setNearAccessKeyReady({
+    state: input.state,
+    subject: requireNearAccessKeySubject(input.state),
+    transactionContext: input.transactionContext,
+    nowMs: input.nowMs,
+    updateNonce: true,
+    updateBlock: true,
+  });
 }
 
 export async function reserveNearNoncesFromState(input: {
@@ -206,7 +422,8 @@ export async function reserveNearNoncesFromState(input: {
   countInput: number;
   readActiveLeaseNonces: (laneKey: string, input?: { lane?: NearNonceLane }) => Promise<Set<string>>;
 }): Promise<string[]> {
-  if (!input.state.transactionContext) {
+  const transactionContext = readNearTransactionContext(input.state);
+  if (!transactionContext) {
     throw new Error('NEAR transaction context not available - call fetchNearContext() first');
   }
   const count = Math.max(0, Math.floor(Number(input.countInput || 0)));
@@ -221,7 +438,7 @@ export async function reserveNearNoncesFromState(input: {
   }
   const start = maxBigint(
     input.state.lastReservedNonce ? BigInt(input.state.lastReservedNonce) + 1n : 0n,
-    BigInt(input.state.transactionContext.nextNonce),
+    BigInt(transactionContext.nextNonce),
     highestDurable > 0n ? highestDurable + 1n : 0n,
   );
   const planned: string[] = [];
@@ -302,15 +519,15 @@ export async function reconcileNearLaneState(input: {
   initializeNearAccessKeyState({
     state: input.state,
     walletId: input.lane.walletId,
-    accountId: input.lane.accountId,
+    nearAccountId: input.lane.nearAccountId,
     publicKey: input.lane.publicKey,
   });
   const accessKeyInfoRaw = await input.nearClient.viewAccessKey(
-    input.lane.accountId,
+    input.lane.nearAccountId,
     input.lane.publicKey,
   );
   if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
-    throw new Error(`Access key not found or invalid for account ${input.lane.accountId}`);
+    throw new Error(`Access key not found or invalid for account ${input.lane.nearAccountId}`);
   }
   const accessKeyInfo = normalizeAccessKeyView(accessKeyInfoRaw);
   const chainNonce = BigInt(accessKeyInfo.nonce);
@@ -330,7 +547,7 @@ export async function reconcileNearLaneState(input: {
     const txOutcome = await readNearTxOutcome({
       nearClient: input.nearClient,
       txHash: inFlight.txHash,
-      accountId: input.lane.accountId,
+      accountId: input.lane.nearAccountId,
     });
     if (txOutcome === 'finalized') {
       input.transitionLease({
@@ -359,21 +576,32 @@ export async function reconcileNearLaneState(input: {
     unresolvedInFlightNonces.push(leaseNonce);
   }
 
+  const previousContext = readNearTransactionContext(input.state);
   const candidateNext = maxBigint(
     chainNextNonce,
-    input.state.transactionContext?.nextNonce ? BigInt(input.state.transactionContext.nextNonce) : 0n,
+    previousContext?.nextNonce ? BigInt(previousContext.nextNonce) : 0n,
     input.state.lastReservedNonce ? BigInt(input.state.lastReservedNonce) + 1n : 0n,
   );
-  input.state.transactionContext = {
-    ...(input.state.transactionContext || {
+  setNearAccessKeyReady({
+    state: input.state,
+    subject: {
+      walletId: input.lane.walletId,
+      nearAccountId: input.lane.nearAccountId,
+      publicKey: input.lane.publicKey,
+    },
+    transactionContext: {
+      ...(previousContext || {
       nearPublicKeyStr: input.lane.publicKey,
       txBlockHeight: '0',
       txBlockHash: '',
     }),
-    accessKeyInfo,
-    nextNonce: candidateNext.toString(),
-  };
-  input.state.lastNonceUpdate = input.now();
+      accessKeyInfo,
+      nextNonce: candidateNext.toString(),
+    },
+    nowMs: input.now(),
+    updateNonce: true,
+    updateBlock: false,
+  });
   if (input.state.reservedNonces.size > 0) {
     const pruned = pruneReservedNearNonces(chainNonce, input.state.reservedNonces);
     input.state.reservedNonces = pruned.set;
@@ -486,32 +714,30 @@ export async function fetchNearFreshDataForState(input: {
   blockFreshnessThresholdMs: number;
 }): Promise<TransactionContext> {
   const { state } = input;
-  if (!state.accountId || !state.publicKey) {
-    throw new Error('[NonceCoordinator] NEAR access key is not initialized');
-  }
-  if (state.inflightFetch && !input.force) {
-    return state.inflightFetch;
+  const inflightFetch = readNearInflightFetch(state);
+  if (inflightFetch && !input.force) {
+    return inflightFetch;
   }
 
-  const capturedAccountId = state.accountId;
-  const capturedWalletId = state.walletId || capturedAccountId;
-  const capturedPublicKey = state.publicKey;
+  const capturedSubject = requireNearAccessKeySubject(state);
   const requestId = ++state.inflightId;
   const fetchPromise = (async () => {
     try {
       const nowMs = input.now();
+      const readyContext = readNearReadyContext(state.lifecycle);
+      const previousTransactionContext = readyContext?.transactionContext ?? null;
       const isNonceStale =
         input.force ||
-        !state.lastNonceUpdate ||
-        nowMs - state.lastNonceUpdate >= input.nonceFreshnessThresholdMs;
+        !readyContext ||
+        nowMs - readyContext.lastNonceUpdateMs >= input.nonceFreshnessThresholdMs;
       const isBlockStale =
         input.force ||
-        !state.lastBlockHeightUpdate ||
-        nowMs - state.lastBlockHeightUpdate >= input.blockFreshnessThresholdMs;
+        !readyContext ||
+        nowMs - readyContext.lastBlockHeightUpdateMs >= input.blockFreshnessThresholdMs;
 
-      let accessKeyInfo = state.transactionContext?.accessKeyInfo;
-      let txBlockHeight = state.transactionContext?.txBlockHeight;
-      let txBlockHash = state.transactionContext?.txBlockHash;
+      let accessKeyInfo = previousTransactionContext?.accessKeyInfo;
+      let txBlockHeight = previousTransactionContext?.txBlockHeight;
+      let txBlockHash = previousTransactionContext?.txBlockHash;
       const fetchAccessKey = isNonceStale || !accessKeyInfo;
       const fetchBlock = isBlockStale || !txBlockHeight || !txBlockHash;
 
@@ -526,24 +752,24 @@ export async function fetchNearFreshDataForState(input: {
           (async () => {
             try {
               maybeAccessKey = await input.nearClient.viewAccessKey(
-                capturedAccountId,
-                capturedPublicKey,
+                capturedSubject.nearAccountId,
+                capturedSubject.publicKey,
               );
             } catch (error: unknown) {
               const message = errorMessage(error);
               if (isMissingNearAccessKeyError(message)) {
-                if (isImplicitNearAccountId(capturedAccountId)) {
+                if (isImplicitNearAccountId(capturedSubject.nearAccountId)) {
                   accessKeyError = new NearImplicitAccountFundingRequiredError({
-                    walletId: capturedWalletId,
-                    nearAccountId: capturedAccountId,
-                    nearPublicKeyStr: capturedPublicKey,
+                    walletId: capturedSubject.walletId,
+                    nearAccountId: capturedSubject.nearAccountId,
+                    nearPublicKeyStr: capturedSubject.publicKey,
                   });
                   return;
                 }
                 accessKeyError = new NearAccountLookupFailedError({
-                  walletId: capturedWalletId,
-                  nearAccountId: capturedAccountId,
-                  nearPublicKeyStr: capturedPublicKey,
+                  walletId: capturedSubject.walletId,
+                  nearAccountId: capturedSubject.nearAccountId,
+                  nearPublicKeyStr: capturedSubject.publicKey,
                   message,
                 });
                 return;
@@ -569,13 +795,24 @@ export async function fetchNearFreshDataForState(input: {
       if (tasks.length > 0) {
         await Promise.all(tasks);
       }
-      if (accessKeyError) throw accessKeyError;
+      if (accessKeyError) {
+        if (accessKeyError instanceof NearImplicitAccountFundingRequiredError) {
+          setNearImplicitUnfunded({ state, subject: capturedSubject });
+        } else if (accessKeyError instanceof NearAccountLookupFailedError) {
+          setNearLookupFailed({
+            state,
+            subject: capturedSubject,
+            message: accessKeyError.message,
+          });
+        }
+        throw accessKeyError;
+      }
       if (blockError) throw blockError;
 
       if (fetchAccessKey) {
         accessKeyInfo = isAccessKeyViewLike(maybeAccessKey)
           ? normalizeAccessKeyView(maybeAccessKey)
-          : state.transactionContext?.accessKeyInfo || makePlaceholderAccessKey();
+          : previousTransactionContext?.accessKeyInfo || makePlaceholderAccessKey();
       }
       if (fetchBlock) {
         if (!isBlockResultLike(maybeBlock)) {
@@ -587,12 +824,12 @@ export async function fetchNearFreshDataForState(input: {
 
       const nextCandidate = maxBigint(
         accessKeyInfo?.nonce !== undefined ? BigInt(accessKeyInfo.nonce) + 1n : 0n,
-        state.transactionContext?.nextNonce ? BigInt(state.transactionContext.nextNonce) : 0n,
+        previousTransactionContext?.nextNonce ? BigInt(previousTransactionContext.nextNonce) : 0n,
         state.lastReservedNonce ? BigInt(state.lastReservedNonce) + 1n : 0n,
         1n,
       );
       const transactionContext: TransactionContext = {
-        nearPublicKeyStr: capturedPublicKey,
+        nearPublicKeyStr: capturedSubject.publicKey,
         accessKeyInfo: accessKeyInfo!,
         nextNonce: nextCandidate.toString(),
         txBlockHeight: txBlockHeight!,
@@ -600,24 +837,41 @@ export async function fetchNearFreshDataForState(input: {
       };
 
       if (
-        capturedAccountId === state.accountId &&
-        capturedPublicKey === state.publicKey &&
+        nearAccessKeySubjectsMatch(readNearAccessKeySubject(state), capturedSubject) &&
         requestId === state.inflightId
       ) {
-        state.transactionContext = transactionContext;
-        const commitMs = input.now();
-        if (fetchAccessKey) state.lastNonceUpdate = commitMs;
-        if (fetchBlock) state.lastBlockHeightUpdate = commitMs;
+        setNearAccessKeyReady({
+          state,
+          subject: capturedSubject,
+          transactionContext,
+          nowMs: input.now(),
+          updateNonce: fetchAccessKey,
+          updateBlock: fetchBlock,
+        });
       }
       return transactionContext;
     } finally {
       if (requestId === state.inflightId) {
-        state.inflightFetch = null;
+        const subject = readNearAccessKeySubject(state);
+        if (
+          state.lifecycle.kind === 'access_key_lookup_pending' &&
+          nearAccessKeySubjectsMatch(subject, capturedSubject)
+        ) {
+          state.lifecycle = {
+            kind: 'access_key_bound',
+            subject: capturedSubject,
+            context: state.lifecycle.previousContext,
+          };
+        }
       }
     }
   })();
 
-  state.inflightFetch = fetchPromise;
+  setNearAccessKeyLookupPending({
+    state,
+    subject: capturedSubject,
+    promise: fetchPromise,
+  });
   return fetchPromise;
 }
 
@@ -628,40 +882,43 @@ export async function updateNearNonceFromBlockchainState(input: {
   now: () => number;
 }): Promise<void> {
   const { state } = input;
-  if (!state.accountId || !state.publicKey) {
-    throw new Error('[NonceCoordinator] NEAR access key is not initialized');
-  }
+  const subject = requireNearAccessKeySubject(state);
   try {
-    const accessKeyInfoRaw = await input.nearClient.viewAccessKey(state.accountId, state.publicKey);
+    const accessKeyInfoRaw = await input.nearClient.viewAccessKey(subject.nearAccountId, subject.publicKey);
     if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
-      throw new Error(`Access key not found or invalid for account ${state.accountId}`);
+      throw new Error(`Access key not found or invalid for account ${subject.nearAccountId}`);
     }
     const accessKeyInfo = normalizeAccessKeyView(accessKeyInfoRaw);
     const chainNonce = BigInt(accessKeyInfo.nonce);
     const actual = BigInt(input.actualNonce);
+    const previousContext = readNearTransactionContext(state);
     const candidateNext = maxBigint(
       chainNonce + 1n,
       actual + 1n,
-      state.transactionContext?.nextNonce ? BigInt(state.transactionContext.nextNonce) : 0n,
+      previousContext?.nextNonce ? BigInt(previousContext.nextNonce) : 0n,
       state.lastReservedNonce ? BigInt(state.lastReservedNonce) + 1n : 0n,
     );
 
-    if (state.transactionContext) {
-      state.transactionContext = {
-        ...state.transactionContext,
-        accessKeyInfo,
-        nextNonce: candidateNext.toString(),
-      };
-    } else {
-      state.transactionContext = {
-        nearPublicKeyStr: state.publicKey,
-        accessKeyInfo,
-        nextNonce: candidateNext.toString(),
-        txBlockHeight: '0',
-        txBlockHash: '',
-      };
-    }
-    state.lastNonceUpdate = input.now();
+    setNearAccessKeyReady({
+      state,
+      subject,
+      transactionContext: previousContext
+        ? {
+            ...previousContext,
+            accessKeyInfo,
+            nextNonce: candidateNext.toString(),
+          }
+        : {
+            nearPublicKeyStr: subject.publicKey,
+            accessKeyInfo,
+            nextNonce: candidateNext.toString(),
+            txBlockHeight: '0',
+            txBlockHash: '',
+          },
+      nowMs: input.now(),
+      updateNonce: true,
+      updateBlock: false,
+    });
     state.inFlight.delete(input.actualNonce);
     releaseNearNonceFromState(state, input.actualNonce);
     if (state.reservedNonces.size > 0) {
@@ -673,21 +930,31 @@ export async function updateNearNonceFromBlockchainState(input: {
     const message = errorMessage(error);
     if (isMissingNearAccessKeyError(message)) {
       const actual = BigInt(input.actualNonce);
+      const previousContext = readNearTransactionContext(state);
       const candidateNext = maxBigint(
         actual + 1n,
-        state.transactionContext?.nextNonce ? BigInt(state.transactionContext.nextNonce) : 0n,
+        previousContext?.nextNonce ? BigInt(previousContext.nextNonce) : 0n,
         state.lastReservedNonce ? BigInt(state.lastReservedNonce) + 1n : 0n,
       );
-      state.transactionContext = {
-        ...(state.transactionContext || {
-          nearPublicKeyStr: state.publicKey,
-          accessKeyInfo: makePlaceholderAccessKey(),
-          txBlockHeight: '0',
-          txBlockHash: '',
-        }),
-        nextNonce: candidateNext.toString(),
-      };
-      state.lastNonceUpdate = input.now();
+      setNearAccessKeyReady({
+        state,
+        subject,
+        transactionContext: previousContext
+          ? {
+              ...previousContext,
+              nextNonce: candidateNext.toString(),
+            }
+          : {
+              nearPublicKeyStr: subject.publicKey,
+              accessKeyInfo: makePlaceholderAccessKey(),
+              txBlockHeight: '0',
+              txBlockHash: '',
+              nextNonce: candidateNext.toString(),
+            },
+        nowMs: input.now(),
+        updateNonce: true,
+        updateBlock: false,
+      });
     }
   }
 }
@@ -698,12 +965,10 @@ export async function refreshNearNonceAfterBroadcastRejectedState(input: {
   now: () => number;
 }): Promise<void> {
   const { state } = input;
-  if (!state.accountId || !state.publicKey) {
-    throw new Error('[NonceCoordinator] NEAR access key is not initialized');
-  }
-  const accessKeyInfoRaw = await input.nearClient.viewAccessKey(state.accountId, state.publicKey);
+  const subject = requireNearAccessKeySubject(state);
+  const accessKeyInfoRaw = await input.nearClient.viewAccessKey(subject.nearAccountId, subject.publicKey);
   if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
-    throw new Error(`Access key not found or invalid for account ${state.accountId}`);
+    throw new Error(`Access key not found or invalid for account ${subject.nearAccountId}`);
   }
   const accessKeyInfo = normalizeAccessKeyView(accessKeyInfoRaw);
   const chainNonce = BigInt(accessKeyInfo.nonce);
@@ -712,23 +977,28 @@ export async function refreshNearNonceAfterBroadcastRejectedState(input: {
     state.lastReservedNonce ? BigInt(state.lastReservedNonce) + 1n : 0n,
     1n,
   );
+  const previousContext = readNearTransactionContext(state);
 
-  if (state.transactionContext) {
-    state.transactionContext = {
-      ...state.transactionContext,
-      accessKeyInfo,
-      nextNonce: candidateNext.toString(),
-    };
-  } else {
-    state.transactionContext = {
-      nearPublicKeyStr: state.publicKey,
-      accessKeyInfo,
-      nextNonce: candidateNext.toString(),
-      txBlockHeight: '0',
-      txBlockHash: '',
-    };
-  }
-  state.lastNonceUpdate = input.now();
+  setNearAccessKeyReady({
+    state,
+    subject,
+    transactionContext: previousContext
+      ? {
+          ...previousContext,
+          accessKeyInfo,
+          nextNonce: candidateNext.toString(),
+        }
+      : {
+          nearPublicKeyStr: subject.publicKey,
+          accessKeyInfo,
+          nextNonce: candidateNext.toString(),
+          txBlockHeight: '0',
+          txBlockHash: '',
+        },
+    nowMs: input.now(),
+    updateNonce: true,
+    updateBlock: false,
+  });
   if (state.reservedNonces.size > 0) {
     const pruned = pruneReservedNearNonces(chainNonce, state.reservedNonces);
     state.reservedNonces = pruned.set;
@@ -741,10 +1011,11 @@ export function shouldPrefetchNearContext(input: {
   nowMs: number;
   blockFreshnessThresholdMs: number;
 }): boolean {
+  const readyContext = readNearReadyContext(input.state.lifecycle);
   const blockStale =
-    !input.state.lastBlockHeightUpdate ||
-    input.nowMs - input.state.lastBlockHeightUpdate >= input.blockFreshnessThresholdMs;
-  const missingContext = !input.state.transactionContext;
+    !readyContext ||
+    input.nowMs - readyContext.lastBlockHeightUpdateMs >= input.blockFreshnessThresholdMs;
+  const missingContext = !readyContext;
   return blockStale || missingContext;
 }
 
@@ -804,4 +1075,15 @@ export function makePlaceholderAccessKey(): AccessKeyView {
     block_height: 0,
     block_hash: '',
   };
+}
+
+function nearAccessKeySubjectsMatch(
+  left: NearAccessKeySubject | null,
+  right: NearAccessKeySubject,
+): boolean {
+  return (
+    left?.walletId === right.walletId &&
+    left.nearAccountId === right.nearAccountId &&
+    left.publicKey === right.publicKey
+  );
 }

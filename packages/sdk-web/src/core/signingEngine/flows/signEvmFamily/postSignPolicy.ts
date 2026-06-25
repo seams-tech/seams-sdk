@@ -1,6 +1,6 @@
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import { exactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import { exactEcdsaSigningLaneIdentityFromSelectedLane } from '../../session/identity/exactSigningLaneIdentity';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
@@ -24,7 +24,7 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   // Post-sign cleanup is security-sensitive: it must operate on the exact
   // lane used after any OTP/passkey reauth, not a generic threshold-session id.
   await args.postSignPolicy.applyEcdsaPostSignPolicy({
-    lane: exactEcdsaSigningLaneIdentity(args.ecdsaSigningLane),
+    lane: exactEcdsaSigningLaneIdentityFromSelectedLane(args.ecdsaSigningLane),
     selectedRecord: args.selectedRecord,
   });
 }

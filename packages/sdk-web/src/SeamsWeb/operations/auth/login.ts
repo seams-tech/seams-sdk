@@ -189,7 +189,7 @@ type ResolvedWalletSessionIdentity =
 type ResolvedLoginWalletBinding = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   ed25519Record: ThresholdEd25519SessionRecord | null;
 };
 
@@ -299,14 +299,14 @@ function resolveLoginWalletBinding(nearAccountId: AccountId): ResolvedLoginWalle
     if (String(recordNearAccountId) !== String(nearAccountId)) {
       throw new Error('[login] persisted Ed25519 record nearAccountId mismatch');
     }
-    const ed25519KeyScopeId = String(record.ed25519KeyScopeId || '').trim();
-    if (!ed25519KeyScopeId) {
-      throw new Error('[login] persisted Ed25519 record is missing ed25519KeyScopeId');
+    const nearEd25519SigningKeyId = String(record.nearEd25519SigningKeyId || '').trim();
+    if (!nearEd25519SigningKeyId) {
+      throw new Error('[login] persisted Ed25519 record is missing nearEd25519SigningKeyId');
     }
     return {
       walletId: toWalletId(record.walletId),
       nearAccountId: recordNearAccountId,
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       ed25519Record: record,
     };
   }
@@ -707,7 +707,7 @@ async function assertPasskeyUnlockRuntimePostconditions(args: {
       record,
       walletId: String(args.walletBinding.walletId),
       nearAccountId: args.walletBinding.nearAccountId,
-      ed25519KeyScopeId: args.walletBinding.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: args.walletBinding.nearEd25519SigningKeyId,
       authMethod: 'passkey',
       signingSessionStatus,
     });
@@ -1113,7 +1113,7 @@ export async function unlock(
           const plannedEd25519Policy = await buildEd25519SessionPolicy({
             walletId: String(walletBinding.walletId),
             nearAccountId,
-            ed25519KeyScopeId: walletBinding.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
             rpId: warmupInput.rpId,
             relayerKeyId: thresholdKeyMaterial?.relayerKeyId || '',
             ...(storedCanonicalEcdsaContext.runtimePolicyScope
@@ -1263,15 +1263,15 @@ export async function unlock(
 
     // Login persistence is intentionally after auth and warmup side effects succeed.
     const persistSuccessfulLoginState = async (signerSlot: number): Promise<void> => {
-      await signingEngine.setLastUser(nearAccountId, signerSlot).catch(() => undefined);
-      await signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
+      await signingEngine.setLastUser(walletBinding.walletId, signerSlot).catch(() => undefined);
+      await signingEngine.updateLastLogin(walletBinding.walletId).catch(() => undefined);
     };
 
     // Nonce recovery is best-effort; stale lane leases should not fail login.
     const recoverNonceLanesAfterUnlock = async (): Promise<void> => {
       await signingEngine
         .getNonceCoordinator()
-        .recoverDurableLeases({ accountId: nearAccountId })
+        .recoverDurableLeases({ walletId: walletBinding.walletId })
         .catch((error: unknown) => {
           console.warn('[login] nonce lane durable recovery after unlock failed', error);
         });
@@ -2172,7 +2172,7 @@ async function resolveThresholdLoginEd25519WarmSessionUnsealInstallRecord(args: 
   const exactHydrated = await hydrateExactEd25519SessionFromDurableSealedWorkerMaterial({
     walletId: String(volatileRecord?.walletId || '').trim(),
     nearAccountId: String(volatileRecord?.nearAccountId || args.nearAccountId || '').trim(),
-    ed25519KeyScopeId: String(volatileRecord?.ed25519KeyScopeId || '').trim(),
+    nearEd25519SigningKeyId: String(volatileRecord?.nearEd25519SigningKeyId || '').trim(),
     signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
     source: 'login',
@@ -2315,7 +2315,7 @@ async function primeThresholdLoginWarmSigners(args: {
           ...ed25519ProvisioningIdentity,
           walletId: String(args.walletBinding.walletId),
           nearAccountId: args.walletBinding.nearAccountId,
-          ed25519KeyScopeId: args.walletBinding.ed25519KeyScopeId,
+          nearEd25519SigningKeyId: args.walletBinding.nearEd25519SigningKeyId,
           relayerUrl: args.relayerUrl,
           relayerKeyId: args.relayerKeyId,
           source: 'login',

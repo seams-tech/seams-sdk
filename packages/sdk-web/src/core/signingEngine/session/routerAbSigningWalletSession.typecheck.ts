@@ -11,7 +11,7 @@ import type {
 } from './routerAbSigningWalletSession';
 import type { ThresholdEd25519SessionRecord } from './persistence/records';
 import { toWalletId } from '../interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 type ExactType<TValue, TShape> = TValue extends TShape
   ? Exclude<keyof TValue, keyof TShape> extends never
@@ -182,7 +182,7 @@ void ed25519RawClientBase;
 const validEd25519SessionRecord = {
   walletId: toWalletId('alice-wallet'),
   nearAccountId: 'alice.testnet',
-  ed25519KeyScopeId: ed25519KeyScopeIdFromString('alice-wallet'),
+  nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('alice-wallet'),
   rpId: 'localhost',
   relayerUrl: 'https://relay.example',
   relayerKeyId: 'ed25519:relayer',

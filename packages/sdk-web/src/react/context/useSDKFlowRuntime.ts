@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SDKFlowRuntime, SDKFlowState } from '../types';
+import type { ActiveSDKFlowKind, SDKFlowRuntime, SDKFlowState } from '../types';
 
-type FlowKind = Exclude<SDKFlowState['kind'], null>;
+type FlowKind = ActiveSDKFlowKind;
+type SDKFlowCompletionStatus = 'success' | 'error';
 
 const MAX_EVENT_LINES = 6;
 
@@ -18,6 +19,72 @@ type StartWaiter = {
   resolve: (seq: number) => void;
   timeoutId: ReturnType<typeof setTimeout>;
 };
+
+function buildIdleSdkFlowState(): SDKFlowState {
+  return {
+    seq: 0,
+    kind: null,
+    status: 'idle',
+    eventsText: '',
+  };
+}
+
+function buildStartedSdkFlowState(input: {
+  seq: number;
+  kind: FlowKind;
+  accountId?: string;
+}): SDKFlowState {
+  return {
+    seq: input.seq,
+    kind: input.kind,
+    status: 'in-progress',
+    eventsText: '',
+    ...(input.accountId ? { accountId: input.accountId } : {}),
+  };
+}
+
+function buildCompletedSdkFlowState(input: {
+  current: SDKFlowState;
+  seq: number;
+  kind: FlowKind;
+  status: SDKFlowCompletionStatus;
+  error?: string;
+}): SDKFlowState {
+  const currentAccountId = 'accountId' in input.current ? input.current.accountId : undefined;
+  const base =
+    input.current.seq === input.seq && input.current.kind === input.kind
+      ? {
+          seq: input.current.seq,
+          kind: input.current.kind,
+          eventsText: input.current.eventsText,
+          ...(currentAccountId ? { accountId: currentAccountId } : {}),
+        }
+      : {
+          seq: input.seq,
+          kind: input.kind,
+          eventsText: '',
+        };
+
+  switch (input.status) {
+    case 'success':
+      return {
+        ...base,
+        status: 'success',
+      };
+    case 'error':
+      return {
+        ...base,
+        status: 'error',
+        error: input.error || 'Operation failed',
+      };
+    default:
+      return assertNeverSdkFlowCompletionStatus(input.status);
+  }
+}
+
+function assertNeverSdkFlowCompletionStatus(value: never): never {
+  throw new Error(`Unhandled SDK flow completion status: ${String(value)}`);
+}
 
 const createDeferred = <T>(): Deferred<T> => {
   let resolve!: (value: T) => void;
@@ -50,18 +117,13 @@ export function useSDKFlowRuntime(): {
   sdkFlow: SDKFlowRuntime;
   beginSdkFlow: (kind: FlowKind, accountId?: string) => number;
   appendSdkEventMessage: (seq: number, message: string) => void;
-  endSdkFlow: (kind: FlowKind, seq: number, status: 'success' | 'error', error?: string) => void;
+  endSdkFlow: (kind: FlowKind, seq: number, status: SDKFlowCompletionStatus, error?: string) => void;
 } {
   const sdkFlowSeqRef = useRef(0);
   const sdkFlowStartWaitersRef = useRef<Set<StartWaiter>>(new Set());
   const sdkFlowCompletionDeferredsRef = useRef<Map<number, Deferred<SDKFlowState>>>(new Map());
 
-  const [sdkFlowState, setSdkFlowState] = useState<SDKFlowState>({
-    seq: 0,
-    kind: null,
-    status: 'idle',
-    eventsText: '',
-  });
+  const [sdkFlowState, setSdkFlowState] = useState<SDKFlowState>(buildIdleSdkFlowState);
 
   const sdkFlowRef = useRef<SDKFlowState>(sdkFlowState);
   useEffect(() => {
@@ -79,13 +141,11 @@ export function useSDKFlowRuntime(): {
     }
 
     const seq = (sdkFlowSeqRef.current += 1);
-    const next: SDKFlowState = {
+    const next = buildStartedSdkFlowState({
       seq,
       kind,
-      status: 'in-progress',
-      eventsText: '',
       ...(accountId ? { accountId } : {}),
-    };
+    });
 
     sdkFlowRef.current = next;
     setSdkFlowState(next);
@@ -123,10 +183,13 @@ export function useSDKFlowRuntime(): {
   const endSdkFlow = useCallback(
     (kind: FlowKind, seq: number, status: 'success' | 'error', error?: string) => {
       const current = sdkFlowRef.current;
-      const snapshot: SDKFlowState =
-        current.seq === seq && current.kind === kind
-          ? { ...current, status, ...(error ? { error } : {}) }
-          : { seq, kind, status, eventsText: '', ...(error ? { error } : {}) };
+      const snapshot = buildCompletedSdkFlowState({
+        current,
+        seq,
+        kind,
+        status,
+        ...(error ? { error } : {}),
+      });
 
       if (current.seq === seq && current.kind === kind) {
         sdkFlowRef.current = snapshot;

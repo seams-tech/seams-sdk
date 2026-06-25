@@ -2490,10 +2490,10 @@ export class WalletIframeRouter {
     const { onEvent, ...messageOptions } = input.options;
     if (input.kind === 'near') {
       const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
-      if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+      if (String(laneIdentity.signer.account.wallet.walletId) !== String(input.walletSession.walletId)) {
         throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
       }
-      if (String(laneIdentity.nearAccountId) !== String(input.nearAccount.accountId)) {
+      if (String(laneIdentity.signer.account.nearAccountId) !== String(input.nearAccount.accountId)) {
         throw new Error(
           '[WalletIframeRouter] key export lane NEAR account does not match request account',
         );
@@ -2519,10 +2519,10 @@ export class WalletIframeRouter {
     }
 
     const laneIdentity = parseExactEcdsaSigningLaneIdentity(input.laneIdentity);
-    if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+    if (String(laneIdentity.signer.walletId) !== String(input.walletSession.walletId)) {
       throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
     }
-    if (!thresholdEcdsaChainTargetsEqual(laneIdentity.chainTarget, input.chainTarget)) {
+    if (!thresholdEcdsaChainTargetsEqual(laneIdentity.signer.chainTarget, input.chainTarget)) {
       throw new Error('[WalletIframeRouter] key export lane chain target does not match request target');
     }
     await this.post<void>({

@@ -477,16 +477,16 @@ export class BrowserSigningSurface {
   }
 
   updateLastLogin(
-    nearAccountId: Parameters<typeof registrationPublic.updateLastLogin>[1],
+    walletId: Parameters<typeof registrationPublic.updateLastLogin>[1],
   ): ReturnType<typeof registrationPublic.updateLastLogin> {
-    return registrationPublic.updateLastLogin(this.registrationPublicDeps, nearAccountId);
+    return registrationPublic.updateLastLogin(this.registrationPublicDeps, walletId);
   }
 
   setLastUser(
-    nearAccountId: Parameters<typeof registrationPublic.setLastUser>[1],
+    walletId: Parameters<typeof registrationPublic.setLastUser>[1],
     signerSlot: Parameters<typeof registrationPublic.setLastUser>[2],
   ): ReturnType<typeof registrationPublic.setLastUser> {
-    return registrationPublic.setLastUser(this.registrationPublicDeps, nearAccountId, signerSlot);
+    return registrationPublic.setLastUser(this.registrationPublicDeps, walletId, signerSlot);
   }
 
   activateAuthenticatedWalletState(

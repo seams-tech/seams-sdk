@@ -1,9 +1,14 @@
-import { toAccountId } from '@/core/types/accountIds';
+import { parseNamedNearAccountId } from '@shared/utils/near';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
+import {
+  buildNamedNearAccountBinding,
+  buildNearEd25519SignerBinding,
+  buildWalletIdentity,
+} from '@shared/utils/walletCapabilityBindings';
 import { SigningSessionIds } from '../operationState/types';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -12,9 +17,12 @@ import {
   type EvmFamilyEcdsaKeyIdentity,
 } from './evmFamilyEcdsaIdentity';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   exactEd25519SigningLaneIdentity,
   exactSigningLaneIdentityKey,
+  isExactEcdsaSigningLaneIdentity,
+  isExactEd25519SigningLaneIdentity,
   thresholdSessionIdsFromExactSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
   type ExactEd25519SigningLaneIdentity,
@@ -22,9 +30,13 @@ import {
   type NonEmptyThresholdSessionIds,
 } from './exactSigningLaneIdentity';
 
-const accountId = toAccountId('alice.testnet');
+const accountIdResult = parseNamedNearAccountId('alice.testnet');
+if (!accountIdResult.ok) {
+  throw new Error(accountIdResult.message);
+}
+const accountId = accountIdResult.value;
 const walletId = toWalletId('frost-vermillion-k7p9m2');
-const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const signingGrantId = SigningSessionIds.signingGrant('wallet-session-1');
 const ed25519ThresholdSessionId = SigningSessionIds.thresholdEd25519Session(
   'ed25519-threshold-session-1',
@@ -56,11 +68,19 @@ const emailOtpAuth = {
   kind: 'email_otp',
   providerSubjectId: 'google:alice',
 } as const;
+const wallet = buildWalletIdentity({ walletId });
+const nearAccount = buildNamedNearAccountBinding({
+  wallet,
+  nearAccountId: accountId,
+});
+const nearSigner = buildNearEd25519SignerBinding({
+  account: nearAccount,
+  nearEd25519SigningKeyId,
+  signerSlot: 1,
+});
 
 const ed25519Identity = exactEd25519SigningLaneIdentity({
-  walletId,
-  nearAccountId: accountId,
-  ed25519KeyScopeId,
+  signer: nearSigner,
   auth: passkeyAuth,
   signingGrantId,
   thresholdSessionId: ed25519ThresholdSessionId,
@@ -68,11 +88,13 @@ const ed25519Identity = exactEd25519SigningLaneIdentity({
 exactSigningLaneIdentityKey(ed25519Identity);
 
 const ecdsaIdentity = exactEcdsaSigningLaneIdentity({
-  walletId,
+  signer: buildEvmFamilyEcdsaSignerBinding({
+    walletId,
+    chainTarget: evmTarget,
+    key: ecdsaKey,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+  }),
   auth: emailOtpAuth,
-  chainTarget: evmTarget,
-  key: ecdsaKey,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
 });
@@ -102,14 +124,9 @@ const invalidEcdsaWithSubjectId: ExactEcdsaSigningLaneIdentity = {
 void invalidEcdsaWithSubjectId;
 
 const invalidMixedBranch: ExactSigningLaneIdentity = {
-  kind: 'exact_ecdsa_signing_lane_identity',
-  curve: 'ecdsa',
-  chainFamily: 'evm',
-  walletId,
+  kind: 'exact_signing_lane',
+  signer: ecdsaIdentity.signer,
   auth: passkeyAuth,
-  chainTarget: evmTarget,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
-  key: ecdsaKey,
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
   // @ts-expect-error exact ECDSA identity cannot carry Ed25519 accountId.
@@ -117,33 +134,82 @@ const invalidMixedBranch: ExactSigningLaneIdentity = {
 };
 void invalidMixedBranch;
 
-// @ts-expect-error exact ECDSA identity requires exact key identity.
 const invalidEcdsaWithoutKey: ExactEcdsaSigningLaneIdentity = {
-  kind: 'exact_ecdsa_signing_lane_identity',
-  curve: 'ecdsa',
-  chainFamily: 'evm',
-  walletId,
+  kind: 'exact_signing_lane',
+  // @ts-expect-error exact ECDSA signer requires exact key identity.
+  signer: {
+    kind: 'evm_family_ecdsa_signer',
+    walletId,
+    chainTarget: evmTarget,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+  },
   auth: passkeyAuth,
-  chainTarget: evmTarget,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
 };
 void invalidEcdsaWithoutKey;
 
-// @ts-expect-error exact ECDSA identity requires the selected key handle.
 const invalidEcdsaWithoutKeyHandle: ExactEcdsaSigningLaneIdentity = {
-  kind: 'exact_ecdsa_signing_lane_identity',
-  curve: 'ecdsa',
-  chainFamily: 'evm',
-  walletId,
+  kind: 'exact_signing_lane',
+  // @ts-expect-error exact ECDSA signer requires the selected key handle.
+  signer: {
+    kind: 'evm_family_ecdsa_signer',
+    walletId,
+    chainTarget: evmTarget,
+    key: ecdsaKey,
+  },
   auth: passkeyAuth,
-  chainTarget: evmTarget,
-  key: ecdsaKey,
   signingGrantId,
   thresholdSessionId: ecdsaThresholdSessionId,
 };
 void invalidEcdsaWithoutKeyHandle;
+
+const invalidEd25519RootNearAccountId: ExactEd25519SigningLaneIdentity = {
+  ...ed25519Identity,
+  // @ts-expect-error exact Ed25519 lane keeps NEAR account under signer.account.
+  nearAccountId: accountId,
+};
+void invalidEd25519RootNearAccountId;
+
+const invalidEd25519RootSigningKeyId: ExactEd25519SigningLaneIdentity = {
+  ...ed25519Identity,
+  // @ts-expect-error exact Ed25519 lane keeps signing-key id under signer.
+  nearEd25519SigningKeyId,
+};
+void invalidEd25519RootSigningKeyId;
+
+const invalidEcdsaRootChainTarget: ExactEcdsaSigningLaneIdentity = {
+  ...ecdsaIdentity,
+  // @ts-expect-error exact ECDSA lane keeps chain target under signer.
+  chainTarget: evmTarget,
+};
+void invalidEcdsaRootChainTarget;
+
+const invalidEcdsaRootKeyHandle: ExactEcdsaSigningLaneIdentity = {
+  ...ecdsaIdentity,
+  // @ts-expect-error exact ECDSA lane keeps key handle under signer.
+  keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle'),
+};
+void invalidEcdsaRootKeyHandle;
+
+const invalidEcdsaRootKey: ExactEcdsaSigningLaneIdentity = {
+  ...ecdsaIdentity,
+  // @ts-expect-error exact ECDSA lane keeps key identity under signer.
+  key: ecdsaKey,
+};
+void invalidEcdsaRootKey;
+
+function requireEd25519ThresholdSessionId(identity: ExactSigningLaneIdentity) {
+  if (!isExactEd25519SigningLaneIdentity(identity)) return null;
+  return identity.thresholdSessionId;
+}
+void requireEd25519ThresholdSessionId(ed25519Identity);
+
+function requireEcdsaThresholdSessionId(identity: ExactSigningLaneIdentity) {
+  if (!isExactEcdsaSigningLaneIdentity(identity)) return null;
+  return identity.thresholdSessionId;
+}
+void requireEcdsaThresholdSessionId(ecdsaIdentity);
 
 const keyWithSession: EvmFamilyEcdsaKeyIdentity = {
   ...ecdsaKey,

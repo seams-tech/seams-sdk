@@ -97,8 +97,8 @@ export async function applyWarmSessionEcdsaPostSignPolicy(
 ): Promise<void> {
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    walletId: args.lane.walletId,
-    chainTarget: args.lane.chainTarget,
+    walletId: args.lane.signer.walletId,
+    chainTarget: args.lane.signer.chainTarget,
     source: args.selectedRecord.source,
   });
   await applyEcdsaPostSignPolicy({
@@ -135,12 +135,12 @@ export async function assertWarmSessionEcdsaOperationAllowed(
   );
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    walletId: args.lane.walletId,
-    chainTarget: args.lane.chainTarget,
+    walletId: args.lane.signer.walletId,
+    chainTarget: args.lane.signer.chainTarget,
     source: args.source,
   });
   assertEcdsaOperationAllowed({
-    chainTarget: args.lane.chainTarget,
+    chainTarget: args.lane.signer.chainTarget,
     operationLabel: args.operationLabel,
     thresholdSessionId: String(args.lane.thresholdSessionId),
     source: args.source,

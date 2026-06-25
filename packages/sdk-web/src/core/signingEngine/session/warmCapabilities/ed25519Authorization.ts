@@ -23,7 +23,7 @@ export type WarmEd25519SigningSessionAuthorization = {
   authMethod: WalletAuthMethod;
   walletId: string;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
@@ -144,7 +144,7 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
   record: ThresholdEd25519SessionRecord | null | undefined;
   walletId: string;
   nearAccountId: AccountId | string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   authMethod: WalletAuthMethod;
   signingSessionStatus: SigningSessionStatus | null | undefined;
   nowMs?: number;
@@ -170,14 +170,14 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
     };
   }
 
-  const expectedEd25519KeyScopeId = nonEmptyString(args.ed25519KeyScopeId);
-  if (nonEmptyString(record.ed25519KeyScopeId) !== expectedEd25519KeyScopeId) {
+  const expectedNearEd25519SigningKeyId = nonEmptyString(args.nearEd25519SigningKeyId);
+  if (nonEmptyString(record.nearEd25519SigningKeyId) !== expectedNearEd25519SigningKeyId) {
     return {
       ok: false,
       reason: 'key_scope_mismatch',
       details: {
-        expectedEd25519KeyScopeId,
-        recordEd25519KeyScopeId: record.ed25519KeyScopeId,
+        expectedNearEd25519SigningKeyId,
+        recordNearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
       },
     };
   }
@@ -254,7 +254,7 @@ export function parseWarmEd25519SigningSessionAuthorizationFromRecord(args: {
       authMethod,
       walletId: record.walletId,
       nearAccountId: record.nearAccountId,
-      ed25519KeyScopeId: record.ed25519KeyScopeId,
+      nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
       rpId: record.rpId,
       relayerUrl: record.relayerUrl,
       relayerKeyId: record.relayerKeyId,

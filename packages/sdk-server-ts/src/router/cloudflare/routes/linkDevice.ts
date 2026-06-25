@@ -1,9 +1,15 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { isObject, json, readJson } from '../http';
+import { json, readJson } from '../http';
 import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
+import {
+  parseClaimLinkDeviceSessionRequest,
+  parsePrepareLinkDeviceRequest,
+  parseRegisterLinkDeviceSessionRequest,
+  parseRespondLinkDeviceEcdsaRequest,
+} from '../../linkDeviceRequestValidation';
 
 export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname.startsWith('/link-device/session/')) {
@@ -21,26 +27,18 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
 
   if (ctx.method === 'POST' && ctx.pathname === '/link-device/session') {
     const body = await readJson(ctx.request);
-    if (!isObject(body)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-        { status: 400 },
-      );
-    }
-    const result = await ctx.service.registerLinkDeviceSession(body as any);
+    const parsed = parseRegisterLinkDeviceSessionRequest(body);
+    if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+    const result = await ctx.service.registerLinkDeviceSession(parsed.request);
     const status = result.ok ? 200 : result.code === 'internal' ? 500 : 400;
     return json(result, { status });
   }
 
   if (ctx.method === 'POST' && ctx.pathname === '/link-device/session/claim') {
     const body = await readJson(ctx.request);
-    if (!isObject(body)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-        { status: 400 },
-      );
-    }
-    const result = await ctx.service.claimLinkDeviceSession(body as any);
+    const parsed = parseClaimLinkDeviceSessionRequest(body);
+    if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+    const result = await ctx.service.claimLinkDeviceSession(parsed.request);
     const status = result.ok
       ? 200
       : result.code === 'not_found'
@@ -53,13 +51,9 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
 
   if (ctx.method === 'POST' && ctx.pathname === '/link-device/ecdsa/respond') {
     const body = await readJson(ctx.request);
-    if (!isObject(body)) {
-      return json(
-        { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-        { status: 400 },
-      );
-    }
-    const result = await ctx.service.respondLinkDeviceEcdsa(body as any);
+    const parsed = parseRespondLinkDeviceEcdsaRequest(body);
+    if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+    const result = await ctx.service.respondLinkDeviceEcdsa(parsed.request);
     const status = result.ok
       ? 200
       : result.code === 'not_found'
@@ -73,18 +67,10 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
   if (ctx.method !== 'POST' || ctx.pathname !== '/link-device/prepare') return null;
 
   const body = await readJson(ctx.request);
-  if (!isObject(body)) {
-    return json(
-      { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-      { status: 400 },
-    );
-  }
-
   const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
-  const result = await ctx.service.prepareLinkDevice({
-    ...(body as any),
-    ...(origin ? { expected_origin: origin } : {}),
-  });
+  const parsed = parsePrepareLinkDeviceRequest({ body, origin });
+  if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+  const result = await ctx.service.prepareLinkDevice(parsed.request);
   if (result.ok && result.thresholdEd25519?.session) {
     if (result.thresholdEd25519.session.sessionKind !== 'jwt') {
       return json(
@@ -112,7 +98,7 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
     const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
       userId: sessionInfo.walletId,
-      rpId: (body as Record<string, unknown>).rp_id,
+      rpId: parsed.request.rp_id,
       relayerKeyId: result.thresholdEd25519.relayerKeyId,
       sessionInfo,
       fallbackParticipantIds: result.thresholdEd25519.participantIds,

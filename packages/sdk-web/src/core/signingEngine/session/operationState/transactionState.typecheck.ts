@@ -1,6 +1,6 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { buildNearTransactionSigningLane } from './lanes';
 import { SigningOperationIntent, SigningSessionIds } from './types';
 import {
@@ -8,7 +8,7 @@ import {
   buildFreshStepUpSatisfied,
   buildFreshStepUpSatisfiedForAdmission,
 } from './stepUpFreshness';
-import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import { exactSigningLaneIdentityFromSelectedLane } from '../identity/exactSigningLaneIdentity';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import {
   recordPreparedTransactionBudgetAdmissionFromFreshness,
@@ -20,11 +20,12 @@ import {
 
 const accountId = toAccountId('transaction-state.testnet');
 const walletId = toWalletId('frost-vermillion-k7p9m2');
-const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 const lane = buildNearTransactionSigningLane({
   walletId,
   nearAccountId: accountId,
-  ed25519KeyScopeId,
+  nearEd25519SigningKeyId,
+  signerSlot: 1,
   auth: {
     kind: 'passkey',
       rpId: toRpId('localhost'),
@@ -66,7 +67,7 @@ const satisfied = buildFreshStepUpSatisfied({
   walletId,
   operationId: SigningSessionIds.signingOperation('operation-1'),
   operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
-  laneIdentity: exactSigningLaneIdentity(lane),
+  laneIdentity: exactSigningLaneIdentityFromSelectedLane(lane),
   projection: { kind: 'known', version: 'projection-1' },
   expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
   provenance: {
@@ -89,7 +90,7 @@ const requiredFreshness = buildFreshStepUpRequired({
   walletId,
   operationId: SigningSessionIds.signingOperation('operation-1'),
   operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
-  laneIdentity: exactSigningLaneIdentity(lane),
+  laneIdentity: exactSigningLaneIdentityFromSelectedLane(lane),
   projection: { kind: 'known', version: 'projection-1' },
   expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
   provenance: {

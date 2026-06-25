@@ -4,6 +4,12 @@ import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
+import {
+  parseClaimLinkDeviceSessionRequest,
+  parsePrepareLinkDeviceRequest,
+  parseRegisterLinkDeviceSessionRequest,
+  parseRespondLinkDeviceEcdsaRequest,
+} from '../../linkDeviceRequestValidation';
 
 export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   router.get('/link-device/session/:sessionId', async (req: any, res: any) => {
@@ -25,13 +31,12 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
 
   router.post('/link-device/session', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseRegisterLinkDeviceSessionRequest(req?.body);
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const result = await ctx.service.registerLinkDeviceSession({ ...(req.body || {}) });
+      const result = await ctx.service.registerLinkDeviceSession(parsed.request);
       if (!result.ok) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
@@ -46,13 +51,12 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
 
   router.post('/link-device/session/claim', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseClaimLinkDeviceSessionRequest(req?.body);
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const result = await ctx.service.claimLinkDeviceSession({ ...(req.body || {}) });
+      const result = await ctx.service.claimLinkDeviceSession(parsed.request);
       if (!result.ok) {
         const status = result.code === 'not_found' ? 404 : result.code === 'internal' ? 500 : 400;
         res.status(status).json(result);
@@ -68,17 +72,13 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
 
   router.post('/link-device/prepare', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
+      const parsed = parsePrepareLinkDeviceRequest({ body: req?.body, origin });
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const origin = String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined;
-      const result = await ctx.service.prepareLinkDevice({
-        ...(req.body || {}),
-        ...(origin ? { expected_origin: origin } : {}),
-      });
+      const result = await ctx.service.prepareLinkDevice(parsed.request);
       if (!result.ok) {
         res.status(result.code === 'internal' ? 500 : 400).json(result);
         return;
@@ -106,7 +106,7 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
         const signed = await signRouterAbEd25519WalletSessionJwt({
           session: ctx.opts.session,
           userId: sessionInfo.walletId,
-          rpId: (req.body || {}).rp_id,
+          rpId: parsed.request.rp_id,
           relayerKeyId: result.thresholdEd25519?.relayerKeyId,
           sessionInfo,
           fallbackParticipantIds: result.thresholdEd25519?.participantIds,
@@ -130,13 +130,12 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
 
   router.post('/link-device/ecdsa/respond', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+      const parsed = parseRespondLinkDeviceEcdsaRequest(req?.body);
+      if (!parsed.ok) {
+        res.status(parsed.status).json(parsed.body);
         return;
       }
-      const result = await ctx.service.respondLinkDeviceEcdsa({ ...(req.body || {}) });
+      const result = await ctx.service.respondLinkDeviceEcdsa(parsed.request);
       if (!result.ok) {
         const status = result.code === 'not_found' ? 404 : result.code === 'internal' ? 500 : 400;
         res.status(status).json(result);

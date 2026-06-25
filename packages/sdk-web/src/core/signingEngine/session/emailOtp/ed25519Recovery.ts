@@ -50,7 +50,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   return upsertStoredThresholdEd25519SessionRecord({
     walletId: args.record.walletId,
     nearAccountId: args.record.nearAccountId,
-    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.record.nearEd25519SigningKeyId,
     rpId: args.record.rpId,
     relayerUrl: args.record.relayerUrl,
     relayerKeyId: args.record.relayerKeyId,

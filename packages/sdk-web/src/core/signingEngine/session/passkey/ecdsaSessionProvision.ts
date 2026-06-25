@@ -27,6 +27,7 @@ import {
   toRpId,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
+  buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
   type ExactEcdsaSigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
@@ -481,10 +482,12 @@ function exactEcdsaSealLaneFromBootstrap(args: {
   ).trim();
   if (!thresholdSessionId || !signingGrantId) return null;
   return exactEcdsaSigningLaneIdentity({
-    walletId: exactRequest.key.walletId,
-    chainTarget: exactRequest.lanePolicy.chainTarget,
-    keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
-    key: exactRequest.key,
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: exactRequest.key.walletId,
+      chainTarget: exactRequest.lanePolicy.chainTarget,
+      keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
+      key: exactRequest.key,
+    }),
     auth,
     signingGrantId,
     thresholdSessionId,

@@ -501,7 +501,7 @@ export function assertWarmSessionEnvelopeInvariant(
 type ProvisionWarmEd25519CapabilityCommonArgs = {
   walletId: string;
   nearAccountId: AccountId | string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   relayerKeyId: string;
   auth?: Ed25519WalletSessionMintAuthorization;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;

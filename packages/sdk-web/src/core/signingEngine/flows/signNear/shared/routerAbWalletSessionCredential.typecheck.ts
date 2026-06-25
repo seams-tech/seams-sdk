@@ -5,7 +5,7 @@ import {
 import { SigningSessionIds } from '../../../session/operationState/types';
 import { toAccountId } from '../../../../types/accountIds';
 import { toWalletId } from '../../../interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import { toRpId } from '../../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   ResolvedRouterAbEd25519WalletSessionState,
@@ -19,7 +19,7 @@ const validSigningMaterial = buildRouterAbEd25519SigningMaterialRef({
 });
 const walletId = toWalletId('frost-vermillion-k7p9m2');
 const nearAccountId = toAccountId('alice.testnet');
-const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 
 const validWalletSessionState = {
   walletSessionAuth: {
@@ -31,8 +31,9 @@ const validWalletSessionState = {
   signingLane: buildNearTransactionSigningLane({
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
-    auth: {
+    nearEd25519SigningKeyId,
+  signerSlot: 1,
+  auth: {
       kind: 'passkey',
       rpId: toRpId('localhost'),
       credentialIdB64u: 'credential-id',

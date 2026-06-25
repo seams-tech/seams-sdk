@@ -4,26 +4,26 @@ import { getWalletSession } from '@/SeamsWeb/operations/auth/login';
 import type { LocalLoginStateWebContext } from '@/SeamsWeb/signingSurface/types';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { getStoredThresholdEd25519SessionRecordForWallet } from '@/core/signingEngine/session/persistence/records';
-import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 
 export async function restoreLocalLoginState(args: {
   context: LocalLoginStateWebContext;
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
 }): Promise<{
   walletId: string;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   signerSlot: number;
   isLoggedIn: boolean;
 }> {
   const walletId = args.walletId;
   const nearAccountId = args.nearAccountId;
-  const ed25519KeyScopeId = args.ed25519KeyScopeId;
+  const nearEd25519SigningKeyId = args.nearEd25519SigningKeyId;
   const signerSlot = normalizePositiveInteger(args.signerSlot) ?? 1;
-  if (!String(walletId).trim() || !String(ed25519KeyScopeId).trim()) {
+  if (!String(walletId).trim() || !String(nearEd25519SigningKeyId).trim()) {
     throw new Error('restoreLocalLoginState requires wallet binding fields');
   }
 
@@ -32,13 +32,13 @@ export async function restoreLocalLoginState(args: {
     if (String(record.nearAccountId) !== String(nearAccountId)) {
       throw new Error('restoreLocalLoginState nearAccountId mismatch');
     }
-    if (String(record.ed25519KeyScopeId) !== ed25519KeyScopeId) {
-      throw new Error('restoreLocalLoginState ed25519KeyScopeId mismatch');
+    if (String(record.nearEd25519SigningKeyId) !== nearEd25519SigningKeyId) {
+      throw new Error('restoreLocalLoginState nearEd25519SigningKeyId mismatch');
     }
   }
 
-  await args.context.signingEngine.setLastUser(nearAccountId, signerSlot).catch(() => undefined);
-  await args.context.signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
+  await args.context.signingEngine.setLastUser(walletId, signerSlot).catch(() => undefined);
+  await args.context.signingEngine.updateLastLogin(walletId).catch(() => undefined);
   const { login } = await getWalletSession(args.context, walletId);
   const loginWalletId = String(login?.walletId || '').trim();
   const loginNearAccountId = String(login?.nearAccountId || '').trim();
@@ -59,7 +59,7 @@ export async function restoreLocalLoginState(args: {
   return {
     walletId: String(walletId),
     nearAccountId,
-    ed25519KeyScopeId: String(ed25519KeyScopeId),
+    nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
     signerSlot,
     isLoggedIn: Boolean(login?.isLoggedIn),
   };

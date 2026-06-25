@@ -33,6 +33,7 @@ import {
   validateSelectedEcdsaRecordCandidateForLane,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 import { type ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
@@ -306,7 +307,11 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!rpId) {
           throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
         }
-        const walletKeyId = String(lane.key.walletKeyId || '').trim();
+        const signer = requireEvmFamilyEcdsaSigner(
+          lane.identity,
+          'passkey ECDSA reconnect runtime',
+        );
+        const walletKeyId = String(signer.key.walletKeyId || '').trim();
         if (!walletKeyId) {
           throw new Error('[SigningEngine] missing walletKeyId for passkey ECDSA reconnect');
         }
@@ -338,7 +343,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           walletId,
           walletKeyId,
           relayerKeyId,
-          chainTarget: lane.chainTarget,
+          chainTarget: signer.chainTarget,
           ecdsaThresholdKeyId,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           ...(participantIds?.length ? { participantIds } : {}),

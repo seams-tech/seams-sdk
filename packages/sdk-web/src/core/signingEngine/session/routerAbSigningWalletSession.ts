@@ -276,7 +276,7 @@ function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessio
 export type RouterAbEd25519WalletSessionIdentityClaims = {
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   thresholdSessionId: string;
   signingGrantId: string;
 };
@@ -288,16 +288,16 @@ export function parseRouterAbEd25519WalletSessionIdentityClaims(
   if (payload?.kind !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND) return null;
   const walletId = nonEmptyString(payload.walletId);
   const nearAccountId = nonEmptyString(payload.nearAccountId);
-  const ed25519KeyScopeId = nonEmptyString(payload.ed25519KeyScopeId);
+  const nearEd25519SigningKeyId = nonEmptyString(payload.nearEd25519SigningKeyId);
   const thresholdSessionId = nonEmptyString(payload.thresholdSessionId);
   const signingGrantId = nonEmptyString(payload.signingGrantId);
-  if (!walletId || !nearAccountId || !ed25519KeyScopeId || !thresholdSessionId || !signingGrantId) {
+  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId || !thresholdSessionId || !signingGrantId) {
     return null;
   }
   return {
     walletId,
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     thresholdSessionId,
     signingGrantId,
   };
@@ -313,7 +313,7 @@ function routerAbEd25519WalletSessionClaimsMatchRecord(args: {
   return (
     claims.walletId === nonEmptyString(record.walletId) &&
     claims.nearAccountId === nonEmptyString(record.nearAccountId) &&
-    claims.ed25519KeyScopeId === nonEmptyString(record.ed25519KeyScopeId) &&
+    claims.nearEd25519SigningKeyId === nonEmptyString(record.nearEd25519SigningKeyId) &&
     claims.thresholdSessionId === nonEmptyString(record.thresholdSessionId) &&
     claims.signingGrantId === nonEmptyString(record.signingGrantId)
   );

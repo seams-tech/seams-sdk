@@ -23,8 +23,18 @@ import {
   signingLaneAuthMethod,
   type SigningLaneAuthBinding,
 } from './signingLaneAuthBinding';
+import {
+  buildEvmFamilyEcdsaSignerBinding,
+  exactEcdsaSigningLaneIdentity,
+  exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
+  type ExactSigningLaneIdentity,
+} from './exactSigningLaneIdentity';
 import type { EcdsaThresholdKeyId } from '../keyMaterialBrands';
-import type { Ed25519KeyScopeId } from '@shared/utils/registrationIntent';
+import type { NearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import { parseSignerSlot } from '@shared/utils/signerSlot';
 
 export type { SigningAuthMethod, SigningCurve };
 export type { EcdsaThresholdKeyId };
@@ -66,6 +76,7 @@ export type ThresholdEcdsaEmailOtpAuthContext = {
 
 export type BaseSelectedLane = {
   kind: 'selected_lane';
+  identity: ExactSigningLaneIdentity;
   auth: SigningLaneAuthBinding;
   curve: SigningCurve;
   signingGrantId: SigningGrantId;
@@ -73,16 +84,19 @@ export type BaseSelectedLane = {
 };
 
 export type SelectedEd25519Lane = BaseSelectedLane & {
+  identity: ExactEd25519SigningLaneIdentity;
   curve: 'ed25519';
   chain: 'near';
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
   thresholdSessionId: ThresholdEd25519SessionId;
   accountId?: never;
 };
 
 export type SelectedEcdsaLane = BaseSelectedLane & {
+  identity: ExactEcdsaSigningLaneIdentity;
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
   key: EvmFamilyEcdsaKeyIdentity;
@@ -97,7 +111,8 @@ export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
 export type SelectedEd25519LaneInput = {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: unknown;
   auth: SigningLaneAuthBinding;
   signingGrantId: unknown;
   thresholdSessionId: unknown;
@@ -114,16 +129,35 @@ export type SelectedEcdsaLaneInput = {
 };
 
 export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd25519Lane {
+  const signerSlot = parseSignerSlot(input.signerSlot);
+  if (signerSlot == null) {
+    throw new Error('[SigningSession] selected Ed25519 lane requires signerSlot >= 1');
+  }
+  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
+  const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(input.thresholdSessionId);
+  const identity = exactEd25519SigningLaneIdentity({
+    signer: nearEd25519SignerBindingFromBoundaryFields({
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+      signerSlot,
+    }),
+    auth: input.auth,
+    signingGrantId,
+    thresholdSessionId,
+  });
   return {
     kind: 'selected_lane',
+    identity,
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,
-    ed25519KeyScopeId: input.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    signerSlot,
     auth: input.auth,
     curve: 'ed25519',
     chain: 'near',
-    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
-    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(input.thresholdSessionId),
+    signingGrantId,
+    thresholdSessionId,
   };
 }
 
@@ -135,16 +169,30 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
   if (String(input.key.walletId) !== String(input.walletId)) {
     throw new Error('[SigningSession] selected ECDSA lane wallet mismatch');
   }
+  const signingGrantId = SigningSessionIds.signingGrant(input.signingGrantId);
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId);
+  const identity = exactEcdsaSigningLaneIdentity({
+    signer: buildEvmFamilyEcdsaSignerBinding({
+      walletId: input.walletId,
+      chainTarget: input.chainTarget,
+      keyHandle,
+      key: input.key,
+    }),
+    auth: input.auth,
+    signingGrantId,
+    thresholdSessionId,
+  });
   return {
     kind: 'selected_lane',
+    identity,
     auth: input.auth,
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
     key: input.key,
     keyHandle,
     walletId: input.walletId,
-    signingGrantId: SigningSessionIds.signingGrant(input.signingGrantId),
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
+    signingGrantId,
+    thresholdSessionId,
     chainTarget: input.chainTarget,
   };
 }
@@ -174,7 +222,8 @@ export type BaseLaneCandidate = {
 export type Ed25519LaneCandidate = BaseLaneCandidate & {
   walletId: WalletId;
   nearAccountId: AccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
   accountId?: never;
   curve: 'ed25519';
   chain: 'near';

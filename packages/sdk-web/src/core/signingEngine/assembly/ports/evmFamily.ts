@@ -63,7 +63,7 @@ export function createEvmFamilySigningDeps(args: {
       const sealedRecord = await readExactSealedSession(String(lane.thresholdSessionId), {
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chainTarget: lane.chainTarget,
+        chainTarget: lane.signer.chainTarget,
       }).catch(() => null);
       const exactLane = sealedRecord
         ? emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({

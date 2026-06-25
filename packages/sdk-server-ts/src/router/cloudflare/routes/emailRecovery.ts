@@ -1,9 +1,13 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { isObject, json, readJson } from '../http';
+import { json, readJson } from '../http';
 import {
   parseRouterAbEd25519BootstrapSessionJwtSessionInfo,
   signRouterAbEd25519WalletSessionJwt,
 } from '../../commonRouterUtils';
+import {
+  parsePrepareEmailRecoveryRequest,
+  parseRespondEmailRecoveryEcdsaRequest,
+} from '../../emailRecoveryRequestValidation';
 
 export async function handleEmailRecoveryPrepare(
   ctx: CloudflareRelayContext,
@@ -16,21 +20,16 @@ export async function handleEmailRecoveryPrepare(
   }
 
   const body = await readJson(ctx.request);
-  if (!isObject(body)) {
-    return json(
-      { ok: false, code: 'invalid_body', message: 'Expected JSON object body' },
-      { status: 400 },
-    );
-  }
-
   const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
-  const result =
-    ctx.pathname === '/email-recovery/prepare'
-      ? await ctx.service.prepareEmailRecovery({
-          ...(body as any),
-          ...(origin ? { expected_origin: origin } : {}),
-        })
-      : await ctx.service.respondEmailRecoveryEcdsa(body as any);
+  const isPrepare = ctx.pathname === '/email-recovery/prepare';
+  const prepareParsed = isPrepare ? parsePrepareEmailRecoveryRequest({ body, origin }) : null;
+  if (prepareParsed && !prepareParsed.ok) return json(prepareParsed.body, { status: prepareParsed.status });
+  const respondParsed = isPrepare ? null : parseRespondEmailRecoveryEcdsaRequest(body);
+  if (respondParsed && !respondParsed.ok) return json(respondParsed.body, { status: respondParsed.status });
+
+  const result = prepareParsed
+    ? await ctx.service.prepareEmailRecovery(prepareParsed.request)
+    : await ctx.service.respondEmailRecoveryEcdsa(respondParsed!.request);
   if (result.ok && result.thresholdEd25519?.session) {
     if (result.thresholdEd25519.session.sessionKind !== 'jwt') {
       return json(
@@ -58,10 +57,7 @@ export async function handleEmailRecoveryPrepare(
     const signed = await signRouterAbEd25519WalletSessionJwt({
       session: ctx.opts.session,
       userId: sessionInfo.walletId,
-      rpId:
-        ctx.pathname === '/email-recovery/prepare'
-          ? (body as Record<string, unknown>).rp_id
-          : (result as any).walletBinding?.rpId,
+      rpId: prepareParsed ? prepareParsed.request.rp_id : (result as any).walletBinding?.rpId,
       relayerKeyId: result.thresholdEd25519.relayerKeyId,
       sessionInfo,
       fallbackParticipantIds: result.thresholdEd25519.participantIds,

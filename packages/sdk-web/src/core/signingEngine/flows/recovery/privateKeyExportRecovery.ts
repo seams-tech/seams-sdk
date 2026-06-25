@@ -3,6 +3,7 @@ import type { ExportPrivateKeysWithUiWorkerResult } from '@/core/types/secure-co
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
 type ExportScheme = 'ed25519' | 'secp256k1';
 type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-export';
@@ -24,14 +25,14 @@ function createExportRecoveryError(args: {
 
 function emitExportRecoveryTelemetry(args: {
   event: 'signer.export.worker_boundary_required';
-  nearAccountId: string;
+  accountId: string;
   signerSlot?: number;
   reason: string;
 }): void {
   // Structured logs are currently the canonical low-overhead telemetry surface in wallet origin.
   console.warn('[signer-export-telemetry]', {
     event: args.event,
-    nearAccountId: args.nearAccountId,
+    accountId: args.accountId,
     ...(typeof args.signerSlot === 'number' ? { signerSlot: args.signerSlot } : {}),
     reason: args.reason,
     timestamp: Date.now(),
@@ -39,13 +40,13 @@ function emitExportRecoveryTelemetry(args: {
 }
 
 function throwExportWorkerBoundaryRequired(args: {
-  nearAccountId: string;
+  accountId: string;
   signerSlot?: number;
   reason: string;
 }): never {
   emitExportRecoveryTelemetry({
     event: 'signer.export.worker_boundary_required',
-    nearAccountId: args.nearAccountId,
+    accountId: args.accountId,
     signerSlot: args.signerSlot,
     reason: args.reason,
   });
@@ -70,7 +71,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
   const accountId = toAccountId(args.nearAccountId);
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
-      nearAccountId: accountId,
+      accountId,
       reason: 'missing_export_worker_operation',
     });
   }
@@ -110,7 +111,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
         message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
       ) {
         throwExportWorkerBoundaryRequired({
-          nearAccountId: accountId,
+          accountId,
           signerSlot,
           reason: 'worker_missing_export_operation',
         });
@@ -147,7 +148,7 @@ export async function exportNearEd25519SeedArtifactWithUI(
 export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
-    nearAccountId: AccountId;
+    walletId: WalletId | string;
     artifact: {
       artifactKind: EcdsaHssExportArtifactKind;
       chainTarget: ThresholdEcdsaChainTarget;
@@ -161,21 +162,19 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
     };
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
-  const accountId = toAccountId(args.nearAccountId);
+  const parsedWalletId = parseWalletId(args.walletId);
+  if (!parsedWalletId.ok) {
+    throw new Error(parsedWalletId.error.message);
+  }
+  const walletId = String(parsedWalletId.value);
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
-      nearAccountId: accountId,
+      accountId: walletId,
       reason: 'missing_export_worker_operation',
     });
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.keyMaterialStore).catch(
-    () => null as number | null,
-  );
-  if (signerSlot == null) {
-    throw new Error(`No signerSlot found for account ${accountId} (export/decrypt)`);
-  }
 
   const artifactKind = String(args.artifact.artifactKind || '').trim();
   const publicKeyHex = String(args.artifact.publicKeyHex || '').trim();
@@ -190,8 +189,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
       return await requestExportPrivateKeysWithUi({
-        nearAccountId: accountId,
-        signerSlot,
+        walletId,
         chainTarget: args.artifact.chainTarget,
         artifactKind,
         publicKeyHex,
@@ -206,8 +204,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
         message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
       ) {
         throwExportWorkerBoundaryRequired({
-          nearAccountId: accountId,
-          signerSlot,
+          accountId: walletId,
           reason: 'worker_missing_export_operation',
         });
       }
@@ -224,7 +221,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
 export async function exportEcdsaHssThresholdKeyArtifactWithUI(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
-    nearAccountId: AccountId;
+    walletId: WalletId | string;
     artifact: {
       artifactKind: EcdsaHssExportArtifactKind;
       chainTarget: ThresholdEcdsaChainTarget;

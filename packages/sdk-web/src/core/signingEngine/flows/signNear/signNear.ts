@@ -32,12 +32,16 @@ import {
   type ThresholdEd25519SessionRecord,
 } from '../../session/persistence/records';
 import {
+  selectedEd25519Lane,
   type Ed25519LaneCandidate,
   type SelectedEd25519Lane,
   type ThresholdEd25519SessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
-import { exactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import {
+  exactEd25519SigningLaneIdentityFromSelectedLane,
+  exactSigningLaneIdentityKey,
+} from '../../session/identity/exactSigningLaneIdentity';
 import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
@@ -302,14 +306,7 @@ type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
 >;
 
 function exactEd25519IdentityFromSelectedLane(lane: SelectedEd25519Lane) {
-  return exactEd25519SigningLaneIdentity({
-    walletId: lane.walletId,
-    nearAccountId: lane.nearAccountId,
-    ed25519KeyScopeId: lane.ed25519KeyScopeId,
-    auth: lane.auth,
-    signingGrantId: lane.signingGrantId,
-    thresholdSessionId: lane.thresholdSessionId,
-  });
+  return exactEd25519SigningLaneIdentityFromSelectedLane(lane);
 }
 
 type NearEd25519Warmup = {
@@ -427,7 +424,11 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
   record: ThresholdEd25519SessionRecord;
   selectedLane: SelectedEd25519Lane;
 }) {
-  const walletId = args.commandSubject.walletSession.walletId;
+  const signer = args.selectedLane.identity.signer;
+  const walletId = signer.account.wallet.walletId;
+  if (String(args.commandSubject.walletSession.walletId) !== String(walletId)) {
+    throw new Error('[SigningEngine][near] selected lane wallet does not match command subject');
+  }
   const sessionId = String(args.selectedLane.thresholdSessionId || '').trim();
   const signingGrantId = String(args.selectedLane.signingGrantId || '').trim();
   if (!sessionId) {
@@ -444,8 +445,9 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
     }
     return buildNearTransactionSigningLane({
       walletId,
-      nearAccountId: args.record.nearAccountId,
-      ed25519KeyScopeId: args.record.ed25519KeyScopeId,
+      nearAccountId: signer.account.nearAccountId,
+      nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+      signerSlot: signer.signerSlot,
       auth: args.selectedLane.auth,
       signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -459,8 +461,9 @@ function buildNearTransactionSigningLaneForSelectedLane(args: {
   }
   return buildNearTransactionSigningLane({
     walletId,
-    nearAccountId: args.record.nearAccountId,
-    ed25519KeyScopeId: args.record.ed25519KeyScopeId,
+    nearAccountId: signer.account.nearAccountId,
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    signerSlot: signer.signerSlot,
     auth: args.selectedLane.auth,
     signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -472,24 +475,9 @@ function assertSigningLaneMatchesSelectedTransactionLane(args: {
   signingLane: NearTransactionSigningLane;
   transactionLane: SelectedEd25519Lane;
 }): void {
-  const signingThresholdSessionId = String(args.signingLane.thresholdSessionId || '').trim();
-  const transactionThresholdSessionId = String(
-    args.transactionLane.thresholdSessionId || '',
-  ).trim();
   if (
-    String(args.signingLane.walletId || '').trim() !==
-      String(args.transactionLane.walletId || '').trim() ||
-    String(args.signingLane.nearAccountId || '').trim() !==
-      String(args.transactionLane.nearAccountId || '').trim() ||
-    String(args.signingLane.ed25519KeyScopeId || '').trim() !==
-      String(args.transactionLane.ed25519KeyScopeId || '').trim() ||
-    signingLaneAuthMethod(args.signingLane.auth) !==
-      signingLaneAuthMethod(args.transactionLane.auth) ||
-    args.signingLane.curve !== args.transactionLane.curve ||
-    args.signingLane.chainFamily !== args.transactionLane.chain ||
-    String(args.signingLane.signingGrantId || '').trim() !==
-      String(args.transactionLane.signingGrantId || '').trim() ||
-    signingThresholdSessionId !== transactionThresholdSessionId
+    exactSigningLaneIdentityKey(args.signingLane.identity) !==
+    exactSigningLaneIdentityKey(args.transactionLane.identity)
   ) {
     throw new Error(
       '[SigningEngine][near] prepared signing lane drifted from selected transaction lane',
@@ -1004,7 +992,7 @@ function buildNearPasskeyEd25519Reconnect(args: {
       const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
         walletId: String(thresholdSessionRecord.walletId),
         nearAccountId: args.commandSubject.nearAccount.accountId,
-        ed25519KeyScopeId: String(thresholdSessionRecord.ed25519KeyScopeId),
+        nearEd25519SigningKeyId: String(thresholdSessionRecord.nearEd25519SigningKeyId),
         rpId,
         relayerKeyId: thresholdSessionRecord.relayerKeyId,
         ...(thresholdSessionRecord.runtimePolicyScope
@@ -1091,18 +1079,22 @@ function thresholdEd25519RecordMatchesSelectedLane(args: {
   selectedLane: SelectedEd25519Lane;
   walletId: WalletId | string;
 }): boolean {
+  const identity = args.selectedLane.identity;
+  const signer = identity.signer;
+  const signerWalletId = signer.account.wallet.walletId;
   return (
-    String(args.record.walletId || '').trim() === String(args.walletId || '').trim() &&
+    String(args.walletId || '').trim() === String(signerWalletId || '').trim() &&
+    String(args.record.walletId || '').trim() === String(signerWalletId || '').trim() &&
     String(args.record.nearAccountId || '').trim() ===
-      String(args.selectedLane.nearAccountId || '').trim() &&
-    String(args.record.ed25519KeyScopeId || '').trim() ===
-      String(args.selectedLane.ed25519KeyScopeId || '').trim() &&
-    authMethodForThresholdEd25519Record(args.record) ===
-      signingLaneAuthMethod(args.selectedLane.auth) &&
+      String(signer.account.nearAccountId || '').trim() &&
+    String(args.record.nearEd25519SigningKeyId || '').trim() ===
+      String(signer.nearEd25519SigningKeyId || '').trim() &&
+    Number(args.record.signerSlot) === Number(signer.signerSlot) &&
+    authMethodForThresholdEd25519Record(args.record) === signingLaneAuthMethod(identity.auth) &&
     String(args.record.thresholdSessionId || '').trim() ===
-      String(args.selectedLane.thresholdSessionId || '').trim() &&
+      String(identity.thresholdSessionId || '').trim() &&
     String(args.record.signingGrantId || '').trim() ===
-      String(args.selectedLane.signingGrantId || '').trim()
+      String(identity.signingGrantId || '').trim()
   );
 }
 
@@ -1142,6 +1134,29 @@ function selectNearEd25519TransactionCandidate(args: {
   );
 }
 
+function exactSignerForRuntimeNearEd25519AvailableLane(
+  availableLane: NearEd25519AvailableLane,
+): SelectedEd25519Lane['identity']['signer'] {
+  const {
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    signerSlot,
+    auth,
+    signingGrantId,
+    thresholdSessionId,
+  } = availableLane;
+  return selectedEd25519Lane({
+    walletId,
+    nearAccountId,
+    nearEd25519SigningKeyId,
+    signerSlot,
+    auth,
+    signingGrantId,
+    thresholdSessionId,
+  }).identity.signer;
+}
+
 function verifiedRuntimeNearEd25519AvailableLanes(args: {
   availableLanes: AvailableSigningLanes | null;
   walletId: WalletId | string;
@@ -1158,12 +1173,18 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
     const runtimeRecord =
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
     if (!runtimeRecord) continue;
+    const signer = exactSignerForRuntimeNearEd25519AvailableLane(lane);
+    if (signer.kind !== 'near_ed25519_signer') continue;
     if (
       authMethodForThresholdEd25519Record(runtimeRecord) !== laneAuthMethod ||
-      String(runtimeRecord.walletId || '').trim() !== String(args.walletId || '').trim() ||
-      String(runtimeRecord.nearAccountId || '').trim() !== String(lane.nearAccountId || '').trim() ||
-      String(runtimeRecord.ed25519KeyScopeId || '').trim() !==
-        String(lane.ed25519KeyScopeId || '').trim() ||
+      String(runtimeRecord.walletId || '').trim() !==
+        String(signer.account.wallet.walletId || '').trim() ||
+      String(signer.account.wallet.walletId || '').trim() !== String(args.walletId || '').trim() ||
+      String(runtimeRecord.nearAccountId || '').trim() !==
+        String(signer.account.nearAccountId || '').trim() ||
+      String(runtimeRecord.nearEd25519SigningKeyId || '').trim() !==
+        String(signer.nearEd25519SigningKeyId || '').trim() ||
+      Number(runtimeRecord.signerSlot) !== Number(signer.signerSlot) ||
       String(runtimeRecord.signingGrantId || '').trim() !== signingGrantId ||
       String(runtimeRecord.thresholdSessionId || '').trim() !== thresholdSessionId
     ) {
@@ -1242,7 +1263,7 @@ function readNearEd25519RuntimeRecordForSelectedLane(args: {
   return thresholdEd25519RecordMatchesSelectedLane({
     record,
     selectedLane: args.selectedLane,
-    walletId: args.selectedLane.walletId,
+    walletId: args.selectedLane.identity.signer.account.wallet.walletId,
   })
     ? record
     : null;
@@ -1345,14 +1366,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     reason: 'transaction',
     materialRestoreIdentity: {
       kind: 'ed25519_worker_material_restore',
-      lane: exactEd25519SigningLaneIdentity({
-        walletId: selectedLane.walletId,
-        nearAccountId: selectedLane.nearAccountId,
-        ed25519KeyScopeId: selectedLane.ed25519KeyScopeId,
-        auth: selectedLane.auth,
-        signingGrantId: selectedLane.signingGrantId,
-        thresholdSessionId: selectedLane.thresholdSessionId,
-      }),
+      lane: exactEd25519IdentityFromSelectedLane(selectedLane),
       materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
         args.availableLane?.ed25519WorkerMaterialBindingDigest,
       ),

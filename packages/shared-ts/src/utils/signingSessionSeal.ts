@@ -119,7 +119,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata =
 
 export type SealedSigningSessionEd25519RestoreMetadata = {
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   rpId: string;
   credentialIdB64u?: string;
   providerSubjectId?: string;

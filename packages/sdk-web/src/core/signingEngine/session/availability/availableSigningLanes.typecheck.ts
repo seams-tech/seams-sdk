@@ -16,7 +16,7 @@ import type {
 } from './availableSigningLanes';
 import { toAccountId } from '../../../types/accountIds';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
-import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
+import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 
 const chainTarget = {
   kind: 'evm',
@@ -26,7 +26,7 @@ const chainTarget = {
 } as const;
 const ed25519WalletId = toWalletId('frost-vermillion-k7p9m2');
 const ed25519NearAccountId = toAccountId('alice.testnet');
-const ed25519KeyScopeId = ed25519KeyScopeIdFromString('scope-frost-vermillion-k7p9m2');
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-frost-vermillion-k7p9m2');
 
 const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
@@ -190,7 +190,8 @@ const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
   chain: 'near',
   walletId: ed25519WalletId,
   nearAccountId: ed25519NearAccountId,
-  ed25519KeyScopeId,
+  nearEd25519SigningKeyId,
+  signerSlot: 1,
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',
@@ -205,7 +206,7 @@ const readyEd25519LaneWithStoredAuthMethod: ConcreteAvailableEd25519SigningLane 
   chain: 'near',
   walletId: ed25519WalletId,
   nearAccountId: ed25519NearAccountId,
-  ed25519KeyScopeId,
+  nearEd25519SigningKeyId,
   state: 'ready',
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',

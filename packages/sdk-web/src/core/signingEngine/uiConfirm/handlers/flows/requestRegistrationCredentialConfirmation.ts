@@ -1,4 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   UserConfirmationType,
@@ -179,7 +180,7 @@ async function runRegistrationFlowOnMainThread({
 }: {
   ctx: UiConfirmContext;
   request: RegistrationUserConfirmRequest;
-  confirmationConfig: ConfirmationConfig;
+  confirmationConfig: NormalizedConfirmationConfig;
   transactionSummary: TransactionSummary;
   theme: 'dark' | 'light';
 }): Promise<RegistrationCredentialDecisionInput> {
@@ -257,15 +258,15 @@ function parseDirectRegistrationDecisionMessage(
   return {
     ok: true,
     value: {
-    requestId: decisionRequestId,
-    confirmed: data.confirmed,
-    ...(isString(data.intentDigest) ? { intentDigest: data.intentDigest } : {}),
+      requestId: decisionRequestId,
+      confirmed: data.confirmed,
+      ...(isString(data.intentDigest) ? { intentDigest: data.intentDigest } : {}),
       ...(data.credential ? { credential: data.credential } : {}),
       ...(data.transactionContext ? { transactionContext: data.transactionContext } : {}),
       ...(data.registrationDiagnostics
         ? { registrationDiagnostics: data.registrationDiagnostics }
         : {}),
-    ...(isString(data.error) ? { error: data.error } : {}),
+      ...(isString(data.error) ? { error: data.error } : {}),
     },
   };
 }

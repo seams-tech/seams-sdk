@@ -181,7 +181,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
   const signer = input.ed25519Key.signer;
   const walletId = toWalletId(signer.account.wallet.walletId);
   const nearAccountId = toAccountId(signer.account.nearAccountId);
-  const ed25519KeyScopeId = signer.ed25519KeyScopeId;
+  const nearEd25519SigningKeyId = signer.nearEd25519SigningKeyId;
   const relayerUrl = String(input.relayUrl || '').trim();
   const rpId = String(input.rpId || '').trim();
   const recoveryCodeSecret32B64u = String(input.recoveryCodeSecret32B64u || '').trim();
@@ -209,9 +209,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'Email OTP threshold-ed25519 session reconstruction requires canonical runtime scope',
     );
   }
-  if (!ed25519KeyScopeId) {
+  if (!nearEd25519SigningKeyId) {
     throw new Error(
-      'Email OTP threshold-ed25519 session reconstruction requires Ed25519 key scope',
+      'Email OTP threshold-ed25519 session reconstruction requires NEAR Ed25519 signing key',
     );
   }
   if (!signingGrantId) {
@@ -236,10 +236,10 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'email-otp-ed25519-reconstruction',
       String(walletId),
       String(nearAccountId),
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
     ].join(':'),
     hssBindingFacts: {
-      ed25519KeyScopeId,
+      nearEd25519SigningKeyId,
       signingRootId: parseSdkEcdsaHssSigningRootId(initialSigningRootScope.signingRootId),
       signingRootVersion: parseSdkEcdsaHssSigningRootVersion(
         initialSigningRootScope.signingRootVersion,
@@ -252,7 +252,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
   const { policy } = await buildEd25519SessionPolicy({
     walletId: String(walletId),
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId,
     relayerKeyId,
     runtimePolicyScope,
@@ -378,7 +378,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     kind: 'jwt_email_otp',
     walletId: String(walletId),
     nearAccountId,
-    ed25519KeyScopeId,
+    nearEd25519SigningKeyId,
     rpId,
     relayerUrl,
     relayerKeyId,

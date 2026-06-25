@@ -395,7 +395,7 @@ export async function requestThresholdEcdsaExportAuthorization(
             : 'Confirm to reveal your EVM private key export.',
       },
       payload: {
-        nearAccountId: walletIdForUi,
+        walletId: walletIdForUi,
         publicKey: args.publicKey,
       },
       intentDigest: `export-keys:${walletIdForUi}:${thresholdEcdsaChainTargetKey(args.chainTarget)}:secp256k1`,
@@ -439,7 +439,7 @@ export async function showThresholdEcdsaExportViewer(
       warning: 'Anyone with your private key can fully control your account. Never share it.',
     },
     payload: {
-      nearAccountId: args.walletId,
+      walletId: args.walletId,
       viewerSessionId: args.viewerSessionId,
       publicKey: args.publicKeyHex,
       keys,

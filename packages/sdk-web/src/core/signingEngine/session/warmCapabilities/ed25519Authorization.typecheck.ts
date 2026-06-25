@@ -28,7 +28,7 @@ const warmAuthorization = {
   authMethod: 'passkey',
   walletId: 'alice-wallet',
   nearAccountId: 'alice.testnet',
-  ed25519KeyScopeId: 'alice-wallet',
+  nearEd25519SigningKeyId: 'alice-wallet',
   rpId: 'localhost',
   relayerUrl: 'https://router.test',
   relayerKeyId: 'near-key-1',

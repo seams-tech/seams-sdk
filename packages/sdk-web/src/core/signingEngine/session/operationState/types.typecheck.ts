@@ -7,6 +7,7 @@ import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EvmFamilyEcdsaTransactionSigningIntent,
@@ -21,8 +22,10 @@ declare const ecdsaWalletId: WalletId;
 declare const chainTarget: EvmEip155ChainTarget;
 declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;
+declare const exactEcdsaIdentity: ExactEcdsaSigningLaneIdentity;
 
 const validPlanningLane = {
+  identity: exactEcdsaIdentity,
   auth: {
     kind: 'passkey',
     rpId: toRpId('localhost'),
@@ -45,6 +48,7 @@ const validPlanningLane = {
 void validPlanningLane;
 
 const invalidPlanningLaneWithSubjectId = {
+  identity: exactEcdsaIdentity,
   auth: {
     kind: 'passkey',
     rpId: toRpId('localhost'),

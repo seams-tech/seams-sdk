@@ -199,7 +199,7 @@ export class UnifiedIndexedDBManager {
   }
 
   async listNonceLaneLeaseRecords(args?: {
-    accountId?: string;
+    walletId?: string;
   }): Promise<NonceLaneLeaseStoreRecord[]> {
     return this.seamsWalletRepositories.listNonceLaneLeaseRecords(args);
   }
@@ -212,8 +212,8 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.removeNonceLaneLeaseRecord(input);
   }
 
-  async clearNonceLaneLeaseRecordsForAccount(accountId: string): Promise<void> {
-    return this.seamsWalletRepositories.clearNonceLaneLeaseRecordsForAccount(accountId);
+  async clearNonceLaneLeaseRecordsForWallet(walletId: string): Promise<void> {
+    return this.seamsWalletRepositories.clearNonceLaneLeaseRecordsForWallet(walletId);
   }
 
   async clearAllNonceLaneLeaseRecords(): Promise<void> {

@@ -412,7 +412,7 @@ export type WalletRegistrationFinalizeResponse =
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ed25519: {
         nearAccountId: string;
-        ed25519KeyScopeId: string;
+        nearEd25519SigningKeyId: string;
         publicKey: string;
         relayerKeyId: string;
         keyVersion: string;
@@ -424,7 +424,7 @@ export type WalletRegistrationFinalizeResponse =
 	          sessionKind: 'jwt' | 'cookie';
 	          walletId: string;
 	          nearAccountId: string;
-	          ed25519KeyScopeId: string;
+	          nearEd25519SigningKeyId: string;
 	          thresholdSessionId: string;
 	          signingGrantId: string;
           expiresAtMs: number;

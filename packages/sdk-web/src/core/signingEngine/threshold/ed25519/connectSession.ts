@@ -31,7 +31,7 @@ export async function connectEd25519Session(args: {
   relayerKeyId: string;
   walletId: string;
   nearAccountId: string;
-  ed25519KeyScopeId: string;
+  nearEd25519SigningKeyId: string;
   participantIds?: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
@@ -72,7 +72,7 @@ export async function connectEd25519Session(args: {
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
-    ed25519KeyScopeId: args.ed25519KeyScopeId,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     rpId,
     relayerKeyId: args.relayerKeyId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

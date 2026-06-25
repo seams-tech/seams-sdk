@@ -8,7 +8,10 @@ import {
   isObject,
   parseRouterAbEcdsaHssPoolFillSessionRecord,
   parseRouterAbEcdsaHssServerPresignatureShareRecord,
+  parseEcdsaWalletSessionRecord,
   parseEd25519WalletSessionRecord,
+  parseWalletSigningBudgetSessionRecord,
+  parseThresholdEcdsaMpcSessionRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
@@ -35,8 +38,15 @@ import type {
   WalletSessionBudgetReservationResult,
   WalletSessionBudgetReserveUseCountInput,
   WalletSigningBudgetReservation,
+  WalletSigningBudgetSessionRecord,
+  WalletSigningBudgetSessionStore,
+  EcdsaWalletSessionRecord,
+  EcdsaWalletSessionStore,
   Ed25519WalletSessionRecord,
   Ed25519WalletSessionStore,
+  WalletSessionRecord,
+  WalletSessionRecordParser,
+  WalletSessionStore,
 } from './WalletSessionStore';
 import type {
   ThresholdEcdsaIntegratedKeyStore,
@@ -46,8 +56,13 @@ import type {
 import type { EcdsaHssRoleLocalKeyRecord } from '../../types';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
+  ThresholdEcdsaMpcSessionRecord,
+  ThresholdEcdsaSessionStore,
+  ThresholdMpcSessionRecord,
+  ThresholdClaimMpcSessionResult,
   RouterAbEd25519ConsumePresignRefillRateLimitResult,
   ThresholdEd25519MpcSessionRecord,
+  ThresholdReadMpcSessionResult,
   RouterAbEd25519PresignCapacity,
   RouterAbEd25519CheckPresignCapacityResult,
   RouterAbEd25519PresignExpectedScope,
@@ -230,8 +245,8 @@ type DoRequest =
   | DoEd25519PresignPutWithCapacityRequest
   | DoEd25519PresignTakeRequest;
 
-type DoAuthEntry = {
-  record: Ed25519WalletSessionRecord;
+type DoAuthEntry<TRecord extends WalletSessionRecord> = {
+  record: TRecord;
   remainingUses: number;
   expiresAtMs: number;
   reservedUses?: number;
@@ -404,6 +419,14 @@ function computeWalletSessionPrefixEcdsa(config: Record<string, unknown>): strin
   );
 }
 
+function computeWalletSigningBudgetSessionPrefix(config: Record<string, unknown>): string {
+  const explicit = toOptionalTrimmedString(config.THRESHOLD_WALLET_SIGNING_BUDGET_SESSION_PREFIX);
+  if (explicit) return explicit.endsWith(':') ? explicit : `${explicit}:`;
+  const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
+  const base = toThresholdEd25519PrefixFromBase(basePrefix, 'wallet-session');
+  return base ? `${base}budget:` : 'w3a:threshold-wallet-budget:sess:';
+}
+
 function computeSessionPrefixEcdsa(config: Record<string, unknown>): string {
   const basePrefix = toOptionalTrimmedString(config.THRESHOLD_PREFIX);
   const explicit = toOptionalTrimmedString(config.THRESHOLD_ECDSA_SESSION_PREFIX);
@@ -426,17 +449,22 @@ function computePresignPrefixEcdsa(config: Record<string, unknown>): string {
   );
 }
 
-export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519WalletSessionStore {
+export class CloudflareDurableObjectWalletSessionStore<TRecord extends WalletSessionRecord>
+  implements WalletSessionStore<TRecord>
+{
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
+  private readonly parseRecord: WalletSessionRecordParser<TRecord>;
 
   constructor(input: {
     namespace: CloudflareDurableObjectNamespaceLike;
     objectName: string;
     keyPrefix: string;
+    parseRecord: WalletSessionRecordParser<TRecord>;
   }) {
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.keyPrefix = input.keyPrefix;
+    this.parseRecord = input.parseRecord;
   }
 
   private key(id: string): string {
@@ -449,12 +477,12 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
 
   async putSession(
     id: string,
-    record: Ed25519WalletSessionRecord,
+    record: TRecord,
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void> {
     const ttlMs = Math.max(0, Number(opts.ttlMs) || 0);
     const expiresAtMs = Date.now() + ttlMs;
-    const entry: DoAuthEntry = {
+    const entry: DoAuthEntry<TRecord> = {
       record,
       remainingUses: Math.max(0, Number(opts.remainingUses) || 0),
       expiresAtMs,
@@ -468,13 +496,13 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
     if (!resp.ok) throw new Error(resp.message);
   }
 
-  async getSession(id: string): Promise<Ed25519WalletSessionRecord | null> {
+  async getSession(id: string): Promise<TRecord | null> {
     const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
     if (!resp.ok) return null;
     const raw = resp.value;
     const entry = isObject(raw) ? (raw as Record<string, unknown>) : null;
     const record = entry
-      ? parseEd25519WalletSessionRecord((entry as { record?: unknown }).record)
+      ? this.parseRecord((entry as { record?: unknown }).record)
       : null;
     const expiresAtMs = entry ? (entry as { expiresAtMs?: unknown }).expiresAtMs : null;
     if (!record || typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
@@ -484,7 +512,7 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
 
   async getSessionStatus(id: string) {
     const resp = await callDo<{
-      record: Ed25519WalletSessionRecord;
+      record: TRecord;
       expiresAtMs: number;
       remainingUses: number;
       reservedUses: number;
@@ -492,7 +520,7 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
     } | null>(this.stub, { op: 'authGetBudgetStatus', key: this.key(id) });
     if (!resp.ok) return null;
     if (!resp.value) return null;
-    const record = parseEd25519WalletSessionRecord(resp.value.record);
+    const record = this.parseRecord(resp.value.record);
     if (!record) return null;
     const expiresAtMs = Number(resp.value.expiresAtMs);
     const committedRemainingUses = Math.max(0, Math.floor(Number(resp.value.remainingUses) || 0));
@@ -652,23 +680,34 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
   }
 }
 
-export class CloudflareDurableObjectThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
+type CloudflareDoMpcSessionRecordParser<TRecord extends ThresholdMpcSessionRecord> = (
+  raw: unknown,
+) => TRecord | null;
+
+export class CloudflareDurableObjectThresholdEd25519SessionStore<
+  TMpcRecord extends ThresholdMpcSessionRecord = ThresholdEd25519MpcSessionRecord,
+> {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
   private readonly presignPrefix: string;
   private readonly presignRateLimitPrefix: string;
+  private readonly parseMpcSessionRecord: CloudflareDoMpcSessionRecordParser<TMpcRecord>;
 
   constructor(input: {
     namespace: CloudflareDurableObjectNamespaceLike;
     objectName: string;
     keyPrefix: string;
+    parseMpcSessionRecord?: CloudflareDoMpcSessionRecordParser<TMpcRecord>;
   }) {
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.keyPrefix = input.keyPrefix;
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
     this.presignPrefix = `${this.keyPrefix}presign:`;
     this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
+    this.parseMpcSessionRecord =
+      input.parseMpcSessionRecord ||
+      (parseThresholdEd25519MpcSessionRecord as CloudflareDoMpcSessionRecordParser<TMpcRecord>);
   }
 
   private key(id: string): string {
@@ -707,7 +746,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
 
   async putMpcSession(
     id: string,
-    record: ThresholdEd25519MpcSessionRecord,
+    record: TMpcRecord,
     ttlMs: number,
   ): Promise<void> {
     const resp = await callDo<void>(this.stub, {
@@ -719,13 +758,13 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     if (!resp.ok) throw new Error(resp.message);
   }
 
-  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+  async readMpcSession(id: string): Promise<ThresholdReadMpcSessionResult<TMpcRecord> | null> {
     const resp = await callDo<{ value?: unknown; version?: unknown } | null>(this.stub, {
       op: 'readVersioned',
       key: this.key(id),
     });
     if (!resp.ok || !resp.value) return null;
-    const record = parseThresholdEd25519MpcSessionRecord(resp.value.value);
+    const record = this.parseMpcSessionRecord(resp.value.value);
     const version = toOptionalTrimmedString(resp.value.version);
     return record && version ? { record, version } : null;
   }
@@ -733,7 +772,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
   async claimMpcSession(
     id: string,
     version: string,
-  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+  ): Promise<ThresholdClaimMpcSessionResult<TMpcRecord>> {
     const expectedVersion = toOptionalTrimmedString(version);
     if (!expectedVersion) return { ok: false, code: 'version_mismatch' };
     const resp = await callDo<{ status?: unknown; value?: unknown }>(this.stub, {
@@ -746,14 +785,14 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     if (status === 'not_found') return { ok: false, code: 'not_found' };
     if (status === 'expired') return { ok: false, code: 'expired' };
     if (status === 'version_mismatch') return { ok: false, code: 'version_mismatch' };
-    const record = parseThresholdEd25519MpcSessionRecord(resp.value?.value);
+    const record = this.parseMpcSessionRecord(resp.value?.value);
     return record ? { ok: true, record } : { ok: false, code: 'invalid_record' };
   }
 
-  async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
+  async takeMpcSession(id: string): Promise<TMpcRecord | null> {
     const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.key(id) });
     if (!resp.ok) return null;
-    return parseThresholdEd25519MpcSessionRecord(resp.value);
+    return this.parseMpcSessionRecord(resp.value);
   }
 
   async putSigningSession(
@@ -1290,11 +1329,51 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
       objectName,
       keyPrefix: sessionPrefix,
     }),
-    walletSessionStore: new CloudflareDurableObjectEd25519WalletSessionStore({
+    walletSessionStore: new CloudflareDurableObjectWalletSessionStore<Ed25519WalletSessionRecord>({
       namespace,
       objectName,
       keyPrefix: walletSessionPrefix,
+      parseRecord: parseEd25519WalletSessionRecord,
     }),
+  };
+}
+
+export function createCloudflareDurableObjectWalletSigningBudgetStores(input: {
+  config?: ThresholdStoreConfigInput | null;
+  logger: NormalizedLogger;
+}): {
+  walletSessionStore: WalletSigningBudgetSessionStore;
+} | null {
+  const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
+  const kind = toOptionalTrimmedString(config.kind);
+  if (kind !== 'cloudflare-do') return null;
+
+  const namespace = resolveDoNamespaceFromConfig(config);
+  if (!namespace) {
+    throw new Error(
+      'cloudflare-do threshold store selected but no Durable Object namespace was provided (expected config.namespace)',
+    );
+  }
+
+  const objectName =
+    toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
+    toOptionalTrimmedString((config as { name?: unknown }).name) ||
+    THRESHOLD_DO_OBJECT_NAME_DEFAULT;
+
+  const walletSessionPrefix = computeWalletSigningBudgetSessionPrefix(config);
+
+  input.logger.info(
+    '[threshold-budget] Using Cloudflare Durable Object store for wallet budget session persistence',
+  );
+
+  return {
+    walletSessionStore:
+      new CloudflareDurableObjectWalletSessionStore<WalletSigningBudgetSessionRecord>({
+        namespace,
+        objectName,
+        keyPrefix: walletSessionPrefix,
+        parseRecord: parseWalletSigningBudgetSessionRecord,
+      }),
   };
 }
 
@@ -1303,8 +1382,8 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   logger: NormalizedLogger;
 }): {
   keyStore: ThresholdEcdsaIntegratedKeyStore;
-  sessionStore: ThresholdEd25519SessionStore;
-  walletSessionStore: Ed25519WalletSessionStore;
+  sessionStore: ThresholdEcdsaSessionStore;
+  walletSessionStore: EcdsaWalletSessionStore;
   poolFillSessionStore: RouterAbEcdsaHssPoolFillSessionStore;
   presignaturePool: RouterAbEcdsaHssPresignaturePool;
 } | null {
@@ -1339,15 +1418,18 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
       objectName,
       keyPrefix,
     }),
-    sessionStore: new CloudflareDurableObjectThresholdEd25519SessionStore({
+    sessionStore:
+      new CloudflareDurableObjectThresholdEd25519SessionStore<ThresholdEcdsaMpcSessionRecord>({
       namespace,
       objectName,
       keyPrefix: sessionPrefix,
+      parseMpcSessionRecord: parseThresholdEcdsaMpcSessionRecord,
     }),
-    walletSessionStore: new CloudflareDurableObjectEd25519WalletSessionStore({
+    walletSessionStore: new CloudflareDurableObjectWalletSessionStore<EcdsaWalletSessionRecord>({
       namespace,
       objectName,
       keyPrefix: walletSessionPrefix,
+      parseRecord: parseEcdsaWalletSessionRecord,
     }),
     poolFillSessionStore: new CloudflareDurableObjectRouterAbEcdsaHssPoolFillSessionStore({
       namespace,

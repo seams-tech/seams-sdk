@@ -42,12 +42,7 @@ function errMessage(e: unknown): string {
 }
 
 function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
-  return (
-    body.kind === 'email_otp_registration' &&
-    typeof body.registrationAttemptId === 'string' &&
-    typeof body.new_account_id === 'string' &&
-    typeof body.rp_id === 'string'
-  );
+  return body.kind === 'email_otp_registration';
 }
 
 function rejectLegacyEmailOtpRegistrationHssRequest(): {
@@ -299,12 +294,12 @@ export function registerThresholdEd25519Routes(
 
         const walletId = String(result.walletId || '').trim();
         const nearAccountId = String(result.nearAccountId || '').trim();
-        const ed25519KeyScopeId = String(result.ed25519KeyScopeId || '').trim();
-        if (!walletId || !nearAccountId || !ed25519KeyScopeId) {
+        const nearEd25519SigningKeyId = String(result.nearEd25519SigningKeyId || '').trim();
+        if (!walletId || !nearAccountId || !nearEd25519SigningKeyId) {
           return {
             ok: false,
             code: 'internal',
-            message: 'threshold session missing walletId/nearAccountId/ed25519KeyScopeId',
+            message: 'threshold session missing walletId/nearAccountId/nearEd25519SigningKeyId',
           };
         }
         const rpId = String((body as any).sessionPolicy?.rpId || '').trim();
@@ -340,7 +335,7 @@ export function registerThresholdEd25519Routes(
             sessionKind: 'jwt',
             walletId,
             nearAccountId,
-            ed25519KeyScopeId,
+            nearEd25519SigningKeyId,
             thresholdSessionId,
             signingGrantId: result.signingGrantId,
             expiresAtMs: thresholdExpiresAtMs,

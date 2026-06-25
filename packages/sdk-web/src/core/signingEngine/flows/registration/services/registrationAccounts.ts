@@ -41,8 +41,8 @@ export type RegistrationAccountsService = {
   getUserBySignerSlot(nearAccountId: AccountId, signerSlot: number): Promise<ClientUserData | null>;
   getLastUser(): Promise<ClientUserData | null>;
   nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]>;
-  updateLastLogin(nearAccountId: AccountId): Promise<void>;
-  setLastUser(nearAccountId: AccountId, signerSlot: number): Promise<void>;
+  updateLastLogin(walletId: WalletId): Promise<void>;
+  setLastUser(walletId: WalletId, signerSlot: number): Promise<void>;
   activateAuthenticatedWalletState(input: ActivateAuthenticatedWalletStateInput): Promise<void>;
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void>;
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void>;
@@ -71,9 +71,9 @@ export function createRegistrationAccountsService(
     getLastUser: () => getLastUser(accountLifecycle),
     nearAuthenticatorsByAccount: (nearAccountId) =>
       nearAuthenticatorsByAccount(accountLifecycle, nearAccountId),
-    updateLastLogin: (nearAccountId) => updateLastLogin(accountLifecycle, nearAccountId),
-    setLastUser: (nearAccountId, signerSlot) =>
-      setLastUser(accountLifecycle, nearAccountId, signerSlot),
+    updateLastLogin: (walletId) => updateLastLogin(accountLifecycle, walletId),
+    setLastUser: (walletId, signerSlot) =>
+      setLastUser(accountLifecycle, walletId, signerSlot),
     activateAuthenticatedWalletState: (input) =>
       activateAuthenticatedWalletState(accountLifecycle, input),
     storeAuthenticator: (authenticatorData) =>

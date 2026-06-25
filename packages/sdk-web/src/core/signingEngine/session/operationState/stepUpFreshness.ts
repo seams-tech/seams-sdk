@@ -3,7 +3,9 @@ import type { EmailOtpSessionRefreshResult } from '../emailOtp/appSessionJwtCach
 import type { PositiveRemainingUses } from '../budget/policy';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  exactSigningLaneCurve,
   exactSigningLaneIdentityKey,
+  exactSigningLaneWalletId,
   thresholdSessionIdsFromExactSigningLaneIdentity,
   type ExactSigningLaneIdentity,
   type ExactSigningLaneIdentityKey,
@@ -169,10 +171,7 @@ function validateBase(input: StepUpFreshnessBaseInput): {
   thresholdSessionIds: NonEmptyThresholdSessionIds;
 } {
   const laneIdentityKey = exactSigningLaneIdentityKey(input.laneIdentity);
-  const laneWalletId =
-    input.laneIdentity.curve === 'ecdsa'
-      ? String(input.laneIdentity.walletId)
-      : String(input.laneIdentity.walletId);
+  const laneWalletId = String(exactSigningLaneWalletId(input.laneIdentity));
   if (String(input.walletId) !== laneWalletId) {
     throw new Error('[StepUpFreshness] walletId does not match exact lane identity');
   }
@@ -194,7 +193,7 @@ export function buildFreshStepUpRequired(
     operationId: input.operationId,
     operationFingerprint: input.operationFingerprint,
     authMethod: signingLaneAuthMethod(input.laneIdentity.auth),
-    curve: input.laneIdentity.curve,
+    curve: exactSigningLaneCurve(input.laneIdentity),
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
     signingGrantId: input.laneIdentity.signingGrantId,
@@ -218,7 +217,7 @@ export function buildFreshStepUpSatisfied(
     operationId: input.operationId,
     operationFingerprint: input.operationFingerprint,
     authMethod: signingLaneAuthMethod(input.laneIdentity.auth),
-    curve: input.laneIdentity.curve,
+    curve: exactSigningLaneCurve(input.laneIdentity),
     laneIdentity: input.laneIdentity,
     laneIdentityKey: validated.laneIdentityKey,
     signingGrantId: input.laneIdentity.signingGrantId,

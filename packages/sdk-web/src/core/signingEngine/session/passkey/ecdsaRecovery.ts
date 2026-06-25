@@ -74,7 +74,7 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
     materialRestoreIdentity: {
       kind: 'ecdsa_role_local_restore',
       lane: laneIdentity,
-      ecdsaThresholdKeyId: laneIdentity.key.ecdsaThresholdKeyId,
+      ecdsaThresholdKeyId: laneIdentity.signer.key.ecdsaThresholdKeyId,
     },
   });
 }

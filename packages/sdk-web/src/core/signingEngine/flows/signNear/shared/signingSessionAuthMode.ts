@@ -39,7 +39,10 @@ import {
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
 import { thresholdEd25519LaneCandidateFromSessionRecord } from '@/core/signingEngine/session/persistence/records';
-import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  exactEd25519SigningLaneIdentity,
+  nearEd25519SignerBindingFromBoundaryFields,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialKeyId,
@@ -322,7 +325,8 @@ export async function resolveNearSigningSessionAuthContext(args: {
         ? buildNearTransactionSigningLane({
             walletId: record.walletId,
             nearAccountId: record.nearAccountId,
-            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+            signerSlot: recordCandidate.signerSlot,
             auth: recordCandidate.auth,
             signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
             thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -335,7 +339,8 @@ export async function resolveNearSigningSessionAuthContext(args: {
         ? buildNearTransactionSigningLane({
             walletId: record.walletId,
             nearAccountId: record.nearAccountId,
-            ed25519KeyScopeId: record.ed25519KeyScopeId,
+            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+            signerSlot: recordCandidate.signerSlot,
             auth: recordCandidate.auth,
             signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
             thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
@@ -399,9 +404,10 @@ export function buildNearSigningSessionAuthPlan(args: {
   const plan = resolvedSigningSession.signingSessionPlan;
 
   if (plan.kind !== SigningSessionPlanKind.NotReady) {
+    const signer = lane.identity.signer;
     const signingAuthPlan = signingAuthPlanFromSigningSessionPlan({
       plan,
-      accountId: String(lane.nearAccountId),
+      accountId: String(signer.account.nearAccountId),
       intent: SigningOperationIntent.TransactionSign,
       curve: 'ed25519',
       expiresAtMs: resolvedSigningSession.expiresAtMs,
@@ -1201,9 +1207,12 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
       materialRestoreIdentity: {
         kind: 'ed25519_worker_material_restore',
         lane: exactEd25519SigningLaneIdentity({
-          walletId: record.walletId,
-          nearAccountId: record.nearAccountId,
-          ed25519KeyScopeId: record.ed25519KeyScopeId,
+          signer: nearEd25519SignerBindingFromBoundaryFields({
+            walletId: record.walletId,
+            nearAccountId: record.nearAccountId,
+            nearEd25519SigningKeyId: record.nearEd25519SigningKeyId,
+            signerSlot: record.signerSlot,
+          }),
           auth: candidate.auth,
           signingGrantId,
           thresholdSessionId,
