@@ -46,7 +46,6 @@ function sampleMaterialBinding(): ThresholdEd25519WorkerMaterialBinding {
     signingRootId: 'root',
     signingRootVersion: 'v1',
     relayerKeyId: 'ed25519:relayer',
-    keyVersion: 'threshold-ed25519-hss-v1',
     participantIds: [1, 2],
     clientVerifyingShareB64u: 'client-verifying-share',
     materialFormatVersion: 'ed25519_worker_material_v1',
@@ -72,7 +71,6 @@ function sampleSessionBinding(): ThresholdEd25519WorkerMaterialSessionBinding {
       signingRootVersion: 'v1',
     },
     relayerKeyId: 'ed25519:relayer',
-    keyVersion: 'threshold-ed25519-hss-v1',
     participantIds: [1, 2],
     signingWorkerId: 'worker',
     expiresAtMs: 1_700_000_000_000,
@@ -92,7 +90,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
       signingRootVersion: 'v1',
       nearAccountId: 'alice.testnet',
       relayerKeyId: 'ed25519:relayer',
-      keyVersion: 'threshold-ed25519-hss-v1',
       participantIds: [1, 2],
       createdAtMs: 1_700_000_000_000,
       sealAuthorization: {
@@ -114,7 +111,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
           materialFormatVersion: 'ed25519_worker_material_v1',
           materialKeyId: 'material-key-id',
           signerSlot: 1,
-          keyVersion: 'threshold-ed25519-hss-v1',
         },
         calls,
       ),
@@ -130,7 +126,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
       materialFormatVersion: 'ed25519_worker_material_v1',
       materialKeyId: 'material-key-id',
       signerSlot: 1,
-      keyVersion: 'threshold-ed25519-hss-v1',
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -146,7 +141,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
           },
           expectedContextBindingB64u: 'context-binding',
           signerSlot: 1,
-          keyVersion: 'threshold-ed25519-hss-v1',
           sealAuthorization: {
             kind: 'passkey_prf_material_seal_authorization_handle_v1',
             handle: 'seal-handle',
@@ -209,7 +203,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
             signingRootId: 'root',
             signingRootVersion: 'v1',
             relayerKeyId: 'ed25519:relayer',
-            keyVersion: 'threshold-ed25519-hss-v1',
             participantIds: [1, 2],
             createdAtMs: 1_700_000_000_000,
           },
@@ -246,7 +239,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
             signingRootId: 'root',
             signingRootVersion: 'v1',
             relayerKeyId: 'ed25519:relayer',
-            keyVersion: 'threshold-ed25519-hss-v1',
             participantIds: [1, 2],
             createdAtMs: 1_700_000_000_000,
           },
@@ -387,7 +379,6 @@ test.describe('threshold Ed25519 near signer WASM wrappers', () => {
       signingRootVersion: 'v1',
       nearAccountId: 'alice.testnet',
       relayerKeyId: 'ed25519:relayer',
-      keyVersion: 'threshold-ed25519-hss-v1',
       participantIds: [1, 2],
       createdAtMs: 1_700_000_000_000,
       sealAuthorization: {

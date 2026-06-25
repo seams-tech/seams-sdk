@@ -169,6 +169,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
         clientParticipantId: 1,
         relayerParticipantId: 2,
         participantIds: [1, 2],
+        applicationBindingDigestB64u: VALID_ECDSA_SHARE32_B64U,
         contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
         hssClientSharePublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
         relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
@@ -448,14 +449,14 @@ test.describe('EVM-family step-up provision-plan builders', () => {
           };
         },
         touchConfirm: {},
-        resolveExactEcdsaRecord: ({ thresholdSessionId }: { thresholdSessionId: string }) =>
-          thresholdSessionId === refreshedRecord.thresholdSessionId
-            ? refreshedRecord
-            : thresholdSessionId === existingRecord.thresholdSessionId
-              ? existingRecord
-              : null,
-        readEcdsaCapabilityByThresholdSessionId: async (thresholdSessionId: string) =>
-          thresholdSessionId === refreshedRecord.thresholdSessionId && provisioned
+        resolveExactEcdsaRecord: ({ lane }) =>
+          String(lane.thresholdSessionId) === refreshedRecord.thresholdSessionId
+            ? { kind: 'found', record: refreshedRecord }
+            : String(lane.thresholdSessionId) === existingRecord.thresholdSessionId
+              ? { kind: 'found', record: existingRecord }
+              : { kind: 'not_found' },
+        readEcdsaCapabilityForLane: async (lane) =>
+          String(lane.thresholdSessionId) === refreshedRecord.thresholdSessionId && provisioned
             ? makeReadyEcdsaCapability({
                 record: refreshedRecord,
                 material: refreshedMaterial,

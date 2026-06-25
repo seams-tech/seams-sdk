@@ -12,6 +12,16 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  exactEcdsaSigningLaneIdentity,
+  exactEd25519SigningLaneIdentity,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  buildEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+  toRpId,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -24,15 +34,61 @@ const EXPORT_FLOW_WALLET_SESSION = walletSessionRefFromSession({
   walletId: EXPORT_FLOW_SUBJECT_ID,
   walletSessionUserId: EXPORT_FLOW_SUBJECT_ID,
 });
+const EXPORT_FLOW_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
+  walletId: EXPORT_FLOW_SUBJECT_ID,
+  nearAccountId: 'export-flow.testnet',
+  ed25519KeyScopeId: ed25519KeyScopeIdFromString('export-flow.testnet'),
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('example.test'),
+    credentialIdB64u: 'credential-export-flow',
+  },
+  signingGrantId: 'grant-export-flow',
+  thresholdSessionId: 'threshold-export-flow',
+});
 const ISOLATION_SUBJECT_ID = toWalletId('isolation.testnet');
 const ISOLATION_WALLET_SESSION = walletSessionRefFromSession({
   walletId: ISOLATION_SUBJECT_ID,
   walletSessionUserId: ISOLATION_SUBJECT_ID,
 });
+const ISOLATION_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
+  walletId: ISOLATION_SUBJECT_ID,
+  nearAccountId: 'isolation.testnet',
+  ed25519KeyScopeId: ed25519KeyScopeIdFromString('isolation.testnet'),
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('example.test'),
+    credentialIdB64u: 'credential-isolation',
+  },
+  signingGrantId: 'grant-isolation-export',
+  thresholdSessionId: 'threshold-isolation-export',
+});
 const EXPORT_FLOW_EVM_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
   networkSlug: 'sepolia',
+});
+const EXPORT_FLOW_ECDSA_KEY = buildEvmFamilyEcdsaKeyIdentity({
+  walletId: EXPORT_FLOW_SUBJECT_ID,
+  walletKeyId: 'wallet-key-export-flow',
+  ecdsaThresholdKeyId: 'ecdsa-threshold-export-flow',
+  signingRootId: 'signing-root-export-flow',
+  signingRootVersion: 'root-v1',
+  participantIds: [1, 2],
+  thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+});
+const EXPORT_FLOW_ECDSA_EXPORT_LANE = exactEcdsaSigningLaneIdentity({
+  walletId: EXPORT_FLOW_SUBJECT_ID,
+  chainTarget: EXPORT_FLOW_EVM_TARGET,
+  keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-key-handle-export-flow'),
+  key: EXPORT_FLOW_ECDSA_KEY,
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('example.test'),
+    credentialIdB64u: 'credential-export-flow',
+  },
+  signingGrantId: 'grant-ecdsa-export-flow',
+  thresholdSessionId: 'threshold-ecdsa-export-flow',
 });
 
 const exportFlowScript = String.raw`
@@ -428,6 +484,7 @@ test.describe('wallet-origin export flow integration', () => {
         captureOverlaySource,
         routerPath,
         nearAccount,
+        exportLaneIdentity,
         walletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
@@ -463,6 +520,7 @@ test.describe('wallet-origin export flow integration', () => {
             kind: 'near',
             walletSession,
             nearAccount,
+            laneIdentity: exportLaneIdentity,
             options: {
               chain: 'near',
               variant: 'drawer',
@@ -506,6 +564,7 @@ test.describe('wallet-origin export flow integration', () => {
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
         nearAccount: EXPORT_FLOW_NEAR_ACCOUNT,
+        exportLaneIdentity: EXPORT_FLOW_NEAR_EXPORT_LANE,
         walletSession: EXPORT_FLOW_WALLET_SESSION,
       },
     );
@@ -529,6 +588,11 @@ test.describe('wallet-origin export flow integration', () => {
       nearAccount: {
         kind: 'named',
         accountId: 'export-flow.testnet',
+      },
+      laneIdentity: {
+        kind: 'exact_ed25519_signing_lane_identity',
+        signingGrantId: 'grant-export-flow',
+        thresholdSessionId: 'threshold-export-flow',
       },
       options: {
         chain: 'near',
@@ -557,6 +621,7 @@ test.describe('wallet-origin export flow integration', () => {
         subjectId,
         walletId,
         chainTarget,
+        exportLaneIdentity,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
@@ -595,6 +660,7 @@ test.describe('wallet-origin export flow integration', () => {
               walletSessionUserId: 'export-flow.testnet',
             },
             chainTarget,
+            laneIdentity: exportLaneIdentity,
             options: {
               variant: 'drawer',
               theme: 'light',
@@ -644,6 +710,7 @@ test.describe('wallet-origin export flow integration', () => {
         subjectId: EXPORT_FLOW_SUBJECT_ID,
         walletId: toWalletId('export-flow.testnet'),
         chainTarget: EXPORT_FLOW_EVM_TARGET,
+        exportLaneIdentity: EXPORT_FLOW_ECDSA_EXPORT_LANE,
       },
     );
 
@@ -677,6 +744,7 @@ test.describe('wallet-origin export flow integration', () => {
         captureOverlaySource,
         routerPath,
         nearAccount,
+        exportLaneIdentity,
         walletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
@@ -716,6 +784,7 @@ test.describe('wallet-origin export flow integration', () => {
             kind: 'near',
             walletSession,
             nearAccount,
+            laneIdentity: exportLaneIdentity,
             options: {
               chain: 'near',
               variant: 'drawer',
@@ -775,6 +844,7 @@ test.describe('wallet-origin export flow integration', () => {
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
         nearAccount: ISOLATION_NEAR_ACCOUNT,
+        exportLaneIdentity: ISOLATION_NEAR_EXPORT_LANE,
         walletSession: ISOLATION_WALLET_SESSION,
       },
     );

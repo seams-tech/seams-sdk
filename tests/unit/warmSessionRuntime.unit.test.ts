@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
+import { toExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/persistence/records';
 import {
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
@@ -141,8 +142,7 @@ test.describe('warmSessionRuntime', () => {
 
     await ensureEcdsaPrfSealPersisted({
       touchConfirm: touchConfirmFixture.touchConfirm,
-      chainTarget: EVM_CHAIN_TARGET,
-      thresholdSessionId: evmRecord.thresholdSessionId,
+      lane: toExactEcdsaSigningLaneIdentity(evmRecord),
       required: true,
       errorContext: 'test ECDSA seal persistence',
       sealPersistInFlightBySessionId: new Map(),
@@ -207,8 +207,7 @@ test.describe('warmSessionRuntime', () => {
     await expect(
       ensureEcdsaPrfSealPersisted({
         touchConfirm: fixture.touchConfirm,
-        chainTarget: EVM_CHAIN_TARGET,
-        thresholdSessionId: record.thresholdSessionId,
+        lane: toExactEcdsaSigningLaneIdentity(record),
         required: true,
         errorContext: 'threshold-ecdsa signing seal persistence',
         sealPersistInFlightBySessionId: new Map(),

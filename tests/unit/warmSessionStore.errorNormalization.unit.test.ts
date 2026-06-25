@@ -6,6 +6,7 @@ import {
 import { isSigningSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   getThresholdEcdsaSessionRecordByThresholdSessionId,
+  thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
 } from '@/core/signingEngine/session/persistence/records';
 import {
@@ -191,6 +192,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
           key: readModel.key,
           keyHandle: record.keyHandle,
+          auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: record }).auth,
           chainTarget: record.chainTarget,
           signingGrantId: record.signingGrantId,
           thresholdSessionId: record.thresholdSessionId,
@@ -234,6 +236,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
           key: readModel.key,
           keyHandle: record.keyHandle,
+          auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: record }).auth,
           chainTarget: record.chainTarget,
           signingGrantId: record.signingGrantId,
           thresholdSessionId: record.thresholdSessionId,
@@ -272,6 +275,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
         key: readModel.key,
         keyHandle: record.keyHandle,
+        auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: record }).auth,
         chainTarget: record.chainTarget,
         signingGrantId: record.signingGrantId,
         thresholdSessionId: record.thresholdSessionId,
@@ -468,6 +472,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         budgetStatusCheck: buildEcdsaLaneBudgetStatusCheck({
           key: readModel.key,
           keyHandle: ecdsaRecord.keyHandle,
+          auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: ecdsaRecord }).auth,
           chainTarget: ecdsaRecord.chainTarget,
           signingGrantId,
           thresholdSessionId: ecdsaRecord.thresholdSessionId,

@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { buildEvmFamilyEcdsaKeyIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
@@ -20,6 +23,7 @@ import type { EmailOtpEcdsaSigningBootstrapResult } from '@/core/signingEngine/i
 import { createEvmFamilySigningDeps } from '@/core/signingEngine/assembly/ports/evmFamily';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
+  exactEcdsaSigningLaneIdentity,
   exactSigningLaneIdentity,
   exactSigningLaneIdentityKey,
 } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
@@ -188,14 +192,11 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
       challengeCalls.push(receivedAuthLane);
       return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
     },
-    resolveEmailOtpSigningSessionAuthLane: ({
-      walletId: resolvedWalletId,
-      thresholdSessionId: sessionId,
-      chainTarget,
-    }) => {
-      expect(resolvedWalletId).toBe(ecdsaWalletId);
-      expect(sessionId).toBe(thresholdSessionId);
-      expect(chainTarget).toEqual(sourceChainTarget);
+    resolveEmailOtpSigningSessionAuthLane: ({ lane }) => {
+      expect(lane.walletId).toBe(ecdsaWalletId);
+      expect(lane.thresholdSessionId).toBe(thresholdSessionId);
+      expect(lane.chainTarget).toEqual(sourceChainTarget);
+      expect(lane.auth).toEqual(emailOtpAuth);
       return authLane;
     },
     loginWithEmailOtpEcdsaCapabilityForSigning: async ({
@@ -345,10 +346,26 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     updatedAtMs: Date.now(),
   });
   if (!sealedRecord) throw new Error('failed to build sealed record fixture');
+  const sealedLane = exactEcdsaSigningLaneIdentity({
+    key: buildEvmFamilyEcdsaKeyIdentity({
+      walletId: toWalletId(walletId),
+      walletKeyId: 'wallet-key-email-otp-refresh',
+      ecdsaThresholdKeyId: 'ehss-email-otp',
+      signingRootId: 'proj_local:dev',
+      signingRootVersion: 'default',
+      participantIds: [1, 2],
+      thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
+    }),
+    keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+    walletId: toWalletId(walletId),
+    auth: emailOtpAuth,
+    chainTarget: sourceChainTarget,
+    signingGrantId,
+    thresholdSessionId,
+  });
 
   const authLane = emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({
-    thresholdSessionId,
-    chainTarget: sourceChainTarget,
+    lane: sealedLane,
     sealedRecord,
   });
 

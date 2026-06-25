@@ -121,10 +121,10 @@ test('Refactor 74 Phase 9 models authority-bearing reconnect selection as exact 
   );
 
   expect(selector).toContain("kind: 'exact_match'");
-  expect(selector).toContain("kind: 'ambiguous'");
+  expect(selector).toContain("kind: 'duplicate_records'");
   expect(selector).toContain("kind: 'not_found'");
-  expect(selector).toContain("case 'ambiguous':");
-  expect(selector).toContain('exact match is ambiguous');
+  expect(selector).toContain("case 'duplicate_records':");
+  expect(selector).toContain('duplicate exact matches');
   expect(selector).not.toContain('candidates[0] || null');
 });
 
@@ -142,28 +142,27 @@ test('Refactor 74 Phase 9 removes first-candidate fallback markers from lane sel
   );
   const exportSelection = sourceRangeBetween(
     exportLaneSelector,
-    'function selectOnlyExportLaneCandidate',
-    'function selectCanonicalExportCandidates',
+    'function selectExactExportAvailableLane',
+    'function exactEd25519IdentityForExportLane',
   );
 
   expect(transactionSelection).toContain('switch (candidates.length)');
   expect(transactionSelection).toContain('case 0:');
   expect(transactionSelection).toContain('case 1:');
   expect(transactionSelection).toContain('default:');
-  expect(transactionSelection).toContain(
-    'return selectNewestCandidateWhenUnambiguous(bestSourceCandidates);',
-  );
+  expect(transactionSelection).not.toContain('selectNewestCandidateWhenUnambiguous');
+  expect(transactionSelection).not.toContain('candidateStatePriority');
+  expect(transactionSelection).not.toContain('candidateSourcePriority');
   expect(transactionSelection).not.toContain('bestStateCandidates[0] || null');
   expect(transactionSelection).not.toContain('bestSourceCandidates[0] || null');
   expect(transactionSelection).not.toContain('candidates[0] || null');
 
-  expect(exportSelection).toContain('switch (candidates.length)');
-  expect(exportSelection).toContain('case 0:');
-  expect(exportSelection).toContain('case 1:');
-  expect(exportSelection).toContain('default:');
-  expect(exportSelection).toContain(
-    'return selectNewestExportLaneWhenUnambiguous(sourceCandidates);',
-  );
+  expect(exportSelection).toContain('duplicate_records');
+  expect(exportSelection).toContain('no_candidate');
+  expect(exportSelection).toContain('args.candidates.length !== 1');
+  expect(exportSelection).not.toContain('selectNewestExportLaneWhenUnambiguous');
+  expect(exportSelection).not.toContain('candidateStatePriority');
+  expect(exportSelection).not.toContain('candidateSourcePriority');
   expect(exportSelection).not.toContain('stateCandidates[0] || null');
   expect(exportSelection).not.toContain('sourceCandidates[0] || null');
   expect(exportSelection).not.toContain('candidates[0] || null');
@@ -271,7 +270,7 @@ test('Refactor 74 Phase 9 uses typed restore and companion attachment outcomes',
   expect(companionSessions).toContain("kind: 'signing_grant_exact'");
   expect(companionSessions).toContain("kind: 'latest_wallet_record'");
   expect(companionSessions).toContain("kind: 'exact_match'");
-  expect(companionSessions).toContain("kind: 'ambiguous'");
+  expect(companionSessions).toContain("kind: 'duplicate_records'");
   expect(companionSessions).toContain("kind: 'display_only_fallback'");
   expect(companionSessions).not.toContain('walletScopedRecords.length ? walletScopedRecords : records');
   expect(companionSessions).not.toContain(
@@ -336,7 +335,7 @@ test('Refactor 74 Phase 9 keeps exact signing out of account-scoped restore disc
   const currentHydrateMatcher = sourceRangeBetween(
     thresholdWarmSessionBootstrap,
     'function ed25519RestoreIdentityMismatchReasons(args: {',
-    'function mostRecentEd25519SealedSessionRecord(',
+    'type ExactEd25519WorkerMaterialRestoreRecordSelection =',
   );
   const currentHydrateImplementation = sourceRangeBetween(
     thresholdWarmSessionBootstrap,
@@ -350,13 +349,13 @@ test('Refactor 74 Phase 9 keeps exact signing out of account-scoped restore disc
   );
   expect(exactHydrateSignature).toContain('signingGrantId: string;');
   expect(exactRestoreSelection).toContain("kind: 'exact_match'");
-  expect(exactRestoreSelection).toContain("kind: 'ambiguous'");
+  expect(exactRestoreSelection).toContain("kind: 'duplicate_records'");
   expect(exactRestoreSelection).toContain("kind: 'not_found'");
   expect(exactHydrateImplementation).toContain(
-    'selectExactEd25519WorkerMaterialRestoreRecord(materialRecords)',
+    'selectSingleEd25519WorkerMaterialRestoreRecord(materialRecords)',
   );
   expect(exactHydrateImplementation).toContain(
-    "pendingReason: 'durable_restore_ambiguous_worker_material'",
+    "pendingReason: 'duplicate_worker_material_records'",
   );
   expect(exactHydrateImplementation).not.toContain(
     'mostRecentEd25519SealedSessionRecord(materialRecords)',
@@ -370,10 +369,10 @@ test('Refactor 74 Phase 9 keeps exact signing out of account-scoped restore disc
   expect(currentHydrateMatcher).toContain('current.ed25519WorkerMaterialBindingDigest');
   expect(currentHydrateMatcher).toContain('restore.ed25519WorkerMaterialBindingDigest');
   expect(currentHydrateImplementation).toContain(
-    'selectExactEd25519WorkerMaterialRestoreRecord(matchingRecords)',
+    'selectSingleEd25519WorkerMaterialRestoreRecord(matchingRecords)',
   );
   expect(currentHydrateImplementation).toContain(
-    "pendingReason: 'durable_restore_ambiguous_worker_material'",
+    "pendingReason: 'duplicate_worker_material_records'",
   );
   expect(currentHydrateImplementation).not.toContain(
     'mostRecentEd25519SealedSessionRecord(matchingRecords)',

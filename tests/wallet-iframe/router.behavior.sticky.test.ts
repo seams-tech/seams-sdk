@@ -10,6 +10,9 @@ import {
   nearAccountRefFromAccountId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { ed25519KeyScopeIdFromString } from '@shared/utils/registrationIntent';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
@@ -19,6 +22,18 @@ const STICKY_NEAR_ACCOUNT = nearAccountRefFromAccountId('sticky.testnet');
 const STICKY_WALLET_SESSION = walletSessionRefFromSession({
   walletId: 'sticky.testnet',
   walletSessionUserId: 'sticky.testnet',
+});
+const STICKY_NEAR_EXPORT_LANE = exactEd25519SigningLaneIdentity({
+  walletId: STICKY_WALLET_SESSION.walletId,
+  nearAccountId: 'sticky.testnet',
+  ed25519KeyScopeId: ed25519KeyScopeIdFromString('sticky.testnet'),
+  auth: {
+    kind: 'passkey',
+    rpId: toRpId('example.test'),
+    credentialIdB64u: 'credential-sticky-export',
+  },
+  signingGrantId: 'grant-sticky-export',
+  thresholdSessionId: 'threshold-sticky-export',
 });
 
 const stickyResponseScript = String.raw`
@@ -164,6 +179,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource,
         routerPath,
         stickyNearAccount,
+        stickyExportLaneIdentity,
         stickyWalletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
@@ -186,6 +202,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
             kind: 'near',
             walletSession: stickyWalletSession,
             nearAccount: stickyNearAccount,
+            laneIdentity: stickyExportLaneIdentity,
             options: {
               chain: 'near',
             },
@@ -224,6 +241,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
         stickyNearAccount: STICKY_NEAR_ACCOUNT,
+        stickyExportLaneIdentity: STICKY_NEAR_EXPORT_LANE,
         stickyWalletSession: STICKY_WALLET_SESSION,
       },
     );
@@ -248,6 +266,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource,
         routerPath,
         stickyNearAccount,
+        stickyExportLaneIdentity,
         stickyWalletSession,
       }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
@@ -270,6 +289,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
             kind: 'near',
             walletSession: stickyWalletSession,
             nearAccount: stickyNearAccount,
+            laneIdentity: stickyExportLaneIdentity,
             options: {
               chain: 'near',
             },
@@ -324,6 +344,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
         stickyNearAccount: STICKY_NEAR_ACCOUNT,
+        stickyExportLaneIdentity: STICKY_NEAR_EXPORT_LANE,
         stickyWalletSession: STICKY_WALLET_SESSION,
       },
     );

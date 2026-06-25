@@ -46,7 +46,7 @@ function createRegistrationAccountScopeFixture(): ThresholdEd25519RegistrationAc
   return {
     kind: 'generated_implicit_registration_scope',
     walletId: 'alice.near',
-    rpId: 'example.localhost',
+    walletKeyId: 'alice.near',
     intentDigestB64u: 'intent-digest',
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: 'v1',

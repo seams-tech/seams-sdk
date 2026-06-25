@@ -1178,8 +1178,9 @@ Selection rules:
   diagnostics and repair only;
 - `listPasskeyVisibleMaterials(...)` cannot provide authority material for a
   different exact lane;
-- `findSharedEvmFamilyEcdsaSessionRecordForLane(...)` returns duplicate failure
-  when more than one source-chain material record matches.
+- shared EVM-family source-material lookup does not rank by timestamp; obsolete
+  broad helpers are deleted, and live shared-material authority paths return
+  duplicate failure when more than one source-chain material record matches.
 
 Tests:
 
@@ -1493,3 +1494,87 @@ Browser evidence after implementation:
 - Unit tests prove duplicate records fail closed.
 - Unit tests prove implicit `walletId !== nearAccountId` signing identity works.
 - Browser evidence shows normal unlock/signing paths still work.
+
+## Review: Auditor Pass, 2026-06-25
+
+Status: auditor findings addressed in code and validation is green.
+The HSS crate context cleanup is aligned: ECDSA-HSS is digest-only, and
+Ed25519-HSS is digest plus participant ids. The SDK/server boundary modeling
+and exact-lane propagation gaps from this pass have been closed.
+
+Inventory reviewed from `git diff` covered the Refactor 79 implementation
+surface across signer-core, near-signer WASM, server threshold service, SDK web
+public/iframe APIs, signing engine recovery/signing/session code, UiConfirm,
+guards, and focused tests.
+
+Findings to fix before completion:
+
+- [x] P0: `pnpm -C packages/sdk-web -s type-check` fails. Some migrated code expects
+  `{ lane: ExactEcdsaSigningLaneIdentity }`, while callers still pass partial
+  `{ walletId, chainTarget, thresholdSessionId }` shapes. Finish the exact-lane
+  type migration end to end before claiming validation.
+  - Verified green after finishing the exact-lane wiring.
+- [x] P1: public and iframe key export payloads type `laneIdentity` as an exact
+  identity, then forward raw postMessage/API input directly. Add boundary
+  parsers that rebuild exact Ed25519/ECDSA lane identities with the canonical
+  builders and reject malformed or cross-wallet payloads before core export.
+  - Added runtime parsers for exact Ed25519/ECDSA identities and wired them
+    through direct public export plus iframe router/host boundaries.
+- [x] P1: Ed25519 registration HSS request/scope code still models wallet key scope
+  as `rpId`. Rename this registration/account-scope field to `walletKeyId` or
+  remove it if `ed25519KeyScopeId + signingRoot` is the real selector. Keep
+  `rpId` inside passkey/WebAuthn auth branches only.
+  - Renamed registration scope identity to `walletKeyId`, derive it from
+    `ed25519KeyScopeId`, and reject the stale scope `rpId` field.
+- [x] P2: warm ECDSA reconnect/provisioning still uses partial threshold-session
+  lookup shapes and has a `recordCandidates[0]` fallback. Replace these with
+  exact-lane capability/readiness lookups and duplicate-specific failures.
+  - Reconnect and bootstrap readiness now use exact ECDSA lanes, and the
+    first-candidate fallback is removed.
+- [x] P2: budget consume fallback drops exact ECDSA identity by converting a lane
+  budget check into broad wallet/signingGrant/thresholdSession status query.
+  Carry `ExactSigningLaneIdentity` through the fallback or remove the fallback
+  from authority-sensitive budget consume paths.
+  - Budget fallback carries the original exact ECDSA budget lane through status
+    reads.
+- [x] P2: export shared-key source errors still use `ambiguous_source` and
+  `ambiguous_candidates`. Rename these to duplicate-specific names such as
+  `duplicate_shared_key_targets`.
+- [x] P3: `refactor79ExactSigningLane.guard.unit.test.ts` scans too small a file
+  set for first-candidate and broad authority patterns. Expand it to cover
+  warm capability/provisioning, public/iframe export boundaries, UiConfirm, and
+  all authority-bearing signing/export/restore/budget files.
+  - Expanded guard inventory and added export-boundary plus Ed25519 HSS
+    wallet-key guard checks.
+- [x] Phase 4: transaction signing no longer ranks runtime/auth-method
+  candidates by source, readiness, or timestamp. NEAR signing selects one exact
+  runtime lane or fails closed on duplicate exact authority records.
+- [x] Phase 5: key export execution requires a parsed exact lane identity at
+  public/core/iframe boundaries; broad inventory remains display-only.
+- [x] Phase 6: restore/discovery paths no longer pick newest account-scoped
+  material. Exact restore work returns duplicate-specific failures before
+  worker restore.
+- [x] Phase 7: budget consume/status fallback preserves the original exact lane
+  identity and no longer downgrades ECDSA to wallet/session-only status input.
+- [x] Phase 8: UiConfirm and iframe export payloads parse exact Ed25519/ECDSA
+  lane identities at the boundary before invoking authority paths.
+- [x] Phase 9: core signing/export/restore/budget unions and tests use
+  duplicate-specific names; stale `ambiguous` authority branches are removed.
+- [x] Phase 10: first-candidate/timestamp selectors, `walletId: AccountId`, and
+  wallet-id-to-NEAR-account projections are guarded in authority files. Stale
+  fixtures were updated to the digest-only HSS and split wallet/account model.
+
+Follow-up validation after fixes:
+
+- [x] `pnpm -C packages/sdk-web -s type-check`
+- [x] `pnpm -C packages/sdk-server-ts -s type-check`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/refactor74LegacyFallbacks.guard.unit.test.ts unit/walletScopedLookups.guard.unit.test.ts unit/refactor79ExactSigningLane.guard.unit.test.ts unit/evmFamilyEcdsaIdentity.unit.test.ts unit/emailOtpEcdsaSigningSessionAuth.unit.test.ts unit/ecdsaRoleLocalRecords.unit.test.ts unit/ecdsaSelection.restorable.unit.test.ts unit/exportLaneSelection.unit.test.ts unit/nearSigning.sessionSelection.unit.test.ts unit/signingSessionFreshness.unit.test.ts unit/warmSessionEd25519Persistence.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/emailOtpWalletSessionCoordinator.unit.test.ts unit/unlockEcdsaWarmupPlanner.unit.test.ts unit/thresholdEcdsa.hssWasmSurface.unit.test.ts unit/thresholdEcdsa.hssRoleLocalClientParser.unit.test.ts unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` (211 passed)
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/refactor79ExactSigningLane.guard.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/exportLaneSelection.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/warmSessionStore.reconnect.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/walletIframeHost.exportUi.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/evmFamilyStepUpProvisionPlan.unit.test.ts`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/thresholdEcdsa.emailOtpBootstrapCommit.unit.test.ts`
+- [x] `cargo test --manifest-path crates/ecdsa-hss/Cargo.toml`
+- [x] `cargo test --manifest-path crates/signer-core/Cargo.toml threshold_ecdsa_hss`
+- [x] `git diff --check`

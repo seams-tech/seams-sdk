@@ -62,6 +62,7 @@ const tempoChainTarget = {
 const walletId = toWalletId('restorable.testnet');
 const validThresholdEcdsaPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const validRelayerEcdsaPublicKeyB64u = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const applicationBindingDigestB64u = base64UrlEncode(new Uint8Array(32).fill(7));
 const contextBinding32B64u = base64UrlEncode(new Uint8Array(32).fill(8));
 const stateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(9));
 const passkeyCredentialIdB64u = 'restorable-passkey-credential';
@@ -289,6 +290,7 @@ function roleLocalReadyRecordForCandidate(
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
+    applicationBindingDigestB64u,
     contextBinding32B64u,
     hssClientSharePublicKey33B64u: validThresholdEcdsaPublicKeyB64u,
     relayerPublicKey33B64u: validRelayerEcdsaPublicKeyB64u,

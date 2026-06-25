@@ -24,7 +24,22 @@ function makeExportKeypairReq(requestId: string): any {
     requestId,
     payload: {
       kind: 'near',
+      walletSession: {
+        walletId: 'wallet-export-host',
+        walletSessionUserId: 'wallet-export-host',
+      },
       nearAccount: { kind: 'named', accountId: 'alice.testnet' },
+      laneIdentity: {
+        kind: 'exact_ed25519_signing_lane_identity',
+        curve: 'ed25519',
+        chainFamily: 'near',
+        walletId: 'wallet-export-host',
+        nearAccountId: 'alice.testnet',
+        ed25519KeyScopeId: 'alice.testnet',
+        auth: { kind: 'passkey', rpId: 'example.test', credentialIdB64u: 'cred-export-host' },
+        signingGrantId: 'grant-export-host',
+        thresholdSessionId: 'threshold-export-host',
+      },
       options: {
         chain: 'near',
         variant: 'drawer',
@@ -40,6 +55,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     const progress: unknown[] = [];
     const deferred = createDeferred<void>();
     let exportCalls = 0;
+    let exportedInput: any;
 
     const handlers = createWalletIframeHandlers({
       getSeamsWeb: () =>
@@ -47,6 +63,7 @@ test.describe('wallet iframe host export UI handlers', () => {
           keys: {
             exportKeypairWithUI: async (input: any) => {
               exportCalls += 1;
+              exportedInput = input;
               input.options?.onEvent?.({
                 version: 2,
                 flow: 'key_export',
@@ -72,6 +89,13 @@ test.describe('wallet iframe host export UI handlers', () => {
     await Promise.resolve();
 
     expect(exportCalls).toBe(1);
+    expect(exportedInput.laneIdentity).toEqual(
+      expect.objectContaining({
+        kind: 'exact_ed25519_signing_lane_identity',
+        signingGrantId: 'grant-export-host',
+        thresholdSessionId: 'threshold-export-host',
+      }),
+    );
     expect(progress).toEqual([
       expect.objectContaining({
         flow: 'key_export',

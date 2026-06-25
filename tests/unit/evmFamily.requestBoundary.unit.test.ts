@@ -18,6 +18,7 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   createThresholdEcdsaBootstrapFixture,
@@ -26,7 +27,9 @@ import {
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
-import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
+import {
+  thresholdEcdsaSessionRecordReadModel,
+} from '@/core/signingEngine/session/persistence/records';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const WALLET_KEY_ID = 'wallet-key-request-boundary';
@@ -55,6 +58,11 @@ function authenticatedEcdsaBudgetCheck(args: {
     kind: 'authenticated_ecdsa_lane_budget_status_check',
     key,
     keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle'),
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId('localhost'),
+      credentialIdB64u: 'credential-id',
+    },
     chainTarget: budgetChainTarget,
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
@@ -173,7 +181,7 @@ test.describe('EVM-family request boundaries', () => {
 });
 
 test.describe('Trusted wallet signing budget status', () => {
-  test('resolves ECDSA budget auth from the exact chain target when session ids are shared', async () => {
+  test('does not derive ECDSA budget auth from stored session records', async () => {
     const ecdsaSessions = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaSessions);
     const walletId = 'budget-shared-target.testnet';
@@ -244,18 +252,18 @@ test.describe('Trusted wallet signing budget status', () => {
         buildEcdsaLaneBudgetStatusCheck({
           key: thresholdEcdsaSessionRecordReadModel(evmRecord).key,
           keyHandle: evmRecord.keyHandle,
+          auth: {
+            kind: 'email_otp',
+            providerSubjectId: 'budget-shared-target-subject',
+          },
           chainTarget: evmTarget,
           signingGrantId,
           thresholdSessionId,
         }),
       );
 
-      expect(status).toMatchObject({
-        sessionId: signingGrantId,
-        status: 'active',
-        remainingUses: 2,
-      });
-      expect(authorizations).toEqual([`Bearer ${evmRecord.walletSessionJwt}`]);
+      expect(status).toBeNull();
+      expect(authorizations).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }

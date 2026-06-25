@@ -20,6 +20,8 @@ import {
 } from '@/core/signingEngine/session/keyMaterialBrands';
 
 const nearAccountId = toAccountId('ed25519-material-retention.testnet');
+const walletId = 'frost-vermillion-k7p9m2';
+const ed25519KeyScopeId = walletId;
 const thresholdSessionId = 'threshold-ed25519-material-retention';
 const signingGrantId = 'signing-grant-ed25519-material-retention';
 const runtimePolicyScope = {
@@ -61,8 +63,10 @@ function fixtureEd25519WalletSessionJwt(args: {
   const payload = Buffer.from(
     JSON.stringify({
       kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-      sub: nearAccountId,
-      walletId: nearAccountId,
+      sub: walletId,
+      walletId,
+      nearAccountId,
+      ed25519KeyScopeId,
       thresholdSessionId: args.sessionId,
       signingGrantId: args.grantId,
       relayerKeyId: 'ed25519:material-retention-relayer',
@@ -79,9 +83,9 @@ function persistMaterialBackedSession(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
-    walletId: String(nearAccountId),
+    walletId,
     nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
+    ed25519KeyScopeId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -115,9 +119,9 @@ function persistRuntimeHandleOnlySession(args: { signingWorkerId: string }): voi
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
-    walletId: String(nearAccountId),
+    walletId,
     nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
+    ed25519KeyScopeId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -147,9 +151,9 @@ function remintSessionWithoutMaterial(args: { signingWorkerId: string }): void {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
-    walletId: String(nearAccountId),
+    walletId,
     nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
+    ed25519KeyScopeId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',
@@ -178,9 +182,9 @@ function remintNewSessionWithoutMaterial(args: {
   persistWarmSessionEd25519Capability({
     kind: 'jwt_passkey',
     passkeyCredentialIdB64u: 'credential-ed25519-material-retention',
-    walletId: String(nearAccountId),
+    walletId,
     nearAccountId,
-    ed25519KeyScopeId: String(nearAccountId),
+    ed25519KeyScopeId,
     rpId: 'localhost',
     relayerUrl: 'https://localhost:9444',
     relayerKeyId: 'ed25519:material-retention-relayer',

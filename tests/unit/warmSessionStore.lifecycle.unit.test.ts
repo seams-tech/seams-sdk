@@ -10,6 +10,7 @@ import {
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/persistence/records';
 
 test.describe('WarmSessionStore lifecycle', () => {
   test('returns an empty envelope when no warm-session records exist', async () => {
@@ -349,8 +350,7 @@ test.describe('WarmSessionStore lifecycle', () => {
 
     expect(
       store.resolveEcdsaSealTransportByThresholdSessionId({
-        thresholdSessionId: evmRecord.thresholdSessionId,
-        chainTarget: testEcdsaChainTarget('evm'),
+        lane: toExactEcdsaSigningLaneIdentity(evmRecord),
       }),
     ).toMatchObject({
       curve: 'ecdsa',

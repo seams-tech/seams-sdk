@@ -23,6 +23,7 @@ import {
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
+  toExactEcdsaSigningLaneIdentity,
   thresholdEcdsaSessionRecordReadModel,
   thresholdEcdsaRecordRpId,
   type ConsumeSingleUseEmailOtpEcdsaLaneCommand,
@@ -71,6 +72,7 @@ import {
   assertWarmSessionEcdsaOperationAllowed,
 } from '@/core/signingEngine/session/operationState/warmSessionPolicyAdapter';
 import { createWarmSessionStatusReader as createCoreWarmSessionStatusReader } from '@/core/signingEngine/session/warmCapabilities/statusReader';
+import type { ResolveExactEcdsaRecordResult } from '@/core/signingEngine/session/warmCapabilities/statusReader';
 import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
 import type {
@@ -117,7 +119,7 @@ function hexAddressToBase64Url(address: string): string {
 
 function fixtureRouterAbEcdsaHssNormalSigning(args: {
   walletId: string;
-  rpId: string;
+  walletKeyId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -129,7 +131,7 @@ function fixtureRouterAbEcdsaHssNormalSigning(args: {
   return {
     kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
     scope: {
-      wallet_key_id: args.rpId,
+      wallet_key_id: args.walletKeyId,
       wallet_id: args.walletId,
       ecdsa_threshold_key_id: args.ecdsaThresholdKeyId,
       signing_root_id: args.signingRootId,
@@ -251,6 +253,61 @@ export function createThresholdEcdsaStoreFixture(): ThresholdEcdsaSessionStoreDe
   };
 }
 
+function exactEcdsaRecordOrNull(
+  result: ResolveExactEcdsaRecordResult,
+): ThresholdEcdsaSessionRecord | null {
+  switch (result.kind) {
+    case 'found':
+      return result.record;
+    case 'not_found':
+      return null;
+    case 'duplicate_records':
+      throw new Error('duplicate exact ECDSA records in test fixture');
+  }
+  result satisfies never;
+  throw new Error('unsupported exact ECDSA record result in test fixture');
+}
+
+function resolveFixtureExactEcdsaRecord(args: {
+  statusReader: ReturnType<typeof createCoreWarmSessionStatusReader>;
+  record: ThresholdEcdsaSessionRecord | null | undefined;
+  source?: ThresholdEcdsaSessionStoreSource;
+}): ThresholdEcdsaSessionRecord | null {
+  if (!args.record) return null;
+  return (
+    exactEcdsaRecordOrNull(
+      args.statusReader.resolveExactEcdsaRecord({
+        lane: toExactEcdsaSigningLaneIdentity(args.record),
+        ...(args.source ? { source: args.source } : {}),
+      }),
+    ) || args.record
+  );
+}
+
+function chooseFixtureEcdsaRecordCandidate(args: {
+  primary: ThresholdEcdsaSessionRecord | null | undefined;
+  secondary: ThresholdEcdsaSessionRecord | null | undefined;
+  thresholdSessionId: string;
+}): ThresholdEcdsaSessionRecord | null {
+  const candidates = [args.primary, args.secondary].filter(
+    (record): record is ThresholdEcdsaSessionRecord => Boolean(record),
+  );
+  if (!args.thresholdSessionId) return candidates[0] || null;
+  return (
+    candidates.find(
+      (record) => String(record.thresholdSessionId || '').trim() === args.thresholdSessionId,
+    ) || null
+  );
+}
+
+function requireFixtureEcdsaRecord(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+  message: string,
+): ThresholdEcdsaSessionRecord {
+  if (record) return record;
+  throw new Error(message);
+}
+
 export function resetWarmSessionFixtureState(deps: ThresholdEcdsaSessionStoreDeps): void {
   ensureWarmSessionTestStorage().clear();
   clearAllStoredThresholdEd25519SessionRecords();
@@ -328,6 +385,12 @@ export function seedEd25519WarmSessionRecord(
     thresholdSessionKind: args.thresholdSessionKind || 'jwt',
     thresholdSessionId: args.thresholdSessionId,
     signingGrantId,
+    ...(args.source === 'email_otp'
+      ? {}
+      : {
+          passkeyCredentialIdB64u:
+            args.passkeyCredentialIdB64u || `passkey-credential-${args.thresholdSessionId}`,
+        }),
     ...(walletSessionJwt ? { walletSessionJwt } : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
@@ -424,6 +487,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const signingGrantId = String(args.signingGrantId || `wsess-${sessionId}`).trim();
   const signingRootId = String(args.signingRootId || 'sr-test:dev').trim();
   const signingRootVersion = String(args.signingRootVersion || 'default').trim();
+  const walletKeyId = `wallet-key-${args.nearAccountId}`;
   const runtimePolicyScope =
     args.runtimePolicyScope ||
     fixtureRuntimePolicyScopeFromSigningRoot(signingRootId, signingRootVersion);
@@ -450,7 +514,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     },
     publicFacts: buildEcdsaRoleLocalPublicFacts({
       walletId: toWalletId(args.nearAccountId),
-      walletKeyId: `wallet-key-${args.nearAccountId}`,
+      walletKeyId,
       rpId,
       chainTarget,
       keyHandle,
@@ -461,6 +525,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       relayerParticipantId: 2,
       participantIds,
       contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
+      applicationBindingDigestB64u: VALID_ECDSA_SHARE32_B64U,
       hssClientSharePublicKey33B64u: clientVerifyingShareB64u,
       relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
@@ -504,7 +569,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ...(walletSessionJwt ? { walletSessionJwt } : {}),
       routerAbEcdsaHssNormalSigning: fixtureRouterAbEcdsaHssNormalSigning({
         walletId: args.nearAccountId,
-        rpId,
+        walletKeyId,
         ecdsaThresholdKeyId,
         signingRootId,
         signingRootVersion,
@@ -520,7 +585,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     passkeyCredentialIdB64u,
 	    keygen: {
 	      ok: true,
-	      walletKeyId: rpId,
+	      walletKeyId,
 	      ecdsaThresholdKeyId,
       clientVerifyingShareB64u,
       relayerKeyId,
@@ -602,8 +667,16 @@ export function seedEcdsaWarmSessionRecord(
           retention: 'session',
           reason: 'login',
           authMethod: 'email_otp',
+          authSubjectId: args.nearAccountId,
         } satisfies ThresholdEcdsaEmailOtpAuthContext)
       : undefined);
+  const normalizedEmailOtpAuthContext =
+    source === 'email_otp' && emailOtpAuthContext
+      ? {
+          ...emailOtpAuthContext,
+          authSubjectId: emailOtpAuthContext.authSubjectId || args.nearAccountId,
+        }
+      : emailOtpAuthContext;
   const bootstrap =
     args.bootstrap ||
     (source === 'email_otp'
@@ -611,7 +684,7 @@ export function seedEcdsaWarmSessionRecord(
           nearAccountId: args.nearAccountId,
           chain: args.chain,
           roleLocalAuthMethod: 'email_otp',
-          emailOtpAuthSubjectId: emailOtpAuthContext?.authSubjectId || args.nearAccountId,
+          emailOtpAuthSubjectId: normalizedEmailOtpAuthContext?.authSubjectId || args.nearAccountId,
         })
       : createThresholdEcdsaBootstrapFixture({
           nearAccountId: args.nearAccountId,
@@ -643,12 +716,13 @@ export function seedEcdsaWarmSessionRecord(
         ...baseArgs,
         source: 'email_otp',
         emailOtpAuthContext:
-          emailOtpAuthContext ||
+          normalizedEmailOtpAuthContext ||
           ({
             policy: 'session',
             retention: 'session',
             reason: 'login',
             authMethod: 'email_otp',
+            authSubjectId: args.nearAccountId,
           } satisfies ThresholdEcdsaEmailOtpAuthContext),
       })
     : upsertThresholdEcdsaSessionFromBootstrap(deps, {
@@ -1065,6 +1139,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     getEd25519CapabilityByThresholdSessionId:
       capabilityReader.getEd25519CapabilityByThresholdSessionId,
     getEcdsaCapabilityByThresholdSessionId: capabilityReader.getEcdsaCapabilityByThresholdSessionId,
+    getEcdsaCapabilityForLane: capabilityReader.getEcdsaCapabilityForLane,
     resolveEcdsaSealTransportByThresholdSessionId:
       capabilityReader.resolveEcdsaSealTransportByThresholdSessionId,
     provisionEd25519Capability: (args: ProvisionWarmEd25519CapabilityArgs) =>
@@ -1126,26 +1201,25 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           warmSession,
           chainTarget,
         });
-        const candidateRecord =
-          statusReader.resolveExactEcdsaRecord({
-            walletId,
-            chainTarget,
-            thresholdSessionId:
-              exactThresholdSessionId ||
-              primary.record?.thresholdSessionId ||
-              secondary.record?.thresholdSessionId ||
-              '',
-            ...(args.source ? { source: args.source } : {}),
-          }) ||
-          primary.record ||
-          secondary.record;
+        const candidateRecord = resolveFixtureExactEcdsaRecord({
+          statusReader,
+          record: chooseFixtureEcdsaRecordCandidate({
+            primary: primary.record,
+            secondary: secondary.record,
+            thresholdSessionId: exactThresholdSessionId,
+          }),
+          ...(args.source ? { source: args.source } : {}),
+        });
         const record =
           candidateRecord ||
           (args.keyRef
-            ? statusReader.resolveExactEcdsaRecord({
-                walletId,
-                chainTarget,
-                thresholdSessionId: String(args.keyRef.thresholdSessionId || ''),
+            ? resolveFixtureExactEcdsaRecord({
+                statusReader,
+                record: chooseFixtureEcdsaRecordCandidate({
+                  primary: primary.record,
+                  secondary: secondary.record,
+                  thresholdSessionId: String(args.keyRef.thresholdSessionId || ''),
+                }),
                 ...(args.source ? { source: args.source } : {}),
               })
             : null);
@@ -1229,8 +1303,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           resolveExactEcdsaRecord: (
             recordArgs: Parameters<typeof statusReader.resolveExactEcdsaRecord>[0],
           ) => statusReader.resolveExactEcdsaRecord(recordArgs),
-          readEcdsaCapabilityByThresholdSessionId:
-            capabilityReader.getEcdsaCapabilityByThresholdSessionId,
+          readEcdsaCapabilityForLane: capabilityReader.getEcdsaCapabilityForLane,
           reconnectInFlightByCapability,
           onTransition: deps.onTransition,
         };
@@ -1301,8 +1374,21 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     }) =>
       ensureEcdsaPrfSealPersisted({
         touchConfirm: deps.touchConfirm,
-        chainTarget: testEcdsaChainTarget(args.chain || 'evm'),
-        thresholdSessionId: args.thresholdSessionId,
+        lane: toExactEcdsaSigningLaneIdentity(
+          requireFixtureEcdsaRecord(
+            resolveFixtureExactEcdsaRecord({
+              statusReader,
+              record: chooseFixtureEcdsaRecordCandidate({
+                primary: capabilityReader.resolveEcdsaRecordByThresholdSessionId(
+                  args.thresholdSessionId,
+                ),
+                secondary: null,
+                thresholdSessionId: args.thresholdSessionId,
+              }),
+            }),
+            'test ECDSA seal persistence requires exact session record',
+          ),
+        ),
         required: args.required,
         errorContext: args.errorContext,
         sealPersistInFlightBySessionId,
@@ -1323,9 +1409,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           clearEcdsaEphemeralMaterial,
         },
         {
-          walletId: toWalletId(args.walletId),
-          chainTarget: testEcdsaChainTarget(args.chain),
-          thresholdSessionId: args.thresholdSessionId || args.selectedRecord.thresholdSessionId,
+          lane: toExactEcdsaSigningLaneIdentity(args.selectedRecord),
           selectedRecord: args.selectedRecord,
         },
       ),
@@ -1343,10 +1427,13 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
         },
         {
-          walletId: toWalletId(args.walletId),
-          chainTarget: testEcdsaChainTarget(args.chain),
+          lane: toExactEcdsaSigningLaneIdentity(
+            requireFixtureEcdsaRecord(
+              capabilityReader.resolveEcdsaRecordByThresholdSessionId(args.thresholdSessionId || ''),
+              'test ECDSA operation allowed requires exact session record',
+            ),
+          ),
           operationLabel: args.operationLabel,
-          thresholdSessionId: args.thresholdSessionId || '',
           source: args.source || 'login',
           sensitivePolicy: args.sensitivePolicy,
         },

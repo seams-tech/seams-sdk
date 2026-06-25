@@ -11,7 +11,6 @@ import {
 } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
 import {
   parseEd25519ClientVerifyingShareB64u,
-  parseEd25519HssKeyVersion,
   parseEd25519RelayerKeyId,
   parseEd25519WorkerMaterialHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -79,7 +78,6 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       signingRootId: 'root',
       signingRootVersion: 'v1',
       relayerKeyId,
-      ed25519HssKeyVersion: parseEd25519HssKeyVersion(thresholdKeyMaterial.keyVersion),
       participantIds: [1, 2],
       clientVerifyingShareB64u,
       createdAtMs: thresholdKeyMaterial.timestamp,
@@ -155,7 +153,6 @@ test.describe('threshold Ed25519 HSS material handles', () => {
       signingRootId: 'project:env',
       signingRootVersion: 'v1',
       relayerKeyId: parseEd25519RelayerKeyId('ed25519:relayer'),
-      ed25519HssKeyVersion: parseEd25519HssKeyVersion('threshold-ed25519-hss-v1'),
       participantIds: [1, 2],
       clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u('clientVerifier'),
       createdAtMs: 1_700_000_000_000,
@@ -175,7 +172,6 @@ test.describe('threshold Ed25519 HSS material handles', () => {
         signingRootVersion: 'v1',
       },
       relayerKeyId: parseEd25519RelayerKeyId('ed25519:relayer'),
-      ed25519HssKeyVersion: parseEd25519HssKeyVersion('threshold-ed25519-hss-v1'),
       participantIds: [1, 2],
       signingWorkerId: 'signing-worker',
       expiresAtMs: 1_900_000_000_000,
@@ -191,19 +187,19 @@ test.describe('threshold Ed25519 HSS material handles', () => {
     };
 
     expect(alphabetizeStringify(material.materialBinding)).toBe(
-      '{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","keyVersion":"threshold-ed25519-hss-v1","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}',
+      '{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"QDtJ9s3eNu8ecQFtOjGMJbLl8xxYa51wWkZP9mYHw2s","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}',
     );
     expect(material.materialBinding.materialKeyId).toBe(
-      '68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo',
+      'QDtJ9s3eNu8ecQFtOjGMJbLl8xxYa51wWkZP9mYHw2s',
     );
     expect(material.materialBindingDigest).toBe(
-      'nVj1qAfSRNkAiFqo-AOhidltXdCj5rsvPiVmfxTalZY',
+      'ZRl3OBrSzEAFV2jNbvD-WF57_p5yx9i2pobniVbjXvI',
     );
     expect(await digestCanonicalJsonB64u(sessionBinding)).toBe(
-      'SBCUK9pp4dT3AHPupQgx7MoIQ-RXq3aFKhxbucibB1o',
+      'L0BQaXwQVxiRaM8Ozd_0jy47RdbsoSEr9nHilYUPnUU',
     );
     expect(await digestCanonicalJsonB64u(aad)).toBe(
-      '2RLqwrXrAy5p30JhaSYf2ncZJJDMpBVN_-LmcSVLyw8',
+      'Ow3IqASEpjcNyxgxnueF-jK2mKfsjc7UJ6GHZSkfBWU',
     );
   });
 });

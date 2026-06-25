@@ -593,14 +593,17 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
       ) {
         const preparedSession = payload?.preparedSession;
         const finalizedReport = responseJson.finalizedReport;
+        if (Object.prototype.hasOwnProperty.call(responseJson, 'keyVersion')) {
+          throw new Error('threshold Ed25519 HSS finalize response must not echo keyVersion');
+        }
         const registrationMaterial =
           await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
             preparedSession,
             preparedServerSession: { preparedSessionHandle: '' },
-            keyVersion: String(responseJson?.keyVersion || TEST_KEY_VERSION).trim(),
             finalizedReport,
             serverOutput: responseJson.serverOutput,
           });
+        const keyVersion = TEST_KEY_VERSION;
         const keyStore = (
           input.threshold as {
             keyStore?: {
@@ -626,7 +629,7 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
             publicKey: registrationMaterial.publicKey,
             relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
             relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
-            keyVersion: registrationMaterial.keyVersion,
+            keyVersion,
             recoveryExportCapable: true,
           });
         }

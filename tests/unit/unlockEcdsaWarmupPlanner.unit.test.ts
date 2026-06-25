@@ -28,6 +28,9 @@ const OWNER_ADDRESS = `0x${'ab'.repeat(20)}`;
 const PUBLIC_KEY_33_B64U = Buffer.from([2, ...Array(32).fill(7)]).toString('base64url');
 const RELAYER_PUBLIC_KEY_33_B64U = Buffer.from([3, ...Array(32).fill(9)]).toString('base64url');
 const CONTEXT_BINDING_32_B64U = Buffer.from(new Uint8Array(32).fill(6)).toString('base64url');
+const APPLICATION_BINDING_DIGEST_32_B64U = Buffer.from(new Uint8Array(32).fill(7)).toString(
+  'base64url',
+);
 const STATE_BLOB_B64U = Buffer.from(new Uint8Array(96).fill(8)).toString('base64url');
 
 const EVM_TARGET = {
@@ -129,7 +132,7 @@ function parseKeyFactsInventoryRequired(
 function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaSessionRecord {
   return {
     walletId: WALLET_ID,
-    authMetadata: { walletKeyId: RP_ID },
+    authMetadata: { walletKeyId: 'wallet-key-unlock-warmup' },
     chainTarget: active.chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: active.walletKey.keyHandle,
@@ -149,12 +152,12 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
       publicFacts: buildEcdsaRoleLocalPublicFacts({
         walletId: WALLET_ID,
         walletKeyId: 'wallet-key-unlock-warmup',
-        rpId: RP_ID,
         chainTarget: active.chainTarget,
         keyHandle: active.walletKey.keyHandle,
         ecdsaThresholdKeyId: 'ehss-shared',
         signingRootId: 'project:dev',
         signingRootVersion: 'default',
+        applicationBindingDigestB64u: APPLICATION_BINDING_DIGEST_32_B64U,
         clientParticipantId: 1,
         relayerParticipantId: 2,
         participantIds: [1, 2],
@@ -354,7 +357,7 @@ test.describe('unlock ECDSA warm-up planner', () => {
       blockedRecords: [
         {
           targetKey: 'evm:eip155:5042002',
-          reason: 'ambiguous_key_handle',
+          reason: 'duplicate_key_handles',
           signerId: 'signer-two',
         },
       ],

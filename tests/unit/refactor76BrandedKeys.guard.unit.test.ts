@@ -191,7 +191,7 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
       expect(source).toContain("parseEcdsaHssKeyVersion");
       expect(source).toContain("parseSigningSessionSealKeyVersion");
     }
-    expect(ed25519Binding).toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
+    expect(ed25519Binding).not.toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
     expect(ed25519Binding).not.toContain('keyVersion: string;');
     expect(warmSessionBootstrap).toContain('ed25519HssKeyVersion: Ed25519HssKeyVersion');
     expect(warmSessionBootstrap).toContain('return { ed25519HssKeyVersion:');
@@ -202,7 +202,6 @@ test.describe('Refactor 76 branded key and budget lifecycle guards', () => {
     expect(serverThresholdSigning).toContain(
       "const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = parseEcdsaHssKeyVersion('v1')",
     );
-    expect(serverThresholdSigning).toContain('keyVersion: EcdsaHssKeyVersion');
     expect(serverThresholdSigning).toContain('parseEcdsaHssKeyVersionOrDefault');
     expect(serverThresholdSigning).toContain('ecdsaHssKeyVersionWire');
     expect(serverEcdsaPoolFill).toContain('parseEcdsaHssKeyVersion');

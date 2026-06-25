@@ -100,6 +100,7 @@ function coordinatorFor(record: ThresholdEd25519SessionRecord): WarmSessionCapab
     resolveEmailOtpSigningSessionAuthLane: () => null,
     getEd25519CapabilityByThresholdSessionId: async () => null,
     getEcdsaCapabilityByThresholdSessionId: async () => null,
+    getEcdsaCapabilityForLane: async () => null,
     resolveEcdsaSealTransportByThresholdSessionId: () => null,
   };
 }

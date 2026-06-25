@@ -1071,7 +1071,7 @@ function addSignerAndDeviceSyncUseSharedSealedWorkerMaterialSetup(): void {
     'materialKeyId: signingMaterial.materialKeyId',
     'materialCreatedAtMs: materialBinding.createdAtMs',
     'signerSlot: signingMaterial.signerSlot',
-    'keyVersion: signingMaterial.keyVersion',
+    'keyVersion,',
   ] as const) {
     if (!reconstructHelper.includes(marker)) {
       offenders.push(`shared Ed25519 reconstruction helper missing ${marker}`);

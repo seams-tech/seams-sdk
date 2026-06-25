@@ -72,6 +72,7 @@ const hssClientSharePublicKey33B64u = compressedPublicKeyB64u(2, 11);
 const relayerPublicKey33B64u = compressedPublicKeyB64u(3, 12);
 const groupPublicKey33B64u = compressedPublicKeyB64u(2, 13);
 const share32B64u = bytesB64u(32, 5);
+const applicationBindingDigestB64u = bytesB64u(32, 8);
 const ownerAddress = '0x0000000000000000000000000000000000000001';
 const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId('google:wallet.testnet');
 const passkeyAuthMethod = buildEcdsaRoleLocalPasskeyAuthMethod({
@@ -141,6 +142,7 @@ function publicFacts() {
     clientParticipantId: 1,
     relayerParticipantId: 2,
     participantIds: [1, 2],
+    applicationBindingDigestB64u,
     contextBinding32B64u: share32B64u,
     hssClientSharePublicKey33B64u,
     relayerPublicKey33B64u,
@@ -582,6 +584,7 @@ test.describe('ECDSA role-local record boundary parser', () => {
         relayerPublicKey33B64u,
         groupPublicKey33B64u,
         ethereumAddress: ownerAddress,
+        applicationBindingDigestB64u,
         contextBinding32B64u: share32B64u,
       },
       authMethod: {

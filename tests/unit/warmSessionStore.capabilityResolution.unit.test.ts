@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
+  toExactEcdsaSigningLaneIdentity,
+} from '@/core/signingEngine/session/persistence/records';
+import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
@@ -105,6 +108,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         retention: 'single_use',
         reason: 'login',
         authMethod: 'email_otp',
+        authSubjectId: 'email-otp-auth-state.testnet',
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'email-otp-auth-state.testnet',
@@ -132,6 +136,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       retention: 'single_use',
       reason: 'login',
       authMethod: 'email_otp',
+      authSubjectId: 'email-otp-auth-state.testnet',
     });
   });
 
@@ -148,6 +153,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         retention: 'session',
         reason: 'login',
         authMethod: 'email_otp',
+        authSubjectId: 'email-otp-exhausted-reauth.testnet',
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'email-otp-exhausted-reauth.testnet',
@@ -179,6 +185,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       retention: 'session',
       reason: 'login',
       authMethod: 'email_otp',
+      authSubjectId: 'email-otp-exhausted-reauth.testnet',
     });
     expect(
       store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
@@ -188,8 +195,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     });
     expect(
       store.resolveEmailOtpSigningSessionAuthLane({
-        thresholdSessionId: evmRecord.thresholdSessionId,
-        curve: 'ecdsa',
+        lane: toExactEcdsaSigningLaneIdentity(evmRecord),
       }),
     ).toMatchObject({
       kind: 'signing_session',

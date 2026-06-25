@@ -30,7 +30,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const accountId = `ecdsa-export-${Date.now()}.w3a-v1.testnet`;
             const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
@@ -70,6 +69,14 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 ok: false,
                 stage: 'registration',
                 error: String(registration?.error || 'registration failed'),
+              };
+            }
+            const accountId = String(registration.walletId || '').trim();
+            if (!accountId) {
+              return {
+                ok: false,
+                stage: 'registration',
+                error: 'registration did not return walletId',
               };
             }
 
@@ -151,18 +158,37 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
+            const chainTarget = {
+              kind: 'tempo' as const,
+              chainId: 42431,
+              networkSlug: 'tempo-testnet',
+            };
+            const recordsMod = await import(
+              '/sdk/esm/core/signingEngine/session/persistence/records.js'
+            );
+            const laneIdentities = (recordsMod as any)
+              .listStoredThresholdEcdsaSessionRecordsForWallet(accountId, { chainTarget })
+              .map((record: Record<string, unknown>) =>
+                (recordsMod as any).toExactEcdsaSigningLaneIdentity(record),
+              )
+              .filter((identity: Record<string, any>) => identity.auth?.kind === 'passkey');
+            if (laneIdentities.length !== 1) {
+              return {
+                ok: false,
+                stage: 'export',
+                error: `expected exactly one passkey ECDSA export lane identity, found ${laneIdentities.length}`,
+              };
+            }
+            const [laneIdentity] = laneIdentities;
+
             await seams.keys.exportKeypairWithUI({
               kind: 'ecdsa',
-              subjectId: accountId,
               walletSession: {
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              chainTarget: {
-                kind: 'tempo' as const,
-                chainId: 42431,
-                networkSlug: 'tempo-testnet',
-              },
+              chainTarget,
+              laneIdentity,
               options: {
                 variant: 'modal',
               },

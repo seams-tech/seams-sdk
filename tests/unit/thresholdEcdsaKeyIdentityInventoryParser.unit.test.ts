@@ -97,7 +97,6 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletKey: {
         kind: 'evm_family_ecdsa_wallet_key',
         walletId: WALLET_ID,
-        rpId: RP_ID,
         keyHandle: 'ehss-key-inventory',
         chainTarget: EVM_TARGET,
         keyFacts: {
@@ -114,7 +113,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     });
   });
 
-  test('rejects records that do not bind the expected wallet, rpId, and owner', () => {
+  test('rejects records that do not bind the expected wallet, passkey auth scope, and owner', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
       walletId: WALLET_ID,
       rpId: RP_ID,
@@ -180,7 +179,6 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       walletKey: {
         kind: 'evm_family_ecdsa_wallet_key',
         walletId: WALLET_ID,
-        rpId: RP_ID,
         keyHandle: 'ehss-key-inventory',
         chainTarget: EVM_TARGET,
       },
@@ -237,7 +235,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     expect(ambiguousKeyHandle).toEqual({
       kind: 'blocked',
       targetKey: 'evm:eip155:5042002',
-      reason: 'ambiguous_key_handle',
+      reason: 'duplicate_key_handles',
     });
     expect(invalidKeyHandle).toEqual({
       kind: 'blocked',

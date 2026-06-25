@@ -709,6 +709,60 @@ export async function runEmailOtpEcdsaTempoFlow(
       networkSlug: 'ethereum-sepolia',
     };
     const signingChainTarget = signingKind === 'eip1559' ? evmChainTarget : tempoChainTarget;
+    const resolveEmailOtpNearExportLaneIdentity = async () => {
+      const [recordsMod, exactMod] = await Promise.all([
+        import('/sdk/esm/core/signingEngine/session/persistence/records.js'),
+        import('/sdk/esm/core/signingEngine/session/identity/exactSigningLaneIdentity.js'),
+      ]);
+      const records = (recordsMod as any)
+        .listStoredThresholdEd25519SessionRecordsForWallet(accountId)
+        .filter((record: Record<string, unknown>) => record.source === 'email_otp');
+      const identities = records
+        .map((record: Record<string, unknown>) => {
+          const candidate = (recordsMod as any).thresholdEd25519LaneCandidateFromSessionRecord({
+            record,
+          });
+          return candidate
+            ? (exactMod as any).exactEd25519SigningLaneIdentity({
+                walletId: candidate.walletId,
+                nearAccountId: candidate.nearAccountId,
+                ed25519KeyScopeId: candidate.ed25519KeyScopeId,
+                auth: candidate.auth,
+                signingGrantId: candidate.signingGrantId,
+                thresholdSessionId: candidate.thresholdSessionId,
+              })
+            : null;
+        })
+        .filter(Boolean);
+      if (identities.length !== 1) {
+        throw new Error(
+          `expected exactly one Email OTP NEAR export lane identity, found ${identities.length}`,
+        );
+      }
+      const [identity] = identities;
+      return identity;
+    };
+    const resolveEmailOtpEcdsaExportLaneIdentity = async (
+      chainTarget: typeof signingChainTarget,
+    ) => {
+      const recordsMod = await import('/sdk/esm/core/signingEngine/session/persistence/records.js');
+      const records = (recordsMod as any)
+        .listStoredThresholdEcdsaSessionRecordsForWallet(accountId, {
+          chainTarget,
+          source: 'email_otp',
+        })
+        .map((record: Record<string, unknown>) =>
+          (recordsMod as any).toExactEcdsaSigningLaneIdentity(record),
+        )
+        .filter((identity: Record<string, any>) => identity.auth?.kind === 'email_otp');
+      if (records.length !== 1) {
+        throw new Error(
+          `expected exactly one Email OTP ECDSA export lane identity, found ${records.length}`,
+        );
+      }
+      const [identity] = records;
+      return identity;
+    };
     const makeThresholdEcdsaRequest = (tag: string) =>
       signingKind === 'eip1559'
         ? {
@@ -1250,6 +1304,7 @@ export async function runEmailOtpEcdsaTempoFlow(
                         const exported = await pm.keys.exportKeypairWithUI({
                           kind: 'near',
                           nearAccount: { accountId },
+                          laneIdentity: await resolveEmailOtpNearExportLaneIdentity(),
                           options: { chain: 'near', variant: 'drawer' },
                         });
                         return {
@@ -1281,6 +1336,9 @@ export async function runEmailOtpEcdsaTempoFlow(
                             walletId: accountId,
                             walletSessionUserId: accountId,
                           },
+                          laneIdentity: await resolveEmailOtpEcdsaExportLaneIdentity(
+                            signingChainTarget,
+                          ),
                           options: {
                             chain: bootstrapChain,
                             variant: 'drawer',
@@ -1963,6 +2021,60 @@ export async function runEmailOtpReloadPhase(
           chainId: 11155111,
           networkSlug: 'ethereum-sepolia',
         };
+        const resolveEmailOtpNearExportLaneIdentity = async () => {
+          const [recordsMod, exactMod] = await Promise.all([
+            import('/sdk/esm/core/signingEngine/session/persistence/records.js'),
+            import('/sdk/esm/core/signingEngine/session/identity/exactSigningLaneIdentity.js'),
+          ]);
+          const records = (recordsMod as any)
+            .listStoredThresholdEd25519SessionRecordsForWallet(accountId)
+            .filter((record: Record<string, unknown>) => record.source === 'email_otp');
+          const identities = records
+            .map((record: Record<string, unknown>) => {
+              const candidate = (recordsMod as any).thresholdEd25519LaneCandidateFromSessionRecord({
+                record,
+              });
+              return candidate
+                ? (exactMod as any).exactEd25519SigningLaneIdentity({
+                    walletId: candidate.walletId,
+                    nearAccountId: candidate.nearAccountId,
+                    ed25519KeyScopeId: candidate.ed25519KeyScopeId,
+                    auth: candidate.auth,
+                    signingGrantId: candidate.signingGrantId,
+                    thresholdSessionId: candidate.thresholdSessionId,
+                  })
+                : null;
+            })
+            .filter(Boolean);
+          if (identities.length !== 1) {
+            throw new Error(
+              `expected exactly one Email OTP NEAR export lane identity, found ${identities.length}`,
+            );
+          }
+          const [identity] = identities;
+          return identity;
+        };
+        const resolveEmailOtpEcdsaExportLaneIdentity = async (
+          chainTarget: typeof tempoChainTarget | typeof evmChainTarget,
+        ) => {
+          const recordsMod = await import('/sdk/esm/core/signingEngine/session/persistence/records.js');
+          const records = (recordsMod as any)
+            .listStoredThresholdEcdsaSessionRecordsForWallet(accountId, {
+              chainTarget,
+              source: 'email_otp',
+            })
+            .map((record: Record<string, unknown>) =>
+              (recordsMod as any).toExactEcdsaSigningLaneIdentity(record),
+            )
+            .filter((identity: Record<string, any>) => identity.auth?.kind === 'email_otp');
+          if (records.length !== 1) {
+            throw new Error(
+              `expected exactly one Email OTP ECDSA export lane identity, found ${records.length}`,
+            );
+          }
+          const [identity] = records;
+          return identity;
+        };
         const tempoRequest = (tag: string) => ({
           chain: 'tempo' as const,
           kind: 'tempoTransaction' as const,
@@ -2071,6 +2183,7 @@ export async function runEmailOtpReloadPhase(
               const exported = await pm.keys.exportKeypairWithUI({
                 kind: 'near',
                 nearAccount: { accountId },
+                laneIdentity: await resolveEmailOtpNearExportLaneIdentity(),
                 options: { chain: 'near', variant: 'drawer' },
               });
               pushResult({
@@ -2090,6 +2203,7 @@ export async function runEmailOtpReloadPhase(
                   walletId: accountId,
                   walletSessionUserId: accountId,
                 },
+                laneIdentity: await resolveEmailOtpEcdsaExportLaneIdentity(tempoChainTarget),
                 options: { chain: 'tempo', variant: 'drawer' },
               });
               pushResult({

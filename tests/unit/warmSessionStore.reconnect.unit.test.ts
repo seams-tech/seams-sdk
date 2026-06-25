@@ -101,7 +101,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
         getWarmSession: store.getWarmSession,
         ecdsaSessions: ecdsaStore,
         ...unusedNoPromptReconnectDeps,
-        restorePersistedSessionsForWallet: async (args) => {
+        discoverPersistedSessionsForWallet: async (args) => {
           restoreCalls += 1;
           expect(args).toMatchObject({
             walletId,
@@ -123,10 +123,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           };
           return {
             listed: 1,
-            attempted: 1,
-            restored: 1,
-            deferred: 0,
-            skipped: 0,
+            discovered: 1,
             truncated: 0,
           };
         },
@@ -192,10 +189,10 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       {
         getWarmSession: store.getWarmSession,
         ecdsaSessions: ecdsaStore,
-        restorePersistedSessionsForWallet: async (args) => {
+        discoverPersistedSessionsForWallet: async (args) => {
           restoreCalls += 1;
           expect(args).toMatchObject({
-            kind: 'restore_wallet_ecdsa_signing_sessions',
+            kind: 'discover_wallet_ecdsa_signing_sessions',
             walletId,
             authMethod: 'passkey',
             ecdsaChainTargets: [chainTarget],
@@ -216,10 +213,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           };
           return {
             listed: 1,
-            attempted: 1,
-            restored: 1,
-            deferred: 0,
-            skipped: 0,
+            discovered: 1,
             truncated: 0,
           };
         },
@@ -340,14 +334,11 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       {
         getWarmSession: store.getWarmSession,
         ecdsaSessions: ecdsaStore,
-        restorePersistedSessionsForWallet: async () => {
+        discoverPersistedSessionsForWallet: async () => {
           restoreCalls += 1;
           return {
             listed: 1,
-            attempted: 0,
-            restored: 0,
-            deferred: 0,
-            skipped: 1,
+            discovered: 1,
             truncated: 0,
           };
         },
@@ -434,14 +425,11 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
         getWarmSession: store.getWarmSession,
         ecdsaSessions: ecdsaStore,
         ...unusedNoPromptReconnectDeps,
-        restorePersistedSessionsForWallet: async () => {
+        discoverPersistedSessionsForWallet: async () => {
           restoreCalls += 1;
           return {
             listed: 0,
-            attempted: 0,
-            restored: 0,
-            deferred: 0,
-            skipped: 0,
+            discovered: 0,
             truncated: 0,
           };
         },

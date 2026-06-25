@@ -200,10 +200,25 @@ function loginReadySigningLanes(args: {
   authMethod: 'email_otp' | 'passkey';
 }): Record<string, unknown> {
   const expiresAtMs = Date.now() + 60_000;
+  const walletId = toWalletId(String(args.walletId || ACCOUNT_ID));
+  const auth =
+    args.authMethod === 'passkey'
+      ? {
+          kind: 'passkey',
+          rpId: 'example.localhost',
+          credentialIdB64u: 'cred-1',
+        }
+      : {
+          kind: 'email_otp',
+          providerSubjectId: String(walletId),
+        };
   const ed25519Lane = {
-    authMethod: args.authMethod,
+    auth,
     curve: 'ed25519',
     chain: 'near',
+    walletId,
+    nearAccountId: ACCOUNT_ID,
+    ed25519KeyScopeId: String(ACCOUNT_ID),
     state: 'ready',
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     thresholdSessionId: 'tsess-login-ed25519',
@@ -216,7 +231,7 @@ function loginReadySigningLanes(args: {
     [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET].map((chainTarget) => {
       const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
       const lane = {
-        authMethod: args.authMethod,
+        auth,
         curve: 'ecdsa',
         chainTarget,
         state: 'ready',
@@ -238,7 +253,7 @@ function loginReadySigningLanes(args: {
     }),
   );
   return {
-    walletId: toWalletId(String(args.walletId || ACCOUNT_ID)),
+    walletId,
     generation: Date.now(),
     ecdsa: {
       targets: [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET],
@@ -280,7 +295,6 @@ async function persistReadyEd25519WarmRecord(args: {
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
     relayerKeyId: parseEd25519RelayerKeyId('rk-1'),
-    ed25519HssKeyVersion: parseEd25519HssKeyVersion(ED25519_KEY_VERSION),
     participantIds: [1, 2],
     clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
       ED25519_CLIENT_VERIFYING_SHARE_B64U,
@@ -503,7 +517,6 @@ function createBaseContext(args?: {
             materialFormatVersion: 'ed25519_worker_material_v1',
             materialKeyId: String(expectedMaterialBinding.materialKeyId || ''),
             signerSlot: Number(expectedMaterialBinding.signerSlot || 1),
-            keyVersion: String(expectedMaterialBinding.keyVersion || ED25519_KEY_VERSION),
           };
         }
         if (call.request.type === 'thresholdEd25519ValidateWorkerMaterial') {
@@ -1331,14 +1344,11 @@ test.describe('unlock threshold warm-session requirements', () => {
     let clearCalls = 0;
     const context = createBaseContext({
       signingEngine: {
-        restorePersistedSessionsForWallet: async () => {
+        discoverPersistedSessionsForWallet: async () => {
           restoreCalls += 1;
           return {
             listed: 1,
-            attempted: 1,
-            restored: 1,
-            deferred: 0,
-            skipped: 0,
+            discovered: 1,
             truncated: 0,
           };
         },

@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
+import {
+  parseSdkEcdsaHssSigningRootId,
+  parseSdkEcdsaHssSigningRootVersion,
+} from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
+import { computeSdkEd25519HssApplicationBindingDigestB64u } from '../../packages/shared-ts/src/threshold/ed25519HssBinding';
+import { ed25519KeyScopeIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const IMPORT_PATHS = {
   thresholdWarmSessionBootstrap:
@@ -187,7 +193,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             nearAccountId,
             ed25519KeyScopeId,
             signerSlot: 1,
-            auth: { kind: 'passkey' },
+            auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             prfFirstB64u: 'prf-first-registration',
@@ -306,7 +312,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           signingWorkerId: 'signing-worker-local',
         };
         const hydrateInputs: Array<Record<string, unknown>> = [];
-        let hssContextKeyVersion: string | null = null;
         let sealAuthorizationMaterialKeyId: string | null = null;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -335,18 +340,16 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           const context = {
             signingEngine: {
-              prepareThresholdEd25519HssClientCeremonyFromCredential: async (input: {
-                keyVersion: string;
-              }) => {
-                hssContextKeyVersion = input.keyVersion;
-                return {
-                  ok: true,
+              prepareThresholdEd25519HssClientCeremonyFromCredential: async () => ({
+                ok: true,
+                hssContext: {
+                  applicationBindingDigestB64u: 'application-binding-digest',
                   participantIds: [1, 2],
-                  contextBindingB64u: 'context-binding',
-                  yClientB64u: 'y-client',
-                  tauClientB64u: 'tau-client',
-                };
-              },
+                },
+                contextBindingB64u: 'context-binding',
+                yClientB64u: 'y-client',
+                tauClientB64u: 'tau-client',
+              }),
               prepareThresholdEd25519PasskeyPrfWorkerMaterialSealAuthorization: async () => {
                 sealAuthorizationMaterialKeyId = 'material-key-reconstruct';
                 return {
@@ -363,9 +366,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   },
                 };
               },
-              runThresholdEd25519HssCeremonyWithMaterialHandle: async (input: {
-                context: { keyVersion: string };
-              }) => ({
+              runThresholdEd25519HssCeremonyWithMaterialHandle: async () => ({
                 ok: true,
                 signingMaterial: {
                   materialHandle: 'worker-material-handle',
@@ -374,7 +375,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   sealedWorkerMaterialB64u: 'sealed-worker-material',
                   materialFormatVersion: 'ed25519_worker_material_v1',
                   materialKeyId: 'material-key-reconstruct',
-                  keyVersion: input.context.keyVersion,
                   clientVerifyingShareB64u: 'client-verifier',
                   signerSlot: 1,
                 },
@@ -432,7 +432,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             hydrateCalls: hydrateInputs.length,
             hydrateTransportKeyVersion: hydrateTransport?.keyVersion ?? null,
             hydrateTransportWalletSessionJwt: hydrateTransport?.walletSessionJwt ?? null,
-            hssContextKeyVersion,
             sealAuthorizationMaterialKeyId,
             storedRecordKeyVersion: storedRecord?.keyVersion ?? null,
             storedRecordMaterialKeyId: storedRecord?.materialKeyId ?? null,
@@ -447,7 +446,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     expect(result.hydrateCalls).toBe(1);
     expect(result.hydrateTransportKeyVersion).toBeNull();
     expect(result.hydrateTransportWalletSessionJwt).toBe('jwt-registration-reconstruct');
-    expect(result.hssContextKeyVersion).toBe('threshold-ed25519-hss-v1');
     expect(result.sealAuthorizationMaterialKeyId).toBe('material-key-reconstruct');
     expect(result.storedRecordKeyVersion).toBe('threshold-ed25519-hss-v1');
     expect(result.storedRecordMaterialKeyId).toBe('material-key-reconstruct');
@@ -549,7 +547,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             nearAccountId,
             ed25519KeyScopeId,
             signerSlot: 1,
-            auth: { kind: 'passkey' },
+            auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             prfFirstB64u: 'prf-first-registration',
@@ -637,8 +635,15 @@ test.describe('threshold Ed25519 registration warm-session', () => {
   test('Email OTP registration persists sealed Ed25519 worker material before hydrate', async ({
     page,
   }) => {
+    const emailOtpBindingFacts = {
+      ed25519KeyScopeId: ed25519KeyScopeIdFromString('registration-email-otp.testnet'),
+      signingRootId: parseSdkEcdsaHssSigningRootId('proj-registration:env-registration'),
+      signingRootVersion: parseSdkEcdsaHssSigningRootVersion('default'),
+    };
+    const emailOtpApplicationBindingDigestB64u =
+      await computeSdkEd25519HssApplicationBindingDigestB64u(emailOtpBindingFacts);
     const result = await page.evaluate(
-      async ({ paths }) => {
+      async ({ paths, emailOtpApplicationBindingDigestB64u }) => {
         const bootstrapMod = await import(paths.thresholdWarmSessionBootstrap);
         const indexedDbMod = await import(paths.indexedDb);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
@@ -709,9 +714,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: {
-              runThresholdEd25519HssCeremonyWithMaterialHandle: async (input: {
-                context: { keyVersion: string };
-              }) => {
+              runThresholdEd25519HssCeremonyWithMaterialHandle: async () => {
                 materialHandleCalls += 1;
                 return {
                   ok: true,
@@ -722,7 +725,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                     sealedWorkerMaterialB64u: 'email-otp-sealed-worker-material-b64u',
                     materialFormatVersion: 'ed25519_worker_material_v1',
                     materialKeyId: 'email-otp-material-key',
-                    keyVersion: input.context.keyVersion,
                     clientVerifyingShareB64u: 'email-otp-client-verifier',
                     signerSlot: 1,
                   },
@@ -754,13 +756,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             relayerUrl: 'https://relay.example',
             prfFirstB64u: recoveryCodeSecret32B64u,
             registrationHssClientMaterial: {
-              hssContext: {
+              bindingFacts: {
+                ed25519KeyScopeId,
                 signingRootId,
-                nearAccountId,
-                keyPurpose: 'near-ed25519-signing',
-                keyVersion: 'threshold-ed25519-hss-v1',
+                signingRootVersion: runtimePolicyScope.signingRootVersion,
+              },
+              hssContext: {
+                applicationBindingDigestB64u: emailOtpApplicationBindingDigestB64u,
                 participantIds: [1, 2],
-                derivationVersion: 1,
               },
               prfFirstB64u: recoveryCodeSecret32B64u,
               clientInputs: {
@@ -840,7 +843,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
-      { paths: IMPORT_PATHS },
+      { paths: IMPORT_PATHS, emailOtpApplicationBindingDigestB64u },
     );
 
     expect(result.materialHandleCalls).toBe(1);

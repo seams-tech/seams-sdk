@@ -13,6 +13,8 @@ const TEMPO_CHAIN_TARGET = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 };
+const EMAIL_OTP_WALLET_KEY_ID = 'wallet-key-alice';
+const EMAIL_OTP_PROVIDER_SUBJECT_ID = 'google:alice';
 
 function legacySigningGrantFieldName(): string {
   return ['wallet', 'SigningSessionId'].join('');
@@ -45,7 +47,8 @@ function makeEmailOtpEcdsaSealedRecord(
     keyVersion: 'signing-session-seal-kek-test-r1',
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
-      rpId: 'example.com',
+      walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+      providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
       sessionKind: 'jwt',
       walletSessionJwt: 'jwt-ecdsa',
       keyHandle: 'key-handle-ecdsa',
@@ -90,7 +93,7 @@ function makeEmailOtpEcdsaCurrentRecord(
   return {
     source: 'email_otp',
     walletId: 'alice.testnet',
-    authMetadata: { walletKeyId: 'example.com' },
+    authMetadata: { walletKeyId: EMAIL_OTP_WALLET_KEY_ID },
     chainTarget: TEMPO_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     keyHandle: 'key-handle-ecdsa',
@@ -142,7 +145,8 @@ test.describe('sealed recovery method adapters', () => {
       relayerUrl: 'https://relay.example',
       ecdsaRestore: {
         chainTarget: TEMPO_CHAIN_TARGET,
-        rpId: 'example.com',
+        walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+        providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
         sessionKind: 'jwt',
         walletSessionJwt: 'jwt-ecdsa',
         keyHandle: 'key-handle-ecdsa',
@@ -190,7 +194,8 @@ test.describe('sealed recovery method adapters', () => {
       relayerUrl: 'https://relay.example',
       ecdsaRestore: {
         chainTarget: TEMPO_CHAIN_TARGET,
-        rpId: 'example.com',
+        walletKeyId: EMAIL_OTP_WALLET_KEY_ID,
+        providerSubjectId: EMAIL_OTP_PROVIDER_SUBJECT_ID,
         sessionKind: 'jwt',
         walletSessionJwt: 'jwt-ecdsa',
         keyHandle: 'key-handle-ecdsa',
@@ -268,7 +273,7 @@ test.describe('sealed recovery method adapters', () => {
       touchConfirm: {
         restorePersistedSessionForSigning: async (args) => {
           calls.push({ kind: 'restore', args: args as Record<string, unknown> });
-          return { attempted: 0, restored: 0, deferred: 0 };
+          return { kind: 'completed', attempted: 0, restored: 0, deferred: 0 };
         },
         claimWarmSessionMaterial: async (args) => {
           calls.push({ kind: 'claim', args: args as Record<string, unknown> });

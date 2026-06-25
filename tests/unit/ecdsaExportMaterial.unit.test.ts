@@ -15,10 +15,12 @@ import {
   buildVerifiedEcdsaPublicFacts,
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
   toThresholdOwnerAddress,
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { exactEcdsaSigningLaneIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   deriveThresholdEcdsaRuntimeLaneKey,
   type ThresholdEcdsaSessionRecord,
@@ -312,10 +314,28 @@ function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
 }
 
 async function exactExportLane(record: ThresholdEcdsaSessionRecord): Promise<ExactEcdsaExportLane> {
+  const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, walletKeyId: WALLET_KEY_ID });
+  const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
   return {
     curve: 'ecdsa',
-    key: buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, walletKeyId: WALLET_KEY_ID }),
-    publicFacts: await toVerifiedEcdsaPublicFactsFromRecord({ record }),
+    laneIdentity: exactEcdsaSigningLaneIdentity({
+      walletId: record.walletId,
+      chainTarget: record.chainTarget,
+      keyHandle: publicFacts.keyHandle,
+      key,
+        auth:
+          record.source === 'email_otp'
+          ? { kind: 'email_otp', providerSubjectId: record.emailOtpAuthContext?.authSubjectId || 'google:export' }
+          : {
+              kind: 'passkey',
+              rpId: toRpId(RP_ID),
+              credentialIdB64u: PASSKEY_EXPORT_CREDENTIAL_ID_B64U,
+            },
+      signingGrantId: record.signingGrantId,
+      thresholdSessionId: record.thresholdSessionId,
+    }),
+    key,
+    publicFacts,
     session: {
       chainTarget: record.chainTarget,
       authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
@@ -448,7 +468,6 @@ test.describe('ECDSA export material', () => {
             };
           },
         },
-        getRpId: () => RP_ID,
         emailOtp: {
           requestExportChallenge: async (request) => {
             challengeRequests.push(request);
@@ -476,7 +495,7 @@ test.describe('ECDSA export material', () => {
               },
             },
           }),
-          resolveExactEcdsaRecord: () => null,
+          resolveExactEcdsaRecord: () => ({ kind: 'not_found' }),
         },
         getSignerWorkerContext: () => {
           throw new Error('unexpected worker context read');

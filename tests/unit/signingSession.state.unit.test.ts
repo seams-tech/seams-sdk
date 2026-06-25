@@ -245,7 +245,7 @@ test.describe('signing session PRF cache utilities', () => {
 
     expect(reuseStart).toBeGreaterThan(0);
     expect(publicStart).toBeGreaterThan(reuseStart);
-    expect(reuseBlock).toContain('restorePersistedSessionsForWallet');
+    expect(reuseBlock).toContain('discoverPersistedSessionsForWallet');
     expect(reuseBlock).toContain("code: 'missing_exact_material'");
     expect(source).not.toContain('claimPasskeyEcdsaPrfFirst');
     expect(reuseBlock).not.toContain('TouchIdPrompt');
