@@ -16,7 +16,6 @@ import menuBiometricAuthDarkImage from '@/assets/navbar/menu-biometric-auth-wire
 import menuBiometricAuthLightImage from '@/assets/navbar/menu-biometric-auth-wire-light.png';
 import menuCompanyDarkImage from '@/assets/navbar/menu-company-wire-dark.png';
 import menuCompanyLightImage from '@/assets/navbar/menu-company-wire-light.png';
-import menuEmbeddedWalletsImage from '@/assets/navbar/menu-embedded-wallets-wire-light.png';
 import menuGuidesImage from '@/assets/navbar/menu-guides-wire-light.png';
 import menuSupportDarkImage from '@/assets/navbar/menu-support-wire-dark.png';
 import menuSupportLightImage from '@/assets/navbar/menu-support-wire-light.png';
@@ -146,7 +145,7 @@ const documentationDropdownTiles: DocumentationDropdownTile[] = [
     title: 'Embedded Wallets',
     description: 'Wallet infrastructure for apps launching policy-bound keys and sessions',
     to: '/pricing/',
-    imageSrc: menuEmbeddedWalletsImage,
+    imageSrc: menuToolsImage,
   },
   {
     id: 'access-passes',
