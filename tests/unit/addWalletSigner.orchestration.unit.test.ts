@@ -582,9 +582,15 @@ function createContext(captures: Record<string, unknown>): any {
           },
         };
       },
-      deriveThresholdEd25519HssClientOutputMask: async (input: Record<string, unknown>) => {
+      prepareThresholdEd25519HssClientOutputMaskHandle: async (input: Record<string, unknown>) => {
         captures.ed25519MaskArgs = input;
-        return { clientOutputMaskB64u: 'client-output-mask' };
+        const context = (input.context || {}) as Record<string, unknown>;
+        return {
+          clientOutputMaskHandle: 'client-output-mask-handle',
+          contextBindingB64u: String(context.contextBindingB64u || ''),
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+        };
       },
       prepareThresholdEd25519HssClientRequest: async (input: Record<string, unknown>) => {
         captures.ed25519RequestArgs = input;
@@ -606,7 +612,7 @@ function createContext(captures: Record<string, unknown>): any {
           },
         };
       },
-      buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact: async (
+      buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle: async (
         input: Record<string, unknown>,
       ) => {
         captures.ed25519ArtifactArgs = input;

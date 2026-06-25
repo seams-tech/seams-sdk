@@ -14,10 +14,11 @@ use crate::transaction::{
 use crate::types::wasm_to_json::WasmSignedTransaction;
 use bs58;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SignTransactionWithKeyPairRequest {
+pub(crate) struct SignTransactionWithKeyPairRequest {
     pub near_private_key: String, // ed25519:... format
     pub signer_account_id: String,
     pub receiver_id: String,
@@ -40,7 +41,15 @@ impl fmt::Debug for SignTransactionWithKeyPairRequest {
     }
 }
 
-fn deserialize_actions_flexible<'de, D>(deserializer: D) -> Result<Vec<ActionParams>, D::Error>
+impl Drop for SignTransactionWithKeyPairRequest {
+    fn drop(&mut self) {
+        self.near_private_key.zeroize();
+    }
+}
+
+pub(crate) fn deserialize_actions_flexible<'de, D>(
+    deserializer: D,
+) -> Result<Vec<ActionParams>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -87,20 +96,7 @@ where
     deserializer.deserialize_any(ActionsVisitor)
 }
 
-/// Signs a transaction using a provided private key without requiring WebAuthn authentication.
-///
-/// **Handles:** `WorkerRequestType::SignTransactionWithKeyPair`
-///
-/// This handler is used for key replacement operations where the application already has access
-/// to a private key and needs to sign transactions directly. It bypasses the normal WebAuthn
-/// authentication flow and signs transactions immediately.
-///
-/// # Arguments
-/// * `request` - Contains NEAR private key, transaction details, and action parameters
-///
-/// # Returns
-/// * `TransactionSignResult` - Contains signed transaction, transaction hash, and operation logs
-pub async fn handle_sign_transaction_with_keypair(
+pub(crate) async fn handle_sign_transaction_with_keypair(
     request: SignTransactionWithKeyPairRequest,
 ) -> Result<TransactionSignResult, String> {
     let mut logs: Vec<String> = Vec::new();

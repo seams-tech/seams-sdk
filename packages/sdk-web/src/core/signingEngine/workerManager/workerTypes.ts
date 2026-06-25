@@ -40,13 +40,16 @@ import {
   type ThresholdEd25519NearTxUnsignedBorsh,
   type ThresholdEd25519DecodeSignedNearTxBorshRequest,
   type ThresholdEd25519DecodeSignedNearTxBorshResult,
+  type GenerateEphemeralNearKeypairHandleRequest,
+  type GenerateEphemeralNearKeypairHandleResult,
+  type SignTransactionWithEphemeralNearKeypairHandleRequest,
   type WorkerRequestTypeMap,
   type WorkerResponseDiagnostics,
   type WorkerResponseForRequest,
   WorkerRequestType,
   type DelegatePayload,
   type WasmSignedDelegate,
-  type WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult,
+  type WasmTransactionSignResult,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -828,8 +831,14 @@ export type WithOptionalSessionId<T> = T extends { sessionId: string }
   ? Omit<T, 'sessionId'> & { sessionId?: string }
   : T;
 
+type NearSignerWorkerPublicWasmOperationType = Exclude<
+  keyof WorkerRequestTypeMap,
+  | typeof WorkerRequestType.GenerateEphemeralNearKeypair
+  | typeof WorkerRequestType.SignTransactionWithKeyPair
+>;
+
 export type NearSignerWorkerWasmOperationMap = {
-  [T in keyof WorkerRequestTypeMap]: {
+  [T in NearSignerWorkerPublicWasmOperationType]: {
     payload: WithOptionalSessionId<WorkerRequestTypeMap[T]['request']>;
     result: WorkerResponseForRequest<T>;
   };
@@ -924,6 +933,14 @@ export type NearSignerWorkerCustomOperationMap = {
     payload: ThresholdEd25519DecodeSignedNearTxBorshRequest;
     result: ThresholdEd25519DecodeSignedNearTxBorshResult;
   };
+  [NearSignerWorkerCustomRequestType.GenerateEphemeralNearKeypairHandle]: {
+    payload: GenerateEphemeralNearKeypairHandleRequest;
+    result: GenerateEphemeralNearKeypairHandleResult;
+  };
+  [NearSignerWorkerCustomRequestType.SignTransactionWithEphemeralNearKeypairHandle]: {
+    payload: SignTransactionWithEphemeralNearKeypairHandleRequest;
+    result: WasmTransactionSignResult;
+  };
 };
 
 export type NearSignerWorkerOperationMap = NearSignerWorkerWasmOperationMap &
@@ -981,7 +998,8 @@ export type NearEd25519FinalizeOperationRequest<T extends NearEd25519FinalizeOpe
   NearWorkerOperationRequest<T>;
 
 export const HssClientCustomRequestType = {
-  ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare: 70_001,
+  PrepareThresholdEd25519HssClientOutputMaskHandle: 70_002,
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle: 70_003,
   StoreThresholdEcdsaRoleLocalSigningMaterial: 70_004,
   OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle: 70_005,
   ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle: 70_008,
@@ -994,7 +1012,8 @@ export type HssClientCustomRequestType =
   (typeof HssClientCustomRequestType)[keyof typeof HssClientCustomRequestType];
 
 export const HssClientCustomResponseType = {
-  ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareSuccess: 70_101,
+  PrepareThresholdEd25519HssClientOutputMaskHandleSuccess: 70_102,
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess: 70_103,
   StoreThresholdEcdsaRoleLocalSigningMaterialSuccess: 70_104,
   OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleSuccess: 70_105,
   ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleSuccess: 70_108,
@@ -1006,17 +1025,57 @@ export const HssClientCustomResponseType = {
 export type HssClientCustomResponseType =
   (typeof HssClientCustomResponseType)[keyof typeof HssClientCustomResponseType];
 
-export type ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareRequest = {
-  xClientBaseB64u: string;
+export type PrepareThresholdEd25519HssClientOutputMaskHandleRequest = {
+  applicationBindingDigestB64u: string;
+  participantIds: number[];
+  contextBindingB64u: string;
+  operation: string;
+  relayerKeyId: string;
+  clientRecoverableSecretB64u: string;
+  expiresAtMs: number;
 };
 
-export type ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareResult = {
-  clientVerifyingShareB64u: string;
+export type PrepareThresholdEd25519HssClientOutputMaskHandleResult = {
+  clientOutputMaskHandle: string;
+  contextBindingB64u: string;
+  expiresAtMs: number;
+  remainingUses: number;
 };
 
-export type ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareResponse = {
-  type: typeof HssClientCustomResponseType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareSuccess;
-  payload: ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareResult;
+export type PrepareThresholdEd25519HssClientOutputMaskHandleResponse = {
+  type: typeof HssClientCustomResponseType.PrepareThresholdEd25519HssClientOutputMaskHandleSuccess;
+  payload: PrepareThresholdEd25519HssClientOutputMaskHandleResult;
+  diagnostics?: WorkerResponseDiagnostics;
+};
+
+type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource =
+  | {
+      sessionSource: 'worker_handle';
+      workerSessionHandle: string;
+      evaluatorDriverStateB64u?: never;
+    }
+  | {
+      sessionSource: 'serialized_state';
+      evaluatorDriverStateB64u: string;
+      workerSessionHandle?: never;
+    };
+
+export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest =
+  BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSessionSource & {
+    clientRequestMessageB64u: string;
+    evaluatorOtStateB64u: string;
+    serverInputDeliveryB64u: string;
+    clientOutputMaskHandle: string;
+    expectedContextBindingB64u: string;
+  };
+
+export type BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleResponse = {
+  type: typeof HssClientCustomResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess;
+  payload: {
+    contextBindingB64u: string;
+    stagedEvaluatorArtifactB64u: string;
+    timings?: Record<string, number>;
+  };
   diagnostics?: WorkerResponseDiagnostics;
 };
 
@@ -1042,8 +1101,9 @@ export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleRequest = {
   expectedBindingDigest: string;
 };
 
-export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResult =
-  WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
+export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResult = {
+  signingShare32B64u: string;
+};
 
 export type OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleResponse = {
   type: typeof HssClientCustomResponseType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandleSuccess;
@@ -1107,9 +1167,13 @@ export type ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleRe
 };
 
 type HssClientCustomOperationMap = {
-  [HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare]: {
-    payload: ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareRequest;
-    result: ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareResponse;
+  [HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle]: {
+    payload: PrepareThresholdEd25519HssClientOutputMaskHandleRequest;
+    result: PrepareThresholdEd25519HssClientOutputMaskHandleResponse;
+  };
+  [HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle]: {
+    payload: BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest;
+    result: BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleResponse;
   };
   [HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
@@ -1141,12 +1205,8 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
   | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
   | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
-  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask
-  | typeof WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
-  | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
-  | typeof WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare
   | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact
@@ -1186,14 +1246,11 @@ export type HssEd25519ProtocolOperationType =
   | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
   | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
   | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
-  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask
-  | typeof WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
-  | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
-  | typeof HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare;
+  | typeof HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle
+  | typeof HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle;
 export type HssEcdsaRoleLocalMaterialOperationType =
-  | typeof WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare
   | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact

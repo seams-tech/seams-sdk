@@ -1,7 +1,9 @@
 import {
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm,
   buildEcdsaRoleLocalExportArtifactCommandWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
   parseServerPlannedEcdsaHssContext,
+  prepareThresholdEd25519HssClientOutputMaskHandleWasm,
   prepareEcdsaClientBootstrapCommandWasm,
   type ServerPlannedEcdsaHssContext,
   type ThresholdEcdsaHssRoleLocalClientContext,
@@ -21,9 +23,6 @@ import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type {
-  WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest,
-  WasmDeriveThresholdEd25519HssClientOutputMaskRequest,
-  WasmOpenThresholdEd25519HssClientOutputRequest,
   WasmPrepareThresholdEd25519HssClientRequestRequest,
 } from '../../../types/signer-worker';
 import { parseWalletKeyId } from '@shared/utils/domainIds';
@@ -237,81 +236,74 @@ const workerHandlePrepareClientRequest: WasmPrepareThresholdEd25519HssClientRequ
 };
 void workerHandlePrepareClientRequest;
 
-const maskedStagedArtifactRequest = {
-  sessionSource: 'serialized_state',
-  evaluatorDriverStateB64u: 'evaluator-state',
-  clientRequestMessageB64u: 'client-request',
-  evaluatorOtStateB64u: 'evaluator-ot-state',
-  serverInputDeliveryB64u: 'server-input-delivery',
-  clientOutputMaskB64u: 'client-mask',
-} satisfies WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
-void maskedStagedArtifactRequest;
+type PrepareMaskHandleInput = Parameters<
+  typeof prepareThresholdEd25519HssClientOutputMaskHandleWasm
+>[0];
 
-const workerHandleStagedArtifactRequest = {
-  sessionSource: 'worker_handle',
-  workerSessionHandle: 'ed25519-hss-client-session-1',
-  clientRequestMessageB64u: 'client-request',
-  evaluatorOtStateB64u: 'evaluator-ot-state',
-  serverInputDeliveryB64u: 'server-input-delivery',
-  clientOutputMaskB64u: 'client-mask',
-} satisfies WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
-void workerHandleStagedArtifactRequest;
-
-// @ts-expect-error client-owned HSS artifact construction requires a client output mask.
-const missingStagedArtifactMask: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
-  {
-    sessionSource: 'serialized_state',
-    evaluatorDriverStateB64u: 'evaluator-state',
-    clientRequestMessageB64u: 'client-request',
-    evaluatorOtStateB64u: 'evaluator-ot-state',
-    serverInputDeliveryB64u: 'server-input-delivery',
-  };
-void missingStagedArtifactMask;
-
-const clientOutputMaskDerivationRequest = {
-  applicationBindingDigestB64u: 'application-binding-digest',
-  participantIds: [1, 2],
-  contextBindingB64u: 'context-binding',
-  operation: 'tx_signing',
-  relayerKeyId: 'relayer-key',
+const clientOutputMaskHandleRequest = {
   clientRecoverableSecretB64u: 'client-secret',
-} satisfies WasmDeriveThresholdEd25519HssClientOutputMaskRequest;
-void clientOutputMaskDerivationRequest;
-
-// @ts-expect-error client output mask derivation requires recoverable client secret material.
-const missingClientOutputMaskDerivationSecret: WasmDeriveThresholdEd25519HssClientOutputMaskRequest =
-  {
+  context: {
     applicationBindingDigestB64u: 'application-binding-digest',
     participantIds: [1, 2],
     contextBindingB64u: 'context-binding',
     operation: 'tx_signing',
     relayerKeyId: 'relayer-key',
-  };
-void missingClientOutputMaskDerivationSecret;
+  },
+  expiresAtMs: 1,
+  workerCtx,
+} satisfies PrepareMaskHandleInput;
+void clientOutputMaskHandleRequest;
 
-const maskedClientOutputOpenRequest = {
-  sessionSource: 'serialized_state',
-  evaluatorDriverStateB64u: 'evaluator-state',
-  clientOutputMessageB64u: 'client-output',
-  clientOutputMaskB64u: 'client-mask',
-} satisfies WasmOpenThresholdEd25519HssClientOutputRequest;
-void maskedClientOutputOpenRequest;
-
-const workerHandleClientOutputOpenRequest: WasmOpenThresholdEd25519HssClientOutputRequest = {
-  // @ts-expect-error client output opening stays on serialized state until
-  // handle lifecycle is explicitly extended to the open phase.
-  sessionSource: 'worker_handle',
-  // @ts-expect-error caller-provided handles are only valid for staged build.
-  workerSessionHandle: 'ed25519-hss-client-session-1',
-  clientOutputMessageB64u: 'client-output',
-  clientOutputMaskB64u: 'client-mask',
+// @ts-expect-error client output mask handle derivation requires recoverable client secret material.
+const missingClientOutputMaskHandleSecret: PrepareMaskHandleInput = {
+  context: {
+    applicationBindingDigestB64u: 'application-binding-digest',
+    participantIds: [1, 2],
+    contextBindingB64u: 'context-binding',
+    operation: 'tx_signing',
+    relayerKeyId: 'relayer-key',
+  },
+  expiresAtMs: 1,
+  workerCtx,
 };
-void workerHandleClientOutputOpenRequest;
+void missingClientOutputMaskHandleSecret;
 
-// @ts-expect-error client output opening requires the client output mask.
-const missingOpenClientOutputMask: WasmOpenThresholdEd25519HssClientOutputRequest = {
-  sessionSource: 'serialized_state',
-  evaluatorDriverStateB64u: 'evaluator-state',
-  clientOutputMessageB64u: 'client-output',
+type BuildStagedArtifactFromHandleInput = Parameters<
+  typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm
+>[0];
+
+const maskedStagedArtifactRequest = {
+  preparedSession: {
+    evaluatorDriverStateB64u: 'evaluator-state',
+  },
+  clientRequest: {
+    sessionResidence: 'serialized_state',
+    clientRequestMessageB64u: 'client-request',
+    evaluatorOtStateB64u: 'evaluator-ot-state',
+  },
+  serverInputDelivery: {
+    serverInputDeliveryB64u: 'server-input-delivery',
+  },
+  clientOutputMaskHandle: 'client-mask-handle',
+  expectedContextBindingB64u: 'context-binding',
+  workerCtx,
+} satisfies BuildStagedArtifactFromHandleInput;
+void maskedStagedArtifactRequest;
+
+// @ts-expect-error client-owned HSS artifact construction requires a mask handle.
+const missingStagedArtifactMaskHandle: BuildStagedArtifactFromHandleInput = {
+  preparedSession: {
+    evaluatorDriverStateB64u: 'evaluator-state',
+  },
+  clientRequest: {
+    sessionResidence: 'serialized_state',
+    clientRequestMessageB64u: 'client-request',
+    evaluatorOtStateB64u: 'evaluator-ot-state',
+  },
+  serverInputDelivery: {
+    serverInputDeliveryB64u: 'server-input-delivery',
+  },
+  expectedContextBindingB64u: 'context-binding',
+  workerCtx,
 };
-void missingOpenClientOutputMask;
+void missingStagedArtifactMaskHandle;

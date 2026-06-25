@@ -84,6 +84,9 @@ export const NearSignerWorkerCustomRequestType = {
   ThresholdEd25519FinalizeNearTxFromSignature: 'thresholdEd25519FinalizeNearTxFromSignature',
   ThresholdEd25519BuildNearTxUnsignedBorsh: 'thresholdEd25519BuildNearTxUnsignedBorsh',
   ThresholdEd25519DecodeSignedNearTxBorsh: 'thresholdEd25519DecodeSignedNearTxBorsh',
+  GenerateEphemeralNearKeypairHandle: 'generateEphemeralNearKeypairHandle',
+  SignTransactionWithEphemeralNearKeypairHandle:
+    'signTransactionWithEphemeralNearKeypairHandle',
 } as const;
 
 export type NearSignerWorkerCustomRequestType =
@@ -576,37 +579,10 @@ export interface WasmPrepareThresholdEd25519HssClientRequestResult {
   evaluatorOtStateB64u: string;
   workerSessionHandle?: string;
 }
-export interface WasmDeriveThresholdEd25519HssClientOutputMaskRequest {
-  applicationBindingDigestB64u: string;
-  participantIds: number[];
-  contextBindingB64u: string;
-  operation: string;
-  relayerKeyId: string;
-  clientRecoverableSecretB64u: string;
-}
-export interface WasmDeriveThresholdEd25519HssClientOutputMaskResult {
-  clientOutputMaskB64u: string;
-}
-export type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
-  WasmThresholdEd25519HssWorkerSessionSource & {
-    clientRequestMessageB64u: string;
-    evaluatorOtStateB64u: string;
-    serverInputDeliveryB64u: string;
-    clientOutputMaskB64u: string;
-  };
 export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
   timings?: Record<string, number>;
-}
-export type WasmOpenThresholdEd25519HssClientOutputRequest =
-  WasmThresholdEd25519HssSerializedSessionSource & {
-    clientOutputMessageB64u: string;
-    clientOutputMaskB64u: string;
-  };
-export interface WasmOpenThresholdEd25519HssClientOutputResult {
-  contextBindingB64u: string;
-  xClientBaseB64u: string;
 }
 export type WasmOpenThresholdEd25519HssSeedOutputRequest =
   WasmThresholdEd25519HssSerializedSessionSource & {
@@ -630,12 +606,6 @@ export type WasmThresholdEd25519RoleSeparatedNormalSigningCommitments = {
   hidingB64u: string;
   bindingB64u: string;
 };
-export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest {
-  stateBlobB64u: string;
-}
-export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult {
-  signingShare32B64u: string;
-}
 export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest =
   GeneratedPrepareEcdsaClientBootstrapCommand;
 export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult =
@@ -659,12 +629,16 @@ export interface WasmSignTransactionsWithActionsRequest {
   credential?: string;
 }
 
-export type WasmGenerateEphemeralNearKeypairRequest = Record<string, never>;
+export type GenerateEphemeralNearKeypairHandleRequest = {
+  expiresAtMs: number;
+};
 
-export interface WasmGenerateEphemeralNearKeypairResult {
+export type GenerateEphemeralNearKeypairHandleResult = {
   publicKey: string;
-  privateKey: string;
-}
+  keyHandle: string;
+  expiresAtMs: number;
+  remainingUses: number;
+};
 
 export interface WasmSignDelegateActionRequest {
   rpcCall: RpcCallPayload;
@@ -696,34 +670,29 @@ export interface WasmSignNep413MessageRequest {
   state?: string;
   credential?: string;
 }
-export interface WasmSignTransactionWithKeyPairRequest {
-  nearPrivateKey: string;
+export type SignTransactionWithEphemeralNearKeypairHandleRequest = {
+  keyHandle: string;
   signerAccountId: string;
   receiverId: string;
   nonce: string;
   blockHash: string;
   actions: ActionArgsWasm[];
-}
+};
 
 export type WasmRequestPayload =
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
   | WasmDeriveThresholdEd25519HssClientInputsRequest
   | WasmPrepareThresholdEd25519HssSessionRequest
   | WasmPrepareThresholdEd25519HssClientRequestRequest
-  | WasmDeriveThresholdEd25519HssClientOutputMaskRequest
-  | WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest
-  | WasmOpenThresholdEd25519HssClientOutputRequest
   | WasmOpenThresholdEd25519HssSeedOutputRequest
   | WasmBuildThresholdEd25519SeedExportArtifactRequest
   | WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest
   | WasmSignTransactionsWithActionsRequest
-  | WasmGenerateEphemeralNearKeypairRequest
   | WasmSignDelegateActionRequest
   | WasmExtractCosePublicKeyRequest
-  | WasmSignNep413MessageRequest
-  | WasmSignTransactionWithKeyPairRequest;
+  | WasmSignNep413MessageRequest;
 
 // WASM Worker Response Types
 export type WasmSignedTransaction = InstanceType<typeof wasmModule.WasmSignedTransaction>;
@@ -759,21 +728,6 @@ export interface WorkerRequestTypeMap {
     request: WasmPrepareThresholdEd25519HssClientRequestRequest;
     result: WasmPrepareThresholdEd25519HssClientRequestResult;
   };
-  [WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask]: {
-    type: WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask;
-    request: WasmDeriveThresholdEd25519HssClientOutputMaskRequest;
-    result: WasmDeriveThresholdEd25519HssClientOutputMaskResult;
-  };
-  [WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact]: {
-    type: WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact;
-    request: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
-    result: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult;
-  };
-  [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: {
-    type: WorkerRequestType.OpenThresholdEd25519HssClientOutput;
-    request: WasmOpenThresholdEd25519HssClientOutputRequest;
-    result: WasmOpenThresholdEd25519HssClientOutputResult;
-  };
   [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: {
     type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput;
     request: WasmOpenThresholdEd25519HssSeedOutputRequest;
@@ -783,11 +737,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
     request: WasmBuildThresholdEd25519SeedExportArtifactRequest;
     result: WasmBuildThresholdEd25519SeedExportArtifactResult;
-  };
-  [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: {
-    type: WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare;
-    request: WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest;
-    result: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
   };
   [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: {
     type: WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap;
@@ -809,11 +758,6 @@ export interface WorkerRequestTypeMap {
     request: WasmSignTransactionsWithActionsRequest;
     result: WasmTransactionSignResult;
   };
-  [WorkerRequestType.GenerateEphemeralNearKeypair]: {
-    type: WorkerRequestType.GenerateEphemeralNearKeypair;
-    request: WasmGenerateEphemeralNearKeypairRequest;
-    result: WasmGenerateEphemeralNearKeypairResult;
-  };
   [WorkerRequestType.SignDelegateAction]: {
     type: WorkerRequestType.SignDelegateAction;
     request: WasmSignDelegateActionRequest;
@@ -823,11 +767,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.ExtractCosePublicKey;
     request: WasmExtractCosePublicKeyRequest;
     result: wasmModule.CoseExtractionResult;
-  };
-  [WorkerRequestType.SignTransactionWithKeyPair]: {
-    type: WorkerRequestType.SignTransactionWithKeyPair;
-    request: WasmSignTransactionWithKeyPairRequest;
-    result: WasmTransactionSignResult;
   };
   [WorkerRequestType.SignNep413Message]: {
     type: WorkerRequestType.SignNep413Message;
@@ -1019,20 +958,14 @@ export interface RequestResponseMap {
   [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: WasmDeriveThresholdEd25519HssClientInputsResult;
   [WorkerRequestType.PrepareThresholdEd25519HssSession]: WasmPrepareThresholdEd25519HssSessionResult;
   [WorkerRequestType.PrepareThresholdEd25519HssClientRequest]: WasmPrepareThresholdEd25519HssClientRequestResult;
-  [WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask]: WasmDeriveThresholdEd25519HssClientOutputMaskResult;
-  [WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact]: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult;
-  [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: WasmOpenThresholdEd25519HssClientOutputResult;
   [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: WasmOpenThresholdEd25519HssSeedOutputResult;
   [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: WasmBuildThresholdEd25519SeedExportArtifactResult;
-  [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
   [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
   [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
   [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
-  [WorkerRequestType.GenerateEphemeralNearKeypair]: WasmGenerateEphemeralNearKeypairResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
   [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
-  [WorkerRequestType.SignTransactionWithKeyPair]: WasmTransactionSignResult;
   [WorkerRequestType.SignNep413Message]: wasmModule.SignNep413Result;
 }
 
@@ -1127,22 +1060,16 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
     response.type === WorkerResponseType.SignDelegateActionSuccess ||
     response.type === WorkerResponseType.ExtractCosePublicKeySuccess ||
-    response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess ||
-    response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskSuccess ||
-    response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess ||
     response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
     response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
-    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess ||
-    response.type ===
-      WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess
+    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess
   );
 }
 
@@ -1153,22 +1080,16 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
     response.type === WorkerResponseType.SignDelegateActionFailure ||
     response.type === WorkerResponseType.ExtractCosePublicKeyFailure ||
-    response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
     response.type === WorkerResponseType.SignNep413MessageFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsFailure ||
-    response.type === WorkerResponseType.GenerateEphemeralNearKeypairFailure ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionFailure ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestFailure ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskFailure ||
-    response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputFailure ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputFailure ||
     response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactFailure ||
     response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
     response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
-    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactFailure ||
-    response.type ===
-      WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure
+    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactFailure
   );
 }
 
@@ -1180,11 +1101,6 @@ export function isSignTransactionsWithActionsSuccess(
   return response.type === WorkerResponseType.SignTransactionsWithActionsSuccess;
 }
 
-export function isGenerateEphemeralNearKeypairSuccess(
-  response: WorkerResponseForRequest<typeof WorkerRequestType.GenerateEphemeralNearKeypair>,
-): response is WorkerSuccessResponse<typeof WorkerRequestType.GenerateEphemeralNearKeypair> {
-  return response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess;
-}
 
 export function isSignDelegateActionSuccess(
   response: DelegateSignResponse,

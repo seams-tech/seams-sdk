@@ -36,6 +36,7 @@ import {
   type ThresholdEd25519DecodeSignedNearTxBorshResult,
   type ThresholdEd25519PrepareHssClientOutputMaskHandleRequest,
   type ThresholdEd25519PrepareHssClientOutputMaskHandleResult,
+  type GenerateEphemeralNearKeypairHandleResult,
   type ThresholdEd25519WorkerMaterialBinding,
   type ThresholdEd25519WorkerMaterialSessionBinding,
   type ThresholdEd25519WorkerMaterialCredentialAuthorization,
@@ -991,8 +992,8 @@ export async function extractCosePublicKeyWasm(args: {
   return parseCosePublicKeyBytesFromWorker(response.payload.cosePublicKeyBytes);
 }
 
-export async function signTransactionWithKeyPairWasm(args: {
-  nearPrivateKey: string;
+export async function signTransactionWithEphemeralNearKeypairHandleWasm(args: {
+  keyHandle: string;
   signerAccountId: string;
   receiverId: string;
   nonce: string;
@@ -1004,13 +1005,13 @@ export async function signTransactionWithKeyPairWasm(args: {
     validateActionArgsWasm(action);
   });
 
-  const response = await executeWorkerOperation({
+  const wasmResult = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
-      type: WorkerRequestType.SignTransactionWithKeyPair,
+      type: NearSignerWorkerCustomRequestType.SignTransactionWithEphemeralNearKeypairHandle,
       payload: {
-        nearPrivateKey: args.nearPrivateKey,
+        keyHandle: args.keyHandle,
         signerAccountId: args.signerAccountId,
         receiverId: args.receiverId,
         nonce: args.nonce,
@@ -1020,11 +1021,41 @@ export async function signTransactionWithKeyPairWasm(args: {
     },
   });
 
-  if (response.type !== WorkerResponseType.SignTransactionWithKeyPairSuccess) {
-    throw new Error('Transaction signing with private key failed');
+  return parseSingleSignedTransactionWasmResult(wasmResult);
+}
+
+export async function generateEphemeralNearKeypairHandleWasm(args: {
+  expiresAtMs: number;
+  workerCtx: WorkerOperationContext;
+}): Promise<GenerateEphemeralNearKeypairHandleResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: NearSignerWorkerCustomRequestType.GenerateEphemeralNearKeypairHandle,
+      payload: {
+        expiresAtMs: args.expiresAtMs,
+      },
+    },
+  });
+
+  const publicKey = ensureEd25519Prefix(
+    String((response as { publicKey?: unknown }).publicKey || '').trim(),
+  );
+  const keyHandle = String((response as { keyHandle?: unknown }).keyHandle || '').trim();
+  const expiresAtMs = Number((response as { expiresAtMs?: unknown }).expiresAtMs);
+  const remainingUses = Number((response as { remainingUses?: unknown }).remainingUses);
+  if (!publicKey || !keyHandle || !Number.isSafeInteger(expiresAtMs) || remainingUses !== 1) {
+    throw new Error('Worker returned invalid ephemeral NEAR keypair handle');
   }
 
-  const wasmResult = response.payload as WasmTransactionSignResult;
+  return { publicKey, keyHandle, expiresAtMs, remainingUses };
+}
+
+function parseSingleSignedTransactionWasmResult(wasmResult: WasmTransactionSignResult): {
+  signedTransaction: SignedTransaction;
+  logs?: string[];
+} {
   if (!wasmResult.success) {
     throw new Error(wasmResult.error || 'Transaction signing failed');
   }
@@ -1046,33 +1077,4 @@ export async function signTransactionWithKeyPairWasm(args: {
     }),
     logs: wasmResult.logs,
   };
-}
-
-export async function generateEphemeralNearKeypairWasm(args: {
-  workerCtx: WorkerOperationContext;
-}): Promise<{ publicKey: string; privateKey: string }> {
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      type: WorkerRequestType.GenerateEphemeralNearKeypair,
-      payload: {},
-    },
-  });
-
-  if (response.type !== WorkerResponseType.GenerateEphemeralNearKeypairSuccess) {
-    throw new Error('Worker failed to generate ephemeral NEAR keypair');
-  }
-
-  const publicKey = ensureEd25519Prefix(
-    String((response.payload as { publicKey?: unknown }).publicKey || '').trim(),
-  );
-  const privateKey = ensureEd25519Prefix(
-    String((response.payload as { privateKey?: unknown }).privateKey || '').trim(),
-  );
-  if (!publicKey || !privateKey) {
-    throw new Error('Worker returned invalid ephemeral NEAR keypair');
-  }
-
-  return { publicKey, privateKey };
 }

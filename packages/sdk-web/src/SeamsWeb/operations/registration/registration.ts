@@ -2631,7 +2631,7 @@ async function registerWalletInternal(
         ceremonyHandle: startedEd25519.ceremonyHandle,
       }),
     );
-    const [ecdsaPreparedClientBootstrap, { clientRequest, clientOutputMaskB64u }] =
+    const [ecdsaPreparedClientBootstrap, { clientRequest, clientOutputMaskHandle }] =
       await Promise.all([ecdsaPreparedClientBootstrapPromise, ed25519ClientRequestPromise]);
     const responded = await registrationTiming.measure('walletRegisterHssRespondMs', () =>
       respondWalletRegistrationHss({
@@ -2669,7 +2669,7 @@ async function registerWalletInternal(
         preparedSession: startedEd25519.preparedSession,
         clientRequest,
         serverInputDelivery: respondedEd25519,
-        clientOutputMaskB64u,
+        clientOutputMaskHandle,
       }),
     );
 
@@ -3210,7 +3210,7 @@ export async function addWalletSigner(args: {
       if (!startedCeremony.ed25519) {
         throw new Error('Wallet add-signer start did not return Ed25519 HSS material');
       }
-      const { clientRequest, clientOutputMaskB64u } =
+      const { clientRequest, clientOutputMaskHandle } =
         await prepareThresholdEd25519RegistrationHssClientRequest({
           context,
           material: hssClientMaterial,
@@ -3236,7 +3236,7 @@ export async function addWalletSigner(args: {
         preparedSession: startedCeremony.ed25519.preparedSession,
         clientRequest,
         serverInputDelivery: responded.ed25519,
-        clientOutputMaskB64u,
+        clientOutputMaskHandle,
       });
       const requestedPolicy = createThresholdWarmSessionPolicyDraft(context, {
         kind: 'generated_signing_grant',

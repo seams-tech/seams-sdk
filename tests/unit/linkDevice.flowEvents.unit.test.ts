@@ -15,17 +15,21 @@ function createDisplayContext() {
     signingRuntime: {
       services: {
         nearKeyOperations: {
-          generateEphemeralNearKeypair: async () => ({
+          generateEphemeralNearKeypairHandle: async () => ({
             publicKey: 'ed25519:device2-public-key',
-            privateKey: 'device2-private-key',
+            keyHandle: 'device2-key-handle',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 1,
           }),
         },
       },
     },
     signingEngine: {
-      generateEphemeralNearKeypair: async () => ({
+      generateEphemeralNearKeypairHandle: async () => ({
         publicKey: 'ed25519:device2-public-key',
-        privateKey: 'device2-private-key',
+        keyHandle: 'device2-key-handle',
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 1,
       }),
     },
   } as any;

@@ -35,6 +35,8 @@
 
 import {
   NearSignerWorkerCustomRequestType,
+  WorkerRequestType,
+  WorkerResponseType,
   type SignerWorkerRequestType,
   type ThresholdEd25519WorkerMaterialFailure,
   WasmRequestPayload,
@@ -42,6 +44,8 @@ import {
 // Import WASM binary directly
 import init, {
   handle_signer_message,
+  near_ephemeral_keypair_create_handle,
+  near_ephemeral_keypair_sign_with_handle,
   threshold_ed25519_build_delegate_signing_payload,
   threshold_ed25519_client_presign_burn,
   threshold_ed25519_client_presign_create_from_worker_material,
@@ -67,7 +71,7 @@ import init, {
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { errorMessage } from '@shared/utils/errors';
+import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from '../workerTypes';
 
 /**
@@ -141,12 +145,12 @@ function sendProgressMessage(
       payload: progressPayload,
     });
   } catch (error: unknown) {
-    console.error('[signer-worker]: Failed to send progress message:', error);
+    console.error('[signer-worker]: Failed to send progress message:', errorLogSummary(error));
     if (!activeRequestId) return;
     self.postMessage({
       id: activeRequestId,
       ok: false,
-      error: `Progress message failed: ${errorMessage(error)}`,
+      error: `Progress message failed: ${safeErrorMessage(error)}`,
       code: 'WORKER_PROTOCOL_ERROR',
     });
   }
@@ -174,8 +178,8 @@ async function initializeWasm(): Promise<void> {
     } catch (error: unknown) {
       // Allow retry if init fails (e.g., transient path/config issues during dev).
       wasmInitPromise = null;
-      console.error('[signer-worker]: WASM initialization failed:', error);
-      throw new Error(`WASM initialization failed: ${errorMessage(error)}`);
+      console.error('[signer-worker]: WASM initialization failed:', errorLogSummary(error));
+      throw new Error(`WASM initialization failed: ${safeErrorMessage(error)}`);
     }
   })();
   return wasmInitPromise;
@@ -204,9 +208,18 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
     // Guardrail: raw PRF fields must never traverse into signer payloads
     assertNoPrfSecretsInSignerPayload(event.data);
     await initializeWasm();
+    if (
+      requestType === WorkerRequestType.GenerateEphemeralNearKeypair ||
+      requestType === WorkerRequestType.SignTransactionWithKeyPair
+    ) {
+      throw new Error('Raw NEAR keypair signing is available only through worker-held handles');
+    }
     const response =
       typeof requestType === 'string'
-        ? handleCustomNearSignerRequest(requestType, (event.data as { payload?: unknown }).payload)
+        ? await handleCustomNearSignerRequest(
+            requestType,
+            (event.data as { payload?: unknown }).payload,
+          )
         : await handle_signer_message(event.data);
     self.postMessage({
       id: requestId,
@@ -219,11 +232,11 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
       durationMs: Date.now() - startedAt,
     });
   } catch (error: unknown) {
-    console.error('[signer-worker]: Message processing failed:', error);
+    console.error('[signer-worker]: Message processing failed:', errorLogSummary(error));
     self.postMessage({
       id: requestId,
       ok: false,
-      error: errorMessage(error),
+      error: safeErrorMessage(error),
       code: 'WORKER_RUNTIME_ERROR',
     });
   } finally {
@@ -256,8 +269,12 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
   await messageQueue;
 };
 
-function handleCustomNearSignerRequest(type: string, payload: unknown): unknown {
+async function handleCustomNearSignerRequest(type: string, payload: unknown): Promise<unknown> {
   switch (type) {
+    case NearSignerWorkerCustomRequestType.GenerateEphemeralNearKeypairHandle:
+      return await generateEphemeralNearKeypairHandle(payload);
+    case NearSignerWorkerCustomRequestType.SignTransactionWithEphemeralNearKeypairHandle:
+      return await signTransactionWithEphemeralNearKeypairHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519PrepareHssClientOutputMaskHandle:
       return prepareThresholdEd25519HssClientOutputMaskHandle(payload);
     case NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput:
@@ -321,6 +338,71 @@ function handleCustomNearSignerRequest(type: string, payload: unknown): unknown 
     default:
       throw new Error(`Unsupported near signer custom request type: ${type}`);
   }
+}
+
+async function generateEphemeralNearKeypairHandle(payload: unknown): Promise<{
+  publicKey: string;
+  keyHandle: string;
+  expiresAtMs: number;
+  remainingUses: number;
+}> {
+  return requireEphemeralNearKeypairHandleOutput(
+    await near_ephemeral_keypair_create_handle(payload),
+  );
+}
+
+async function signTransactionWithEphemeralNearKeypairHandle(payload: unknown): Promise<unknown> {
+  return await near_ephemeral_keypair_sign_with_handle(payload);
+}
+
+function requireEphemeralNearKeypairHandleOutput(output: unknown): {
+  publicKey: string;
+  keyHandle: string;
+  expiresAtMs: number;
+  remainingUses: number;
+} {
+  const record = readRecord(output, 'ephemeral NEAR keypair handle output');
+  const expiresAtMs = Number(record.expiresAtMs);
+  const remainingUses = Number(record.remainingUses);
+  if (!Number.isSafeInteger(expiresAtMs)) {
+    throw new Error('expiresAtMs must be an integer');
+  }
+  if (!Number.isSafeInteger(remainingUses) || remainingUses < 1) {
+    throw new Error('remainingUses must be a positive integer');
+  }
+  return {
+    publicKey: requireEd25519Key(record.publicKey, 'publicKey'),
+    keyHandle: readNonEmptyString(record.keyHandle, 'keyHandle'),
+    expiresAtMs,
+    remainingUses,
+  };
+}
+
+function readRecord(value: unknown, fieldName: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function readNonEmptyString(value: unknown, fieldName: string): string {
+  const text = String(value || '').trim();
+  if (!text) {
+    throw new Error(`${fieldName} is required`);
+  }
+  return text;
+}
+
+function requireEd25519Key(value: unknown, fieldName: string): string {
+  const text = readNonEmptyString(value, fieldName);
+  if (!text.startsWith('ed25519:')) {
+    throw new Error(`${fieldName} must use ed25519 prefix`);
+  }
+  return text;
+}
+
+function secretB64uField(prefix: string): string {
+  return `${prefix}B64u`;
 }
 
 function prepareThresholdEd25519HssClientOutputMaskHandle(payload: unknown): {
@@ -499,11 +581,11 @@ function materialFailureFromError(error: unknown): ThresholdEd25519WorkerMateria
 }
 
 function materialErrorMessage(error: unknown): string {
-  if (typeof error === 'string') return error;
-  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return safeErrorMessage(error);
+  if (error instanceof Error) return safeErrorMessage(error);
   const maybeMessage = (error as { message?: unknown } | null)?.message;
-  if (typeof maybeMessage === 'string') return maybeMessage;
-  return errorMessage(error);
+  if (typeof maybeMessage === 'string') return safeErrorMessage(maybeMessage);
+  return safeErrorMessage(error);
 }
 
 function materialErrorCodeFromMessage(
@@ -638,7 +720,9 @@ function requireClientPresignCreateOutput(output: unknown): {
   const hiding = String(parsed?.clientCommitments?.hiding || '').trim();
   const binding = String(parsed?.clientCommitments?.binding || '').trim();
   if (!clientNonceHandleB64u || !clientVerifyingShareB64u || !hiding || !binding) {
-    throw new Error('threshold_ed25519_client_presign_create returned invalid output');
+    throw new Error(
+      'threshold_ed25519_client_presign_create_from_worker_material returned invalid output',
+    );
   }
   return {
     clientNonceHandleB64u,
@@ -833,7 +917,9 @@ function requireClientPresignSignOutput(output: unknown): { clientSignatureShare
     (output as { clientSignatureShareB64u?: unknown })?.clientSignatureShareB64u || '',
   ).trim();
   if (!clientSignatureShareB64u) {
-    throw new Error('threshold_ed25519_client_presign_sign returned invalid output');
+    throw new Error(
+      'threshold_ed25519_client_presign_sign_from_worker_material returned invalid output',
+    );
   }
   return { clientSignatureShareB64u };
 }
@@ -944,7 +1030,22 @@ function assertNoPrfSecretsInSignerPayload(data: unknown): void {
     data && typeof data === 'object' ? (data as { payload?: unknown }).payload : undefined;
   if (!payload || typeof payload !== 'object') return;
   const payloadRecord = payload as Record<string, unknown>;
-  const forbiddenKeys = ['prfOutput', 'prf_output', 'prfFirst', 'prf_first', 'prf'];
+  const forbiddenKeys = [
+    'prfOutput',
+    'prf_output',
+    'prfFirst',
+    'prf_first',
+    secretB64uField('prfFirst'),
+    'prf_first_b64u',
+    'prf',
+    'nearPrivateKey',
+    'privateKey',
+    secretB64uField('xClientBase'),
+    secretB64uField('clientOutputMask'),
+    secretB64uField('canonicalSeed'),
+    secretB64uField('seed'),
+    secretB64uField('signingShare32'),
+  ];
   for (const key of forbiddenKeys) {
     if (payloadRecord[key] !== undefined) {
       throw new Error(`Forbidden secret field in signer payload: ${key}`);
@@ -954,16 +1055,16 @@ function assertNoPrfSecretsInSignerPayload(data: unknown): void {
 
 self.onerror = (message, filename, lineno, colno, error) => {
   console.error('[signer-worker]: error:', {
-    message: typeof message === 'string' ? message : 'Unknown error',
+    message: safeErrorMessage(typeof message === 'string' ? message : 'Unknown error'),
     filename: filename || 'unknown',
     lineno: lineno || 0,
     colno: colno || 0,
-    error: error,
+    error: errorLogSummary(error),
   });
 };
 
 self.onunhandledrejection = (event) => {
-  console.error('[signer-worker]: Unhandled promise rejection:', event.reason);
+  console.error('[signer-worker]: Unhandled promise rejection:', errorLogSummary(event.reason));
   event.preventDefault();
 };
 
@@ -973,8 +1074,8 @@ self.onunhandledrejection = (event) => {
 function safeJsonParse(jsonString: string, fallback: unknown = {}): unknown {
   try {
     return jsonString ? JSON.parse(jsonString) : fallback;
-  } catch (error) {
-    console.warn('[signer-worker]: Failed to parse JSON:', error);
+  } catch (error: unknown) {
+    console.warn('[signer-worker]: Failed to parse JSON:', errorLogSummary(error));
     return Array.isArray(fallback) ? [jsonString] : { rawData: jsonString };
   }
 }

@@ -1530,18 +1530,23 @@ export async function prepareThresholdEd25519RegistrationHssClientRequest(args: 
   ceremonyHandle: string;
 }): Promise<{
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-  clientOutputMaskB64u: string;
+  clientOutputMaskHandle: string;
 }> {
-  const { clientOutputMaskB64u } =
-    await args.context.signingEngine.deriveThresholdEd25519HssClientOutputMask({
+  const maskHandle =
+    await args.context.signingEngine.prepareThresholdEd25519HssClientOutputMaskHandle({
       clientRecoverableSecretB64u: args.material.prfFirstB64u,
       context: {
-        ...args.material.hssContext,
+        applicationBindingDigestB64u: args.material.hssContext.applicationBindingDigestB64u,
+        participantIds: args.material.hssContext.participantIds,
         contextBindingB64u: args.preparedSession.contextBindingB64u,
         operation: 'registration',
         relayerKeyId: `registration:${args.ceremonyHandle}`,
       },
+      expiresAtMs: Date.now() + 60_000,
     });
+  if (maskHandle.contextBindingB64u !== args.preparedSession.contextBindingB64u) {
+    throw new Error('Threshold Ed25519 registration HSS output-mask handle context mismatch');
+  }
 
   const clientRequest = await args.context.signingEngine.prepareThresholdEd25519HssClientRequest({
     evaluatorDriverStateB64u: args.preparedSession.evaluatorDriverStateB64u,
@@ -1549,7 +1554,7 @@ export async function prepareThresholdEd25519RegistrationHssClientRequest(args: 
     clientInputs: args.material.clientInputs,
   });
 
-  return { clientRequest, clientOutputMaskB64u };
+  return { clientRequest, clientOutputMaskHandle: maskHandle.clientOutputMaskHandle };
 }
 
 export async function buildThresholdEd25519RegistrationHssClientOwnedArtifact(args: {
@@ -1557,14 +1562,15 @@ export async function buildThresholdEd25519RegistrationHssClientOwnedArtifact(ar
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
-  clientOutputMaskB64u: string;
+  clientOutputMaskHandle: string;
 }): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
-  return await args.context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+  return await args.context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     {
       preparedSession: args.preparedSession,
       clientRequest: args.clientRequest,
       serverInputDelivery: args.serverInputDelivery,
-      clientOutputMaskB64u: args.clientOutputMaskB64u,
+      clientOutputMaskHandle: args.clientOutputMaskHandle,
+      expectedContextBindingB64u: args.preparedSession.contextBindingB64u,
     },
   );
 }

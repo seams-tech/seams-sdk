@@ -3,8 +3,8 @@ import type { SignerWorkerManagerContext } from '../SignerWorkerManager';
 import {
   deriveThresholdEd25519ClientVerifyingShareWasm,
   extractCosePublicKeyWasm,
-  generateEphemeralNearKeypairWasm,
-  signTransactionWithKeyPairWasm,
+  generateEphemeralNearKeypairHandleWasm,
+  signTransactionWithEphemeralNearKeypairHandleWasm,
 } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 
@@ -72,14 +72,14 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
         attestationObjectBase64url,
       });
     },
-    async signTransactionWithKeyPair(args) {
-      return signTransactionWithKeyPairWasm({
+    async signTransactionWithEphemeralNearKeypairHandle(args) {
+      return signTransactionWithEphemeralNearKeypairHandleWasm({
         workerCtx: getContext(),
         ...args,
       });
     },
-    async generateEphemeralNearKeypair() {
-      return generateEphemeralNearKeypairWasm({ workerCtx: getContext() });
+    async generateEphemeralNearKeypairHandle(args) {
+      return generateEphemeralNearKeypairHandleWasm({ workerCtx: getContext(), ...args });
     },
   };
 }

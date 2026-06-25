@@ -200,8 +200,10 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
     services: {
       warmSessions,
       nearKeyOperations: {
-        signTransactionWithKeyPair: (input) => deps.nearKeyOps.signTransactionWithKeyPair(input),
-        generateEphemeralNearKeypair: () => deps.nearKeyOps.generateEphemeralNearKeypair(),
+        signTransactionWithEphemeralNearKeypairHandle: (input) =>
+          deps.nearKeyOps.signTransactionWithEphemeralNearKeypairHandle(input),
+        generateEphemeralNearKeypairHandle: (input) =>
+          deps.nearKeyOps.generateEphemeralNearKeypairHandle(input),
       },
       registrationAccounts,
       nearSigning,

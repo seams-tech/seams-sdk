@@ -1,3 +1,4 @@
+pub mod ephemeral_near_keypair_handle;
 pub mod handle_extract_cose_public_key;
 pub mod handle_generate_ephemeral_near_keypair;
 pub mod handle_sign_delegate_action;
@@ -7,24 +8,19 @@ pub mod handle_sign_transactions_with_actions;
 pub mod handle_threshold_ed25519_derive_client_verifying_share;
 pub mod handle_threshold_ed25519_derive_hss_client_inputs;
 
-// Handler functions
 pub use handle_extract_cose_public_key::handle_extract_cose_public_key;
-pub use handle_generate_ephemeral_near_keypair::handle_generate_ephemeral_near_keypair;
 pub use handle_sign_delegate_action::handle_sign_delegate_action;
 pub use handle_sign_nep413_message::handle_sign_nep413_message;
-pub use handle_sign_transaction_with_keypair::handle_sign_transaction_with_keypair;
 pub use handle_sign_transactions_with_actions::handle_sign_transactions_with_actions;
 pub use handle_threshold_ed25519_derive_client_verifying_share::handle_threshold_ed25519_derive_client_verifying_share;
 pub use handle_threshold_ed25519_derive_hss_client_inputs::handle_threshold_ed25519_derive_hss_client_inputs;
 
 // Request/Result types
 pub use handle_extract_cose_public_key::{CoseExtractionResult, ExtractCoseRequest};
-pub use handle_generate_ephemeral_near_keypair::GenerateEphemeralNearKeypairRequest;
 pub use handle_sign_delegate_action::{
     DelegatePayload, DelegateSignResult, SignDelegateActionRequest,
 };
 pub use handle_sign_nep413_message::{SignNep413Request, SignNep413Result};
-pub use handle_sign_transaction_with_keypair::SignTransactionWithKeyPairRequest;
 pub use handle_sign_transactions_with_actions::{
     KeyActionResult, SignTransactionsWithActionsRequest, TransactionPayload,
 };

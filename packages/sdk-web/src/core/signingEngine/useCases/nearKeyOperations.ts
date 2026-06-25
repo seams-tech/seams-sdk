@@ -2,8 +2,8 @@ import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { ActionArgsWasm } from '@/core/types/actions';
 import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyOps';
 
-export type NearTransactionKeyPairSigningInput = {
-  nearPrivateKey: string;
+export type NearEphemeralKeyHandleSigningInput = {
+  keyHandle: string;
   signerAccountId: string;
   receiverId: string;
   nonce: string;
@@ -13,27 +13,31 @@ export type NearTransactionKeyPairSigningInput = {
 
 export type NearEphemeralKeypair = {
   publicKey: string;
-  privateKey: string;
+  keyHandle: string;
+  expiresAtMs: number;
+  remainingUses: number;
 };
 
 export type NearKeyOperationsService = {
-  signTransactionWithKeyPair(input: NearTransactionKeyPairSigningInput): Promise<{
+  signTransactionWithEphemeralNearKeypairHandle(input: NearEphemeralKeyHandleSigningInput): Promise<{
     signedTransaction: SignedTransaction;
     logs?: string[];
   }>;
-  generateEphemeralNearKeypair(): Promise<NearEphemeralKeypair>;
+  generateEphemeralNearKeypairHandle(input: { expiresAtMs: number }): Promise<NearEphemeralKeypair>;
 };
 
 export type NearKeyOperationsPort = Pick<
   NearSigningKeyOps,
-  'signTransactionWithKeyPair' | 'generateEphemeralNearKeypair'
+  'signTransactionWithEphemeralNearKeypairHandle' | 'generateEphemeralNearKeypairHandle'
 >;
 
 export function createNearKeyOperationsService(
   nearKeyOps: NearKeyOperationsPort,
 ): NearKeyOperationsService {
   return {
-    signTransactionWithKeyPair: (input) => nearKeyOps.signTransactionWithKeyPair(input),
-    generateEphemeralNearKeypair: () => nearKeyOps.generateEphemeralNearKeypair(),
+    signTransactionWithEphemeralNearKeypairHandle: (input) =>
+      nearKeyOps.signTransactionWithEphemeralNearKeypairHandle(input),
+    generateEphemeralNearKeypairHandle: (input) =>
+      nearKeyOps.generateEphemeralNearKeypairHandle(input),
   };
 }

@@ -874,9 +874,9 @@ export async function runEmailOtpEcdsaTempoFlow(
         throw new Error('Ed25519 registration HSS prepare returned incomplete ceremony state');
       }
 
-      const outputMask = await withStageTimeout(
-        'derive Ed25519 registration HSS output mask',
-        args.signingEngine.deriveThresholdEd25519HssClientOutputMask({
+      const maskHandle = await withStageTimeout(
+        'prepare Ed25519 registration HSS output mask handle',
+        args.signingEngine.prepareThresholdEd25519HssClientOutputMaskHandle({
           clientRecoverableSecretB64u: prfFirstB64u,
           context: {
             ...hssContext,
@@ -884,11 +884,14 @@ export async function runEmailOtpEcdsaTempoFlow(
             operation: 'registration',
             relayerKeyId: `registration:${ceremonyHandle}`,
           },
+          expiresAtMs: Date.now() + 60_000,
         }),
       );
-      const clientOutputMaskB64u = String((outputMask as any)?.clientOutputMaskB64u || '').trim();
-      if (!clientOutputMaskB64u) {
-        throw new Error('Ed25519 registration HSS output mask was empty');
+      const clientOutputMaskHandle = String(
+        (maskHandle as any)?.clientOutputMaskHandle || '',
+      ).trim();
+      if (!clientOutputMaskHandle) {
+        throw new Error('Ed25519 registration HSS output mask handle was empty');
       }
 
       const clientRequest = await withStageTimeout(
@@ -928,14 +931,15 @@ export async function runEmailOtpEcdsaTempoFlow(
 
       const evaluationResult = await withStageTimeout(
         'build Ed25519 registration HSS client artifact',
-        args.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact({
+        args.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle({
           preparedSession,
           clientRequest,
           serverInputDelivery: {
             contextBindingB64u: responded.contextBindingB64u,
             serverInputDeliveryB64u,
           },
-          clientOutputMaskB64u,
+          clientOutputMaskHandle,
+          expectedContextBindingB64u: preparedSession.contextBindingB64u,
         }),
       );
       const finalized = await withStageTimeout(

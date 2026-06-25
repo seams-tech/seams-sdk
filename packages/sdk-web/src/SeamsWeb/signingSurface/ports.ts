@@ -38,7 +38,7 @@ import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type {
   NearEphemeralKeypair,
-  NearTransactionKeyPairSigningInput,
+  NearEphemeralKeyHandleSigningInput,
 } from '@/core/signingEngine/useCases/nearKeyOperations';
 import type { NearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
@@ -123,11 +123,13 @@ export interface NearSigningSurface extends NonceCoordinatorSurface {
   signNear<TRequest extends NearSignIntentRequest>(
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>>;
-  signTransactionWithKeyPair(input: NearTransactionKeyPairSigningInput): Promise<{
+  signTransactionWithEphemeralNearKeypairHandle(
+    input: NearEphemeralKeyHandleSigningInput,
+  ): Promise<{
     signedTransaction: SignedTransaction;
     logs?: string[];
   }>;
-  generateEphemeralNearKeypair(): Promise<NearEphemeralKeypair>;
+  generateEphemeralNearKeypairHandle(input: { expiresAtMs: number }): Promise<NearEphemeralKeypair>;
 }
 
 export interface EvmFamilySigningSurface {
@@ -446,22 +448,19 @@ export interface ThresholdEd25519HssClientSurface {
   ): ReturnType<
     typeof thresholdEd25519Public.prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorization
   >;
-  deriveThresholdEd25519HssClientOutputMask(
-    args: Parameters<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>[1],
-  ): ReturnType<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>;
-  deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+  prepareThresholdEd25519HssClientOutputMaskHandle(
     args: Parameters<
-      typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
     >[1],
   ): ReturnType<
-    typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
   >;
-  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     args: Parameters<
-      typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
+      typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
     >[1],
   ): ReturnType<
-    typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
+    typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
   >;
 }
 

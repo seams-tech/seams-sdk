@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   abortRouterAbEcdsaHssClientPresignSession,
@@ -190,14 +189,6 @@ function makeWorkerCtx(args: {
           throw new Error('presignature bigR mismatch');
         }
         return args.clientSignatureShare32.slice().buffer as any;
-      }
-      if (type === String(WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare)) {
-        return {
-          type: WorkerResponseType.OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
-          payload: {
-            signingShare32B64u: base64UrlEncode(args.clientSigningShare32),
-          },
-        } as any;
       }
       throw new Error(`Unexpected worker operation in test: ${type}`);
     },

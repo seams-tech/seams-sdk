@@ -34,8 +34,8 @@ export type NearSigningKeyOps = {
     error?: string;
   }>;
   extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array>;
-  signTransactionWithKeyPair(args: {
-    nearPrivateKey: string;
+  signTransactionWithEphemeralNearKeypairHandle(args: {
+    keyHandle: string;
     signerAccountId: string;
     receiverId: string;
     nonce: string;
@@ -45,8 +45,10 @@ export type NearSigningKeyOps = {
     signedTransaction: SignedTransaction;
     logs?: string[];
   }>;
-  generateEphemeralNearKeypair(): Promise<{
+  generateEphemeralNearKeypairHandle(args: { expiresAtMs: number }): Promise<{
     publicKey: string;
-    privateKey: string;
+    keyHandle: string;
+    expiresAtMs: number;
+    remainingUses: number;
   }>;
 };

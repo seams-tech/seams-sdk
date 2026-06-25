@@ -232,7 +232,9 @@ export type CreateSigningEnginePortsArgs = {
 export type NearKeyOpsDeps = {
   signingKeyOps: Pick<
     NearSigningKeyOps,
-    'extractCosePublicKey' | 'signTransactionWithKeyPair' | 'generateEphemeralNearKeypair'
+    | 'extractCosePublicKey'
+    | 'signTransactionWithEphemeralNearKeypairHandle'
+    | 'generateEphemeralNearKeypairHandle'
   >;
 };
 

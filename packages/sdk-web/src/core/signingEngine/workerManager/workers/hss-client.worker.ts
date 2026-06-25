@@ -11,11 +11,9 @@ import initHssClientSigner, {
   derive_threshold_ed25519_hss_client_inputs,
   threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact,
   threshold_ed25519_hss_derive_client_output_mask,
-  threshold_ed25519_hss_open_client_output,
   threshold_ed25519_hss_open_seed_output,
   threshold_ed25519_hss_prepare_client_request,
   threshold_ed25519_hss_prepare_session,
-  threshold_ed25519_role_separated_client_verifying_share_from_base_share,
   threshold_ed25519_seed_export_artifact_from_seed,
 } from '../../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import initEthSigner, {
@@ -26,7 +24,7 @@ import initEthSigner, {
 } from '../../../../../../../wasm/eth_signer/pkg/eth_signer.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
-import { errorMessage } from '@shared/utils/errors';
+import { errorLogSummary, safeErrorMessage } from '@shared/utils/errors';
 import {
   HssClientCustomRequestType,
   HssClientCustomResponseType,
@@ -43,6 +41,19 @@ let ethSignerInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
 const DIAGNOSTIC_BREAKDOWN_MAX_FIELDS = 64;
+const ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES = 32;
+const ED25519_HSS_CLIENT_OUTPUT_MASK_USES = 1;
+const ED25519_HSS_CLIENT_OUTPUT_MASK_TTL_MS = 60_000;
+
+type StoredEd25519HssClientOutputMask = {
+  clientOutputMaskHandle: string;
+  clientOutputMaskB64u: string;
+  contextBindingB64u: string;
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
+const ed25519HssClientOutputMaskStore = new Map<string, StoredEd25519HssClientOutputMask>();
 
 type StoredEcdsaRoleLocalSigningMaterial = {
   materialHandle: string;
@@ -133,6 +144,80 @@ function readNonEmptyString(record: Record<string, unknown>, key: string): strin
   return parsed;
 }
 
+function readOptionalExpiresAtMs(record: Record<string, unknown>): number {
+  const parsed = Math.floor(Number(record.expiresAtMs));
+  if (Number.isFinite(parsed) && parsed > Date.now()) return parsed;
+  return Date.now() + ED25519_HSS_CLIENT_OUTPUT_MASK_TTL_MS;
+}
+
+function requireBase64UrlBytes(input: {
+  value: string;
+  fieldName: string;
+  byteLength: number;
+}): string {
+  const normalized = String(input.value || '').trim();
+  if (!normalized) throw new Error(`HSS client worker request is missing ${input.fieldName}`);
+  const decoded = base64UrlDecode(normalized);
+  if (decoded.length !== input.byteLength) {
+    decoded.fill(0);
+    throw new Error(`HSS client worker request has invalid ${input.fieldName}`);
+  }
+  decoded.fill(0);
+  return normalized;
+}
+
+function validateEd25519HssClientOutputMaskB64u(value: string): string {
+  return requireBase64UrlBytes({
+    value,
+    fieldName: 'clientOutputMaskB64u',
+    byteLength: ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES,
+  });
+}
+
+function pruneExpiredEd25519HssClientOutputMasks(now: number): void {
+  for (const [handle, stored] of ed25519HssClientOutputMaskStore.entries()) {
+    if (stored.expiresAtMs <= now || stored.remainingUses <= 0) {
+      ed25519HssClientOutputMaskStore.delete(handle);
+    }
+  }
+}
+
+function storeEd25519HssClientOutputMask(args: {
+  clientOutputMaskB64u: string;
+  contextBindingB64u: string;
+  expiresAtMs: number;
+}): StoredEd25519HssClientOutputMask {
+  const now = Date.now();
+  pruneExpiredEd25519HssClientOutputMasks(now);
+  const clientOutputMaskHandle = randomHandleId('ed25519-hss-client-output-mask');
+  const stored: StoredEd25519HssClientOutputMask = {
+    clientOutputMaskHandle,
+    clientOutputMaskB64u: validateEd25519HssClientOutputMaskB64u(args.clientOutputMaskB64u),
+    contextBindingB64u: args.contextBindingB64u,
+    expiresAtMs: args.expiresAtMs,
+    remainingUses: ED25519_HSS_CLIENT_OUTPUT_MASK_USES,
+  };
+  ed25519HssClientOutputMaskStore.set(clientOutputMaskHandle, stored);
+  return stored;
+}
+
+function takeEd25519HssClientOutputMask(args: {
+  clientOutputMaskHandle: string;
+  expectedContextBindingB64u: string;
+}): string {
+  pruneExpiredEd25519HssClientOutputMasks(Date.now());
+  const stored = ed25519HssClientOutputMaskStore.get(args.clientOutputMaskHandle);
+  if (!stored) throw new Error('Unknown Ed25519 HSS client output mask handle');
+  ed25519HssClientOutputMaskStore.delete(args.clientOutputMaskHandle);
+  if (stored.contextBindingB64u !== args.expectedContextBindingB64u) {
+    throw new Error('Ed25519 HSS client output mask context binding mismatch');
+  }
+  if (stored.remainingUses !== 1) {
+    throw new Error('Ed25519 HSS client output mask handle is exhausted');
+  }
+  return stored.clientOutputMaskB64u;
+}
+
 function readPositiveInteger(record: Record<string, unknown>, key: string): number {
   const parsed = Math.floor(Number(record[key]));
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -152,6 +237,83 @@ function readParticipantIds(record: Record<string, unknown>, key: string): numbe
       throw new Error(`HSS client worker request has invalid ${key}`);
     }
     return parsed;
+  });
+}
+
+function readHssSessionSourceFields(record: Record<string, unknown>): {
+  sessionSource: 'worker_handle' | 'serialized_state';
+  workerSessionHandle?: string;
+  evaluatorDriverStateB64u?: string;
+} {
+  const sessionSource = String(record.sessionSource || 'serialized_state').trim();
+  if (sessionSource === 'worker_handle') {
+    return {
+      sessionSource,
+      workerSessionHandle: readNonEmptyString(record, 'workerSessionHandle'),
+    };
+  }
+  if (sessionSource === 'serialized_state') {
+    return {
+      sessionSource,
+      evaluatorDriverStateB64u: readNonEmptyString(record, 'evaluatorDriverStateB64u'),
+    };
+  }
+  throw new Error('HSS client worker request has invalid sessionSource');
+}
+
+function prepareEd25519HssClientOutputMaskHandle(payload: unknown): {
+  clientOutputMaskHandle: string;
+  contextBindingB64u: string;
+  expiresAtMs: number;
+  remainingUses: number;
+} {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('HSS client output mask handle request must be an object');
+  }
+  const record = payload as Record<string, unknown>;
+  const contextBindingB64u = readNonEmptyString(record, 'contextBindingB64u');
+  const output = threshold_ed25519_hss_derive_client_output_mask({
+    applicationBindingDigestB64u: readNonEmptyString(record, 'applicationBindingDigestB64u'),
+    participantIds: readParticipantIds(record, 'participantIds'),
+    contextBindingB64u,
+    operation: readNonEmptyString(record, 'operation'),
+    relayerKeyId: readNonEmptyString(record, 'relayerKeyId'),
+    clientRecoverableSecretB64u: readNonEmptyString(record, 'clientRecoverableSecretB64u'),
+  }) as { clientOutputMaskB64u?: unknown };
+  const stored = storeEd25519HssClientOutputMask({
+    clientOutputMaskB64u: String(output.clientOutputMaskB64u || '').trim(),
+    contextBindingB64u,
+    expiresAtMs: readOptionalExpiresAtMs(record),
+  });
+  return {
+    clientOutputMaskHandle: stored.clientOutputMaskHandle,
+    contextBindingB64u: stored.contextBindingB64u,
+    expiresAtMs: stored.expiresAtMs,
+    remainingUses: stored.remainingUses,
+  };
+}
+
+function buildEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
+  payload: unknown,
+): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('HSS client-owned staged artifact request must be an object');
+  }
+  const record = payload as Record<string, unknown>;
+  const expectedContextBindingB64u = readNonEmptyString(record, 'expectedContextBindingB64u');
+  const clientOutputMaskB64u = takeEd25519HssClientOutputMask({
+    clientOutputMaskHandle: readNonEmptyString(record, 'clientOutputMaskHandle'),
+    expectedContextBindingB64u,
+  });
+  const sessionSource = readHssSessionSourceFields(record);
+  return threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact({
+    sessionSource: sessionSource.sessionSource,
+    workerSessionHandle: sessionSource.workerSessionHandle,
+    evaluatorDriverStateB64u: sessionSource.evaluatorDriverStateB64u,
+    clientRequestMessageB64u: readNonEmptyString(record, 'clientRequestMessageB64u'),
+    evaluatorOtStateB64u: readNonEmptyString(record, 'evaluatorOtStateB64u'),
+    serverInputDeliveryB64u: readNonEmptyString(record, 'serverInputDeliveryB64u'),
+    clientOutputMaskB64u,
   });
 }
 
@@ -211,7 +373,15 @@ function freeEcdsaRoleLocalPresignSession(sessionId: string): void {
 function randomHandleId(prefix: string): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  let hex = '';
+  for (const byte of bytes) {
+    hex += byte.toString(16).padStart(2, '0');
+  }
+  return `${prefix}-${hex}`;
+}
+
+function secretB64uField(prefix: string): string {
+  return `${prefix}B64u`;
 }
 
 function putEcdsaRoleLocalPresignatureMaterial(args: {
@@ -508,7 +678,7 @@ function classifyHssWorkerFailure(error: unknown): {
       typeof (error as { coreCode?: unknown }).coreCode === 'string'
         ? String((error as { coreCode?: string }).coreCode).trim()
         : '';
-    const resolvedMessage = message || errorMessage(error);
+    const resolvedMessage = message || safeErrorMessage(error);
     if (isHssWasmInitFailureMessage(resolvedMessage)) {
       return {
         message: resolvedMessage,
@@ -529,7 +699,7 @@ function classifyHssWorkerFailure(error: unknown): {
       coreCode: 'HSS_COMMAND_FAILURE',
     };
   }
-  const message = errorMessage(error);
+  const message = safeErrorMessage(error);
   if (isHssWasmInitFailureMessage(message)) {
     return {
       message,
@@ -556,8 +726,11 @@ async function initializeHssClientSignerWasm(): Promise<void> {
       });
     } catch (error: unknown) {
       hssClientSignerInitPromise = null;
-      console.error('[hss-client-worker]: HSS client WASM initialization failed:', error);
-      throw new Error(`HSS client WASM initialization failed: ${errorMessage(error)}`);
+      console.error(
+        '[hss-client-worker]: HSS client WASM initialization failed:',
+        errorLogSummary(error),
+      );
+      throw new Error(`HSS client WASM initialization failed: ${safeErrorMessage(error)}`);
     }
   })();
   return hssClientSignerInitPromise;
@@ -602,20 +775,15 @@ async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandRe
           type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
           payload: threshold_ed25519_hss_prepare_client_request(payload),
         };
-      case WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask:
+      case HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle:
         return {
-          type: WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskSuccess,
-          payload: threshold_ed25519_hss_derive_client_output_mask(payload),
+          type: HssClientCustomResponseType.PrepareThresholdEd25519HssClientOutputMaskHandleSuccess,
+          payload: prepareEd25519HssClientOutputMaskHandle(payload),
         };
-      case WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact:
+      case HssClientCustomRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle:
         return {
-          type: WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
-          payload: threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(payload),
-        };
-      case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
-        return {
-          type: WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess,
-          payload: threshold_ed25519_hss_open_client_output(payload),
+          type: HssClientCustomResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleSuccess,
+          payload: buildEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(payload),
         };
       case WorkerRequestType.OpenThresholdEd25519HssSeedOutput:
         return {
@@ -626,11 +794,6 @@ async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandRe
         return {
           type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
           payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
-        };
-      case HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare:
-        return {
-          type: HssClientCustomResponseType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShareSuccess,
-          payload: threshold_ed25519_role_separated_client_verifying_share_from_base_share(payload),
         };
       case HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial: {
         const stored = storeEcdsaRoleLocalSigningMaterial(payload);
@@ -666,11 +829,6 @@ async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandRe
         return {
           type: HssClientCustomResponseType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleSuccess,
           payload: await computeEcdsaRoleLocalSignatureShareFromPresignatureHandle(payload),
-        };
-      case WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare:
-        return {
-          type: WorkerResponseType.OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
-          payload: open_ecdsa_role_local_signing_share_v1(payload),
         };
       case WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap:
         return {
@@ -747,7 +905,7 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
       ).trim();
       if (sessionId) freeEcdsaRoleLocalPresignSession(sessionId);
     }
-    console.error('[hss-client-worker]: Message processing failed:', error);
+    console.error('[hss-client-worker]: Message processing failed:', errorLogSummary(error));
     const failure = classifyHssWorkerFailure(error);
     self.postMessage({
       id: requestId,
@@ -792,16 +950,19 @@ self.onmessage = async (event: MessageEvent<HssClientWorkerRpcRequest>): Promise
 
 self.onerror = (message, filename, lineno, colno, error) => {
   console.error('[hss-client-worker]: error:', {
-    message: typeof message === 'string' ? message : 'Unknown error',
+    message: safeErrorMessage(typeof message === 'string' ? message : 'Unknown error'),
     filename: filename || 'unknown',
     lineno: lineno || 0,
     colno: colno || 0,
-    error,
+    error: errorLogSummary(error),
   });
 };
 
 self.onunhandledrejection = (event) => {
-  console.error('[hss-client-worker]: Unhandled promise rejection:', event.reason);
+  console.error(
+    '[hss-client-worker]: Unhandled promise rejection:',
+    errorLogSummary(event.reason),
+  );
   event.preventDefault();
 };
 
@@ -810,7 +971,22 @@ function assertNoPrfSecretsInSignerPayload(data: unknown): void {
     data && typeof data === 'object' ? (data as { payload?: unknown }).payload : undefined;
   if (!payload || typeof payload !== 'object') return;
   const payloadRecord = payload as Record<string, unknown>;
-  const forbiddenKeys = ['prfOutput', 'prf_output', 'prfFirst', 'prf_first', 'prf'];
+  const forbiddenKeys = [
+    'prfOutput',
+    'prf_output',
+    'prfFirst',
+    'prf_first',
+    secretB64uField('prfFirst'),
+    'prf_first_b64u',
+    'prf',
+    'nearPrivateKey',
+    'privateKey',
+    secretB64uField('xClientBase'),
+    secretB64uField('clientOutputMask'),
+    secretB64uField('canonicalSeed'),
+    secretB64uField('seed'),
+    secretB64uField('signingShare32'),
+  ];
   for (const key of forbiddenKeys) {
     if (payloadRecord[key] !== undefined) {
       throw new Error(`Forbidden secret field in signer payload: ${key}`);

@@ -36,7 +36,7 @@ export interface DeviceLinkingSession {
   phase: LinkDeviceEventPhase;
   createdAt: number;
   expiresAt: number;
-  tempPrivateKey?: string; // For Option F flow - temporary private key before replacement
+  tempKeyHandle: string;
 }
 
 export type LinkDeviceResult =

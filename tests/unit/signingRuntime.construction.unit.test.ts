@@ -121,10 +121,10 @@ test.describe('SigningRuntime construction', () => {
         },
       },
       nearKeyOps: {
-        async signTransactionWithKeyPair() {
+        async signTransactionWithEphemeralNearKeypairHandle() {
           throw new Error('in-memory runtime has no NEAR key signer');
         },
-        async generateEphemeralNearKeypair() {
+        async generateEphemeralNearKeypairHandle() {
           throw new Error('in-memory runtime has no NEAR key generator');
         },
       },

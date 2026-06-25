@@ -12,16 +12,15 @@ import {
   ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
 } from '@shared/utils/signingSessionSeal';
 import {
-  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm,
   buildThresholdEd25519SeedExportArtifactWasm,
-  openThresholdEd25519HssClientOutputWasm,
   openThresholdEd25519HssSeedOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
+  prepareThresholdEd25519HssClientOutputMaskHandleWasm,
   type ThresholdEd25519HssCanonicalContext,
   type ThresholdEd25519HssClientRequestEnvelope,
   type ThresholdEd25519HssClientInputs,
   type ThresholdEd25519HssFinalizedReportEnvelope,
-  type ThresholdEd25519HssOpenedClientOutput,
   type ThresholdEd25519HssOpenedSeedOutput,
   type ThresholdEd25519HssPreparedSessionEnvelope,
   type ThresholdEd25519HssServerInputDeliveryEnvelope,
@@ -35,7 +34,6 @@ import type {
 } from '@/core/types/signer-worker';
 import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../crypto/ed25519WrapKeySalt';
 import {
-  resolveThresholdEd25519HssClientOutputMaskB64u,
   resolveThresholdEd25519HssClientOutputMaskHandle,
   validateThresholdEd25519HssOutputProjectionPolicy,
   type ThresholdEd25519HssOutputProjectionPolicy,
@@ -113,7 +111,6 @@ export type CompleteThresholdEd25519HssClientCeremonyResult =
       contextBindingB64u: string;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
       finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-      clientOutput: ThresholdEd25519HssOpenedClientOutput;
       code?: never;
       message?: never;
     }
@@ -124,7 +121,6 @@ export type CompleteThresholdEd25519HssClientCeremonyResult =
       message: string;
       preparedSession?: never;
       finalizedReport?: never;
-      clientOutput?: never;
     };
 
 export type CompleteThresholdEd25519HssMaterialHandleCeremonyResult =
@@ -343,6 +339,33 @@ function requirePrfFirstB64uFromCredential(
     throw new Error('Missing PRF.first output from credential (requires a PRF-enabled passkey)');
   }
   return value;
+}
+
+async function prepareClientOwnedEvaluatorMaskHandle(args: {
+  outputProjection: ThresholdEd25519HssOutputProjectionPolicy;
+  context: ThresholdEd25519HssCanonicalContext;
+  contextBindingB64u: string;
+  operation: ThresholdEd25519HssSessionOperation;
+  relayerKeyId: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<string> {
+  validateThresholdEd25519HssOutputProjectionPolicy(args.outputProjection);
+  const result = await prepareThresholdEd25519HssClientOutputMaskHandleWasm({
+    clientRecoverableSecretB64u: args.outputProjection.clientRecoverableSecretB64u,
+    context: {
+      applicationBindingDigestB64u: args.context.applicationBindingDigestB64u,
+      participantIds: args.context.participantIds,
+      contextBindingB64u: args.contextBindingB64u,
+      operation: args.operation,
+      relayerKeyId: args.relayerKeyId,
+    },
+    expiresAtMs: Date.now() + 60_000,
+    workerCtx: args.workerCtx,
+  });
+  if (result.contextBindingB64u !== args.contextBindingB64u) {
+    throw new Error('Ed25519 HSS client output mask handle context binding mismatch');
+  }
+  return result.clientOutputMaskHandle;
 }
 
 export async function deriveThresholdEd25519ClientVerifyingShareFromCredential(
@@ -594,47 +617,6 @@ export async function prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
     yClientB64u: derived.yClientB64u,
     tauClientB64u: derived.tauClientB64u,
   };
-}
-
-export async function completeThresholdEd25519HssClientCeremony(args: {
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-  clientOutputMaskB64u: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<CompleteThresholdEd25519HssClientCeremonyResult> {
-  const contextBindingB64u = String(args.preparedSession.contextBindingB64u || '').trim();
-  try {
-    if (String(args.finalizedReport.contextBindingB64u || '').trim() !== contextBindingB64u) {
-      throw new Error('HSS finalized report context binding mismatch');
-    }
-
-    const clientOutput = await openThresholdEd25519HssClientOutputWasm({
-      preparedSession: args.preparedSession,
-      finalizedReport: args.finalizedReport,
-      clientOutputMaskB64u: args.clientOutputMaskB64u,
-      workerCtx: args.workerCtx,
-    });
-
-    if (clientOutput.contextBindingB64u !== contextBindingB64u) {
-      throw new Error('HSS client output context binding mismatch');
-    }
-
-    return {
-      ok: true,
-      contextBindingB64u,
-      preparedSession: args.preparedSession,
-      finalizedReport: args.finalizedReport,
-      clientOutput,
-    };
-  } catch (error: unknown) {
-    const message = String((error as { message?: unknown })?.message ?? error);
-    return {
-      ok: false,
-      contextBindingB64u,
-      code: 'complete_client_ceremony_failed',
-      message,
-    };
-  }
 }
 
 export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: {
@@ -984,14 +966,12 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     };
   }
 
-  const clientOutputMaskB64u = await resolveThresholdEd25519HssClientOutputMaskB64u({
-    policy: args.outputProjection,
-    context: {
-      ...args.context,
-      contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-      operation: args.operation,
-      relayerKeyId: args.relayerKeyId,
-    },
+  const clientOutputMaskHandle = await prepareClientOwnedEvaluatorMaskHandle({
+    outputProjection: args.outputProjection,
+    context: args.context,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    operation: args.operation,
+    relayerKeyId: args.relayerKeyId,
     workerCtx: args.workerCtx,
   });
   const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
@@ -1018,11 +998,13 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   }
 
   const evaluateStartedAt = Date.now();
-  const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+  const evaluationResult =
+    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
     preparedSession: prepared.preparedSession,
     clientRequest,
     serverInputDelivery: responded.serverInputDelivery,
-    clientOutputMaskB64u,
+    clientOutputMaskHandle,
+    expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
     workerCtx: args.workerCtx,
   });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
@@ -1051,23 +1033,14 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     };
   }
 
-  const completeStartedAt = Date.now();
-  const completed = await completeThresholdEd25519HssClientCeremony({
-    preparedSession: prepared.preparedSession,
-    finalizedReport: finalized.finalizedReport,
-    clientOutputMaskB64u,
-    workerCtx: args.workerCtx,
-  });
-  const completeMs = Date.now() - completeStartedAt;
   console.info('[threshold-ed25519][client] hss ceremony timings', {
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     evaluateMs,
-    completeMs,
     totalMs: Date.now() - startedAt,
   });
-  if (!completed.ok) return completed;
   return {
-    ...completed,
+    ok: true,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     preparedSession: prepared.preparedSession,
     finalizedReport: finalized.finalizedReport,
   };
@@ -1115,14 +1088,12 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     };
   }
 
-  const clientOutputMaskB64u = await resolveThresholdEd25519HssClientOutputMaskB64u({
-    policy: args.outputProjection,
-    context: {
-      ...args.context,
-      contextBindingB64u: prepared.preparedSession.contextBindingB64u,
-      operation: args.operation,
-      relayerKeyId: args.relayerKeyId,
-    },
+  const evaluatorClientOutputMaskHandle = await prepareClientOwnedEvaluatorMaskHandle({
+    outputProjection: args.outputProjection,
+    context: args.context,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    operation: args.operation,
+    relayerKeyId: args.relayerKeyId,
     workerCtx: args.workerCtx,
   });
   const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
@@ -1149,13 +1120,15 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
   }
 
   const evaluateStartedAt = Date.now();
-  const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
-    preparedSession: prepared.preparedSession,
-    clientRequest,
-    serverInputDelivery: responded.serverInputDelivery,
-    clientOutputMaskB64u,
-    workerCtx: args.workerCtx,
-  });
+  const evaluationResult =
+    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
+      preparedSession: prepared.preparedSession,
+      clientRequest,
+      serverInputDelivery: responded.serverInputDelivery,
+      clientOutputMaskHandle: evaluatorClientOutputMaskHandle,
+      expectedContextBindingB64u: prepared.preparedSession.contextBindingB64u,
+      workerCtx: args.workerCtx,
+    });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
     return {
       ok: false,

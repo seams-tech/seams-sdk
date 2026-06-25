@@ -472,8 +472,8 @@ export class LinkDeviceFlow {
     const nearAccount = nearAccountRefFromAccountId(nearAccountId);
     const relayerUrl = String(this.context?.configs?.network.relayer?.url || '').trim();
     if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
-    if (!session.tempPrivateKey) {
-      throw new Error('LinkDeviceFlow: missing temporary private key for completion');
+    if (!session.tempKeyHandle) {
+      throw new Error('LinkDeviceFlow: missing temporary key handle for completion');
     }
 
     const rpId = this.context.signingEngine.getRpId();
@@ -640,8 +640,8 @@ export class LinkDeviceFlow {
       delayMs: 500,
       finality: 'optimistic',
     });
-    const signed = await this.context.signingEngine.signTransactionWithKeyPair({
-      nearPrivateKey: session.tempPrivateKey,
+    const signed = await this.context.signingEngine.signTransactionWithEphemeralNearKeypairHandle({
+      keyHandle: session.tempKeyHandle,
       signerAccountId: String(nearAccountId),
       receiverId: String(nearAccountId),
       nonce: txContext.nextNonce,
@@ -777,10 +777,6 @@ export class LinkDeviceFlow {
       nearEd25519SigningKeyId: linkNearEd25519SigningKeyId,
       signerSlot: resolvedSignerSlot,
     });
-
-    if (this.session?.tempPrivateKey) {
-      this.session.tempPrivateKey = '';
-    }
 
     if (this.cancelled) return;
     this.session = this.session
@@ -921,7 +917,11 @@ export class LinkDeviceFlow {
       const sessionId = secureRandomId('ldsess', 32, 'link device session IDs');
 
       const signerSlot = coerceSignerSlot(this.options?.signerSlot ?? 2);
-      const tempKeypair = await this.context.signingEngine.generateEphemeralNearKeypair();
+      const createdAt = nowMs();
+      const expiresAt = createdAt + DEVICE_LINKING_CONFIG.TIMEOUTS.SESSION_EXPIRATION_MS;
+      const tempKeypair = await this.context.signingEngine.generateEphemeralNearKeypairHandle({
+        expiresAtMs: expiresAt,
+      });
 
       this.session = {
         sessionId,
@@ -930,10 +930,10 @@ export class LinkDeviceFlow {
         signerSlot,
         nearPublicKey: tempKeypair.publicKey,
         credential: null,
-        tempPrivateKey: tempKeypair.privateKey,
+        tempKeyHandle: tempKeypair.keyHandle,
         phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
-        createdAt: nowMs(),
-        expiresAt: nowMs() + DEVICE_LINKING_CONFIG.TIMEOUTS.SESSION_EXPIRATION_MS,
+        createdAt,
+        expiresAt,
       };
 
       this.safeOnEvent({

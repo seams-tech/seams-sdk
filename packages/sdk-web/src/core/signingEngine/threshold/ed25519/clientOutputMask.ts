@@ -1,8 +1,5 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
-import {
-  deriveThresholdEd25519HssClientOutputMaskWasm,
-  type ThresholdEd25519HssCanonicalContext,
-} from '../crypto/hssClientSignerWasm';
+import { type ThresholdEd25519HssCanonicalContext } from '../crypto/hssClientSignerWasm';
 import { prepareThresholdEd25519HssClientOutputMaskHandleNearSignerWasm } from '../../chains/near/nearSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 
@@ -58,43 +55,6 @@ function decodeFixed32B64u(value: string, fieldName: string): Uint8Array {
     throw new Error(`${fieldName} must decode to 32 bytes`);
   }
   return decoded;
-}
-
-export async function deriveThresholdEd25519HssClientOutputMaskB64u(args: {
-  clientRecoverableSecretB64u: string;
-  context: ThresholdEd25519HssClientOutputMaskContext;
-  workerCtx: WorkerOperationContext;
-}): Promise<string> {
-  const ikm = decodeFixed32B64u(args.clientRecoverableSecretB64u, 'clientRecoverableSecretB64u');
-  try {
-    const result = await deriveThresholdEd25519HssClientOutputMaskWasm({
-      clientRecoverableSecretB64u: args.clientRecoverableSecretB64u,
-      context: args.context,
-      workerCtx: args.workerCtx,
-    });
-    return result.clientOutputMaskB64u;
-  } finally {
-    zeroizeBytes(ikm);
-  }
-}
-
-export async function resolveThresholdEd25519HssClientOutputMaskB64u(args: {
-  policy: ThresholdEd25519HssOutputProjectionPolicy;
-  context: ThresholdEd25519HssClientOutputMaskContext;
-  workerCtx: WorkerOperationContext;
-}): Promise<string> {
-  validateThresholdEd25519HssOutputProjectionPolicy(args.policy);
-  switch (args.policy.kind) {
-    case 'client-masked-projection':
-      return deriveThresholdEd25519HssClientOutputMaskB64u({
-        clientRecoverableSecretB64u: args.policy.clientRecoverableSecretB64u,
-        context: args.context,
-        workerCtx: args.workerCtx,
-      });
-    default: {
-      return throwUnsupportedPolicy(args.policy);
-    }
-  }
 }
 
 export async function resolveThresholdEd25519HssClientOutputMaskHandle(args: {

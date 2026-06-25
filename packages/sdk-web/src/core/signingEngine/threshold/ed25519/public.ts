@@ -1,6 +1,5 @@
 import {
   buildThresholdEd25519SeedExportArtifactFromHssReport as buildThresholdEd25519SeedExportArtifactFromHssReportValue,
-  completeThresholdEd25519HssClientCeremony as completeThresholdEd25519HssClientCeremonyValue,
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
   deriveThresholdEd25519HssClientInputsFromCredential as deriveThresholdEd25519HssClientInputsFromCredentialValue,
   deriveThresholdEd25519HssClientInputsFromPrfFirst as deriveThresholdEd25519HssClientInputsFromPrfFirstValue,
@@ -12,9 +11,8 @@ import {
   type ThresholdEd25519LifecycleDeps,
 } from './hssLifecycle';
 import {
-  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
-  deriveThresholdEd25519HssClientOutputMaskWasm,
-  deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm,
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm,
+  prepareThresholdEd25519HssClientOutputMaskHandleWasm,
   prepareThresholdEd25519HssClientRequestWasm,
 } from '../crypto/hssClientSignerWasm';
 import {
@@ -95,47 +93,27 @@ export function prepareThresholdEd25519RecoveryCodeWorkerMaterialSealAuthorizati
   });
 }
 
-export function deriveThresholdEd25519HssClientOutputMask(
-  deps: ThresholdEd25519PublicDeps,
-  args: Omit<Parameters<typeof deriveThresholdEd25519HssClientOutputMaskWasm>[0], 'workerCtx'>,
-): ReturnType<typeof deriveThresholdEd25519HssClientOutputMaskWasm> {
-  return deriveThresholdEd25519HssClientOutputMaskWasm({
-    ...args,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
-}
-
-export function deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+export function prepareThresholdEd25519HssClientOutputMaskHandle(
   deps: ThresholdEd25519PublicDeps,
   args: Omit<
-    Parameters<typeof deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm>[0],
+    Parameters<typeof prepareThresholdEd25519HssClientOutputMaskHandleWasm>[0],
     'workerCtx'
   >,
-): ReturnType<typeof deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm> {
-  return deriveThresholdEd25519RoleSeparatedClientVerifyingShareWasm({
+): ReturnType<typeof prepareThresholdEd25519HssClientOutputMaskHandleWasm> {
+  return prepareThresholdEd25519HssClientOutputMaskHandleWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });
 }
 
-export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
   deps: ThresholdEd25519PublicDeps,
   args: Omit<
-    Parameters<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm>[0],
+    Parameters<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm>[0],
     'workerCtx'
   >,
-): ReturnType<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm> {
-  return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
-    ...args,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
-}
-
-export function completeThresholdEd25519HssClientCeremony(
-  deps: ThresholdEd25519PublicDeps,
-  args: Omit<Parameters<typeof completeThresholdEd25519HssClientCeremonyValue>[0], 'workerCtx'>,
-): ReturnType<typeof completeThresholdEd25519HssClientCeremonyValue> {
-  return completeThresholdEd25519HssClientCeremonyValue({
+): ReturnType<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm> {
+  return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });

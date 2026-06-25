@@ -20,6 +20,83 @@ export function errorMessage(err: unknown): string {
   }
 }
 
+function b64uField(prefix: string): string {
+  return `${prefix}B64u`;
+}
+
+const SENSITIVE_ERROR_FIELD_NAMES = [
+  'nearPrivateKey',
+  'near_private_key',
+  'privateKey',
+  'private_key',
+  b64uField('seed'),
+  'seed_b64u',
+  b64uField('canonicalSeed'),
+  'canonical_seed_b64u',
+  b64uField('xClientBase'),
+  'x_client_base_b64u',
+  b64uField('clientOutputMask'),
+  'client_output_mask_b64u',
+  b64uField('clientRecoverableSecret'),
+  'client_recoverable_secret_b64u',
+  'prfOutput',
+  'prf_output',
+  'prfFirst',
+  'prf_first',
+  b64uField('prfFirst'),
+  'prf_first_b64u',
+  'prfSecond',
+  'prf_second',
+  b64uField('prfSecond'),
+  'prf_second_b64u',
+  b64uField('signingShare32'),
+  'signing_share32_b64u',
+  b64uField('clientNonceHandle'),
+  'client_nonce_handle_b64u',
+] as const;
+
+function redactJsonStringField(input: string, fieldName: string): string {
+  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return input.replace(
+    new RegExp(`("${escapedFieldName}"\\s*:\\s*")([^"]*)(")`, 'g'),
+    `$1[REDACTED]$3`,
+  );
+}
+
+function redactAssignmentField(input: string, fieldName: string): string {
+  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return input.replace(
+    new RegExp(`\\b(${escapedFieldName}\\s*[=:]\\s*)([^\\s,}\\]]+)`, 'g'),
+    '$1[REDACTED]',
+  );
+}
+
+export function redactSensitiveErrorText(input: string): string {
+  let redacted = String(input || '');
+  for (const fieldName of SENSITIVE_ERROR_FIELD_NAMES) {
+    redacted = redactJsonStringField(redacted, fieldName);
+    redacted = redactAssignmentField(redacted, fieldName);
+  }
+  return redacted;
+}
+
+export function safeErrorMessage(err: unknown): string {
+  return redactSensitiveErrorText(errorMessage(err));
+}
+
+export function errorLogSummary(err: unknown): { name: string; message: string } {
+  if (err instanceof Error) {
+    return {
+      name: String(err.name || 'Error'),
+      message: safeErrorMessage(err),
+    };
+  }
+  return {
+    name: typeof err,
+    message: safeErrorMessage(err),
+  };
+}
+
 /**
  * Normalize any thrown value into an Error instance.
  * - preserves message/name/stack when available

@@ -171,10 +171,6 @@ import type {
   StoreWalletEmailOtpEd25519RegistrationInput,
   StoreWalletEmailOtpEcdsaRegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
-import type {
-  NearEphemeralKeypair,
-  NearTransactionKeyPairSigningInput,
-} from '@/core/signingEngine/useCases/nearKeyOperations';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<

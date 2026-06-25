@@ -6,7 +6,6 @@ import type {
 } from './hssLifecycle';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssOpenedClientOutput,
   ThresholdEd25519HssOpenedSeedOutput,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519SeedExportArtifact,
@@ -14,7 +13,6 @@ import type {
 
 declare const preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
 declare const finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
-declare const clientOutput: ThresholdEd25519HssOpenedClientOutput;
 declare const seedOutput: ThresholdEd25519HssOpenedSeedOutput;
 declare const artifact: ThresholdEd25519SeedExportArtifact;
 
@@ -23,28 +21,26 @@ const completedHss: CompleteThresholdEd25519HssClientCeremonyResult = {
   contextBindingB64u: 'ctx',
   preparedSession,
   finalizedReport,
-  clientOutput,
 };
 void completedHss;
 
-// @ts-expect-error HSS client ceremony success requires opened client output.
-const completedHssWithoutClientOutput: CompleteThresholdEd25519HssClientCeremonyResult = {
+// @ts-expect-error HSS client ceremony success requires finalized report.
+const completedHssWithoutFinalizedReport: CompleteThresholdEd25519HssClientCeremonyResult = {
   ok: true,
   contextBindingB64u: 'ctx',
   preparedSession,
-  finalizedReport,
 };
-void completedHssWithoutClientOutput;
+void completedHssWithoutFinalizedReport;
 
-// @ts-expect-error failed HSS client ceremony rejects success-only output.
-const failedHssWithClientOutput: CompleteThresholdEd25519HssClientCeremonyResult = {
+// @ts-expect-error failed HSS client ceremony rejects success-only finalized report.
+const failedHssWithFinalizedReport: CompleteThresholdEd25519HssClientCeremonyResult = {
   ok: false,
   contextBindingB64u: 'ctx',
   code: 'complete_client_ceremony_failed',
   message: 'failed',
-  clientOutput,
+  finalizedReport,
 };
-void failedHssWithClientOutput;
+void failedHssWithFinalizedReport;
 
 const preparedServerCeremony: PrepareThresholdEd25519HssServerCeremonyWithSessionResult = {
   ok: true,

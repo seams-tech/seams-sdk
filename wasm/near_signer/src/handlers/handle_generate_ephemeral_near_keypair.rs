@@ -2,20 +2,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct GenerateEphemeralNearKeypairRequest {}
+pub(crate) struct GenerateEphemeralNearKeypairRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerateEphemeralNearKeypairResult {
+pub(crate) struct GenerateEphemeralNearKeypairResult {
     pub public_key: String,
     pub private_key: String,
 }
 
-/// **Handles:** `WorkerRequestType::GenerateEphemeralNearKeypair`
-///
-/// Generates a fresh Ed25519 keypair inside the signer WASM worker and returns
-/// both public/private keys in NEAR `ed25519:<base58>` format.
-pub async fn handle_generate_ephemeral_near_keypair(
+pub(crate) async fn handle_generate_ephemeral_near_keypair(
     _request: GenerateEphemeralNearKeypairRequest,
 ) -> Result<GenerateEphemeralNearKeypairResult, String> {
     let mut seed_bytes = [0u8; 32];

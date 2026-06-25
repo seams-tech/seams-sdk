@@ -221,10 +221,10 @@ export class BrowserSigningSurface {
       config: this.seamsWebConfigs,
       workerCtx: this.signerWorkerManager.getContext(),
       nearKeyOps: {
-        signTransactionWithKeyPair: (args) =>
-          this.signerWorkerManager.nearKeyOps.signTransactionWithKeyPair(args),
-        generateEphemeralNearKeypair: () =>
-          this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypair(),
+        signTransactionWithEphemeralNearKeypairHandle: (args) =>
+          this.signerWorkerManager.nearKeyOps.signTransactionWithEphemeralNearKeypairHandle(args),
+        generateEphemeralNearKeypairHandle: (args) =>
+          this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypairHandle(args),
       },
       accountLifecycle: {
         accountStore: deps.signingEngineStores.walletProfileAndSignerRecords.accountStore,
@@ -620,16 +620,24 @@ export class BrowserSigningSurface {
     );
   }
 
-  signTransactionWithKeyPair(
-    input: Parameters<SignerWorkerManager['nearKeyOps']['signTransactionWithKeyPair']>[0],
-  ): ReturnType<SignerWorkerManager['nearKeyOps']['signTransactionWithKeyPair']> {
-    return this.signerWorkerManager.nearKeyOps.signTransactionWithKeyPair(input);
+  signTransactionWithEphemeralNearKeypairHandle(
+    input: Parameters<
+      SignerWorkerManager['nearKeyOps']['signTransactionWithEphemeralNearKeypairHandle']
+    >[0],
+  ): ReturnType<
+    SignerWorkerManager['nearKeyOps']['signTransactionWithEphemeralNearKeypairHandle']
+  > {
+    return this.signerWorkerManager.nearKeyOps.signTransactionWithEphemeralNearKeypairHandle(
+      input,
+    );
   }
 
-  generateEphemeralNearKeypair(): ReturnType<
-    SignerWorkerManager['nearKeyOps']['generateEphemeralNearKeypair']
+  generateEphemeralNearKeypairHandle(
+    input: Parameters<SignerWorkerManager['nearKeyOps']['generateEphemeralNearKeypairHandle']>[0],
+  ): ReturnType<
+    SignerWorkerManager['nearKeyOps']['generateEphemeralNearKeypairHandle']
   > {
-    return this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypair();
+    return this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypairHandle(input);
   }
 
   requestWorkerOperation = <
@@ -993,36 +1001,25 @@ export class BrowserSigningSurface {
     );
   }
 
-  deriveThresholdEd25519HssClientOutputMask(
-    args: Parameters<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask>[1],
-  ): ReturnType<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask> {
-    return thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask(
+  prepareThresholdEd25519HssClientOutputMaskHandle(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle
+    >[1],
+  ): ReturnType<typeof thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle> {
+    return thresholdEd25519Public.prepareThresholdEd25519HssClientOutputMaskHandle(
       this.thresholdEd25519PublicDeps,
       args,
     );
   }
 
-  deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
     args: Parameters<
-      typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+      typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
     >[1],
   ): ReturnType<
-    typeof thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare
+    typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle
   > {
-    return thresholdEd25519Public.deriveThresholdEd25519RoleSeparatedClientVerifyingShare(
-      this.thresholdEd25519PublicDeps,
-      args,
-    );
-  }
-
-  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
-    args: Parameters<
-      typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
-    >[1],
-  ): ReturnType<
-    typeof thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
-  > {
-    return thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+    return thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandle(
       this.thresholdEd25519PublicDeps,
       args,
     );
