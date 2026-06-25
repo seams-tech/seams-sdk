@@ -88,7 +88,7 @@ export type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'generated_implicit_registration_scope';
       walletId: string;
-      rpId: string;
+      walletKeyId: string;
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
@@ -104,7 +104,7 @@ export type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'sponsored_named_registration_scope';
       walletId: string;
-      rpId: string;
+      walletKeyId: string;
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;
@@ -120,7 +120,7 @@ export type ThresholdEd25519RegistrationAccountScope =
   | {
       kind: 'known_account_registration_scope';
       walletId: string;
-      rpId: string;
+      walletKeyId: string;
       intentDigestB64u: string;
       signingRootId: string;
       signingRootVersion: string;

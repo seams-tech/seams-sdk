@@ -1090,7 +1090,6 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     nearAccountId: string;
     signerSlot: number;
     relayerKeyId: string;
-    keyVersion: string;
     participantIds: number[];
     createdAtMs: number;
     signingWorkerId: string;
@@ -1205,7 +1204,6 @@ export async function runThresholdEd25519HssCeremonyWithMaterialHandle(args: {
     signingRootId: args.materialBinding.signingRootId,
     signingRootVersion: args.materialBinding.signingRootVersion,
     relayerKeyId: args.materialBinding.relayerKeyId,
-    keyVersion: args.materialBinding.keyVersion,
     participantIds: args.materialBinding.participantIds,
     createdAtMs: args.materialBinding.createdAtMs,
     sealAuthorization: args.preparedSealAuthorization.sealAuthorization,

@@ -937,13 +937,11 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
     ThresholdEd25519HssStoredPreparedServerSession,
     'preparedSessionHandle'
   >;
-  keyVersion: string;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
 }): Promise<{
   publicKey: string;
   relayerKeyId: string;
-  keyVersion: string;
   recoveryExportCapable: true;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
@@ -1007,15 +1005,13 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
   const publicKey = String(keypair.publicKey || '').trim();
   const relayerSigningShareB64u = String(serverOutput.xRelayerBaseB64u || '').trim();
   const relayerVerifyingShareB64u = String(relayerVerifyingShare.verifyingShareB64u || '').trim();
-  const keyVersion = String(input.keyVersion || '').trim();
-  if (!publicKey || !relayerSigningShareB64u || !relayerVerifyingShareB64u || !keyVersion) {
+  if (!publicKey || !relayerSigningShareB64u || !relayerVerifyingShareB64u) {
     throw new Error('[threshold-ed25519-hss] incomplete registration material derived');
   }
 
   return {
     publicKey,
     relayerKeyId: publicKey,
-    keyVersion,
     recoveryExportCapable: true,
     relayerSigningShareB64u,
     relayerVerifyingShareB64u,

@@ -120,7 +120,6 @@ pub struct Ed25519WorkerMaterialKeyIdentityV1 {
     pub signing_root_id: String,
     pub signing_root_version: String,
     pub relayer_key_id: String,
-    pub key_version: String,
     pub material_format_version: Ed25519WorkerMaterialFormatVersionV1,
 }
 
@@ -136,7 +135,6 @@ pub struct Ed25519WorkerMaterialBindingV1 {
     pub signing_root_id: String,
     pub signing_root_version: String,
     pub relayer_key_id: String,
-    pub key_version: String,
     pub participant_ids: Vec<u32>,
     pub client_verifying_share_b64u: String,
     pub material_format_version: Ed25519WorkerMaterialFormatVersionV1,
@@ -172,7 +170,6 @@ pub struct Ed25519WorkerMaterialSessionBindingV1 {
     pub signing_root_version: String,
     pub runtime_policy_scope: ThresholdRuntimePolicyScopeV1,
     pub relayer_key_id: String,
-    pub key_version: String,
     pub participant_ids: Vec<u32>,
     pub signing_worker_id: String,
     #[ts(type = "number")]
@@ -325,7 +322,6 @@ pub struct Ed25519WorkerMaterialStoredV1 {
     pub material_format_version: Ed25519WorkerMaterialFormatVersionV1,
     pub material_key_id: String,
     pub signer_slot: u32,
-    pub key_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -676,7 +672,6 @@ pub fn ed25519_worker_material_key_identity_from_binding(
         signing_root_id: binding.signing_root_id.clone(),
         signing_root_version: binding.signing_root_version.clone(),
         relayer_key_id: binding.relayer_key_id.clone(),
-        key_version: binding.key_version.clone(),
         material_format_version: binding.material_format_version,
     }
 }
@@ -689,7 +684,6 @@ pub fn validate_ed25519_worker_material_binding(
     require_non_empty_string(&binding.signing_root_id, "binding.signingRootId")?;
     require_non_empty_string(&binding.signing_root_version, "binding.signingRootVersion")?;
     require_non_empty_string(&binding.relayer_key_id, "binding.relayerKeyId")?;
-    require_non_empty_string(&binding.key_version, "binding.keyVersion")?;
     require_non_empty_string(
         &binding.client_verifying_share_b64u,
         "binding.clientVerifyingShareB64u",
@@ -980,7 +974,6 @@ mod tests {
             signing_root_id: "project:env".to_string(),
             signing_root_version: "v1".to_string(),
             relayer_key_id: "ed25519:relayer".to_string(),
-            key_version: "threshold-ed25519-hss-v1".to_string(),
             material_format_version: Ed25519WorkerMaterialFormatVersionV1::Ed25519WorkerMaterialV1,
         }
     }
@@ -995,7 +988,6 @@ mod tests {
             signing_root_id: "project:env".to_string(),
             signing_root_version: "v1".to_string(),
             relayer_key_id: "ed25519:relayer".to_string(),
-            key_version: "threshold-ed25519-hss-v1".to_string(),
             participant_ids: vec![1, 2],
             client_verifying_share_b64u: "clientVerifier".to_string(),
             material_format_version: Ed25519WorkerMaterialFormatVersionV1::Ed25519WorkerMaterialV1,
@@ -1037,7 +1029,6 @@ mod tests {
                 signing_root_version: "v1".to_string(),
             },
             relayer_key_id: "ed25519:relayer".to_string(),
-            key_version: "threshold-ed25519-hss-v1".to_string(),
             participant_ids: vec![1, 2],
             signing_worker_id: "signing-worker".to_string(),
             expires_at_ms: 1_900_000_000_000,
@@ -1073,35 +1064,35 @@ mod tests {
         let canonical = ed25519_worker_material_canonical_json(&identity).unwrap();
         assert_eq!(
             canonical,
-            r#"{"keyVersion":"threshold-ed25519-hss-v1","kind":"ed25519_worker_material_key_identity_v1","materialFormatVersion":"ed25519_worker_material_v1","nearAccountId":"alice.near","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}"#
+            r#"{"kind":"ed25519_worker_material_key_identity_v1","materialFormatVersion":"ed25519_worker_material_v1","nearAccountId":"alice.near","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}"#
         );
         assert_eq!(
             ed25519_worker_material_canonical_json(&binding).unwrap(),
-            r#"{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","keyVersion":"threshold-ed25519-hss-v1","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}"#
+            r#"{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"QDtJ9s3eNu8ecQFtOjGMJbLl8xxYa51wWkZP9mYHw2s","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"}"#
         );
         assert_eq!(
             ed25519_worker_material_canonical_json(&session_binding).unwrap(),
-            r#"{"expiresAtMs":1900000000000,"keyVersion":"threshold-ed25519-hss-v1","kind":"ed25519_worker_material_session_binding_v1","materialBindingDigest":"nVj1qAfSRNkAiFqo-AOhidltXdCj5rsvPiVmfxTalZY","nearAccountId":"alice.near","participantIds":[1,2],"relayerKeyId":"ed25519:relayer","runtimePolicyScope":{"envId":"env","orgId":"org","projectId":"project","signingRootVersion":"v1"},"signerSlot":1,"signingGrantId":"signing-grant","signingRootId":"project:env","signingRootVersion":"v1","signingWorkerId":"signing-worker","thresholdSessionId":"threshold-session"}"#
+            r#"{"expiresAtMs":1900000000000,"kind":"ed25519_worker_material_session_binding_v1","materialBindingDigest":"ZRl3OBrSzEAFV2jNbvD-WF57_p5yx9i2pobniVbjXvI","nearAccountId":"alice.near","participantIds":[1,2],"relayerKeyId":"ed25519:relayer","runtimePolicyScope":{"envId":"env","orgId":"org","projectId":"project","signingRootVersion":"v1"},"signerSlot":1,"signingGrantId":"signing-grant","signingRootId":"project:env","signingRootVersion":"v1","signingWorkerId":"signing-worker","thresholdSessionId":"threshold-session"}"#
         );
         assert_eq!(
             ed25519_worker_material_canonical_json(&aad).unwrap(),
-            r#"{"aeadAlgorithm":"chacha20poly1305","binding":{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","keyVersion":"threshold-ed25519-hss-v1","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"},"kdfAlgorithm":"hkdf_sha256","kdfInfo":"seams-ed25519-worker-material-v1","kind":"ed25519_sealed_worker_material_aad_v1","materialBindingDigest":"nVj1qAfSRNkAiFqo-AOhidltXdCj5rsvPiVmfxTalZY","materialFormatVersion":"ed25519_worker_material_v1"}"#
+            r#"{"aeadAlgorithm":"chacha20poly1305","binding":{"clientVerifyingShareB64u":"clientVerifier","createdAtMs":1700000000000,"curve":"ed25519","kind":"ed25519_worker_material_binding_v1","materialFormatVersion":"ed25519_worker_material_v1","materialKeyId":"QDtJ9s3eNu8ecQFtOjGMJbLl8xxYa51wWkZP9mYHw2s","nearAccountId":"alice.near","participantIds":[1,2],"protocol":"router_ab_normal_signing","relayerKeyId":"ed25519:relayer","signerSlot":1,"signingRootId":"project:env","signingRootVersion":"v1"},"kdfAlgorithm":"hkdf_sha256","kdfInfo":"seams-ed25519-worker-material-v1","kind":"ed25519_sealed_worker_material_aad_v1","materialBindingDigest":"ZRl3OBrSzEAFV2jNbvD-WF57_p5yx9i2pobniVbjXvI","materialFormatVersion":"ed25519_worker_material_v1"}"#
         );
         assert_eq!(
             ed25519_worker_material_key_id(&identity).unwrap(),
-            "68zLDBT7vbB8YBa1ckFElOgOaTGKAF_ZgB3ExApHWEo"
+            "QDtJ9s3eNu8ecQFtOjGMJbLl8xxYa51wWkZP9mYHw2s"
         );
         assert_eq!(
             ed25519_worker_material_binding_digest(&binding).unwrap(),
-            "nVj1qAfSRNkAiFqo-AOhidltXdCj5rsvPiVmfxTalZY"
+            "ZRl3OBrSzEAFV2jNbvD-WF57_p5yx9i2pobniVbjXvI"
         );
         assert_eq!(
             ed25519_worker_material_session_binding_digest(&session_binding).unwrap(),
-            "SBCUK9pp4dT3AHPupQgx7MoIQ-RXq3aFKhxbucibB1o"
+            "L0BQaXwQVxiRaM8Ozd_0jy47RdbsoSEr9nHilYUPnUU"
         );
         assert_eq!(
             ed25519_worker_material_digest_b64u(&aad).unwrap(),
-            "2RLqwrXrAy5p30JhaSYf2ncZJJDMpBVN_-LmcSVLyw8"
+            "Ow3IqASEpjcNyxgxnueF-jK2mKfsjc7UJ6GHZSkfBWU"
         );
     }
 
@@ -1237,7 +1228,6 @@ mod tests {
                 signing_root_id: binding.signing_root_id.clone(),
                 signing_root_version: binding.signing_root_version.clone(),
                 relayer_key_id: binding.relayer_key_id.clone(),
-                key_version: binding.key_version.clone(),
                 material_format_version: binding.material_format_version,
             })
             .unwrap();

@@ -152,7 +152,6 @@ export type ThresholdEd25519WorkerMaterialStoredResult = {
   materialFormatVersion: ThresholdEd25519WorkerMaterialFormatVersion;
   materialKeyId: string;
   signerSlot: number;
-  keyVersion: string;
 };
 
 export type ThresholdEd25519StoreWorkerMaterialFromHssOutputRequest = {
@@ -165,7 +164,6 @@ export type ThresholdEd25519StoreWorkerMaterialFromHssOutputRequest = {
   signingRootId: string;
   signingRootVersion: string;
   relayerKeyId: string;
-  keyVersion: string;
   participantIds: number[];
   createdAtMs: number;
   sealAuthorization: ThresholdEd25519WorkerMaterialSealAuthorization;
@@ -213,7 +211,6 @@ export type ThresholdEd25519WorkerMaterialBindingInputWithoutVerifier = {
   signingRootId: string;
   signingRootVersion: string;
   relayerKeyId: string;
-  keyVersion: string;
   participantIds: number[];
   createdAtMs: number;
 };

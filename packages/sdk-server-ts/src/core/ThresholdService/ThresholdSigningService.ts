@@ -573,7 +573,7 @@ function summarizeThresholdEd25519HssCeremonyRecordBytes(
     base.ed25519KeyScopeIdBytes = utf8Bytes(
       record.registrationAccountScope.ed25519KeyScopeId,
     );
-    base.rpIdBytes = utf8Bytes(record.registrationAccountScope.rpId);
+    base.walletKeyIdBytes = utf8Bytes(record.registrationAccountScope.walletKeyId);
   }
   if ('evaluationResult' in record && record.evaluationResult) {
     base.evaluationResultBytes = evaluationResultBytes;
@@ -1012,7 +1012,14 @@ function parseThresholdEd25519RegistrationAccountScope(
   }
   const kind = toOptionalTrimmedString(raw.kind);
   const walletId = toOptionalTrimmedString(raw.walletId);
-  const rpId = toOptionalTrimmedString(raw.rpId);
+  if (toOptionalTrimmedString(raw.rpId)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registrationAccountScope.rpId is not valid for Ed25519 HSS',
+    };
+  }
+  const walletKeyId = toOptionalTrimmedString(raw.walletKeyId);
   const intentDigestB64u = toOptionalTrimmedString(raw.intentDigestB64u);
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
@@ -1024,7 +1031,7 @@ function parseThresholdEd25519RegistrationAccountScope(
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
   if (
     !walletId ||
-    !rpId ||
+    !walletKeyId ||
     !intentDigestB64u ||
     !signingRootId ||
     !signingRootVersion ||
@@ -1042,12 +1049,12 @@ function parseThresholdEd25519RegistrationAccountScope(
       ok: false,
       code: 'invalid_body',
       message:
-        'registrationAccountScope requires walletId, rpId, intentDigestB64u, signingRootId, signingRootVersion, ed25519KeyScopeId, signerSlot, keyPurpose, keyVersion, derivationVersion, and participantIds',
+        'registrationAccountScope requires walletId, walletKeyId, intentDigestB64u, signingRootId, signingRootVersion, ed25519KeyScopeId, signerSlot, keyPurpose, keyVersion, derivationVersion, and participantIds',
     };
   }
   const common = {
     walletId,
-    rpId,
+    walletKeyId,
     intentDigestB64u,
     signingRootId,
     signingRootVersion,
@@ -1135,7 +1142,7 @@ function thresholdEd25519RegistrationAccountScopesEqual(
   if (
     left.kind !== right.kind ||
     left.walletId !== right.walletId ||
-    left.rpId !== right.rpId ||
+    left.walletKeyId !== right.walletKeyId ||
     left.intentDigestB64u !== right.intentDigestB64u ||
     left.signingRootId !== right.signingRootId ||
     left.signingRootVersion !== right.signingRootVersion ||
@@ -4770,15 +4777,15 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const rpId = toOptionalTrimmedString(rec.wallet_key_id);
-      if (!rpId) {
+      const walletKeyId = toOptionalTrimmedString(rec.wallet_key_id);
+      if (!walletKeyId) {
         return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
       }
-      if (registrationAccountScope.value.rpId !== rpId) {
+      if (registrationAccountScope.value.walletKeyId !== walletKeyId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.rpId does not match wallet_key_id',
+          message: 'registrationAccountScope.walletKeyId does not match wallet_key_id',
         };
       }
       const ed25519KeyScopeId = registrationAccountScope.value.ed25519KeyScopeId;
@@ -5014,15 +5021,15 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const rpId = toOptionalTrimmedString(rec.wallet_key_id);
-      if (!rpId) {
+      const walletKeyId = toOptionalTrimmedString(rec.wallet_key_id);
+      if (!walletKeyId) {
         return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
       }
-      if (registrationAccountScope.value.rpId !== rpId) {
+      if (registrationAccountScope.value.walletKeyId !== walletKeyId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.rpId does not match wallet_key_id',
+          message: 'registrationAccountScope.walletKeyId does not match wallet_key_id',
         };
       }
       const ed25519KeyScopeId = registrationAccountScope.value.ed25519KeyScopeId;
@@ -5234,15 +5241,15 @@ export class ThresholdSigningService {
         rec.registrationAccountScope,
       );
       if (!registrationAccountScope.ok) return registrationAccountScope;
-      const rpId = toOptionalTrimmedString(rec.wallet_key_id);
-      if (!rpId) {
+      const walletKeyId = toOptionalTrimmedString(rec.wallet_key_id);
+      if (!walletKeyId) {
         return { ok: false, code: 'invalid_body', message: 'wallet_key_id is required' };
       }
-      if (registrationAccountScope.value.rpId !== rpId) {
+      if (registrationAccountScope.value.walletKeyId !== walletKeyId) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'registrationAccountScope.rpId does not match wallet_key_id',
+          message: 'registrationAccountScope.walletKeyId does not match wallet_key_id',
         };
       }
       const ed25519KeyScopeId = registrationAccountScope.value.ed25519KeyScopeId;
@@ -5310,7 +5317,6 @@ export class ThresholdSigningService {
           await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
             preparedSession: takenCeremony.value.preparedSession,
             preparedServerSession: takenCeremony.value.preparedServerSession,
-            keyVersion: registrationAccountScope.value.keyVersion,
             finalizedReport: result.finalizedReport,
             serverOutput: result.serverOutput,
           });
@@ -5324,7 +5330,7 @@ export class ThresholdSigningService {
           walletId: registrationAccountScope.value.walletId,
           nearAccountId: resolvedNearAccountId.value,
           ed25519KeyScopeId,
-          rpId,
+          rpId: registrationAccountScope.value.walletKeyId,
           publicKey: registrationMaterial.publicKey,
           relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
           relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,

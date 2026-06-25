@@ -60,7 +60,6 @@ pub(crate) struct StoreWorkerMaterialFromHssOutputRequest {
     signing_root_id: String,
     signing_root_version: String,
     relayer_key_id: String,
-    key_version: String,
     participant_ids: Vec<u32>,
     created_at_ms: u64,
     seal_authorization: Option<Ed25519WorkerMaterialSealAuthorizationV1>,
@@ -86,7 +85,6 @@ pub(crate) struct WorkerMaterialBindingInputWithoutVerifier {
     signing_root_id: String,
     signing_root_version: String,
     relayer_key_id: String,
-    key_version: String,
     participant_ids: Vec<u32>,
     created_at_ms: u64,
 }
@@ -252,7 +250,6 @@ struct WorkerMaterialStoreResult {
     material_format_version: Ed25519WorkerMaterialFormatVersionV1,
     material_key_id: String,
     signer_slot: u32,
-    key_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -295,7 +292,6 @@ struct WorkerMaterialRestoreResult {
     material_format_version: Ed25519WorkerMaterialFormatVersionV1,
     material_key_id: String,
     signer_slot: u32,
-    key_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -721,7 +717,6 @@ fn store_worker_material_from_hss_output(
     let material_format_version = material_binding.material_format_version;
     let material_key_id = material_binding.material_key_id.clone();
     let signer_slot = material_binding.signer_slot;
-    let key_version = material_binding.key_version.clone();
     let seal_authorization = request.seal_authorization.ok_or_else(|| {
         JsValue::from_str(&material_authorization_error(
             Ed25519WorkerMaterialCredentialAuthorizationPurposeV1::Seal,
@@ -755,7 +750,6 @@ fn store_worker_material_from_hss_output(
         material_format_version,
         material_key_id,
         signer_slot,
-        key_version,
     })
 }
 
@@ -1136,7 +1130,6 @@ fn restore_worker_material(
     let material_format_version = request.expected_material_binding.material_format_version;
     let material_key_id = request.expected_material_binding.material_key_id.clone();
     let signer_slot = request.expected_material_binding.signer_slot;
-    let key_version = request.expected_material_binding.key_version.clone();
     let stored = store_worker_material_from_base_share_bytes(
         random_worker_material_handle()?,
         x_client_base,
@@ -1154,7 +1147,6 @@ fn restore_worker_material(
         material_format_version,
         material_key_id,
         signer_slot,
-        key_version,
     })
 }
 
@@ -1807,7 +1799,6 @@ fn material_binding_from_hss_store_request(
         signing_root_id: request.signing_root_id.clone(),
         signing_root_version: request.signing_root_version.clone(),
         relayer_key_id: request.relayer_key_id.clone(),
-        key_version: request.key_version.clone(),
     })?;
     let material_key_id = signer_core_result_to_js(ed25519_worker_material_key_id(&identity))?;
     Ok(Ed25519WorkerMaterialBindingV1 {
@@ -1819,7 +1810,6 @@ fn material_binding_from_hss_store_request(
         signing_root_id: identity.signing_root_id,
         signing_root_version: identity.signing_root_version,
         relayer_key_id: identity.relayer_key_id,
-        key_version: identity.key_version,
         participant_ids: require_positive_participant_ids(&request.participant_ids)?,
         client_verifying_share_b64u,
         material_format_version: Ed25519WorkerMaterialFormatVersionV1::Ed25519WorkerMaterialV1,
@@ -1834,7 +1824,6 @@ struct MaterialKeyIdentityParts {
     signing_root_id: String,
     signing_root_version: String,
     relayer_key_id: String,
-    key_version: String,
 }
 
 fn material_key_id_from_binding_input(
@@ -1852,7 +1841,6 @@ fn material_key_id_from_binding_input(
         signing_root_id: input.signing_root_id.clone(),
         signing_root_version: input.signing_root_version.clone(),
         relayer_key_id: input.relayer_key_id.clone(),
-        key_version: input.key_version.clone(),
     })?;
     signer_core_result_to_js(ed25519_worker_material_key_id(&identity))
 }
@@ -1867,7 +1855,6 @@ fn material_key_identity_from_parts(
         signing_root_id: require_non_empty(parts.signing_root_id, "signingRootId")?,
         signing_root_version: require_non_empty(parts.signing_root_version, "signingRootVersion")?,
         relayer_key_id: require_non_empty(parts.relayer_key_id, "relayerKeyId")?,
-        key_version: require_non_empty(parts.key_version, "keyVersion")?,
         material_format_version: Ed25519WorkerMaterialFormatVersionV1::Ed25519WorkerMaterialV1,
     })
 }
@@ -1952,7 +1939,6 @@ fn validate_material_and_session_bindings_internal(
         || session_binding.signing_root_id != material_binding.signing_root_id
         || session_binding.signing_root_version != material_binding.signing_root_version
         || session_binding.relayer_key_id != material_binding.relayer_key_id
-        || session_binding.key_version != material_binding.key_version
         || session_binding.participant_ids != material_binding.participant_ids
     {
         return Err(
@@ -2353,7 +2339,6 @@ mod tests {
             signing_root_id: "root".to_string(),
             signing_root_version: "v1".to_string(),
             relayer_key_id: "relayer-key".to_string(),
-            key_version: "key-v1".to_string(),
             material_format_version: Ed25519WorkerMaterialFormatVersionV1::Ed25519WorkerMaterialV1,
         };
         Ed25519WorkerMaterialBindingV1 {
@@ -2365,7 +2350,6 @@ mod tests {
             signing_root_id: identity.signing_root_id.clone(),
             signing_root_version: identity.signing_root_version.clone(),
             relayer_key_id: identity.relayer_key_id.clone(),
-            key_version: identity.key_version.clone(),
             participant_ids: vec![1, 2],
             client_verifying_share_b64u: sample_expected_client_verifying_share_b64u(),
             material_format_version: identity.material_format_version,
@@ -2394,7 +2378,6 @@ mod tests {
                 signing_root_version: material_binding.signing_root_version.clone(),
             },
             relayer_key_id: material_binding.relayer_key_id.clone(),
-            key_version: material_binding.key_version.clone(),
             participant_ids: material_binding.participant_ids.clone(),
             signing_worker_id: "signing-worker".to_string(),
             expires_at_ms: now_ms() + 60_000,
@@ -2416,7 +2399,6 @@ mod tests {
             signing_root_id: material_binding.signing_root_id.clone(),
             signing_root_version: material_binding.signing_root_version.clone(),
             relayer_key_id: material_binding.relayer_key_id.clone(),
-            key_version: material_binding.key_version.clone(),
             participant_ids: material_binding.participant_ids.clone(),
             created_at_ms: material_binding.created_at_ms,
         }
@@ -2621,7 +2603,6 @@ mod tests {
             signing_root_id: material_binding.signing_root_id.clone(),
             signing_root_version: material_binding.signing_root_version.clone(),
             relayer_key_id: material_binding.relayer_key_id.clone(),
-            key_version: material_binding.key_version.clone(),
             participant_ids: material_binding.participant_ids.clone(),
             created_at_ms: material_binding.created_at_ms,
             seal_authorization: Some(

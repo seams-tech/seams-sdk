@@ -79,7 +79,6 @@ export async function storeThresholdEd25519WorkerMaterialFromHssOutputNearSigner
   signingRootId: string;
   signingRootVersion: string;
   relayerKeyId: string;
-  keyVersion: string;
   participantIds: number[];
   createdAtMs: number;
   sealAuthorization: ThresholdEd25519WorkerMaterialSealAuthorization;
@@ -104,7 +103,6 @@ export async function storeThresholdEd25519WorkerMaterialFromHssOutputNearSigner
         signingRootId: args.signingRootId,
         signingRootVersion: args.signingRootVersion,
         relayerKeyId: args.relayerKeyId,
-        keyVersion: args.keyVersion,
         participantIds: args.participantIds,
         createdAtMs: args.createdAtMs,
         sealAuthorization: args.sealAuthorization,
@@ -661,8 +659,7 @@ function requireThresholdEd25519WorkerMaterialStoredResult(
     !parsed.sealedWorkerMaterialB64u ||
     !parsed.materialFormatVersion ||
     !parsed.materialKeyId ||
-    !parsed.signerSlot ||
-    !parsed.keyVersion
+    !parsed.signerSlot
   ) {
     throw new Error('near signer worker returned invalid Ed25519 stored material result');
   }
@@ -683,8 +680,7 @@ function requireThresholdEd25519RestoreWorkerMaterialResult(
     !parsed.sealedWorkerMaterialB64u ||
     !parsed.materialFormatVersion ||
     !parsed.materialKeyId ||
-    !parsed.signerSlot ||
-    !parsed.keyVersion
+    !parsed.signerSlot
   ) {
     throw new Error('near signer worker returned invalid Ed25519 restore result');
   }

@@ -10,7 +10,6 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   parseEd25519ClientVerifyingShareB64u,
-  parseEd25519HssKeyVersion,
   parseEd25519RelayerKeyId,
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialHandle,
@@ -80,7 +79,6 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
   const relayerKeyId = parseEd25519RelayerKeyId(args.relayerKeyId);
   const signingWorkerId = String(args.signingWorkerId || '').trim();
   const keyMaterial = args.thresholdKeyMaterial;
-  const ed25519HssKeyVersion = parseEd25519HssKeyVersion(keyMaterial.keyVersion);
   const materialCreatedAtMs = Math.floor(
     Number(args.materialCreatedAtMs ?? keyMaterial.timestamp),
   );
@@ -120,7 +118,6 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
     signingRootId,
     signingRootVersion,
     relayerKeyId,
-    ed25519HssKeyVersion,
     participantIds: args.participantIds,
     clientVerifyingShareB64u: existingMaterialClientVerifierB64u,
     createdAtMs: materialCreatedAtMs,
@@ -138,7 +135,6 @@ export async function requireThresholdEd25519WorkerMaterialHandle(args: {
     signingRootVersion,
     runtimePolicyScope: args.runtimePolicyScope,
     relayerKeyId,
-    ed25519HssKeyVersion,
     participantIds: args.participantIds,
     signingWorkerId,
     expiresAtMs,

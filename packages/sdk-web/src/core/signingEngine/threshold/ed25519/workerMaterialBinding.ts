@@ -6,14 +6,11 @@ import type {
 } from '@/core/types/signer-worker';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  formatEd25519HssKeyVersionForWire,
-  parseEd25519HssKeyVersion,
   parseEd25519ClientVerifyingShareB64u,
   parseEd25519RelayerKeyId,
   parseEd25519WorkerMaterialBindingDigest,
   parseEd25519WorkerMaterialHandle,
   type Ed25519ClientVerifyingShareB64u,
-  type Ed25519HssKeyVersion,
   type Ed25519RelayerKeyId,
   type Ed25519SealedWorkerMaterialRef,
   type Ed25519WorkerMaterialBindingDigest,
@@ -36,7 +33,6 @@ export type RouterAbEd25519WorkerMaterialBindingInput = {
   signingRootId: string;
   signingRootVersion: string;
   relayerKeyId: Ed25519RelayerKeyId;
-  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   participantIds: number[];
   clientVerifyingShareB64u: Ed25519ClientVerifyingShareB64u;
   createdAtMs: number;
@@ -52,7 +48,6 @@ export type RouterAbEd25519WorkerMaterialSessionBindingInput = {
   signingRootVersion: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   relayerKeyId: Ed25519RelayerKeyId;
-  ed25519HssKeyVersion: Ed25519HssKeyVersion;
   participantIds: number[];
   signingWorkerId: string;
   expiresAtMs: number;
@@ -123,9 +118,7 @@ function buildEd25519WorkerMaterialKeyIdentity(input: {
   signingRootId: string;
   signingRootVersion: string;
   relayerKeyId: Ed25519RelayerKeyId;
-  ed25519HssKeyVersion: Ed25519HssKeyVersion;
 }): Record<string, unknown> {
-  const keyVersion = formatEd25519HssKeyVersionForWire(input.ed25519HssKeyVersion);
   return {
     kind: 'ed25519_worker_material_key_identity_v1',
     nearAccountId: input.nearAccountId,
@@ -133,7 +126,6 @@ function buildEd25519WorkerMaterialKeyIdentity(input: {
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
     relayerKeyId: input.relayerKeyId,
-    keyVersion,
     materialFormatVersion: 'ed25519_worker_material_v1',
   };
 }
@@ -152,8 +144,6 @@ export async function buildRouterAbEd25519WorkerMaterialBinding(input: RouterAbE
   const relayerKeyId = parseEd25519RelayerKeyId(
     requireMaterialBindingString(input.relayerKeyId, 'relayerKeyId'),
   );
-  const ed25519HssKeyVersion = parseEd25519HssKeyVersion(input.ed25519HssKeyVersion);
-  const keyVersion = formatEd25519HssKeyVersionForWire(ed25519HssKeyVersion);
   const clientVerifyingShareB64u = parseEd25519ClientVerifyingShareB64u(
     requireMaterialBindingString(input.clientVerifyingShareB64u, 'clientVerifyingShareB64u'),
   );
@@ -166,7 +156,6 @@ export async function buildRouterAbEd25519WorkerMaterialBinding(input: RouterAbE
       signingRootId,
       signingRootVersion,
       relayerKeyId,
-      ed25519HssKeyVersion,
     }),
   );
   const materialBinding: ThresholdEd25519WorkerMaterialBinding = {
@@ -178,7 +167,6 @@ export async function buildRouterAbEd25519WorkerMaterialBinding(input: RouterAbE
     signingRootId,
     signingRootVersion,
     relayerKeyId,
-    keyVersion,
     participantIds,
     clientVerifyingShareB64u,
     materialFormatVersion: 'ed25519_worker_material_v1',
@@ -217,9 +205,6 @@ export function buildRouterAbEd25519WorkerMaterialSessionBinding(
     runtimePolicyScope: input.runtimePolicyScope,
     relayerKeyId: parseEd25519RelayerKeyId(
       requireMaterialBindingString(input.relayerKeyId, 'relayerKeyId'),
-    ),
-    keyVersion: formatEd25519HssKeyVersionForWire(
-      parseEd25519HssKeyVersion(input.ed25519HssKeyVersion),
     ),
     participantIds: requireMaterialBindingParticipantIds(input.participantIds),
     signingWorkerId: requireMaterialBindingString(input.signingWorkerId, 'signingWorkerId'),

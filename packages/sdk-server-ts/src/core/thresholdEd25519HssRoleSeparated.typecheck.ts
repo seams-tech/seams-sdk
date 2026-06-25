@@ -72,7 +72,7 @@ void ({
 const sponsoredRegistrationAccountScope: ThresholdEd25519RegistrationAccountScope = {
   kind: 'sponsored_named_registration_scope',
   walletId: 'alice.near',
-  rpId: 'wallet.example.test',
+  walletKeyId: 'alice.near',
   intentDigestB64u: 'intent-digest',
   signingRootId: 'project:env',
   signingRootVersion: 'v1',

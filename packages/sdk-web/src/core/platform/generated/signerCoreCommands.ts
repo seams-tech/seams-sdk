@@ -79,13 +79,13 @@ export type Ed25519SealedWorkerMaterialKind = "ed25519_sealed_worker_material_v1
 
 export type Ed25519SealedWorkerMaterialAadKind = "ed25519_sealed_worker_material_aad_v1";
 
-export type Ed25519WorkerMaterialKeyIdentity = { kind: Ed25519WorkerMaterialKeyIdentityKind, nearAccountId: string, signerSlot: number, signingRootId: string, signingRootVersion: string, relayerKeyId: string, keyVersion: string, materialFormatVersion: Ed25519WorkerMaterialFormatVersion, };
+export type Ed25519WorkerMaterialKeyIdentity = { kind: Ed25519WorkerMaterialKeyIdentityKind, nearAccountId: string, signerSlot: number, signingRootId: string, signingRootVersion: string, relayerKeyId: string, materialFormatVersion: Ed25519WorkerMaterialFormatVersion, };
 
-export type Ed25519WorkerMaterialBinding = { kind: Ed25519WorkerMaterialBindingKind, curve: Ed25519WorkerMaterialCurve, protocol: Ed25519WorkerMaterialProtocol, nearAccountId: string, signerSlot: number, signingRootId: string, signingRootVersion: string, relayerKeyId: string, keyVersion: string, participantIds: Array<number>, clientVerifyingShareB64u: string, materialFormatVersion: Ed25519WorkerMaterialFormatVersion, materialKeyId: string, createdAtMs: number, };
+export type Ed25519WorkerMaterialBinding = { kind: Ed25519WorkerMaterialBindingKind, curve: Ed25519WorkerMaterialCurve, protocol: Ed25519WorkerMaterialProtocol, nearAccountId: string, signerSlot: number, signingRootId: string, signingRootVersion: string, relayerKeyId: string, participantIds: Array<number>, clientVerifyingShareB64u: string, materialFormatVersion: Ed25519WorkerMaterialFormatVersion, materialKeyId: string, createdAtMs: number, };
 
 export type ThresholdRuntimePolicyScope = { orgId: string, projectId: string, envId: string, signingRootVersion: string, };
 
-export type Ed25519WorkerMaterialSessionBinding = { kind: Ed25519WorkerMaterialSessionBindingKind, materialBindingDigest: string, nearAccountId: string, signerSlot: number, thresholdSessionId: string, signingGrantId: string, signingRootId: string, signingRootVersion: string, runtimePolicyScope: ThresholdRuntimePolicyScope, relayerKeyId: string, keyVersion: string, participantIds: Array<number>, signingWorkerId: string, expiresAtMs: number, };
+export type Ed25519WorkerMaterialSessionBinding = { kind: Ed25519WorkerMaterialSessionBindingKind, materialBindingDigest: string, nearAccountId: string, signerSlot: number, thresholdSessionId: string, signingGrantId: string, signingRootId: string, signingRootVersion: string, runtimePolicyScope: ThresholdRuntimePolicyScope, relayerKeyId: string, participantIds: Array<number>, signingWorkerId: string, expiresAtMs: number, };
 
 export type Ed25519WorkerMaterialAead = { algorithm: Ed25519WorkerMaterialAeadAlgorithm, nonceB64u: string, };
 
@@ -105,7 +105,7 @@ export type Ed25519WorkerMaterialErrorCode = "material_restore_required" | "mate
 
 export type Ed25519WorkerMaterialFailure = { ok: boolean, code: Ed25519WorkerMaterialErrorCode, message: string, };
 
-export type Ed25519WorkerMaterialStored = { ok: boolean, materialHandle: string, materialBindingDigest: string, clientVerifyingShareB64u: string, sealedWorkerMaterialRef: string, sealedWorkerMaterialB64u: string, materialFormatVersion: Ed25519WorkerMaterialFormatVersion, materialKeyId: string, signerSlot: number, keyVersion: string, };
+export type Ed25519WorkerMaterialStored = { ok: boolean, materialHandle: string, materialBindingDigest: string, clientVerifyingShareB64u: string, sealedWorkerMaterialRef: string, sealedWorkerMaterialB64u: string, materialFormatVersion: Ed25519WorkerMaterialFormatVersion, materialKeyId: string, signerSlot: number, };
 
 export type Ed25519ValidateWorkerMaterialSuccess = { ok: boolean, materialHandle: string, materialBindingDigest: string, clientVerifyingShareB64u: string, };
 
@@ -154,4 +154,3 @@ export type Ed25519ReadSealedWorkerMaterialRequest = { kind: Ed25519ReadSealedWo
 export type Ed25519DeleteSealedWorkerMaterialRequestKind = "delete_threshold_ed25519_sealed_worker_material_v1";
 
 export type Ed25519DeleteSealedWorkerMaterialRequest = { kind: Ed25519DeleteSealedWorkerMaterialRequestKind, sealedWorkerMaterialRef: string, expectedMaterialBindingDigest: string, };
-

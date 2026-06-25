@@ -1217,7 +1217,6 @@ function resolvedRegistrationNearAccount(input: {
 
 function thresholdEd25519RegistrationAccountScope(input: {
   walletId: WalletId;
-  rpId: string;
   intentDigestB64u: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -1229,13 +1228,14 @@ function thresholdEd25519RegistrationAccountScope(input: {
   participantIds: number[];
   accountProvisioning: RegistrationNearAccountProvisioning;
 }): ThresholdEd25519RegistrationAccountScope {
+  const ed25519KeyScopeId = String(input.ed25519KeyScopeId);
   const common = {
     walletId: String(input.walletId),
-    rpId: input.rpId,
+    walletKeyId: ed25519KeyScopeId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
-    ed25519KeyScopeId: String(input.ed25519KeyScopeId),
+    ed25519KeyScopeId,
     signerSlot: input.signerSlot,
     keyPurpose: input.keyPurpose,
     keyVersion: input.keyVersion,
@@ -1261,7 +1261,6 @@ function thresholdEd25519RegistrationAccountScope(input: {
 
 function thresholdEd25519KnownAccountRegistrationScope(input: {
   walletId: WalletId;
-  rpId: string;
   intentDigestB64u: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -1280,7 +1279,7 @@ function thresholdEd25519KnownAccountRegistrationScope(input: {
   return {
     kind: 'known_account_registration_scope',
     walletId: String(input.walletId),
-    rpId: input.rpId,
+    walletKeyId: ed25519KeyScopeId,
     intentDigestB64u: input.intentDigestB64u,
     signingRootId: input.signingRootId,
     signingRootVersion: input.signingRootVersion,
@@ -6495,7 +6494,6 @@ export class AuthService {
     }
     const registrationAccountScope = thresholdEd25519RegistrationAccountScope({
       walletId: walletIdFromString(input.scope.walletId),
-      rpId: input.scope.rpId,
       intentDigestB64u: input.scope.registrationIntentDigestB64u,
       signingRootId: input.scope.signingRootId,
       signingRootVersion: input.scope.signingRootVersion,
@@ -6513,7 +6511,7 @@ export class AuthService {
       signingRootVersion: input.scope.signingRootVersion,
       request: {
         registrationAccountScope,
-        wallet_key_id: input.scope.rpId,
+        wallet_key_id: registrationAccountScope.walletKeyId,
         context: await thresholdEd25519HssContextFromRegistrationAccountScope(
           registrationAccountScope,
         ),
@@ -7119,7 +7117,6 @@ export class AuthService {
               request: {
                 registrationAccountScope: thresholdEd25519RegistrationAccountScope({
                   walletId: ceremony.intent.walletId,
-                  rpId: ceremony.intent.rpId,
                   intentDigestB64u: ceremony.digestB64u,
                   signingRootId: registrationIntentSigningRootId({
                     signingRootId: ceremony.signingRootId,
@@ -7137,7 +7134,7 @@ export class AuthService {
                   participantIds: ed25519.participantIds,
                   accountProvisioning: ed25519.accountProvisioning,
                 }),
-                wallet_key_id: ceremony.intent.rpId,
+                wallet_key_id: ed25519KeyScopeId,
                 ceremonyHandle: preparedEd25519.ceremonyHandle,
                 clientRequest: requestEd25519.clientRequest,
               },
@@ -7320,7 +7317,6 @@ export class AuthService {
           request: {
             registrationAccountScope: thresholdEd25519RegistrationAccountScope({
               walletId: ceremony.intent.walletId,
-              rpId: ceremony.intent.rpId,
               intentDigestB64u: ceremony.digestB64u,
               signingRootId: registrationIntentSigningRootId({
                 signingRootId: ceremony.signingRootId,
@@ -7338,7 +7334,7 @@ export class AuthService {
               participantIds: ed25519.participantIds,
               accountProvisioning: ed25519.accountProvisioning,
             }),
-            wallet_key_id: ceremony.intent.rpId,
+            wallet_key_id: ed25519KeyScopeId,
             ceremonyHandle: preparedEd25519.ceremonyHandle,
             clientRequest: requestEd25519.clientRequest,
           },
@@ -8313,7 +8309,6 @@ export class AuthService {
             request: {
               registrationAccountScope: thresholdEd25519RegistrationAccountScope({
                 walletId: ceremony.intent.walletId,
-                rpId: ceremony.intent.rpId,
                 intentDigestB64u: ceremony.digestB64u,
                 signingRootId: registrationIntentSigningRootId({
                   signingRootId: ceremony.signingRootId,
@@ -8331,7 +8326,7 @@ export class AuthService {
                 participantIds: ed25519.participantIds,
                 accountProvisioning: ed25519.accountProvisioning,
               }),
-              wallet_key_id: ceremony.intent.rpId,
+              wallet_key_id: ed25519KeyScopeId,
               ceremonyHandle: combinedSignerState.ed25519.ceremonyHandle,
               evaluationResult: ed25519FinalizeRequest.evaluationResult,
               accountResolution: {
@@ -8800,7 +8795,6 @@ export class AuthService {
           request: {
             registrationAccountScope: thresholdEd25519RegistrationAccountScope({
             walletId: ceremony.intent.walletId,
-            rpId: ceremony.intent.rpId,
             intentDigestB64u: ceremony.digestB64u,
             signingRootId: registrationIntentSigningRootId({
               signingRootId: ceremony.signingRootId,
@@ -8818,7 +8812,7 @@ export class AuthService {
             participantIds: ed25519.participantIds,
             accountProvisioning: ed25519.accountProvisioning,
           }),
-            wallet_key_id: ceremony.intent.rpId,
+            wallet_key_id: ed25519KeyScopeId,
             ceremonyHandle: ed25519SignerState.ceremonyHandle,
             evaluationResult: ed25519FinalizeRequest.evaluationResult,
             accountResolution: {
@@ -9262,7 +9256,6 @@ export class AuthService {
         const ed25519 = selection.ed25519;
         const registrationAccountScope = thresholdEd25519KnownAccountRegistrationScope({
           walletId: storedIntent.intent.walletId,
-          rpId: storedIntent.intent.rpId,
           intentDigestB64u: storedIntent.digestB64u,
           signingRootId: addSignerIntentSigningRootId({
             signingRootId: storedIntent.signingRootId,
@@ -9282,7 +9275,7 @@ export class AuthService {
           ...(signingRootVersion ? { signingRootVersion } : {}),
           request: {
             registrationAccountScope,
-            wallet_key_id: storedIntent.intent.rpId,
+            wallet_key_id: registrationAccountScope.walletKeyId,
             context: await thresholdEd25519HssContextFromRegistrationAccountScope(
               registrationAccountScope,
             ),
@@ -9963,7 +9956,6 @@ export class AuthService {
         request: {
           registrationAccountScope: thresholdEd25519KnownAccountRegistrationScope({
             walletId: ceremony.intent.walletId,
-            rpId: ceremony.intent.rpId,
             intentDigestB64u: ceremony.digestB64u,
             signingRootId: addSignerIntentSigningRootId({
               signingRootId: ceremony.signingRootId,
@@ -9977,7 +9969,7 @@ export class AuthService {
             derivationVersion: ed25519.derivationVersion,
             participantIds: ed25519.participantIds,
           }),
-          wallet_key_id: ceremony.intent.rpId,
+          wallet_key_id: knownAccountEd25519KeyScopeIdFromNearAccountId(ed25519.nearAccountId),
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           clientRequest: request.ed25519.clientRequest,
         },
@@ -10098,7 +10090,6 @@ export class AuthService {
       const ed25519 = ceremony.intent.signerSelection.ed25519;
       const registrationAccountScope = thresholdEd25519KnownAccountRegistrationScope({
         walletId: ceremony.intent.walletId,
-        rpId: ceremony.intent.rpId,
         intentDigestB64u: ceremony.digestB64u,
         signingRootId: addSignerIntentSigningRootId({
           signingRootId: ceremony.signingRootId,
@@ -10120,7 +10111,7 @@ export class AuthService {
         orgId: ceremony.orgId,
         request: {
           registrationAccountScope,
-          wallet_key_id: ceremony.intent.rpId,
+          wallet_key_id: registrationAccountScope.walletKeyId,
           ceremonyHandle: ceremony.signerState.ceremonyHandle,
           evaluationResult: request.ed25519.evaluationResult,
           accountResolution: {
