@@ -2391,7 +2391,7 @@ async function primeThresholdLoginWarmSigners(args: {
             activeCanonicalEcdsaContext = completion.context;
             return;
           }
-          if (completion.kind === 'ambiguous_shared_key_targets') {
+          if (completion.kind === 'duplicate_shared_key_targets') {
             requireCompleteSharedKeyTargetContext({ completion, source });
           }
         };

@@ -91,7 +91,6 @@ type EmailOtpEcdsaExportBaseInput = {
 export type EmailOtpEcdsaAuthorizedExportStepUpInput = EmailOtpEcdsaExportBaseInput & {
   source: 'authorized_signing_session';
   record: ThresholdEcdsaSessionRecord;
-  rpId: string;
   shamirPrimeB64u: string;
   keyHandle: string;
   roleLocalMaterial: EcdsaRoleLocalWorkerExportMaterial;
@@ -118,14 +117,6 @@ export type EmailOtpEcdsaFreshLoginExportStepUpInput = EmailOtpEcdsaExportBaseIn
 export type EmailOtpEcdsaExportStepUpInput =
   | EmailOtpEcdsaAuthorizedExportStepUpInput
   | EmailOtpEcdsaFreshLoginExportStepUpInput;
-
-function requiredEmailOtpExportString(value: unknown, field: string): string {
-  const normalized = String(value ?? '').trim();
-  if (!normalized) {
-    throw new Error(`Email OTP ECDSA export requires ${field}`);
-  }
-  return normalized;
-}
 
 function requireProvidedEmailOtpSigningSessionAuthLane(args: {
   authLane?: EmailOtpAuthLane;
@@ -206,7 +197,6 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     challengeId: string;
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
-    rpId: string;
     routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
   },
@@ -241,7 +231,6 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     shamirPrimeB64u: String(ports.requireShamirPrimeB64u()).trim(),
     routePlan,
     record: args.record,
-    rpId: requiredEmailOtpExportString(args.rpId, 'rpId'),
     keyHandle: String(toEvmFamilyEcdsaKeyHandle(args.record.keyHandle)),
     roleLocalMaterial,
   };
@@ -580,7 +569,6 @@ export async function exportEcdsaKeyWithAuthorization(
     challengeId: string;
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
-    rpId: string;
     routeAuth?: AppOrWalletSessionAuth;
     authLane?: EmailOtpAuthLane;
   },

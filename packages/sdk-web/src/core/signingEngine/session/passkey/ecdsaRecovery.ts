@@ -19,6 +19,7 @@ import {
 } from '../keyMaterialBrands';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  toExactEcdsaSigningLaneIdentity,
   upsertRestoredThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
@@ -57,6 +58,11 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
   });
+  const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(identity.thresholdSessionId);
+  if (!record || !thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget)) {
+    throw new Error('[SigningEngine][ecdsa] exact restore identity unavailable before PRF claim');
+  }
+  const laneIdentity = toExactEcdsaSigningLaneIdentity(record);
   await args.touchConfirm.restorePersistedSessionForSigning({
     walletId: String(args.walletId).trim(),
     authMethod: 'passkey',
@@ -65,6 +71,11 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
     signingGrantId: identity.signingGrantId,
     thresholdSessionId: identity.thresholdSessionId,
     reason: 'transaction',
+    materialRestoreIdentity: {
+      kind: 'ecdsa_role_local_restore',
+      lane: laneIdentity,
+      ecdsaThresholdKeyId: laneIdentity.key.ecdsaThresholdKeyId,
+    },
   });
 }
 

@@ -6,6 +6,10 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  ExactEcdsaSigningLaneIdentity,
+  ExactEd25519SigningLaneIdentity,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type {
   EmailOtpDeviceEnrollmentRemoveResult,
   EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpEnrollmentResult,
@@ -84,8 +88,8 @@ import type {
   AvailableSigningLanes,
   ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
@@ -908,6 +912,7 @@ export type ExportKeypairWithUIInput =
       kind: 'near';
       walletSession: WalletSessionRef;
       nearAccount: NearAccountRef;
+      laneIdentity: ExactEd25519SigningLaneIdentity;
       options: ThresholdEd25519SeedExportUiOptions & {
         chain: 'near';
       };
@@ -916,6 +921,7 @@ export type ExportKeypairWithUIInput =
       kind: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
+      laneIdentity: ExactEcdsaSigningLaneIdentity;
       options: ThresholdEd25519SeedExportUiOptions;
     };
 

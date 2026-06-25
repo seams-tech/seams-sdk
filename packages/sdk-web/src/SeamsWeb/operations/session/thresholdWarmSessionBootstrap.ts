@@ -284,7 +284,7 @@ type RestoreThresholdEd25519WorkerMaterialPendingReason =
   | 'pending_material'
   | 'no_durable_restore_records'
   | 'durable_restore_missing_worker_material'
-  | 'durable_restore_ambiguous_worker_material'
+  | 'duplicate_worker_material_records'
   | 'durable_restore_identity_mismatch';
 
 export type RestoreThresholdEd25519WorkerMaterialFromCredentialResult =
@@ -525,25 +525,13 @@ function ed25519RestoreIdentityMismatchReasons(args: {
   return reasons;
 }
 
-function mostRecentEd25519SealedSessionRecord(
-  records: CurrentEd25519RestoreSealedSessionRecord[],
-): CurrentEd25519RestoreSealedSessionRecord | null {
-  return (
-    [...records].sort(
-      (left, right) =>
-        normalizedRestorePositiveInteger(right.updatedAtMs) -
-        normalizedRestorePositiveInteger(left.updatedAtMs),
-    )[0] || null
-  );
-}
-
 type ExactEd25519WorkerMaterialRestoreRecordSelection =
   | {
       kind: 'exact_match';
       record: CurrentEd25519RestoreSealedSessionRecord;
     }
   | {
-      kind: 'ambiguous';
+      kind: 'duplicate_records';
       exactMatchCount: number;
       storeKeys: string[];
     }
@@ -551,7 +539,7 @@ type ExactEd25519WorkerMaterialRestoreRecordSelection =
       kind: 'not_found';
     };
 
-function selectExactEd25519WorkerMaterialRestoreRecord(
+function selectSingleEd25519WorkerMaterialRestoreRecord(
   records: readonly CurrentEd25519RestoreSealedSessionRecord[],
 ): ExactEd25519WorkerMaterialRestoreRecordSelection {
   switch (records.length) {
@@ -563,7 +551,7 @@ function selectExactEd25519WorkerMaterialRestoreRecord(
     }
     default:
       return {
-        kind: 'ambiguous',
+        kind: 'duplicate_records',
         exactMatchCount: records.length,
         storeKeys: records
           .map((record) => normalizedRestoreString(record.storeKey))
@@ -572,8 +560,8 @@ function selectExactEd25519WorkerMaterialRestoreRecord(
   }
 }
 
-function ambiguousExactEd25519RestoreDetails(
-  selection: Extract<ExactEd25519WorkerMaterialRestoreRecordSelection, { kind: 'ambiguous' }>,
+function duplicateExactEd25519RestoreDetails(
+  selection: Extract<ExactEd25519WorkerMaterialRestoreRecordSelection, { kind: 'duplicate_records' }>,
 ): string {
   return `candidate records=${selection.exactMatchCount}; storeKeys=${selection.storeKeys.join(',') || 'unknown'}`;
 }
@@ -772,7 +760,7 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
       pendingDetails: `candidate records=${records.length}; missing fields=${missingFields.join(',') || 'unknown'}`,
     };
   }
-  const selection = selectExactEd25519WorkerMaterialRestoreRecord(materialRecords);
+  const selection = selectSingleEd25519WorkerMaterialRestoreRecord(materialRecords);
   switch (selection.kind) {
     case 'not_found':
       return {
@@ -780,11 +768,11 @@ export async function hydrateExactEd25519SessionFromDurableSealedWorkerMaterial(
         pendingReason: 'pending_material',
         pendingDetails: 'failed to select exact Ed25519 session record from durable metadata',
       };
-    case 'ambiguous':
+    case 'duplicate_records':
       return {
         kind: 'not_found',
-        pendingReason: 'durable_restore_ambiguous_worker_material',
-        pendingDetails: ambiguousExactEd25519RestoreDetails(selection),
+        pendingReason: 'duplicate_worker_material_records',
+        pendingDetails: duplicateExactEd25519RestoreDetails(selection),
       };
     case 'exact_match':
       break;
@@ -861,18 +849,34 @@ export async function hydrateAccountScopedDiscoveryEd25519SessionFromDurableSeal
       pendingDetails: `candidate records=${records.length}; missing fields=${missingFields.join(',') || 'unknown'}`,
     };
   }
-  const selected = mostRecentEd25519SealedSessionRecord(materialRecords);
-  const hydrated = selected
-    ? upsertEd25519SessionRecordFromExactSealedWorkerMaterial({
-        sealed: selected,
-        source: args.source,
-      })
-    : null;
-  if (!selected || !hydrated) {
+  const selection = selectSingleEd25519WorkerMaterialRestoreRecord(materialRecords);
+  switch (selection.kind) {
+    case 'not_found':
+      return {
+        kind: 'not_found',
+        pendingReason: 'pending_material',
+        pendingDetails: 'failed to select Ed25519 session record from durable metadata',
+      };
+    case 'duplicate_records':
+      return {
+        kind: 'not_found',
+        pendingReason: 'duplicate_worker_material_records',
+        pendingDetails: duplicateExactEd25519RestoreDetails(selection),
+      };
+    case 'exact_match':
+      break;
+    default:
+      return assertNeverExactEd25519WorkerMaterialRestoreRecordSelection(selection);
+  }
+  const hydrated = upsertEd25519SessionRecordFromExactSealedWorkerMaterial({
+    sealed: selection.record,
+    source: args.source,
+  });
+  if (!hydrated) {
     return {
       kind: 'not_found',
       pendingReason: 'pending_material',
-      pendingDetails: 'failed to hydrate latest Ed25519 session record from durable metadata',
+      pendingDetails: 'failed to hydrate Ed25519 session record from durable metadata',
     };
   }
   return {
@@ -921,18 +925,18 @@ function summarizeEd25519DurableRestoreLookupFailure(args: {
   const matchingRecords = materialRecords.filter((sealedRecord) =>
     sealedEd25519RestoreMatchesCurrentRecord({ current: args.current, sealed: sealedRecord }),
   );
-  const selection = selectExactEd25519WorkerMaterialRestoreRecord(matchingRecords);
+  const selection = selectSingleEd25519WorkerMaterialRestoreRecord(matchingRecords);
   switch (selection.kind) {
     case 'exact_match':
       return {
         kind: 'matched',
         record: selection.record,
       };
-    case 'ambiguous':
+    case 'duplicate_records':
       return {
         kind: 'not_found',
-        pendingReason: 'durable_restore_ambiguous_worker_material',
-        pendingDetails: ambiguousExactEd25519RestoreDetails(selection),
+        pendingReason: 'duplicate_worker_material_records',
+        pendingDetails: duplicateExactEd25519RestoreDetails(selection),
       };
     case 'not_found':
       break;
@@ -2017,7 +2021,6 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
     nearAccountId: String(args.nearAccountId),
     signerSlot: args.signerSlot,
     relayerKeyId: args.relayerKeyId,
-    keyVersion: args.keyVersion,
     participantIds: args.participantIds,
     createdAtMs: materialCreatedAtMs,
     signingWorkerId,
@@ -2028,7 +2031,6 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
     signingRootId: materialBinding.signingRootId,
     signingRootVersion: materialBinding.signingRootVersion,
     relayerKeyId: materialBinding.relayerKeyId,
-    keyVersion: materialBinding.keyVersion,
     participantIds: materialBinding.participantIds,
     createdAtMs: materialBinding.createdAtMs,
   };
@@ -2083,7 +2085,7 @@ async function persistEmailOtpRegisteredThresholdEd25519WorkerMaterial(args: {
     materialKeyId: signingMaterial.materialKeyId,
     materialCreatedAtMs,
     signerSlot: signingMaterial.signerSlot,
-    keyVersion: signingMaterial.keyVersion,
+    keyVersion: args.keyVersion,
   });
   if (!persisted) {
     throw new Error('Email OTP Ed25519 registration worker material record was not persisted');
@@ -2186,7 +2188,6 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
     nearAccountId: String(args.nearAccountId || '').trim(),
     signerSlot: args.signerSlot,
     relayerKeyId,
-    keyVersion,
     participantIds,
     createdAtMs: args.materialCreatedAtMs,
     signingWorkerId,
@@ -2197,7 +2198,6 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
     signingRootId: materialBinding.signingRootId,
     signingRootVersion: materialBinding.signingRootVersion,
     relayerKeyId: materialBinding.relayerKeyId,
-    keyVersion: materialBinding.keyVersion,
     participantIds: materialBinding.participantIds,
     createdAtMs: materialBinding.createdAtMs,
   };
@@ -2253,7 +2253,7 @@ export async function reconstructThresholdEd25519SigningMaterialFromWarmSession(
     materialKeyId: signingMaterial.materialKeyId,
     materialCreatedAtMs: materialBinding.createdAtMs,
     signerSlot: signingMaterial.signerSlot,
-    keyVersion: signingMaterial.keyVersion,
+    keyVersion,
   });
   if (!persisted) {
     throw new Error('Failed to persist HSS client output to the threshold session store');

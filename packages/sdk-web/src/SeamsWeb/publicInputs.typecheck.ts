@@ -3,6 +3,7 @@ import {
   nearAccountRefFromAccountId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
@@ -25,6 +26,7 @@ const tempoChainTarget = {
   networkSlug: 'tempo-local',
 } satisfies ThresholdEcdsaChainTarget;
 const tempoRequest = {} as SignTempoArgs['request'];
+declare const exactEcdsaLaneIdentity: ExactEcdsaSigningLaneIdentity;
 
 const invalidSignTempoAccountIdentity: SignTempoArgs = {
   walletSession,
@@ -248,6 +250,7 @@ const validEcdsaExportInput: PublicKeyExportInput = {
   kind: 'ecdsa',
   walletSession,
   chainTarget: tempoChainTarget,
+  laneIdentity: exactEcdsaLaneIdentity,
   options: {},
 };
 void validEcdsaExportInput;

@@ -165,8 +165,7 @@ export function createEvmFamilyWarmSessionServices(
           touchConfirm: deps.touchConfirm,
           resolveExactEcdsaRecord: (recordArgs) =>
             statusReader.resolveExactEcdsaRecord(recordArgs),
-          readEcdsaCapabilityByThresholdSessionId: (thresholdSessionId) =>
-            capabilityReader.getEcdsaCapabilityByThresholdSessionId(thresholdSessionId),
+          readEcdsaCapabilityForLane: (lane) => capabilityReader.getEcdsaCapabilityForLane(lane),
           reconnectInFlightByCapability,
         },
         readyArgs,

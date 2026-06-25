@@ -5,6 +5,7 @@ import type {
 } from '../identity/laneIdentity';
 import {
   upsertThresholdEcdsaSessionFromBootstrap,
+  toExactEcdsaSigningLaneIdentity,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
@@ -160,7 +161,10 @@ function markWorkerProvisionedEcdsaSessionRuntimeValidated(args: {
 export async function commitWorkerProvisionedThresholdEcdsaSession(
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps,
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
-): Promise<ThresholdEcdsaSessionBootstrapResult> {
+): Promise<{
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  record: ThresholdEcdsaSessionRecord;
+}> {
   if (args.source === 'email_otp') {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
       kind: 'email_otp_bootstrap_parity',
@@ -194,31 +198,28 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
               signerSource: SIGNER_SOURCES.passkeyRegistration,
             },
     });
+    let record: ThresholdEcdsaSessionRecord;
     if (args.source === 'email_otp') {
-      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
+      record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
         walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: 'email_otp',
         emailOtpAuthContext: args.emailOtpAuthContext,
       });
-      markWorkerProvisionedEcdsaSessionRuntimeValidated({
-        bootstrap: canonicalBootstrap,
-        record,
-      });
     } else {
-      const record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
+      record = upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
         walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: args.source,
       });
-      markWorkerProvisionedEcdsaSessionRuntimeValidated({
-        bootstrap: canonicalBootstrap,
-        record,
-      });
     }
-    return canonicalBootstrap;
+    markWorkerProvisionedEcdsaSessionRuntimeValidated({
+      bootstrap: canonicalBootstrap,
+      record,
+    });
+    return { bootstrap: canonicalBootstrap, record };
   });
 }
 
@@ -229,7 +230,7 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
 }> {
-  const bootstrap =
+  const committed =
     args.source === 'email_otp'
       ? await commitWorkerProvisionedThresholdEcdsaSession(deps, {
           walletId: args.walletId,
@@ -244,12 +245,14 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
           bootstrap: args.bootstrap,
           source: args.source,
         });
+  const bootstrap = committed.bootstrap;
   // Prove the exact thresholdSessionId from this bootstrap is ready. Wallet-level
   // lane reads can select older records for the same chain.
   const warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
     walletId: args.walletId,
     chainTarget: args.primaryChain,
     bootstrap,
+    lane: toExactEcdsaSigningLaneIdentity(committed.record),
   });
   return {
     bootstrap,

@@ -14,13 +14,13 @@ export function createSessionPublicDeps(args: {
 }): SessionPublicDeps {
   const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
     args.touchConfirm.getWarmSessionStatus({ sessionId });
-  const sessionRestore: SessionPublicDeps['restore'] = {
-    emailOtp: (restoreArgs) =>
-      args.emailOtpSessions.restorePersistedSessionsForWallet(restoreArgs),
+  const sessionDiscovery: SessionPublicDeps['discovery'] = {
+    emailOtp: (discoveryArgs) =>
+      args.emailOtpSessions.discoverPersistedSessionsForWallet(discoveryArgs),
   };
-  if (args.touchConfirm.restorePersistedSessionsForWallet) {
-    sessionRestore.passkey = (restoreArgs) =>
-      args.touchConfirm.restorePersistedSessionsForWallet!(restoreArgs);
+  if (args.touchConfirm.discoverPersistedSessionsForWallet) {
+    sessionDiscovery.passkey = (discoveryArgs) =>
+      args.touchConfirm.discoverPersistedSessionsForWallet!(discoveryArgs);
   }
   return {
     availableLanes: {
@@ -39,6 +39,6 @@ export function createSessionPublicDeps(args: {
     signingSessionSeal: args.seamsWebConfigs.signing.sessionSeal,
     getConfiguredEcdsaChainTargets: () =>
       configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),
-    restore: sessionRestore,
+    discovery: sessionDiscovery,
   };
 }

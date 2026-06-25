@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { deleteExactSealedSession, updateExactSealedSessionPolicy } from './persistence/sealedSessionStore';
 import {
@@ -68,7 +67,17 @@ import {
   walletScopedClaimsForLanes,
   type SigningGrantReadinessDeps,
   type SigningGrantStatusOverride,
+  type DiscoveredSigningSessionLane,
 } from './availability/readiness';
+import {
+  exactEcdsaSigningLaneIdentity,
+  exactSigningLaneIdentityMatches,
+  type ExactEcdsaSigningLaneIdentity,
+} from './identity/exactSigningLaneIdentity';
+import {
+  toExactEcdsaSigningLaneIdentity,
+  type ThresholdEcdsaSessionRecord,
+} from './persistence/records';
 import type {
   SelectedSigningSessionPlanningLane,
   SigningOperationFingerprint,
@@ -78,7 +87,7 @@ import type {
   SigningGrantId,
 } from './operationState/types';
 import type { WarmSessionPrfClaim } from './warmCapabilities/types';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type { SigningSessionReadiness };
 
@@ -114,17 +123,18 @@ export type SigningGrantConsumeUseArgs = {
 
 export type SigningSessionStatusPort = {
   getStatus(args: {
-    walletId: AccountId | string;
+    walletId: WalletId | string;
     signingGrantId?: string;
     targetBackingMaterialSessionIds?: string[];
     targetThresholdSessionIds?: string[];
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+    budgetStatusCheck?: SigningSessionBudgetStatusCheck;
   }): Promise<SigningSessionStatus | null>;
   getLaneClaimsForWallet(
-    walletId: AccountId | string,
+    walletId: WalletId | string,
   ): Promise<Map<string, WarmSessionPrfClaim | null>>;
   consumeUse(args: SigningGrantConsumeUseArgs): Promise<SigningSessionStatus>;
-  clear(args: { walletId: AccountId | string; signingGrantId: string }): Promise<void>;
+  clear(args: { walletId: WalletId | string; signingGrantId: string }): Promise<void>;
 };
 
 export type SigningSessionStatusDeps = SigningGrantReadinessDeps;
@@ -132,6 +142,52 @@ export type SigningSessionStatusDeps = SigningGrantReadinessDeps;
 export type SigningSessionStatusState = {
   statusOverrides: Map<string, SigningGrantStatusOverride>;
 };
+
+function exactEcdsaBudgetStatusLane(
+  check: SigningSessionBudgetStatusCheck | undefined,
+): ExactEcdsaSigningLaneIdentity | null {
+  if (!check || !isEcdsaLaneBudgetStatusCheck(check)) return null;
+  return exactEcdsaSigningLaneIdentity({
+    walletId: check.key.walletId,
+    chainTarget: check.chainTarget,
+    keyHandle: check.keyHandle,
+    key: check.key,
+    auth: check.auth,
+    signingGrantId: check.signingGrantId,
+    thresholdSessionId: check.thresholdSessionId,
+  });
+}
+
+function isRecordObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isThresholdEcdsaSessionRecord(value: unknown): value is ThresholdEcdsaSessionRecord {
+  return (
+    isRecordObject(value) &&
+    'chainTarget' in value &&
+    'keyHandle' in value &&
+    'thresholdSessionId' in value &&
+    'signingGrantId' in value
+  );
+}
+
+function discoveredLaneMatchesExactEcdsaBudgetLane(args: {
+  lane: DiscoveredSigningSessionLane;
+  budgetLane: ExactEcdsaSigningLaneIdentity | null;
+}): boolean {
+  if (!args.budgetLane) return true;
+  if (args.lane.curve !== 'ecdsa') return false;
+  if (!isThresholdEcdsaSessionRecord(args.lane.record)) return false;
+  try {
+    return exactSigningLaneIdentityMatches(
+      toExactEcdsaSigningLaneIdentity(args.lane.record),
+      args.budgetLane,
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
   SigningSessionBudgetDeps & {
@@ -210,6 +266,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     const targetThreshold = new Set(
       (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
+    const ecdsaBudgetLane = exactEcdsaBudgetStatusLane(args.budgetStatusCheck);
     const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
     const readDirectTargetStatus = async (): Promise<SigningSessionStatus | null> => {
       if (!hasExplicitTarget || !signingGrantIdFilter) return null;
@@ -225,8 +282,11 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     };
     const lanes = discoverLanesForWallet(this.walletSessionDeps, walletId).filter(
       (lane) =>
-        !signingGrantIdFilter ||
-        lane.signingGrantId === signingGrantIdFilter,
+        (!signingGrantIdFilter || lane.signingGrantId === signingGrantIdFilter) &&
+        discoveredLaneMatchesExactEcdsaBudgetLane({
+          lane,
+          budgetLane: ecdsaBudgetLane,
+        }),
     );
     if (!lanes.length) return await readDirectTargetStatus();
     const signingGrantId = signingGrantIdFilter || lanes[0].signingGrantId;
@@ -512,6 +572,7 @@ function buildBudgetStatusCheckForLane(args: {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
         key: args.lane.key,
         keyHandle: args.lane.keyHandle,
+        auth: args.lane.auth,
         chainTarget: args.lane.chainTarget,
         signingGrantId: args.lane.signingGrantId,
         thresholdSessionId: args.lane.thresholdSessionId,
@@ -521,6 +582,7 @@ function buildBudgetStatusCheckForLane(args: {
     return buildEcdsaLaneBudgetStatusCheck({
       key: args.lane.key,
       keyHandle: args.lane.keyHandle,
+      auth: args.lane.auth,
       chainTarget: args.lane.chainTarget,
       signingGrantId: args.lane.signingGrantId,
       thresholdSessionId: args.lane.thresholdSessionId,
@@ -555,17 +617,19 @@ function buildBudgetStatusCheckForLane(args: {
 }
 
 function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusCheck): {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   signingGrantId: string;
   targetBackingMaterialSessionIds?: string[];
   targetThresholdSessionIds?: string[];
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  budgetStatusCheck?: SigningSessionBudgetStatusCheck;
 } {
   if (isEcdsaLaneBudgetStatusCheck(args)) {
     return {
       walletId: walletBudgetOwnerId(ownerForBudgetStatusCheck(args)),
       signingGrantId: args.signingGrantId,
       targetThresholdSessionIds: thresholdSessionIdsForBudgetStatusCheck(args),
+      budgetStatusCheck: args,
       ...(args.kind === 'authenticated_ecdsa_lane_budget_status_check'
         ? { trustedStatusAuth: args.trustedStatusAuth }
         : {}),

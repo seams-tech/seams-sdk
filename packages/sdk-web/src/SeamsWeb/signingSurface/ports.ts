@@ -14,8 +14,8 @@ import type {
   AvailableSigningLanes,
   ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   ReadAvailableSigningLanesInput,
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/public';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
@@ -258,9 +258,9 @@ export interface SigningSessionSurface {
   putWarmSessionEd25519UnsealAuthorization(
     input: WarmSessionEd25519UnsealAuthorizationPutPayload,
   ): Promise<void>;
-  restorePersistedSessionsForWallet(
-    args: RestorePersistedSessionsForWalletInput,
-  ): Promise<RestorePersistedSessionsForWalletResult>;
+  discoverPersistedSessionsForWallet(
+    args: DiscoverPersistedSessionsForWalletInput,
+  ): Promise<DiscoverPersistedSessionsForWalletResult>;
   readPersistedAvailableSigningLanes(
     args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
   ): Promise<AvailableSigningLanes>;

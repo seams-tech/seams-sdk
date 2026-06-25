@@ -18,13 +18,13 @@ import type { RestoredWarmSessionStatus } from '@/core/signingEngine/session/sea
 import {
   createSigningSessionRestoreAttemptRegistry,
   createSigningSessionRestoreCache,
-  restorePersistedSessionsForWalletCommand,
+  discoverPersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
 } from '@/core/signingEngine/session/sealedRecovery/restoreCoordinator';
 import type {
   RestorePersistedEcdsaSessionPurpose,
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
@@ -72,16 +72,18 @@ export type EmailOtpSealedRestoreOrchestratorPorts = {
   shouldLogDiagnostic: (key: string) => boolean;
 };
 
-const EMPTY_ACCOUNT_RESTORE_RESULT = {
+const EMPTY_ACCOUNT_DISCOVERY_RESULT = {
   listed: 0,
-  attempted: 0,
-  restored: 0,
-  deferred: 0,
-  skipped: 0,
+  discovered: 0,
   truncated: 0,
 } as const;
 
-const EMPTY_SIGNING_RESTORE_RESULT = { attempted: 0, restored: 0, deferred: 0 } as const;
+const EMPTY_SIGNING_RESTORE_RESULT = {
+  kind: 'completed',
+  attempted: 0,
+  restored: 0,
+  deferred: 0,
+} as const;
 
 function markExistingEmailOtpEcdsaWorkerMaterialRuntimeValidated(
   record: ThresholdEcdsaSessionRecord | null,
@@ -288,18 +290,18 @@ export class EmailOtpSealedRestoreOrchestrator {
     }
   }
 
-  async restorePersistedSessionsForWallet(
-    args: RestorePersistedSessionsForWalletInput,
-  ): Promise<RestorePersistedSessionsForWalletResult> {
+  async discoverPersistedSessionsForWallet(
+    args: DiscoverPersistedSessionsForWalletInput,
+  ): Promise<DiscoverPersistedSessionsForWalletResult> {
     if (this.ports.sessionPersistenceMode !== 'sealed_refresh_v1') {
-      return { ...EMPTY_ACCOUNT_RESTORE_RESULT };
+      return { ...EMPTY_ACCOUNT_DISCOVERY_RESULT };
     }
     const walletId = String(toWalletId(args.walletId) || '').trim();
     if (!walletId) {
-      return { ...EMPTY_ACCOUNT_RESTORE_RESULT };
+      return { ...EMPTY_ACCOUNT_DISCOVERY_RESULT };
     }
 
-    const result = await restorePersistedSessionsForWalletCommand(
+    const result = await discoverPersistedSessionsForWalletCommand(
       {
         ...args,
         walletId,
@@ -310,11 +312,8 @@ export class EmailOtpSealedRestoreOrchestrator {
             walletId: recordWalletId,
             filter,
           }),
-        restoreSealedRecordForWallet: (restoreArgs) =>
-          this.restoreEmailOtpSealedRecordForWallet(restoreArgs),
-        cache: this.restoreCache,
         onListError: ({ walletId: failedWalletId, error }) => {
-          console.warn('[EmailOtpSession] wallet-scoped sealed ECDSA restore list failed', {
+          console.warn('[EmailOtpSession] wallet-scoped sealed ECDSA discovery list failed', {
             walletId: failedWalletId,
             error: error instanceof Error ? error.message : String(error || 'unknown error'),
           });
@@ -324,7 +323,7 @@ export class EmailOtpSealedRestoreOrchestrator {
     if (!result.listed) {
       const diagnosticKey = `wallet-sealed-ecdsa-empty:${walletId}`;
       if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
-        console.debug('[EmailOtpSession] no durable sealed ECDSA records for wallet restore', {
+        console.debug('[EmailOtpSession] no durable sealed ECDSA records for wallet discovery', {
           walletId,
         });
       }

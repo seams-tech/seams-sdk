@@ -9,9 +9,9 @@ import type {
   RestorePersistedSessionForSigningPorts,
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletPorts,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletPorts,
+  DiscoverPersistedSessionsForWalletResult,
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from './sealedRecovery.types';
@@ -60,6 +60,34 @@ function purposeCacheKey(purpose: RestorePersistedSessionPurpose, record: Sealed
     purpose.thresholdSessionId,
     record.updatedAtMs,
   ].join('|');
+}
+
+function completedRestoreResult(args: {
+  attempted: number;
+  restored: number;
+  deferred: number;
+}): RestorePersistedSessionForSigningResult {
+  return {
+    kind: 'completed',
+    attempted: args.attempted,
+    restored: args.restored,
+    deferred: args.deferred,
+  };
+}
+
+function duplicateRestoreRecordSummaries(
+  workItems: readonly Extract<RestoreWorkItemLookupResult, { kind: 'matched' }>['workItem'][],
+): Record<string, unknown>[] {
+  return workItems.map(({ record, purpose }) => ({
+    authMethod: purpose.authMethod,
+    curve: purpose.curve,
+    chain: purpose.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(purpose.chainTarget) : purpose.chain,
+    signingGrantId: purpose.signingGrantId,
+    thresholdSessionId: purpose.thresholdSessionId,
+    recordSigningGrantId: record.signingGrantId,
+    recordThresholdSessionId: record.thresholdSessionId,
+    updatedAtMs: record.updatedAtMs,
+  }));
 }
 
 export function createSigningSessionRestoreCache(): SigningSessionRestoreCache {
@@ -112,7 +140,7 @@ export async function restorePersistedSessionForSigningCommand(
   ports: RestorePersistedSessionForSigningPorts,
 ): Promise<RestorePersistedSessionForSigningResult> {
   const walletId = String(input.walletId || '').trim();
-  if (!walletId) return { attempted: 0, restored: 0, deferred: 0 };
+  if (!walletId) return completedRestoreResult({ attempted: 0, restored: 0, deferred: 0 });
   const normalizedInput: RestorePersistedSessionForSigningInput = {
     ...input,
     walletId,
@@ -144,7 +172,7 @@ export async function restorePersistedSessionForSigningCommand(
       reason: normalizedInput.reason,
       error,
     });
-    return { attempted: 0, restored: 0, deferred: 0 };
+    return completedRestoreResult({ attempted: 0, restored: 0, deferred: 0 });
   }
 
   const exactPurposeLookups = records.map((record) =>
@@ -158,7 +186,17 @@ export async function restorePersistedSessionForSigningCommand(
     .filter(isMatchedRestoreWorkItemLookup)
     .map((lookup) => lookup.workItem);
   if (!exactPurposeWorkItems.length) {
-    return { attempted: 0, restored: 0, deferred: 0 };
+    return completedRestoreResult({ attempted: 0, restored: 0, deferred: 0 });
+  }
+  if (exactPurposeWorkItems.length > 1) {
+    return {
+      kind: 'duplicate_records',
+      attempted: 0,
+      restored: 0,
+      deferred: 0,
+      duplicateCount: exactPurposeWorkItems.length,
+      duplicateRecordSummaries: duplicateRestoreRecordSummaries(exactPurposeWorkItems),
+    };
   }
   let attempted = 0;
   let restored = 0;
@@ -178,16 +216,16 @@ export async function restorePersistedSessionForSigningCommand(
       if (result === 'deferred') deferred += 1;
     }),
   );
-  return { attempted, restored, deferred };
+  return completedRestoreResult({ attempted, restored, deferred });
 }
 
-export async function restorePersistedSessionsForWalletCommand(
-  input: RestorePersistedSessionsForWalletInput,
-  ports: RestorePersistedSessionsForWalletPorts,
-): Promise<RestorePersistedSessionsForWalletResult> {
+export async function discoverPersistedSessionsForWalletCommand(
+  input: DiscoverPersistedSessionsForWalletInput,
+  ports: DiscoverPersistedSessionsForWalletPorts,
+): Promise<DiscoverPersistedSessionsForWalletResult> {
   const walletId = String(input.walletId || '').trim();
   const maxRecords = Math.max(0, Math.floor(input.maxRecords ?? 10));
-  const empty = { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
+  const empty = { listed: 0, discovered: 0, truncated: 0 };
   if (!walletId || maxRecords <= 0) return empty;
 
   let records;
@@ -205,7 +243,7 @@ export async function restorePersistedSessionsForWalletCommand(
             chainTarget,
           }),
         );
-        if (input.kind === 'restore_wallet_ecdsa_signing_sessions') {
+        if (input.kind === 'discover_wallet_ecdsa_signing_sessions') {
           return ecdsaLists;
         }
         return [
@@ -236,7 +274,7 @@ export async function restorePersistedSessionsForWalletCommand(
           requestedChainTarget: chainTarget,
         }),
       );
-      if (input.kind === 'restore_wallet_ecdsa_signing_sessions') {
+      if (input.kind === 'discover_wallet_ecdsa_signing_sessions') {
         return ecdsaLookups;
       }
       return [
@@ -263,43 +301,10 @@ export async function restorePersistedSessionsForWalletCommand(
       return true;
     });
 
-  const boundedWorkItems = workItems
-    .slice()
-    .sort((left, right) => Number(right.record.updatedAtMs || 0) - Number(left.record.updatedAtMs || 0))
-    .slice(0, maxRecords);
-  let attempted = 0;
-  let restored = 0;
-  let deferred = 0;
-  let skipped = 0;
-  await Promise.all(
-    boundedWorkItems.map(async ({ record, purpose }) => {
-      if (record.authMethod !== 'email_otp' && record.authMethod !== 'passkey') {
-        skipped += 1;
-        return;
-      }
-      if (ports.cache?.hasSuccessfulRestore(purpose, record)) {
-        skipped += 1;
-        return;
-      }
-      attempted += 1;
-      const result = await ports.restoreSealedRecordForWallet({ walletId, record, purpose });
-      if (result === 'restored') {
-        restored += 1;
-        ports.cache?.rememberSuccessfulRestore(purpose, record);
-      }
-      if (result === 'ready') {
-        ports.cache?.rememberSuccessfulRestore(purpose, record);
-      }
-      if (result === 'deferred') deferred += 1;
-    }),
-  );
-
+  const boundedWorkItems = workItems.slice(0, maxRecords);
   return {
     listed: records.length,
-    attempted,
-    restored,
-    deferred,
-    skipped,
+    discovered: boundedWorkItems.length,
     truncated: Math.max(0, workItems.length - boundedWorkItems.length),
   };
 }

@@ -39,9 +39,10 @@ import type {
   WarmSessionSealAndPersistResult,
 } from '@/core/types/secure-confirm-worker';
 import type {
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
+  RestorePersistedSessionForSigningResult,
 } from '../session/sealedRecovery/sealedRecovery.types';
 import type { WarmSessionMaterialWriter } from '../session/passkey/warmSessionMaterialWriter';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -177,20 +178,16 @@ export interface WarmSessionRehydrator {
 }
 
 export interface WarmSessionPersistedRestorer {
-  restorePersistedSessionsForWallet?(
+  discoverPersistedSessionsForWallet?(
     args: {
       authMethod?: 'passkey';
-    } & RestorePersistedSessionsForWalletInput,
-  ): Promise<RestorePersistedSessionsForWalletResult>;
+    } & DiscoverPersistedSessionsForWalletInput,
+  ): Promise<DiscoverPersistedSessionsForWalletResult>;
   restorePersistedSessionForSigning(
     args: {
       authMethod: 'passkey';
     } & RestorePersistedSessionForSigningInput,
-  ): Promise<{
-    attempted: number;
-    restored: number;
-    deferred: number;
-  }>;
+  ): Promise<RestorePersistedSessionForSigningResult>;
 }
 
 export interface DurableSealedSessionRecordDeleter {

@@ -1,19 +1,9 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
-  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  type ThresholdEcdsaSessionStoreDeps,
-  type ThresholdEcdsaSessionRecord,
-  type ThresholdEd25519SessionRecord,
-} from '../persistence/records';
-import {
   assertBudgetStatusCheckHasConcreteLaneIdentity,
   buildWalletBudgetStatusCheck,
   isEcdsaLaneBudgetStatusCheck,
-  ownerForBudgetStatusCheck,
-  thresholdSessionIdsForBudgetStatusCheck,
   walletBudgetOwnerId,
   type AuthenticatedEcdsaLaneBudgetStatusCheck,
   type EcdsaLaneBudgetStatusCheck,
@@ -22,13 +12,10 @@ import {
   type WalletBudgetOwner,
 } from './budget';
 import {
-  thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
-import { resolveRouterAbEcdsaWalletSessionAuthFromRecord } from '../warmCapabilities/routerAbEcdsaWalletSessionAuth';
-import { walletSessionJwtFromPersistedEd25519Record } from '../walletSessionAuthBoundary';
 
 export type WalletSigningBudgetAvailableStatusDeps = {
   getAvailableStatus: (
@@ -37,7 +24,7 @@ export type WalletSigningBudgetAvailableStatusDeps = {
 };
 
 export type TrustedWalletSigningBudgetStatusDeps = {
-  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
+  ecdsaSessions?: unknown;
 };
 
 type ThresholdScopedBudgetStatusAuth = {
@@ -57,23 +44,14 @@ type TrustedBudgetStatusFetchResult = {
   authRejected: boolean;
 };
 
-type NonEmptyReadonlyArray<TValue> = readonly [TValue, ...TValue[]];
-
 type BudgetStatusAuthRequest =
   | {
       kind: 'use_provided_auth';
       auth: ThresholdScopedBudgetStatusAuth;
     }
   | {
-      kind: 'derive_from_record';
-      owner: WalletBudgetOwner;
-      signingGrantId: string;
-      targetThresholdSessionIds: NonEmptyReadonlyArray<string>;
-      ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck;
-    }
-  | {
       kind: 'no_auth_available';
-      reason: 'missing_auth' | 'missing_record' | 'binding_mismatch';
+      reason: 'missing_auth' | 'binding_mismatch';
     };
 
 type BudgetStatusAuthResolution =
@@ -82,21 +60,9 @@ type BudgetStatusAuthResolution =
       auth: ThresholdScopedBudgetStatusAuth;
     }
   | {
-      kind: 'record_derived_auth';
-      auth: ThresholdScopedBudgetStatusAuth;
-    }
-  | {
       kind: 'unavailable';
-      reason: 'missing_auth' | 'missing_record' | 'binding_mismatch';
+      reason: 'missing_auth' | 'binding_mismatch';
     };
-
-function walletSessionJwtFromTrustedEcdsaBudgetRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): string {
-  if (!record) return '';
-  const resolved = resolveRouterAbEcdsaWalletSessionAuthFromRecord(record);
-  return resolved.kind === 'ready' ? resolved.walletSessionJwt : '';
-}
 
 const inFlightTrustedBudgetStatusFetches = new Map<
   string,
@@ -131,14 +97,14 @@ export async function getWalletSigningBudgetAvailableStatus(
 }
 
 export async function readTrustedWalletSigningBudgetStatus(
-  deps: TrustedWalletSigningBudgetStatusDeps,
+  _deps: TrustedWalletSigningBudgetStatusDeps,
   args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
   assertBudgetStatusCheckHasConcreteLaneIdentity(args);
   const signingGrantId = String(args.signingGrantId || '').trim();
   if (!signingGrantId) return null;
   const authResolution = resolveBudgetStatusAuthForRequest(
-    deps,
+    _deps,
     buildBudgetStatusAuthRequest(args, signingGrantId),
   );
   if (authResolution.kind === 'unavailable') return null;
@@ -164,31 +130,7 @@ function buildBudgetStatusAuthRequest(
       ? { kind: 'use_provided_auth', auth }
       : { kind: 'no_auth_available', reason: 'missing_auth' };
   }
-  const targetThresholdSessionIds = nonEmptyThresholdSessionIdsForBudgetStatusCheck(args);
-  if (!targetThresholdSessionIds) {
-    return { kind: 'no_auth_available', reason: 'binding_mismatch' };
-  }
-  return {
-    kind: 'derive_from_record',
-    owner: ownerForBudgetStatusCheck(args),
-    signingGrantId,
-    targetThresholdSessionIds,
-    ...(ecdsaLaneCheck ? { ecdsaLaneCheck } : {}),
-  };
-}
-
-function nonEmptyThresholdSessionIdsForBudgetStatusCheck(
-  args: SigningSessionBudgetStatusCheck,
-): NonEmptyReadonlyArray<string> | null {
-  const normalized = thresholdSessionIdsForBudgetStatusCheck(args)
-    .map((value) => String(value || '').trim())
-    .filter(Boolean);
-  return buildNonEmptyReadonlyArray(normalized);
-}
-
-function buildNonEmptyReadonlyArray(values: string[]): NonEmptyReadonlyArray<string> | null {
-  const [first, ...rest] = values;
-  return first ? [first, ...rest] : null;
+  return { kind: 'no_auth_available', reason: 'missing_auth' };
 }
 
 function parseSafeInteger(value: unknown): number | null {
@@ -207,18 +149,12 @@ function parseNonNegativeSafeInteger(value: unknown): number | null {
 }
 
 function resolveBudgetStatusAuthForRequest(
-  deps: TrustedWalletSigningBudgetStatusDeps,
+  _deps: TrustedWalletSigningBudgetStatusDeps,
   request: BudgetStatusAuthRequest,
 ): BudgetStatusAuthResolution {
   switch (request.kind) {
     case 'use_provided_auth':
       return { kind: 'provided_auth', auth: request.auth };
-    case 'derive_from_record': {
-      const auth = resolveWalletSigningBudgetStatusAuth(deps, request);
-      return auth
-        ? { kind: 'record_derived_auth', auth }
-        : { kind: 'unavailable', reason: 'missing_record' };
-    }
     case 'no_auth_available':
       return { kind: 'unavailable', reason: request.reason };
   }
@@ -427,105 +363,6 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
     status: parsed.status,
     authRejected: false,
   };
-}
-
-function resolveWalletSigningBudgetStatusAuth(
-  deps: TrustedWalletSigningBudgetStatusDeps,
-  args: {
-    owner: WalletBudgetOwner;
-    signingGrantId: string;
-    targetThresholdSessionIds: NonEmptyReadonlyArray<string>;
-    ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck;
-  },
-): TrustedBudgetStatusAuth | null {
-  const ownerWalletId = String(walletBudgetOwnerId(args.owner)).trim();
-  if (!ownerWalletId) return null;
-  const signingGrantId = String(args.signingGrantId || '').trim();
-  if (!signingGrantId) return null;
-  const targetThresholdIds = new Set(
-    args.targetThresholdSessionIds.map((value) => String(value || '').trim()).filter(Boolean),
-  );
-  if (targetThresholdIds.size === 0) return null;
-  const candidates: Array<ThresholdScopedBudgetStatusAuth & { exactTarget: boolean }> = [];
-  const pushCandidate = (
-    record:
-      | {
-          walletId?: unknown;
-          nearAccountId?: unknown;
-          relayerUrl?: unknown;
-          thresholdSessionId?: unknown;
-          signingGrantId?: unknown;
-        }
-      | null
-      | undefined,
-    walletSessionJwtInput: unknown,
-  ): void => {
-    if (!record) return;
-    if (walletIdFromBudgetAuthRecord(record) !== ownerWalletId) return;
-    if (String(record.signingGrantId || '').trim() !== signingGrantId) return;
-    const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-    const relayerUrl = String(record.relayerUrl || '').trim();
-    if (!thresholdSessionId || !relayerUrl) return;
-    const exactTarget = targetThresholdIds.has(thresholdSessionId);
-    if (!exactTarget) return;
-    const walletSessionJwt = String(walletSessionJwtInput || '').trim();
-    if (!walletSessionJwt) return;
-    candidates.push({
-      kind: 'threshold_scoped',
-      relayerUrl,
-      thresholdSessionId,
-      walletSessionJwt,
-      ...(args.ecdsaLaneCheck
-        ? {
-            curve: 'ecdsa' as const,
-            chainTarget: args.ecdsaLaneCheck.chainTarget,
-            key: args.ecdsaLaneCheck.key,
-          }
-        : {}),
-      exactTarget,
-    });
-  };
-  if (args.ecdsaLaneCheck) {
-    if (targetThresholdIds.size !== 1) return null;
-    for (const targetThresholdSessionId of targetThresholdIds) {
-      const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
-        thresholdSessionId: targetThresholdSessionId,
-        chainTarget: args.ecdsaLaneCheck.chainTarget,
-      });
-      if (record && ecdsaRecordMatchesBudgetLane(record, args.ecdsaLaneCheck)) {
-        pushCandidate(record, walletSessionJwtFromTrustedEcdsaBudgetRecord(record));
-      }
-    }
-    return candidates.find((candidate) => candidate.exactTarget) || null;
-  }
-  for (const targetThresholdSessionId of targetThresholdIds) {
-    const ed25519Record =
-      getStoredThresholdEd25519SessionRecordByThresholdSessionId(targetThresholdSessionId);
-    pushCandidate(ed25519Record, walletSessionJwtFromPersistedEd25519Record(ed25519Record));
-    const ecdsaRecord =
-      getStoredThresholdEcdsaSessionRecordByThresholdSessionId(targetThresholdSessionId);
-    pushCandidate(ecdsaRecord, walletSessionJwtFromTrustedEcdsaBudgetRecord(ecdsaRecord));
-  }
-  return candidates.find((candidate) => candidate.exactTarget) || null;
-}
-
-function walletIdFromBudgetAuthRecord(record: {
-  walletId?: unknown;
-}): string {
-  return String(record.walletId || '').trim();
-}
-
-function ecdsaRecordMatchesBudgetLane(
-  record: ThresholdEcdsaSessionRecord,
-  lane: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck,
-): boolean {
-  return (
-    String(record.walletId) === String(lane.key.walletId) &&
-    String(record.signingGrantId) === String(lane.signingGrantId) &&
-    String(record.thresholdSessionId) === String(lane.thresholdSessionId) &&
-    record.keyHandle === lane.keyHandle &&
-    thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)
-  );
 }
 
 export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionStatus>(

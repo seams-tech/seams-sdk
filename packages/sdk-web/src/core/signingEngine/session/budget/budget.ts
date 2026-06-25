@@ -33,6 +33,7 @@ import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
+import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type SigningSessionBudgetZeroSpendReason =
@@ -443,6 +444,7 @@ export type EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check';
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
+  auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -456,6 +458,7 @@ export type AuthenticatedEcdsaLaneBudgetStatusCheck = {
   kind: 'authenticated_ecdsa_lane_budget_status_check';
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle;
+  auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -972,6 +975,9 @@ export function assertBudgetStatusCheckHasConcreteLaneIdentity(
   if (!args.key) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
   }
+  if (!args.auth) {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires signing auth identity');
+  }
   normalizeRequired(args.keyHandle, 'keyHandle');
   if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
@@ -1027,6 +1033,7 @@ export function thresholdSessionIdsForBudgetStatusCheck(
 export function buildEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
+  auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -1035,6 +1042,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
     kind: 'ecdsa_lane_budget_status_check',
     key: args.key,
     keyHandle: args.keyHandle,
+    auth: args.auth,
     chainTarget: args.chainTarget,
     signingGrantId: args.signingGrantId,
     thresholdSessionId: args.thresholdSessionId,
@@ -1044,6 +1052,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
 export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
+  auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -1054,6 +1063,7 @@ export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
       kind: 'authenticated_ecdsa_lane_budget_status_check',
       key: args.key,
       keyHandle: args.keyHandle,
+      auth: args.auth,
       chainTarget: args.chainTarget,
       signingGrantId: args.signingGrantId,
       thresholdSessionId: args.thresholdSessionId,
@@ -1070,6 +1080,7 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
   kind: TKind;
   key: EvmFamilyEcdsaKeyIdentity;
   keyHandle: EvmFamilyEcdsaKeyHandle | string;
+  auth: SigningLaneAuthBinding;
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -1087,6 +1098,9 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
   if (!args.key) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
   }
+  if (!args.auth) {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires signing auth identity');
+  }
   const keyHandle = normalizeRequired(args.keyHandle, 'keyHandle') as EvmFamilyEcdsaKeyHandle;
   if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
@@ -1095,6 +1109,7 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
     kind: args.kind,
     key: args.key,
     keyHandle,
+    auth: args.auth,
     chainTarget: args.chainTarget,
     signingGrantId,
     thresholdSessionId,
@@ -1113,6 +1128,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
         key: args.spend.lane.key,
         keyHandle: args.spend.lane.keyHandle,
+        auth: args.spend.lane.auth,
         chainTarget: args.spend.lane.chainTarget,
         signingGrantId,
         thresholdSessionId: args.spend.lane.thresholdSessionId,
@@ -1122,6 +1138,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
     return buildEcdsaLaneBudgetStatusCheck({
       key: args.spend.lane.key,
       keyHandle: args.spend.lane.keyHandle,
+      auth: args.spend.lane.auth,
       chainTarget: args.spend.lane.chainTarget,
       signingGrantId,
       thresholdSessionId: args.spend.lane.thresholdSessionId,

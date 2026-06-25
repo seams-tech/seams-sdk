@@ -6,9 +6,14 @@ import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
   getStoredThresholdEd25519SessionRecordForAccount,
+  toExactEcdsaSigningLaneIdentity,
   thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
 } from '../persistence/records';
+import {
+  exactSigningLaneIdentityMatches,
+  type ExactEcdsaSigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
 import { selectedEcdsaLane, type ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
@@ -50,6 +55,11 @@ import type {
 } from './types';
 
 type WarmSessionEcdsaPolicyRecordHint = ThresholdEcdsaSessionRecord;
+
+export type ResolveExactEcdsaRecordResult =
+  | { kind: 'found'; record: WarmSessionEcdsaPolicyRecordHint }
+  | { kind: 'not_found' }
+  | { kind: 'duplicate_records'; records: readonly WarmSessionEcdsaPolicyRecordHint[] };
 
 function thresholdSessionIdFromEcdsaRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
@@ -110,11 +120,9 @@ export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
     tempoClaim: WarmSessionPrfClaim | null;
   }>;
   resolveExactEcdsaRecord: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    thresholdSessionId: string;
+    lane: ExactEcdsaSigningLaneIdentity;
     source?: ThresholdEcdsaSessionStoreSource;
-  }) => WarmSessionEcdsaPolicyRecordHint | null;
+  }) => ResolveExactEcdsaRecordResult;
 };
 
 export function createWarmSessionStatusReader(
@@ -275,16 +283,39 @@ export function createWarmSessionStatusReader(
     return [...recordsBySession.values()];
   }
 
+  function recordMatchesExactEcdsaLane(
+    record: ThresholdEcdsaSessionRecord,
+    lane: ExactEcdsaSigningLaneIdentity,
+  ): boolean {
+    try {
+      return exactSigningLaneIdentityMatches(toExactEcdsaSigningLaneIdentity(record), lane);
+    } catch {
+      return false;
+    }
+  }
+
   function resolveExactEcdsaRecord(args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    thresholdSessionId: string;
+    lane: ExactEcdsaSigningLaneIdentity;
     source?: ThresholdEcdsaSessionStoreSource;
-  }): WarmSessionEcdsaPolicyRecordHint | null {
-    const record = resolveEcdsaRecordForSigningSession(args);
-    if (!record) return null;
-    if (args.source && record.source !== args.source) return null;
-    return record;
+  }): ResolveExactEcdsaRecordResult {
+    const records = listWarmSessionEcdsaRecordsForWalletTarget({
+      walletId: args.lane.walletId,
+      chainTarget: args.lane.chainTarget,
+    }).filter((record) => {
+      if (args.source && record.source !== args.source) return false;
+      return recordMatchesExactEcdsaLane(record, args.lane);
+    });
+    switch (records.length) {
+      case 0:
+        return { kind: 'not_found' };
+      case 1: {
+        const [record] = records;
+        if (!record) return { kind: 'not_found' };
+        return { kind: 'found', record };
+      }
+      default:
+        return { kind: 'duplicate_records', records };
+    }
   }
 
   function resolveEcdsaRecordForSigningSession(args: {

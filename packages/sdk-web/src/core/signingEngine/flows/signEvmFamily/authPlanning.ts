@@ -19,6 +19,7 @@ import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
 import type { PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
@@ -65,11 +66,8 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
-    walletId: WalletId;
-    thresholdSessionId: string;
-    curve: 'ecdsa';
+    lane: ExactEcdsaSigningLaneIdentity;
     chain: EvmFamilyChain;
-    chainTarget: ThresholdEcdsaChainTarget;
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;

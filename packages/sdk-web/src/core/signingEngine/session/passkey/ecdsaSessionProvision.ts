@@ -2,11 +2,9 @@ import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/r
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import {
   toWalletId,
-  type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   bootstrapEcdsaSessionValue,
-  ecdsaBootstrapChainTarget,
   ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
   type WalletSessionActivationDeps,
@@ -23,8 +21,17 @@ import type {
   EvmFamilyEcdsaWalletKey,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
-import { evmFamilyEcdsaWalletKeyToIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import {
+  evmFamilyEcdsaWalletKeyToIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+  toRpId,
+} from '../identity/evmFamilyEcdsaIdentity';
+import {
+  exactEcdsaSigningLaneIdentity,
+  type ExactEcdsaSigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
 import type { SigningOperationIntent } from '../operationState/types';
+import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import type {
   EcdsaSessionIdentity,
   VerifiedEcdsaWalletSessionAuth,
@@ -39,8 +46,7 @@ export type ProvisionThresholdEcdsaSessionDeps = {
   activationDeps: WalletSessionActivationDeps;
   touchConfirm: WarmSessionSealPersistPorts;
   resolveSealTransport: (args: {
-    thresholdSessionId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
+    lane: ExactEcdsaSigningLaneIdentity;
   }) => ThresholdSessionSealTransportAuthMaterial | null;
 };
 
@@ -401,23 +407,119 @@ function toBootstrapEcdsaSessionRequest(
   throw new Error('[SigningEngine][ecdsa] unsupported activation request');
 }
 
+type ExactIdentityEcdsaBootstrapRequest = Extract<
+  EcdsaBootstrapRequest,
+  { key: ReturnType<typeof evmFamilyEcdsaWalletKeyToIdentity> }
+>;
+
+function exactEcdsaBootstrapRequest(
+  request: EcdsaBootstrapRequest,
+): ExactIdentityEcdsaBootstrapRequest | null {
+  if (!('key' in request) || !request.key) return null;
+  if (!('keyHandle' in request) || !request.keyHandle) return null;
+  if (!('lanePolicy' in request) || !request.lanePolicy) return null;
+  return request;
+}
+
+function passkeyCredentialIdFromBootstrapRequest(request: EcdsaBootstrapRequest): string {
+  if ('passkeyCredentialIdB64u' in request) {
+    const credentialId = String(request.passkeyCredentialIdB64u || '').trim();
+    if (credentialId) return credentialId;
+  }
+  if ('webauthnAuthentication' in request && request.webauthnAuthentication) {
+    return String(
+      request.webauthnAuthentication.rawId || request.webauthnAuthentication.id || '',
+    ).trim();
+  }
+  return '';
+}
+
+function exactEcdsaBootstrapAuthBinding(args: {
+  deps: ProvisionThresholdEcdsaSessionDeps;
+  request: EcdsaBootstrapRequest;
+}): SigningLaneAuthBinding | null {
+  if (args.request.kind === 'email_otp_ecdsa_bootstrap') {
+    const providerSubjectId = String(args.request.emailOtpAuthContext.authSubjectId || '').trim();
+    return providerSubjectId
+      ? {
+          kind: 'email_otp',
+          providerSubjectId,
+        }
+      : null;
+  }
+  const rpId = String(args.deps.activationDeps.touchIdPrompt.getRpId() || '').trim();
+  const credentialIdB64u = passkeyCredentialIdFromBootstrapRequest(args.request);
+  if (!rpId || !credentialIdB64u) return null;
+  return {
+    kind: 'passkey',
+    rpId: toRpId(rpId),
+    credentialIdB64u,
+  };
+}
+
+function exactEcdsaSealLaneFromBootstrap(args: {
+  deps: ProvisionThresholdEcdsaSessionDeps;
+  request: EcdsaBootstrapRequest;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+}): ExactEcdsaSigningLaneIdentity | null {
+  const exactRequest = exactEcdsaBootstrapRequest(args.request);
+  if (!exactRequest) return null;
+  const auth = exactEcdsaBootstrapAuthBinding({
+    deps: args.deps,
+    request: args.request,
+  });
+  if (!auth) return null;
+  const thresholdSessionId = String(
+    args.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId ||
+      args.bootstrap.session.thresholdSessionId ||
+      exactRequest.lanePolicy.thresholdSessionId,
+  ).trim();
+  const signingGrantId = String(
+    args.bootstrap.thresholdEcdsaKeyRef.signingGrantId ||
+      args.bootstrap.session.signingGrantId ||
+      exactRequest.lanePolicy.signingGrantId,
+  ).trim();
+  if (!thresholdSessionId || !signingGrantId) return null;
+  return exactEcdsaSigningLaneIdentity({
+    walletId: exactRequest.key.walletId,
+    chainTarget: exactRequest.lanePolicy.chainTarget,
+    keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
+    key: exactRequest.key,
+    auth,
+    signingGrantId,
+    thresholdSessionId,
+  });
+}
+
 export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
   deps: ProvisionThresholdEcdsaSessionDeps,
   request: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const walletId = toWalletId(ecdsaBootstrapWalletId(request));
-  const chainTarget = ecdsaBootstrapChainTarget(request);
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
     const bootstrap = await bootstrapEcdsaSessionValue(deps.activationDeps, request);
     const thresholdSessionId = String(
       bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
     ).trim();
     if (thresholdSessionId && shouldEnsurePasskeyEcdsaSealAfterProvision(request)) {
+      const sealLane = exactEcdsaSealLaneFromBootstrap({
+        deps,
+        request,
+        bootstrap,
+      });
+      const sealRequired = request.kind === 'wallet_session_reconnect_ecdsa_bootstrap';
+      if (!sealLane) {
+        if (sealRequired) {
+          throw new Error(
+            '[WarmSessionStore] threshold ECDSA required seal persistence needs exact lane identity',
+          );
+        }
+        return bootstrap;
+      }
       await ensureEcdsaPrfSealPersisted({
         touchConfirm: deps.touchConfirm,
-        chainTarget,
-        thresholdSessionId,
-        required: request.kind === 'wallet_session_reconnect_ecdsa_bootstrap',
+        lane: sealLane,
+        required: sealRequired,
         errorContext: 'threshold-ecdsa bootstrap seal persistence',
         sealPersistInFlightBySessionId: new Map(),
         resolveSealTransport: deps.resolveSealTransport,

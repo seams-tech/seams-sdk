@@ -34,7 +34,7 @@ import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces
 export type TransactionLaneSelectionFailure =
   | { kind: 'unsupported_intent'; curve: string; chain: string }
   | { kind: 'no_candidate'; authMethod?: SigningAuthMethod }
-  | { kind: 'ambiguous_candidates'; allowedAuthMethods: readonly SigningAuthMethod[] }
+  | { kind: 'duplicate_authority_records'; allowedAuthMethods: readonly SigningAuthMethod[] }
   | { kind: 'incomplete_candidate'; missing: readonly string[] }
   | { kind: 'policy_blocked'; reason: string };
 
@@ -205,82 +205,6 @@ function allowedAuthMethods(
     .sort();
 }
 
-function candidateStatePriority(candidate: ConcreteTransactionCandidate): number {
-  switch (candidate.candidate.state) {
-    case 'ready':
-      return 5;
-    case 'restorable':
-      return 4;
-    case 'deferred':
-      return 3;
-    case 'expired':
-    case 'exhausted':
-      return 2;
-    default:
-      return 1;
-  }
-}
-
-function candidateSourcePriority(candidate: ConcreteTransactionCandidate): number {
-  switch (candidate.candidate.source) {
-    case 'runtime_and_durable':
-      return 3;
-    case 'runtime_session_record':
-      return 2;
-    case 'durable_sealed_record':
-      return 1;
-    case 'evm_family_shared_key':
-    default:
-      return 0;
-  }
-}
-
-function candidateUpdatedAtMs(candidate: ConcreteTransactionCandidate): number | null {
-  return candidate.candidate.updatedAtMs;
-}
-
-function candidatesWithBestPriority<TCandidate extends ConcreteTransactionCandidate>(
-  candidates: readonly TCandidate[],
-  priority: (candidate: TCandidate) => number,
-): TCandidate[] {
-  let bestPriority = -Infinity;
-  let bestCandidates: TCandidate[] = [];
-  for (const candidate of candidates) {
-    const value = priority(candidate);
-    if (value > bestPriority) {
-      bestPriority = value;
-      bestCandidates = [candidate];
-      continue;
-    }
-    if (value === bestPriority) {
-      bestCandidates.push(candidate);
-    }
-  }
-  return bestCandidates;
-}
-
-function selectNewestCandidateWhenUnambiguous<TCandidate extends ConcreteTransactionCandidate>(
-  candidates: readonly TCandidate[],
-): TCandidate | null {
-  let selected: TCandidate | null = null;
-  let selectedUpdatedAtMs = -Infinity;
-  let ambiguous = false;
-  for (const candidate of candidates) {
-    const updatedAtMs = candidateUpdatedAtMs(candidate);
-    if (updatedAtMs === null) return null;
-    if (updatedAtMs > selectedUpdatedAtMs) {
-      selected = candidate;
-      selectedUpdatedAtMs = updatedAtMs;
-      ambiguous = false;
-      continue;
-    }
-    if (updatedAtMs === selectedUpdatedAtMs) {
-      ambiguous = true;
-    }
-  }
-  return ambiguous ? null : selected;
-}
-
 function selectOnlyConcreteTransactionCandidate<TCandidate extends ConcreteTransactionCandidate>(
   candidates: readonly TCandidate[],
 ): TCandidate | null {
@@ -288,39 +212,12 @@ function selectOnlyConcreteTransactionCandidate<TCandidate extends ConcreteTrans
     case 0:
       return null;
     case 1: {
-      const candidate = candidates.at(0);
-      return candidate === undefined ? null : candidate;
+      const [candidate] = candidates;
+      return candidate || null;
     }
     default:
       return null;
   }
-}
-
-function selectBestConcreteTransactionCandidate<TCandidate extends ConcreteTransactionCandidate>(
-  candidates: readonly TCandidate[],
-): TCandidate | null {
-  const bestStateCandidates = candidatesWithBestPriority(candidates, candidateStatePriority);
-  switch (bestStateCandidates.length) {
-    case 0:
-    case 1:
-      return selectOnlyConcreteTransactionCandidate(bestStateCandidates);
-    default:
-      break;
-  }
-
-  const bestSourceCandidates = candidatesWithBestPriority(
-    bestStateCandidates,
-    candidateSourcePriority,
-  );
-  switch (bestSourceCandidates.length) {
-    case 0:
-    case 1:
-      return selectOnlyConcreteTransactionCandidate(bestSourceCandidates);
-    default:
-      break;
-  }
-
-  return selectNewestCandidateWhenUnambiguous(bestSourceCandidates);
 }
 
 export function selectTransactionLane(
@@ -534,12 +431,12 @@ function selectConcreteTransactionCandidate<
     };
   }
 
-  const selected = selectBestConcreteTransactionCandidate(candidates);
+  const selected = selectOnlyConcreteTransactionCandidate(candidates);
   if (!selected) {
     return {
       ok: false,
       failure: {
-        kind: 'ambiguous_candidates',
+        kind: 'duplicate_authority_records',
         allowedAuthMethods: allowedAuthMethods(candidates),
       },
     };

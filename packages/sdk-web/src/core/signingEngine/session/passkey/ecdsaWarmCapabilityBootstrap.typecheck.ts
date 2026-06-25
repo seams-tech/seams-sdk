@@ -5,8 +5,8 @@ import type {
 } from './ecdsaWarmCapabilityBootstrap';
 
 declare const getWarmSession: NoPromptWarmSessionDeps['getWarmSession'];
-declare const restorePersistedSessionsForWallet: NonNullable<
-  NoPromptWarmSessionDeps['restorePersistedSessionsForWallet']
+declare const discoverPersistedSessionsForWallet: NonNullable<
+  NoPromptWarmSessionDeps['discoverPersistedSessionsForWallet']
 >;
 declare const claimEcdsaPasskeyPrfFirst: NoPromptWarmSessionDeps['claimEcdsaPasskeyPrfFirst'];
 declare const reconnectWithWalletSessionAuth: NoPromptWarmSessionDeps['reconnectWithWalletSessionAuth'];
@@ -14,7 +14,7 @@ declare const ecdsaSessions: NoPromptWarmSessionDeps['ecdsaSessions'];
 
 const noPromptDeps: NoPromptWarmSessionDeps = {
   getWarmSession,
-  restorePersistedSessionsForWallet,
+  discoverPersistedSessionsForWallet,
   claimEcdsaPasskeyPrfFirst,
   reconnectWithWalletSessionAuth,
   ecdsaSessions,
@@ -24,7 +24,7 @@ void noPromptDeps;
 
 const noPromptDepsWithTouchId: NoPromptWarmSessionDeps = {
   getWarmSession,
-  restorePersistedSessionsForWallet,
+  discoverPersistedSessionsForWallet,
   claimEcdsaPasskeyPrfFirst,
   reconnectWithWalletSessionAuth,
   ecdsaSessions,
@@ -36,7 +36,7 @@ void noPromptDepsWithTouchId;
 
 const noPromptDepsWithFreshBootstrap: NoPromptWarmSessionDeps = {
   getWarmSession,
-  restorePersistedSessionsForWallet,
+  discoverPersistedSessionsForWallet,
   claimEcdsaPasskeyPrfFirst,
   reconnectWithWalletSessionAuth,
   ecdsaSessions,

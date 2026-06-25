@@ -14,10 +14,11 @@ import {
   ecdsaSessionIdentitiesEqual,
 } from './ecdsaProvisionPlan';
 import type { WarmSessionEcdsaCapabilityState } from './types';
+import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 
 export type EcdsaWarmCapabilityReader = {
-  getEcdsaCapabilityByThresholdSessionId: (
-    thresholdSessionId: string,
+  getEcdsaCapabilityForLane: (
+    lane: ExactEcdsaSigningLaneIdentity,
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
 };
 
@@ -80,6 +81,7 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    lane: ExactEcdsaSigningLaneIdentity;
   },
 ): Promise<WarmSessionEcdsaCapabilityState> {
   const thresholdSessionId = bootstrapThresholdSessionId(args.bootstrap);
@@ -90,7 +92,14 @@ export async function assertWarmThresholdEcdsaCapabilityReady(
       )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
     );
   }
-  const capability = await reader.getEcdsaCapabilityByThresholdSessionId(thresholdSessionId);
+  if (String(args.lane.thresholdSessionId) !== thresholdSessionId) {
+    throw new Error(
+      `[SigningEngine] Email OTP bootstrap exact lane session mismatch for ${String(
+        args.walletId,
+      )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
+    );
+  }
+  const capability = await reader.getEcdsaCapabilityForLane(args.lane);
   return requireExactBootstrapCapability({
     walletId: args.walletId,
     chainTarget: args.chainTarget,

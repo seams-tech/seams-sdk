@@ -37,6 +37,11 @@ import {
   type ThresholdEd25519SessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
+import { exactEd25519SigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '../../session/keyMaterialBrands';
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
@@ -295,6 +300,17 @@ type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
   NearEd25519AvailableLane,
   Ed25519LaneCandidate
 >;
+
+function exactEd25519IdentityFromSelectedLane(lane: SelectedEd25519Lane) {
+  return exactEd25519SigningLaneIdentity({
+    walletId: lane.walletId,
+    nearAccountId: lane.nearAccountId,
+    ed25519KeyScopeId: lane.ed25519KeyScopeId,
+    auth: lane.auth,
+    signingGrantId: lane.signingGrantId,
+    thresholdSessionId: lane.thresholdSessionId,
+  });
+}
 
 type NearEd25519Warmup = {
   isPending: () => boolean;
@@ -763,8 +779,7 @@ async function resolveNearTransactionWalletAuth(args: {
     );
     const authLane = record
       ? args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
-          thresholdSessionId: record.thresholdSessionId,
-          curve: 'ed25519',
+          lane: exactEd25519IdentityFromSelectedLane(lane),
         }) || emailOtpEd25519AuthLaneFromRecord(record)
       : undefined;
     const challenge = await args.confirmedDeps.requestEmailOtpTransactionSigningChallenge({
@@ -818,8 +833,7 @@ async function resolveNearTransactionWalletAuth(args: {
         });
         const authLane =
           args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
-            thresholdSessionId: record.thresholdSessionId,
-            curve: 'ed25519',
+            lane: exactEd25519IdentityFromSelectedLane(lane),
           }) || emailOtpEd25519AuthLaneFromRecord(record);
         const emailOtpAuthentication =
           await args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning({
@@ -1075,7 +1089,7 @@ function authMethodForThresholdEd25519Record(
 function thresholdEd25519RecordMatchesSelectedLane(args: {
   record: ThresholdEd25519SessionRecord;
   selectedLane: SelectedEd25519Lane;
-  walletId: AccountId | string;
+  walletId: WalletId | string;
 }): boolean {
   return (
     String(args.record.walletId || '').trim() === String(args.walletId || '').trim() &&
@@ -1128,45 +1142,9 @@ function selectNearEd25519TransactionCandidate(args: {
   );
 }
 
-function concreteNearEd25519AvailableAuthMethods(
-  availableLanes: AvailableSigningLanes | null,
-): Array<'email_otp' | 'passkey'> {
-  const methods = new Set<'email_otp' | 'passkey'>();
-  for (const lane of availableLanes?.candidates.ed25519.near || []) {
-    if (lane.state === 'missing') continue;
-    const authMethod = signingLaneAuthMethod(lane.auth);
-    if (!String(lane.signingGrantId || '').trim()) continue;
-    if (!String(lane.thresholdSessionId || '').trim()) continue;
-    methods.add(authMethod);
-  }
-  return [...methods].sort();
-}
-
-function hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(
-  availableLanes: AvailableSigningLanes | null,
-): boolean {
-  const authMethodsByIdentity = new Map<string, Set<'email_otp' | 'passkey'>>();
-  for (const lane of availableLanes?.candidates.ed25519.near || []) {
-    if (lane.state === 'missing') continue;
-    const laneAuthMethod = signingLaneAuthMethod(lane.auth);
-    const signingGrantId = String(lane.signingGrantId || '').trim();
-    const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
-    if (!signingGrantId || !thresholdSessionId) continue;
-    const identityKey = `${signingGrantId}:${thresholdSessionId}`;
-    const authMethods =
-      authMethodsByIdentity.get(identityKey) || new Set<'email_otp' | 'passkey'>();
-    authMethods.add(laneAuthMethod);
-    authMethodsByIdentity.set(identityKey, authMethods);
-  }
-  for (const authMethods of authMethodsByIdentity.values()) {
-    if (authMethods.has('email_otp') && authMethods.has('passkey')) return true;
-  }
-  return false;
-}
-
 function verifiedRuntimeNearEd25519AvailableLanes(args: {
   availableLanes: AvailableSigningLanes | null;
-  walletId: AccountId | string;
+  walletId: WalletId | string;
 }): NearEd25519AvailableLane[] {
   const runtimeLanes: NearEd25519AvailableLane[] = [];
   for (const lane of args.availableLanes?.candidates.ed25519.near || []) {
@@ -1201,7 +1179,6 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
   commandSubject: NearCommandSubject;
   availableLanes: AvailableSigningLanes | null;
 }): Promise<NearEd25519SelectedTransactionLane | null> {
-  const nearAccountId = args.commandSubject.nearAccount.accountId;
   const walletId = args.commandSubject.walletSession.walletId;
   const selectByAuthMethod = (
     authMethod: 'email_otp' | 'passkey',
@@ -1222,55 +1199,21 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
     const runtimeLane = runtimeLanes[0]!;
     return selectByAuthMethod(signingLaneAuthMethod(runtimeLane.auth), runtimeLane);
   }
-  if (hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(args.availableLanes)) {
-    const emailOtpSelection = selectByAuthMethod('email_otp');
-    if (emailOtpSelection) return emailOtpSelection;
-  }
-
-  const accountSelectedAuthMethod = await args.deps
-    .resolveAccountAuthMethodForSigning?.({
-      walletId,
-      nearAccountId,
-      curve: 'ed25519',
-      chain: 'near',
-    })
-    .catch((error) => {
-      console.warn('[SigningEngine][near] Ed25519 auth-method selection failed', {
-        nearAccountId,
-        error: error instanceof Error ? error.message : String(error || 'unknown error'),
-      });
-      return null;
-    });
-  const accountAuthMethod =
-    accountSelectedAuthMethod === 'email_otp' || accountSelectedAuthMethod === 'passkey'
-      ? accountSelectedAuthMethod
-      : null;
 
   if (runtimeLanes.length > 1) {
-    if (accountAuthMethod) {
-      const matchingRuntimeLanes = runtimeLanes.filter(
-        (lane) => signingLaneAuthMethod(lane.auth) === accountAuthMethod,
-      );
-      if (matchingRuntimeLanes.length === 1) {
-        return selectByAuthMethod(accountAuthMethod, matchingRuntimeLanes[0]!);
-      }
-    }
     throw new Error('[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes');
   }
-
-  const authMethods = concreteNearEd25519AvailableAuthMethods(args.availableLanes);
-  if (authMethods.length === 1) return selectByAuthMethod(authMethods[0]!);
-
-  if (accountAuthMethod && (!authMethods.length || authMethods.includes(accountAuthMethod))) {
-    return selectByAuthMethod(accountAuthMethod);
-  }
-  return null;
+  return selectNearEd25519TransactionCandidate({
+    availableLanes: args.availableLanes,
+    authSelectionPolicy: { kind: 'any' },
+    walletId,
+  });
 }
 
 function assertNearEd25519SelectedLaneMatchesRecord(args: {
   selectedLane: SelectedEd25519Lane | null;
   record: ThresholdEd25519SessionRecord | null;
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   nearAccountId: AccountId;
 }): void {
   if (!args.selectedLane || !args.record) return;
@@ -1356,6 +1299,7 @@ async function restoreNearEd25519SelectedSigningSession(args: {
   commandSubject: NearCommandSubject;
   selectedLane: SelectedEd25519Lane | null;
   candidate: Ed25519LaneCandidate | null;
+  availableLane: NearEd25519AvailableLane | null;
 }): Promise<void> {
   const nearAccountId = args.commandSubject.nearAccount.accountId;
   const walletId = args.commandSubject.walletSession.walletId;
@@ -1399,6 +1343,21 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     signingGrantId: selectedLane.signingGrantId,
     thresholdSessionId: selectedLane.thresholdSessionId,
     reason: 'transaction',
+    materialRestoreIdentity: {
+      kind: 'ed25519_worker_material_restore',
+      lane: exactEd25519SigningLaneIdentity({
+        walletId: selectedLane.walletId,
+        nearAccountId: selectedLane.nearAccountId,
+        ed25519KeyScopeId: selectedLane.ed25519KeyScopeId,
+        auth: selectedLane.auth,
+        signingGrantId: selectedLane.signingGrantId,
+        thresholdSessionId: selectedLane.thresholdSessionId,
+      }),
+      materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+        args.availableLane?.ed25519WorkerMaterialBindingDigest,
+      ),
+      materialKeyId: parseEd25519WorkerMaterialKeyId(args.availableLane?.materialKeyId),
+    },
   });
 }
 
@@ -1420,6 +1379,7 @@ async function prepareNearEd25519TransactionOperation(args: {
     commandSubject: args.commandSubject,
     selectedLane: selectedSessionLane,
     candidate: args.selectedLane.candidate,
+    availableLane: args.selectedLane.availableLane,
   });
   const restoreState = recordExactRestoreAttempt(args.selectedLane, {
     restored: Boolean(selectedSessionLane),

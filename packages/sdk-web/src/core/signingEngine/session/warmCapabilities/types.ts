@@ -31,6 +31,10 @@ import {
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import type {
+  ExactEcdsaSigningLaneIdentity,
+  ExactSigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
 import { persistedWarmSessionRecordRequiresWalletSessionJwt } from './walletSessionAuthBoundary';
 import {
   classifyRouterAbEcdsaHssPersistedSigningRecord,
@@ -600,19 +604,21 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 };
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
+  lane: ExactEcdsaSigningLaneIdentity;
   selectedRecord: ThresholdEcdsaSessionRecord;
+  walletId?: never;
+  chainTarget?: never;
+  thresholdSessionId?: never;
 };
 
 export type AssertWarmEcdsaOperationAllowedArgs = {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
+  lane: ExactEcdsaSigningLaneIdentity;
   operationLabel: string;
-  thresholdSessionId: string;
   source: ThresholdEcdsaSessionStoreSource;
   sensitivePolicy?: SensitiveOperationPolicy;
+  walletId?: never;
+  chainTarget?: never;
+  thresholdSessionId?: never;
 };
 
 type ClaimWarmSessionPrfArgsBase = {
@@ -704,8 +710,7 @@ export type WarmSessionCapabilityReader = {
     thresholdSessionId: string,
   ) => WarmSessionEcdsaAuthMaterial | null;
   resolveEmailOtpSigningSessionAuthLane: (args: {
-    thresholdSessionId: string;
-    curve: 'ed25519' | 'ecdsa';
+    lane: ExactSigningLaneIdentity;
   }) => EmailOtpAuthLane | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
@@ -713,9 +718,11 @@ export type WarmSessionCapabilityReader = {
   getEcdsaCapabilityByThresholdSessionId: (
     thresholdSessionId: string,
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
+  getEcdsaCapabilityForLane: (
+    lane: ExactEcdsaSigningLaneIdentity,
+  ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   resolveEcdsaSealTransportByThresholdSessionId: (args: {
-    thresholdSessionId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
+    lane: ExactEcdsaSigningLaneIdentity;
   }) => ThresholdSessionSealTransportAuthMaterial | null;
 };
 

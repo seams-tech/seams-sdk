@@ -44,9 +44,11 @@ import {
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
+  laneIdentity: ExactEcdsaSigningLaneIdentity;
   key: EvmFamilyEcdsaKeyIdentity;
   publicFacts: VerifiedEcdsaPublicFacts;
   session: {

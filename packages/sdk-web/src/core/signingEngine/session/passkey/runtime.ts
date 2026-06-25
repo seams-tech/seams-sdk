@@ -1,5 +1,8 @@
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type {
   WarmSessionSealPersister,
   WarmSessionStatusReader,
@@ -18,28 +21,25 @@ export type WarmSessionSealPersistPorts =
 
 export async function ensureEcdsaPrfSealPersisted(args: {
   touchConfirm: WarmSessionSealPersistPorts;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
+  lane: ExactEcdsaSigningLaneIdentity;
   required?: boolean;
   errorContext?: string;
   sealPersistInFlightBySessionId: Map<string, Promise<void>>;
   resolveSealTransport: (
     args: {
-      thresholdSessionId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
+      lane: ExactEcdsaSigningLaneIdentity;
     },
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 }): Promise<void> {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
-  const persistKey = `${thresholdSessionId}:${JSON.stringify(args.chainTarget)}`;
+  const persistKey = `${thresholdSessionId}:${thresholdEcdsaChainTargetKey(args.lane.chainTarget)}`;
   let persistPromise = args.sealPersistInFlightBySessionId.get(persistKey);
   if (!persistPromise) {
     persistPromise = (async (): Promise<void> => {
       const errorContext = String(args.errorContext || 'threshold session seal persistence').trim();
       const sealTransport = args.resolveSealTransport({
-        thresholdSessionId,
-        chainTarget: args.chainTarget,
+        lane: args.lane,
       });
       if (sealTransport && sealTransport.curve !== 'ecdsa') {
         throw new Error('[WarmSessionStore] ECDSA seal persistence received non-ECDSA transport');

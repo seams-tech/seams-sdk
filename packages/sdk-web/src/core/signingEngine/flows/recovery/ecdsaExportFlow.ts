@@ -51,7 +51,6 @@ export type EcdsaExportFlowDeps = {
   sessionStore: EcdsaExportSessionStoreDeps;
   touchConfirm: Parameters<typeof showThresholdEcdsaExportViewer>[0]['touchConfirm'];
   theme?: ThemeName;
-  getRpId: () => string | null;
   emailOtp: {
     requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: (args: {
@@ -68,7 +67,6 @@ export type EcdsaExportFlowDeps = {
       challengeId: string;
       otpCode: string;
       record: ThresholdEcdsaSessionRecord;
-      rpId: string;
       authLane: EmailOtpAuthLane;
     }) => Promise<EcdsaExportArtifact>;
   };
@@ -338,10 +336,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       authLane: args.material.authLane,
     },
   );
-  const rpId = String(deps.getRpId() || '').trim();
-  if (!rpId) {
-    throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
-  }
   return await prepareAndShowEcdsaExportArtifact(deps, {
     walletId: args.walletId,
     exportLane: args.exportLane,
@@ -358,7 +352,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
         challengeId: authorization.challengeId,
         otpCode: authorization.otpCode,
         record: args.material.record,
-        rpId,
         authLane: args.material.authLane,
       }),
   });
@@ -383,10 +376,6 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
   const cachedArtifact = args.material.cachedExportArtifact;
 
   if (currentRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
-    const rpId = String(deps.getRpId() || '').trim();
-    if (!rpId) {
-      throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
-    }
     const signingGrantId = String(currentRecord.signingGrantId || '').trim();
     if (!signingGrantId) {
       throw new Error('Email OTP ECDSA export requires signing grant identity');
@@ -433,7 +422,6 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
           challengeId: authorization.challengeId,
           otpCode: authorization.otpCode,
           record: currentRecord,
-          rpId,
           authLane: exportSigningSessionAuthLane,
         }),
     });
@@ -441,9 +429,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
 
   try {
     await assertWarmSessionEcdsaOperationAllowed(deps.warmSessionPolicy, {
-      walletId: toWalletId(args.walletId),
-      chainTarget: args.exportLane.session.chainTarget,
-      thresholdSessionId: args.material.signerSession.session.thresholdSessionId,
+      lane: args.exportLane.laneIdentity,
       operationLabel: 'threshold-ecdsa key export',
       source: currentRecord.source,
       sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
@@ -481,10 +467,6 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       exportedSchemes: ['secp256k1'],
     };
   }
-  const rpId = String(deps.getRpId() || '').trim();
-  if (!rpId) {
-    throw new Error('Missing rpId for threshold-ecdsa explicit export');
-  }
   const exportCredential = await requestThresholdEcdsaExportAuthorization(
     { touchConfirm: deps.touchConfirm, theme: deps.theme },
     {
@@ -507,7 +489,6 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
         { getSignerWorkerContext: deps.getSignerWorkerContext },
         {
           walletSessionUserId: args.walletId,
-          rpId,
           signerSession: args.material.signerSession,
           record: args.material.record,
           credential: exportCredential.credential,

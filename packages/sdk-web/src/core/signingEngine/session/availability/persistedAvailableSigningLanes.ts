@@ -19,6 +19,7 @@ import {
   listStoredThresholdEd25519SessionRecordsForWallet,
   listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEd25519LaneCandidateFromSessionRecord,
+  thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
@@ -377,6 +378,15 @@ export async function readPersistedAvailableSigningLanesForTargets(
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
+            ...(runtimeRecord.ed25519WorkerMaterialBindingDigest
+              ? {
+                  ed25519WorkerMaterialBindingDigest:
+                    runtimeRecord.ed25519WorkerMaterialBindingDigest,
+                }
+              : {}),
+            ...(runtimeRecord.materialKeyId
+              ? { materialKeyId: runtimeRecord.materialKeyId }
+              : {}),
           });
         }
         return records;
@@ -472,6 +482,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                       buildEcdsaLaneBudgetStatusCheck({
                         key: thresholdEcdsaSessionRecordReadModel(ecdsaRecord).key,
                         keyHandle: ecdsaRecord.keyHandle,
+                        auth: thresholdEcdsaLaneCandidateFromSessionRecord({ record: ecdsaRecord }).auth,
                         chainTarget: ecdsaRecord.chainTarget,
                         signingGrantId,
                         thresholdSessionId: ecdsaRecord.thresholdSessionId,

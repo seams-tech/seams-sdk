@@ -465,6 +465,7 @@ export type PMExportKeypairUiPayload =
       kind: 'near';
       walletSession: WalletSessionRef;
       nearAccount: NearAccountRef;
+      laneIdentity: unknown;
       options: {
         chain: 'near';
         variant?: 'modal' | 'drawer';
@@ -475,6 +476,7 @@ export type PMExportKeypairUiPayload =
       kind: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
+      laneIdentity: unknown;
       options: {
         variant?: 'modal' | 'drawer';
         theme?: 'dark' | 'light';

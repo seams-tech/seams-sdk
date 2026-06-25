@@ -36,7 +36,6 @@ import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   toWalletId,
-  thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -572,55 +571,6 @@ export function validateSelectedEcdsaRecordCandidateForLane(args: {
   throw new Error(
     `[SigningEngine][ecdsa] selected ECDSA record candidate does not match resolved lane for ${args.context}`,
   );
-}
-
-function ecdsaRecordMatchesSharedLaneKey(args: {
-  lane: SelectedEcdsaLane;
-  record: ThresholdEcdsaSessionRecord;
-}): boolean {
-  return args.record.keyHandle === args.lane.keyHandle;
-}
-
-export function findSharedEvmFamilyEcdsaSessionRecordForLane(args: {
-  deps: EvmFamilyEcdsaSessionReaderDeps;
-  lane?: SelectedEcdsaLane;
-  chainTargets: readonly ThresholdEcdsaChainTarget[];
-}): ThresholdEcdsaSessionRecord | undefined {
-  const lane = args.lane;
-  if (!lane) return undefined;
-  const walletId = toWalletId(lane.walletId);
-  const candidates: ThresholdEcdsaSessionRecord[] = [];
-  const seen = new Set<string>();
-  for (const chainTarget of args.chainTargets) {
-    for (const record of args.deps.listThresholdEcdsaSessionRecordsForSigning({
-      walletId,
-      chainTarget,
-    })) {
-      const candidateKey = [
-        record.source,
-        thresholdEcdsaChainTargetKey(record.chainTarget),
-        record.signingGrantId,
-        record.thresholdSessionId,
-      ].join(':');
-      if (seen.has(candidateKey)) continue;
-      seen.add(candidateKey);
-      if (
-        !ecdsaMaterialSourceMatchesAuth({
-          authMethod: selectedLaneAuthMethod(lane),
-          source: record.source,
-          record,
-        })
-      ) {
-        continue;
-      }
-      if (!ecdsaRecordMatchesSharedLaneKey({ lane, record })) continue;
-      candidates.push(record);
-    }
-  }
-  return candidates.sort(
-    (left, right) =>
-      Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),
-  )[0];
 }
 
 function getSelectedEcdsaRecordLaneMismatchReason(args: {

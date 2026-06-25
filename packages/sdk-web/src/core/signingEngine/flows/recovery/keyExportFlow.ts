@@ -14,6 +14,10 @@ import {
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
+import type {
+  ExactEcdsaSigningLaneIdentity,
+  ExactEd25519SigningLaneIdentity,
+} from '../../session/identity/exactSigningLaneIdentity';
 
 export type KeyExportEventCallback = (event: KeyExportFlowEvent) => void;
 
@@ -22,6 +26,7 @@ export type SigningEngineExportKeypairWithUIInput =
       kind: 'near';
       walletSession: WalletSessionRef;
       nearAccount: NearAccountRef;
+      laneIdentity: ExactEd25519SigningLaneIdentity;
       options: {
         chain: 'near';
         variant?: 'drawer' | 'modal';
@@ -33,6 +38,7 @@ export type SigningEngineExportKeypairWithUIInput =
       kind: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
+      laneIdentity: ExactEcdsaSigningLaneIdentity;
       options: {
         variant?: 'drawer' | 'modal';
         theme?: 'dark' | 'light';

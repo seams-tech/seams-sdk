@@ -109,9 +109,9 @@ function requireExactEmailOtpEcdsaRecordForEd25519Signing(
   switch (selection.kind) {
     case 'exact_match':
       return selection.record;
-    case 'ambiguous':
+    case 'duplicate_records':
       throw new Error(
-        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane is ambiguous: exact matches=${selection.exactMatchCount}`,
+        `[EmailOtpSession] Email OTP Ed25519 signing ECDSA bootstrap lane has duplicate exact records: exact matches=${selection.exactMatchCount}`,
       );
     case 'not_found':
       throw new Error(

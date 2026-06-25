@@ -1,11 +1,13 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type {
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
   WarmSessionPrfClaim,
 } from './types';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionTransitionCapabilitySnapshot = {
   state: WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'];
@@ -17,7 +19,7 @@ export type WarmSessionTransitionCapabilitySnapshot = {
 };
 
 export type WarmSessionTransitionSnapshot = {
-  walletId: AccountId;
+  walletId: WalletId;
   capabilities: {
     ed25519: WarmSessionTransitionCapabilitySnapshot;
     ecdsa: {
@@ -31,14 +33,14 @@ export type WarmSessionTransitionSnapshot = {
 export type WarmSessionTransitionEvent =
   | {
       type: 'ed25519_capability_provisioned';
-      walletId: AccountId;
+      walletId: WalletId;
       thresholdSessionId: string;
       before: WarmSessionTransitionSnapshot;
       after: WarmSessionTransitionSnapshot;
     }
   | {
       type: 'ecdsa_capability_provisioned' | 'ecdsa_capability_reconnected';
-      walletId: AccountId;
+      walletId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;
       thresholdSessionId: string;
       before: WarmSessionTransitionSnapshot;

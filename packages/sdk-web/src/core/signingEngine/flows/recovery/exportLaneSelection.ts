@@ -1,5 +1,5 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
+import type { NearAccountId } from '@shared/utils/near';
 import {
   availableEd25519SigningLaneAuthMethod,
   availableEcdsaSigningLaneAuthMethod,
@@ -17,6 +17,13 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  exactEcdsaSigningLaneIdentity,
+  exactEd25519SigningLaneIdentity,
+  exactSigningLaneIdentityKey,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
+} from '../../session/identity/exactSigningLaneIdentity';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 import {
@@ -27,17 +34,26 @@ import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
 } from '../../session/sealedRecovery/sealedRecovery.types';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '../../session/keyMaterialBrands';
 
 export type ExactNearEd25519ExportLane = {
   curve: 'ed25519';
   chain: 'near';
   signer: NearEd25519SignerBinding;
-  nearAccountId: AccountId;
+  nearAccountId: NearAccountId;
   authMethod: 'email_otp' | 'passkey';
   signingGrantId: string;
   thresholdSessionId: string;
   state: AvailableSigningLanes['lanes']['ed25519']['near']['state'];
   source: AvailableSigningLanes['lanes']['ed25519']['near']['source'];
+  laneIdentity: ExactEd25519SigningLaneIdentity;
+  material: {
+    ed25519WorkerMaterialBindingDigest: string;
+    materialKeyId: string;
+  };
 };
 
 type ConcreteEd25519ExportAvailableLane = AvailableEd25519SigningLane & {
@@ -62,7 +78,7 @@ type EcdsaExportMaterialLaneResolution =
       lane: ConcreteEcdsaExportAvailableLane;
     }
   | {
-      kind: 'ambiguous_source';
+      kind: 'duplicate_shared_key_targets';
       targetLane: ConcreteEcdsaExportAvailableLane;
       sourceCandidates: ConcreteEcdsaExportAvailableLane[];
     };
@@ -146,155 +162,21 @@ function exportAvailableLaneSelectionKey(
   );
 }
 
-function isRuntimeExportLane(lane: ConcreteExportAvailableLane): boolean {
-  return (
-    lane.state === 'ready' ||
-    lane.source === 'runtime_and_durable' ||
-    lane.source === 'runtime_session_record'
-  );
-}
-
-function exportLaneStatePriority(lane: ConcreteExportAvailableLane): number {
-  switch (lane.state) {
-    case 'ready':
-      return 5;
-    case 'restorable':
-      return 4;
-    case 'deferred':
-      return 3;
-    case 'expired':
-    case 'exhausted':
-      return 2;
-  }
-}
-
-function exportLaneSourcePriority(lane: ConcreteExportAvailableLane): number {
-  switch (lane.source) {
-    case 'runtime_and_durable':
-      return 3;
-    case 'runtime_session_record':
-      return 2;
-    case 'durable_sealed_record':
-      return 1;
-    case 'evm_family_shared_key':
-    default:
-      return 0;
-  }
-}
-
-function candidatesWithBestPriority<TLane extends ConcreteExportAvailableLane>(
-  candidates: readonly TLane[],
-  priority: (candidate: TLane) => number,
-): TLane[] {
-  let bestPriority = -Infinity;
-  let bestCandidates: TLane[] = [];
-  for (const candidate of candidates) {
-    const value = priority(candidate);
-    if (value > bestPriority) {
-      bestPriority = value;
-      bestCandidates = [candidate];
-      continue;
-    }
-    if (value === bestPriority) {
-      bestCandidates.push(candidate);
-    }
-  }
-  return bestCandidates;
-}
-
-function selectNewestExportLaneWhenUnambiguous<TLane extends ConcreteExportAvailableLane>(
-  candidates: readonly TLane[],
-): TLane | null {
-  let selected: TLane | null = null;
-  let selectedUpdatedAtMs = -Infinity;
-  let ambiguous = false;
-  for (const candidate of candidates) {
-    const updatedAtMs = Math.floor(Number(candidate.updatedAtMs));
-    if (!Number.isFinite(updatedAtMs)) return null;
-    if (updatedAtMs > selectedUpdatedAtMs) {
-      selected = candidate;
-      selectedUpdatedAtMs = updatedAtMs;
-      ambiguous = false;
-      continue;
-    }
-    if (updatedAtMs === selectedUpdatedAtMs) {
-      ambiguous = true;
-    }
-  }
-  return ambiguous ? null : selected;
-}
-
-function selectOnlyExportLaneCandidate<TLane extends ConcreteExportAvailableLane>(
-  candidates: readonly TLane[],
-): TLane | null {
-  switch (candidates.length) {
-    case 0:
-      return null;
-    case 1: {
-      const candidate = candidates.at(0);
-      return candidate === undefined ? null : candidate;
-    }
-    default:
-      return null;
-  }
-}
-
-function selectCanonicalLaneFromSelectionGroup<TLane extends ConcreteExportAvailableLane>(
-  candidates: TLane[],
-): TLane | null {
-  const stateCandidates = candidatesWithBestPriority(candidates, exportLaneStatePriority);
-  switch (stateCandidates.length) {
-    case 0:
-    case 1:
-      return selectOnlyExportLaneCandidate(stateCandidates);
-    default:
-      break;
-  }
-  const sourceCandidates = candidatesWithBestPriority(stateCandidates, exportLaneSourcePriority);
-  switch (sourceCandidates.length) {
-    case 0:
-    case 1:
-      return selectOnlyExportLaneCandidate(sourceCandidates);
-    default:
-      break;
-  }
-  return selectNewestExportLaneWhenUnambiguous(sourceCandidates);
-}
-
-function selectCanonicalExportCandidates<TLane extends ConcreteExportAvailableLane>(args: {
-  candidates: TLane[];
-  ecdsaContext?: EcdsaExportSelectionKeyContext;
-}): { kind: 'ok'; candidates: TLane[] } | { kind: 'ambiguous' } {
-  const groups = new Map<string, TLane[]>();
-  for (const candidate of args.candidates) {
-    const key = exportAvailableLaneSelectionKey(candidate, args.ecdsaContext);
-    if (!key) return { kind: 'ambiguous' };
-    groups.set(key, [...(groups.get(key) || []), candidate]);
-  }
-  const collapsed: TLane[] = [];
-  for (const groupCandidates of groups.values()) {
-    const selected = selectCanonicalLaneFromSelectionGroup(groupCandidates);
-    if (!selected) return { kind: 'ambiguous' };
-    collapsed.push(selected);
-  }
-  return { kind: 'ok', candidates: collapsed };
-}
-
 function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLane>(args: {
   context: string;
   candidates: TLane[];
   ecdsaContext?: EcdsaExportSelectionKeyContext;
 }): TLane {
   const traceScope = args.context.includes('ed25519') ? 'near' : 'evm-family';
-  const failAmbiguous = (): never => {
+  const failDuplicateRecords = (): never => {
     emitSigningSessionFlowFailure(traceScope, {
-      stage: 'key_export.exact_lane_ambiguous',
+      stage: 'key_export.exact_lane_duplicate_records',
       context: args.context,
       candidateCount: args.candidates.length,
       candidates: args.candidates.map(summarizeExportAvailableLane),
     });
     throw new Error(
-      `[SigningEngine][${args.context}] exact lane selection failed: ambiguous_candidates`,
+      `[SigningEngine][${args.context}] exact lane selection failed: duplicate_records`,
     );
   };
   if (!args.candidates.length) {
@@ -306,43 +188,16 @@ function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLan
     });
     throw new Error(`[SigningEngine][${args.context}] exact lane selection failed: no_candidate`);
   }
-  const collapsed = selectCanonicalExportCandidates({
-    candidates: args.candidates,
-    ecdsaContext: args.ecdsaContext,
-  });
-  if (collapsed.kind === 'ambiguous') {
-    return failAmbiguous();
+  for (const candidate of args.candidates) {
+    if (!exportAvailableLaneSelectionKey(candidate, args.ecdsaContext)) {
+      return failDuplicateRecords();
+    }
   }
-  const collapsedCandidates = collapsed.candidates;
-  const runtimeCandidates = collapsedCandidates.filter(isRuntimeExportLane);
-  if (runtimeCandidates.length > 1) {
-    const selectedLane = selectNewestExportLaneWhenUnambiguous(runtimeCandidates);
-    if (!selectedLane) return failAmbiguous();
-    emitSigningSessionFlowTrace(traceScope, {
-      stage: 'key_export.exact_lane_selected',
-      context: args.context,
-      reason: 'newest_runtime_candidate',
-      selectedLane: summarizeExportAvailableLane(selectedLane),
-      candidateCount: args.candidates.length,
-    });
-    return selectedLane;
-  }
-  if (runtimeCandidates.length === 1) {
-    const selectedLane = runtimeCandidates[0]!;
-    emitSigningSessionFlowTrace(traceScope, {
-      stage: 'key_export.exact_lane_selected',
-      context: args.context,
-      reason: 'single_runtime_candidate',
-      selectedLane: summarizeExportAvailableLane(selectedLane),
-      candidateCount: args.candidates.length,
-    });
-    return selectedLane;
-  }
-  if (collapsedCandidates.length > 1) {
-    return failAmbiguous();
+  if (args.candidates.length !== 1) {
+    return failDuplicateRecords();
   }
 
-  const selectedLane = collapsedCandidates[0]!;
+  const [selectedLane] = args.candidates;
   emitSigningSessionFlowTrace(traceScope, {
     stage: 'key_export.exact_lane_selected',
     context: args.context,
@@ -351,6 +206,65 @@ function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLan
     candidateCount: args.candidates.length,
   });
   return selectedLane;
+}
+
+function exactEd25519IdentityForExportLane(
+  lane: ConcreteEd25519ExportAvailableLane,
+): ExactEd25519SigningLaneIdentity {
+  return exactEd25519SigningLaneIdentity({
+    walletId: lane.walletId,
+    nearAccountId: lane.nearAccountId,
+    ed25519KeyScopeId: lane.ed25519KeyScopeId,
+    auth: lane.auth,
+    signingGrantId: lane.signingGrantId,
+    thresholdSessionId: lane.thresholdSessionId,
+  });
+}
+
+function ed25519MaterialRestoreIdentityForExportLane(lane: ExactNearEd25519ExportLane) {
+  return {
+    kind: 'ed25519_worker_material_restore' as const,
+    lane: lane.laneIdentity,
+    materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+      lane.material.ed25519WorkerMaterialBindingDigest,
+    ),
+    materialKeyId: parseEd25519WorkerMaterialKeyId(lane.material.materialKeyId),
+  };
+}
+
+function exactEcdsaIdentityForExportLane(args: {
+  lane: ConcreteEcdsaExportAvailableLane;
+  chainTarget?: ThresholdEcdsaChainTarget;
+}): ExactEcdsaSigningLaneIdentity {
+  return exactEcdsaSigningLaneIdentity({
+    walletId: args.lane.key.walletId,
+    chainTarget: args.chainTarget || args.lane.chainTarget,
+    keyHandle: args.lane.publicFacts.keyHandle,
+    key: args.lane.key,
+    auth: args.lane.auth,
+    signingGrantId: args.lane.signingGrantId,
+    thresholdSessionId: args.lane.thresholdSessionId,
+  });
+}
+
+function ed25519ExportLaneMatchesIdentity(args: {
+  lane: ConcreteEd25519ExportAvailableLane;
+  identity: ExactEd25519SigningLaneIdentity;
+}): boolean {
+  return (
+    exactSigningLaneIdentityKey(exactEd25519IdentityForExportLane(args.lane)) ===
+    exactSigningLaneIdentityKey(args.identity)
+  );
+}
+
+function ecdsaExportLaneMatchesIdentity(args: {
+  lane: ConcreteEcdsaExportAvailableLane;
+  identity: ExactEcdsaSigningLaneIdentity;
+}): boolean {
+  return (
+    exactSigningLaneIdentityKey(exactEcdsaIdentityForExportLane({ lane: args.lane })) ===
+    exactSigningLaneIdentityKey(args.identity)
+  );
 }
 
 function sameEcdsaExportSession(
@@ -387,14 +301,14 @@ function resolveEcdsaExportMaterialLane(args: {
   if (sourceCandidates.length === 0) {
     return { kind: 'resolved', lane: args.targetLane };
   }
-  const selectedSource = selectCanonicalLaneFromSelectionGroup(sourceCandidates);
-  if (!selectedSource) {
+  if (sourceCandidates.length > 1) {
     return {
-      kind: 'ambiguous_source',
+      kind: 'duplicate_shared_key_targets',
       targetLane: args.targetLane,
       sourceCandidates,
     };
   }
+  const [selectedSource] = sourceCandidates;
   return { kind: 'resolved', lane: selectedSource };
 }
 
@@ -410,16 +324,16 @@ function resolveEcdsaExportMaterialLanesForTarget(args: {
       allCandidates: args.allCandidates,
       ecdsaContext: args.ecdsaContext,
     });
-    if (resolution.kind === 'ambiguous_source') {
+    if (resolution.kind === 'duplicate_shared_key_targets') {
       emitSigningSessionFlowFailure('evm-family', {
-        stage: 'key_export.shared_key_source_ambiguous',
+        stage: 'key_export.duplicate_shared_key_targets',
         context: 'ecdsa-export',
         targetLane: summarizeExportAvailableLane(resolution.targetLane),
         candidateCount: resolution.sourceCandidates.length,
         candidates: resolution.sourceCandidates.map(summarizeExportAvailableLane),
       });
       throw new Error(
-        '[SigningEngine][ecdsa-export] shared-key source lane selection failed: ambiguous_candidates',
+        '[SigningEngine][ecdsa-export] shared-key source lane selection failed: duplicate_shared_key_targets',
       );
     }
     materialLanes.push(resolution.lane);
@@ -429,23 +343,33 @@ function resolveEcdsaExportMaterialLanesForTarget(args: {
 
 async function resolveNearEd25519ExportLane(
   deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanes'>,
-  args: { signer: NearEd25519SignerBinding },
+  args: {
+    signer: NearEd25519SignerBinding;
+    laneIdentity: ExactEd25519SigningLaneIdentity;
+  },
 ): Promise<ExactNearEd25519ExportLane> {
   const walletId = String(args.signer.account.wallet.walletId);
-  const nearAccountId = args.signer.account.nearAccountId as AccountId;
+  const nearAccountId = args.signer.account.nearAccountId;
   const availableLanes = await deps.readPersistedAvailableSigningLanes({
     walletId,
   });
-  const concreteCandidates = availableLanes.candidates.ed25519.near.filter(isConcreteEd25519ExportLane);
-  const emailOtpCandidates = concreteCandidates.filter(
-    (candidate) => availableEd25519SigningLaneAuthMethod(candidate) === 'email_otp',
+  const concreteCandidates = availableLanes.candidates.ed25519.near
+    .filter(isConcreteEd25519ExportLane)
+    .filter((lane) => String(lane.walletId) === walletId)
+    .filter((lane) => String(lane.nearAccountId) === String(nearAccountId))
+    .filter(
+      (lane) =>
+        String(lane.ed25519KeyScopeId) === String(args.signer.ed25519KeyScopeId),
+    );
+  const exactCandidates = concreteCandidates.filter((lane) =>
+    ed25519ExportLaneMatchesIdentity({ lane, identity: args.laneIdentity }),
   );
-  const selectionCandidates = emailOtpCandidates.length ? emailOtpCandidates : concreteCandidates;
 
   const selected = selectExactExportAvailableLane({
     context: 'ed25519-export',
-    candidates: selectionCandidates,
+    candidates: exactCandidates,
   });
+  const laneIdentity = exactEd25519IdentityForExportLane(selected);
   return {
     curve: 'ed25519',
     chain: 'near',
@@ -456,6 +380,13 @@ async function resolveNearEd25519ExportLane(
     thresholdSessionId: selected.thresholdSessionId,
     state: selected.state,
     source: selected.source,
+    laneIdentity,
+    material: {
+      ed25519WorkerMaterialBindingDigest: String(
+        selected.ed25519WorkerMaterialBindingDigest || '',
+      ).trim(),
+      materialKeyId: String(selected.materialKeyId || '').trim(),
+    },
   };
 }
 
@@ -463,8 +394,8 @@ async function resolveEcdsaExportLane(
   deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
   args: {
     walletId: string;
-    rpId: string;
     signingTarget: EvmFamilySigningTarget;
+    laneIdentity: ExactEcdsaSigningLaneIdentity;
   },
 ): Promise<ExactEcdsaExportLane> {
   const targetAvailableLanes = await deps.readPersistedAvailableSigningLanesForTargets({
@@ -475,6 +406,9 @@ async function resolveEcdsaExportLane(
     targetAvailableLanes,
     args.signingTarget,
   ).filter(isConcreteEcdsaExportLane);
+  const exactTargetCandidates = targetCandidates.filter((lane) =>
+    ecdsaExportLaneMatchesIdentity({ lane, identity: args.laneIdentity }),
+  );
   const allConcreteCandidates = Object.values(targetAvailableLanes.ecdsa.candidatesByTarget)
     .flat()
     .filter(isConcreteEcdsaExportLane);
@@ -482,25 +416,24 @@ async function resolveEcdsaExportLane(
     walletId: args.walletId,
   };
   const materialCandidates = resolveEcdsaExportMaterialLanesForTarget({
-    targetCandidates,
+    targetCandidates: exactTargetCandidates,
     allCandidates: allConcreteCandidates,
     ecdsaContext,
   });
-  const emailOtpTargetCandidates = materialCandidates.filter(
-    (candidate) => availableEcdsaSigningLaneAuthMethod(candidate) === 'email_otp',
-  );
-  const selectionCandidates = emailOtpTargetCandidates.length
-    ? emailOtpTargetCandidates
-    : materialCandidates;
   const selected = selectExactExportAvailableLane({
     context: 'ecdsa-export',
-    candidates: selectionCandidates,
+    candidates: materialCandidates,
     ecdsaContext,
   });
   const sessionChainTarget =
     selected.source === 'evm_family_shared_key' ? selected.sourceChainTarget : selected.chainTarget;
+  const laneIdentity = exactEcdsaIdentityForExportLane({
+    lane: selected,
+    chainTarget: sessionChainTarget,
+  });
   return {
     curve: 'ecdsa',
+    laneIdentity,
     key: selected.key,
     publicFacts: selected.publicFacts,
     session: {
@@ -518,10 +451,14 @@ async function resolveEcdsaExportLane(
 
 export async function restoreNearEd25519SessionForExport(
   deps: ExportLaneSelectionDeps,
-  args: { signer: NearEd25519SignerBinding },
+  args: {
+    signer: NearEd25519SignerBinding;
+    laneIdentity: ExactEd25519SigningLaneIdentity;
+  },
 ): Promise<ExactNearEd25519ExportLane> {
   const restoreLane = await resolveNearEd25519ExportLane(deps, {
     signer: args.signer,
+    laneIdentity: args.laneIdentity,
   });
   const walletId = String(args.signer.account.wallet.walletId);
   if (
@@ -540,6 +477,7 @@ export async function restoreNearEd25519SessionForExport(
       signingGrantId: restoreLane.signingGrantId,
       thresholdSessionId: restoreLane.thresholdSessionId,
       reason: 'export',
+      materialRestoreIdentity: ed25519MaterialRestoreIdentityForExportLane(restoreLane),
     });
     return restoreLane;
   }
@@ -551,6 +489,7 @@ export async function restoreNearEd25519SessionForExport(
     signingGrantId: restoreLane.signingGrantId,
     thresholdSessionId: restoreLane.thresholdSessionId,
     reason: 'export',
+    materialRestoreIdentity: ed25519MaterialRestoreIdentityForExportLane(restoreLane),
   });
   return restoreLane;
 }
@@ -559,8 +498,8 @@ export async function restoreEcdsaSessionForExport(
   deps: ExportLaneSelectionDeps,
   args: {
     walletId: string;
-    rpId: string;
     signingTarget: EvmFamilySigningTarget;
+    laneIdentity: ExactEcdsaSigningLaneIdentity;
   },
 ): Promise<ExactEcdsaExportLane> {
   const restoreLane = await resolveEcdsaExportLane(deps, {
@@ -585,6 +524,11 @@ export async function restoreEcdsaSessionForExport(
       signingGrantId: String(restoreLane.session.signingGrantId),
       thresholdSessionId: String(restoreLane.session.thresholdSessionId),
       reason: 'export',
+      materialRestoreIdentity: {
+        kind: 'ecdsa_role_local_restore',
+        lane: restoreLane.laneIdentity,
+        ecdsaThresholdKeyId: restoreLane.key.ecdsaThresholdKeyId,
+      },
     });
     return restoreLane;
   }

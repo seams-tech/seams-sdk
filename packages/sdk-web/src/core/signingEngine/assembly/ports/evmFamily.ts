@@ -1,14 +1,10 @@
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import {
-  listEcdsaSealedSessionsForWallet,
-  readExactSealedSession,
-} from '../../session/persistence/sealedSessionStore';
+import { readExactSealedSession } from '../../session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '../../session/emailOtp/sealedSigningSessionAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
-import { thresholdEcdsaChainTargetsEqual } from '../../interfaces/ecdsaChainTarget';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export function createEvmFamilySigningDeps(args: {
@@ -57,51 +53,25 @@ export function createEvmFamilySigningDeps(args: {
         chain,
         ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
-    resolveEmailOtpSigningSessionAuthLane: async ({
-      walletId,
-      thresholdSessionId,
-      curve,
-      chainTarget,
-    }) => {
+    resolveEmailOtpSigningSessionAuthLane: async ({ lane }) => {
       const runtimeLane = createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
         signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
-      }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve });
+      }).resolveEmailOtpSigningSessionAuthLane({ lane });
       if (runtimeLane) return runtimeLane;
-      const sealedRecord = await readExactSealedSession(thresholdSessionId, {
+      const sealedRecord = await readExactSealedSession(String(lane.thresholdSessionId), {
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chainTarget,
+        chainTarget: lane.chainTarget,
       }).catch(() => null);
       const exactLane = sealedRecord
         ? emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({
-            thresholdSessionId,
-            chainTarget,
+            lane,
             sealedRecord,
           })
         : null;
-      if (exactLane) return exactLane;
-      const walletRecords = await listEcdsaSealedSessionsForWallet({
-        walletId: String(walletId),
-        filter: { authMethod: 'email_otp', curve: 'ecdsa' },
-      }).catch(() => []);
-      for (const record of walletRecords) {
-        if (String(record.thresholdSessionIds.ecdsa || '').trim() !== thresholdSessionId) continue;
-        if (
-          !record.ecdsaRestore?.chainTarget ||
-          !thresholdEcdsaChainTargetsEqual(record.ecdsaRestore.chainTarget, chainTarget)
-        ) {
-          continue;
-        }
-        const lane = emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({
-          thresholdSessionId,
-          chainTarget,
-          sealedRecord: record,
-        });
-        if (lane) return lane;
-      }
-      return null;
+      return exactLane;
     },
     loginWithEmailOtpEcdsaCapabilityForSigning: ({
       walletSession,

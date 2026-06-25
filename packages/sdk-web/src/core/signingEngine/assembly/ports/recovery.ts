@@ -123,7 +123,6 @@ export function createRecoveryPublicDeps(args: {
     ecdsa: {
       sessionStore: args.ecdsaSessions,
       touchConfirm: args.touchConfirm,
-      getRpId: () => args.touchIdPrompt.getRpId(),
       emailOtp: {
         requestExportChallenge: (
           request: Parameters<EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']>[0],

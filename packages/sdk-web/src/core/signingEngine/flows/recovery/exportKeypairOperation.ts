@@ -145,6 +145,7 @@ async function exportKeypairWithFlowId(
     const signer = resolveNearEd25519SignerBindingForExport(args);
     const exportLane = await restoreNearEd25519SessionForExport(deps.laneSelection, {
       signer,
+      laneIdentity: args.laneIdentity,
     });
     const singleKeyHssResult = await tryExportNearEd25519SingleKeyHssWithAuthorization(
       deps.nearSingleKeyHss,
@@ -165,17 +166,13 @@ async function exportKeypairWithFlowId(
 
   const walletId = toWalletId(args.walletSession.walletId);
   const exportTarget = ecdsaSigningTargetFromChainTarget(args.chainTarget);
-  const rpId = String(deps.ecdsa.getRpId() || '').trim();
-  if (!rpId) {
-    throw new Error('Missing rpId for threshold-ecdsa export material resolution');
-  }
   let exportLane: Awaited<ReturnType<typeof restoreEcdsaSessionForExport>> | undefined;
   let exportMaterial: EcdsaExportMaterial | undefined;
   try {
     exportLane = await restoreEcdsaSessionForExport(deps.laneSelection, {
       walletId,
-      rpId,
       signingTarget: exportTarget,
+      laneIdentity: args.laneIdentity,
     });
     exportMaterial = await resolveEcdsaExportMaterialForLane(
       deps.ecdsa.sessionStore,

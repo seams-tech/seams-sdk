@@ -47,7 +47,6 @@ export async function exportEcdsaHssKeyWithWalletSession(
   deps: EcdsaHssExplicitExportDeps,
   args: {
     walletSessionUserId: string;
-    rpId: string;
     signerSession: ReadyEcdsaSignerSession;
     record: ThresholdEcdsaSessionRecord;
     credential: WebAuthnAuthenticationCredential;
@@ -109,7 +108,6 @@ export async function exportEcdsaHssKeyWithWalletSession(
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
     walletId,
-    rpId: args.rpId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,

@@ -35,7 +35,7 @@ export type EmailOtpEcdsaRecordForEd25519SigningSelectionResult =
       record: ThresholdEcdsaSessionRecord;
     }
   | {
-      kind: 'ambiguous';
+      kind: 'duplicate_records';
       exactMatchCount: number;
     }
   | {
@@ -88,7 +88,7 @@ export function selectEmailOtpEcdsaRecordForEd25519Signing(
         return { kind: 'exact_match', record: exactRecord };
       }
       if (matches.length > 1) {
-        return { kind: 'ambiguous', exactMatchCount: matches.length };
+        return { kind: 'duplicate_records', exactMatchCount: matches.length };
       }
       return { kind: 'not_found' };
     }

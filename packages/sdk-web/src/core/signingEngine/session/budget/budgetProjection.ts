@@ -1,5 +1,5 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   SigningOperationFingerprint,
   SigningOperationId,
@@ -97,7 +97,7 @@ export type WalletBudgetProjectionState =
     };
 
 export type WalletBudgetProjection = {
-  walletId: AccountId;
+  walletId: WalletId;
   signingGrantId: SigningGrantId | string;
   state: WalletBudgetProjectionState;
   reservationsByOperationId: Map<string, WalletBudgetReservationProjection>;
@@ -132,7 +132,7 @@ export type WalletBudgetProjectionEvent =
     };
 
 export function createWalletBudgetProjection(args: {
-  walletId: AccountId;
+  walletId: WalletId;
   signingGrantId: SigningGrantId | string;
 }): WalletBudgetProjection {
   return {

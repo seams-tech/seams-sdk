@@ -26,7 +26,6 @@ import {
   type RouterAbEd25519SigningMaterialRef,
 } from '../threshold/ed25519/workerMaterialBinding';
 import {
-  parseEd25519HssKeyVersion,
   parseEd25519RelayerKeyId,
   parseEcdsaKeyHandle,
   parseEcdsaRelayerKeyId,
@@ -358,18 +357,10 @@ function buildRouterAbEd25519WorkerMaterialSessionBindingDigest(input: {
   const nearAccountId = nonEmptyString(input.record.nearAccountId);
   const signerSlot = positiveInteger(input.record.signerSlot);
   const relayerKeyIdRaw = nonEmptyString(input.record.relayerKeyId);
-  const keyVersion = nonEmptyString(input.record.keyVersion);
-  const ed25519HssKeyVersion = parseEd25519HssKeyVersion(keyVersion);
   const participantIds = Array.isArray(input.record.participantIds)
     ? input.record.participantIds
     : [];
-  if (
-    !nearAccountId ||
-    !signerSlot ||
-    !relayerKeyIdRaw ||
-    !keyVersion ||
-    participantIds.length === 0
-  ) {
+  if (!nearAccountId || !signerSlot || !relayerKeyIdRaw || participantIds.length === 0) {
     return null;
   }
   const relayerKeyId = parseEd25519RelayerKeyId(relayerKeyIdRaw);
@@ -385,7 +376,6 @@ function buildRouterAbEd25519WorkerMaterialSessionBindingDigest(input: {
         signingRootVersion: input.session.signingRootVersion,
         runtimePolicyScope: input.session.runtimePolicyScope,
         relayerKeyId,
-        ed25519HssKeyVersion,
         participantIds,
         signingWorkerId: input.session.routerAbNormalSigning.signingWorkerId,
         expiresAtMs: input.session.expiresAtMs,
@@ -738,7 +728,7 @@ export function parseRouterAbEd25519SigningWalletSessionFromRecord(
   if (!clientVerifyingShareB64u) {
     return { ok: false, reason: 'missing_client_verifying_share' };
   }
-  if (!positiveInteger(record.signerSlot) || !nonEmptyString(record.keyVersion)) {
+  if (!positiveInteger(record.signerSlot)) {
     return { ok: false, reason: 'material_identity_mismatch' };
   }
   const signingMaterial = buildRouterAbEd25519SigningMaterialRef({
@@ -855,8 +845,7 @@ function hasEd25519SealedWorkerMaterial(record: ThresholdEd25519SessionRecord): 
     nonEmptyString(record.clientVerifyingShareB64u) &&
     nonEmptyString(record.materialFormatVersion) &&
     nonEmptyString(record.materialKeyId) &&
-    positiveInteger(record.signerSlot) &&
-    nonEmptyString(record.keyVersion),
+    positiveInteger(record.signerSlot),
   );
 }
 

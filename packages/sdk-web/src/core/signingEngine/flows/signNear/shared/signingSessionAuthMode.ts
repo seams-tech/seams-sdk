@@ -39,6 +39,11 @@ import {
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
 import { thresholdEd25519LaneCandidateFromSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  parseEd25519WorkerMaterialBindingDigest,
+  parseEd25519WorkerMaterialKeyId,
+} from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   NearCommandSubject,
   ThresholdEcdsaChainTarget,
@@ -1176,7 +1181,8 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   }
   const signingGrantId = String(record.signingGrantId || '').trim();
   const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();
-  if (!signingGrantId || !thresholdSessionId) {
+  const candidate = thresholdEd25519LaneCandidateFromSessionRecord({ record });
+  if (!signingGrantId || !thresholdSessionId || !candidate) {
     return {
       kind: 'missing_sealed_material',
       code: 'material_restore_required',
@@ -1192,6 +1198,21 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
       signingGrantId,
       thresholdSessionId,
       reason: 'transaction',
+      materialRestoreIdentity: {
+        kind: 'ed25519_worker_material_restore',
+        lane: exactEd25519SigningLaneIdentity({
+          walletId: record.walletId,
+          nearAccountId: record.nearAccountId,
+          ed25519KeyScopeId: record.ed25519KeyScopeId,
+          auth: candidate.auth,
+          signingGrantId,
+          thresholdSessionId,
+        }),
+        materialBindingDigest: parseEd25519WorkerMaterialBindingDigest(
+          record.ed25519WorkerMaterialBindingDigest,
+        ),
+        materialKeyId: parseEd25519WorkerMaterialKeyId(record.materialKeyId),
+      },
     });
     if (result.deferred > 0) {
       return {

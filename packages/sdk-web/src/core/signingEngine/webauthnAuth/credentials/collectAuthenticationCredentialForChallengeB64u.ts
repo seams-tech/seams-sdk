@@ -3,6 +3,7 @@ import type { AccountSignerStatus, ProfileAuthenticatorRecord } from '@/core/ind
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { WalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type WebAuthnAllowCredential = {
   id: string;
@@ -209,7 +210,7 @@ export async function collectAuthenticationCredentialForWalletChallengeB64u<
 >(args: {
   credentialStore: WebAuthnCredentialStorePort<TAuth>;
   touchIdPrompt: Pick<WebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   challengeB64u: string;
   onBeforePrompt?: (info: {
     authenticators: TAuth[];

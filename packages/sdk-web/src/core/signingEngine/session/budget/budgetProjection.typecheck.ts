@@ -1,4 +1,4 @@
-import type { AccountId } from '@/core/types/accountIds';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningGrantId } from '../operationState/types';
 import type {
   TrustedWalletBudgetStatus,
@@ -9,7 +9,7 @@ import type {
   WalletBudgetUnknown,
 } from './budgetProjection';
 
-declare const walletId: AccountId;
+declare const walletId: WalletId;
 declare const signingGrantId: SigningGrantId;
 declare const activeStatus: Extract<TrustedWalletBudgetStatus, { status: 'active' }>;
 declare const unknown: WalletBudgetUnknown;

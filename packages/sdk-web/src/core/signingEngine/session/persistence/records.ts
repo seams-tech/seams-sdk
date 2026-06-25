@@ -2658,7 +2658,7 @@ function thresholdEcdsaKeyRefFromRecord(
 export function listThresholdEcdsaKeyRefsForWalletTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },

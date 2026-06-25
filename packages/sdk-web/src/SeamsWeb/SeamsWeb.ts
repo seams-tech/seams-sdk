@@ -88,6 +88,7 @@ import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/sign
 import type { EnrollEmailOtpInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { LoginWithEmailOtpEd25519CapabilityInternalResult } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import {
+  thresholdEcdsaChainTargetsEqual,
   toWalletId,
   thresholdEcdsaChainTargetFromRequest,
   walletSessionRefFromSession,
@@ -96,6 +97,10 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  parseExactEcdsaSigningLaneIdentity,
+  parseExactEd25519SigningLaneIdentity,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
@@ -379,6 +384,57 @@ async function resolveEmailOtpEd25519KeyIdentity(
     walletProfileSigners: accountSignerDiagnosticSummary(walletProfileSigners),
   });
   return null;
+}
+
+type ExportKeypairWithUIBoundaryInput = Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
+
+function normalizeExportKeypairWithUIInput(
+  input: ExportKeypairWithUIBoundaryInput,
+  theme: ThemeName,
+): ExportKeypairWithUIBoundaryInput {
+  const resolvedOptions = {
+    ...input.options,
+    theme: input.options.theme ?? theme,
+  };
+  switch (input.kind) {
+    case 'near': {
+      const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+        throw new Error('[SeamsWeb] key export lane wallet does not match wallet session');
+      }
+      if (String(laneIdentity.nearAccountId) !== String(input.nearAccount.accountId)) {
+        throw new Error('[SeamsWeb] key export lane NEAR account does not match request account');
+      }
+      return {
+        kind: 'near',
+        walletSession: input.walletSession,
+        nearAccount: input.nearAccount,
+        laneIdentity,
+        options: {
+          ...resolvedOptions,
+          chain: 'near',
+        },
+      };
+    }
+    case 'ecdsa': {
+      const laneIdentity = parseExactEcdsaSigningLaneIdentity(input.laneIdentity);
+      if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+        throw new Error('[SeamsWeb] key export lane wallet does not match wallet session');
+      }
+      if (!thresholdEcdsaChainTargetsEqual(laneIdentity.chainTarget, input.chainTarget)) {
+        throw new Error('[SeamsWeb] key export lane chain target does not match request target');
+      }
+      return {
+        kind: 'ecdsa',
+        chainTarget: input.chainTarget,
+        walletSession: input.walletSession,
+        laneIdentity,
+        options: resolvedOptions,
+      };
+    }
+  }
+  input satisfies never;
+  throw new Error('[SeamsWeb] unsupported key export kind');
 }
 
 /**
@@ -2085,28 +2141,7 @@ export class SeamsWeb {
   private async exportKeypairWithUIDomain(
     input: Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
   ): Promise<void> {
-    const options = input.options;
-    const resolvedOptions = {
-      ...options,
-      theme: options.theme ?? this.theme,
-    };
-    const resolvedInput =
-      input.kind === 'near'
-        ? {
-            kind: 'near' as const,
-            walletSession: input.walletSession,
-            nearAccount: input.nearAccount,
-            options: {
-              ...resolvedOptions,
-              chain: 'near' as const,
-            },
-          }
-        : {
-            kind: 'ecdsa' as const,
-            chainTarget: input.chainTarget,
-            walletSession: input.walletSession,
-            options: resolvedOptions,
-          };
+    const resolvedInput = normalizeExportKeypairWithUIInput(input, this.theme);
     const routerAccountId = String(resolvedInput.walletSession.walletId || '').trim();
     if (!routerAccountId) {
       throw new Error('[SeamsWeb] key export requires wallet session user context');

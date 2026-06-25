@@ -30,10 +30,10 @@ export class EmailOtpWalletSessionCoordinator {
     this.runtime = new EmailOtpWalletSessionRuntime(deps);
   }
 
-  restorePersistedSessionsForWallet(
-    args: Parameters<EmailOtpWalletSessionRuntime['restorePersistedSessionsForWallet']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['restorePersistedSessionsForWallet']> {
-    return this.runtime.restorePersistedSessionsForWallet(args);
+  discoverPersistedSessionsForWallet(
+    args: Parameters<EmailOtpWalletSessionRuntime['discoverPersistedSessionsForWallet']>[0],
+  ): ReturnType<EmailOtpWalletSessionRuntime['discoverPersistedSessionsForWallet']> {
+    return this.runtime.discoverPersistedSessionsForWallet(args);
   }
 
   restorePersistedSessionForSigning(

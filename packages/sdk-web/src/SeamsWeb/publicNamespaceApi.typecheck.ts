@@ -3,6 +3,7 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ExactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { SeamsWeb } from './index';
 
 declare const seams: SeamsWeb;
@@ -17,6 +18,7 @@ const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chainId: 1,
   networkSlug: 'ethereum',
 });
+declare const exactEd25519LaneIdentity: ExactEd25519SigningLaneIdentity;
 
 void seams.registration.enrollEmailOtp({
   walletId: 'alice.testnet',
@@ -125,6 +127,7 @@ void seams.keys.exportKeypairWithUI({
   kind: 'near',
   walletSession,
   nearAccount,
+  laneIdentity: exactEd25519LaneIdentity,
   options: {
     chain: 'near',
   },

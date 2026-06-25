@@ -46,12 +46,12 @@ export function createNearSigningDeps(args: {
         chain,
         ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
-    resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId, curve }) =>
+    resolveEmailOtpSigningSessionAuthLane: ({ lane }) =>
       createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
         signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
-      }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
+      }).resolveEmailOtpSigningSessionAuthLane({ lane }),
     isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
       createArgs.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true,
     waitForPendingEmailOtpEd25519Warmup: ({ nearAccountId }) =>

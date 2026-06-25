@@ -10,11 +10,13 @@ import type {
   EvmFamilySigningDeps,
   NearSigningApiDeps,
 } from './operationDeps';
+import type { ExactEcdsaSigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 
 declare const nearAccountId: AccountId;
 declare const walletId: WalletId;
 declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const exactEcdsaLane: ExactEcdsaSigningLaneIdentity;
 
 const ecdsaSigningLookupArgs: EcdsaSigningLookupArgs = {
   walletId,
@@ -46,11 +48,8 @@ declare const signingDeps: EvmFamilySigningDeps;
 declare const nearSigningDeps: NearSigningApiDeps;
 
 signingDeps.resolveEmailOtpSigningSessionAuthLane?.({
-  walletId,
-  thresholdSessionId: 'threshold-session-id',
-  curve: 'ecdsa',
+  lane: exactEcdsaLane,
   chain: 'tempo',
-  chainTarget,
 });
 
 nearSigningDeps.requestEmailOtpTransactionSigningChallenge?.({
@@ -65,7 +64,7 @@ nearSigningDeps.getWarmThresholdEd25519SessionStatusForSession?.({
 });
 
 signingDeps.resolveEmailOtpSigningSessionAuthLane?.({
-  // @ts-expect-error ECDSA Email OTP signing-session auth resolution requires WalletId.
+  // @ts-expect-error ECDSA Email OTP signing-session auth resolution requires exact lane identity.
   walletId: 'alice.testnet',
   thresholdSessionId: 'threshold-session-id',
   curve: 'ecdsa',

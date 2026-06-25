@@ -11,8 +11,8 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
 } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
@@ -220,10 +220,10 @@ export class EmailOtpWalletSessionRuntime {
     return true;
   }
 
-  async restorePersistedSessionsForWallet(
-    args: RestorePersistedSessionsForWalletInput,
-  ): Promise<RestorePersistedSessionsForWalletResult> {
-    return await this.sealedRestoreOrchestrator.restorePersistedSessionsForWallet(args);
+  async discoverPersistedSessionsForWallet(
+    args: DiscoverPersistedSessionsForWalletInput,
+  ): Promise<DiscoverPersistedSessionsForWalletResult> {
+    return await this.sealedRestoreOrchestrator.discoverPersistedSessionsForWallet(args);
   }
 
   async restorePersistedSessionForSigning(

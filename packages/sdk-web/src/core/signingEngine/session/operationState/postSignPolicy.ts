@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import {
   SENSITIVE_OPERATION_POLICIES,
   type SensitiveOperationPolicy,
@@ -12,7 +11,10 @@ import {
 } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthModeResolver';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
   record: ThresholdEcdsaSessionRecord;
@@ -20,7 +22,7 @@ export type EcdsaPostSignPolicyMaterialClearer = (args: {
 }) => Promise<void>;
 
 export type EcdsaPostSignPolicySession = {
-  walletId: AccountId;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   signingGrantId: string;

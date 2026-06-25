@@ -72,7 +72,6 @@ export type ExportEcdsaKeyWithAuthorizationArgs = {
   challengeId: string;
   otpCode: string;
   record: ThresholdEcdsaSessionRecord;
-  rpId: string;
   routeAuth?: AppOrWalletSessionAuth;
   authLane?: EmailOtpAuthLane;
 };

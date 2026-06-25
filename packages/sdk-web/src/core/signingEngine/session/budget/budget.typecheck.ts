@@ -14,6 +14,7 @@ import {
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
+  toRpId,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaLaneBudgetStatusCheck,
@@ -44,6 +45,11 @@ const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
 const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle');
+const ecdsaAuth = {
+  kind: 'passkey',
+  rpId: toRpId('localhost'),
+  credentialIdB64u: 'credential-id',
+} as const;
 
 const accountId = toAccountId('wallet.testnet');
 const walletId = toWalletId('wallet.testnet');
@@ -102,6 +108,7 @@ const validEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check',
   key: ecdsaKey,
   keyHandle: ecdsaKeyHandle,
+  auth: ecdsaAuth,
   chainTarget: ecdsaChainTarget,
   signingGrantId: 'signing-grant-1',
   thresholdSessionId: 'threshold-session-1',

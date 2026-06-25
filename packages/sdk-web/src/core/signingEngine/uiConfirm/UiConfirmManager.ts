@@ -84,15 +84,15 @@ import type {
   UiConfirmManager,
 } from './uiConfirm.types';
 import {
-  restorePersistedSessionsForWalletCommand,
+  discoverPersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
 } from '../session/sealedRecovery/restoreCoordinator';
 import { parseClearVolatileWarmMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import { restorePasskeyEd25519SealedRecordForAccount } from '../session/passkey/ed25519Recovery';
 import type {
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
@@ -1507,7 +1507,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     authMethod: 'passkey';
   } & RestorePersistedSessionForSigningInput): Promise<RestorePersistedSessionForSigningResult> => {
     if (args.authMethod !== 'passkey' || !this.isSealedRefreshModeEnabled()) {
-      return { attempted: 0, restored: 0, deferred: 0 };
+      return { kind: 'completed', attempted: 0, restored: 0, deferred: 0 };
     }
     return await restorePersistedSessionForSigningCommand(args, {
       listExactSealedSessionsForWallet: async (filter) => {
@@ -1540,18 +1540,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
   };
 
-  restorePersistedSessionsForWallet = async (
+  discoverPersistedSessionsForWallet = async (
     args: {
       authMethod?: 'passkey';
-    } & RestorePersistedSessionsForWalletInput,
-  ): Promise<RestorePersistedSessionsForWalletResult> => {
+    } & DiscoverPersistedSessionsForWalletInput,
+  ): Promise<DiscoverPersistedSessionsForWalletResult> => {
     if (args.authMethod && args.authMethod !== 'passkey') {
-      return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
+      return { listed: 0, discovered: 0, truncated: 0 };
     }
     if (!this.isSealedRefreshModeEnabled()) {
-      return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
+      return { listed: 0, discovered: 0, truncated: 0 };
     }
-    return await restorePersistedSessionsForWalletCommand(
+    return await discoverPersistedSessionsForWalletCommand(
       {
         ...args,
         authMethod: 'passkey',
@@ -1569,20 +1569,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
                   }
                 : { authMethod: 'passkey', curve: 'ed25519' },
           }),
-        restoreSealedRecordForWallet: (restoreArgs) =>
-          this.restorePasskeySealedRecordForWallet({
-            walletId: restoreArgs.walletId,
-            record: restoreArgs.record,
-            purpose: restoreArgs.purpose,
-          }),
         onListError: ({ walletId, error }) => {
-          console.warn('[UiConfirm] passkey account signing-session restore list failed', {
+          console.warn('[UiConfirm] passkey account signing-session discovery list failed', {
             walletId,
             error: error instanceof Error ? error.message : String(error || 'unknown error'),
           });
         },
         onRejectedRecord: ({ walletId, rejection }) => {
-          console.warn('[UiConfirm] passkey account signing-session restore rejected record', {
+          console.warn('[UiConfirm] passkey account signing-session discovery rejected record', {
             walletId,
             rejection,
           });

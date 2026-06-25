@@ -21,6 +21,7 @@ import {
   isConcreteAvailableSigningLane,
 } from '../../session/availability/availableSigningLanes';
 import {
+  exactEcdsaSigningLaneIdentity,
   exactSigningLaneIdentity,
   exactSigningLaneIdentityKey,
 } from '../../session/identity/exactSigningLaneIdentity';
@@ -725,6 +726,11 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               signingGrantId: laneCandidate.signingGrantId,
               thresholdSessionId: laneCandidate.thresholdSessionId,
               reason: 'transaction',
+              materialRestoreIdentity: {
+                kind: 'ecdsa_role_local_restore',
+                lane: exactEcdsaSigningLaneIdentity(transactionLane),
+                ecdsaThresholdKeyId: transactionLane.key.ecdsaThresholdKeyId,
+              },
             });
             restoreResults[authMethod] = result;
           } catch (error) {

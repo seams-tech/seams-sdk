@@ -1,5 +1,14 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  ExactEcdsaSigningLaneIdentity,
+  ExactEd25519SigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
+import type {
+  EcdsaThresholdKeyId,
+  Ed25519WorkerMaterialBindingDigest,
+  Ed25519WorkerMaterialKeyId,
+} from '../keyMaterialBrands';
+import type {
   RawSigningSessionSealedStoreRecord,
   RejectedSealedRecoveryRecord,
   SealedRecoveryRecord,
@@ -34,17 +43,43 @@ export type RestorePersistedSessionForSigningInput =
   | (RestorePersistedSessionForSigningTransactionInput & {
       curve: 'ed25519';
       chain: 'near';
+      materialRestoreIdentity: {
+        kind: 'ed25519_worker_material_restore';
+        lane: ExactEd25519SigningLaneIdentity;
+        materialBindingDigest: Ed25519WorkerMaterialBindingDigest;
+        materialKeyId: Ed25519WorkerMaterialKeyId;
+        ecdsaThresholdKeyId?: never;
+      };
     })
   | (RestorePersistedSessionForSigningTransactionInput & {
       curve: 'ecdsa';
       chainTarget: ThresholdEcdsaChainTarget;
+      materialRestoreIdentity: {
+        kind: 'ecdsa_role_local_restore';
+        lane: ExactEcdsaSigningLaneIdentity;
+        ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+        materialBindingDigest?: never;
+        materialKeyId?: never;
+      };
     });
 
-export type RestorePersistedSessionForSigningResult = {
-  attempted: number;
-  restored: number;
-  deferred: number;
-};
+export type RestorePersistedSessionForSigningResult =
+  | {
+      kind: 'completed';
+      attempted: number;
+      restored: number;
+      deferred: number;
+      duplicateCount?: never;
+      duplicateRecordSummaries?: never;
+    }
+  | {
+      kind: 'duplicate_records';
+      attempted: 0;
+      restored: 0;
+      deferred: 0;
+      duplicateCount: number;
+      duplicateRecordSummaries: readonly Record<string, unknown>[];
+    };
 
 export type RestorePersistedEd25519SessionForSigningInput = Extract<
   RestorePersistedSessionForSigningInput,
@@ -88,27 +123,24 @@ export type RestorePersistedSessionWorkItem = {
   purpose: RestorePersistedSessionPurpose;
 };
 
-type RestorePersistedSessionsForWalletBase = {
+type DiscoverPersistedSessionsForWalletBase = {
   walletId: string;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   authMethod?: 'email_otp' | 'passkey';
   maxRecords?: number;
 };
 
-export type RestorePersistedSessionsForWalletInput =
-  | (RestorePersistedSessionsForWalletBase & {
-      kind: 'restore_wallet_all_signing_sessions';
+export type DiscoverPersistedSessionsForWalletInput =
+  | (DiscoverPersistedSessionsForWalletBase & {
+      kind: 'discover_wallet_all_signing_sessions';
     })
-  | (RestorePersistedSessionsForWalletBase & {
-      kind: 'restore_wallet_ecdsa_signing_sessions';
+  | (DiscoverPersistedSessionsForWalletBase & {
+      kind: 'discover_wallet_ecdsa_signing_sessions';
     });
 
-export type RestorePersistedSessionsForWalletResult = {
+export type DiscoverPersistedSessionsForWalletResult = {
   listed: number;
-  attempted: number;
-  restored: number;
-  deferred: number;
-  skipped: number;
+  discovered: number;
   truncated: number;
 };
 
@@ -157,19 +189,13 @@ export type RestorePersistedSessionForSigningPorts = {
   cache?: SigningSessionRestoreCache;
 };
 
-export type RestorePersistedSessionsForWalletPorts = {
+export type DiscoverPersistedSessionsForWalletPorts = {
   listExactSealedSessionsForWallet: (
     args: RestoreSealedSessionListInput,
   ) => Promise<RawSigningSessionSealedStoreRecord[]>;
-  restoreSealedRecordForWallet: (args: {
-    walletId: string;
-    record: SealedRecoveryRecord;
-    purpose: RestorePersistedSessionPurpose;
-  }) => Promise<RestoreSealedRecordResult>;
   onListError?: (args: { walletId: string; error: unknown }) => void;
   onRejectedRecord?: (args: {
     walletId: string;
     rejection: RejectedSealedRecoveryRecord;
   }) => void;
-  cache?: SigningSessionRestoreCache;
 };

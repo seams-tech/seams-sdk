@@ -38,7 +38,7 @@ export type WalletUnlockSelection =
 export type EcdsaUnlockBlockedReason =
   | 'missing_key_handle'
   | 'invalid_key_handle'
-  | 'ambiguous_key_handle'
+  | 'duplicate_key_handles'
   | 'missing_chain_target'
   | 'missing_key_facts'
   | 'invalid_signer_record';
@@ -119,7 +119,7 @@ export type SharedKeyTargetCompletion =
       keyHandles?: never;
     }
   | {
-      kind: 'ambiguous_shared_key_targets';
+      kind: 'duplicate_shared_key_targets';
       keyHandles: string[];
       missingTargets?: never;
       context?: never;
@@ -195,7 +195,7 @@ function mapProfileBlockedReason(
     case 'missing_chain_target':
     case 'missing_key_handle':
     case 'invalid_key_handle':
-    case 'ambiguous_key_handle':
+    case 'duplicate_key_handles':
       return result.reason;
     case 'invalid_chain_target':
       return 'invalid_signer_record';
@@ -294,7 +294,7 @@ function activeTargetRecordsByTarget(
       byTarget.set(record.targetKey, {
         kind: 'blocked',
         targetKey: record.targetKey,
-        reason: 'ambiguous_key_handle',
+        reason: 'duplicate_key_handles',
         ...(record.signerId ? { signerId: record.signerId } : {}),
       });
     }
@@ -397,7 +397,7 @@ export function buildSharedKeyTargetCompletion(args: {
   ];
   if (keyHandles.length > 1) {
     return {
-      kind: 'ambiguous_shared_key_targets',
+      kind: 'duplicate_shared_key_targets',
       keyHandles,
     };
   }
@@ -410,7 +410,7 @@ export function buildSharedKeyTargetCompletion(args: {
   ];
   if (keyFingerprints.length > 1) {
     return {
-      kind: 'ambiguous_shared_key_targets',
+      kind: 'duplicate_shared_key_targets',
       keyHandles,
     };
   }
@@ -478,9 +478,9 @@ export function requireCompleteSharedKeyTargetContext(args: {
   switch (args.completion.kind) {
     case 'complete_shared_key_targets':
       return args.completion.context;
-    case 'ambiguous_shared_key_targets':
+    case 'duplicate_shared_key_targets':
       throw new Error(
-        `[login] threshold ECDSA warm-up received ambiguous shared key handles from ${args.source}: ${args.completion.keyHandles.join(
+        `[login] threshold ECDSA warm-up received duplicate shared key handles from ${args.source}: ${args.completion.keyHandles.join(
           ', ',
         )}`,
       );

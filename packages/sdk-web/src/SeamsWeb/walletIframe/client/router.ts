@@ -124,10 +124,15 @@ import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoA
 import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import type { RouterAbEcdsaHssLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSessionRef,
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+  type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  parseExactEcdsaSigningLaneIdentity,
+  parseExactEd25519SigningLaneIdentity,
+} from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
@@ -2483,26 +2488,52 @@ export class WalletIframeRouter {
 
   async exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void> {
     const { onEvent, ...messageOptions } = input.options;
-    const payload =
-      input.kind === 'near'
-        ? {
-            kind: 'near' as const,
-            walletSession: input.walletSession,
-            nearAccount: input.nearAccount,
-            options: {
-              ...messageOptions,
-              chain: 'near' as const,
-            },
-          }
-        : {
-            kind: 'ecdsa' as const,
-            chainTarget: input.chainTarget,
-            walletSession: input.walletSession,
-            options: messageOptions,
-          };
+    if (input.kind === 'near') {
+      const laneIdentity = parseExactEd25519SigningLaneIdentity(input.laneIdentity);
+      if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+        throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
+      }
+      if (String(laneIdentity.nearAccountId) !== String(input.nearAccount.accountId)) {
+        throw new Error(
+          '[WalletIframeRouter] key export lane NEAR account does not match request account',
+        );
+      }
+      await this.post<void>({
+        type: 'PM_EXPORT_KEYPAIR_UI',
+        payload: {
+          kind: 'near',
+          walletSession: input.walletSession,
+          nearAccount: input.nearAccount,
+          laneIdentity,
+          options: {
+            ...messageOptions,
+            chain: 'near',
+          },
+        },
+        options: {
+          sticky: true,
+          onProgress: this.wrapOnEvent(onEvent, isKeyExportFlowEvent),
+        },
+      });
+      return;
+    }
+
+    const laneIdentity = parseExactEcdsaSigningLaneIdentity(input.laneIdentity);
+    if (String(laneIdentity.walletId) !== String(input.walletSession.walletId)) {
+      throw new Error('[WalletIframeRouter] key export lane wallet does not match wallet session');
+    }
+    if (!thresholdEcdsaChainTargetsEqual(laneIdentity.chainTarget, input.chainTarget)) {
+      throw new Error('[WalletIframeRouter] key export lane chain target does not match request target');
+    }
     await this.post<void>({
       type: 'PM_EXPORT_KEYPAIR_UI',
-      payload,
+      payload: {
+        kind: 'ecdsa',
+        chainTarget: input.chainTarget,
+        walletSession: input.walletSession,
+        laneIdentity,
+        options: messageOptions,
+      },
       options: {
         sticky: true,
         onProgress: this.wrapOnEvent(onEvent, isKeyExportFlowEvent),

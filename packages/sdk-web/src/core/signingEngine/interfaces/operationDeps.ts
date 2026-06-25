@@ -21,6 +21,10 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../session/identity/laneIdentity';
 import type {
+  ExactEcdsaSigningLaneIdentity,
+  ExactEd25519SigningLaneIdentity,
+} from '../session/identity/exactSigningLaneIdentity';
+import type {
   ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   ConsumeSingleUseEmailOtpEcdsaLaneResult,
   ThresholdEcdsaKeyRefLookupResult,
@@ -71,8 +75,7 @@ export type NearSigningApiDeps = {
 	    authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
-    thresholdSessionId: string;
-    curve: 'ed25519';
+    lane: ExactEd25519SigningLaneIdentity;
   }) => EmailOtpAuthLane | null;
   isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId }) => boolean;
   waitForPendingEmailOtpEd25519Warmup?: (args: { nearAccountId: AccountId }) => Promise<boolean>;
@@ -180,11 +183,8 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
-    walletId: WalletId;
-    thresholdSessionId: string;
-    curve: 'ecdsa';
+    lane: ExactEcdsaSigningLaneIdentity;
     chain: EvmFamilyChain;
-    chainTarget: ThresholdEcdsaChainTarget;
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;

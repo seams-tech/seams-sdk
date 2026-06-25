@@ -15,8 +15,8 @@ import type {
   AvailableSigningLanes,
 } from './availability/availableSigningLanes';
 import type {
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
 } from './sealedRecovery/sealedRecovery.types';
 import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
@@ -37,13 +37,10 @@ import type {
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import { markRouterAbEcdsaHssWorkerMaterialRuntimeValidated } from './routerAbSigningWalletSession';
 
-const EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT: RestorePersistedSessionsForWalletResult =
+const EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT: DiscoverPersistedSessionsForWalletResult =
   {
     listed: 0,
-    attempted: 0,
-    restored: 0,
-    deferred: 0,
-    skipped: 0,
+    discovered: 0,
     truncated: 0,
   };
 
@@ -55,19 +52,19 @@ export type SessionPublicDeps = {
     keyVersion?: string;
     shamirPrimeB64u?: string;
   };
-  restore: {
+  discovery: {
     emailOtp: (
-      args: RestorePersistedSessionsForWalletInput & {
+      args: DiscoverPersistedSessionsForWalletInput & {
         walletId: string;
         authMethod: 'email_otp';
       },
-    ) => Promise<RestorePersistedSessionsForWalletResult>;
+    ) => Promise<DiscoverPersistedSessionsForWalletResult>;
     passkey?: (
-      args: RestorePersistedSessionsForWalletInput & {
+      args: DiscoverPersistedSessionsForWalletInput & {
         walletId: string;
         authMethod: 'passkey';
       },
-    ) => Promise<RestorePersistedSessionsForWalletResult>;
+    ) => Promise<DiscoverPersistedSessionsForWalletResult>;
   };
 };
 
@@ -99,19 +96,16 @@ export type ListThresholdEcdsaSessionRecordsForWalletTargetInput = {
   source?: ThresholdEcdsaSessionStoreSource;
 };
 
-function mergeRestorePersistedSessionsForWalletResults(
-  results: readonly RestorePersistedSessionsForWalletResult[],
-): RestorePersistedSessionsForWalletResult {
-  return results.reduce<RestorePersistedSessionsForWalletResult>(
+function mergeDiscoverPersistedSessionsForWalletResults(
+  results: readonly DiscoverPersistedSessionsForWalletResult[],
+): DiscoverPersistedSessionsForWalletResult {
+  return results.reduce<DiscoverPersistedSessionsForWalletResult>(
     (acc, result) => ({
       listed: acc.listed + result.listed,
-      attempted: acc.attempted + result.attempted,
-      restored: acc.restored + result.restored,
-      deferred: acc.deferred + result.deferred,
-      skipped: acc.skipped + result.skipped,
+      discovered: acc.discovered + result.discovered,
       truncated: acc.truncated + result.truncated,
     }),
-    EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT,
+    EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT,
   );
 }
 
@@ -124,33 +118,33 @@ function markRouterAbEcdsaHssBootstrapWorkerMaterialRuntimeValidated(
   );
 }
 
-export async function restorePersistedSessionsForWallet(
+export async function discoverPersistedSessionsForWallet(
   deps: SessionPublicDeps,
-  args: RestorePersistedSessionsForWalletInput,
-): Promise<RestorePersistedSessionsForWalletResult> {
+  args: DiscoverPersistedSessionsForWalletInput,
+): Promise<DiscoverPersistedSessionsForWalletResult> {
   const walletId = toWalletId(args.walletId);
 
   const authMethods = args.authMethod ? [args.authMethod] : (['email_otp', 'passkey'] as const);
   const results = await Promise.all(
     authMethods.map(async (authMethod) => {
       if (authMethod === 'email_otp') {
-        return await deps.restore.emailOtp({
+        return await deps.discovery.emailOtp({
           ...args,
           walletId,
           authMethod,
         });
       }
       return (
-        (await deps.restore.passkey?.({
+        (await deps.discovery.passkey?.({
           ...args,
           walletId,
           authMethod,
-        })) ?? EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT
+        })) ?? EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
       );
     }),
   );
 
-  return mergeRestorePersistedSessionsForWalletResults(results);
+  return mergeDiscoverPersistedSessionsForWalletResults(results);
 }
 
 export async function readPersistedAvailableSigningLanes(
@@ -255,8 +249,8 @@ export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): v
 }
 
 export type {
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
 } from './sealedRecovery/sealedRecovery.types';
 export type {
   EmailOtpEcdsaSealedRecoveryRecord,

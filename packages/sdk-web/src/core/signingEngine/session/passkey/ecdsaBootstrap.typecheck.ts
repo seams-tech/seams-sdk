@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -11,7 +10,7 @@ import type {
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 
-declare const walletId: AccountId;
+declare const walletId: WalletId;
 declare const subjectId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;

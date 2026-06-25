@@ -11,7 +11,6 @@ import {
   routerAbEcdsaHssActiveStateSessionId,
   type RouterAbEcdsaHssNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaHss';
-import type { AccountId } from '@/core/types/accountIds';
 import { parseWalletKeyId, type WalletKeyId } from '@shared/signing-lanes';
 import type {
   ThresholdEcdsaBackendBinding,
@@ -537,7 +536,7 @@ export type ResolveReadyEvmFamilyEcdsaMaterialInput = {
   record: ThresholdEcdsaSessionRecord | null;
   keyRef?: never;
   expected: {
-    walletId: AccountId | WalletId | string;
+    walletId: WalletId | string;
     walletKeyId: WalletKeyId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     authMethod: EvmFamilyEcdsaAuthMethod;

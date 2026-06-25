@@ -1,4 +1,4 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   emitWarmSessionTransition,
   summarizeWarmSessionTransition,
@@ -10,10 +10,10 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
-import type { WalletId } from '../../interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type WarmSessionEd25519ProvisionerDeps = {
-  getWarmSession: (walletId: WalletId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
   provisionThresholdEd25519Session?: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
@@ -21,7 +21,7 @@ export type WarmSessionEd25519ProvisionerDeps = {
 };
 
 function assertPersistedEd25519WarmSessionRecord(args: {
-  walletId: string;
+  walletId: WalletId;
   expectedSessionId: string;
   persistedSessionIdRaw: unknown;
 }): void {
@@ -39,7 +39,7 @@ export async function provisionWarmEd25519Capability(
   args: ProvisionWarmEd25519CapabilityArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const walletId = String(args.walletId || '').trim();
+  const walletId = toWalletId(args.walletId);
   if (!walletId) {
     throw new Error('[WarmSessionStore] walletId is required to provision Ed25519 capability');
   }

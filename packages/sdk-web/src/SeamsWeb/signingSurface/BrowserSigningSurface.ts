@@ -104,8 +104,8 @@ import type {
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
-  RestorePersistedSessionsForWalletInput,
-  RestorePersistedSessionsForWalletResult,
+  DiscoverPersistedSessionsForWalletInput,
+  DiscoverPersistedSessionsForWalletResult,
   ReadAvailableSigningLanesInput,
   AvailableSigningLanes,
   SessionPublicDeps,
@@ -357,10 +357,10 @@ export class BrowserSigningSurface {
     await this.ensureSealedRefreshStartupParity();
   }
 
-  async restorePersistedSessionsForWallet(
-    args: RestorePersistedSessionsForWalletInput,
-  ): Promise<RestorePersistedSessionsForWalletResult> {
-    return await sessionPublic.restorePersistedSessionsForWallet(this.sessionPublicDeps, args);
+  async discoverPersistedSessionsForWallet(
+    args: DiscoverPersistedSessionsForWalletInput,
+  ): Promise<DiscoverPersistedSessionsForWalletResult> {
+    return await sessionPublic.discoverPersistedSessionsForWallet(this.sessionPublicDeps, args);
   }
 
   async readPersistedAvailableSigningLanes(

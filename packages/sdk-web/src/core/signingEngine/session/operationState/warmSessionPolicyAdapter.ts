@@ -1,6 +1,8 @@
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import type { ResolveExactEcdsaRecordResult } from '../warmCapabilities/statusReader';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -31,26 +33,26 @@ type WarmSessionPolicyEnvelope = {
 };
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
+  lane: ExactEcdsaSigningLaneIdentity;
   selectedRecord: ThresholdEcdsaSessionRecord;
-  thresholdSessionId: string;
+  walletId?: never;
+  chainTarget?: never;
+  thresholdSessionId?: never;
 };
 
 export type WarmSessionEcdsaCapabilityRef = {
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId: string;
+  lane: ExactEcdsaSigningLaneIdentity;
+  walletId?: never;
+  chainTarget?: never;
+  thresholdSessionId?: never;
 };
 
 export type WarmSessionPostSignPolicyAdapterDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionPolicyEnvelope>;
   resolveExactEcdsaRecord: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    thresholdSessionId: string;
+    lane: ExactEcdsaSigningLaneIdentity;
     source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaSessionRecord | null;
+  }) => ResolveExactEcdsaRecordResult;
   consumeSingleUseEmailOtpEcdsaLane?: (
     command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
@@ -73,18 +75,34 @@ async function resolveSecondaryEcdsaRecord(args: {
     : warmSession.capabilities.ecdsa.tempo.record;
 }
 
+function foundExactEcdsaRecordOrNull(
+  result: ResolveExactEcdsaRecordResult,
+  context: string,
+): ThresholdEcdsaSessionRecord | null {
+  switch (result.kind) {
+    case 'found':
+      return result.record;
+    case 'not_found':
+      return null;
+    case 'duplicate_records':
+      throw new Error(`[WarmSessionStore] duplicate exact ECDSA records for ${context}`);
+  }
+  result satisfies never;
+  throw new Error('[WarmSessionStore] unsupported exact ECDSA record result');
+}
+
 export async function applyWarmSessionEcdsaPostSignPolicy(
   deps: WarmSessionPostSignPolicyAdapterDeps,
   args: ApplyWarmEcdsaPostSignPolicyArgs,
 ): Promise<void> {
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
+    walletId: args.lane.walletId,
+    chainTarget: args.lane.chainTarget,
     source: args.selectedRecord.source,
   });
   await applyEcdsaPostSignPolicy({
-    thresholdSessionId: args.thresholdSessionId,
+    thresholdSessionId: String(args.lane.thresholdSessionId),
     source: args.selectedRecord.source,
     selectedMaterial: selectedEcdsaPostSignPolicyMaterialFromRecord({
       record: args.selectedRecord,
@@ -108,22 +126,23 @@ export async function assertWarmSessionEcdsaOperationAllowed(
     sensitivePolicy?: SensitiveOperationPolicy;
   },
 ): Promise<void> {
-  const record = deps.resolveExactEcdsaRecord({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    thresholdSessionId: args.thresholdSessionId,
-    source: args.source,
-  });
+  const record = foundExactEcdsaRecordOrNull(
+    deps.resolveExactEcdsaRecord({
+      lane: args.lane,
+      source: args.source,
+    }),
+    `${args.operationLabel}:${String(args.lane.thresholdSessionId)}`,
+  );
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
+    walletId: args.lane.walletId,
+    chainTarget: args.lane.chainTarget,
     source: args.source,
   });
   assertEcdsaOperationAllowed({
-    chainTarget: args.chainTarget,
+    chainTarget: args.lane.chainTarget,
     operationLabel: args.operationLabel,
-    thresholdSessionId: args.thresholdSessionId,
+    thresholdSessionId: String(args.lane.thresholdSessionId),
     source: args.source,
     selectedSession: record ? ecdsaPostSignPolicySessionFromRecord(record) : null,
     secondarySession: secondaryRecord

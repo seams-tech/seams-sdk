@@ -1331,7 +1331,7 @@ export async function clearSigningGrant(args: {
   const ecdsaLanesToClear = new Map<
     string,
     {
-      walletId: AccountId;
+      walletId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;
       source: ThresholdEcdsaSessionStoreSource;
     }

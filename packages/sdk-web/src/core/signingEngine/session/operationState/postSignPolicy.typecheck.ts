@@ -7,8 +7,10 @@ import type {
   EcdsaPostSignPolicySession,
   SecondaryEcdsaPostSignPolicyMaterial,
 } from './postSignPolicy';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AccountId } from '@/core/types/accountIds';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 declare const consumableLane: ConsumableEmailOtpEcdsaLane;
 declare const sessionLane: Extract<
@@ -16,7 +18,7 @@ declare const sessionLane: Extract<
   { kind: 'session_email_otp_ecdsa_lane' }
 >;
 declare const secondaryMaterial: SecondaryEcdsaPostSignPolicyMaterial;
-declare const walletId: AccountId;
+declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 
 void ({

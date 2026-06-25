@@ -390,7 +390,7 @@ type ReconnectWalletSessionJwtSelection =
       walletSessionJwt: string;
     }
   | {
-      kind: 'ambiguous';
+      kind: 'duplicate_records';
       exactMatchCount: number;
     }
   | {
@@ -422,7 +422,7 @@ function selectExactReconnectWalletSessionJwt(args: {
     return { kind: 'exact_match', walletSessionJwt: exactMatches[0] };
   }
   if (exactMatches.length > 1) {
-    return { kind: 'ambiguous', exactMatchCount: exactMatches.length };
+    return { kind: 'duplicate_records', exactMatchCount: exactMatches.length };
   }
   return { kind: 'not_found' };
 }
@@ -435,8 +435,8 @@ function requireExactReconnectWalletSessionJwt(args: {
   switch (selection.kind) {
     case 'exact_match':
       return selection.walletSessionJwt;
-    case 'ambiguous':
-      throw new Error('[SigningEngine][ecdsa] reconnect Wallet Session JWT exact match is ambiguous');
+    case 'duplicate_records':
+      throw new Error('[SigningEngine][ecdsa] reconnect Wallet Session JWT has duplicate exact matches');
     case 'not_found':
       throw new Error('[SigningEngine][ecdsa] reconnect Wallet Session JWT exact match not found');
     default:

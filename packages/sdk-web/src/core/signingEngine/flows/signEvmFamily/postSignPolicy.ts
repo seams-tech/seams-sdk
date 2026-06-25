@@ -1,5 +1,7 @@
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import { exactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
+import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -7,9 +9,7 @@ import type {
 
 type EvmFamilyEcdsaPostSignPolicyRunner = {
   applyEcdsaPostSignPolicy: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    thresholdSessionId: string;
+    lane: ExactEcdsaSigningLaneIdentity;
     selectedRecord: ThresholdEcdsaSessionRecord;
   }) => Promise<void> | void;
 };
@@ -24,9 +24,7 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   // Post-sign cleanup is security-sensitive: it must operate on the exact
   // lane used after any OTP/passkey reauth, not a generic threshold-session id.
   await args.postSignPolicy.applyEcdsaPostSignPolicy({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    thresholdSessionId: String(args.ecdsaSigningLane.thresholdSessionId),
+    lane: exactEcdsaSigningLaneIdentity(args.ecdsaSigningLane),
     selectedRecord: args.selectedRecord,
   });
 }

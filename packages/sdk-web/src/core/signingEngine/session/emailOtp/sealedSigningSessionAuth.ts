@@ -1,8 +1,6 @@
-import {
-  thresholdEcdsaChainTargetKey,
-  type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { ExactEcdsaSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   normalizeSealedRecoveryRecord,
   sealedRecoveryWalletSessionJwt,
@@ -13,16 +11,16 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 export type SealedEmailOtpEcdsaSigningSessionAuthInput = {
-  thresholdSessionId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
+  lane: ExactEcdsaSigningLaneIdentity;
   sealedRecord: SigningSessionSealedStoreRecord;
 };
 
 export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
   input: SealedEmailOtpEcdsaSigningSessionAuthInput,
 ): EmailOtpSigningSessionAuthLane | null {
-  const thresholdSessionId = String(input.thresholdSessionId || '').trim();
+  const thresholdSessionId = String(input.lane.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
+  if (input.lane.auth.kind !== 'email_otp') return null;
   const normalized = normalizeSealedRecoveryRecord(input.sealedRecord, {
     allowExhausted: true,
   });
@@ -35,10 +33,19 @@ export function emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord(
   }
   const record = normalized.record;
   if (record.authMethod !== 'email_otp') return null;
+  if (String(record.walletId || '').trim() !== String(input.lane.walletId)) return null;
   if (String(record.thresholdSessionId || '').trim() !== thresholdSessionId) return null;
+  if (String(record.signingGrantId || '').trim() !== String(input.lane.signingGrantId)) return null;
+  if (String(record.keyHandle || '').trim() !== String(input.lane.keyHandle)) return null;
+  if (String(record.ecdsaThresholdKeyId || '').trim() !== String(input.lane.key.ecdsaThresholdKeyId)) {
+    return null;
+  }
+  if (String(record.providerSubjectId || '').trim() !== String(input.lane.auth.providerSubjectId)) {
+    return null;
+  }
   if (
     thresholdEcdsaChainTargetKey(record.chainTarget) !==
-    thresholdEcdsaChainTargetKey(input.chainTarget)
+    thresholdEcdsaChainTargetKey(input.lane.chainTarget)
   ) {
     return null;
   }

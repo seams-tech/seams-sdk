@@ -187,12 +187,20 @@ export type ConcreteAvailableEd25519SigningLane = {
   expiresAtMs?: number;
   policyHint?: AvailableSigningLanePolicyHint;
   updatedAtMs?: number;
+  ed25519WorkerMaterialBindingDigest?: string;
+  materialKeyId?: string;
   source?: 'durable_sealed_record' | 'runtime_session_record' | 'runtime_and_durable';
 };
 
 export type AvailableEd25519SigningLane =
   | MissingAvailableEd25519SigningLane
   | ConcreteAvailableEd25519SigningLane;
+
+function isConcreteEd25519AvailableLane(
+  lane: AvailableEd25519SigningLane | null | undefined,
+): lane is ConcreteAvailableEd25519SigningLane {
+  return Boolean(lane) && lane!.curve === 'ed25519' && lane!.state !== 'missing';
+}
 
 export function availableEd25519SigningLaneAuthMethod(
   lane: Pick<ConcreteAvailableEd25519SigningLane, 'auth'>,
@@ -337,6 +345,8 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
+  ed25519WorkerMaterialBindingDigest?: string;
+  materialKeyId?: string;
 };
 
 export type InvalidAvailableSigningLaneDiagnostic =
@@ -1195,6 +1205,10 @@ function recordToEd25519Lane(args: {
     signingGrantId,
     updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
     thresholdSessionId,
+    ...(recoveryRecord.ed25519WorkerMaterialBindingDigest
+      ? { ed25519WorkerMaterialBindingDigest: recoveryRecord.ed25519WorkerMaterialBindingDigest }
+      : {}),
+    ...(recoveryRecord.materialKeyId ? { materialKeyId: recoveryRecord.materialKeyId } : {}),
     ...(policyHint ? { policyHint } : {}),
   };
 }
@@ -1336,6 +1350,10 @@ function runtimeRecordToEd25519Lane(args: {
       signingLaneAuthMethod(args.record.auth) &&
     durableSigningGrantId === signingGrantId &&
     String(args.durableLane.thresholdSessionId || '').trim() === thresholdSessionId;
+  const matchingDurableLane =
+    hasMatchingDurableLane && isConcreteEd25519AvailableLane(args.durableLane)
+      ? args.durableLane
+      : null;
   const remainingUses = nullableNonNegativeInteger(
     claim?.remainingUses ?? args.record.remainingUses,
   );
@@ -1365,6 +1383,16 @@ function runtimeRecordToEd25519Lane(args: {
     ...(remainingUses == null ? {} : { remainingUses }),
     ...(expiresAtMs == null ? {} : { expiresAtMs }),
     ...(updatedAtMs > 0 ? { updatedAtMs } : {}),
+    ...(args.record.ed25519WorkerMaterialBindingDigest
+      ? { ed25519WorkerMaterialBindingDigest: args.record.ed25519WorkerMaterialBindingDigest }
+      : matchingDurableLane?.ed25519WorkerMaterialBindingDigest
+        ? { ed25519WorkerMaterialBindingDigest: matchingDurableLane.ed25519WorkerMaterialBindingDigest }
+        : {}),
+    ...(args.record.materialKeyId
+      ? { materialKeyId: args.record.materialKeyId }
+      : matchingDurableLane?.materialKeyId
+        ? { materialKeyId: matchingDurableLane.materialKeyId }
+        : {}),
   };
 }
 

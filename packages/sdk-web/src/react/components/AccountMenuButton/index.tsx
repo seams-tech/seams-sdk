@@ -1,7 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal, flushSync } from 'react-dom';
-import { KeyIcon } from './icons/KeyIcon';
-import { SpinnerIcon } from './icons/SpinnerIcon';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ScanIcon } from './icons/ScanIcon';
 import { LinkIcon } from './icons/LinkIcon';
 import { SlidersIcon } from './icons/SlidersIcon';
@@ -17,17 +15,9 @@ import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
 import { RecoveryCodesModal } from './RecoveryCodesModal';
-import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
-import { KeyExportEventPhase, type KeyExportFlowEvent } from '@/core/types/sdkSentEvents';
-import { requirePrimaryChainByFamily } from '@/core/config/chains';
-import {
-  nearAccountRefFromAccountId,
-  thresholdEcdsaChainTargetFromConfig,
-  toWalletId,
-  walletSessionRefFromSession,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 
 function resolveDefaultPortalTarget(
@@ -43,19 +33,6 @@ function resolveDefaultPortalTarget(
   } catch {}
   if (typeof document === 'undefined') return null;
   return document.body;
-}
-
-async function waitForNextPaint(): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return;
-  }
-
-  await new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
 }
 
 /**
@@ -120,12 +97,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
-  const [showExportKeyTypeModal, setShowExportKeyTypeModal] = useState(false);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
-  const [exportKeysLoading, setExportKeysLoading] = useState(false);
-  const [exportChainLoading, setExportChainLoading] = useState<'near' | 'evm' | null>(null);
-  const [exportRestrictionMessage, setExportRestrictionMessage] = useState<string | null>(null);
 
   // State management
   const { isOpen, refs, handleToggle, handleClose } = useProfileState({
@@ -214,94 +187,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     }
   };
 
-  const startExportKeyFlow = useCallback(
-    async (chain: 'near' | 'evm') => {
-      if (chain === 'near' && (!nearAccountId || !walletId)) return;
-      if (chain === 'evm' && !walletId) return;
-      let exportViewerDisplayed = false;
-      const handleExportEvent = (event: KeyExportFlowEvent) => {
-        if (event.phase !== KeyExportEventPhase.STEP_04_VIEWER_OPENED) return;
-        exportViewerDisplayed = true;
-        setExportKeysLoading(false);
-        setExportChainLoading(null);
-      };
-
-      flushSync(() => {
-        setShowExportKeyTypeModal(false);
-        setExportKeysLoading(true);
-        setExportChainLoading(chain);
-      });
-      await waitForNextPaint();
-
-      try {
-        await seams.keys.exportKeypairWithUI(
-          chain === 'near'
-            ? {
-                kind: 'near',
-                walletSession: walletSessionRefFromSession({
-                  walletId: walletId!,
-                  walletSessionUserId: walletId!,
-                }),
-                nearAccount: nearAccountRefFromAccountId(nearAccountId),
-                options: {
-                  chain: 'near',
-                  variant: 'drawer',
-                  onEvent: handleExportEvent,
-                },
-              }
-            : {
-                kind: 'ecdsa',
-                walletSession: walletSessionRefFromSession({
-                  walletId: walletId!,
-                  walletSessionUserId: walletId!,
-                }),
-                chainTarget: thresholdEcdsaChainTargetFromConfig(
-                  requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
-                ),
-                options: {
-                  variant: 'drawer',
-                  onEvent: handleExportEvent,
-                },
-              },
-        );
-      } catch (error: any) {
-        console.error(`Key export failed (${chain}):`, error);
-        const msg = String(error?.message || 'Unknown error');
-        const friendly =
-          /No user data found|No public key found/i.test(msg)
-            ? 'No local key material found for this account on this device. Please complete registration or recovery here first.'
-            : /active threshold-ecdsa warm session/i.test(msg)
-              ? 'No active EVM threshold export session is available yet. Perform an EVM signing flow first, then retry export.'
-              : msg;
-        alert(`Key export failed: ${friendly}`);
-      } finally {
-        if (!exportViewerDisplayed) {
-          setExportKeysLoading(false);
-          setExportChainLoading(null);
-        }
-      }
-    },
-    [nearAccountId, seams, walletId],
-  );
-
   // Menu items configuration with context-aware handlers
   const MENU_ITEMS: MenuItem[] = useMemo(() => {
-    const items: MenuItem[] = [
-      {
-        id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
-        icon: exportKeysLoading ? <SpinnerIcon /> : <KeyIcon />,
-        label: 'Export Keys',
-        description: 'View your private keys',
-        disabled: !loginState.isLoggedIn || exportKeysLoading,
-        onClick: () => {
-          setExportKeysLoading(false);
-          setExportChainLoading(null);
-          setExportRestrictionMessage(null);
-          setShowExportKeyTypeModal(true);
-        },
-        keepOpenOnClick: true,
-      },
-    ];
+    const items: MenuItem[] = [];
 
     if (canShowRecoveryCodes) {
       items.push({
@@ -358,7 +246,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [canShowRecoveryCodes, loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
+  }, [canShowRecoveryCodes, loginState.isLoggedIn, theme, handleToggleTheme]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -479,25 +367,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           portalHost!,
         )}
 
-      {/* Export Key Type Modal (portaled to the resolved root so it stays inside shadow-hosted surfaces) */}
-      {canPortal &&
-        createPortal(
-          <ExportKeyTypeModal
-            isOpen={showExportKeyTypeModal}
-            loadingChain={exportChainLoading}
-            onClose={() => {
-              setShowExportKeyTypeModal(false);
-              setExportChainLoading(null);
-              setExportRestrictionMessage(null);
-            }}
-            onSelectChain={(chain) => {
-              if (exportRestrictionMessage) return;
-              void startExportKeyFlow(chain);
-            }}
-            restrictionMessage={exportRestrictionMessage}
-          />,
-          portalHost!,
-        )}
     </div>
   );
 };

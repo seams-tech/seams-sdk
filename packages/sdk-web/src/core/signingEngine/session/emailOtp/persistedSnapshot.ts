@@ -197,6 +197,15 @@ export async function readEmailOtpPersistedSessionSnapshot(
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,
+            ...(runtimeRecord.ed25519WorkerMaterialBindingDigest
+              ? {
+                  ed25519WorkerMaterialBindingDigest:
+                    runtimeRecord.ed25519WorkerMaterialBindingDigest,
+                }
+              : {}),
+            ...(runtimeRecord.materialKeyId
+              ? { materialKeyId: runtimeRecord.materialKeyId }
+              : {}),
           });
         }
         return records;

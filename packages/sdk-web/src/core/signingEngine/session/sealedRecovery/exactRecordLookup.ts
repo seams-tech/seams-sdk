@@ -9,6 +9,67 @@ import type {
   RestorePersistedSessionPurpose,
   RestorePersistedSessionWorkItem,
 } from './sealedRecovery.types';
+import type {
+  ExactEcdsaSigningLaneIdentity,
+  ExactEd25519SigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
+
+type EcdsaRestoreRecord = Extract<SealedRecoveryRecord, { curve: 'ecdsa' }>;
+type Ed25519RestoreRecord = Extract<SealedRecoveryRecord, { curve: 'ed25519' }>;
+
+function sameString(left: unknown, right: unknown): boolean {
+  return String(left ?? '').trim() === String(right ?? '').trim();
+}
+
+function sameStringLower(left: unknown, right: unknown): boolean {
+  return String(left ?? '').trim().toLowerCase() === String(right ?? '').trim().toLowerCase();
+}
+
+function sameParticipantIds(left: readonly unknown[], right: readonly unknown[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((participantId, index) => Number(participantId) === Number(right[index]));
+}
+
+function ecdsaRestoreRecordMatchesLaneIdentity(
+  record: EcdsaRestoreRecord,
+  lane: ExactEcdsaSigningLaneIdentity,
+): boolean {
+  if (!sameString(record.walletId, lane.walletId)) return false;
+  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)) return false;
+  if (!sameString(record.keyHandle, lane.keyHandle)) return false;
+  if (!sameString(record.ecdsaThresholdKeyId, lane.key.ecdsaThresholdKeyId)) return false;
+  if (!sameString(record.signingRootId, lane.key.signingRootId)) return false;
+  if (!sameString(record.signingRootVersion, lane.key.signingRootVersion)) return false;
+  if (!sameStringLower(record.ethereumAddress, lane.key.thresholdOwnerAddress)) return false;
+  if (!sameParticipantIds(record.participantIds, lane.key.participantIds)) return false;
+  if (record.authMethod !== lane.auth.kind) return false;
+  if (record.authMethod === 'passkey') {
+    return (
+      lane.auth.kind === 'passkey' &&
+      sameString(record.rpId, lane.auth.rpId) &&
+      sameString(record.credentialIdB64u, lane.auth.credentialIdB64u)
+    );
+  }
+  return lane.auth.kind === 'email_otp' && sameString(record.providerSubjectId, lane.auth.providerSubjectId);
+}
+
+function ed25519RestoreRecordMatchesLaneIdentity(
+  record: Ed25519RestoreRecord,
+  lane: ExactEd25519SigningLaneIdentity,
+): boolean {
+  if (!sameString(record.walletId, lane.walletId)) return false;
+  if (!sameString(record.nearAccountId, lane.nearAccountId)) return false;
+  if (!sameString(record.ed25519KeyScopeId, lane.ed25519KeyScopeId)) return false;
+  if (record.authMethod !== lane.auth.kind) return false;
+  if (record.authMethod === 'passkey') {
+    return (
+      lane.auth.kind === 'passkey' &&
+      sameString(record.rpId, lane.auth.rpId) &&
+      sameString(record.credentialIdB64u, lane.auth.credentialIdB64u)
+    );
+  }
+  return lane.auth.kind === 'email_otp' && sameString(record.providerSubjectId, lane.auth.providerSubjectId);
+}
 
 export type RestoreWorkItemLookupResult =
   | {
@@ -59,7 +120,7 @@ function exactPurposeForAcceptedRecord(
     record.authMethod === 'email_otp' &&
     record.companionEd25519Recovery
   ) {
-    exactRecord = record;
+    exactRecord = record.companionEd25519Recovery;
     thresholdSessionId = record.companionEd25519Recovery.thresholdSessionId;
     signingGrantId = record.signingGrantId;
   } else {
@@ -69,6 +130,65 @@ function exactPurposeForAcceptedRecord(
   if (!exactRecord || !thresholdSessionId || !signingGrantId) return null;
   if (signingGrantId !== input.signingGrantId) return null;
   if (thresholdSessionId !== input.thresholdSessionId) return null;
+  if (input.curve === 'ecdsa') {
+    if (exactRecord.curve !== 'ecdsa') return null;
+    if (!ecdsaRestoreRecordMatchesLaneIdentity(exactRecord, input.materialRestoreIdentity.lane)) {
+      return null;
+    }
+    if (
+      String(exactRecord.ecdsaThresholdKeyId || '').trim() !==
+      String(input.materialRestoreIdentity.ecdsaThresholdKeyId)
+    ) {
+      return null;
+    }
+    if (
+      String(exactRecord.walletId || '').trim() !==
+      String(input.materialRestoreIdentity.lane.walletId)
+    ) {
+      return null;
+    }
+    if (
+      String(exactRecord.keyHandle || '').trim() !==
+      String(input.materialRestoreIdentity.lane.keyHandle)
+    ) {
+      return null;
+    }
+  } else {
+    if (exactRecord.curve !== 'ed25519') return null;
+    if (!ed25519RestoreRecordMatchesLaneIdentity(exactRecord, input.materialRestoreIdentity.lane)) {
+      return null;
+    }
+    if (
+      String(exactRecord.ed25519WorkerMaterialBindingDigest || '').trim() !==
+      String(input.materialRestoreIdentity.materialBindingDigest)
+    ) {
+      return null;
+    }
+    if (
+      String(exactRecord.materialKeyId || '').trim() !==
+      String(input.materialRestoreIdentity.materialKeyId)
+    ) {
+      return null;
+    }
+    if (
+      String(exactRecord.walletId || '').trim() !==
+      String(input.materialRestoreIdentity.lane.walletId)
+    ) {
+      return null;
+    }
+    if (
+      String(exactRecord.nearAccountId || '').trim() !==
+      String(input.materialRestoreIdentity.lane.nearAccountId)
+    ) {
+      return null;
+    }
+    if (
+      String(exactRecord.ed25519KeyScopeId || '').trim() !==
+      String(input.materialRestoreIdentity.lane.ed25519KeyScopeId)
+    ) {
+      return null;
+    }
+  }
   return {
     record: exactRecord,
     purpose:

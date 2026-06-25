@@ -51,7 +51,7 @@ export type ProfileContinuityEcdsaWarmKeyParseResult =
         | 'invalid_chain_target'
         | 'missing_key_handle'
         | 'invalid_key_handle'
-        | 'ambiguous_key_handle';
+        | 'duplicate_key_handles';
       chainTarget?: never;
       walletKey?: never;
       keyHandle?: never;
@@ -88,7 +88,7 @@ function resolveProfileContinuityEcdsaKeyHandle(metadata: Record<string, unknown
   | { kind: 'resolved'; keyHandle: string }
   | {
       kind: 'blocked';
-      reason: 'missing_key_handle' | 'invalid_key_handle' | 'ambiguous_key_handle';
+      reason: 'missing_key_handle' | 'invalid_key_handle' | 'duplicate_key_handles';
     } {
   const directKeyHandle = parseCurrentEcdsaKeyHandle(metadata.keyHandle);
   const sharedKeyHandle = isObject(metadata.sharedEvmFamilyKey)
@@ -104,7 +104,7 @@ function resolveProfileContinuityEcdsaKeyHandle(metadata: Record<string, unknown
     sharedKeyHandle.kind === 'resolved' &&
     directKeyHandle.keyHandle !== sharedKeyHandle.keyHandle
   ) {
-    return { kind: 'blocked', reason: 'ambiguous_key_handle' };
+    return { kind: 'blocked', reason: 'duplicate_key_handles' };
   }
   return { kind: 'resolved', keyHandle: directKeyHandle.keyHandle };
 }

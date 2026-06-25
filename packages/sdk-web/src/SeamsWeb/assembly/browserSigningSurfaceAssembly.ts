@@ -256,10 +256,9 @@ export function createBrowserSigningSurfaceEnginePorts(
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
           touchConfirm: args.touchConfirm,
-          resolveSealTransport: ({ thresholdSessionId, chainTarget }) =>
+          resolveSealTransport: ({ lane }) =>
             args.warmSigning.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
-              thresholdSessionId,
-              chainTarget,
+              lane,
             }),
         },
         provisionArgs,

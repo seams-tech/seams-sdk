@@ -4,13 +4,19 @@ import {
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
 import {
+  toExactEcdsaSigningLaneIdentity,
   thresholdEcdsaLaneCandidateFromSessionRecord,
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdSessionSealTransportAuthMaterial,
 } from '../persistence/records';
 import {
+  exactSigningLaneIdentityMatches,
+  type ExactEcdsaSigningLaneIdentity,
+  type ExactEd25519SigningLaneIdentity,
+  type ExactSigningLaneIdentity,
+} from '../identity/exactSigningLaneIdentity';
+import {
   readWarmSessionCapabilityRecordsForWallet,
-  readWarmSessionEcdsaRecordByThresholdSessionIdForTarget,
   readWarmSessionEcdsaRecordByThresholdSessionId,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from './store';
@@ -63,7 +69,7 @@ export type WarmSessionCapabilityReaderCoreDeps = {
   touchConfirm: WarmSessionReadPorts | null;
   statusReader: Pick<
     WarmSigningStatusReader,
-    'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord'
+    'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord' | 'resolveExactEcdsaRecord'
   >;
   signingSessionSeal: WarmSessionCapabilityReaderSeal;
 };
@@ -83,8 +89,7 @@ export type WarmSessionCapabilityReaderCore = {
     thresholdSessionId: string,
   ) => WarmSessionEcdsaAuthMaterial | null;
   resolveEmailOtpSigningSessionAuthLane: (args: {
-    thresholdSessionId: string;
-    curve: 'ed25519' | 'ecdsa';
+    lane: ExactSigningLaneIdentity;
   }) => EmailOtpAuthLane | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
@@ -92,10 +97,12 @@ export type WarmSessionCapabilityReaderCore = {
   getEcdsaCapabilityByThresholdSessionId: (
     thresholdSessionId: string,
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
+  getEcdsaCapabilityForLane: (
+    lane: ExactEcdsaSigningLaneIdentity,
+  ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   resolveEcdsaSealTransportByThresholdSessionId: (
     args: {
-      thresholdSessionId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
+      lane: ExactEcdsaSigningLaneIdentity;
     },
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 };
@@ -363,14 +370,52 @@ export function createWarmSessionCapabilityReaderCore(
     return record ? resolveEcdsaAuthMaterial(record) : null;
   }
 
+  function ed25519RecordMatchesExactLane(args: {
+    record: WarmSessionEd25519CapabilityState['record'];
+    lane: ExactEd25519SigningLaneIdentity;
+  }): boolean {
+    const record = args.record;
+    const lane = args.lane;
+    if (!record) return false;
+    if (record.source !== 'email_otp') return false;
+    if (lane.auth.kind !== 'email_otp') return false;
+    if (String(record.walletId || '').trim() !== String(lane.walletId)) return false;
+    if (String(record.nearAccountId || '').trim() !== String(lane.nearAccountId)) return false;
+    if (String(record.ed25519KeyScopeId || '').trim() !== String(lane.ed25519KeyScopeId)) {
+      return false;
+    }
+    if (String(record.signingGrantId || '').trim() !== String(lane.signingGrantId)) return false;
+    if (String(record.thresholdSessionId || '').trim() !== String(lane.thresholdSessionId)) {
+      return false;
+    }
+    return (
+      String(record.emailOtpAuthContext?.authSubjectId || '').trim() ===
+      String(lane.auth.providerSubjectId)
+    );
+  }
+
+  function ecdsaRecordMatchesExactLane(args: {
+    record: WarmSessionEcdsaCapabilityState['record'];
+    lane: ExactEcdsaSigningLaneIdentity;
+  }): boolean {
+    if (!args.record) return false;
+    if (args.record.source !== 'email_otp' && args.lane.auth.kind === 'email_otp') return false;
+    try {
+      return exactSigningLaneIdentityMatches(toExactEcdsaSigningLaneIdentity(args.record), args.lane);
+    } catch {
+      return false;
+    }
+  }
+
   function resolveEmailOtpSigningSessionAuthLane(args: {
-    thresholdSessionId: string;
-    curve: 'ed25519' | 'ecdsa';
+    lane: ExactSigningLaneIdentity;
   }): EmailOtpAuthLane | null {
-    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+    const thresholdSessionId = String(args.lane.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return null;
-    if (args.curve === 'ed25519') {
+    if (args.lane.auth.kind !== 'email_otp') return null;
+    if (args.lane.curve === 'ed25519') {
       const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
+      if (!ed25519RecordMatchesExactLane({ record, lane: args.lane })) return null;
       const auth = resolveEd25519AuthMaterial(record);
       const jwt = String(auth?.walletSessionJwt || '').trim();
       const lane = resolveEmailOtpAuthLane({
@@ -379,13 +424,10 @@ export function createWarmSessionCapabilityReaderCore(
         authorizingSigningGrantId: record?.signingGrantId,
         curve: 'ed25519',
       });
-      return record?.source === 'email_otp' &&
-        lane?.kind === 'signing_session' &&
-        lane.curve === 'ed25519'
-        ? lane
-        : null;
+      return lane?.kind === 'signing_session' && lane.curve === 'ed25519' ? lane : null;
     }
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
+    if (!ecdsaRecordMatchesExactLane({ record, lane: args.lane })) return null;
     const auth = resolveEcdsaAuthMaterial(record);
     const jwt = String(auth?.walletSessionJwt || '').trim();
     const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
@@ -395,7 +437,7 @@ export function createWarmSessionCapabilityReaderCore(
       thresholdSessionId: identity.thresholdSessionId,
       authorizingSigningGrantId: identity.signingGrantId,
       curve: 'ecdsa',
-      chainTarget: record.chainTarget,
+      chainTarget: args.lane.chainTarget,
     });
     return lane?.kind === 'signing_session' && lane.curve === 'ecdsa' ? lane : null;
   }
@@ -422,11 +464,25 @@ export function createWarmSessionCapabilityReaderCore(
     return buildEcdsaCapabilityState({ record, auth, prfClaim });
   }
 
+  async function getEcdsaCapabilityForLane(
+    lane: ExactEcdsaSigningLaneIdentity,
+  ): Promise<WarmSessionEcdsaCapabilityState | null> {
+    const exactRecord = deps.statusReader.resolveExactEcdsaRecord({ lane });
+    if (exactRecord.kind !== 'found') return null;
+    const record = exactRecord.record;
+    const auth = resolveEcdsaAuthMaterial(record);
+    const prfClaim = await deps.statusReader.readEcdsaWarmSessionClaimForRecord(record);
+    return buildEcdsaCapabilityState({ record, auth, prfClaim });
+  }
+
   function resolveEcdsaSealTransportByThresholdSessionId(args: {
-    thresholdSessionId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
+    lane: ExactEcdsaSigningLaneIdentity;
   }): ThresholdSessionSealTransportAuthMaterial | null {
-    const record = readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args);
+    const exactRecord = deps.statusReader.resolveExactEcdsaRecord({
+      lane: args.lane,
+    });
+    if (exactRecord.kind !== 'found') return null;
+    const record = exactRecord.record;
     if (!record) return null;
     const auth = resolveEcdsaAuthMaterial(record);
     const fallbackSigningSessionSealKeyVersion =
@@ -458,6 +514,7 @@ export function createWarmSessionCapabilityReaderCore(
     resolveEmailOtpSigningSessionAuthLane,
     getEd25519CapabilityByThresholdSessionId,
     getEcdsaCapabilityByThresholdSessionId,
+    getEcdsaCapabilityForLane,
     resolveEcdsaSealTransportByThresholdSessionId,
   };
 }

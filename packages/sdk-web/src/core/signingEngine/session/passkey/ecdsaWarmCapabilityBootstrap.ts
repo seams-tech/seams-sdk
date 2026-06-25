@@ -148,8 +148,8 @@ export type BootstrapWarmEcdsaCapabilityDeps = {
 
 export type NoPromptWarmSessionDeps = {
   getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
-  restorePersistedSessionsForWallet: NonNullable<
-    DurableSealedSessionPort['restorePersistedSessionsForWallet']
+  discoverPersistedSessionsForWallet: NonNullable<
+    DurableSealedSessionPort['discoverPersistedSessionsForWallet']
   >;
   claimEcdsaPasskeyPrfFirst: (args: NoPromptEcdsaPasskeyPrfFirstClaim) => Promise<string>;
   reconnectWithWalletSessionAuth: (
@@ -218,10 +218,9 @@ function createProvisionThresholdEcdsaSessionDeps(
     queueByWallet: deps.queueByWallet,
     activationDeps: deps.activationDeps,
     touchConfirm: deps.touchConfirm,
-    resolveSealTransport: ({ thresholdSessionId, chainTarget }) =>
+    resolveSealTransport: ({ lane }) =>
       deps.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
-        thresholdSessionId,
-        chainTarget,
+        lane,
       }),
   };
 }
@@ -229,13 +228,13 @@ function createProvisionThresholdEcdsaSessionDeps(
 function createNoPromptWarmSessionDeps(
   deps: BootstrapWarmEcdsaCapabilityDeps,
 ): NoPromptWarmSessionDeps {
-  const restorePersistedSessionsForWallet = deps.touchConfirm.restorePersistedSessionsForWallet;
-  if (typeof restorePersistedSessionsForWallet !== 'function') {
-    throw new Error('[SigningEngine][ecdsa] no-prompt reuse requires durable restore capability');
+  const discoverPersistedSessionsForWallet = deps.touchConfirm.discoverPersistedSessionsForWallet;
+  if (typeof discoverPersistedSessionsForWallet !== 'function') {
+    throw new Error('[SigningEngine][ecdsa] no-prompt reuse requires durable discovery capability');
   }
   return {
     getWarmSession: (walletId) => deps.capabilityReader.getWarmSession(walletId),
-    restorePersistedSessionsForWallet: restorePersistedSessionsForWallet.bind(deps.touchConfirm),
+    discoverPersistedSessionsForWallet: discoverPersistedSessionsForWallet.bind(deps.touchConfirm),
     claimEcdsaPasskeyPrfFirst: (args) =>
       claimWarmSessionPrfFirst({
         touchConfirm: deps.touchConfirm,
@@ -428,15 +427,15 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
     };
   }
   try {
-    await deps.restorePersistedSessionsForWallet({
-      kind: 'restore_wallet_ecdsa_signing_sessions',
+    await deps.discoverPersistedSessionsForWallet({
+      kind: 'discover_wallet_ecdsa_signing_sessions',
       walletId,
       authMethod: 'passkey',
       ecdsaChainTargets: [chainTarget],
       maxRecords: 1,
     });
   } catch (error: unknown) {
-    console.warn('[SigningEngine][ecdsa] reuse warm sealed restore failed', {
+    console.warn('[SigningEngine][ecdsa] reuse warm sealed discovery failed', {
       walletId,
       chainTarget,
       error: error instanceof Error ? error.message : String(error || 'unknown error'),

@@ -20,7 +20,6 @@ import type {
 import { buildRouterAbEd25519WorkerMaterialBinding } from '@/core/signingEngine/threshold/ed25519/workerMaterialBinding';
 import {
   parseEd25519ClientVerifyingShareB64u,
-  parseEd25519HssKeyVersion,
   parseEd25519RelayerKeyId,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import {
@@ -345,7 +344,7 @@ async function restoreRouterAbEd25519SigningMaterial(args: {
     materialKeyId: restored.materialKeyId,
     materialCreatedAtMs: material.materialBinding.createdAtMs,
     signerSlot: restored.signerSlot,
-    keyVersion: restored.keyVersion,
+    keyVersion: args.thresholdKeyMaterial.keyVersion,
   });
   if (!persistedRecord) {
     throw new Error('Router A/B Ed25519 restored worker material persistence failed');
@@ -414,7 +413,6 @@ async function buildExpectedWorkerMaterialBindingForRestore(args: {
     signingRootId: signingRoot.value.signingRootId,
     signingRootVersion: signingRoot.value.signingRootVersion,
     relayerKeyId: parseEd25519RelayerKeyId(args.record.relayerKeyId),
-    ed25519HssKeyVersion: parseEd25519HssKeyVersion(args.record.keyVersion),
     participantIds: args.record.participantIds,
     clientVerifyingShareB64u: parseEd25519ClientVerifyingShareB64u(
       args.record.clientVerifyingShareB64u,
@@ -441,12 +439,6 @@ async function buildExpectedWorkerMaterialBindingForRestore(args: {
     material.materialBinding.relayerKeyId
   ) {
     throw new Error('Router A/B Ed25519 sealed material relayer key mismatch');
-  }
-  if (
-    String(args.thresholdKeyMaterial.keyVersion || '').trim() !==
-    material.materialBinding.keyVersion
-  ) {
-    throw new Error('Router A/B Ed25519 sealed material key version mismatch');
   }
   return material;
 }

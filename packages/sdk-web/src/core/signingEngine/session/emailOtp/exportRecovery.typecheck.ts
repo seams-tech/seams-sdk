@@ -29,12 +29,28 @@ const authorizedExport: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   relayUrl: 'https://relay.example',
   routePlan,
   record,
-  rpId: 'localhost',
   shamirPrimeB64u: 'prime',
   keyHandle: 'ehss-key-handle-1',
   roleLocalMaterial,
 };
 void authorizedExport;
+
+const authorizedExportWithRpId: EmailOtpEcdsaAuthorizedExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'authorized_signing_session',
+  walletSession,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  record,
+  // @ts-expect-error authorized ECDSA export is wallet-key/session scoped, not RP-scoped.
+  rpId: 'localhost',
+  shamirPrimeB64u: 'prime',
+  keyHandle: 'ehss-key-handle-1',
+  roleLocalMaterial,
+};
+void authorizedExportWithRpId;
 
 // @ts-expect-error authorized ECDSA export requires role-local material.
 const authorizedExportWithoutRoleLocalMaterial: EmailOtpEcdsaAuthorizedExportStepUpInput = {
@@ -46,7 +62,6 @@ const authorizedExportWithoutRoleLocalMaterial: EmailOtpEcdsaAuthorizedExportSte
   relayUrl: 'https://relay.example',
   routePlan,
   record,
-  rpId: 'localhost',
   shamirPrimeB64u: 'prime',
   keyHandle: 'ehss-key-handle-1',
 };

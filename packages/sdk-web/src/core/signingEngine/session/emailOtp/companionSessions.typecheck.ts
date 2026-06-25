@@ -46,7 +46,7 @@ function assertNeverEmailOtpEcdsaRecordSelection(
 
 switch (selectionResult.kind) {
   case 'exact_match':
-  case 'ambiguous':
+  case 'duplicate_records':
   case 'not_found':
   case 'display_only_fallback':
     break;

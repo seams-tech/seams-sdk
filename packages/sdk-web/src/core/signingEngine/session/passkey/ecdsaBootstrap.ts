@@ -1,6 +1,5 @@
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { RouterAbNormalSigningConfig } from '@/core/types/seams';
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
 import type {
@@ -61,7 +60,7 @@ type EcdsaBootstrapRequestCommon = {
 };
 
 type EcdsaBootstrapTargetIdentity = {
-  walletId: AccountId | string;
+  walletId: WalletId | string;
   subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   key?: never;
@@ -253,7 +252,7 @@ export type WalletSessionActivationDeps = {
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   routerAbNormalSigning: RouterAbNormalSigningConfig;
   getOrCreateActiveThresholdEcdsaSessionId: (
-    walletId: AccountId,
+    walletId: WalletId,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => string;
   defaultRelayerUrl: string;
@@ -322,7 +321,7 @@ function hasExactEcdsaBootstrapIdentity(
   );
 }
 
-export function ecdsaBootstrapWalletId(request: EcdsaBootstrapRequest): AccountId | string {
+export function ecdsaBootstrapWalletId(request: EcdsaBootstrapRequest): WalletId | string {
   return hasExactEcdsaBootstrapIdentity(request) ? request.key.walletId : request.walletId;
 }
 
@@ -403,7 +402,7 @@ function toActivateEcdsaSessionRequest(
   relayerUrl: string,
 ): ActivateEcdsaSessionRequest {
   const registrationBase = (
-    targetRequest: Extract<EcdsaBootstrapRequest, { walletId: AccountId | string }>,
+    targetRequest: Extract<EcdsaBootstrapRequest, { walletId: WalletId | string }>,
   ) => {
     const sessionPlan =
       'sessionIdentity' in targetRequest && targetRequest.sessionIdentity
@@ -600,7 +599,7 @@ export async function bootstrapEcdsaSessionValue(
     workerCtx: signerWorkerCtx,
     routerAbNormalSigning: deps.routerAbNormalSigning,
     getOrCreateActiveThresholdEcdsaSessionId: (
-      activeWalletId: AccountId,
+      activeWalletId: WalletId,
       target: ThresholdEcdsaChainTarget,
     ) => deps.getOrCreateActiveThresholdEcdsaSessionId(activeWalletId, target),
   };
