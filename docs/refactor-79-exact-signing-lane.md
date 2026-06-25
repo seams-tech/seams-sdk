@@ -2,7 +2,8 @@
 
 Date created: June 22, 2026
 
-Status: planned
+Status: implemented and audited for exact signing-lane authority. Phase 12 is
+non-blocking cleanup for temporary projections, aliases, and small type sidecars.
 
 Related plans:
 
@@ -97,40 +98,44 @@ type EvmFamilyEcdsaKeyIdentity = {
   rpId?: never;
 };
 
-type ExactSigningLaneIdentity =
-  | ExactEd25519SigningLaneIdentity
-  | ExactEcdsaSigningLaneIdentity;
-
-type ExactEd25519SigningLaneIdentity = {
-  kind: 'exact_ed25519_signing_lane_identity';
-  curve: 'ed25519';
-  chainFamily: 'near';
-  walletId: WalletId;
-  nearAccountId: NamedNearAccountId | ImplicitNearAccountId;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
-  auth: SigningLaneAuthBinding;
-  signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdEd25519SessionId;
+type NearEd25519SignerBinding = {
+  kind: 'near_ed25519_signer';
+  account: NearAccountBinding;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
 };
 
-type ExactEcdsaSigningLaneIdentity = {
-  kind: 'exact_ecdsa_signing_lane_identity';
-  curve: 'ecdsa';
-  chainFamily: ThresholdEcdsaChainTarget['kind'];
+type EvmFamilyEcdsaSignerBinding = {
+  kind: 'evm_family_ecdsa_signer';
   walletId: WalletId;
-  auth: SigningLaneAuthBinding;
-  signingGrantId: SigningGrantId;
-  thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
 };
+
+type ExactSigningLaneIdentity =
+  | {
+      kind: 'exact_signing_lane';
+      signer: NearEd25519SignerBinding;
+      auth: SigningLaneAuthBinding;
+      signingGrantId: SigningGrantId;
+      thresholdSessionId: ThresholdEd25519SessionId;
+    }
+  | {
+      kind: 'exact_signing_lane';
+      signer: EvmFamilyEcdsaSignerBinding;
+      auth: SigningLaneAuthBinding;
+      signingGrantId: SigningGrantId;
+      thresholdSessionId: ThresholdEcdsaSessionId;
+    };
 ```
 
 `authMethod` is derived from `auth.kind` for display, analytics, and compatibility
 payloads. Authority keys use `auth`. `EvmFamilyEcdsaKeyFingerprint` is a
 diagnostic summary field. Authority reads use the full ECDSA key identity plus
-`keyHandle`.
+`keyHandle`. Generic code switches on `identity.signer.kind`; branch-specific
+code receives the narrowed signer binding rather than a flat bag of NEAR or ECDSA
+fields.
 
 Boundary lookup result:
 
@@ -158,6 +163,8 @@ Use one public vocabulary for lane identity:
 | `WalletId` | Durable wallet/profile id from `@shared/utils/domainIds` | yes |
 | `WalletKeyId` | Durable wallet key id from `@shared/signing-lanes` | yes for ECDSA key identity |
 | `nearAccountId` | Protocol NEAR account id, named or implicit | yes for Ed25519 |
+| `NearEd25519SignerBinding` | Branch-specific NEAR Ed25519 signer identity from Refactor 78 plus the Refactor 77 signing-key id rename | yes |
+| `EvmFamilyEcdsaSignerBinding` | Branch-specific EVM-family ECDSA signer identity | yes |
 | `SigningLaneAuthBinding` | Branch-specific holder principal for passkey or Email OTP | yes |
 | `SelectedLane` | User/session selected lane without planning fields | yes only after exact identity is built |
 | `ExactSigningLaneIdentity` | Canonical signing/export/restore/budget identity | yes |
@@ -168,6 +175,10 @@ Use one public vocabulary for lane identity:
 Cleanup rules:
 
 - `ExactSigningLaneIdentity` is the only public exact-lane authority type.
+- `ExactSigningLaneIdentity` keeps branch-specific protocol/key fields under
+  `signer`. Do not put `nearAccountId`, `nearEd25519SigningKeyId`, `chainTarget`,
+  `keyHandle`, or ECDSA `key` at the exact-lane root.
+- Exhaustive branch logic switches on `identity.signer.kind`.
 - `SelectedSigningLaneIdentity`, `ResolvedSigningSessionIdentity`, and
   `EcdsaSessionIdentity` may remain as private projections only when the name
   includes the narrower scope.
@@ -365,7 +376,7 @@ packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentit
 Tasks:
 
 - update `ExactEd25519SigningLaneIdentity` to carry `walletId`,
-  `nearAccountId`, and `ed25519KeyScopeId`;
+  `nearAccountId`, and `nearEd25519SigningKeyId`;
 - update `ExactEcdsaSigningLaneIdentity` to use `WalletId`, require
   `keyHandle`, and keep full `EvmFamilyEcdsaKeyIdentity`;
 - update `EvmFamilyEcdsaKeyIdentity` so it carries `walletKeyId` and rejects
@@ -413,7 +424,7 @@ Fixtures should reject:
 - missing `thresholdSessionId`;
 - missing Ed25519 `walletId`;
 - missing Ed25519 `nearAccountId`;
-- missing Ed25519 `ed25519KeyScopeId`;
+- missing Ed25519 `nearEd25519SigningKeyId`;
 - exact identity with `authMethod` as the only auth field;
 - passkey auth binding without `rpId`;
 - Email OTP auth binding with `rpId`;
@@ -451,7 +462,7 @@ The lookup must:
 - reject ECDSA record matches where `keyHandle` matches but full key identity
   facts differ;
 - reject Ed25519 records where `walletId`, `nearAccountId`, or
-  `ed25519KeyScopeId` differ.
+  `nearEd25519SigningKeyId` differ.
 
 Existing broad reads become boundary-only:
 
@@ -494,7 +505,7 @@ Strengthen `upsert*` paths so authority records cannot accumulate silently.
 Ed25519:
 
 - canonical lane key includes `walletId`, `nearAccountId`,
-  `ed25519KeyScopeId`, auth binding, signing grant, threshold session, and
+  `nearEd25519SigningKeyId`, auth binding, signing grant, threshold session, and
   curve;
 - material-bearing records include material binding digest in the durable
   restore identity when available;
@@ -852,7 +863,7 @@ The SDK builds `application_binding_digest` from the SDK facts it wants to bind:
 
 ```ts
 type SdkEd25519HssBindingFacts = {
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
 };
@@ -881,15 +892,15 @@ Rules:
   bindings, tests, docs, and fixtures;
 - remove `account_id`, `accountId`, and `nearAccountId` from Ed25519-HSS
   derivation inputs and context encoding;
-- remove `ed25519_key_scope_id`, `ed25519KeyScopeId`, `signing_root_id`,
+- remove `near_ed25519_signing_key_id`, `nearEd25519SigningKeyId`, `signing_root_id`,
   `signingRootId`, `signing_root_version`, and `signingRootVersion` from the
   Ed25519-HSS crate context and generated HSS command shapes;
 - introduce one SDK-owned digest builder for Ed25519-HSS binding facts. It
-  currently binds `ed25519KeyScopeId`, `signingRootId`, and
+  currently binds `nearEd25519SigningKeyId`, `signingRootId`, and
   `signingRootVersion`. Future SDK facts must be added to that builder rather
   than to the HSS crate context;
 - remove `nearAccountId`, `accountId`, `keyPurpose`, `keyVersion`,
-  `ed25519KeyScopeId`, `signingRootId`, and `signingRootVersion` from Seams SDK
+  `nearEd25519SigningKeyId`, `signingRootId`, and `signingRootVersion` from Seams SDK
   request/result/worker/port types when those fields exist only to construct an
   Ed25519-HSS context;
 - keep raw SDK binding facts in exact lane identity, wallet/account binding
@@ -962,7 +973,7 @@ Cleanup task list:
    - keep `nearAccountId` where it represents the final NEAR account in exact
      lane identity, NEAR transaction signer checks, readiness, export display,
      wallet/account binding records, and audit logs;
-   - keep `ed25519KeyScopeId`, `signingRootId`, and `signingRootVersion` where
+   - keep `nearEd25519SigningKeyId`, `signingRootId`, and `signingRootVersion` where
      they are SDK authority facts or digest-builder input;
    - remove or rename `keyVersion` in Ed25519 worker material records. If it
      means HSS protocol version, delete it. If it means sealed-material or
@@ -997,7 +1008,7 @@ Primary grep commands:
 ```bash
 rg -n "Ed25519Hss|ed25519_hss|threshold_ed25519_hss|deriveThresholdEd25519Hss|prepareThresholdEd25519Hss|runThresholdEd25519Hss|ThresholdEd25519Hss|threshold_prf_derive_ed25519_hss|deriveEd25519HssServerInputs|ed25519Hss" crates/signer-core wasm packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
 rg -n "keyPurpose|key_purpose|keyVersion|key_version" crates/signer-core/src/near_ed25519_recovery.rs crates/signer-core/src/commands/ed25519_worker_material.rs wasm/threshold_prf wasm/hss_client_signer packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
-rg -n "applicationBindingDigest|application_binding_digest|nearAccountId|account_id|accountId|ed25519KeyScopeId|signingRootId|signing_root_id|signingRootVersion|signing_root_version" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
+rg -n "applicationBindingDigest|application_binding_digest|nearAccountId|account_id|accountId|nearEd25519SigningKeyId|signingRootId|signing_root_id|signingRootVersion|signing_root_version" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests
 ```
 
 Rust/signer-core and WASM HSS context:
@@ -1116,7 +1127,7 @@ tests/helpers/thresholdEd25519TestUtils.ts
 
 Tests and guards:
 
-- SDK Ed25519-HSS binding digest changes when `ed25519KeyScopeId`,
+- SDK Ed25519-HSS binding digest changes when `nearEd25519SigningKeyId`,
   `signingRootId`, or `signingRootVersion` changes;
 - Ed25519-HSS context binding changes when `applicationBindingDigest` or
   `participantIds` changes;
@@ -1125,7 +1136,7 @@ Tests and guards:
 - passkey and Email OTP Ed25519 registration/add-signer/recovery produce
   matching client/server HSS context bindings with only the slim fields;
 - source guards reject `account_id`, `accountId`, `nearAccountId`,
-  `ed25519_key_scope_id`, `ed25519KeyScopeId`, `signing_root_id`,
+  `near_ed25519_signing_key_id`, `nearEd25519SigningKeyId`, `signing_root_id`,
   `signingRootId`, `signing_root_version`, `signingRootVersion`,
   `key_purpose`, `keyPurpose`, `key_version`, and `keyVersion` inside
   Ed25519-HSS crate derivation-context files and generated HSS command types;
@@ -1357,7 +1368,7 @@ Target:
 - signing material selection does not read broad records by threshold session.
 - payloads that touch signing material include `walletId`, auth binding, curve,
   signing grant id, threshold session id, and branch-specific fields;
-- Ed25519 payloads include `nearAccountId` and `ed25519KeyScopeId`;
+- Ed25519 payloads include `nearAccountId` and `nearEd25519SigningKeyId`;
 - ECDSA payloads include `chainTarget`, `keyHandle`, and full key identity or a
   boundary-parsed key identity reference;
 - Email OTP app-session JWT cache remains wallet-scoped only if the JWT is
@@ -1469,14 +1480,425 @@ Browser evidence after implementation:
   lane present;
 - Email OTP signing/export after JWT refresh rejection.
 
+## Phase 11: Collapse Exact Lane Identity Around Signer Bindings
+
+Phases 1 through 10 made exact identity mandatory and removed broad selectors.
+The remaining modeling cleanup is to make NEAR Ed25519 and EVM-family ECDSA look
+the same at the exact-lane abstraction layer:
+
+```ts
+type ExactSigningLaneIdentity =
+  | {
+      kind: 'exact_signing_lane';
+      signer: NearEd25519SignerBinding;
+      auth: SigningLaneAuthBinding;
+      signingGrantId: SigningGrantId;
+      thresholdSessionId: ThresholdEd25519SessionId;
+    }
+  | {
+      kind: 'exact_signing_lane';
+      signer: EvmFamilyEcdsaSignerBinding;
+      auth: SigningLaneAuthBinding;
+      signingGrantId: SigningGrantId;
+      thresholdSessionId: ThresholdEcdsaSessionId;
+    };
+```
+
+This belongs in Refactor 79 because it changes the canonical exact signing lane.
+Refactor 78 owns the capability/signer binding model that this phase consumes.
+Refactor 77 Phase 8 owns the `ed25519KeyScopeId` to
+`nearEd25519SigningKeyId` rename used by `NearEd25519SignerBinding`.
+
+Target rules:
+
+- `ExactSigningLaneIdentity` has one public root shape:
+  `kind`, `signer`, `auth`, `signingGrantId`, and `thresholdSessionId`.
+- Branch-specific protocol and key identity live under `signer`.
+- Generic signing/export/restore/budget code switches on `identity.signer.kind`.
+- NEAR code narrows to `NearEd25519SignerBinding` before reading
+  `nearAccountId` or `nearEd25519SigningKeyId`.
+- EVM-family code narrows to `EvmFamilyEcdsaSignerBinding` before reading
+  `chainTarget`, `keyHandle`, or full ECDSA key identity.
+- Exact-lane keys and fingerprints include `signer.kind` plus all
+  branch-specific signer facts.
+- The exact-lane root never carries `walletId`, `nearAccountId`,
+  `nearEd25519SigningKeyId`, `chainTarget`, `keyHandle`, or ECDSA `key`.
+- Selected lanes, planning lanes, prepared operations, spend plans, readiness
+  records, and operation-state records carry `identity: ExactSigningLaneIdentity`
+  as the authority field. Runtime facts such as source, retention, readiness,
+  material handles, nonce state, UI state, and policy projections stay beside
+  `identity`.
+- Selected/planning lane objects may expose branch-specific projection helpers
+  only for display, wire serialization, or protocol execution after the exact
+  identity has already been selected. Those projections are not authority
+  inputs and must not be used to rebuild a different exact identity in core
+  code.
+- IndexedDB rows and threshold-session stores persist the same branch facts
+  directly. Core code must rebuild `ExactSigningLaneIdentity` from normalized
+  storage rows, not from fallback chains or metadata coercions.
+- Obsolete persisted field names, such as `ed25519KeyScopeId`, are accepted only
+  in named request/persistence boundary parsers or schema-upgrade code. The
+  normalized internal record shape uses `nearEd25519SigningKeyId`.
+- If TypeScript does not narrow cleanly through `identity.signer.kind`, add
+  standalone branch-specific parser/guard helpers and type fixtures. Do not
+  duplicate branch fields at the exact-lane root.
+
+Tasks:
+
+- [x] Add or move `NearEd25519SignerBinding` into the Refactor 78 capability
+      binding surface and keep it as the single NEAR Ed25519 signer object.
+- [x] Add `EvmFamilyEcdsaSignerBinding` beside the canonical exact-lane types, or
+      in a shared signing-lane module if its dependencies can live there cleanly.
+- [x] Update `exactSigningLaneIdentity.ts` so `ExactSigningLaneIdentity` uses the
+      nested `signer` shape above.
+- [x] Replace `ExactEd25519SigningLaneIdentity` and
+      `ExactEcdsaSigningLaneIdentity` root-field usage with branch aliases that
+      still use the nested `signer` shape, or delete the aliases if callers can
+      consume `ExactSigningLaneIdentity` directly.
+- [x] Update exact-lane builders to build the branch signer first, then wrap it
+      with `auth`, `signingGrantId`, and `thresholdSessionId`.
+- [x] Update selected lanes, planning lanes, and spend plans so core authority
+      flows carry `identity: ExactSigningLaneIdentity` instead of rebuilding
+      exact identity from repeated flat branch fields.
+- [ ] Continue readiness-record and operation-state projection cleanup so
+      non-authority runtime records consume selected/planning lane `identity`
+      instead of accepting their own flat branch authority fields.
+- [x] Update exact-lane boundary parsers for public API, iframe, UiConfirm,
+      restore, export, warm-session, and persistence payloads to parse raw
+      branch fields into `signer` once at the boundary.
+- [x] Bump `SEAMS_WALLET_DB_VERSION` when IndexedDB row mirrors or indexes
+      change.
+- [x] Update the `wallet_signers` store schema so NEAR Ed25519 signers mirror
+      `near_ed25519_signing_key_id` as a first-class scalar row field.
+- [x] Add a wallet/kind/NEAR-signing-key index, such as
+      `['wallet_id', 'kind', 'near_ed25519_signing_key_id']`, for exact NEAR
+      signer lookup. Keep `near_signer_slot` because slot and signing-key id are
+      different identities.
+- [x] Update wallet-signer repository row builders/parsers so
+      `threshold-ed25519` signer records require `nearEd25519SigningKeyId` in
+      normalized metadata and mirror it into `near_ed25519_signing_key_id`.
+- [x] Rename persisted `ed25519KeyScopeId` fields to
+      `nearEd25519SigningKeyId` in `AccountSignerRecord.metadata`,
+      `KeyMaterialRecord.payload`, `ThresholdEd25519SessionRecord`, warm
+      capability records, sealed-restore records, app-session/JWT-derived cached
+      records, and public/iframe persistence payloads.
+- [x] Update `signing_session_seals` Ed25519 restore metadata from
+      `ed25519Restore.ed25519KeyScopeId` to
+      `ed25519Restore.nearEd25519SigningKeyId`.
+- [x] Recompute persisted `exact_signing_lane_identity_key` values from the
+      nested `signer` shape. Do not read an old key and reinterpret it as the new
+      authority key.
+- [x] Update key-material write/read paths so NEAR Ed25519 threshold material
+      carries `nearEd25519SigningKeyId` and validates it against the normalized
+      wallet signer record before use.
+- [x] Update last-profile/session restore state so selected wallet state is
+      wallet-id based. Do not restore current wallet state by hidden NEAR profile
+      id or final `nearAccountId`.
+- [x] Update NEAR nonce lease storage so the NEAR branch has required `walletId`
+      and a protocol account field named `nearAccountId`; avoid optional wallet
+      identity in nonce authority records.
+- [x] Update exact-lane canonical key builders, equality checks, duplicate
+      summaries, budget keys, sealed-restore keys, and readiness keys to read
+      branch fields from `identity.signer`.
+- [x] Update NEAR signing, NEP-413, delegate signing, export, restore, and budget
+      paths to accept the nested exact lane shape.
+- [x] Update EVM-family signing, Tempo signing, ECDSA export, restore, reconnect,
+      and warm-capability paths to accept the nested exact lane shape.
+- [x] Remove flat exact-lane root fields from core fixtures and tests.
+- [x] Add source guards that reject flat exact-lane root construction outside
+      named boundary parsers and type fixtures.
+- [x] Add type fixtures rejecting direct object literals with root
+      `nearAccountId`, `nearEd25519SigningKeyId`, `chainTarget`, `keyHandle`, or
+      `key` on `ExactSigningLaneIdentity`.
+- [x] Add type fixtures proving exhaustive switches over `identity.signer.kind`
+      narrow the threshold-session id to the correct branch.
+- [ ] Add IndexedDB repository tests for wallet signer rows, key-material rows,
+      sealed session rows, nonce leases, and last-profile state using an implicit
+      fixture where `walletId !== nearAccountId !== nearEd25519SigningKeyId`.
+- [x] Add source guards rejecting fallback/coercion patterns such as
+      `ed25519KeyScopeId ?? nearEd25519SigningKeyId`,
+      `nearEd25519SigningKeyId ?? ed25519KeyScopeId`,
+      `nearEd25519SigningKeyId: nearAccountId`, and deriving the signing-key id
+      from `walletId` or `nearAccountId` outside named allocation/parsing
+      helpers.
+- [x] Add storage parser tests proving obsolete persisted `ed25519KeyScopeId`
+      shapes are either upgraded at the boundary into
+      `nearEd25519SigningKeyId` or rejected with a typed persistence error.
+- [ ] Update docs/refactor-78-wallet-capability-bindings.md to reference this
+      phase as the consumer of its signer binding model, without duplicating the
+      exact-lane implementation plan there.
+
+Storage inventory to update:
+
+```text
+packages/sdk-web/src/core/indexedDB/schemaNames.ts
+packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema.ts
+packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts
+packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts
+packages/sdk-web/src/core/indexedDB/accountSignerLifecycle.ts
+packages/sdk-web/src/core/indexedDB/accountKeyMaterial.ts
+packages/sdk-web/src/core/indexedDB/keyMaterial.types.ts
+packages/sdk-web/src/core/indexedDB/lastProfileState.ts
+packages/sdk-web/src/core/indexedDB/nonceLaneCoordinationStore.ts
+packages/sdk-web/src/core/signingEngine/session/persistence/records.ts
+packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts
+packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/store.ts
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts
+```
+
+Acceptance:
+
+- `ExactSigningLaneIdentity` exposes branch-specific protocol/key facts only
+  under `signer`.
+- `NearEd25519SignerBinding` carries `NearAccountBinding` and
+  `nearEd25519SigningKeyId`; no exact-lane root field carries those values.
+- `EvmFamilyEcdsaSignerBinding` carries wallet/key/chain target identity; no
+  exact-lane root field carries those values.
+- Generic exact-lane code has a single branch switch on `identity.signer.kind`.
+- All boundary payloads with flat wire fields are parsed once into the nested
+  shape before reaching core logic.
+- IndexedDB wallet signer, key-material, threshold-session, sealed-restore,
+  nonce-lease, and last-session state records use the new field names and branch
+  facts directly after parsing or schema upgrade.
+- No core storage reader derives `nearEd25519SigningKeyId` from `nearAccountId`,
+  `walletId`, `signerSlot`, or `exact_signing_lane_identity_key`.
+- Existing obsolete persisted shapes are handled only by named boundary
+  parsers/schema-upgrade code, with tests proving normalized records contain no
+  `nearEd25519SigningKeyId`.
+- Source guards fail on new flat exact-lane root fields in authority-bearing code.
+- Split-identity fixtures still prove implicit `walletId !== nearAccountId` and
+  ECDSA wallet keys never require passkey `rpId`.
+
+## Phase 12: Delete Projection And Alias Debt After Exact Identity Cutover
+
+Phase 11 made `ExactSigningLaneIdentity` the authority object. The remaining
+cleanup is to delete the duplicate fields and aliases that were kept as
+temporary projections while call sites migrated. This phase should reduce code
+surface without weakening exact-lane validation.
+
+Principles:
+
+- `identity` is the only authority field on selected lanes, planning lanes,
+  spend plans, restore requests, reconnect requests, budget requests, and warm
+  capability inputs.
+- Branch-specific signer facts are read from `identity.signer` after narrowing
+  by `identity.signer.kind`.
+- Flat branch facts are allowed only in named projection helpers for display,
+  diagnostics, boundary serialization, or protocol execution after an exact lane
+  has already been selected.
+- ECDSA wallet/session records use `walletId` for wallet identity. The alias
+  `walletSessionUserId` is accepted only at raw request/JWT/persistence
+  boundaries that still need to parse old wire shapes, then normalized
+  immediately.
+- Safety code stays. Boundary parsers, source guards, duplicate-record checks,
+  and exact identity builders are not cleanup targets.
+
+### 12.1 Remove Flat Signer Projections From Selected Lanes
+
+Current temporary shape:
+
+```ts
+type SelectedEcdsaLane = {
+  identity: ExactEcdsaSigningLaneIdentity;
+  walletId: WalletId;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+```
+
+Target shape:
+
+```ts
+type SelectedEcdsaLane = {
+  kind: 'selected_lane';
+  identity: ExactEcdsaSigningLaneIdentity;
+  auth: SigningLaneAuthBinding;
+  curve: 'ecdsa';
+  chain: 'evm' | 'tempo';
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+};
+```
+
+Tasks:
+
+- [ ] Remove `walletId`, `nearAccountId`, `nearEd25519SigningKeyId`, and
+      `signerSlot` from `SelectedEd25519Lane`.
+- [ ] Remove `walletId`, `key`, `keyHandle`, and `chainTarget` from
+      `SelectedEcdsaLane`.
+- [ ] Add projection helpers with names that make their non-authority role
+      explicit, for example:
+      `nearProtocolProjectionFromExactLane(identity)`,
+      `evmFamilyProtocolProjectionFromExactLane(identity)`, and
+      `displaySummaryFromExactLane(identity)`.
+- [ ] Update NEAR signing, NEP-413, delegate signing, EVM signing, Tempo
+      signing, export, restore, reconnect, budget, and post-sign policy code to
+      read signer facts through the projection helpers or through direct
+      `identity.signer` narrowing.
+- [ ] Delete tests that create stale flat projections to prove authority ignores
+      them after the flat fields are removed. Replace them with type fixtures
+      proving those fields cannot be present on selected lanes.
+
+Acceptance:
+
+- `SelectedEd25519Lane` and `SelectedEcdsaLane` cannot carry stale signer facts.
+- No authority-bearing file reads `lane.walletId`, `lane.nearAccountId`,
+  `lane.nearEd25519SigningKeyId`, `lane.signerSlot`, `lane.key`,
+  `lane.keyHandle`, or `lane.chainTarget`.
+- Source guards allow those names only inside projection helpers, diagnostics,
+  display inventory, protocol serialization, and boundary parsers.
+
+### 12.2 Remove Flat Signer Projections From Planning And Spend State
+
+Planning lanes currently carry `identity` plus repeated branch fields. That
+keeps the same invalid state representable at a higher level.
+
+Tasks:
+
+- [ ] Remove repeated Ed25519 signer fields from
+      `Ed25519SigningSessionPlanningLane`.
+- [ ] Remove repeated ECDSA signer fields from
+      `EcdsaSigningSessionPlanningLane`.
+- [ ] Keep lifecycle/runtime fields beside identity only when they are not
+      signer identity: `runtimeState`, `backingMaterialSessionId`,
+      `activeSignerSlot`, `sessionOrigin`, `storageSource`, `retention`,
+      `operationId`, and `operationFingerprint`.
+- [ ] Update `SelectedSigningSessionPlanningLane`,
+      `WalletSigningSpendPlan`, `SigningPlanSummary`, tracing, budget finalizer,
+      readiness, and transaction-state code to use the exact identity.
+- [ ] Replace branch-specific summary construction with one identity-derived
+      summary path.
+
+Acceptance:
+
+- Planning and spend state cannot disagree with `identity.signer`.
+- `summarizeSigningLane()` and budget traces derive signer facts from
+  `identity.signer`.
+- Operation-state type fixtures reject planning lanes with root-level
+  `walletId`, `nearAccountId`, `nearEd25519SigningKeyId`, `key`, `keyHandle`,
+  or `chainTarget`.
+
+### 12.3 Collapse ECDSA `walletSessionUserId` To `walletId`
+
+`walletSessionUserId` is still present in ECDSA wallet/session records as an
+alias for wallet identity. It increases the chance of reintroducing the old
+account-id collapse under a new name.
+
+Tasks:
+
+- [ ] Rename ECDSA server wallet-session and MPC-session record fields from
+      `walletSessionUserId` to `walletId`.
+- [ ] Delete duplicated `walletId: walletSessionUserId` writes in ECDSA session
+      minting and budget-session setup.
+- [ ] Keep Email OTP holder identity as a separate `authSubjectId` or
+      `providerSubjectId` field where needed. Do not reuse `walletId` for
+      provider identity.
+- [ ] Update Router A/B ECDSA-HSS pool fill, budget status, session stores,
+      validation, test helpers, and fixtures to use `walletId`.
+- [ ] If existing raw requests, JWT claims, or persisted rows still contain
+      `walletSessionUserId`, parse it only in named boundary functions and
+      return normalized records that contain `walletId` only.
+
+Acceptance:
+
+- Normalized ECDSA wallet-session, MPC-session, and budget-session records do
+  not contain `walletSessionUserId`.
+- `walletSessionUserId` appears only in boundary parser tests or explicit raw
+  compatibility parsing code.
+- Source guards reject `walletSessionUserId` in ECDSA authority records outside
+  those boundaries.
+
+### 12.4 Deduplicate Diagnostic Summary Helpers
+
+Several ECDSA paths have local summary helpers that read lane projections. After
+12.1 and 12.2, summaries should read exact identity once.
+
+Tasks:
+
+- [ ] Replace local ECDSA lane summary helpers with a shared
+      `summarizeExactSigningLaneIdentity()` or branch-specific helpers backed by
+      `identity.signer`.
+- [ ] Keep per-flow diagnostics as small object spreads around the shared
+      summary when they need source, retention, readiness, or error context.
+- [ ] Remove duplicate candidate-summary code that exists only because flat lane
+      projections were available.
+
+Acceptance:
+
+- ECDSA diagnostics no longer read authority fields from selected/planning lane
+  projections.
+- Summary helpers expose public identity only and never JWTs, sealed material,
+  PRF outputs, private shares, or worker state blobs.
+
+### 12.5 Merge Tiny Confirmation Config Type Sidecar
+
+The confirmation config normalized union is small and has one implementation
+module. Keeping a separate type-only file adds import churn without improving
+the domain model.
+
+Tasks:
+
+- [ ] Move `NormalizedConfirmationConfig` and related branch types from
+      `confirmationConfig.types.ts` into `confirmationConfig.ts`.
+- [ ] Update imports to use `@/core/types/confirmationConfig`.
+- [ ] Delete `confirmationConfig.types.ts`.
+- [ ] Keep the discriminated union shape and type fixtures.
+
+Acceptance:
+
+- Confirmation config still models `silent`, `interactive`, and `auto_proceed`
+  as a discriminated union.
+- `uiMode: 'none'` remains valid silent behavior, including when raw input also
+  carries `behavior: 'requireClick'`; normalization still returns
+  `{ kind: 'silent', uiMode: 'none' }`.
+- No call site imports `confirmationConfig.types.ts`.
+
+### 12.6 Guards And Validation
+
+Add source guards after each cleanup step so these deleted states do not return.
+
+Guard inventory:
+
+```text
+packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts
+packages/sdk-web/src/core/signingEngine/session/operationState/types.ts
+packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts
+packages/sdk-web/src/core/signingEngine/session/budget/budget.ts
+packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts
+packages/sdk-web/src/core/signingEngine/session/warmCapabilities/*
+packages/sdk-web/src/core/signingEngine/flows/signNear/*
+packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/*
+packages/sdk-web/src/core/signingEngine/flows/recovery/*
+packages/sdk-server-ts/src/core/ThresholdService/*
+```
+
+Validation:
+
+```text
+pnpm -C packages/sdk-web -s type-check
+pnpm -C packages/sdk-server-ts -s type-check
+pnpm -C tests exec playwright test --reporter=line unit/refactor79ExactSigningLane.guard.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/ecdsaMaterialState.unit.test.ts unit/evmFamilyBudgetSpending.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/nearSigning.sessionSelection.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts
+pnpm -C tests exec playwright test --reporter=line unit/confirmationConfig.normalization.unit.test.ts
+git diff --check
+```
+
 ## Done Criteria
 
 - Core signing/export/restore/budget functions accept exact lane identity.
 - `ExactSigningLaneIdentity` is the only public exact-lane authority type.
-- Exact Ed25519 identity separates `walletId`, `nearAccountId`, and
-  `ed25519KeyScopeId`.
-- Exact ECDSA identity uses `WalletId`, `keyHandle`, `WalletKeyId`, and full key
-  identity without `rpId`.
+- `ExactSigningLaneIdentity` exposes branch-specific protocol/key facts only
+  through `signer`.
+- `NearEd25519SignerBinding` separates wallet/account identity and
+  `nearEd25519SigningKeyId`.
+- `EvmFamilyEcdsaSignerBinding` uses `WalletId`, `keyHandle`, `WalletKeyId`, and
+  full key identity without `rpId`.
+- IndexedDB row mirrors, indexes, and normalized record payloads use
+  `nearEd25519SigningKeyId` directly for NEAR Ed25519 signer identity.
 - ECDSA-HSS stable context contains only `application_binding_digest`; SDK
   wallet, threshold-key, signing-root, chain-target, auth, caller-provided key
   purpose, and caller-provided key version facts are absent from HSS crate
@@ -1491,13 +1913,18 @@ Browser evidence after implementation:
   paths.
 - Display-only and repair-only broad discovery helpers are explicitly named.
 - Source guards block first-candidate fallback and broad authority reads.
+- Selected/planning/spend state cannot carry branch signer facts that duplicate
+  `identity.signer`.
+- Normalized ECDSA wallet/session records use `walletId`; `walletSessionUserId`
+  is confined to raw boundary parsing if still required.
 - Unit tests prove duplicate records fail closed.
 - Unit tests prove implicit `walletId !== nearAccountId` signing identity works.
 - Browser evidence shows normal unlock/signing paths still work.
 
 ## Review: Auditor Pass, 2026-06-25
 
-Status: auditor findings addressed in code and validation is green.
+Status: auditor findings addressed through Phase 11 and validation is green.
+Phase 12 remains follow-up cleanup after the exact authority model.
 The HSS crate context cleanup is aligned: ECDSA-HSS is digest-only, and
 Ed25519-HSS is digest plus participant ids. The SDK/server boundary modeling
 and exact-lane propagation gaps from this pass have been closed.
@@ -1522,10 +1949,10 @@ Findings to fix before completion:
     through direct public export plus iframe router/host boundaries.
 - [x] P1: Ed25519 registration HSS request/scope code still models wallet key scope
   as `rpId`. Rename this registration/account-scope field to `walletKeyId` or
-  remove it if `ed25519KeyScopeId + signingRoot` is the real selector. Keep
+  remove it if `nearEd25519SigningKeyId + signingRoot` is the real selector. Keep
   `rpId` inside passkey/WebAuthn auth branches only.
   - Renamed registration scope identity to `walletKeyId`, derive it from
-    `ed25519KeyScopeId`, and reject the stale scope `rpId` field.
+    `nearEd25519SigningKeyId`, and reject the stale scope `rpId` field.
 - [x] P2: warm ECDSA reconnect/provisioning still uses partial threshold-session
   lookup shapes and has a `recordCandidates[0]` fallback. Replace these with
   exact-lane capability/readiness lookups and duplicate-specific failures.
@@ -1563,11 +1990,43 @@ Findings to fix before completion:
 - [x] Phase 10: first-candidate/timestamp selectors, `walletId: AccountId`, and
   wallet-id-to-NEAR-account projections are guarded in authority files. Stale
   fixtures were updated to the digest-only HSS and split wallet/account model.
+- [x] Phase 11: `ExactSigningLaneIdentity` root shape collapses branch-specific
+  protocol/key fields under `signer`, using `NearEd25519SignerBinding` and
+  `EvmFamilyEcdsaSignerBinding`.
+- [ ] Phase 12: delete temporary selected/planning lane projections,
+  `walletSessionUserId` ECDSA aliases, duplicate diagnostic summary helpers, and
+  the tiny confirmation-config type sidecar after exact identity cutover.
+
+## Review: Final Targeted Auditor Pass, 2026-06-26
+
+Status: final targeted Refactor 79 authority findings are addressed. The
+remaining Phase 12 items are code-shape cleanup and are not authority blockers.
+
+- [x] P1: Ed25519 persisted session lane keys were too broad. The canonical key
+  and matcher now include `walletId`, `nearAccountId`,
+  `nearEd25519SigningKeyId`, auth method, signing grant, threshold session, and
+  `signerSlot`.
+- [x] P1: NEAR Ed25519 export used broad account lookup before exact-lane
+  export. Export now derives the signer from `args.laneIdentity.signer` and
+  reads the session record through the full exact signer binding.
+- [x] P1: ECDSA export worker/UI payloads collapsed wallet identity into a
+  `nearAccountId` field. ECDSA export payloads now carry `walletId`, while NEAR
+  export remains NEAR-account scoped.
+- [x] P2: wallet-scoped helpers passed `walletId` into account-scoped Ed25519
+  lookup. Registration postconditions and volatile warm-material clearing now
+  use wallet-scoped Ed25519 lookup.
+- [x] Added a Refactor 79 source guard proving Ed25519 session lane keys keep
+  the full exact identity.
 
 Follow-up validation after fixes:
 
 - [x] `pnpm -C packages/sdk-web -s type-check`
+- [x] `pnpm -C packages/shared-ts -s type-check`
 - [x] `pnpm -C packages/sdk-server-ts -s type-check`
+- [x] `pnpm -C packages/sdk-web run build`
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/walletCapabilityBindings.sourceGuard.unit.test.ts unit/refactor79ExactSigningLane.guard.unit.test.ts` (19 passed)
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/refactor79ExactSigningLane.guard.unit.test.ts unit/signingPostSignPolicy.unit.test.ts unit/signingSessionRestoreCoordinator.unit.test.ts unit/nearSigning.sessionSelection.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts` (62 passed)
+- [x] `pnpm -C tests exec playwright test --reporter=line unit/walletIframeHost.exportUi.unit.test.ts wallet-iframe/export.flow.integration.test.ts unit/thresholdEcdsaEmailOtpConsumption.unit.test.ts unit/emailOtpEcdsaSigningSessionAuth.unit.test.ts` (19 passed)
 - [x] `pnpm -C tests exec playwright test --reporter=line unit/refactor74LegacyFallbacks.guard.unit.test.ts unit/walletScopedLookups.guard.unit.test.ts unit/refactor79ExactSigningLane.guard.unit.test.ts unit/evmFamilyEcdsaIdentity.unit.test.ts unit/emailOtpEcdsaSigningSessionAuth.unit.test.ts unit/ecdsaRoleLocalRecords.unit.test.ts unit/ecdsaSelection.restorable.unit.test.ts unit/exportLaneSelection.unit.test.ts unit/nearSigning.sessionSelection.unit.test.ts unit/signingSessionFreshness.unit.test.ts unit/warmSessionEd25519Persistence.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/emailOtpWalletSessionCoordinator.unit.test.ts unit/unlockEcdsaWarmupPlanner.unit.test.ts unit/thresholdEcdsa.hssWasmSurface.unit.test.ts unit/thresholdEcdsa.hssRoleLocalClientParser.unit.test.ts unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts` (211 passed)
 - [x] `pnpm -C tests exec playwright test --reporter=line unit/refactor79ExactSigningLane.guard.unit.test.ts`
 - [x] `pnpm -C tests exec playwright test --reporter=line unit/exportLaneSelection.unit.test.ts`

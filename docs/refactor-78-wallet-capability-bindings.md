@@ -2,7 +2,7 @@
 
 Date created: June 23, 2026
 
-Status: planned
+Status: implemented and audited; doc reconciled June 25, 2026.
 
 Related plans:
 
@@ -21,7 +21,7 @@ multiple domain identities:
 
 - `walletId`: durable user-facing wallet identity;
 - `nearAccountId`: NEAR protocol account identity;
-- `ed25519KeyScopeId`: Ed25519 HSS/PRF key-scope identity.
+- `nearEd25519SigningKeyId`: Ed25519 HSS/PRF key-scope identity.
 
 Those values are related only for specific capabilities. A wallet can exist
 without a NEAR account. A wallet with a NEAR account can exist without a usable
@@ -31,9 +31,10 @@ Ed25519 signer.
 This refactor makes that model explicit. Core code must pass narrow capability
 bindings instead of deriving one identity from another.
 
-## Problem
+## Original Problem
 
-Several post-refactor paths still treat `nearAccountId` as a wallet identity:
+The implementation audit found several post-refactor paths that treated
+`nearAccountId` as a wallet identity:
 
 - React `LoginState` drops `walletId`, so UI surfaces use `nearAccountId` for
   wallet-scoped recovery, export, and preferences calls.
@@ -42,9 +43,9 @@ Several post-refactor paths still treat `nearAccountId` as a wallet identity:
   `walletId: nearAccountId`.
 - Recovery-code UI passes `nearAccountId` as the `walletId` for status and
   rotation.
-- Login warmup and passkey session provisioning still contain fallbacks such as
+- Login warmup and passkey session provisioning contained fallbacks such as
   `walletId || nearAccountId`, `toWalletId(nearAccountId)`, and
-  `ed25519KeyScopeId || nearAccountId`.
+  `nearEd25519SigningKeyId || nearAccountId`.
 
 Those bugs survive normal tests because many fixtures use named accounts where
 `walletId === nearAccountId`.
@@ -69,7 +70,7 @@ Those bugs survive normal tests because many fixtures use named accounts where
 - Raw strings are parsed once at request, persistence, iframe, and UI state
   boundaries.
 - Core code must not derive `walletId` from `nearAccountId`.
-- Core code must not derive `ed25519KeyScopeId` from `nearAccountId`.
+- Core code must not derive `nearEd25519SigningKeyId` from `nearAccountId`.
 - Optional identity fields are boundary/display concerns. Core lifecycle state
   uses discriminated unions.
 - Capability resolution and runtime readiness are separate states.
@@ -83,7 +84,7 @@ surface for identity-sensitive core code. Treat these rules as hard constraints.
   authorize, or hydrate wallet material must accept capability bindings instead
   of raw identifiers or partial identity bags.
 - Core command inputs must not contain flat sibling identity fields such as
-  `{ walletId, nearAccountId, ed25519KeyScopeId }`. Use the owning binding:
+  `{ walletId, nearAccountId, nearEd25519SigningKeyId }`. Use the owning binding:
   `WalletIdentity`, `NearAccountBinding`, `NearEd25519SignerBinding`, or
   Refactor 79's canonical exact ECDSA lane identity.
 - Core command inputs must not make identity fields optional. Missing identity
@@ -96,7 +97,7 @@ surface for identity-sensitive core code. Treat these rules as hard constraints.
   parsers. Every compatibility parser must have tests and a deletion note.
 - No core helper may repair missing identity with `nearAccountId`, `accountId`,
   current-wallet state, local cache lookup, or display state.
-- No function may recompute `ed25519KeyScopeId` from `walletId` or
+- No function may recompute `nearEd25519SigningKeyId` from `walletId` or
   `nearAccountId` after a signer binding has been resolved. Registration,
   stored signer records, session claims, or warm-session metadata provide the
   key scope exactly once at the boundary.
@@ -117,18 +118,18 @@ toWalletId(nearAccountId)
 walletId: nearAccountId
 walletId: accountId
 accountId: walletId
-ed25519KeyScopeId || nearAccountId
-ed25519KeyScopeId ?? nearAccountId
+nearEd25519SigningKeyId || nearAccountId
+nearEd25519SigningKeyId ?? nearAccountId
 args.walletId || nearAccountId
 walletSession.walletId || nearAccountId
 as WalletId
-as Ed25519KeyScopeId
+as NearEd25519SigningKeyId
 ```
 
 ## Target Domain Shape
 
 Use branded identifiers everywhere these types cross core logic. The shared
-module should use `WalletId`, `NearAccountId`, and `Ed25519KeyScopeId` from
+module should use `WalletId`, `NearAccountId`, and `NearEd25519SigningKeyId` from
 `packages/shared-ts`. If `RpId` is promoted to shared-ts, use it only in
 passkey/WebAuthn types. sdk-web can alias or re-export those names at its
 boundaries while internal call sites move to the shared capability bindings.
@@ -179,7 +180,7 @@ type NearAccountBinding =
 
 type NearEd25519SignerBinding = {
   account: NearAccountBinding;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
 };
 ```
@@ -307,7 +308,7 @@ function buildNamedNearAccountBinding(args: {
 
 function buildNearEd25519SignerBinding(args: {
   account: NearAccountBinding;
-  ed25519KeyScopeId: Ed25519KeyScopeId;
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
   signerSlot: number;
 }): NearEd25519SignerBinding;
 ```
@@ -331,7 +332,7 @@ Builder invariants:
   passkey credentials.
 - `walletId` is always provided by the wallet/profile/session boundary.
 - `nearAccountId` is always provided by a NEAR account binding boundary.
-- `ed25519KeyScopeId` is always provided by registration, stored signer, or warm
+- `nearEd25519SigningKeyId` is always provided by registration, stored signer, or warm
   session metadata.
 - `NearEd25519SignerBinding` can be built only from an existing
   `NearAccountBinding`.
@@ -339,7 +340,7 @@ Builder invariants:
   named bindings and named IDs in implicit bindings.
 - Core code reads `walletId` and `nearAccountId` through the binding owner
   object. It must not construct a signer binding by independently threading flat
-  `walletId`, `nearAccountId`, and `ed25519KeyScopeId` values.
+  `walletId`, `nearAccountId`, and `nearEd25519SigningKeyId` values.
 - Public and iframe boundary parsers must preserve the incoming field meaning.
   A field named `accountId` can be accepted only in documented compatibility
   parsers, and the parser must map it to the correct branch-specific identity
@@ -473,7 +474,7 @@ Persist durable records by the identity each record actually belongs to.
 - wallet/profile records are keyed by `walletId` and do not require `rpId`;
 - NEAR account projections are keyed by `(walletId, nearAccountId)`;
 - NEAR Ed25519 signer records are keyed by
-  `(walletId, nearAccountId, ed25519KeyScopeId, signerSlot)`;
+  `(walletId, nearAccountId, nearEd25519SigningKeyId, signerSlot)`;
 - ECDSA lane records use the canonical Refactor 79 exact-lane identity and the
   existing signing-lane records;
 - recovery-code backup records are keyed by `walletId`;
@@ -499,7 +500,7 @@ the repository boundary.
   fixture locations. Every allowlist entry must include a removal note or a
   reason the file is a permanent boundary.
 - Add a failing fixture that demonstrates a core command cannot be called with
-  `{ walletId, nearAccountId, ed25519KeyScopeId }` as flat fields.
+  `{ walletId, nearAccountId, nearEd25519SigningKeyId }` as flat fields.
 - Add a failing fixture that demonstrates wallet-scoped commands cannot accept
   `nearAccountId`, `accountId`, or a display account value.
 - Add a split implicit fixture module shared by unit tests:
@@ -521,7 +522,7 @@ the repository boundary.
 
   const IMPLICIT_NEAR_ED25519_SIGNER = buildNearEd25519SignerBinding({
     account: IMPLICIT_NEAR_ACCOUNT,
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
       'ed25519-scope-implicit-test-k7p9m2',
     ),
     signerSlot: 0,
@@ -547,7 +548,7 @@ the repository boundary.
     auth methods should be representable;
   - implicit account IDs in the named NEAR account branch;
   - named account IDs in the implicit NEAR account branch;
-  - `NearEd25519SignerBinding` without `ed25519KeyScopeId`;
+  - `NearEd25519SignerBinding` without `nearEd25519SigningKeyId`;
   - `NearEd25519SignerBinding` with independently supplied `walletId` or
     `nearAccountId` outside the nested account binding;
   - ECDSA command inputs that accept `nearAccountId`;
@@ -684,7 +685,7 @@ they consume capability bindings.
   subject are wallet-scoped and never recovered from `nearAccountId`.
 - Update email-otp worker request/result payloads so wallet-scoped fields are
   named `walletId`, NEAR fields are named `nearAccountId`, Ed25519 fields
-  include `ed25519KeyScopeId`, and ECDSA key namespace fields are carried only
+  include `nearEd25519SigningKeyId`, and ECDSA key namespace fields are carried only
   inside exact-lane/key material.
 - Add tests with `walletId !== nearAccountId` for:
   - Email OTP challenge issuance;
@@ -695,7 +696,7 @@ they consume capability bindings.
   - app-session JWT cache read/write.
 - Add tests proving Email OTP recovery and sync hydrate warm sessions with the
   resolved wallet binding and fail when the relay response contains a mismatched
-  `walletId`, `nearAccountId`, or `ed25519KeyScopeId`.
+  `walletId`, `nearAccountId`, or `nearEd25519SigningKeyId`.
 
 ### Phase 4: NEAR Ed25519 Export And Restore
 
@@ -703,15 +704,15 @@ they consume capability bindings.
 - Change `restoreNearEd25519SessionForExport()` input from `{ nearAccountId }`
   to `{ signer: NearEd25519SignerBinding }`.
 - Read persisted lanes by `signer.account.wallet.walletId`.
-- Validate selected lanes against `nearAccountId`, `ed25519KeyScopeId`,
+- Validate selected lanes against `nearAccountId`, `nearEd25519SigningKeyId`,
   `signerSlot`, `signingGrantId`, and `thresholdSessionId`.
 - Change HSS export inputs so Ed25519 derivation receives
-  `ed25519KeyScopeId` where the HSS protocol needs key scope and
+  `nearEd25519SigningKeyId` where the HSS protocol needs key scope and
   `nearAccountId` where the NEAR protocol account is required.
 - Add tests proving NEAR export works with:
   - implicit wallet `walletId = frost-vermillion-k7p9m2`;
   - `nearAccountId = <64 hex>`;
-  - `ed25519KeyScopeId = ed25519-scope-implicit-test-k7p9m2`.
+  - `nearEd25519SigningKeyId = ed25519-scope-implicit-test-k7p9m2`.
 - Add a negative test proving export lane selection cannot restore from
   `nearAccountId` as a wallet key.
 
@@ -720,17 +721,17 @@ they consume capability bindings.
 - Resolve the active wallet capability before passkey login warmup.
 - Pass `NearEd25519SignerBinding` into Ed25519 warmup and session provisioning.
 - Persist warm Ed25519 capabilities with `signer.account.wallet.walletId` and
-  `signer.ed25519KeyScopeId`.
+  `signer.nearEd25519SigningKeyId`.
 - Pass `WalletIdentity` into ECDSA inventory, first bootstrap, profile
   continuity, and available-lane reads.
 - Delete fallbacks:
   - `walletId || nearAccountId`;
   - `toWalletId(nearAccountId)`;
-  - `ed25519KeyScopeId || nearAccountId`.
+  - `nearEd25519SigningKeyId || nearAccountId`.
 - Add split-identity passkey unlock tests covering Ed25519 warmup, ECDSA warmup,
   inventory repair, and first bootstrap.
 - Add a test that spies on warm-session persistence and fails if either
-  `walletId` or `ed25519KeyScopeId` equals `nearAccountId` for an implicit
+  `walletId` or `nearEd25519SigningKeyId` equals `nearAccountId` for an implicit
   account.
 
 ### Phase 5a: Budget, Availability, And Confirmation Metadata
@@ -802,11 +803,11 @@ do not leak into core logic.
 - Ensure recovery-code backups are keyed by `walletId`.
 - Ensure NEAR account projections retain `walletId` and `nearAccountId`.
 - Ensure Ed25519 signer records require `walletId`, `nearAccountId`,
-  `ed25519KeyScopeId`, and `signerSlot`.
+  `nearEd25519SigningKeyId`, and `signerSlot`.
 - Remove helper paths that silently repair missing identity fields inside core
   logic.
 - Update local persistence normalizers so legacy fallback from `nearAccountId`
-  to `walletId` or `ed25519KeyScopeId` exists only in a named migration parser
+  to `walletId` or `nearEd25519SigningKeyId` exists only in a named migration parser
   with tests and deletion notes.
 - Update IndexedDB repositories, warm-session stores, runtime session stores,
   sealed session stores, nonce/lease records, and account signer lifecycle
@@ -835,7 +836,7 @@ do not leak into core logic.
 
   const IMPLICIT_NEAR_ED25519_SIGNER = buildNearEd25519SignerBinding({
     account: IMPLICIT_NEAR_ACCOUNT,
-    ed25519KeyScopeId: ed25519KeyScopeIdFromString(
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
       'ed25519-scope-implicit-test-k7p9m2',
     ),
     signerSlot: 0,
@@ -858,13 +859,13 @@ do not leak into core logic.
   - `walletId: nearAccountId`;
   - `walletId: accountId`;
   - `accountId: walletId`;
-  - `ed25519KeyScopeId || nearAccountId`;
+  - `nearEd25519SigningKeyId || nearAccountId`;
   - `args.walletId || nearAccountId`;
   - `walletSession.walletId || nearAccountId`;
   - `as WalletId` outside parser/builder/typecheck files;
-  - `as Ed25519KeyScopeId` outside parser/builder/typecheck files;
+  - `as NearEd25519SigningKeyId` outside parser/builder/typecheck files;
   - command parameter types with optional `walletId`, `nearAccountId`, or
-    `ed25519KeyScopeId` in core paths;
+    `nearEd25519SigningKeyId` in core paths;
   - direct object-literal construction of capability bindings outside builders,
     parsers, and typecheck fixtures;
   - React account-menu wallet actions that read only `loginState.nearAccountId`.
@@ -970,7 +971,7 @@ packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts
 - NEAR access-key and explorer actions require a NEAR account binding.
 - NEAR Ed25519 export and signing require a NEAR Ed25519 signer binding.
 - Warm Ed25519 session persistence stores `walletId`, `nearAccountId`, and
-  `ed25519KeyScopeId` from the resolved signer binding.
+  `nearEd25519SigningKeyId` from the resolved signer binding.
 - Passkey login warmup can restore and mint Ed25519 and ECDSA sessions for an
   implicit wallet where all three identities differ by role.
 - Email OTP login, enrollment, Ed25519 warmup, and ECDSA companion-session paths
@@ -981,7 +982,7 @@ packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts
 - Public results and events define whether `walletId`, `nearAccountId`, or
   compatibility `accountId` is being emitted.
 - No core code contains identity fallbacks from NEAR account ID to wallet ID or
-  Ed25519 key scope ID.
+  NEAR Ed25519 signing key ID.
 - Static fixtures reject raw-string and partial-object command inputs for
   identity-sensitive operations.
 
@@ -1018,3 +1019,25 @@ pnpm -C tests test:unit
 - Existing compatibility logic is isolated to request and persistence parsers.
 - Tests include split implicit fixtures for every wallet, NEAR, Ed25519, ECDSA,
   recovery, and account-menu path touched by this refactor.
+
+## Review: Completion Pass, 2026-06-25
+
+Status: implemented and audited in the Refactor 78/79 sequence.
+
+- [x] Wallet identity is modeled as durable `walletId`, not as a NEAR account
+  alias.
+- [x] NEAR account and NEAR Ed25519 signer capabilities carry
+  `walletId`, `nearAccountId`, and `nearEd25519SigningKeyId` without recomputing one
+  identity from another.
+- [x] React login state, public APIs, iframe messages, registration, recovery,
+  sync, warm sessions, and account-menu actions carry wallet identity
+  explicitly.
+- [x] Email OTP paths remain wallet-scoped and do not require or carry passkey
+  `rpId`.
+- [x] ECDSA paths use wallet identity plus Refactor 79 exact lane/key identity.
+- [x] Recovery-code status/rotation and ECDSA export/signing use `walletId`
+  rather than `nearAccountId`.
+- [x] Source guards and type fixtures reject the known wallet/account collapse
+  patterns in identity-sensitive code.
+- [x] Split implicit fixtures cover `walletId !== nearAccountId` behavior across
+  the touched suites.
