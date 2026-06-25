@@ -36,6 +36,7 @@ import type {
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
   EcdsaHssRoleLocalKeyRecord,
+  WebAuthnAuthenticationCredential,
   WalletRegistrationEcdsaClientBootstrap,
 } from '../types';
 import { registrationPreparationIdFromString } from '../types';
@@ -103,13 +104,57 @@ function parseEcdsaHssClientRootProof(
   };
 }
 
+function parseWebAuthnAuthenticationCredential(
+  value: unknown,
+): WebAuthnAuthenticationCredential | null {
+  if (!isObject(value)) return null;
+  const id = toOptionalString(value.id);
+  const rawId = toOptionalString(value.rawId);
+  const type = toOptionalString(value.type);
+  const authenticatorAttachment =
+    value.authenticatorAttachment === undefined || value.authenticatorAttachment === null
+      ? null
+      : toOptionalString(value.authenticatorAttachment);
+  if (!id || !rawId || !type) return null;
+  if (value.authenticatorAttachment !== undefined && value.authenticatorAttachment !== null) {
+    if (!authenticatorAttachment) return null;
+  }
+  if (!isObject(value.response)) return null;
+  const clientDataJSON = toOptionalString(value.response.clientDataJSON);
+  const authenticatorData = toOptionalString(value.response.authenticatorData);
+  const signature = toOptionalString(value.response.signature);
+  const userHandle =
+    value.response.userHandle === undefined || value.response.userHandle === null
+      ? null
+      : toOptionalString(value.response.userHandle);
+  if (!clientDataJSON || !authenticatorData || !signature) return null;
+  if (value.response.userHandle !== undefined && value.response.userHandle !== null && !userHandle) {
+    return null;
+  }
+  return {
+    id,
+    rawId,
+    type,
+    authenticatorAttachment,
+    response: {
+      clientDataJSON,
+      authenticatorData,
+      signature,
+      userHandle,
+    },
+    clientExtensionResults: value.clientExtensionResults ?? null,
+  };
+}
+
 function parseEcdsaHssPasskeyBootstrapAuthorization(
   value: unknown,
 ): EcdsaHssPasskeyBootstrapAuthorization | null {
   if (!isObject(value)) return null;
   if (toOptionalString(value.kind) !== 'passkey_bootstrap') return null;
   const rpId = toOptionalString(value.rpId);
-  if (!isObject(value.webauthn_authentication)) return null;
+  const webauthnAuthentication = parseWebAuthnAuthenticationCredential(
+    value.webauthn_authentication,
+  );
   let runtimePolicyScope: RuntimePolicyScope | undefined;
   if (value.runtimePolicyScope !== undefined) {
     try {
@@ -119,11 +164,11 @@ function parseEcdsaHssPasskeyBootstrapAuthorization(
     }
   }
   const runtimeEnvironmentId = toOptionalString(value.runtimeEnvironmentId);
-  if (!rpId) return null;
+  if (!rpId || !webauthnAuthentication) return null;
   return {
     kind: 'passkey_bootstrap',
     rpId,
-    webauthn_authentication: value.webauthn_authentication as any,
+    webauthn_authentication: webauthnAuthentication,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
   };
@@ -711,7 +756,7 @@ export type ParsedThresholdEcdsaMpcSessionRecord = {
   purpose: string;
   intentDigestB64u: string;
   signingDigestB64u: string;
-  walletSessionUserId: string;
+  walletId: string;
   walletKeyId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
@@ -766,7 +811,7 @@ export function parseThresholdEcdsaMpcSessionRecord(
   const purpose = toOptionalString(raw.purpose);
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
-  const walletSessionUserId = toOptionalString(raw.walletSessionUserId);
+  const walletId = toOptionalString(raw.walletId) || toOptionalString(raw.walletSessionUserId);
   const walletKeyId = toOptionalString(raw.walletKeyId);
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
@@ -780,7 +825,7 @@ export function parseThresholdEcdsaMpcSessionRecord(
     !purpose ||
     !intentDigestB64u ||
     !signingDigestB64u ||
-    !walletSessionUserId ||
+    !walletId ||
     !walletKeyId
   ) {
     return null;
@@ -793,7 +838,7 @@ export function parseThresholdEcdsaMpcSessionRecord(
     purpose,
     intentDigestB64u,
     signingDigestB64u,
-    walletSessionUserId,
+    walletId,
     walletKeyId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     participantIds,
@@ -1011,7 +1056,6 @@ export function parseEd25519WalletSessionRecord(
 export type ParsedEcdsaWalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
-  walletSessionUserId: string;
   walletId: string;
   walletKeyId: string;
   participantIds: number[];
@@ -1023,8 +1067,7 @@ export function parseEcdsaWalletSessionRecord(
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const walletSessionUserId = toOptionalString(raw.walletSessionUserId);
-  const walletId = toOptionalString(raw.walletId);
+  const walletId = toOptionalString(raw.walletId) || toOptionalString(raw.walletSessionUserId);
   const walletKeyId = toOptionalString(raw.walletKeyId);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -1032,11 +1075,10 @@ export function parseEcdsaWalletSessionRecord(
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !walletSessionUserId || !walletId || !walletKeyId) return null;
+  if (!relayerKeyId || !walletId || !walletKeyId) return null;
   return {
     expiresAtMs,
     relayerKeyId,
-    walletSessionUserId,
     walletId,
     walletKeyId,
     participantIds,
@@ -1132,7 +1174,7 @@ export type ParsedRouterAbEcdsaHssPoolFillSessionDestination =
 
 export type ParsedRouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
-  walletSessionUserId: string;
+  walletId: string;
   walletKeyId: string;
   relayerKeyId: string;
   presignPoolKey: string;
@@ -1183,8 +1225,10 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
 ): ParsedRouterAbEcdsaHssPoolFillSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
-  const walletSessionUserId =
-    toOptionalString(raw.walletSessionUserId) || toOptionalString(raw.userId);
+  const walletId =
+    toOptionalString(raw.walletId) ||
+    toOptionalString(raw.walletSessionUserId) ||
+    toOptionalString(raw.userId);
   const walletKeyId = toOptionalString(raw.walletKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const presignPoolKey = toOptionalString(raw.presignPoolKey);
@@ -1216,7 +1260,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
   }
   const poolFill = parseRouterAbEcdsaHssPoolFillSessionDestination(raw.poolFill, expiresAtMs);
   if (
-    !walletSessionUserId ||
+    !walletId ||
     !walletKeyId ||
     !relayerKeyId ||
     !presignPoolKey ||
@@ -1239,7 +1283,7 @@ export function parseRouterAbEcdsaHssPoolFillSessionRecord(
 
   return {
     expiresAtMs,
-    walletSessionUserId,
+    walletId,
     walletKeyId,
     relayerKeyId,
     presignPoolKey,
@@ -1614,24 +1658,24 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
 
 export function resolveAppSessionProviderUserIdForWalletScope(
   claims: AppSessionClaims | null | undefined,
-  walletSessionUserId: unknown,
+  requestedWalletId: unknown,
 ): string | undefined {
   if (!claims) return undefined;
   const subject = toOptionalString(claims.sub);
-  const walletId = toOptionalString(walletSessionUserId);
+  const walletId = toOptionalString(requestedWalletId);
   if (!subject || !walletId || subject === walletId) return undefined;
   return subject;
 }
 
 export function resolveAppSessionWalletIdForWalletScope(
   claims: AppSessionClaims | null | undefined,
-  walletSessionUserId: unknown,
+  requestedWalletIdRaw: unknown,
 ): string | undefined {
   if (!claims) return undefined;
   const explicitWalletId = toOptionalString(claims.walletId);
   if (explicitWalletId) return explicitWalletId;
   const subject = toOptionalString(claims.sub);
-  const requestedWalletId = toOptionalString(walletSessionUserId);
+  const requestedWalletId = toOptionalString(requestedWalletIdRaw);
   if (subject && requestedWalletId && subject === requestedWalletId) return subject;
   return undefined;
 }

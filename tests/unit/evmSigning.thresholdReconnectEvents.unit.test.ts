@@ -5,7 +5,8 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
+import { buildEvmTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
+import { requireResolvedEvmFamilyEcdsaSigningLane } from '@/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
@@ -59,8 +60,8 @@ test.describe('EVM family threshold reconnect events', () => {
       record: staleRecord,
       walletKeyId: roleLocalRecord.publicFacts.walletKeyId,
     });
-    const lane = {
-      ...selectedEcdsaLane({
+    const lane = requireResolvedEvmFamilyEcdsaSigningLane({
+      lane: buildEvmTransactionSigningLane({
         key,
         keyHandle: staleRecord.keyHandle,
         walletId: toWalletId('reconnect-events.testnet'),
@@ -69,18 +70,14 @@ test.describe('EVM family threshold reconnect events', () => {
           rpId: roleLocalRecord.authMethod.rpId,
           credentialIdB64u: roleLocalRecord.authMethod.credentialIdB64u,
         },
-        signingGrantId,
-        thresholdSessionId: staleRecord.thresholdSessionId,
+        signingGrantId: SigningSessionIds.signingGrant(signingGrantId),
+        thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(staleRecord.thresholdSessionId),
         chainTarget: staleRecord.chainTarget,
+        storageSource: 'login',
       }),
-      key,
-	      keyKind: 'threshold_ecdsa_secp256k1',
-	      chainFamily: 'evm',
-	      runtimeState: 'no_runtime_material',
-	      sessionOrigin: 'login',
-      storageSource: 'login',
-      retention: 'session',
-    } as const;
+      chain: 'evm',
+      context: 'reconnect events test',
+    });
     const reconnectSessionIdentity = buildEcdsaSessionIdentity({
       thresholdSessionId: String(lane.thresholdSessionId),
       signingGrantId: String(lane.signingGrantId),

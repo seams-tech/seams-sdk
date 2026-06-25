@@ -1,8 +1,32 @@
-import type { ConfirmationConfig } from './signer-worker';
-import type {
-  NormalizedConfirmationConfig,
-  VisibleConfirmationUIMode,
-} from './confirmationConfig.types';
+import type { ConfirmationBehavior, ConfirmationConfig, ConfirmationUIMode } from './signer-worker';
+
+export type VisibleConfirmationUIMode = Exclude<ConfirmationUIMode, 'none'>;
+
+export type SilentConfirmationConfig = {
+  kind: 'silent';
+  uiMode: 'none';
+  behavior?: never;
+  autoProceedDelay?: never;
+};
+
+export type InteractiveConfirmationConfig = {
+  kind: 'interactive';
+  uiMode: VisibleConfirmationUIMode;
+  behavior: Extract<ConfirmationBehavior, 'requireClick'>;
+  autoProceedDelay?: never;
+};
+
+export type AutoProceedConfirmationConfig = {
+  kind: 'auto_proceed';
+  uiMode: VisibleConfirmationUIMode;
+  behavior: Extract<ConfirmationBehavior, 'skipClick'>;
+  autoProceedDelay: number;
+};
+
+export type NormalizedConfirmationConfig =
+  | SilentConfirmationConfig
+  | InteractiveConfirmationConfig
+  | AutoProceedConfirmationConfig;
 
 type RawConfirmationConfigInput = Partial<ConfirmationConfig> | null | undefined;
 
@@ -53,4 +77,3 @@ export function silentConfirmationConfig(): NormalizedConfirmationConfig {
 export function assertNeverConfirmationConfig(value: never): never {
   throw new Error(`Unsupported confirmation config: ${String((value as { kind?: unknown }).kind)}`);
 }
-

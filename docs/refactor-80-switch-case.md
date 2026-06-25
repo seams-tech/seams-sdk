@@ -51,7 +51,7 @@ Rules:
 - lifecycle unions may carry exact identity, exact identity keys, or private
   projections derived from canonical exact identity;
 - NEAR Ed25519 authority uses `walletId`, `nearAccountId`, and
-  `ed25519KeyScopeId` from Refactor 78/79;
+  `nearEd25519SigningKeyId` from Refactor 78/79;
 - ECDSA authority uses `walletId`, `chainTarget`, `keyHandle`, full key
   identity, `signingGrantId`, and `thresholdSessionId`;
 - `SelectedSigningLaneIdentity`, `ResolvedSigningSessionIdentity`,
@@ -125,7 +125,7 @@ packages/sdk-web/src/core/signingEngine/session/emailOtp/emailOtpSession.types.t
 packages/sdk-web/src/core/signingEngine/nonce/nonceLifecycle.types.ts
 packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmationDecision.types.ts
 packages/sdk-web/src/core/signingEngine/flows/signNear/shared/nearSigning.types.ts
-packages/sdk-web/src/core/types/confirmationConfig.types.ts
+packages/sdk-web/src/core/types/confirmationConfig.ts
 packages/sdk-web/src/core/types/sdkPublicResults.types.ts
 packages/sdk-web/src/SeamsWeb/operations/auth/login.types.ts
 packages/sdk-web/src/SeamsWeb/walletIframe/client/walletIframe.types.ts
@@ -279,7 +279,7 @@ Current risk:
 - pending, restoreable, stale, and runtime-validated material can be conflated;
 - current durable restore requires exact grant/session/material checks;
 - Ed25519 material branches can become ambiguous after implicit accounts unless
-  they carry exact `walletId`, `nearAccountId`, and `ed25519KeyScopeId`.
+  they carry exact `walletId`, `nearAccountId`, and `nearEd25519SigningKeyId`.
 
 Target:
 
@@ -362,7 +362,7 @@ Acceptance:
 - all three flows call one shared operation helper after operation-specific
   payload construction;
 - shared NEAR helpers receive the exact Ed25519 signing context, including
-  `walletId`, `nearAccountId`, and `ed25519KeyScopeId`;
+  `walletId`, `nearAccountId`, and `nearEd25519SigningKeyId`;
 - no duplicated material-repair `if` blocks remain in the three signing files;
 - one test matrix covers all operation kinds.
 

@@ -61,7 +61,7 @@ export type ThresholdEcdsaMpcSessionRecord = {
   purpose: string;
   intentDigestB64u: string;
   signingDigestB64u: string;
-  walletSessionUserId: string;
+  walletId: string;
   walletKeyId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];

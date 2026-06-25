@@ -108,7 +108,9 @@ test.describe('threshold ecdsa postgres records', () => {
   test('parses current Ed25519 records and role-local ECDSA HSS records', async () => {
     expect(
       parseCurrentThresholdEd25519KeyRecord({
+        walletId: 'frost-vermillion-k7p9m2',
         nearAccountId: 'alice.testnet',
+        nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
         rpId: 'example.localhost',
         publicKey: 'ed25519:public',
         relayerSigningShareB64u: 'signing-share',
@@ -117,7 +119,9 @@ test.describe('threshold ecdsa postgres records', () => {
         recoveryExportCapable: true,
       }),
     ).toEqual({
+      walletId: 'frost-vermillion-k7p9m2',
       nearAccountId: 'alice.testnet',
+      nearEd25519SigningKeyId: 'near-ed25519-frost-vermillion-k7p9m2',
       rpId: 'example.localhost',
       publicKey: 'ed25519:public',
       relayerSigningShareB64u: 'signing-share',
@@ -164,7 +168,7 @@ test.describe('threshold ecdsa postgres records', () => {
         recordJson: {
           expiresAtMs: 999_999,
           userId: 'alice.testnet',
-          rpId: 'example.localhost',
+          walletKeyId: 'wallet-key-alice',
           relayerKeyId: 'relayer-key',
           presignPoolKey: 'keyHandle:threshold-key',
           poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },
@@ -184,8 +188,8 @@ test.describe('threshold ecdsa postgres records', () => {
     ).toEqual({
       record: {
         expiresAtMs: 999_999,
-        walletSessionUserId: 'alice.testnet',
-        rpId: 'example.localhost',
+        walletId: 'alice.testnet',
+        walletKeyId: 'wallet-key-alice',
         relayerKeyId: 'relayer-key',
         presignPoolKey: 'keyHandle:threshold-key',
         poolFill: { kind: 'local_threshold_ecdsa_presignature_pool' },

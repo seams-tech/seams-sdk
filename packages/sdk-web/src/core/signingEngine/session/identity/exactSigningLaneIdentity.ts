@@ -597,6 +597,72 @@ export function requireEvmFamilyEcdsaSigner(
   return identity.signer;
 }
 
+export function requireNearEd25519Signer(
+  identity: ExactSigningLaneIdentity,
+  context: string,
+): NearEd25519SignerBinding {
+  if (identity.signer.kind !== 'near_ed25519_signer') {
+    throw new Error(`[SigningSession] ${context} requires a NEAR Ed25519 signer`);
+  }
+  return identity.signer;
+}
+
+export type NearProtocolProjection = {
+  walletId: WalletId;
+  nearAccountId: NearEd25519SignerBinding['account']['nearAccountId'];
+  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
+  signerSlot: number;
+};
+
+export function nearProtocolProjectionFromExactLane(
+  identity: ExactSigningLaneIdentity,
+  context = 'NEAR protocol projection',
+): NearProtocolProjection {
+  const signer = requireNearEd25519Signer(identity, context);
+  return {
+    walletId: signer.account.wallet.walletId,
+    nearAccountId: signer.account.nearAccountId,
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    signerSlot: signer.signerSlot,
+  };
+}
+
+export type EvmFamilyProtocolProjection = {
+  walletId: WalletId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  key: EvmFamilyEcdsaKeyIdentity;
+};
+
+export function evmFamilyProtocolProjectionFromExactLane(
+  identity: ExactSigningLaneIdentity,
+  context = 'EVM-family protocol projection',
+): EvmFamilyProtocolProjection {
+  const signer = requireEvmFamilyEcdsaSigner(identity, context);
+  return {
+    walletId: signer.walletId,
+    chainTarget: signer.chainTarget,
+    keyHandle: signer.keyHandle,
+    key: signer.key,
+  };
+}
+
+export function displaySummaryFromExactLane(identity: ExactSigningLaneIdentity): {
+  walletId: WalletId;
+  curve: ExactSigningLaneCurve;
+  signingGrantId: SigningGrantId;
+  thresholdSessionId: ThresholdSessionId;
+  signerKind: ExactSigningLaneIdentity['signer']['kind'];
+} {
+  return {
+    walletId: exactSigningLaneWalletId(identity),
+    curve: exactSigningLaneCurve(identity),
+    signingGrantId: identity.signingGrantId,
+    thresholdSessionId: identity.thresholdSessionId,
+    signerKind: identity.signer.kind,
+  };
+}
+
 export function exactEd25519SigningLaneSigner(
   identity: ExactEd25519SigningLaneIdentity,
 ): NearEd25519SignerBinding {

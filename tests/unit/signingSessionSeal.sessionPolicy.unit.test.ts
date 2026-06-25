@@ -53,7 +53,6 @@ function makeEcdsaStatus(input: {
 }): EcdsaWalletSessionStatus {
   return {
     record: {
-      walletSessionUserId: input.userId,
       walletId: input.userId,
       walletKeyId: input.walletKeyId,
       relayerKeyId: input.relayerKeyId,

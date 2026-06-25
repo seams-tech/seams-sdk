@@ -83,7 +83,10 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
   requireEqual(laneSigningGrantId, signingGrantId, 'signingGrantId');
 
   const nearAccountId = requireNonEmpty(args.nearAccountId, 'nearAccountId');
-  const walletId = requireNonEmpty(state.signingLane.walletId, 'state.signingLane.walletId');
+  const walletId = requireNonEmpty(
+    state.signingLane.identity.signer.account.wallet.walletId,
+    'state.signingLane.identity.signer.account.wallet.walletId',
+  );
   const walletSessionClaims = parseRouterAbEd25519WalletSessionIdentityClaims(
     signingWalletSession.auth.walletSessionJwt,
   );

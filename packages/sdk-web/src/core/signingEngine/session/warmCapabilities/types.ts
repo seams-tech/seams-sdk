@@ -329,7 +329,10 @@ function assertCapabilityStateInvariant(args: {
       );
     }
     if (
-      !thresholdEcdsaChainTargetsEqual(capability.lane.chainTarget, capability.record.chainTarget)
+      !thresholdEcdsaChainTargetsEqual(
+        capability.lane.identity.signer.chainTarget,
+        capability.record.chainTarget,
+      )
     ) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: lane chain target does not match record chain target`,

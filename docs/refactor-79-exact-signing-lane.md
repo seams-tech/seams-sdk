@@ -1725,20 +1725,20 @@ type SelectedEcdsaLane = {
 
 Tasks:
 
-- [ ] Remove `walletId`, `nearAccountId`, `nearEd25519SigningKeyId`, and
+- [x] Remove `walletId`, `nearAccountId`, `nearEd25519SigningKeyId`, and
       `signerSlot` from `SelectedEd25519Lane`.
-- [ ] Remove `walletId`, `key`, `keyHandle`, and `chainTarget` from
+- [x] Remove `walletId`, `key`, `keyHandle`, and `chainTarget` from
       `SelectedEcdsaLane`.
-- [ ] Add projection helpers with names that make their non-authority role
+- [x] Add projection helpers with names that make their non-authority role
       explicit, for example:
       `nearProtocolProjectionFromExactLane(identity)`,
       `evmFamilyProtocolProjectionFromExactLane(identity)`, and
       `displaySummaryFromExactLane(identity)`.
-- [ ] Update NEAR signing, NEP-413, delegate signing, EVM signing, Tempo
+- [x] Update NEAR signing, NEP-413, delegate signing, EVM signing, Tempo
       signing, export, restore, reconnect, budget, and post-sign policy code to
       read signer facts through the projection helpers or through direct
       `identity.signer` narrowing.
-- [ ] Delete tests that create stale flat projections to prove authority ignores
+- [x] Delete tests that create stale flat projections to prove authority ignores
       them after the flat fields are removed. Replace them with type fixtures
       proving those fields cannot be present on selected lanes.
 
@@ -1758,18 +1758,18 @@ keeps the same invalid state representable at a higher level.
 
 Tasks:
 
-- [ ] Remove repeated Ed25519 signer fields from
+- [x] Remove repeated Ed25519 signer fields from
       `Ed25519SigningSessionPlanningLane`.
-- [ ] Remove repeated ECDSA signer fields from
+- [x] Remove repeated ECDSA signer fields from
       `EcdsaSigningSessionPlanningLane`.
-- [ ] Keep lifecycle/runtime fields beside identity only when they are not
+- [x] Keep lifecycle/runtime fields beside identity only when they are not
       signer identity: `runtimeState`, `backingMaterialSessionId`,
       `activeSignerSlot`, `sessionOrigin`, `storageSource`, `retention`,
       `operationId`, and `operationFingerprint`.
-- [ ] Update `SelectedSigningSessionPlanningLane`,
+- [x] Update `SelectedSigningSessionPlanningLane`,
       `WalletSigningSpendPlan`, `SigningPlanSummary`, tracing, budget finalizer,
       readiness, and transaction-state code to use the exact identity.
-- [ ] Replace branch-specific summary construction with one identity-derived
+- [x] Replace branch-specific summary construction with one identity-derived
       summary path.
 
 Acceptance:
@@ -1789,16 +1789,16 @@ account-id collapse under a new name.
 
 Tasks:
 
-- [ ] Rename ECDSA server wallet-session and MPC-session record fields from
+- [x] Rename ECDSA server wallet-session and MPC-session record fields from
       `walletSessionUserId` to `walletId`.
-- [ ] Delete duplicated `walletId: walletSessionUserId` writes in ECDSA session
+- [x] Delete duplicated `walletId: walletSessionUserId` writes in ECDSA session
       minting and budget-session setup.
-- [ ] Keep Email OTP holder identity as a separate `authSubjectId` or
+- [x] Keep Email OTP holder identity as a separate `authSubjectId` or
       `providerSubjectId` field where needed. Do not reuse `walletId` for
       provider identity.
-- [ ] Update Router A/B ECDSA-HSS pool fill, budget status, session stores,
+- [x] Update Router A/B ECDSA-HSS pool fill, budget status, session stores,
       validation, test helpers, and fixtures to use `walletId`.
-- [ ] If existing raw requests, JWT claims, or persisted rows still contain
+- [x] If existing raw requests, JWT claims, or persisted rows still contain
       `walletSessionUserId`, parse it only in named boundary functions and
       return normalized records that contain `walletId` only.
 
@@ -1818,12 +1818,12 @@ Several ECDSA paths have local summary helpers that read lane projections. After
 
 Tasks:
 
-- [ ] Replace local ECDSA lane summary helpers with a shared
+- [x] Replace local ECDSA lane summary helpers with a shared
       `summarizeExactSigningLaneIdentity()` or branch-specific helpers backed by
       `identity.signer`.
-- [ ] Keep per-flow diagnostics as small object spreads around the shared
+- [x] Keep per-flow diagnostics as small object spreads around the shared
       summary when they need source, retention, readiness, or error context.
-- [ ] Remove duplicate candidate-summary code that exists only because flat lane
+- [x] Remove duplicate candidate-summary code that exists only because flat lane
       projections were available.
 
 Acceptance:
@@ -1841,11 +1841,11 @@ the domain model.
 
 Tasks:
 
-- [ ] Move `NormalizedConfirmationConfig` and related branch types from
+- [x] Move `NormalizedConfirmationConfig` and related branch types from
       `confirmationConfig.types.ts` into `confirmationConfig.ts`.
-- [ ] Update imports to use `@/core/types/confirmationConfig`.
-- [ ] Delete `confirmationConfig.types.ts`.
-- [ ] Keep the discriminated union shape and type fixtures.
+- [x] Update imports to use `@/core/types/confirmationConfig`.
+- [x] Delete `confirmationConfig.types.ts`.
+- [x] Keep the discriminated union shape and type fixtures.
 
 Acceptance:
 
@@ -1923,8 +1923,10 @@ git diff --check
 
 ## Review: Auditor Pass, 2026-06-25
 
-Status: auditor findings addressed through Phase 11 and validation is green.
-Phase 12 remains follow-up cleanup after the exact authority model.
+Status: auditor findings addressed through Phase 12 and validation is green.
+Phase 12 cleanup removed selected/planning lane signer projections, merged the
+confirmation config type sidecar, and normalized server ECDSA wallet/session
+records to `walletId`.
 The HSS crate context cleanup is aligned: ECDSA-HSS is digest-only, and
 Ed25519-HSS is digest plus participant ids. The SDK/server boundary modeling
 and exact-lane propagation gaps from this pass have been closed.
@@ -1994,8 +1996,9 @@ Findings to fix before completion:
   protocol/key fields under `signer`, using `NearEd25519SignerBinding` and
   `EvmFamilyEcdsaSignerBinding`.
 - [ ] Phase 12: delete temporary selected/planning lane projections,
-  `walletSessionUserId` ECDSA aliases, duplicate diagnostic summary helpers, and
-  the tiny confirmation-config type sidecar after exact identity cutover.
+  `walletSessionUserId` ECDSA aliases, and duplicate diagnostic summary helpers
+  after exact identity cutover. The tiny confirmation-config type sidecar has
+  been merged.
 
 ## Review: Final Targeted Auditor Pass, 2026-06-26
 

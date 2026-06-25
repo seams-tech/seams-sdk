@@ -404,21 +404,52 @@ export type ThresholdEcdsaRuntimeRecordCandidate = {
 
 export type ThresholdEcdsaSessionRecordLookupKey =
   | ThresholdEcdsaSessionRecordKey
+  | ExactEcdsaSigningLaneIdentity
   | SelectedEcdsaLane;
 
 function thresholdEcdsaRecordKeyFromLookupKey(
   identity: ThresholdEcdsaSessionRecordLookupKey,
 ): ThresholdEcdsaSessionRecordKey {
+  if (isSelectedEcdsaLookupKey(identity)) {
+    return thresholdEcdsaRecordKeyFromLookupKey(identity.identity);
+  }
+  if (isExactEcdsaSigningLaneLookupKey(identity)) {
+    const exactIdentity = identity;
+    const signer = exactIdentity.signer;
+    return {
+      walletId: signer.walletId,
+      keyHandle: signer.keyHandle,
+      authMethod: signingLaneAuthMethod(exactIdentity.auth),
+      curve: 'ecdsa',
+      chainTarget: signer.chainTarget,
+      signingGrantId: String(exactIdentity.signingGrantId),
+      thresholdSessionId: String(exactIdentity.thresholdSessionId),
+    };
+  }
   return {
     walletId: identity.walletId,
     keyHandle: identity.keyHandle,
-    authMethod:
-      'authMethod' in identity ? identity.authMethod : signingLaneAuthMethod(identity.auth),
+    authMethod: identity.authMethod,
     curve: 'ecdsa',
     chainTarget: identity.chainTarget,
     signingGrantId: String(identity.signingGrantId),
     thresholdSessionId: String(identity.thresholdSessionId),
   };
+}
+
+function isSelectedEcdsaLookupKey(
+  input: ThresholdEcdsaSessionRecordLookupKey,
+): input is SelectedEcdsaLane {
+  return (input as { kind?: unknown }).kind === 'selected_lane';
+}
+
+function isExactEcdsaSigningLaneLookupKey(
+  input: ThresholdEcdsaSessionRecordLookupKey,
+): input is ExactEcdsaSigningLaneIdentity {
+  return (
+    (input as { kind?: unknown }).kind === 'exact_signing_lane' &&
+    (input as { signer?: { kind?: unknown } }).signer?.kind === 'evm_family_ecdsa_signer'
+  );
 }
 
 function normalizeThresholdEcdsaSessionAuthMetadata(
@@ -2051,7 +2082,7 @@ function normalizedUpdatedAtMs(record: ThresholdEcdsaSessionRecord): number {
 }
 
 function isSelectedEcdsaLane(
-  input: ThresholdEcdsaSessionRecord | SelectedEcdsaLane,
+  input: unknown,
 ): input is SelectedEcdsaLane {
   return (input as { kind?: unknown }).kind === 'selected_lane';
 }
@@ -2060,17 +2091,7 @@ export function toExactEcdsaSigningLaneIdentity(
   input: ThresholdEcdsaSessionRecord | (SelectedEcdsaLane & { auth: SigningLaneAuthBinding }),
 ): ExactEcdsaSigningLaneIdentity {
   if (isSelectedEcdsaLane(input)) {
-    return exactEcdsaSigningLaneIdentity({
-      signer: buildEvmFamilyEcdsaSignerBinding({
-        walletId: toWalletId(input.walletId),
-        chainTarget: input.chainTarget,
-        keyHandle: input.keyHandle,
-        key: input.key,
-      }),
-      auth: input.auth,
-      signingGrantId: input.signingGrantId,
-      thresholdSessionId: input.thresholdSessionId,
-    });
+    return input.identity;
   }
   const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
     record: input,
@@ -2656,8 +2677,10 @@ export function getThresholdEcdsaSessionRecordByKey(
   deps: ThresholdEcdsaSessionStoreDeps,
   identity: ThresholdEcdsaSessionRecordLookupKey,
 ): ThresholdEcdsaSessionRecord | null {
-  if ('auth' in identity) {
-    const exactIdentity = exactEcdsaSigningLaneIdentityFromSelectedLane(identity);
+  if (isSelectedEcdsaLookupKey(identity) || isExactEcdsaSigningLaneLookupKey(identity)) {
+    const exactIdentity = isSelectedEcdsaLookupKey(identity)
+      ? exactEcdsaSigningLaneIdentityFromSelectedLane(identity)
+      : identity;
     if (!isExactEcdsaSigningLaneIdentity(exactIdentity)) return null;
     const result = readExactThresholdEcdsaSessionRecord(deps, exactIdentity);
     if (result.kind === 'found') return result.record;

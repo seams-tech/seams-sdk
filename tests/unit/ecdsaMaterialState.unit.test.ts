@@ -473,6 +473,11 @@ test.describe('ecdsa material state', () => {
       signingGrantId: SigningSessionIds.signingGrant(record.signingGrantId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(record.thresholdSessionId),
     });
+    const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
+      lane,
+      chain: 'evm',
+      context: 'Email OTP readiness test',
+    });
 
     const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
       deps: {
@@ -485,7 +490,7 @@ test.describe('ecdsa material state', () => {
         },
         signingSessionCoordinator: new SigningSessionCoordinator(),
       },
-      lane,
+      lane: resolvedLane,
       material,
     });
 

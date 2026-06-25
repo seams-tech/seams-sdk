@@ -151,14 +151,23 @@ export type SignNep413MessagePayload = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 };
 
-export type SignNep413MessageResult = {
-  success: boolean;
-  accountId: string;
-  publicKey: string;
-  signature: string;
-  state?: string;
-  error?: string;
-};
+export type SignNep413MessageResult =
+  | {
+      success: true;
+      accountId: string;
+      publicKey: string;
+      signature: string;
+      state?: string;
+      error?: never;
+    }
+  | {
+      success: false;
+      error: string;
+      accountId?: never;
+      publicKey?: never;
+      signature?: never;
+      state?: never;
+    };
 
 export type SignTransactionWithActionsInput = {
   commandSubject: NearCommandSubject;
@@ -1873,9 +1882,6 @@ export async function signNEP413Message(
     const message = error instanceof Error ? error.message : String(error || 'Unknown error');
     return {
       success: false,
-      accountId: '',
-      publicKey: '',
-      signature: '',
       error: message,
     };
   }

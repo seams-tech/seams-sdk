@@ -54,7 +54,7 @@ export type RouterAbEcdsaHssPoolFillSessionDestination =
 
 export type RouterAbEcdsaHssPoolFillSessionRecord = {
   expiresAtMs: number;
-  walletSessionUserId: string;
+  walletId: string;
   walletKeyId: string;
   relayerKeyId: string;
   presignPoolKey: string;
@@ -1371,10 +1371,10 @@ export function createThresholdEcdsaSigningStores(input: {
 
   if (kind === 'upstash-redis-rest') {
     const url =
-      toOptionalTrimmedString((config as any).url) ||
+      toOptionalTrimmedString(config.url) ||
       toOptionalTrimmedString(config.UPSTASH_REDIS_REST_URL);
     const token =
-      toOptionalTrimmedString((config as any).token) ||
+      toOptionalTrimmedString(config.token) ||
       toOptionalTrimmedString(config.UPSTASH_REDIS_REST_TOKEN);
     if (!url || !token)
       throw new Error(
@@ -1396,7 +1396,7 @@ export function createThresholdEcdsaSigningStores(input: {
 
   if (kind === 'redis-tcp') {
     const redisUrl =
-      toOptionalTrimmedString((config as any).redisUrl) ||
+      toOptionalTrimmedString(config.redisUrl) ||
       toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl) throw new Error('[threshold-ecdsa] redis-tcp selected but REDIS_URL is not set');
     if (!input.isNode) {

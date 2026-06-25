@@ -51,22 +51,27 @@ type Ed25519CapabilitySuccessResult = Extract<
   { ok: true; capability: { curve: 'ed25519' } }
 >;
 
+declare const ecdsaLane: EcdsaCapabilitySuccessResult['lane'];
+declare const ecdsaRecord: EcdsaCapabilitySuccessResult['capability']['record'];
+declare const ed25519Lane: Ed25519CapabilitySuccessResult['lane'];
+declare const ed25519Record: Ed25519CapabilitySuccessResult['capability']['record'];
+
 const validEcdsaCapabilityResult = {
   ok: true,
-  lane: {} as any,
+  lane: ecdsaLane,
   capability: {
     curve: 'ecdsa',
-    record: {} as any,
+    record: ecdsaRecord,
   },
 } satisfies EcdsaCapabilitySuccessResult;
 void validEcdsaCapabilityResult;
 
 const invalidEcdsaCapabilityResultWithKeyRef = {
   ok: true,
-  lane: {} as any,
+  lane: ecdsaLane,
   capability: {
     curve: 'ecdsa',
-    record: {} as any,
+    record: ecdsaRecord,
   },
   // @ts-expect-error ECDSA capability success rejects key refs.
   keyRef: {},
@@ -75,10 +80,10 @@ void invalidEcdsaCapabilityResultWithKeyRef;
 
 const invalidEd25519CapabilityResultWithKeyRef = {
   ok: true,
-  lane: {} as any,
+  lane: ed25519Lane,
   capability: {
     curve: 'ed25519',
-    record: {} as any,
+    record: ed25519Record,
   },
   // @ts-expect-error Ed25519 capability success rejects keyRef.
   keyRef: {},

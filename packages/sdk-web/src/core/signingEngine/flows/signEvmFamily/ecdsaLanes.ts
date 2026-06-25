@@ -60,6 +60,7 @@ export type ResolvedEvmFamilyEcdsaSigningLane = EcdsaTransactionSigningLane & {
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: EvmFamilyChain;
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: ReturnType<typeof requireEvmFamilyEcdsaSigner>['keyHandle'];
   chainTarget: ThresholdEcdsaChainTarget;
   signingGrantId: SigningGrantId;
   thresholdSessionId: ThresholdEcdsaSessionId;
@@ -92,9 +93,10 @@ export function summarizeEvmFamilyEcdsaLane(
   lane: EcdsaTransactionSigningLane | SelectedEcdsaLane | undefined,
 ): Record<string, unknown> {
   if (!lane) return { present: false };
+  const signer = requireEvmFamilyEcdsaSigner(lane.identity, 'ECDSA lane summary');
   return {
     present: true,
-    walletId: lane.walletId,
+    walletId: signer.walletId,
     authMethod: signingLaneAuthMethod(lane.auth),
     curve: lane.curve,
     chain: lane.chain,
@@ -105,8 +107,8 @@ export function summarizeEvmFamilyEcdsaLane(
     retention: 'retention' in lane ? lane.retention : undefined,
     signingGrantId: lane.signingGrantId,
     thresholdSessionId: lane.thresholdSessionId,
-    chainTarget: lane.chainTarget,
-    evmFamilyKeyPresent: Boolean('key' in lane && lane.key),
+    chainTarget: signer.chainTarget,
+    evmFamilyKeyPresent: Boolean(signer.key),
   };
 }
 
@@ -194,6 +196,8 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     ...lane,
     ...selectedLane,
     key,
+    keyHandle: signer.keyHandle,
+    chainTarget,
     keyKind: 'threshold_ecdsa_secp256k1',
     chainFamily: signer.chainTarget.kind,
   };

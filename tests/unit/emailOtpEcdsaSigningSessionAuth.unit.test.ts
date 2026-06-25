@@ -11,6 +11,7 @@ import {
 } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { createEmailOtpEcdsaTransactionSigningBridge } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
+import { requireResolvedEvmFamilyEcdsaSigningLane } from '@/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '@/core/signingEngine/session/emailOtp/exportRecovery';
@@ -97,7 +98,7 @@ function reauthAnchorForLane(
     },
     freshness: {
       kind: 'fresh_step_up_required',
-      walletId: lane.walletId,
+      walletId: lane.identity.signer.walletId,
       operationId: SigningSessionIds.signingOperation('email-otp-reauth-test'),
       operationFingerprint: SigningSessionIds.signingOperationFingerprint(
         'email-otp-reauth-fingerprint',
@@ -168,6 +169,11 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     signingGrantId,
     thresholdSessionId,
   });
+  const resolvedSelectedLane = requireResolvedEvmFamilyEcdsaSigningLane({
+    lane: selectedLane,
+    chain: 'tempo',
+    context: 'Email OTP bridge test',
+  });
   const anchorLane = buildEvmTransactionSigningLane({
     key,
     keyHandle: 'key-handle-email-otp',
@@ -182,7 +188,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
     walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
     chain: 'tempo',
     chainTarget: tempoChainTarget,
-    selectedLane,
+    selectedLane: resolvedSelectedLane,
     signingSessionRecord: null,
     reauthSource: {
       kind: 'reauth_anchor',
@@ -247,14 +253,18 @@ test('Email OTP ECDSA reauth anchor requires signing-session authority', async (
     walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
     chain: 'tempo',
     chainTarget: tempoChainTarget,
-    selectedLane: buildTempoTransactionSigningLane({
-      key,
-      keyHandle: 'key-handle-email-otp',
-      walletId: ecdsaWalletId,
-      auth: emailOtpAuth,
-      chainTarget: tempoChainTarget,
-      signingGrantId,
-      thresholdSessionId,
+    selectedLane: requireResolvedEvmFamilyEcdsaSigningLane({
+      lane: buildTempoTransactionSigningLane({
+        key,
+        keyHandle: 'key-handle-email-otp',
+        walletId: ecdsaWalletId,
+        auth: emailOtpAuth,
+        chainTarget: tempoChainTarget,
+        signingGrantId,
+        thresholdSessionId,
+      }),
+      chain: 'tempo',
+      context: 'Email OTP bridge mismatched wallet test',
     }),
     signingSessionRecord: null,
     reauthSource: {

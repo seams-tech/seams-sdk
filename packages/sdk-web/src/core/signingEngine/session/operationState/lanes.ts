@@ -127,84 +127,106 @@ export type EcdsaTransactionSigningLaneInput =
 export function buildEd25519PasskeySigningLane(
   input: PasskeySigningLaneAuthInput & Ed25519PasskeySigningLaneInput,
 ): NearTransactionSigningLane {
+  const selectedLane = selectedEd25519Lane({
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    signerSlot: input.signerSlot,
+    auth: input.auth,
+    signingGrantId: input.signingGrantId,
+    thresholdSessionId: input.thresholdSessionId,
+  });
   return buildSigningLane<NearTransactionSigningLane>({
-    ...input,
-    ...selectedEd25519Lane({
-      walletId: input.walletId,
-      nearAccountId: input.nearAccountId,
-      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-      signerSlot: input.signerSlot,
-      auth: input.auth,
-      signingGrantId: input.signingGrantId,
-      thresholdSessionId: input.thresholdSessionId,
-    }),
+    ...selectedLane,
     keyKind: 'threshold_ed25519',
     chainFamily: 'near',
+    storageSource: input.storageSource,
     sessionOrigin:
       input.sessionOrigin || signingSessionOriginFromStorageSource(input.storageSource),
+    ...(input.backingMaterialSessionId
+      ? { backingMaterialSessionId: input.backingMaterialSessionId }
+      : {}),
+    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
+    ...(input.retention ? { retention: input.retention } : {}),
   });
 }
 
 export function buildEd25519EmailOtpSigningLane(
   input: EmailOtpSigningLaneAuthInput & Ed25519EmailOtpSigningLaneInput,
 ): NearTransactionSigningLane {
+  const selectedLane = selectedEd25519Lane({
+    walletId: input.walletId,
+    nearAccountId: input.nearAccountId,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
+    signerSlot: input.signerSlot,
+    auth: input.auth,
+    signingGrantId: input.signingGrantId,
+    thresholdSessionId: input.thresholdSessionId,
+  });
   return buildSigningLane<NearTransactionSigningLane>({
-    ...input,
-    ...selectedEd25519Lane({
-      walletId: input.walletId,
-      nearAccountId: input.nearAccountId,
-      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-      signerSlot: input.signerSlot,
-      auth: input.auth,
-      signingGrantId: input.signingGrantId,
-      thresholdSessionId: input.thresholdSessionId,
-    }),
+    ...selectedLane,
     keyKind: 'threshold_ed25519',
     chainFamily: 'near',
     storageSource: 'email_otp',
     sessionOrigin: input.sessionOrigin || 'per_operation',
+    ...(input.backingMaterialSessionId
+      ? { backingMaterialSessionId: input.backingMaterialSessionId }
+      : {}),
+    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
+    ...(input.retention ? { retention: input.retention } : {}),
   });
 }
 
 export function buildEcdsaPasskeySigningLane(
   input: PasskeySigningLaneAuthInput & EcdsaPasskeySigningLaneInput,
 ): EcdsaTransactionSigningLane {
+  const selectedLane = selectedEcdsaLane({
+    key: input.key,
+    keyHandle: input.keyHandle,
+    walletId: input.walletId,
+    auth: input.auth,
+    signingGrantId: input.signingGrantId,
+    thresholdSessionId: input.thresholdSessionId,
+    chainTarget: input.chainTarget,
+  });
   return buildSigningLane<EcdsaTransactionSigningLane>({
-    ...input,
-    ...selectedEcdsaLane({
-      key: input.key,
-      keyHandle: input.keyHandle,
-      walletId: input.walletId,
-      auth: input.auth,
-      signingGrantId: input.signingGrantId,
-      thresholdSessionId: input.thresholdSessionId,
-      chainTarget: input.chainTarget,
-    }),
+    ...selectedLane,
     keyKind: 'threshold_ecdsa_secp256k1',
     chainFamily: input.chainTarget.kind,
+    storageSource: input.storageSource,
     sessionOrigin:
       input.sessionOrigin || signingSessionOriginFromStorageSource(input.storageSource),
+    ...(input.backingMaterialSessionId
+      ? { backingMaterialSessionId: input.backingMaterialSessionId }
+      : {}),
+    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
+    ...(input.retention ? { retention: input.retention } : {}),
   });
 }
 
 export function buildEcdsaEmailOtpSigningLane(
   input: EmailOtpSigningLaneAuthInput & EcdsaEmailOtpSigningLaneInput,
 ): EcdsaTransactionSigningLane {
+  const selectedLane = selectedEcdsaLane({
+    key: input.key,
+    keyHandle: input.keyHandle,
+    walletId: input.walletId,
+    auth: input.auth,
+    signingGrantId: input.signingGrantId,
+    thresholdSessionId: input.thresholdSessionId,
+    chainTarget: input.chainTarget,
+  });
   return buildSigningLane<EcdsaTransactionSigningLane>({
-    ...input,
-    ...selectedEcdsaLane({
-      key: input.key,
-      keyHandle: input.keyHandle,
-      walletId: input.walletId,
-      auth: input.auth,
-      signingGrantId: input.signingGrantId,
-      thresholdSessionId: input.thresholdSessionId,
-      chainTarget: input.chainTarget,
-    }),
+    ...selectedLane,
     keyKind: 'threshold_ecdsa_secp256k1',
     chainFamily: input.chainTarget.kind,
     storageSource: 'email_otp',
     sessionOrigin: input.sessionOrigin || 'per_operation',
+    ...(input.backingMaterialSessionId
+      ? { backingMaterialSessionId: input.backingMaterialSessionId }
+      : {}),
+    ...(input.activeSignerSlot ? { activeSignerSlot: input.activeSignerSlot } : {}),
+    ...(input.retention ? { retention: input.retention } : {}),
   });
 }
 

@@ -661,8 +661,9 @@ test('Refactor 79 ECDSA MPC sessions are native wallet-key records', () => {
     'export type ThresholdMpcSessionRecord =',
   );
 
-  expect(ecdsaMpcType).toContain('walletSessionUserId: string;');
+  expect(ecdsaMpcType).toContain('walletId: string;');
   expect(ecdsaMpcType).toContain('walletKeyId: string;');
+  expect(ecdsaMpcType).not.toContain('walletSessionUserId: string;');
   expect(ecdsaMpcType).not.toContain('userId: string;');
   expect(ecdsaMpcType).not.toContain('rpId: string;');
   expect(sessionStoreSource).not.toContain(
@@ -671,6 +672,26 @@ test('Refactor 79 ECDSA MPC sessions are native wallet-key records', () => {
   expect(serviceSource).not.toContain('toThresholdEcdsaMpcSessionRecord');
   expect(serviceSource).not.toContain('walletKeyId: record.rpId');
   expect(serviceSource).not.toContain('rpId: record.walletKeyId');
+});
+
+test('Refactor 79 normalized server ECDSA records do not expose walletSessionUserId', () => {
+  const normalizedServerRecordFiles = [
+    'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts',
+    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts',
+  ];
+
+  for (const relativePath of normalizedServerRecordFiles) {
+    const source = readRepoSource(relativePath);
+    expect(source, relativePath).not.toContain('walletSessionUserId');
+  }
+
+  const validationSource = readRepoSource(
+    'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
+  );
+  expect(validationSource).toContain('toOptionalString(raw.walletSessionUserId)');
 });
 
 test('Refactor 79 canonical NEAR Ed25519 signer binding rejects signer slot zero', () => {

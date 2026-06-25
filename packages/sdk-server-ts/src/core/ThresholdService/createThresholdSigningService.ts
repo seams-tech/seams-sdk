@@ -146,7 +146,7 @@ export function createThresholdSigningService(input: {
     ensureReady,
     ensureSignerWasm: ensureReady,
     verifyWebAuthnAuthenticationLite: (req) =>
-      input.authService.verifyWebAuthnAuthenticationLite(req as any),
+      input.authService.verifyWebAuthnAuthenticationLite(req),
     viewAccessKeyList: (accountId) => input.authService.viewAccessKeyList(accountId),
     dispatchNearTransaction: (request) =>
       input.authService.dispatchNearSignedTransactionBorsh(request),

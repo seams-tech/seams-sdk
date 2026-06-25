@@ -5,7 +5,7 @@ import {
 } from '@shared/utils/registrationIntent';
 import { parseImplicitNearAccountId } from '@shared/utils/near';
 import type { ActionResult, LoginResult, RegistrationResult } from './seams';
-import type { SignNEP413MessageResult } from './sdkPublicResults';
+import type { SignNEP413MessageResult, SyncAccountResult } from './sdkPublicResults';
 
 const walletId = walletIdFromString('frost-vermillion-k7p9m2');
 const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('ed25519ks_example');
@@ -95,6 +95,40 @@ const invalidNep413Failure: SignNEP413MessageResult = {
   signature: 'signature',
 };
 void invalidNep413Failure;
+
+const syncAccountSuccess: SyncAccountResult = {
+  success: true,
+  accountId: String(walletId),
+  walletId: String(walletId),
+  nearAccountId: String(implicitNearAccountId),
+  nearEd25519SigningKeyId: String(nearEd25519SigningKeyId),
+  publicKey: 'ed25519:public-key',
+  message: 'Account synced successfully',
+  loginState: { isLoggedIn: true },
+};
+void syncAccountSuccess;
+
+const syncAccountFailure: SyncAccountResult = {
+  success: false,
+  error: 'Sync failed',
+};
+void syncAccountFailure;
+
+// @ts-expect-error sync-account failure cannot carry success-only account data.
+const invalidSyncAccountFailureWithAccount: SyncAccountResult = {
+  success: false,
+  error: 'Sync failed',
+  accountId: String(walletId),
+};
+void invalidSyncAccountFailureWithAccount;
+
+// @ts-expect-error sync-account failure cannot carry a placeholder public key.
+const invalidSyncAccountFailureWithPublicKey: SyncAccountResult = {
+  success: false,
+  error: 'Sync failed',
+  publicKey: '',
+};
+void invalidSyncAccountFailureWithPublicKey;
 
 const nearRegistrationSuccess: RegistrationResult = {
   success: true,

@@ -67,7 +67,7 @@ type ThresholdEcdsaMpcSessionRecord = {
   purpose: string;
   intentDigestB64u: string;
   signingDigestB64u: string;
-  walletSessionUserId: string;
+  walletId: string;
   walletKeyId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
@@ -343,7 +343,7 @@ function parseRouterAbEcdsaHssPoolFillInitRequest(
 
 function validateRouterAbEcdsaHssPresignPoolFill(input: {
   poolFill: RouterAbEcdsaHssSigningWorkerPoolFillDestination;
-  walletSessionUserId: string;
+  walletId: string;
   walletKeyId: string;
   keyMaterial: ThresholdEcdsaSigningKeyMaterial;
   sessionExpiresAtMs: number;
@@ -363,7 +363,7 @@ function validateRouterAbEcdsaHssPresignPoolFill(input: {
   const signingRootVersion = expected.signingRootMetadata.signingRootVersion || 'default';
   const contextChecks: Array<[string, string, string]> = [
     ['poolFill.scope.wallet_key_id', scope.wallet_key_id, input.walletKeyId],
-    ['poolFill.scope.wallet_id', scope.wallet_id, input.walletSessionUserId],
+    ['poolFill.scope.wallet_id', scope.wallet_id, input.walletId],
     [
       'poolFill.scope.ecdsa_threshold_key_id',
       scope.ecdsa_threshold_key_id,
@@ -669,7 +669,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
 
   private async resolvePoolFillInitKeyMaterial(input: {
     keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
-    walletSessionUserId: string;
+    walletId: string;
     walletKeyId: string;
     participantIds: number[];
     tokenRelayerKeyId: string;
@@ -703,7 +703,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       };
     }
     if (
-      roleLocalKey.walletId !== input.walletSessionUserId ||
+      roleLocalKey.walletId !== input.walletId ||
       roleLocalKey.walletKeyId !== input.walletKeyId
     ) {
       return {
@@ -799,7 +799,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     this.logger.warn('[threshold-ecdsa-security]', {
       event: input.event,
       presignSessionId: input.presignSessionId,
-      walletSessionUserId: record?.walletSessionUserId || null,
+      walletId: record?.walletId || null,
       walletKeyId: record?.walletKeyId || null,
       relayerKeyId: record?.relayerKeyId || null,
       ecdsaThresholdKeyId: null,
@@ -976,12 +976,12 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     const { keySelector, poolFill } = parsedRequest.value;
 
     const claims = input.claims;
-    const walletSessionUserId = toOptionalTrimmedString(claims?.walletId);
-    if (!walletSessionUserId)
+    const walletId = toOptionalTrimmedString(claims?.walletId);
+    if (!walletId)
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'Missing walletSessionUserId in Wallet Session token',
+        message: 'Missing walletId in Wallet Session token',
       };
     const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
     const tokenWalletKeyId = toOptionalTrimmedString(claims?.walletKeyId);
@@ -998,7 +998,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     }
     const resolvedKeyMaterial = await this.resolvePoolFillInitKeyMaterial({
       keySelector,
-      walletSessionUserId,
+      walletId,
       walletKeyId: tokenWalletKeyId,
       participantIds: claims.participantIds,
       tokenRelayerKeyId,
@@ -1113,7 +1113,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
     const expiresAtMs = nowMs + ttlMs;
     const sessionPoolFill = validateRouterAbEcdsaHssPresignPoolFill({
       poolFill,
-      walletSessionUserId,
+      walletId,
       walletKeyId: tokenWalletKeyId,
       keyMaterial: resolvedKeyMaterial.value,
       sessionExpiresAtMs: expiresAtMs,
@@ -1142,7 +1142,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
       const createdAtMs = Date.now();
       const record: RouterAbEcdsaHssPoolFillSessionRecord = {
         expiresAtMs,
-        walletSessionUserId,
+        walletId,
         walletKeyId: tokenWalletKeyId,
         relayerKeyId,
         presignPoolKey,
@@ -1311,7 +1311,7 @@ export class RouterAbEcdsaHssPoolFillHandlers {
         };
       }
       if (
-        tokenUserId !== record.walletSessionUserId ||
+        tokenUserId !== record.walletId ||
         tokenWalletKeyId !== record.walletKeyId ||
         !sameParticipantIds(tokenParticipantIds, record.participantIds)
       ) {

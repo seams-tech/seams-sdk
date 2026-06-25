@@ -18,6 +18,7 @@ import type {
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 import type {
   UiConfirmContextPort,
   UiConfirmSigningPort,
@@ -1350,10 +1351,14 @@ async function signEvmFamilyAttempt(
       // here, so finalization follows the admitted lane and skips local cleanup.
       return;
     }
+    const transactionSigner = requireEvmFamilyEcdsaSigner(
+      prepared.transactionOperation.lane.identity,
+      'ECDSA post-sign policy',
+    );
     await applySuccessfulEvmFamilyEcdsaPostSignPolicy({
       postSignPolicy: warmSessionServices,
       walletId,
-      chainTarget: prepared.transactionOperation.lane.chainTarget,
+      chainTarget: transactionSigner.chainTarget,
       ecdsaSigningLane: prepared.signingLane,
       selectedRecord,
     });

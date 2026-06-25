@@ -450,7 +450,7 @@ export async function runNearTransactionWithActionsSigning({
               }
             : undefined,
       }),
-      walletId: String(signingLane.walletId),
+      walletId: String(signingLane.identity.signer.account.wallet.walletId),
       txSigningRequests: [confirmationTransaction],
       rpcCall: resolvedRpcCall,
       nearPublicKeyStr: signingContext.signingNearPublicKeyStr,

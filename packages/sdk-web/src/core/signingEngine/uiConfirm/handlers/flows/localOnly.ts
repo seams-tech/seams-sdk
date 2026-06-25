@@ -1,5 +1,5 @@
 import type { UiConfirmContext } from '../../uiConfirm.types';
-import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig';
 import { silentConfirmationConfig } from '@/core/types/confirmationConfig';
 import {
   UserConfirmationType,

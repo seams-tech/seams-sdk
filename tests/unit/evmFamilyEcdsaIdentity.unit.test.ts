@@ -1317,9 +1317,13 @@ test.describe('EVM-family ECDSA identity', () => {
       chainTarget: readModel.lane.chainTarget,
     });
     const wrongWalletLane = selectedEcdsaLane({
-      ...matchingLane,
       key: otherWalletKey,
+      keyHandle: record.keyHandle,
       walletId: otherWallet,
+      auth: { kind: 'passkey', rpId: toRpId(RP_ID), credentialIdB64u: record.keyHandle },
+      signingGrantId: readModel.lane.signingGrantId,
+      thresholdSessionId: readModel.lane.thresholdSessionId,
+      chainTarget: readModel.lane.chainTarget,
     });
 
     expect(getThresholdEcdsaSessionRecordByKey(deps, matchingLane)?.walletId).toBe(WALLET_ID);

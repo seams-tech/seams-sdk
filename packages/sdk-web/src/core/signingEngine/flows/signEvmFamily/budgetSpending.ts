@@ -15,6 +15,7 @@ import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import { toWalletId, type WalletSessionRef } from '../../interfaces/ecdsaChainTarget';
+import { requireEvmFamilyEcdsaSigner } from '../../session/identity/exactSigningLaneIdentity';
 
 export type EvmFamilyTransactionSigningOperationContext = SigningOperationContext & {
   operationFingerprint: SigningOperationFingerprint;
@@ -70,6 +71,10 @@ function buildEvmFamilyBudgetFinalization(
 
 function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilySigningGrantBudgetArgs) {
   const selectedTransactionLane = args.admittedTransaction.lane;
+  const selectedTransactionSigner = requireEvmFamilyEcdsaSigner(
+    selectedTransactionLane.identity,
+    'ECDSA budget finalizer',
+  );
   const resolvedIdentity = buildEcdsaSessionIdentity(selectedTransactionLane);
   return {
     finalizer: createSigningSessionBudgetFinalizer({
@@ -80,7 +85,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilySigningGrantBu
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to update signing grant budget', {
           walletId: toWalletId(args.walletSession.walletId),
-          chainTarget: selectedTransactionLane.chainTarget,
+          chainTarget: selectedTransactionSigner.chainTarget,
           signingGrantId: resolvedIdentity.signingGrantId,
           thresholdSessionId: resolvedIdentity.thresholdSessionId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
@@ -89,7 +94,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilySigningGrantBu
       onRecordZeroSpendError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to record signing grant zero spend', {
           walletId: toWalletId(args.walletSession.walletId),
-          chainTarget: selectedTransactionLane.chainTarget,
+          chainTarget: selectedTransactionSigner.chainTarget,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       },

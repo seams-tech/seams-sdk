@@ -40,14 +40,12 @@ export type SyncAccountResult =
     }
   | {
       success: false;
-      accountId: string;
-      publicKey: '';
-      message: string;
       error: string;
-      loginState: {
-        isLoggedIn: false;
-      };
+      accountId?: never;
       walletId?: never;
       nearAccountId?: never;
       nearEd25519SigningKeyId?: never;
+      publicKey?: never;
+      message?: never;
+      loginState?: never;
     };

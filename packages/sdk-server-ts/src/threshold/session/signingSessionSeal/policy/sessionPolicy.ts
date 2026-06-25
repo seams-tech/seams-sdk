@@ -67,8 +67,8 @@ function normalizeSessionRecord(
   };
   switch (input.curve) {
     case 'ecdsa': {
-      if (!('walletSessionUserId' in raw)) return null;
-      const userId = String(raw.walletSessionUserId || '').trim();
+      if (!('walletKeyId' in raw)) return null;
+      const userId = String(raw.walletId || '').trim();
       const walletKeyId = String(raw.walletKeyId || '').trim();
       if (!userId || !walletKeyId) return null;
       return {

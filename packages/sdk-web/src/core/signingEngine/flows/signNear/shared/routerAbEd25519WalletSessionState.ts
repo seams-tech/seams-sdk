@@ -194,11 +194,12 @@ export async function refreshPasskeyEd25519SealedRecordAfterSigningMaterial(args
   const relayerUrl = String(args.walletSessionState.relayerUrl || '').trim();
   const materialHandle = String(args.materialHandle || '').trim();
   if (!thresholdSessionId || !signingGrantId || !relayerUrl || !materialHandle) return;
+  const signer = args.walletSessionState.signingLane.identity.signer;
   const result = await persist({
         sessionId: thresholdSessionId,
         transport: {
           curve: 'ed25519',
-          walletId: String(args.walletSessionState.signingLane.walletId || '').trim(),
+          walletId: String(signer.account.wallet.walletId || '').trim(),
           relayerUrl,
           signingGrantId,
           ...(args.walletSessionState.walletSessionAuth.kind === 'wallet_session_jwt'

@@ -139,7 +139,7 @@ test.describe('step-up freshness identity', () => {
     const operation = makeOperation();
 
     const satisfied = buildFreshStepUpSatisfied({
-      walletId: lane.walletId,
+      walletId: lane.identity.signer.walletId,
       ...operation,
       laneIdentity,
       projection: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
@@ -188,7 +188,7 @@ test.describe('step-up freshness identity', () => {
     const lane = makeEcdsaLane();
     const operation = makeOperation();
     const required = buildFreshStepUpRequired({
-      walletId: lane.walletId,
+      walletId: lane.identity.signer.walletId,
       ...operation,
       laneIdentity: exactSigningLaneIdentityFromSelectedLane(lane),
       projection: { kind: 'unavailable', reason: 'budget_status_unavailable' },
@@ -356,7 +356,7 @@ test.describe('step-up freshness identity', () => {
     const operation = makeOperation();
 
     const restored = buildStepUpFreshnessFromRestoredSealedRecord({
-      walletId: lane.walletId,
+      walletId: lane.identity.signer.walletId,
       ...operation,
       laneIdentity,
       recordVersion: 'sealed-v1',
@@ -366,7 +366,7 @@ test.describe('step-up freshness identity', () => {
       nowMs: 1_800_000_000_000,
     });
     const expired = buildStepUpFreshnessFromRestoredSealedRecord({
-      walletId: lane.walletId,
+      walletId: lane.identity.signer.walletId,
       ...operation,
       laneIdentity,
       recordVersion: 'sealed-v1',

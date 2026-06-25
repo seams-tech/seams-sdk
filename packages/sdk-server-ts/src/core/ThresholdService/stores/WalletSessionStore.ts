@@ -44,7 +44,6 @@ export type Ed25519WalletSessionRecord = {
 export type EcdsaWalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
-  walletSessionUserId: string;
   walletId: string;
   walletKeyId: string;
   participantIds: number[];

@@ -149,13 +149,32 @@ function makeTempoNonceLane(spend: WalletSigningSpendPlan): EvmNonceLane {
   if (spend.lane.curve !== 'ecdsa') {
     throw new Error('expected ECDSA spend');
   }
+  const signer = ecdsaSignerFromSpend(spend);
   return {
     family: 'evm',
-    chainTarget: spend.lane.chainTarget,
-    subjectId: toWalletId(spend.lane.walletId),
+    chainTarget: signer.chainTarget,
+    subjectId: toWalletId(signer.walletId),
     sender: `0x${'33'.repeat(20)}`,
     nonceKey: 1n,
   };
+}
+
+function ecdsaSignerFromSpend(spend: WalletSigningSpendPlan) {
+  const signer = spend.lane.identity.signer;
+  if (signer.kind !== 'evm_family_ecdsa_signer') {
+    throw new Error('expected ECDSA spend signer');
+  }
+  return signer;
+}
+
+function walletIdFromSpend(spend: WalletSigningSpendPlan): string {
+  const signer = spend.lane.identity.signer;
+  switch (signer.kind) {
+    case 'evm_family_ecdsa_signer':
+      return String(signer.walletId);
+    case 'near_ed25519_signer':
+      return String(signer.account.wallet.walletId);
+  }
 }
 
 function makeBudgetIdentity(spend: WalletSigningSpendPlan): SigningSessionPreparedBudgetIdentity {
@@ -452,7 +471,7 @@ test.describe('budget coordinator reserved success handling', () => {
         operationId: spend.operationId,
         operationFingerprint: spend.operationFingerprint!,
         intent: SigningOperationIntent.TransactionSign,
-        accountId: String(spend.lane.walletId),
+        accountId: walletIdFromSpend(spend),
       },
     });
     await nonceCoordinator.markSigned({
@@ -478,7 +497,7 @@ test.describe('budget coordinator reserved success handling', () => {
           'tempo-broadcast-failed-retry-fingerprint',
         ),
         intent: SigningOperationIntent.TransactionSign,
-        accountId: String(spend.lane.walletId),
+        accountId: walletIdFromSpend(spend),
       },
     });
 
@@ -496,7 +515,7 @@ test.describe('budget coordinator reserved success handling', () => {
           chainId: 42431,
           networkSlug: 'tempo-moderato',
         },
-        key: spend.lane.key,
+        key: ecdsaSignerFromSpend(spend).key,
       },
     });
     expect(broadcastFailedFinalization.finalizationCommand.outcome).toBe('broadcast_failed');
@@ -646,7 +665,7 @@ test.describe('budget coordinator reserved success handling', () => {
         operationId: spend.operationId,
         operationFingerprint: spend.operationFingerprint!,
         intent: SigningOperationIntent.TransactionSign,
-        accountId: String(spend.lane.walletId),
+        accountId: walletIdFromSpend(spend),
       },
     });
 

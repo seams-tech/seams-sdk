@@ -33,6 +33,12 @@ function sourceRange(source: string, startNeedle: string, endNeedle: string): st
   return source.slice(start, end);
 }
 
+function sourceFrom(source: string, startNeedle: string): string {
+  const start = source.indexOf(startNeedle);
+  expect(start, `missing source start: ${startNeedle}`).toBeGreaterThanOrEqual(0);
+  return source.slice(start);
+}
+
 function refactor80AuthorityFiles(): string[] {
   const roots = [
     'packages/sdk-web/src/core/signingEngine',
@@ -47,17 +53,39 @@ function refactor80AuthorityFiles(): string[] {
   return roots.flatMap((root) => listTypeScriptFiles(path.join(repoRoot, root)));
 }
 
+function refactor80SigningSessionLifecycleFiles(): string[] {
+  const roots = [
+    'packages/sdk-web/src/core/signingEngine',
+    'packages/sdk-server-ts/src/core/ThresholdService',
+  ];
+  return roots.flatMap((root) => listTypeScriptFiles(path.join(repoRoot, root)));
+}
+
 test('Refactor 80 guard uses the current plan number', () => {
   const plan = readRepoSource('docs/refactor-80-switch-case.md');
   expect(plan).toContain('tests/unit/refactor80SwitchCase.guard.unit.test.ts');
   expect(plan).not.toContain('refactor77SwitchCase.guard.unit.test.ts');
 });
 
+test('Refactor 80 signing/session lifecycle code avoids unsafe any casts', () => {
+  const violations: string[] = [];
+  for (const relativePath of refactor80SigningSessionLifecycleFiles()) {
+    const source = readRepoSource(relativePath);
+    const lines = source.split('\n');
+    lines.forEach((line, index) => {
+      if (/\bas\s+any\b/.test(line)) {
+        violations.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+      }
+    });
+  }
+
+  expect(violations, violations.join('\n')).toEqual([]);
+});
+
 test('Refactor 80 normalized confirmation config keeps silent mode branch-specific', () => {
-  const typeSource = readRepoSource('packages/sdk-web/src/core/types/confirmationConfig.types.ts');
   const runtimeSource = readRepoSource('packages/sdk-web/src/core/types/confirmationConfig.ts');
   const silentBranch = sourceRange(
-    typeSource,
+    runtimeSource,
     'export type SilentConfirmationConfig = {',
     'export type InteractiveConfirmationConfig = {',
   );
@@ -163,6 +191,9 @@ test('Refactor 80 public result types use success-specific branches', () => {
   const sdkPublicResultsSource = readRepoSource(
     'packages/sdk-web/src/core/types/sdkPublicResults.ts',
   );
+  const signNearSource = readRepoSource(
+    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+  );
   const loginRange = sourceRange(
     seamsTypesSource,
     'export type LoginResult =',
@@ -183,12 +214,20 @@ test('Refactor 80 public result types use success-specific branches', () => {
     'export type SignNEP413MessageResult =',
     'export type SyncAccountResult =',
   );
+  const syncAccountRange = sourceFrom(sdkPublicResultsSource, 'export type SyncAccountResult =');
+  const coreNep413Range = sourceRange(
+    signNearSource,
+    'export type SignNep413MessageResult =',
+    'export type SignTransactionWithActionsInput =',
+  );
 
   for (const [name, source] of [
     ['LoginResult', loginRange],
     ['ActionResult', actionRange],
     ['RegistrationResult', registrationRange],
     ['SignNEP413MessageResult', nep413Range],
+    ['SyncAccountResult', syncAccountRange],
+    ['Core SignNep413MessageResult', coreNep413Range],
   ] as const) {
     expect(source, `${name} must not use flat boolean success`).not.toContain('success: boolean');
     expect(source, `${name} must have a success branch`).toContain('success: true;');

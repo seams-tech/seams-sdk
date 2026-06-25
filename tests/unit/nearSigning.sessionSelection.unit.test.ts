@@ -600,16 +600,22 @@ test.describe('near signing session selection', () => {
     expect(walletId).not.toBe(nearAccountId);
     expect(context.walletId).toBe(walletId);
     expect(context.nearAccountId).toBe(nearAccountId);
-    expect(String(context.lane.walletId)).toBe(walletId);
-    expect(String(context.lane.nearAccountId)).toBe(nearAccountId);
-    expect(String(context.lane.nearEd25519SigningKeyId)).toBe(walletId);
+    expect(String(context.lane.identity.signer.account.wallet.walletId)).toBe(walletId);
+    expect(String(context.lane.identity.signer.account.nearAccountId)).toBe(nearAccountId);
+    expect(String(context.lane.identity.signer.nearEd25519SigningKeyId)).toBe(walletId);
     expect(context.coordinatorInput.lane.curve).toBe('ed25519');
     if (context.coordinatorInput.lane.curve !== 'ed25519') {
       throw new Error('expected Ed25519 coordinator lane');
     }
-    expect(String(context.coordinatorInput.lane.walletId)).toBe(walletId);
-    expect(String(context.coordinatorInput.lane.nearAccountId)).toBe(nearAccountId);
-    expect(String(context.coordinatorInput.lane.nearEd25519SigningKeyId)).toBe(walletId);
+    expect(String(context.coordinatorInput.lane.identity.signer.account.wallet.walletId)).toBe(
+      walletId,
+    );
+    expect(String(context.coordinatorInput.lane.identity.signer.account.nearAccountId)).toBe(
+      nearAccountId,
+    );
+    expect(String(context.coordinatorInput.lane.identity.signer.nearEd25519SigningKeyId)).toBe(
+      walletId,
+    );
   });
 
   test('retains prior same-account Ed25519 worker material when minting a new login session', () => {

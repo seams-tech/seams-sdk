@@ -87,10 +87,6 @@ export type SelectedEd25519Lane = BaseSelectedLane & {
   identity: ExactEd25519SigningLaneIdentity;
   curve: 'ed25519';
   chain: 'near';
-  walletId: WalletId;
-  nearAccountId: AccountId;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  signerSlot: number;
   thresholdSessionId: ThresholdEd25519SessionId;
   accountId?: never;
 };
@@ -99,11 +95,7 @@ export type SelectedEcdsaLane = BaseSelectedLane & {
   identity: ExactEcdsaSigningLaneIdentity;
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
-  key: EvmFamilyEcdsaKeyIdentity;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  walletId: WalletId;
   thresholdSessionId: ThresholdEcdsaSessionId;
-  chainTarget: ThresholdEcdsaChainTarget;
 };
 
 export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
@@ -149,10 +141,6 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
   return {
     kind: 'selected_lane',
     identity,
-    walletId: input.walletId,
-    nearAccountId: input.nearAccountId,
-    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
-    signerSlot,
     auth: input.auth,
     curve: 'ed25519',
     chain: 'near',
@@ -188,12 +176,8 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
     auth: input.auth,
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
-    key: input.key,
-    keyHandle,
-    walletId: input.walletId,
     signingGrantId,
     thresholdSessionId,
-    chainTarget: input.chainTarget,
   };
 }
 

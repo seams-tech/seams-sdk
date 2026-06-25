@@ -326,7 +326,6 @@ type ThresholdEcdsaBootstrapSessionResult =
 type ThresholdEcdsaWalletSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
-  walletSessionUserId: string;
   walletId: string;
   walletKeyId: string;
   participantIds: number[];
@@ -2816,7 +2815,7 @@ export class ThresholdSigningService {
         const curveSession = await this.ecdsaWalletSessionStore.getSession(input.curveSessionId);
         if (
           !curveSession ||
-          walletBudgetSession.walletId !== curveSession.walletSessionUserId ||
+          walletBudgetSession.walletId !== curveSession.walletId ||
           walletBudgetScopeId(walletBudgetSession.budgetScope) !== curveSession.walletKeyId ||
           !walletBudgetBindingMatches({
             record: walletBudgetSession,
@@ -3492,7 +3491,7 @@ export class ThresholdSigningService {
   private async ecdsaMintSessionWithoutWebAuthn(input: {
     relayerKeyId: string;
     clientVerifyingShareB64u: string;
-    walletSessionUserId: string;
+    walletId: string;
     walletKeyId: string;
     sessionId: string;
     signingGrantId: string;
@@ -3505,7 +3504,7 @@ export class ThresholdSigningService {
     const {
       relayerKeyId,
       clientVerifyingShareB64u,
-      walletSessionUserId,
+      walletId,
       walletKeyId,
       sessionId,
       signingGrantId,
@@ -3532,7 +3531,7 @@ export class ThresholdSigningService {
 
     const existingSession = await this.getEcdsaWalletSession(sessionId);
     if (existingSession) {
-      if (existingSession.walletSessionUserId !== walletSessionUserId) {
+      if (existingSession.walletId !== walletId) {
         return {
           ok: false,
           code: 'unauthorized',
@@ -3573,7 +3572,7 @@ export class ThresholdSigningService {
       const walletBudget = await this.ensureSigningGrantBudget({
 	        signingGrantId,
 	        binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
-	        userId: walletSessionUserId,
+	        userId: walletId,
 	        walletKeyId,
         participantIds: existingSession.participantIds,
         ttlMs,
@@ -3598,8 +3597,7 @@ export class ThresholdSigningService {
       record: {
         expiresAtMs,
         relayerKeyId,
-        walletSessionUserId,
-        walletId: walletSessionUserId,
+        walletId,
         walletKeyId,
         participantIds,
         ...signingRootMetadata,
@@ -3610,7 +3608,7 @@ export class ThresholdSigningService {
     const walletBudget = await this.ensureSigningGrantBudget({
 	      signingGrantId,
 	      binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
-	      userId: walletSessionUserId,
+	      userId: walletId,
 	      walletKeyId,
       participantIds,
       ttlMs,
@@ -3778,7 +3776,7 @@ export class ThresholdSigningService {
       const session = await this.ecdsaMintSessionWithoutWebAuthn({
         relayerKeyId: request.relayerKeyId,
         clientVerifyingShareB64u: request.hssClientSharePublicKey33B64u,
-        walletSessionUserId: request.walletId,
+        walletId: request.walletId,
         walletKeyId: request.walletKeyId,
         sessionId: request.sessionId,
         signingGrantId: request.signingGrantId,

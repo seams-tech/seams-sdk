@@ -34,16 +34,12 @@ const validPlanningLane = {
   curve: 'ecdsa',
   keyKind: 'threshold_ecdsa_secp256k1',
   chainFamily: chainTarget.kind,
-  key,
-  keyHandle,
-  walletId: ecdsaWalletId,
 	  signingGrantId: SigningSessionIds.signingGrant('signing-grant-id'),
 	  thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session-id'),
 	  runtimeState: 'no_runtime_material',
 	  sessionOrigin: 'login',
   storageSource: 'login',
   retention: 'session',
-  chainTarget,
 } satisfies EcdsaSigningSessionPlanningLane;
 void validPlanningLane;
 
@@ -57,19 +53,30 @@ const invalidPlanningLaneWithSubjectId = {
   curve: 'ecdsa',
   keyKind: 'threshold_ecdsa_secp256k1',
   chainFamily: chainTarget.kind,
-  key,
-  keyHandle,
-  walletId: ecdsaWalletId,
   signingGrantId: SigningSessionIds.signingGrant('signing-grant-id'),
   thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session-id'),
+  runtimeState: 'no_runtime_material',
   sessionOrigin: 'login',
   storageSource: 'login',
   retention: 'session',
   // @ts-expect-error Base ECDSA planning lanes derive subject from key identity.
   subjectId: 'alice.testnet',
-  chainTarget,
 } satisfies EcdsaSigningSessionPlanningLane;
 void invalidPlanningLaneWithSubjectId;
+
+const invalidPlanningLaneWithRootKey = {
+  ...validPlanningLane,
+  // @ts-expect-error ECDSA planning lanes read key identity from identity.signer.
+  key,
+} satisfies EcdsaSigningSessionPlanningLane;
+void invalidPlanningLaneWithRootKey;
+
+const invalidPlanningLaneWithRootChainTarget = {
+  ...validPlanningLane,
+  // @ts-expect-error ECDSA planning lanes read chain target from identity.signer.
+  chainTarget,
+} satisfies EcdsaSigningSessionPlanningLane;
+void invalidPlanningLaneWithRootChainTarget;
 
 const validNearTransactionIntent: NearEd25519TransactionSigningIntent = {
   walletId,

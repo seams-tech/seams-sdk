@@ -1,5 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig';
 import { normalizeConfirmationConfig } from '@/core/types/confirmationConfig';
 import type { UiConfirmContext } from '../uiConfirm.types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';

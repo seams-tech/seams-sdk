@@ -31,6 +31,13 @@ import {
 
 export type { SyncAccountResult };
 
+function syncAccountFailure(error: string): SyncAccountResult {
+  return {
+    success: false,
+    error,
+  };
+}
+
 function thresholdEd25519SessionFromSyncVerifyResponse(
   thresholdEd25519: Record<string, unknown>,
 ): Record<string, unknown> | null {
@@ -58,14 +65,7 @@ export async function syncAccount(
       ...(walletId ? { accountId: String(walletId) } : {}),
       error: { code: 'missing_relayer_url', message: 'Missing relayer url' },
     });
-    return {
-      success: false,
-      accountId: walletId ? String(walletId) : '',
-      publicKey: '',
-      message: 'Missing relayer url (configs.network.relayer.url)',
-      error: 'missing_relayer_url',
-      loginState: { isLoggedIn: false },
-    };
+    return syncAccountFailure('missing_relayer_url');
   }
 
   const rpId = context.signingEngine.getRpId();
@@ -76,14 +76,7 @@ export async function syncAccount(
       ...(walletId ? { accountId: String(walletId) } : {}),
       error: { code: 'missing_rp_id', message: 'Missing rpId for WebAuthn sync' },
     });
-    return {
-      success: false,
-      accountId: walletId ? String(walletId) : '',
-      publicKey: '',
-      message: 'Missing rpId for WebAuthn sync',
-      error: 'missing_rp_id',
-      loginState: { isLoggedIn: false },
-    };
+    return syncAccountFailure('missing_rp_id');
   }
 
   try {
@@ -393,13 +386,6 @@ export async function syncAccount(
       ...(walletId ? { accountId: String(walletId) } : {}),
       error: { message: msg },
     });
-    return {
-      success: false,
-      accountId: walletId ? String(walletId) : '',
-      publicKey: '',
-      message: msg,
-      error: msg,
-      loginState: { isLoggedIn: false },
-    };
+    return syncAccountFailure(msg);
   }
 }

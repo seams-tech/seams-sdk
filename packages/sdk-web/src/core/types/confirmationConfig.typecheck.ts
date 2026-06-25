@@ -1,5 +1,5 @@
 import { normalizeConfirmationConfig } from './confirmationConfig';
-import type { NormalizedConfirmationConfig } from './confirmationConfig.types';
+import type { NormalizedConfirmationConfig } from './confirmationConfig';
 
 const visibleRequireClick: NormalizedConfirmationConfig = {
   kind: 'interactive',

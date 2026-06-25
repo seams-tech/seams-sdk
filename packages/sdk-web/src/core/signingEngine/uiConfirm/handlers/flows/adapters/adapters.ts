@@ -1,5 +1,5 @@
 import type { UiConfirmContext } from '../../../uiConfirm.types';
-import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig';
 import { assertNeverConfirmationConfig } from '@/core/types/confirmationConfig';
 import { TransactionContext } from '@/core/types';
 import type { BlockReference, AccessKeyView } from '@near-js/types';

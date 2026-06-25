@@ -120,7 +120,7 @@ export async function getWarmThresholdEcdsaSessionStatus(
         },
         buildEcdsaLaneBudgetStatusCheck({
           key: status.key,
-          keyHandle: status.lane.keyHandle,
+          keyHandle: status.lane.identity.signer.keyHandle,
           auth: status.lane.auth,
           chainTarget: status.chainTarget,
           signingGrantId: status.signingGrantId,
@@ -149,7 +149,7 @@ export async function listWarmThresholdEcdsaSessionStatuses(
         },
         buildEcdsaLaneBudgetStatusCheck({
           key: status.key,
-          keyHandle: status.lane.keyHandle,
+          keyHandle: status.lane.identity.signer.keyHandle,
           auth: status.lane.auth,
           chainTarget: status.chainTarget,
           signingGrantId: status.signingGrantId,

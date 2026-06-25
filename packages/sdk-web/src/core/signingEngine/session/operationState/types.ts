@@ -113,15 +113,6 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
-  walletId: WalletId;
-  nearAccountId: AccountId;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  accountId?: never;
-  chainTarget?: never;
-  subjectId?: never;
-  ecdsaThresholdKeyId?: never;
-  signingRootId?: never;
-  signingRootVersion?: never;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
@@ -131,11 +122,6 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  key: EvmFamilyEcdsaKeyIdentity;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  walletId: WalletId;
-  accountId?: never;
-  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -153,19 +139,13 @@ export type SelectedEd25519SigningLaneIdentity = BaseSelectedSigningLaneIdentity
   identity: ExactEd25519SigningLaneIdentity;
   curve: 'ed25519';
   chainFamily: 'near';
-  walletId: WalletId;
-  nearAccountId: AccountId;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  signerSlot: number;
   thresholdSessionId: ThresholdEd25519SessionId;
-  accountId?: never;
 };
 
 export type SelectedEcdsaSigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
   identity: ExactEcdsaSigningLaneIdentity;
   curve: 'ecdsa';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  walletId: WalletId;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -194,21 +174,13 @@ export type ResolvedEd25519SigningSessionIdentity = BaseResolvedSigningSessionId
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
-  walletId: WalletId;
-  nearAccountId: AccountId;
-  nearEd25519SigningKeyId: NearEd25519SigningKeyId;
-  accountId?: never;
   thresholdSessionId: ThresholdEd25519SessionId;
-  signingRootId?: never;
-  signingRootVersion?: never;
 };
 
 export type ResolvedEcdsaSigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
-  walletId: WalletId;
-  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -484,11 +456,7 @@ export function normalizeWalletSigningSpendPlan(
       }
       normalizedLane = {
         ...lane,
-        walletId: toWalletId(signer.walletId),
-        chainTarget: signer.chainTarget,
         chainFamily: signer.chainTarget.kind,
-        key: signer.key,
-        keyHandle: signer.keyHandle,
         signingGrantId,
       };
       break;
@@ -498,10 +466,6 @@ export function normalizeWalletSigningSpendPlan(
       }
       normalizedLane = {
         ...lane,
-        walletId: toWalletId(signer.account.wallet.walletId),
-        nearAccountId: signer.account.nearAccountId,
-        nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
-        signerSlot: signer.signerSlot,
         signingGrantId,
       };
       break;

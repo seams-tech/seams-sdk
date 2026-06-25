@@ -182,10 +182,7 @@ test.describe('WarmSessionStore invariants', () => {
       capability: 'ecdsa',
       record,
       key,
-      lane: {
-        ...lane,
-        key,
-      },
+      lane,
       auth: {
         capability: 'ecdsa',
         state: 'ready',
@@ -223,10 +220,7 @@ test.describe('WarmSessionStore invariants', () => {
       capability: 'ecdsa',
       record,
       key,
-      lane: {
-        ...lane,
-        key,
-      },
+      lane,
       auth: {
         capability: 'ecdsa',
         state: 'ready',

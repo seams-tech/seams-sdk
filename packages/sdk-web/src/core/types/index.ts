@@ -20,7 +20,6 @@ export * from './actions';
 export * from './rpc';
 export * from './signer-worker';
 export * from './confirmationConfig';
-export type * from './confirmationConfig.types';
 export * from './secure-confirm';
 export * from './secure-confirm-worker';
 export * from './webauthn';

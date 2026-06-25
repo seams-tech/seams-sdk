@@ -1,5 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig.types';
+import type { NormalizedConfirmationConfig } from '@/core/types/confirmationConfig';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   UserConfirmationType,
