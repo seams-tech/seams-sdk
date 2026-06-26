@@ -5,10 +5,10 @@ Date created: June 15, 2026
 Status: design plan. This plan changes passkey-backed accounts so passkey PRF
 material acts as a KEK source for a rotatable holder share. It supports the
 signing-lane foundation in
-[refactor-71-delegate-wallets.md](./refactor-71-delegate-wallets.md), the
-share-rotation model in [refactor-72-share-rotation.md](./refactor-72-share-rotation.md),
+[refactor-82-delegate-wallets.md](./refactor-82-delegate-wallets.md), the
+share-rotation model in [refactor-83-share-rotation.md](./refactor-83-share-rotation.md),
 and the full delegated-agent and linked-device behavior in
-[refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md).
+[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
 
 ## Goal
 
@@ -245,7 +245,7 @@ Use this for:
 - creating an owner-equivalent device that still has independent revocation
 
 The QR link-device flow belongs to the delegated signer behavior plan in
-[refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md).
+[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
 This passkey refactor supplies the envelope model each device lane uses after
 its holder share is delivered.
 
@@ -635,7 +635,7 @@ Prep should leave these behaviors unchanged:
 - [ ] Rotate all passkey envelopes after compromise.
 - [ ] Verify single-envelope revocation does not change wallet address.
 - [ ] Route QR link-device creation to delegated linked-device lane creation in
-      [refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md).
+      [refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
 - [ ] Ensure linked-device passkey envelopes wrap distinct holder shares.
 
 ### Phase 6: Migration

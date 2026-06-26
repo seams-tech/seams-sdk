@@ -9,7 +9,7 @@ rotation plan. The `k_org` plan remains relevant only for server custody and
 signing-root operations.
 
 Full delegated-agent and linked-device product behavior lives in
-[refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md).
+[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
 This plan owns the lane epoch, refresh, revocation, and rollback primitives that
 behavior consumes.
 

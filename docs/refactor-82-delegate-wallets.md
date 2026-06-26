@@ -5,11 +5,11 @@ Date created: June 15, 2026
 Status: design plan. This plan introduces `WalletKey` and `SigningLane` as
 first-class domain concepts under one stable wallet key. Full delegated agent
 and linked-device product behavior moved to
-[refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md).
+[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
 This foundation depends on the passkey account refactor in
-[refactor-70-passkey-account-refactor.md](./refactor-70-passkey-account-refactor.md)
+[refactor-81-passkey-account-refactor.md](./refactor-81-passkey-account-refactor.md)
 and feeds the rotation model in
-[refactor-72-share-rotation.md](./refactor-72-share-rotation.md).
+[refactor-83-share-rotation.md](./refactor-83-share-rotation.md).
 
 ## Goal
 
@@ -24,7 +24,7 @@ explicit `walletKeyId`, `laneId`, and `laneShareEpoch` once those concepts exist
 instead of using a broad transaction-signing step-up request shape.
 
 The future behavior target, implemented in
-[refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md),
+[refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md),
 is:
 
 ```text
@@ -453,7 +453,7 @@ Device 1 authorizes the link:
    path.
 4. User approves owner-equivalent or scoped device permissions.
 5. Run linked-device lane creation through the additive reshare protocol in
-   [refactor-72-share-rotation.md](./refactor-72-share-rotation.md).
+   [refactor-83-share-rotation.md](./refactor-83-share-rotation.md).
 6. Encrypt the new holder share to Device 2's link public key.
 7. Store the matching server share under the new linked-device lane.
 8. Relay the encrypted holder-share package to Device 2.
@@ -611,7 +611,7 @@ Required steps:
    path.
 3. User approves the delegation.
 4. System runs the address-preserving additive lane creation protocol defined in
-   [refactor-72-share-rotation.md](./refactor-72-share-rotation.md).
+   [refactor-83-share-rotation.md](./refactor-83-share-rotation.md).
 5. Agent holder share is encrypted to the named agent custody boundary.
 6. Matching server share is sealed for the relayer or server custody boundary.
 7. `SigningLaneRecord`, holder-share delivery receipt, and server-share record
@@ -1003,7 +1003,7 @@ boundary parser results.
 - [ ] Keep delegated-agent lane creation, linked-device lane creation, delegated
       signing admission, linked-device signing admission, revocation behavior,
       and product/operations surfaces in
-      [refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md).
+      [refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md).
 - [ ] Do not register delegation routes from this foundation plan.
 - [ ] Do not change the current QR link-device signing behavior from this
       foundation plan.
@@ -1032,18 +1032,18 @@ Unit tests:
   `laneShareEpoch`
 - owner lane normalization preserves current signing behavior
 - owner lane budget/audit plumbing carries lane identity
-- route shells and store interfaces remain unregistered until refactor-74
+- route shells and store interfaces remain unregistered until refactor-84
 
 Integration tests:
 
 - owner passkey lane signs through explicit lane identity
 - owner Email OTP lane signs through explicit lane identity
-- existing QR link-device behavior remains unchanged until refactor-74
+- existing QR link-device behavior remains unchanged until refactor-84
 
 ## Non-Goals
 
 - implementing delegated-agent or linked-device behavior; that work lives in
-  [refactor-74-delegated-agent-linked-device-behavior.md](./refactor-74-delegated-agent-linked-device-behavior.md)
+  [refactor-84-delegated-agent-linked-device-behavior.md](./refactor-84-delegated-agent-linked-device-behavior.md)
 - giving agents wallet private keys
 - treating agent lanes as owner lanes
 - letting delegated lanes change recovery factors
@@ -1055,7 +1055,7 @@ Integration tests:
 ## Open Questions
 
 - Which lane branches must be current foundation types versus deferred
-  refactor-74 product branches?
+  refactor-84 product branches?
 - Which existing persistence records should become owner-lane records first?
 - Which source guards should prevent delegated behavior routes from being
-  registered before refactor-74 starts?
+  registered before refactor-84 starts?

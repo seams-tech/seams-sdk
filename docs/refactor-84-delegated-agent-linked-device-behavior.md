@@ -4,16 +4,16 @@ Date created: June 15, 2026
 
 Status: design plan. This plan owns the full delegated-agent and linked-device
 behavior that was split out of
-[refactor-71-delegate-wallets.md](./refactor-71-delegate-wallets.md).
+[refactor-82-delegate-wallets.md](./refactor-82-delegate-wallets.md).
 
 ## Dependencies
 
-- [refactor-70-passkey-account-refactor.md](./refactor-70-passkey-account-refactor.md)
+- [refactor-81-passkey-account-refactor.md](./refactor-81-passkey-account-refactor.md)
   supplies wrapped holder-share envelopes.
-- [refactor-71-delegate-wallets.md](./refactor-71-delegate-wallets.md) supplies
+- [refactor-82-delegate-wallets.md](./refactor-82-delegate-wallets.md) supplies
   `WalletKey`, `SigningLane`, owner-lane normalization, lane policy types, and
   raw-boundary parsers.
-- [refactor-72-share-rotation.md](./refactor-72-share-rotation.md) supplies lane
+- [refactor-83-share-rotation.md](./refactor-83-share-rotation.md) supplies lane
   share epochs, address-preserving refresh, stale-epoch rejection, and
   cryptographic revocation primitives.
 
@@ -45,7 +45,7 @@ Revocation disables that device without affecting other lanes.
 ## Scope
 
 This plan owns behavior, route registration, product flows, and operational
-surfaces. It consumes the lane-domain foundation from refactor-71 instead of
+surfaces. It consumes the lane-domain foundation from refactor-82 instead of
 adding optional lane fields to older signing records.
 
 Owned here:
@@ -57,7 +57,7 @@ Owned here:
 - immediate delegated and linked-device revocation
 - user and operations surfaces for delegation lifecycle
 
-Owned by refactor-72:
+Owned by refactor-83:
 
 - lane share epochs
 - lane share refresh
@@ -67,12 +67,12 @@ Owned by refactor-72:
 
 ## Phase 0: Behavior Readiness Gate
 
-- [ ] Confirm refactor-70 wrapped holder-share registration and login paths are
+- [ ] Confirm refactor-81 wrapped holder-share registration and login paths are
       available for owner passkey lanes.
-- [ ] Confirm refactor-71 owner lanes are normalized and current signing behavior
+- [ ] Confirm refactor-82 owner lanes are normalized and current signing behavior
       works through explicit lane identity.
-- [ ] Confirm refactor-72 lane epoch and revocation primitives are available.
-- [ ] Confirm route shells from refactor-71 remain unregistered before this plan.
+- [ ] Confirm refactor-83 lane epoch and revocation primitives are available.
+- [ ] Confirm route shells from refactor-82 remain unregistered before this plan.
 
 ## Phase 1: Delegated Signer Lane Creation
 
@@ -114,7 +114,7 @@ Owned by refactor-72:
 ## Phase 5: Revocation
 
 - [ ] Add immediate lane revocation.
-- [ ] Disable matching server share through refactor-72 primitives.
+- [ ] Disable matching server share through refactor-83 primitives.
 - [ ] Reject stale revocation epochs.
 - [ ] Stop queued operations.
 - [ ] Clear warm sessions for revoked linked-device lanes.
