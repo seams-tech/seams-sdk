@@ -46,6 +46,8 @@ export type {
   ConsoleWebhookSecretSealInput,
   ConsoleWebhooksD1Runtime,
   D1ConsoleWebhookSchemaOptions,
+  D1ConsoleWebhookRetryDispatchOptions,
+  D1ConsoleWebhookRetryDispatchResult,
   D1ConsoleWebhookServiceOptions,
 } from './d1';
 export {
@@ -55,6 +57,7 @@ export {
   createD1ConsoleWebhookService,
   ensureConsoleWebhooksD1Schema,
   getConsoleWebhooksD1Runtime,
+  runD1ConsoleWebhookRetryDispatch,
 } from './d1';
 export { ConsoleWebhookError, isConsoleWebhookError } from './errors';
 export {

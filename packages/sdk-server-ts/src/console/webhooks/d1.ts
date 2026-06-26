@@ -3,8 +3,9 @@ import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
 } from '@shared/console/webhookEventCategories';
+import type { NormalizedLogger } from '../../core/logger';
 import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
 import { ConsoleWebhookError } from './errors';
 import {
   appendConsoleWebhookObservabilitySignals,
@@ -150,6 +151,37 @@ export interface D1ConsoleWebhookServiceOptions extends ConsoleWebhookObservabil
   readonly dispatcher?: WebhookDispatchAdapter;
 }
 
+export interface D1ConsoleWebhookRetryDispatchOptions extends ConsoleWebhookObservabilityOptions {
+  readonly database: D1DatabaseLike;
+  readonly secretCipher: ConsoleWebhookSecretCipher;
+  readonly namespace?: string;
+  readonly orgIds?: readonly string[];
+  readonly limit?: number;
+  readonly maxAttempts?: number;
+  readonly initialBackoffMs?: number;
+  readonly maxBackoffMs?: number;
+  readonly ensureSchema?: boolean;
+  readonly logger?: NormalizedLogger;
+  readonly now?: () => Date;
+  readonly dispatcher?: WebhookDispatchAdapter;
+  readonly workerId?: string;
+  readonly claimTtlMs?: number;
+}
+
+export interface D1ConsoleWebhookRetryDispatchResult {
+  readonly namespace: string;
+  readonly orgCount: number;
+  readonly attemptedCount: number;
+  readonly deliveredCount: number;
+  readonly failedCount: number;
+  readonly skippedCount: number;
+  readonly failures: readonly {
+    readonly orgId: string;
+    readonly deliveryId: string;
+    readonly message: string;
+  }[];
+}
+
 export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
   `
     CREATE TABLE IF NOT EXISTS console_webhook_endpoints (
@@ -204,6 +236,8 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       last_attempt_at_ms INTEGER,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
+      retry_claimed_by TEXT,
+      retry_claim_expires_at_ms INTEGER,
       PRIMARY KEY (namespace, org_id, id),
       CHECK (status IN ('SUCCEEDED', 'FAILED')),
       CHECK (attempt_count >= 0),
@@ -277,6 +311,18 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
   `
     CREATE INDEX IF NOT EXISTS console_webhook_deliveries_event_idx
       ON console_webhook_deliveries (namespace, org_id, event_id)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS console_webhook_deliveries_retry_claim_idx
+      ON console_webhook_deliveries (
+        namespace,
+        org_id,
+        status,
+        retry_claim_expires_at_ms,
+        last_attempt_at_ms,
+        created_at_ms,
+        id
+      )
   `,
   `
     CREATE INDEX IF NOT EXISTS console_webhook_attempts_endpoint_page_idx
@@ -370,6 +416,67 @@ function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function normalizePositiveInteger(input: unknown, fallback: number, max: number): number {
+  const parsed = Math.floor(Number(input));
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function normalizeNonNegativeInteger(input: unknown, fallback: number): number {
+  const parsed = Math.floor(Number(input));
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
+function normalizeWebhookRetryOrgIds(orgIds: readonly string[] | undefined): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const orgId of Array.isArray(orgIds) ? orgIds : []) {
+    const normalized = String(orgId || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function d1Changes(result: D1ResultLike): number {
+  return toNumber(result.meta?.changes);
+}
+
+function computeWebhookRetryBackoffMs(input: {
+  readonly attemptCount: number;
+  readonly initialBackoffMs: number;
+  readonly maxBackoffMs: number;
+}): number {
+  if (input.initialBackoffMs <= 0 || input.maxBackoffMs <= 0) return 0;
+  const exponent = Math.max(0, input.attemptCount - 1);
+  const scaled = input.initialBackoffMs * 2 ** exponent;
+  if (!Number.isFinite(scaled)) return input.maxBackoffMs;
+  return Math.min(input.maxBackoffMs, Math.max(0, Math.floor(scaled)));
+}
+
+function isWebhookRetryDue(input: {
+  readonly delivery: StoredWebhookDelivery;
+  readonly nowMs: number;
+  readonly initialBackoffMs: number;
+  readonly maxBackoffMs: number;
+}): boolean {
+  const lastAttemptMs = Date.parse(String(input.delivery.lastAttemptAt || ''));
+  const createdAtMs = Date.parse(String(input.delivery.createdAt || ''));
+  const anchorMs = Number.isFinite(lastAttemptMs)
+    ? lastAttemptMs
+    : Number.isFinite(createdAtMs)
+      ? createdAtMs
+      : input.nowMs;
+  const backoffMs = computeWebhookRetryBackoffMs({
+    attemptCount: input.delivery.attemptCount,
+    initialBackoffMs: input.initialBackoffMs,
+    maxBackoffMs: input.maxBackoffMs,
+  });
+  return anchorMs + backoffMs <= input.nowMs;
 }
 
 function parseEndpointStatus(raw: unknown): ConsoleWebhookEndpointStatus {
@@ -983,7 +1090,9 @@ async function persistDeliveryAttempt(
                 error_message = ?,
                 delivered_at_ms = CASE WHEN ? = 'SUCCEEDED' THEN ? ELSE delivered_at_ms END,
                 last_attempt_at_ms = ?,
-                updated_at_ms = ?
+                updated_at_ms = ?,
+                retry_claimed_by = NULL,
+                retry_claim_expires_at_ms = NULL
           WHERE namespace = ?
             AND org_id = ?
             AND id = ?`,
@@ -1122,6 +1231,312 @@ async function persistDeliveryAttempt(
   return {
     delivery: updated,
     signals,
+  };
+}
+
+async function listD1WebhookRetryEndpoints(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+}): Promise<Map<string, StoredWebhookEndpoint>> {
+  const rows = await queryRows(
+    input.database,
+    `SELECT *
+       FROM console_webhook_endpoints
+      WHERE namespace = ?
+        AND org_id = ?
+        AND status = 'ACTIVE'`,
+    [input.namespace, input.orgId],
+  );
+  const endpoints = new Map<string, StoredWebhookEndpoint>();
+  for (const row of rows) {
+    const endpoint = await parseEndpointFromRow({
+      database: input.database,
+      namespace: input.namespace,
+      row,
+    });
+    endpoints.set(endpoint.id, endpoint);
+  }
+  return endpoints;
+}
+
+async function listD1WebhookRetryCandidates(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly maxAttempts: number;
+  readonly nowMs: number;
+  readonly limit: number;
+}): Promise<StoredWebhookDelivery[]> {
+  const rows = await queryRows(
+    input.database,
+    `SELECT *
+       FROM console_webhook_deliveries
+      WHERE namespace = ?
+        AND org_id = ?
+        AND status = 'FAILED'
+        AND attempt_count < ?
+        AND (
+          retry_claim_expires_at_ms IS NULL
+          OR retry_claim_expires_at_ms <= ?
+        )
+      ORDER BY COALESCE(last_attempt_at_ms, created_at_ms) ASC, id ASC
+      LIMIT ?`,
+    [input.namespace, input.orgId, input.maxAttempts, input.nowMs, input.limit],
+  );
+  return rows.map(parseDeliveryRow);
+}
+
+async function claimD1WebhookRetryDelivery(input: {
+  readonly database: D1DatabaseLike;
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly delivery: StoredWebhookDelivery;
+  readonly maxAttempts: number;
+  readonly nowMs: number;
+  readonly workerId: string;
+  readonly claimExpiresAtMs: number;
+}): Promise<StoredWebhookDelivery | null> {
+  const result = await input.database
+    .prepare(
+      `UPDATE console_webhook_deliveries
+          SET retry_claimed_by = ?,
+              retry_claim_expires_at_ms = ?
+        WHERE namespace = ?
+          AND org_id = ?
+          AND id = ?
+          AND status = 'FAILED'
+          AND attempt_count < ?
+          AND (
+            retry_claim_expires_at_ms IS NULL
+            OR retry_claim_expires_at_ms <= ?
+          )`,
+    )
+    .bind(
+      input.workerId,
+      input.claimExpiresAtMs,
+      input.namespace,
+      input.orgId,
+      input.delivery.id,
+      input.maxAttempts,
+      input.nowMs,
+    )
+    .run();
+  if (d1Changes(result) < 1) return null;
+  const claimed = await findDelivery({
+    database: input.database,
+    namespace: input.namespace,
+    orgId: input.orgId,
+    endpointId: input.delivery.endpointId,
+    deliveryId: input.delivery.id,
+  });
+  if (!claimed || claimed.status !== 'FAILED' || claimed.attemptCount >= input.maxAttempts) {
+    return null;
+  }
+  return claimed;
+}
+
+function buildD1WebhookRetryExhaustedSignal(input: {
+  readonly orgId: string;
+  readonly endpoint: StoredWebhookEndpoint;
+  readonly delivery: StoredWebhookDelivery;
+  readonly maxAttempts: number;
+  readonly nowMs: number;
+}): ConsoleWebhookObservabilitySignal {
+  return {
+    kind: 'RETRY_EXHAUSTED',
+    orgId: input.orgId,
+    endpointId: input.endpoint.id,
+    deliveryId: input.delivery.id,
+    webhookEventId: input.delivery.eventId,
+    webhookEventType: input.delivery.eventType,
+    failedAttempts: input.delivery.attemptCount,
+    maxAttempts: input.maxAttempts,
+    lastResponseStatus: input.delivery.responseStatus,
+    lastErrorMessage: input.delivery.errorMessage,
+    exhaustedAt: input.delivery.lastAttemptAt || toIso(input.nowMs) || new Date(input.nowMs).toISOString(),
+  };
+}
+
+export async function runD1ConsoleWebhookRetryDispatch(
+  options: D1ConsoleWebhookRetryDispatchOptions,
+): Promise<D1ConsoleWebhookRetryDispatchResult> {
+  const namespace = ensureNamespace(options.namespace);
+  const orgIds = normalizeWebhookRetryOrgIds(options.orgIds);
+  if (orgIds.length === 0) {
+    throw new Error('Webhook retry dispatch requires at least one orgId');
+  }
+
+  const logger = (options.logger || console) as NormalizedLogger;
+  const endpointDegradedThreshold = normalizeConsoleWebhookEndpointDegradedThreshold(
+    options.endpointDegradedThreshold,
+  );
+  const observabilityOptions: ConsoleWebhookObservabilityOptions = {
+    observabilityIngestion: options.observabilityIngestion,
+    observabilityLogger: options.observabilityLogger || logger,
+    endpointDegradedThreshold,
+  };
+  const nowFn = options.now || defaultNow;
+  const dispatcher: WebhookDispatchAdapter = options.dispatcher || {
+    dispatch: defaultDispatchWebhook,
+  };
+  const limit = normalizePositiveInteger(options.limit, 100, 1000);
+  const maxAttempts = normalizePositiveInteger(options.maxAttempts, 5, 25);
+  const initialBackoffMs = normalizeNonNegativeInteger(options.initialBackoffMs, 60_000);
+  const maxBackoffMs = Math.max(
+    initialBackoffMs,
+    normalizeNonNegativeInteger(options.maxBackoffMs, 3_600_000),
+  );
+  const claimTtlMs = normalizePositiveInteger(options.claimTtlMs, 60_000, 3_600_000);
+  const workerId = String(options.workerId || `webhook-retry-${Date.now()}`).trim();
+  const state: D1ConsoleWebhookState = {
+    database: options.database,
+    namespace,
+    now: nowFn,
+    dispatcher,
+    secretCipher: options.secretCipher,
+    endpointDegradedThreshold,
+    observabilityOptions,
+  };
+
+  if (options.ensureSchema !== false) {
+    await ensureConsoleWebhooksD1Schema({ database: options.database });
+  }
+
+  let attemptedCount = 0;
+  let deliveredCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+  const failures: Array<{
+    readonly orgId: string;
+    readonly deliveryId: string;
+    readonly message: string;
+  }> = [];
+
+  for (const orgId of orgIds) {
+    const nowForQuery = nowFn();
+    const nowForQueryMs = nowMs(nowForQuery);
+    const endpoints = await listD1WebhookRetryEndpoints({
+      database: options.database,
+      namespace,
+      orgId,
+    });
+    const candidates = await listD1WebhookRetryCandidates({
+      database: options.database,
+      namespace,
+      orgId,
+      maxAttempts,
+      nowMs: nowForQueryMs,
+      limit: Math.max(1, limit * 4),
+    });
+
+    let attemptedForOrg = 0;
+    for (const candidate of candidates) {
+      if (attemptedForOrg >= limit) break;
+      const now = nowFn();
+      const retryNowMs = nowMs(now);
+      if (
+        !isWebhookRetryDue({
+          delivery: candidate,
+          nowMs: retryNowMs,
+          initialBackoffMs,
+          maxBackoffMs,
+        })
+      ) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const endpoint = endpoints.get(candidate.endpointId);
+      if (!endpoint) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const claimed = await claimD1WebhookRetryDelivery({
+        database: options.database,
+        namespace,
+        orgId,
+        delivery: candidate,
+        maxAttempts,
+        nowMs: retryNowMs,
+        workerId,
+        claimExpiresAtMs: retryNowMs + claimTtlMs,
+      });
+      if (!claimed) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const attemptResult = await dispatchDelivery({
+        endpoint,
+        delivery: claimed,
+        dispatcher,
+        secretCipher: options.secretCipher,
+        now,
+      });
+      attemptedCount += 1;
+      attemptedForOrg += 1;
+
+      try {
+        const persisted = await persistDeliveryAttempt(state, {
+          delivery: claimed,
+          endpoint,
+          isReplay: false,
+          now,
+          attemptResult,
+        });
+        const signals = [...persisted.signals];
+        if (
+          persisted.delivery.status === 'FAILED' &&
+          persisted.delivery.attemptCount >= maxAttempts
+        ) {
+          signals.push(
+            buildD1WebhookRetryExhaustedSignal({
+              orgId,
+              endpoint,
+              delivery: persisted.delivery,
+              maxAttempts,
+              nowMs: retryNowMs,
+            }),
+          );
+        }
+        await appendConsoleWebhookObservabilitySignals(
+          observabilityOptions,
+          {
+            orgId,
+            actorUserId: 'system-webhook-retry-dispatch',
+            roles: ['ops'],
+          },
+          signals,
+        );
+        if (persisted.delivery.status === 'SUCCEEDED') deliveredCount += 1;
+        else failedCount += 1;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({
+          orgId,
+          deliveryId: claimed.id,
+          message,
+        });
+        logger.warn('[console-webhooks][d1] retry dispatch failed', {
+          namespace,
+          orgId,
+          deliveryId: claimed.id,
+          message,
+        });
+      }
+    }
+  }
+
+  return {
+    namespace,
+    orgCount: orgIds.length,
+    attemptedCount,
+    deliveredCount,
+    failedCount,
+    skippedCount,
+    failures,
   };
 }
 

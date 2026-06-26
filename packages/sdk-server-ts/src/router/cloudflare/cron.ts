@@ -12,11 +12,16 @@ import {
   type PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
 } from '../../console/runtimeSnapshots';
 import {
+  runD1ConsoleWebhookRetryDispatch,
   runPostgresConsoleWebhookRetryDispatch,
+  type ConsoleWebhookSecretCipher,
+  type D1ConsoleWebhookRetryDispatchOptions,
+  type D1ConsoleWebhookRetryDispatchResult,
   type PostgresConsoleWebhookRetryDispatchOptions,
   type PostgresConsoleWebhookRetryDispatchResult,
 } from '../../console/webhooks';
 import type { ConsoleObservabilityIngestionService } from '../../console/observability';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import type { ScheduledHandler } from './cloudflare.types';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -36,6 +41,10 @@ type RuntimeSnapshotOutboxRunner = (
 type WebhookRetryDispatchRunner = (
   options: PostgresConsoleWebhookRetryDispatchOptions,
 ) => Promise<PostgresConsoleWebhookRetryDispatchResult>;
+
+type D1WebhookRetryDispatchRunner = (
+  options: D1ConsoleWebhookRetryDispatchOptions,
+) => Promise<D1ConsoleWebhookRetryDispatchResult>;
 
 type BillingMonthlyFinalizationLockProvider = (input: {
   postgresUrl: string;
@@ -162,6 +171,14 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
    */
   postgresUrl?: string;
   /**
+   * D1 database for Cloudflare webhook retry dispatch.
+   */
+  database?: D1DatabaseLike;
+  /**
+   * Webhook secret cipher required by D1 retry dispatch.
+   */
+  secretCipher?: ConsoleWebhookSecretCipher;
+  /**
    * Optional webhook namespace; defaults to `console-default`.
    */
   namespace?: string;
@@ -208,6 +225,18 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
    * Optional runner override for tests.
    */
   runner?: WebhookRetryDispatchRunner;
+  /**
+   * Optional D1 runner override for tests.
+   */
+  d1Runner?: D1WebhookRetryDispatchRunner;
+  /**
+   * D1 retry worker id used in claim leases.
+   */
+  workerId?: string;
+  /**
+   * D1 retry claim lease duration in milliseconds.
+   */
+  claimTtlMs?: number;
   /**
    * Optional observability ingestion service forwarded to the retry runner.
    */
@@ -495,6 +524,8 @@ export function createCloudflareCron(
         eventCron,
       );
       const postgresUrl = String(webhookRetryDispatch?.postgresUrl || '').trim();
+      const d1Database = webhookRetryDispatch?.database || null;
+      const d1SecretCipher = webhookRetryDispatch?.secretCipher || null;
       if (!webhookRetryDispatchCronMatches) {
         if (verbose) {
           logger.info('[cron][webhook-retry-dispatch] skipped: cron expression mismatch', {
@@ -502,10 +533,44 @@ export function createCloudflareCron(
             cronExpressions: webhookRetryDispatchCronExpressions,
           });
         }
-      } else if (!postgresUrl) {
-        logger.warn('[cron][webhook-retry-dispatch] skipped: missing postgresUrl');
       } else if (webhookRetryDispatchOrgIds.length === 0) {
         logger.warn('[cron][webhook-retry-dispatch] skipped: missing orgIds');
+      } else if (d1Database && d1SecretCipher) {
+        const runner = webhookRetryDispatch?.d1Runner || runD1ConsoleWebhookRetryDispatch;
+        const result = await runner({
+          database: d1Database,
+          secretCipher: d1SecretCipher,
+          namespace: webhookRetryDispatch?.namespace,
+          orgIds: webhookRetryDispatchOrgIds,
+          limit: webhookRetryDispatch?.limit,
+          maxAttempts: webhookRetryDispatch?.maxAttempts,
+          initialBackoffMs: webhookRetryDispatch?.initialBackoffMs,
+          maxBackoffMs: webhookRetryDispatch?.maxBackoffMs,
+          ensureSchema: webhookRetryDispatch?.ensureSchema,
+          observabilityIngestion: webhookRetryDispatch?.observabilityIngestion,
+          logger: logger as any,
+          workerId: webhookRetryDispatch?.workerId,
+          claimTtlMs: webhookRetryDispatch?.claimTtlMs,
+        });
+        logger.info('[cron][webhook-retry-dispatch] completed', {
+          namespace: result.namespace,
+          orgCount: result.orgCount,
+          attemptedCount: result.attemptedCount,
+          deliveredCount: result.deliveredCount,
+          failedCount: result.failedCount,
+          skippedCount: result.skippedCount,
+          failureCount: result.failures.length,
+        });
+        if (result.failures.length > 0) {
+          logger.warn('[cron][webhook-retry-dispatch] failures', {
+            namespace: result.namespace,
+            failures: result.failures,
+          });
+        }
+      } else if (!postgresUrl) {
+        logger.warn(
+          '[cron][webhook-retry-dispatch] skipped: missing postgresUrl or D1 database/secret cipher',
+        );
       } else {
         const lockId = toValidLockId(
           webhookRetryDispatch?.advisoryLockId,

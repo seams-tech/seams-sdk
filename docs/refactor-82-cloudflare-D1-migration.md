@@ -105,9 +105,9 @@ Completed so far:
 - Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
   wallet index, approvals, key exports, audit, bootstrap tokens, billing, prepaid
   reservations, sponsorship spend caps, sponsored calls, runtime snapshots, and
-  observability read/ingestion services, and signer secret storage into the
-  Cloudflare service bundle. Webhooks are wired when a webhook signing-secret
-  cipher is configured.
+  observability read/ingestion services, webhook retry dispatch, and signer
+  secret storage into the Cloudflare service bundle. Webhooks are wired when a
+  webhook signing-secret cipher is configured.
 - Added local Wrangler/Miniflare D1 configuration, append-only migrations,
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
@@ -118,7 +118,8 @@ Completed so far:
   wallet index filters/search/pagination and tenant scoping, approval MFA and
   conditional-decision transitions, key export MFA approval thresholds,
   duplicate-approver rejection, tenant scoping, webhook sealed-secret storage,
-  category dispatch, dead-letter creation, replay resolution, audit
+  category dispatch, dead-letter creation, replay resolution, retry claim
+  leasing, audit
   event/evidence tenant scoping, bootstrap token redemption atomicity, prepaid
   reservation atomicity, sponsorship spend-cap atomic
   reservation/settlement/release, sponsored-call idempotency, atomic sponsored
@@ -337,7 +338,7 @@ Current Postgres coupling is concentrated in:
 | Sponsorship spend caps | `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations` | `CONSOLE_DB` D1 | Trigger-backed D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, source-event idempotency, tenant-scoped usage lookup, and reservation/settlement/release contract tests are in place. Window usage mutation stays SQLite-atomic inside reservation insert and lifecycle transition triggers. |
 | Key exports | `console_key_exports` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped list/create/approve, MFA enforcement, duplicate-approver checks, approval threshold transitions, and conditional approval update tests are in place. Approval and constraint JSON is stored as `TEXT` and parsed at the adapter boundary. |
 | Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, snapshot upsert/get/list, claim-lease outbox dispatch, and lease-race contract test are in place. |
-| Webhooks | `console_webhook_endpoints`, `console_webhook_endpoint_categories`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 plus webhook secret cipher | D1 route-service adapter, append-only migration, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, and sealed signing-secret tests are in place. D1 retry-dispatch cron replacement is still pending. |
+| Webhooks | `console_webhook_endpoints`, `console_webhook_endpoint_categories`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 plus webhook secret cipher | D1 route-service adapter, retry-dispatch runner, append-only migrations, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, retry claim leases, and sealed signing-secret tests are in place. |
 | Key export and webhook secrets | `console_key_exports`, `console_webhook_endpoints.signing_secret` | `CONSOLE_DB` D1 plus secrets adapter | Key exports store approval/constraint JSON only. Webhook D1 rows store sealed signing-secret ciphertext, KEK ID, and envelope version. Plaintext webhook signing secrets stay in process memory only during endpoint creation and request signing. |
 | Observability | `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, `console_observability_request_rollups_minute` | `CONSOLE_DB` D1 for compact dashboard state; R2/Analytics Engine for raw telemetry | D1 compact adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, incident-event dedupe/redaction, request-rollup ingestion, summary/event/timeseries/service reads, and tenant-scoping tests are in place. High-volume raw telemetry stays outside D1. |
 
@@ -374,7 +375,7 @@ Current Postgres coupling is concentrated in:
 
 Before D1 staging, these adapters must exist behind domain-store ports:
 
-- Console D1 remaining: D1 webhook retry-dispatch cron.
+- Console D1 remaining: none for the simplified first D1 staging scope.
 - Console D1 in place: org/project/env, account/profile, team RBAC, policies,
   wallet index, API keys, approvals, key exports, audit, bootstrap tokens,
   billing ledger sponsored settlement, prepaid reservations, sponsorship spend
@@ -812,7 +813,6 @@ Status: in progress.
 
 Work:
 
-- Finish the remaining console D1 adapter work for webhook retry dispatch.
 - Finish remaining signer D1 adapters for registration ceremonies, email OTP,
   device linking, and threshold key metadata.
 - Finish Durable Object adapters for signer admission, budgets, replay guards,
@@ -954,21 +954,22 @@ Completed:
 15. Add D1 email recovery preparation store, append-only signer migration,
     local smoke coverage, explicit D1 factory selector, tenant-scoped adapter
     test, expiry reads, and deletion coverage.
+16. Add D1 webhook retry-dispatch runner, retry claim lease columns,
+    Cloudflare cron D1 branch, local migration coverage, and a claim-race
+    adapter test.
 
 Next:
 
-1. Continue Step 3 by adding the remaining console D1 adapter work: webhook
-   retry dispatch.
-2. Continue Step 3 by adding the remaining signer D1 metadata adapters:
+1. Continue Step 3 by adding the remaining signer D1 metadata adapters:
    registration ceremonies, email OTP, device linking, and threshold key
    metadata.
-3. Finish the Durable Object adapter and test slice for normal-signing
+2. Finish the Durable Object adapter and test slice for normal-signing
    admission, budget, replay, presignature, and signing-root coordination.
-4. Finish Step 4 by making Wrangler/Miniflare D1 and local Durable Object
+3. Finish Step 4 by making Wrangler/Miniflare D1 and local Durable Object
    storage the default development path after required adapters exist.
-5. Finish Step 5 with D1/DO contract tests and local smoke coverage for every
+4. Finish Step 5 with D1/DO contract tests and local smoke coverage for every
    staging-required table.
-6. Deploy staging only after local D1 smoke and all D1/DO adapter contract tests
+5. Deploy staging only after local D1 smoke and all D1/DO adapter contract tests
    pass.
 
 Key rule for execution: no half-Postgres staging. If D1 is the target, staging

@@ -33,6 +33,9 @@ import { createD1ConsoleWalletService } from '../../packages/sdk-server-ts/src/c
 import {
   createAesGcmConsoleWebhookSecretCipher,
   createD1ConsoleWebhookService,
+  runD1ConsoleWebhookRetryDispatch,
+  type ConsoleWebhookSecretCipher,
+  type D1ConsoleWebhookRetryDispatchResult,
 } from '../../packages/sdk-server-ts/src/console/webhooks/d1';
 import type {
   WebhookDispatchAdapter,
@@ -224,6 +227,54 @@ class D1WebhookDispatchHarness implements WebhookDispatchAdapter {
         responseBody: 'ok',
       }
     );
+  }
+}
+
+class D1WebhookRetryRaceHarness implements WebhookDispatchAdapter {
+  readonly requests: WebhookDispatchRequest[] = [];
+  competitorResult: D1ConsoleWebhookRetryDispatchResult | null = null;
+
+  constructor(
+    private readonly input: {
+      readonly database: D1DatabaseLike;
+      readonly namespace: string;
+      readonly orgId: string;
+      readonly secretCipher: ConsoleWebhookSecretCipher;
+      readonly now: () => Date;
+    },
+  ) {}
+
+  async dispatch(request: WebhookDispatchRequest): Promise<WebhookDispatchResult> {
+    this.requests.push(request);
+    this.competitorResult = await runD1ConsoleWebhookRetryDispatch({
+      database: this.input.database,
+      namespace: this.input.namespace,
+      orgIds: [this.input.orgId],
+      secretCipher: this.input.secretCipher,
+      ensureSchema: false,
+      now: this.input.now,
+      dispatcher: this.competitorDispatch.bind(this),
+      initialBackoffMs: 0,
+      maxBackoffMs: 0,
+      workerId: 'webhook-retry-worker-b',
+    });
+    return {
+      ok: true,
+      statusCode: 200,
+      responseBody: 'retried',
+    };
+  }
+
+  async competitorDispatch(request: WebhookDispatchRequest): Promise<WebhookDispatchResult> {
+    this.requests.push({
+      ...request,
+      eventId: `competitor:${request.eventId}`,
+    });
+    return {
+      ok: true,
+      statusCode: 200,
+      responseBody: 'competitor-retried',
+    };
   }
 }
 
@@ -462,6 +513,10 @@ function recoveryExecutionAction(record: RecoveryExecutionRecord): string {
 
 function nearPublicKeyValue(record: NearPublicKeyRecord): string {
   return record.publicKey;
+}
+
+function webhookDispatchEventId(request: WebhookDispatchRequest): string {
+  return request.eventId;
 }
 
 function buildD1EmailRecoveryPreparationRecord(input: {
@@ -1895,6 +1950,110 @@ test.describe('D1 adapter contracts', () => {
         endpoint: { id: endpoint.id },
       });
       await expect(service.listEndpoints(primaryCtx)).resolves.toEqual([]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('webhook D1 retry dispatch claims failed deliveries before sending', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T03:00:00.000Z');
+      const namespace = 'd1-contracts';
+      const orgId = 'org-d1-webhook-retry';
+      const secretCipher = createD1WebhookTestSecretCipher();
+      const initialDispatcher = new D1WebhookDispatchHarness();
+      const service = await createD1ConsoleWebhookService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: clock.now,
+        dispatcher: initialDispatcher,
+        secretCipher,
+      });
+      const ctx = {
+        orgId,
+        actorUserId: 'user-d1-webhook-retry',
+        roles: ['admin'],
+      };
+
+      const endpoint = await service.createEndpoint(ctx, {
+        url: 'https://example.com/d1-webhook-retry',
+        eventCategories: ['billing'],
+      });
+      initialDispatcher.pushResult({
+        ok: false,
+        statusCode: 503,
+        responseBody: 'unavailable',
+        errorMessage: 'HTTP 503',
+      });
+      clock.set('2026-06-27T03:01:00.000Z');
+      await expect(
+        service.emitEvent(ctx, {
+          eventId: 'evt-d1-webhook-retry',
+          eventType: 'billing.credit_purchase.settled',
+          payload: { invoiceId: 'inv-d1-webhook-retry' },
+        }),
+      ).resolves.toMatchObject({
+        attempted: 1,
+        delivered: 0,
+        failed: 1,
+      });
+
+      const failedDeliveryPage = await service.listDeliveries(ctx, endpoint.id);
+      expect(failedDeliveryPage.items).toEqual([
+        expect.objectContaining({
+          status: 'FAILED',
+          attemptCount: 1,
+        }),
+      ]);
+
+      clock.set('2026-06-27T03:02:00.000Z');
+      const retryHarness = new D1WebhookRetryRaceHarness({
+        database: temp.database,
+        namespace,
+        orgId,
+        secretCipher,
+        now: clock.now,
+      });
+      const retryResult = await runD1ConsoleWebhookRetryDispatch({
+        database: temp.database,
+        namespace,
+        orgIds: [orgId],
+        secretCipher,
+        ensureSchema: false,
+        now: clock.now,
+        dispatcher: retryHarness,
+        initialBackoffMs: 0,
+        maxBackoffMs: 0,
+        workerId: 'webhook-retry-worker-a',
+      });
+
+      expect(retryResult).toMatchObject({
+        attemptedCount: 1,
+        deliveredCount: 1,
+        failedCount: 0,
+      });
+      expect(retryHarness.competitorResult).toMatchObject({
+        attemptedCount: 0,
+        skippedCount: 0,
+      });
+      expect(retryHarness.requests.map(webhookDispatchEventId)).toEqual([
+        'evt-d1-webhook-retry',
+      ]);
+      await expect(service.listDeliveries(ctx, endpoint.id)).resolves.toMatchObject({
+        items: [
+          expect.objectContaining({
+            status: 'SUCCEEDED',
+            attemptCount: 2,
+            replayCount: 0,
+            responseStatus: 200,
+          }),
+        ],
+      });
+      await expect(
+        service.listDeadLetters(ctx, endpoint.id, { includeResolved: false }),
+      ).resolves.toEqual({ items: [] });
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
