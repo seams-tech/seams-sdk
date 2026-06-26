@@ -1,0 +1,28 @@
+name = "seams-sdk-d1-local"
+main = "src/router/cloudflare/d1LocalDevWorker.ts"
+compatibility_date = "2026-04-17"
+
+[[d1_databases]]
+binding = "CONSOLE_DB"
+database_name = "seams-console"
+database_id = "00000000-0000-0000-0000-000000000101"
+preview_database_id = "00000000-0000-0000-0000-000000000102"
+migrations_dir = "migrations/d1-console"
+
+[[d1_databases]]
+binding = "SIGNER_DB"
+database_name = "seams-signer"
+database_id = "00000000-0000-0000-0000-000000000201"
+preview_database_id = "00000000-0000-0000-0000-000000000202"
+migrations_dir = "migrations/d1-signer"
+
+[[durable_objects.bindings]]
+name = "THRESHOLD_STORE"
+class_name = "ThresholdStoreDurableObject"
+
+[[migrations]]
+tag = "threshold-store-sqlite-v1"
+new_sqlite_classes = ["ThresholdStoreDurableObject"]
+
+[vars]
+SEAMS_TENANT_STORAGE_NAMESPACE = "seams-local"

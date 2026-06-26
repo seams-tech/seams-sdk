@@ -1,4 +1,5 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
+import { formatD1ExecStatement } from '../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import { ConsoleSponsoredCallError } from './errors';
 import type {
@@ -128,7 +129,7 @@ export async function ensureConsoleSponsoredCallD1Schema(
   options: D1ConsoleSponsoredCallSchemaOptions,
 ): Promise<void> {
   for (const statement of CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL) {
-    await options.database.exec(statement);
+    await options.database.exec(formatD1ExecStatement(statement));
   }
 }
 

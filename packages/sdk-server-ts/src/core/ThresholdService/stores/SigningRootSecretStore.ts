@@ -1,6 +1,7 @@
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { formatD1ExecStatement } from '../../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../../storage/tenantRoute';
 import { getPostgresPool } from '../../../storage/postgres';
 import type { CloudflareDurableObjectNamespaceLike } from '../../types';
@@ -303,7 +304,7 @@ export async function ensureSigningRootSecretShareD1Schema(
   options: D1SigningRootSecretStoreSchemaOptions,
 ): Promise<void> {
   for (const statement of SIGNING_ROOT_SECRET_SHARE_D1_SCHEMA_SQL) {
-    await options.database.exec(statement);
+    await options.database.exec(formatD1ExecStatement(statement));
   }
 }
 

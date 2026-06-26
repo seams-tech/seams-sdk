@@ -1,5 +1,6 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { normalizeLogger, type Logger, type NormalizedLogger } from '../../core/logger';
+import { formatD1ExecStatement } from '../../storage/d1Sql';
 import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
 import {
   computeConsoleRuntimeSnapshotChecksum,
@@ -215,7 +216,7 @@ export async function ensureConsoleRuntimeSnapshotsD1Schema(
   options: D1ConsoleRuntimeSnapshotSchemaOptions,
 ): Promise<void> {
   for (const statement of CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL) {
-    await options.database.exec(statement);
+    await options.database.exec(formatD1ExecStatement(statement));
   }
 }
 

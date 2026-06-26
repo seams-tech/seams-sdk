@@ -1,4 +1,5 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
+import { formatD1ExecStatement } from '../../storage/d1Sql';
 import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
 import { ConsoleBillingPrepaidReservationError } from './errors';
 import {
@@ -158,7 +159,7 @@ export async function ensureConsoleBillingPrepaidReservationD1Schema(
   options: D1ConsoleBillingPrepaidReservationSchemaOptions,
 ): Promise<void> {
   for (const statement of CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL) {
-    await options.database.exec(statement);
+    await options.database.exec(formatD1ExecStatement(statement));
   }
 }
 

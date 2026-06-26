@@ -53,6 +53,12 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && rolldown -c rolldown.config.ts && node ./scripts/copy-wasm-assets.mjs",
+    "d1:local:dev": "wrangler dev --config wrangler.d1-local.toml --persist-to .wrangler/state/seams-d1",
+    "d1:local:migrate:console": "wrangler d1 migrations apply seams-console --local --persist-to .wrangler/state/seams-d1 --config wrangler.d1-local.toml",
+    "d1:local:migrate:signer": "wrangler d1 migrations apply seams-signer --local --persist-to .wrangler/state/seams-d1 --config wrangler.d1-local.toml",
+    "d1:local:prepare": "pnpm run d1:local:migrate:console && pnpm run d1:local:migrate:signer && pnpm run d1:local:smoke:console && pnpm run d1:local:smoke:signer",
+    "d1:local:smoke:console": "wrangler d1 execute seams-console --local --persist-to .wrangler/state/seams-d1 --config wrangler.d1-local.toml --command \"SELECT COUNT(*) AS table_count FROM sqlite_master WHERE type = 'table' AND name IN ('console_billing_prepaid_reservations', 'console_sponsored_call_records', 'console_runtime_snapshot_outbox')\"",
+    "d1:local:smoke:signer": "wrangler d1 execute seams-signer --local --persist-to .wrangler/state/seams-d1 --config wrangler.d1-local.toml --command \"SELECT COUNT(*) AS table_count FROM sqlite_master WHERE type = 'table' AND name = 'signer_signing_root_secret_shares'\"",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
