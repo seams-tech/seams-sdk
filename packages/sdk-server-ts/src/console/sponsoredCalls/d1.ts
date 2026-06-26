@@ -1,6 +1,6 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike } from '../../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../../storage/tenantRoute';
 import { ConsoleSponsoredCallError } from './errors';
 import type {
   ConsoleSponsoredCallApiKeyKind,
@@ -392,6 +392,41 @@ async function loadRecordByIdempotencyKey(input: {
   return row ? parseRecord(row) : null;
 }
 
+export async function loadD1ConsoleSponsoredCallRecordByIdempotencyKey(input: {
+  database: D1DatabaseLike;
+  namespace: string;
+  orgId: string;
+  idempotencyKey: string;
+}): Promise<ConsoleSponsoredCallRecord | null> {
+  const normalized = normalizeString(input.idempotencyKey);
+  if (!normalized) return null;
+  return await loadRecordByIdempotencyKey({
+    database: input.database,
+    namespace: input.namespace,
+    orgId: input.orgId,
+    idempotencyKey: normalized,
+  });
+}
+
+export async function loadD1ConsoleSponsoredCallRecordById(input: {
+  database: D1DatabaseLike;
+  namespace: string;
+  orgId: string;
+  recordId: string;
+}): Promise<ConsoleSponsoredCallRecord | null> {
+  const row = await queryOne(
+    input.database,
+    `SELECT *
+       FROM console_sponsored_call_records
+      WHERE namespace = ?
+        AND org_id = ?
+        AND id = ?
+      LIMIT 1`,
+    [input.namespace, input.orgId, input.recordId],
+  );
+  return row ? parseRecord(row) : null;
+}
+
 function appendListFilter(input: {
   values: unknown[];
   clauses: string[];
@@ -464,6 +499,69 @@ function buildRecordInsertValues(input: {
   ];
 }
 
+export function createD1ConsoleSponsoredCallRecordInsertStatement(input: {
+  database: D1DatabaseLike;
+  namespace: string;
+  ctx: ConsoleSponsoredCallContext;
+  recordId: string;
+  request: CreateConsoleSponsoredCallRecordRequest;
+  createdAtMs: number;
+}): D1PreparedStatementLike {
+  const idempotencyKey = normalizeString(input.request.idempotencyKey);
+  return input.database
+    .prepare(
+      `INSERT INTO console_sponsored_call_records (
+        namespace,
+        org_id,
+        id,
+        environment_id,
+        api_key_id,
+        api_key_kind,
+        route,
+        policy_id,
+        policy_name_at_event,
+        template_id,
+        chain_family,
+        intent_kind,
+        executor_kind,
+        account_ref,
+        target_ref,
+        sponsor_ref,
+        tx_or_execution_ref,
+        receipt_status,
+        fee_unit,
+        fee_amount,
+        details_json,
+        estimated_spend_minor,
+        settled_spend_minor,
+        pricing_version,
+        pricing_source,
+        billing_ledger_entry_id,
+        prepaid_reservation_id,
+        charged,
+        charged_reason,
+        settled_at_iso,
+        error_code,
+        error_message,
+        idempotency_key,
+        created_at_ms,
+        updated_at_ms
+      ) VALUES (
+        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+      )`,
+    )
+    .bind(
+      ...buildRecordInsertValues({
+        namespace: input.namespace,
+        ctx: input.ctx,
+        recordId: input.recordId,
+        request: input.request,
+        idempotencyKey,
+        createdAtMs: input.createdAtMs,
+      }),
+    );
+}
+
 export async function createD1ConsoleSponsoredCallRecord(input: {
   database: D1DatabaseLike;
   namespace: string;
@@ -485,59 +583,14 @@ export async function createD1ConsoleSponsoredCallRecord(input: {
     if (existing) return existing;
   }
   try {
-    await input.database
-      .prepare(
-        `INSERT INTO console_sponsored_call_records (
-          namespace,
-          org_id,
-          id,
-          environment_id,
-          api_key_id,
-          api_key_kind,
-          route,
-          policy_id,
-          policy_name_at_event,
-          template_id,
-          chain_family,
-          intent_kind,
-          executor_kind,
-          account_ref,
-          target_ref,
-          sponsor_ref,
-          tx_or_execution_ref,
-          receipt_status,
-          fee_unit,
-          fee_amount,
-          details_json,
-          estimated_spend_minor,
-          settled_spend_minor,
-          pricing_version,
-          pricing_source,
-          billing_ledger_entry_id,
-          prepaid_reservation_id,
-          charged,
-          charged_reason,
-          settled_at_iso,
-          error_code,
-          error_message,
-          idempotency_key,
-          created_at_ms,
-          updated_at_ms
-        ) VALUES (
-          ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
-        )`,
-      )
-      .bind(
-        ...buildRecordInsertValues({
-          namespace: input.namespace,
-          ctx: input.ctx,
-          recordId,
-          request: input.request,
-          idempotencyKey,
-          createdAtMs,
-        }),
-      )
-      .run();
+    await createD1ConsoleSponsoredCallRecordInsertStatement({
+      database: input.database,
+      namespace: input.namespace,
+      ctx: input.ctx,
+      recordId,
+      request: input.request,
+      createdAtMs,
+    }).run();
   } catch (error: unknown) {
     if (!idempotencyKey || !isD1UniqueConstraintError(error)) throw error;
     const existing = await loadRecordByIdempotencyKey({
@@ -549,18 +602,14 @@ export async function createD1ConsoleSponsoredCallRecord(input: {
     if (!existing) throw error;
     return existing;
   }
-  const row = await queryOne(
-    input.database,
-    `SELECT *
-       FROM console_sponsored_call_records
-      WHERE namespace = ?
-        AND org_id = ?
-        AND id = ?
-      LIMIT 1`,
-    [input.namespace, input.ctx.orgId, recordId],
-  );
-  if (!row) throw new Error('Failed to insert sponsored-call record');
-  return parseRecord(row);
+  const record = await loadD1ConsoleSponsoredCallRecordById({
+    database: input.database,
+    namespace: input.namespace,
+    orgId: input.ctx.orgId,
+    recordId,
+  });
+  if (!record) throw new Error('Failed to insert sponsored-call record');
+  return record;
 }
 
 export async function createD1ConsoleSponsoredCallService(

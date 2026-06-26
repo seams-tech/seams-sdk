@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
+import { createD1ConsoleBillingService } from '../../packages/sdk-server-ts/src/console/billing/d1';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
@@ -21,9 +22,21 @@ import type {
   D1PreparedStatementLike,
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import {
+  recordSponsoredExecution,
+  type RecordSponsoredExecutionInput,
+} from '../../packages/sdk-server-ts/src/router/sponsorshipExecution';
+import type {
+  SponsorshipSpendPricingEstimateInput,
+  SponsorshipSpendPricingFinalizeInput,
+  SponsorshipSpendPricingQuote,
+  SponsorshipSpendPricingService,
+} from '../../packages/sdk-server-ts/src/sponsorship/spendCaps';
 
 type SqliteJsonRow = Record<string, unknown>;
 type ErrorWithCode = { readonly code?: unknown };
+type SponsoredRecordBuildInput = Parameters<RecordSponsoredExecutionInput['buildRecord']>[0];
+type SponsoredRecordBuildOutput = ReturnType<RecordSponsoredExecutionInput['buildRecord']>;
 
 class SqliteCliD1Database implements D1DatabaseLike {
   constructor(readonly databasePath: string) {}
@@ -131,6 +144,93 @@ class RuntimeSnapshotOutboxRaceHarness {
   async competitorDispatch(event: ConsoleRuntimeSnapshotOutboxEvent): Promise<void> {
     this.dispatchedEventIds.push(`competitor:${event.eventId}`);
   }
+}
+
+class StaticSponsoredSpendPricingService implements SponsorshipSpendPricingService {
+  constructor(
+    private readonly estimatedSpendMinor: number,
+    private readonly settledSpendMinor: number,
+  ) {}
+
+  async estimateSponsoredExecutionSpend(
+    _input: SponsorshipSpendPricingEstimateInput,
+  ): Promise<SponsorshipSpendPricingQuote> {
+    return {
+      spendMinor: this.estimatedSpendMinor,
+      pricingVersion: 'static:estimate',
+    };
+  }
+
+  async finalizeSponsoredExecutionSpend(
+    _input: SponsorshipSpendPricingFinalizeInput,
+  ): Promise<SponsorshipSpendPricingQuote> {
+    return {
+      spendMinor: this.settledSpendMinor,
+      pricingVersion: 'static:settled',
+    };
+  }
+}
+
+class AtomicD1SponsoredRecordBuilder {
+  constructor(private readonly idempotencyKey: string) {}
+
+  build(input: SponsoredRecordBuildInput): SponsoredRecordBuildOutput {
+    return {
+      environmentId: 'env-production',
+      apiKeyId: 'api-key-d1-atomic',
+      apiKeyKind: 'publishable_key',
+      route: 'sponsored_evm_call_v1',
+      policyId: 'policy-sponsored-gas',
+      chainFamily: 'evm',
+      intentKind: 'evm_call',
+      accountRef: '0x1111111111111111111111111111111111111111',
+      targetRef: '0x2222222222222222222222222222222222222222',
+      sponsorRef: '0x3333333333333333333333333333333333333333',
+      detailsJson: JSON.stringify({
+        kind: 'd1-atomic-sponsored-settlement',
+        billing: input.prepaidSettlement,
+      }),
+      estimatedSpendMinor: input.prepaidSettlement?.estimatedSpendMinor ?? null,
+      settledSpendMinor: input.prepaidSettlement?.settledSpendMinor ?? null,
+      pricingVersion: input.prepaidSettlement?.pricingVersion ?? null,
+      pricingSource: input.prepaidSettlement ? 'sponsorship_pricing_service' : null,
+      billingLedgerEntryId: input.billingLedgerEntryId,
+      prepaidReservationId: input.prepaidSettlement?.reservationId || null,
+      charged: Boolean(
+        input.prepaidSettlement &&
+          !input.prepaidSettlement.released &&
+          input.prepaidSettlement.settledSpendMinor > 0,
+      ),
+      chargedReason: input.prepaidSettlement
+        ? input.prepaidSettlement.released
+          ? 'released_zero_spend'
+          : input.prepaidSettlement.settledSpendMinor > 0
+            ? 'sponsored_execution_debit'
+            : 'settled_zero_spend'
+        : null,
+      settledAt: input.prepaidSettlement?.settledAt || null,
+      idempotencyKey: this.idempotencyKey,
+    };
+  }
+}
+
+function fixedD1AtomicBillingNow(): Date {
+  return new Date('2026-06-27T00:00:00.000Z');
+}
+
+function createD1AtomicAssessment(): RecordSponsoredExecutionInput['assessment'] {
+  return {
+    succeeded: true,
+    txOrExecutionRef: '0xatomicsettled',
+    receiptStatus: 'success',
+    feeUnit: 'wei',
+    feeAmount: '1000000000000000',
+    executorKind: 'evm_eoa',
+    responseCode: 'ok',
+    responseMessage: 'settled',
+    recordErrorCode: null,
+    recordErrorMessage: null,
+  };
 }
 
 function sqlFromD1PreparedStatement(statement: D1PreparedStatementLike): string {
@@ -905,6 +1005,216 @@ test.describe('D1 adapter contracts', () => {
       expect(settled?.reservation.releasedMinor).toBe(125);
       expect(settled?.summary.reservedMinor).toBe(0);
       expect(settled?.summary.activeReservationCount).toBe(0);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('sponsored gas settlement writes reservation, billing, and call record in one D1 batch', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const namespace = 'd1-contracts';
+      const billing = await createD1ConsoleBillingService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+      });
+      const prepaidReservations = await createD1ConsoleBillingPrepaidReservationService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+        defaultReservationTtlMs: 60_000,
+      });
+      const sponsoredCalls = await createD1ConsoleSponsoredCallService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+      });
+      const ctx = {
+        orgId: 'org-d1-atomic-sponsored',
+        actorUserId: 'user-d1-atomic-sponsored',
+        roles: ['platform_admin'],
+      };
+      const reservationSourceEventId = 'prepaid-reservation-d1-atomic';
+
+      await billing.grantManualSupportCredit(ctx, {
+        amountMinor: 1000,
+        reasonCode: 'test_credit',
+        note: 'Seed prepaid balance for D1 sponsored settlement',
+        idempotencyKey: 'manual-credit-d1-atomic',
+      });
+      const overviewBeforeReservation = await billing.getOverview(ctx);
+      expect(overviewBeforeReservation.creditBalanceMinor).toBe(1000);
+
+      const reserved = await prepaidReservations.reserve(ctx, {
+        sourceEventId: reservationSourceEventId,
+        environmentId: 'env-production',
+        policyId: 'policy-sponsored-gas',
+        postedBalanceMinor: overviewBeforeReservation.creditBalanceMinor,
+        estimatedSpendMinor: 700,
+      });
+      const pricing = new StaticSponsoredSpendPricingService(700, 425);
+      const builder = new AtomicD1SponsoredRecordBuilder('sponsored-call-d1-atomic');
+      const assessment = createD1AtomicAssessment();
+      const record = await recordSponsoredExecution({
+        billing,
+        billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
+        context: ctx,
+        ledger: sponsoredCalls,
+        buildRecord: builder.build.bind(builder),
+        assessment,
+        walletId: 'wallet-d1-atomic',
+        prepaidSettlementInput: {
+          reservation: {
+            sourceEventId: reservationSourceEventId,
+            estimatedSpendMinor: 700,
+            estimatedPricingVersion: 'static:estimate',
+          },
+          prepaidReservations,
+          pricing,
+          ctx,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          executorKind: 'evm_eoa',
+          environmentId: 'env-production',
+          policyId: 'policy-sponsored-gas',
+          accountRef: '0x1111111111111111111111111111111111111111',
+          targetRef: '0x2222222222222222222222222222222222222222',
+          chainId: 84532,
+          txOrExecutionRef: assessment.txOrExecutionRef,
+          receiptStatus: assessment.receiptStatus,
+          feeUnit: assessment.feeUnit,
+          feeAmount: assessment.feeAmount,
+          requestDetails: {
+            kind: 'd1-atomic-sponsored-settlement',
+          },
+        },
+      });
+
+      expect(record.charged).toBe(true);
+      expect(record.settledSpendMinor).toBe(425);
+      expect(record.billingLedgerEntryId).toMatch(/^ble_scr_/);
+      expect(record.prepaidReservationId).toBe(reserved.reservation.id);
+
+      const settledReservation = await prepaidReservations.getReservationBySourceEventId(
+        ctx,
+        reservationSourceEventId,
+      );
+      expect(settledReservation?.status).toBe('SETTLED');
+      expect(settledReservation?.settledMinor).toBe(425);
+      expect(settledReservation?.releasedMinor).toBe(275);
+
+      const summary = await prepaidReservations.getSummary(ctx);
+      expect(summary.reservedMinor).toBe(0);
+      expect(summary.activeReservationCount).toBe(0);
+
+      const debits = await billing.getSponsoredExecutionDebitsByIds(ctx, [
+        record.billingLedgerEntryId || '',
+      ]);
+      expect(debits).toHaveLength(1);
+      expect(debits[0]).toMatchObject({
+        amountMinor: -425,
+        sourceEventId: `sponsored_evm_call_debit:${reservationSourceEventId}`,
+      });
+      const overviewAfterSettlement = await billing.getOverview(ctx);
+      expect(overviewAfterSettlement.creditBalanceMinor).toBe(575);
+
+      const duplicate = await recordSponsoredExecution({
+        billing,
+        billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
+        context: ctx,
+        ledger: sponsoredCalls,
+        buildRecord: builder.build.bind(builder),
+        assessment,
+        walletId: 'wallet-d1-atomic',
+        prepaidSettlementInput: {
+          reservation: {
+            sourceEventId: reservationSourceEventId,
+            estimatedSpendMinor: 700,
+            estimatedPricingVersion: 'static:estimate',
+          },
+          prepaidReservations,
+          pricing,
+          ctx,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          executorKind: 'evm_eoa',
+          environmentId: 'env-production',
+          policyId: 'policy-sponsored-gas',
+          accountRef: '0x1111111111111111111111111111111111111111',
+          targetRef: '0x2222222222222222222222222222222222222222',
+          chainId: 84532,
+          txOrExecutionRef: assessment.txOrExecutionRef,
+          receiptStatus: assessment.receiptStatus,
+          feeUnit: assessment.feeUnit,
+          feeAmount: assessment.feeAmount,
+          requestDetails: {
+            kind: 'd1-atomic-sponsored-settlement',
+          },
+        },
+      });
+      expect(duplicate.id).toBe(record.id);
+
+      const sponsoredDebitActivity = await billing.listAccountActivity(ctx, {
+        eventType: 'SPONSORED_EXECUTION_DEBIT',
+        limit: 10,
+      });
+      expect(sponsoredDebitActivity.entries).toHaveLength(1);
+      await expect(billing.getOverview(ctx)).resolves.toMatchObject({
+        creditBalanceMinor: 575,
+      });
+
+      const conflictingBuilder = new AtomicD1SponsoredRecordBuilder(
+        'sponsored-call-d1-atomic-conflict',
+      );
+      let duplicateReservationError: unknown = null;
+      try {
+        await recordSponsoredExecution({
+          billing,
+          billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
+          context: ctx,
+          ledger: sponsoredCalls,
+          buildRecord: conflictingBuilder.build.bind(conflictingBuilder),
+          assessment,
+          walletId: 'wallet-d1-atomic',
+          prepaidSettlementInput: {
+            reservation: {
+              sourceEventId: reservationSourceEventId,
+              estimatedSpendMinor: 700,
+              estimatedPricingVersion: 'static:estimate',
+            },
+            prepaidReservations,
+            pricing,
+            ctx,
+            chainFamily: 'evm',
+            intentKind: 'evm_call',
+            executorKind: 'evm_eoa',
+            environmentId: 'env-production',
+            policyId: 'policy-sponsored-gas',
+            accountRef: '0x1111111111111111111111111111111111111111',
+            targetRef: '0x2222222222222222222222222222222222222222',
+            chainId: 84532,
+            txOrExecutionRef: assessment.txOrExecutionRef,
+            receiptStatus: assessment.receiptStatus,
+            feeUnit: assessment.feeUnit,
+            feeAmount: assessment.feeAmount,
+            requestDetails: {
+              kind: 'd1-atomic-sponsored-settlement',
+            },
+          },
+        });
+      } catch (error: unknown) {
+        duplicateReservationError = error;
+      }
+      expect(String(duplicateReservationError)).toContain('UNIQUE constraint failed');
+      await expect(billing.getOverview(ctx)).resolves.toMatchObject({
+        creditBalanceMinor: 575,
+      });
+      const recordsPage = await sponsoredCalls.listRecords(ctx, { limit: 10, lookbackDays: 1 });
+      expect(recordsPage.items).toHaveLength(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

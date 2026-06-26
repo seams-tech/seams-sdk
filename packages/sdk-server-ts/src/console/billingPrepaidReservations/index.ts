@@ -36,6 +36,8 @@ export type {
 export {
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME,
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL,
+  createReleaseConsoleBillingPrepaidReservationD1Statement,
+  createSettleConsoleBillingPrepaidReservationD1Statement,
   ensureConsoleBillingPrepaidReservationD1Schema,
   createD1ConsoleBillingPrepaidReservationService,
   getConsoleBillingPrepaidReservationD1Runtime,

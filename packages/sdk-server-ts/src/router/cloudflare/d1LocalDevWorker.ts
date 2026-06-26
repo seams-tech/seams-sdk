@@ -1,4 +1,5 @@
 import { ensureConsoleAccountD1Schema } from '../../console/account/d1';
+import { ensureConsoleBillingD1Schema } from '../../console/billing/d1';
 import {
   ensureConsoleBillingPrepaidReservationD1Schema,
 } from '../../console/billingPrepaidReservations/d1';
@@ -59,6 +60,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureConsoleTeamRbacD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleAccountD1Schema({ database: env.CONSOLE_DB });
   await ensureConsolePolicyD1Schema({ database: env.CONSOLE_DB });
+  await ensureConsoleBillingD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingPrepaidReservationD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleSponsoredCallD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleRuntimeSnapshotsD1Schema({ database: env.CONSOLE_DB });

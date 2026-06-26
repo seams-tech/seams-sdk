@@ -318,6 +318,10 @@ export type {
   ConsoleBillingContext,
   ConsoleBillingService,
   InMemoryConsoleBillingServiceOptions,
+  ConsoleBillingD1Runtime,
+  ConsoleBillingD1Service,
+  D1ConsoleBillingSchemaOptions,
+  D1ConsoleBillingServiceOptions,
   PostgresConsoleBillingSchemaOptions,
   PostgresConsoleBillingServiceOptions,
   PostgresConsoleBillingMonthlyFinalizationOptions,
@@ -588,6 +592,10 @@ export {
 } from '../console/apiKeys';
 export {
   createInMemoryConsoleBillingService,
+  ensureConsoleBillingD1Schema,
+  createD1ConsoleBillingService,
+  getConsoleBillingD1Runtime,
+  createSponsoredExecutionDebitD1InsertStatement,
   ensureConsoleBillingPostgresSchema,
   createPostgresConsoleBillingService,
   runPostgresConsoleBillingMonthlyFinalization,

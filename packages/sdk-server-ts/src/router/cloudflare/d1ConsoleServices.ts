@@ -26,6 +26,10 @@ import {
   type ConsoleAccountService,
 } from '../../console/account';
 import {
+  createD1ConsoleBillingService,
+  type ConsoleBillingService,
+} from '../../console/billing';
+import {
   createD1ConsoleBillingPrepaidReservationService,
   type ConsoleBillingPrepaidReservationService,
 } from '../../console/billingPrepaidReservations';
@@ -116,6 +120,7 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -128,6 +133,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -358,6 +364,17 @@ async function createCloudflareD1PrepaidReservations(
   });
 }
 
+async function createCloudflareD1Billing(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleBillingService> {
+  return await createD1ConsoleBillingService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1OrgProjectEnv(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleOrgProjectEnvService> {
@@ -476,6 +493,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly teamRbac: ConsoleTeamRbacService;
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
+  readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -487,6 +505,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     teamRbac: input.teamRbac,
     account: input.account,
     policies: input.policies,
+    billing: input.billing,
     prepaidReservations: input.prepaidReservations,
     sponsoredCalls: input.sponsoredCalls,
     runtimeSnapshots: input.runtimeSnapshots,
@@ -506,6 +525,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
   });
   const policies = await createCloudflareD1Policies(normalized);
+  const billing = await createCloudflareD1Billing(normalized);
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
   const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
@@ -516,6 +536,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
     account,
     policies,
+    billing,
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,
@@ -527,6 +548,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     teamRbac,
     account,
     policies,
+    billing,
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,

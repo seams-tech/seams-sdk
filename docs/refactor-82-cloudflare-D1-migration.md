@@ -65,12 +65,14 @@ Completed so far:
 - Added tenant storage route types that make D1/DO and Postgres full-family
   choices.
 - Added D1 adapters for org/project/environment records, account profiles,
-  team RBAC, policies, prepaid billing reservations, sponsored call records,
-  runtime snapshot storage/outbox, and sealed signing-root secret shares.
+  team RBAC, policies, billing account/ledger settlement, prepaid billing
+  reservations, sponsored call records, runtime snapshot storage/outbox, and
+  sealed signing-root secret shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
-- Wired D1 org/project/env, Team RBAC, account/profile, policies, and signer
-  secret storage into the Cloudflare service bundle.
+- Wired D1 org/project/env, Team RBAC, account/profile, policies, billing,
+  prepaid reservations, sponsored calls, runtime snapshots, and signer secret
+  storage into the Cloudflare service bundle.
 - Added local Wrangler/Miniflare D1 configuration, append-only migrations,
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
@@ -78,16 +80,24 @@ Completed so far:
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
   bootstrap/versioning/assignment resolution, prepaid reservation atomicity,
-  sponsored-call idempotency, and signer secret tenant scoping.
+  sponsored-call idempotency, atomic sponsored gas settlement, and signer secret
+  tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
   coverage.
+- Added D1 sponsored gas settlement finalization for prepaid EVM calls. The
+  D1 path batches reservation settlement, billing ledger debit, and
+  sponsored-call record insertion, and requires the sponsored-call idempotency
+  key to prevent retry debits.
 
 Remaining before D1 staging:
 
 - Fill the remaining console and signer D1 schemas beyond the first adapter
   slice.
+- Complete the remaining billing surfaces outside the sponsored-gas settlement
+  slice: Stripe credit purchases, Stripe webhook idempotency, finalized invoice
+  documents, and monthly usage finalization jobs.
 - Add remaining Durable Object coordination tests for normal-signing admission
   quotas and signing-root coordination.
 - Add staging import/restore smoke checks and R2 export drills.
@@ -269,9 +279,9 @@ Current Postgres coupling is concentrated in:
 | Policies | `console_policies`, `console_policy_versions`, `console_policy_assignments` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, system-default uniqueness, publish-version history, and assignment-resolution contract test are in place. Policy JSON is stored as `TEXT`. |
 | API keys | `console_api_keys` | `CONSOLE_DB` D1 | Keep auth lookup index on key hash/kind plus tenant identity. |
 | Wallet index | `console_wallet_index` | `CONSOLE_DB` D1 | Queryable dashboard index only; signer ownership stays in `SIGNER_DB`/DO. |
-| Billing | `console_billing_accounts`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_stripe_webhook_events` | `CONSOLE_DB` D1 | Ledger and Stripe event idempotency stay append-only. Monthly finalization uses D1 batches or a Worker job with idempotent resume markers. |
-| Prepaid reservations | `console_billing_prepaid_reservation_summaries`, `console_billing_prepaid_reservations` | `CONSOLE_DB` D1 | Already has trigger-backed D1 adapter and contract tests. Keep double-debit prevention in SQLite triggers or equivalent single atomic unit. |
-| Sponsored calls | `console_sponsored_call_records` | `CONSOLE_DB` D1 | Already has D1 adapter and idempotency test. Settlement finalization still needs an end-to-end billing ledger contract test. |
+| Billing | `console_billing_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_billing_monthly_active_wallets`; later `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, `console_billing_credit_purchases`, `console_stripe_webhook_events` | `CONSOLE_DB` D1 | D1 billing account/ledger tables, append-only migration, local smoke coverage, Cloudflare bundle wiring, manual credit/debit support, projected statement reads, and sponsored execution debit statements are in place. Remaining: Stripe credit purchases, finalized invoice documents, webhook idempotency, and monthly finalization jobs. |
+| Prepaid reservations | `console_billing_prepaid_reservation_summaries`, `console_billing_prepaid_reservations` | `CONSOLE_DB` D1 | Trigger-backed D1 adapter, append-only migration, local smoke coverage, and contract tests are in place. Summary mutation and reservation lifecycle transitions remain SQLite-atomic. |
+| Sponsored calls | `console_sponsored_call_records` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, idempotency test, and atomic sponsored gas settlement contract test are in place. |
 | Sponsorship spend caps | `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations` | `CONSOLE_DB` D1 | Replace row locks with atomic conditional upserts against the window row. Keep source-event uniqueness. |
 | Key exports | `console_key_exports` | `CONSOLE_DB` D1 | Replace approval `FOR UPDATE` with conditional approval insert plus derived status update. Store approvals/constraints as `TEXT` or normalize approvals into child rows. |
 | Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | Already has D1 schema. Replace `SKIP LOCKED` with claim lease columns and conditional updates. |
@@ -313,10 +323,11 @@ Current Postgres coupling is concentrated in:
 Before D1 staging, these adapters must exist behind domain-store ports:
 
 - Console D1 remaining: approvals, audit, bootstrap tokens, API keys,
-  wallet index, billing ledger, spend caps, key exports, webhooks, and compact
-  observability rollups.
+  wallet index, remaining billing purchase/invoice/webhook surfaces, spend
+  caps, key exports, webhooks, and compact observability rollups.
 - Console D1 in place: org/project/env, account/profile, team RBAC, policies,
-  prepaid reservations, sponsored calls, and runtime snapshots.
+  billing ledger sponsored settlement, prepaid reservations, sponsored calls,
+  and runtime snapshots.
 - Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
   email OTP, recovery, identity links, app sessions, threshold key metadata,
   and sealed signing-root secret shares.
@@ -367,9 +378,9 @@ unacceptable.
 
 Recommended D1 implementation:
 
-- `console_billing_prepaid_summaries`
+- `console_billing_prepaid_reservation_summaries`
   - Primary key: `(namespace, org_id)`.
-  - Tracks available, reserved, credited, spent, and updated time.
+  - Tracks active reserved amount, active reservation count, and updated time.
 - `console_billing_prepaid_reservations`
   - Primary key: `(namespace, org_id, reservation_id)`.
   - Unique idempotency/source key: `(namespace, org_id, source_event_id)`.
@@ -381,9 +392,11 @@ Recommended D1 implementation:
 
 Reserve operation:
 
-1. Insert the reservation row with a unique source or idempotency key.
-2. In the same SQLite atomic unit, verify `available_minor >= reserve_amount`.
-3. Debit available and increment reserved.
+1. Read the current billing account balance from `console_billing_accounts`.
+2. Insert the reservation row with a unique source or idempotency key and the
+   posted balance evidence.
+3. In the same SQLite atomic unit, verify
+   `reserved_minor + reserve_amount <= posted_balance_minor`.
 4. Abort the insert with a domain error such as `prepaid_balance_insufficient`
    when funds are unavailable.
 5. On duplicate source key, return the existing reservation result after parsing
@@ -430,10 +443,13 @@ D1 settlement invariant:
 
 - A sponsored execution can settle only once.
 - A reservation can settle only once.
-- The ledger entry for settlement is unique by `(namespace, org_id,
-  sponsored_call_id, reservation_id)`.
-- Finalization runs as one D1 atomic unit. Use `D1Database.batch()` or a
-  trigger-backed statement with contract tests.
+- Sponsored-call records require an idempotency key.
+- The ledger entry for settlement is unique by `(namespace, org_id, entry_type,
+  source_event_id)`, where `source_event_id` is derived from the reservation
+  source event.
+- Finalization runs as one D1 `D1Database.batch()` unit over the shared
+  `CONSOLE_DB`: reservation lifecycle update, sponsored execution debit ledger
+  insert, and sponsored-call record insert.
 
 Recoverable states:
 
@@ -779,16 +795,18 @@ Completed:
 1. Inventory current Postgres coupling in `seams-signer` and `seams-console`.
 2. Define the first D1 schemas and Durable Object ownership boundaries.
 3. Add D1 adapters for org/project/env, account/profile, team RBAC, policies,
-   prepaid reservations, sponsored calls, runtime snapshots, and sealed
-   signing-root secret shares.
+   billing ledger settlement, prepaid reservations, sponsored calls, runtime
+   snapshots, and sealed signing-root secret shares.
 4. Make local development run on Wrangler/Miniflare D1 for the implemented D1
    adapters.
 5. Port focused adapter tests to D1 for the implemented D1 adapters.
+6. Add D1 billing ledger settlement finalization for sponsored EVM gas payments.
 
 Next:
 
-1. Add D1 billing ledger settlement finalization for sponsored EVM gas
-   payments.
+1. Complete the remaining billing D1 surfaces: Stripe credit purchases, Stripe
+   webhook idempotency, finalized invoice documents, and monthly usage
+   finalization jobs.
 2. Add the remaining console D1 adapters: approvals, audit, bootstrap tokens,
    API keys, wallet index, spend caps, key exports, webhooks, and compact
    observability rollups.

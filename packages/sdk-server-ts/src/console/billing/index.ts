@@ -77,6 +77,23 @@ export {
   runPostgresConsoleBillingMonthlyFinalization,
 } from './postgres';
 
+export type {
+  ConsoleBillingD1Runtime,
+  ConsoleBillingD1Service,
+  D1ConsoleBillingSchemaOptions,
+  D1ConsoleBillingServiceOptions,
+} from './d1';
+export {
+  CONSOLE_BILLING_D1_RUNTIME,
+  CONSOLE_BILLING_D1_SCHEMA_SQL,
+  createD1BillingLedgerEntryInsertStatement,
+  createD1ConsoleBillingService,
+  createSponsoredExecutionDebitD1InsertStatement,
+  ensureConsoleBillingD1Schema,
+  getConsoleBillingD1Runtime,
+  recordSponsoredExecutionDebitD1,
+} from './d1';
+
 export { ConsoleBillingError, isConsoleBillingError } from './errors';
 export {
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,

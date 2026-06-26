@@ -1,6 +1,10 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { formatD1ExecStatement } from '../../storage/d1Sql';
-import type { D1DatabaseLike, D1ResultLike } from '../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../storage/tenantRoute';
 import { ConsoleBillingPrepaidReservationError } from './errors';
 import {
   buildEmptySummary,
@@ -172,6 +176,62 @@ export function getConsoleBillingPrepaidReservationD1Runtime(
       CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME
     ] || null
   );
+}
+
+export function createSettleConsoleBillingPrepaidReservationD1Statement(input: {
+  runtime: ConsoleBillingPrepaidReservationD1Runtime;
+  ctx: ConsoleBillingPrepaidReservationContext;
+  reservation: ConsoleBillingPrepaidReservation;
+  settledSpendMinor: number;
+  txOrExecutionRef: string | null;
+  pricingVersion: string | null;
+  updatedAtMs: number;
+}): D1PreparedStatementLike {
+  const releasedMinor = Math.max(input.reservation.requestedMinor - input.settledSpendMinor, 0);
+  return input.runtime.database
+    .prepare(
+      `UPDATE console_billing_prepaid_reservations
+          SET status = 'SETTLED',
+              settled_minor = ?,
+              tx_or_execution_ref = ?,
+              pricing_version = ?,
+              released_minor = ?,
+              updated_at_ms = ?
+        WHERE namespace = ?
+          AND org_id = ?
+          AND id = ?
+          AND status = 'RESERVED'`,
+    )
+    .bind(
+      input.settledSpendMinor,
+      input.txOrExecutionRef,
+      input.pricingVersion,
+      releasedMinor,
+      input.updatedAtMs,
+      input.runtime.namespace,
+      input.ctx.orgId,
+      input.reservation.id,
+    );
+}
+
+export function createReleaseConsoleBillingPrepaidReservationD1Statement(input: {
+  runtime: ConsoleBillingPrepaidReservationD1Runtime;
+  ctx: ConsoleBillingPrepaidReservationContext;
+  reservation: ConsoleBillingPrepaidReservation;
+  updatedAtMs: number;
+}): D1PreparedStatementLike {
+  return input.runtime.database
+    .prepare(
+      `UPDATE console_billing_prepaid_reservations
+          SET status = 'RELEASED',
+              released_minor = requested_minor,
+              updated_at_ms = ?
+        WHERE namespace = ?
+          AND org_id = ?
+          AND id = ?
+          AND status = 'RESERVED'`,
+    )
+    .bind(input.updatedAtMs, input.runtime.namespace, input.ctx.orgId, input.reservation.id);
 }
 
 function ensureNamespace(namespace: string | undefined): string {
