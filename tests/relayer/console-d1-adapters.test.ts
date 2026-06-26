@@ -4,6 +4,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
+import {
+  createD1ConsoleRuntimeSnapshotService,
+  runD1ConsoleRuntimeSnapshotOutboxDispatch,
+  type D1ConsoleRuntimeSnapshotOutboxDispatchResult,
+} from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/d1';
+import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots/types';
 import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls/d1';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
@@ -85,6 +91,41 @@ class SqliteCliD1PreparedStatement implements D1PreparedStatementLike {
 
   toSql(): string {
     return interpolateSql(this.query, this.values);
+  }
+}
+
+class RuntimeSnapshotOutboxRaceHarness {
+  readonly dispatchedEventIds: string[] = [];
+  competitorResult: D1ConsoleRuntimeSnapshotOutboxDispatchResult | null = null;
+
+  constructor(
+    private readonly database: D1DatabaseLike,
+    private readonly namespace: string,
+    private readonly orgId: string,
+    private readonly nowMs: number,
+  ) {}
+
+  now(): Date {
+    return new Date(this.nowMs);
+  }
+
+  async dispatch(event: ConsoleRuntimeSnapshotOutboxEvent): Promise<void> {
+    this.dispatchedEventIds.push(event.eventId);
+    this.competitorResult = await runD1ConsoleRuntimeSnapshotOutboxDispatch({
+      database: this.database,
+      namespace: this.namespace,
+      orgIds: [this.orgId],
+      limit: 1,
+      ensureSchema: false,
+      now: this.now.bind(this),
+      workerId: 'snapshot-race-worker-b',
+      claimTtlMs: 60_000,
+      dispatch: this.competitorDispatch.bind(this),
+    });
+  }
+
+  async competitorDispatch(event: ConsoleRuntimeSnapshotOutboxEvent): Promise<void> {
+    this.dispatchedEventIds.push(`competitor:${event.eventId}`);
   }
 }
 
@@ -416,6 +457,76 @@ test.describe('D1 adapter contracts', () => {
       expect(String(missingKekError)).toContain(
         'kekId is required for D1 signing-root secret shares',
       );
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('runtime snapshot outbox claim lease prevents duplicate dispatch', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const namespace = 'd1-contracts';
+      const orgId = 'org-d1-runtime-snapshot';
+      const nowMs = Date.parse('2026-06-27T00:00:00.000Z');
+      const harness = new RuntimeSnapshotOutboxRaceHarness(
+        temp.database,
+        namespace,
+        orgId,
+        nowMs,
+      );
+      const service = await createD1ConsoleRuntimeSnapshotService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: harness.now.bind(harness),
+        retentionTtlMs: 1000 * 60 * 60,
+      });
+      const ctx = {
+        orgId,
+        actorUserId: 'user-d1-runtime-snapshot',
+        roles: ['admin'],
+      };
+
+      await service.publishSnapshot(ctx, {
+        snapshotId: 'snapshot-race-1',
+        projectId: 'project-runtime',
+        environmentId: 'env-production',
+        payload: {
+          policy: { id: 'policy-runtime' },
+          gasSponsorship: { enabled: true },
+          metadata: { source: 'd1-contract-test' },
+        },
+      });
+
+      const primaryResult = await runD1ConsoleRuntimeSnapshotOutboxDispatch({
+        database: temp.database,
+        namespace,
+        orgIds: [orgId],
+        limit: 1,
+        ensureSchema: false,
+        now: harness.now.bind(harness),
+        workerId: 'snapshot-race-worker-a',
+        claimTtlMs: 60_000,
+        dispatch: harness.dispatch.bind(harness),
+      });
+      const afterDispatchResult = await runD1ConsoleRuntimeSnapshotOutboxDispatch({
+        database: temp.database,
+        namespace,
+        orgIds: [orgId],
+        limit: 1,
+        ensureSchema: false,
+        now: harness.now.bind(harness),
+        workerId: 'snapshot-race-worker-c',
+        claimTtlMs: 60_000,
+        dispatch: harness.competitorDispatch.bind(harness),
+      });
+
+      expect(primaryResult.dispatchedCount).toBe(1);
+      expect(primaryResult.failureCount).toBe(0);
+      expect(harness.competitorResult?.dispatchedCount).toBe(0);
+      expect(harness.competitorResult?.failureCount).toBe(0);
+      expect(afterDispatchResult.dispatchedCount).toBe(0);
+      expect(harness.dispatchedEventIds).toHaveLength(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

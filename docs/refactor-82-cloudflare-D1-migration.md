@@ -76,12 +76,12 @@ Completed so far:
   reservation atomicity, sponsored-call idempotency, and signer secret tenant
   scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
+- Added D1 runtime snapshot outbox lease-race coverage.
 
 Remaining before D1 staging:
 
 - Fill the remaining console and signer D1 schemas beyond the first adapter
   slice.
-- Add snapshot outbox lease-claim race tests.
 - Add Durable Object coordination tests for signer budgets, replay guards,
   presignature pools, and session consumption.
 - Add staging import/restore smoke checks and R2 export drills.
