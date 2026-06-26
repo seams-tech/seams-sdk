@@ -1,5 +1,5 @@
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import type { ConfirmNearStepUpSigningOperationResult } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
+import type { ConfirmNearStepUpSigningOperationResult } from '../shared/signingConfirmation';
 import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 import type {
   NearEd25519EmailOtpStepUpAuthorization,

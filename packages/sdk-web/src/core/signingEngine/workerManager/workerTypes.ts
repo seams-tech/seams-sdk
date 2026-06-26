@@ -40,16 +40,12 @@ import {
   type ThresholdEd25519NearTxUnsignedBorsh,
   type ThresholdEd25519DecodeSignedNearTxBorshRequest,
   type ThresholdEd25519DecodeSignedNearTxBorshResult,
-  type GenerateEphemeralNearKeypairHandleRequest,
-  type GenerateEphemeralNearKeypairHandleResult,
-  type SignTransactionWithEphemeralNearKeypairHandleRequest,
   type WorkerRequestTypeMap,
   type WorkerResponseDiagnostics,
   type WorkerResponseForRequest,
   WorkerRequestType,
   type DelegatePayload,
   type WasmSignedDelegate,
-  type WasmTransactionSignResult,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -831,11 +827,7 @@ export type WithOptionalSessionId<T> = T extends { sessionId: string }
   ? Omit<T, 'sessionId'> & { sessionId?: string }
   : T;
 
-type NearSignerWorkerPublicWasmOperationType = Exclude<
-  keyof WorkerRequestTypeMap,
-  | typeof WorkerRequestType.GenerateEphemeralNearKeypair
-  | typeof WorkerRequestType.SignTransactionWithKeyPair
->;
+type NearSignerWorkerPublicWasmOperationType = keyof WorkerRequestTypeMap;
 
 export type NearSignerWorkerWasmOperationMap = {
   [T in NearSignerWorkerPublicWasmOperationType]: {
@@ -932,14 +924,6 @@ export type NearSignerWorkerCustomOperationMap = {
   [NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh]: {
     payload: ThresholdEd25519DecodeSignedNearTxBorshRequest;
     result: ThresholdEd25519DecodeSignedNearTxBorshResult;
-  };
-  [NearSignerWorkerCustomRequestType.GenerateEphemeralNearKeypairHandle]: {
-    payload: GenerateEphemeralNearKeypairHandleRequest;
-    result: GenerateEphemeralNearKeypairHandleResult;
-  };
-  [NearSignerWorkerCustomRequestType.SignTransactionWithEphemeralNearKeypairHandle]: {
-    payload: SignTransactionWithEphemeralNearKeypairHandleRequest;
-    result: WasmTransactionSignResult;
   };
 };
 

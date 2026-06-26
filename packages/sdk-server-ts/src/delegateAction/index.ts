@@ -176,13 +176,10 @@ export async function executeSignedDelegateWithRelayer(params: {
   nearClient: NearClient;
   relayerAccount: string;
   relayerPublicKey: string;
-  relayerPrivateKey: string;
   hash: string;
   signedDelegate: CoreSignedDelegate;
   policy?: DelegateActionPolicy;
-  signWithPrivateKey: (input: {
-    nearPrivateKey: string;
-    signerAccountId: string;
+  signGasRelayerNearTransaction: (input: {
     receiverId: string;
     nonce: string;
     blockHash: string;
@@ -193,11 +190,10 @@ export async function executeSignedDelegateWithRelayer(params: {
     nearClient,
     relayerAccount,
     relayerPublicKey,
-    relayerPrivateKey,
     hash,
     signedDelegate,
     policy,
-    signWithPrivateKey,
+    signGasRelayerNearTransaction,
   } = params;
 
   try {
@@ -283,9 +279,7 @@ export async function executeSignedDelegateWithRelayer(params: {
       throw new Error('missing_delegate_sender_id');
     }
 
-    const signedTx = await signWithPrivateKey({
-      nearPrivateKey: relayerPrivateKey,
-      signerAccountId: relayerAccount,
+    const signedTx = await signGasRelayerNearTransaction({
       receiverId: delegateSenderId,
       nonce: nextNonce,
       blockHash,

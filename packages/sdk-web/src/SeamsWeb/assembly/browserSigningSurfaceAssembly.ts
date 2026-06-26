@@ -120,11 +120,6 @@ export function createBrowserSigningSurfaceEnginePorts(
     signTempo: (signArgs) =>
       signEvmFamilyOperation(args.getEnginePorts().tempoSigningDeps, signArgs),
     restorePasskeyEd25519SigningMaterial: args.restorePasskeyEd25519SigningMaterial,
-    extractCosePublicKey: (attestationObjectBase64url: string) =>
-      registrationPublic.extractCosePublicKey(
-        args.getRegistrationPublicDeps(),
-        attestationObjectBase64url,
-      ),
     activateAuthenticatedWalletState: (activationArgs) =>
       registrationPublic.activateAuthenticatedWalletState(args.getRegistrationPublicDeps(), {
         walletId: activationArgs.walletId,

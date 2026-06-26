@@ -1,28 +1,19 @@
 // === WORKER MESSAGES: REQUEST & RESPONSE TYPES ===
-// Enums and message structures for worker communication
+// Enums and message structures for worker communication.
 
 use crate::error::ParsePayloadError;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-// === CLEAN RUST ENUMS WITH NUMERIC CONVERSION ===
-// These export to TypeScript as numeric enums and we convert directly from numbers
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerRequestType {
     SignTransactionsWithActions,
-    ExtractCosePublicKey,
-    SignTransactionWithKeyPair,
     SignNep413Message,
-    // Delegate action signing (NEP-461)
     SignDelegateAction,
-    // Public, deterministic key enrollment helper for threshold mode
     DeriveThresholdEd25519ClientVerifyingShare,
-    // Public helper that derives single-key HSS client inputs from PRF + canonical context
     DeriveThresholdEd25519HssClientInputs,
-    /// Internal helper to generate a fresh ephemeral Ed25519 keypair.
-    GenerateEphemeralNearKeypair,
     PrepareThresholdEd25519HssSession,
     PrepareThresholdEd25519HssClientRequest,
     OpenThresholdEd25519HssClientOutput,
@@ -50,136 +41,53 @@ impl From<u32> for WorkerRequestType {
     fn from(value: u32) -> Self {
         match value {
             0 => WorkerRequestType::SignTransactionsWithActions,
-            1 => WorkerRequestType::ExtractCosePublicKey,
-            2 => WorkerRequestType::SignTransactionWithKeyPair,
-            3 => WorkerRequestType::SignNep413Message,
-            4 => WorkerRequestType::SignDelegateAction,
-            5 => WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare,
-            6 => WorkerRequestType::DeriveThresholdEd25519HssClientInputs,
-            7 => WorkerRequestType::GenerateEphemeralNearKeypair,
-            8 => WorkerRequestType::PrepareThresholdEd25519HssSession,
-            9 => WorkerRequestType::PrepareThresholdEd25519HssClientRequest,
-            10 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
-            11 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
-            12 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
-            13 => WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare,
-            14 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact,
-            15 => WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
-            16 => WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask,
-            17 => WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
-            18 => WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
-            19 => WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
-            20 => WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput,
-            21 => WorkerRequestType::RestoreThresholdEd25519WorkerMaterial,
-            22 => WorkerRequestType::ValidateThresholdEd25519WorkerMaterial,
-            23 => WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial,
-            24 => WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial,
-            25 => WorkerRequestType::BurnThresholdEd25519WorkerMaterial,
-            26 => WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial,
-            27 => WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial,
-            28 => WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial,
+            1 => WorkerRequestType::SignNep413Message,
+            2 => WorkerRequestType::SignDelegateAction,
+            3 => WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare,
+            4 => WorkerRequestType::DeriveThresholdEd25519HssClientInputs,
+            5 => WorkerRequestType::PrepareThresholdEd25519HssSession,
+            6 => WorkerRequestType::PrepareThresholdEd25519HssClientRequest,
+            7 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
+            8 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
+            9 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
+            10 => WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare,
+            11 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact,
+            12 => WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
+            13 => WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask,
+            14 => WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
+            15 => WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
+            16 => WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
+            17 => WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput,
+            18 => WorkerRequestType::RestoreThresholdEd25519WorkerMaterial,
+            19 => WorkerRequestType::ValidateThresholdEd25519WorkerMaterial,
+            20 => WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial,
+            21 => WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial,
+            22 => WorkerRequestType::BurnThresholdEd25519WorkerMaterial,
+            23 => WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial,
+            24 => WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial,
+            25 => WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
 }
+
 impl WorkerRequestType {
     pub fn name(&self) -> &'static str {
-        match self {
-            WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
-            WorkerRequestType::SignDelegateAction => "SIGN_DELEGATE_ACTION",
-            WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
-            WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
-            WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
-            WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
-                "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE"
-            }
-            WorkerRequestType::DeriveThresholdEd25519HssClientInputs => {
-                "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_INPUTS"
-            }
-            WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
-            WorkerRequestType::PrepareThresholdEd25519HssSession => {
-                "PREPARE_THRESHOLD_ED25519_HSS_SESSION"
-            }
-            WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
-                "PREPARE_THRESHOLD_ED25519_HSS_CLIENT_REQUEST"
-            }
-            WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
-                "OPEN_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT"
-            }
-            WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
-                "OPEN_THRESHOLD_ED25519_HSS_SEED_OUTPUT"
-            }
-            WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
-                "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
-            }
-            WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare => {
-                "OPEN_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_SIGNING_SHARE"
-            }
-            WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
-                "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
-            }
-            WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
-                "BUILD_THRESHOLD_ED25519_HSS_CLIENT_OWNED_STAGED_EVALUATOR_ARTIFACT"
-            }
-            WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
-                "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK"
-            }
-            WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap => {
-                "PREPARE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
-            }
-            WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
-                "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
-            }
-            WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
-                "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE"
-            }
-            WorkerRequestType::StoreThresholdEd25519WorkerMaterialFromHssOutput => {
-                "STORE_THRESHOLD_ED25519_WORKER_MATERIAL_FROM_HSS_OUTPUT"
-            }
-            WorkerRequestType::RestoreThresholdEd25519WorkerMaterial => {
-                "RESTORE_THRESHOLD_ED25519_WORKER_MATERIAL"
-            }
-            WorkerRequestType::ValidateThresholdEd25519WorkerMaterial => {
-                "VALIDATE_THRESHOLD_ED25519_WORKER_MATERIAL"
-            }
-            WorkerRequestType::CreateThresholdEd25519ClientPresignFromWorkerMaterial => {
-                "CREATE_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL"
-            }
-            WorkerRequestType::SignThresholdEd25519ClientPresignFromWorkerMaterial => {
-                "SIGN_THRESHOLD_ED25519_CLIENT_PRESIGN_FROM_WORKER_MATERIAL"
-            }
-            WorkerRequestType::BurnThresholdEd25519WorkerMaterial => {
-                "BURN_THRESHOLD_ED25519_WORKER_MATERIAL"
-            }
-            WorkerRequestType::PutThresholdEd25519SealedWorkerMaterial => {
-                "PUT_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
-            }
-            WorkerRequestType::ReadThresholdEd25519SealedWorkerMaterial => {
-                "READ_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
-            }
-            WorkerRequestType::DeleteThresholdEd25519SealedWorkerMaterial => {
-                "DELETE_THRESHOLD_ED25519_SEALED_WORKER_MATERIAL"
-            }
-        }
+        worker_request_type_name(*self)
     }
 }
 
-/// Convert WorkerRequestType enum to readable string for debugging.
-/// Used in logs to make numeric enum values human-friendly.
 pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str {
     match request_type {
         WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
-        WorkerRequestType::SignDelegateAction => "SIGN_DELEGATE_ACTION",
-        WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
-        WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
         WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
+        WorkerRequestType::SignDelegateAction => "SIGN_DELEGATE_ACTION",
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE"
         }
         WorkerRequestType::DeriveThresholdEd25519HssClientInputs => {
             "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_INPUTS"
         }
-        WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
         WorkerRequestType::PrepareThresholdEd25519HssSession => {
             "PREPARE_THRESHOLD_ED25519_HSS_SESSION"
         }
@@ -246,9 +154,6 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
     }
 }
 
-/// Deserialize a typed Rust payload from a raw `JsValue`.
-/// Keeps the worker request name in the error so JS callers can surface
-/// meaningful `"Invalid payload for <MESSAGE_TYPE>: ..."` messages.
 pub fn parse_typed_payload<T: DeserializeOwned>(
     payload: &JsValue,
     request_type: WorkerRequestType,
@@ -257,188 +162,150 @@ pub fn parse_typed_payload<T: DeserializeOwned>(
         .map_err(|e| ParsePayloadError::new(request_type.name(), e).into())
 }
 
-/// Worker response types enum - corresponds to TypeScript WorkerResponseType
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum WorkerResponseType {
-    // Success responses - one for each request type (kept in the same order)
     SignTransactionsWithActionsSuccess = 0,
-    ExtractCosePublicKeySuccess = 1,
-    SignTransactionWithKeyPairSuccess = 2,
-    SignNep413MessageSuccess = 3,
-    SignDelegateActionSuccess = 4,
-
-    // Failure responses - one for each request type (same ordering)
-    SignTransactionsWithActionsFailure = 5,
-    ExtractCosePublicKeyFailure = 6,
-    SignTransactionWithKeyPairFailure = 7,
-    SignNep413MessageFailure = 8,
-    SignDelegateActionFailure = 9,
-
-    // Progress responses - for real-time updates during operations
-    RegistrationProgress = 10,
-    RegistrationComplete = 11,
-    ExecuteActionsProgress = 12,
-    ExecuteActionsComplete = 13,
-
-    // Threshold key enrollment helper
-    DeriveThresholdEd25519ClientVerifyingShareSuccess = 14,
-    DeriveThresholdEd25519ClientVerifyingShareFailure = 15,
-    DeriveThresholdEd25519HssClientInputsSuccess = 16,
-    DeriveThresholdEd25519HssClientInputsFailure = 17,
-    GenerateEphemeralNearKeypairSuccess = 18,
-    GenerateEphemeralNearKeypairFailure = 19,
-    PrepareThresholdEd25519HssSessionSuccess = 20,
-    PrepareThresholdEd25519HssSessionFailure = 21,
-    PrepareThresholdEd25519HssClientRequestSuccess = 22,
-    PrepareThresholdEd25519HssClientRequestFailure = 23,
-    OpenThresholdEd25519HssClientOutputSuccess = 24,
-    OpenThresholdEd25519HssClientOutputFailure = 25,
-    OpenThresholdEd25519HssSeedOutputSuccess = 26,
-    OpenThresholdEd25519HssSeedOutputFailure = 27,
-    BuildThresholdEd25519SeedExportArtifactSuccess = 28,
-    BuildThresholdEd25519SeedExportArtifactFailure = 29,
-    OpenThresholdEcdsaHssRoleLocalSigningShareSuccess = 30,
-    OpenThresholdEcdsaHssRoleLocalSigningShareFailure = 31,
-    BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 32,
-    BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 33,
-    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess = 34,
-    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure = 35,
-    DeriveThresholdEd25519HssClientOutputMaskSuccess = 36,
-    DeriveThresholdEd25519HssClientOutputMaskFailure = 37,
-    PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 38,
-    PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure = 39,
-    FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 40,
-    FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 41,
-    CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess = 42,
-    CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure = 43,
-    StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess = 44,
-    StoreThresholdEd25519WorkerMaterialFromHssOutputFailure = 45,
-    RestoreThresholdEd25519WorkerMaterialSuccess = 46,
-    RestoreThresholdEd25519WorkerMaterialFailure = 47,
-    ValidateThresholdEd25519WorkerMaterialSuccess = 48,
-    ValidateThresholdEd25519WorkerMaterialFailure = 49,
-    CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 50,
-    CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure = 51,
-    SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 52,
-    SignThresholdEd25519ClientPresignFromWorkerMaterialFailure = 53,
-    BurnThresholdEd25519WorkerMaterialSuccess = 54,
-    BurnThresholdEd25519WorkerMaterialFailure = 55,
-    PutThresholdEd25519SealedWorkerMaterialSuccess = 56,
-    PutThresholdEd25519SealedWorkerMaterialFailure = 57,
-    ReadThresholdEd25519SealedWorkerMaterialSuccess = 58,
-    ReadThresholdEd25519SealedWorkerMaterialFailure = 59,
-    DeleteThresholdEd25519SealedWorkerMaterialSuccess = 60,
-    DeleteThresholdEd25519SealedWorkerMaterialFailure = 61,
+    SignNep413MessageSuccess = 1,
+    SignDelegateActionSuccess = 2,
+    SignTransactionsWithActionsFailure = 3,
+    SignNep413MessageFailure = 4,
+    SignDelegateActionFailure = 5,
+    RegistrationProgress = 6,
+    RegistrationComplete = 7,
+    ExecuteActionsProgress = 8,
+    ExecuteActionsComplete = 9,
+    DeriveThresholdEd25519ClientVerifyingShareSuccess = 10,
+    DeriveThresholdEd25519ClientVerifyingShareFailure = 11,
+    DeriveThresholdEd25519HssClientInputsSuccess = 12,
+    DeriveThresholdEd25519HssClientInputsFailure = 13,
+    PrepareThresholdEd25519HssSessionSuccess = 14,
+    PrepareThresholdEd25519HssSessionFailure = 15,
+    PrepareThresholdEd25519HssClientRequestSuccess = 16,
+    PrepareThresholdEd25519HssClientRequestFailure = 17,
+    OpenThresholdEd25519HssClientOutputSuccess = 18,
+    OpenThresholdEd25519HssClientOutputFailure = 19,
+    OpenThresholdEd25519HssSeedOutputSuccess = 20,
+    OpenThresholdEd25519HssSeedOutputFailure = 21,
+    BuildThresholdEd25519SeedExportArtifactSuccess = 22,
+    BuildThresholdEd25519SeedExportArtifactFailure = 23,
+    OpenThresholdEcdsaHssRoleLocalSigningShareSuccess = 24,
+    OpenThresholdEcdsaHssRoleLocalSigningShareFailure = 25,
+    BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 26,
+    BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 27,
+    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess = 28,
+    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure = 29,
+    DeriveThresholdEd25519HssClientOutputMaskSuccess = 30,
+    DeriveThresholdEd25519HssClientOutputMaskFailure = 31,
+    PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 32,
+    PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure = 33,
+    FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 34,
+    FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 35,
+    CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess = 36,
+    CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure = 37,
+    StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess = 38,
+    StoreThresholdEd25519WorkerMaterialFromHssOutputFailure = 39,
+    RestoreThresholdEd25519WorkerMaterialSuccess = 40,
+    RestoreThresholdEd25519WorkerMaterialFailure = 41,
+    ValidateThresholdEd25519WorkerMaterialSuccess = 42,
+    ValidateThresholdEd25519WorkerMaterialFailure = 43,
+    CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 44,
+    CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure = 45,
+    SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess = 46,
+    SignThresholdEd25519ClientPresignFromWorkerMaterialFailure = 47,
+    BurnThresholdEd25519WorkerMaterialSuccess = 48,
+    BurnThresholdEd25519WorkerMaterialFailure = 49,
+    PutThresholdEd25519SealedWorkerMaterialSuccess = 50,
+    PutThresholdEd25519SealedWorkerMaterialFailure = 51,
+    ReadThresholdEd25519SealedWorkerMaterialSuccess = 52,
+    ReadThresholdEd25519SealedWorkerMaterialFailure = 53,
+    DeleteThresholdEd25519SealedWorkerMaterialSuccess = 54,
+    DeleteThresholdEd25519SealedWorkerMaterialFailure = 55,
 }
+
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
         value as u32
     }
 }
+
 impl From<u32> for WorkerResponseType {
     fn from(value: u32) -> Self {
         match value {
-            // Success responses
             0 => WorkerResponseType::SignTransactionsWithActionsSuccess,
-            1 => WorkerResponseType::ExtractCosePublicKeySuccess,
-            2 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
-            3 => WorkerResponseType::SignNep413MessageSuccess,
-            4 => WorkerResponseType::SignDelegateActionSuccess,
-
-            // Failure responses
-            5 => WorkerResponseType::SignTransactionsWithActionsFailure,
-            6 => WorkerResponseType::ExtractCosePublicKeyFailure,
-            7 => WorkerResponseType::SignTransactionWithKeyPairFailure,
-            8 => WorkerResponseType::SignNep413MessageFailure,
-            9 => WorkerResponseType::SignDelegateActionFailure,
-
-            // Progress responses - for real-time updates during operations
-            10 => WorkerResponseType::RegistrationProgress,
-            11 => WorkerResponseType::RegistrationComplete,
-            12 => WorkerResponseType::ExecuteActionsProgress,
-            13 => WorkerResponseType::ExecuteActionsComplete,
-            14 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess,
-            15 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure,
-            16 => WorkerResponseType::DeriveThresholdEd25519HssClientInputsSuccess,
-            17 => WorkerResponseType::DeriveThresholdEd25519HssClientInputsFailure,
-            18 => WorkerResponseType::GenerateEphemeralNearKeypairSuccess,
-            19 => WorkerResponseType::GenerateEphemeralNearKeypairFailure,
-            20 => WorkerResponseType::PrepareThresholdEd25519HssSessionSuccess,
-            21 => WorkerResponseType::PrepareThresholdEd25519HssSessionFailure,
-            22 => WorkerResponseType::PrepareThresholdEd25519HssClientRequestSuccess,
-            23 => WorkerResponseType::PrepareThresholdEd25519HssClientRequestFailure,
-            24 => WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess,
-            25 => WorkerResponseType::OpenThresholdEd25519HssClientOutputFailure,
-            26 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess,
-            27 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
-            28 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
-            29 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
-            30 => WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
-            31 => WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareFailure,
-            32 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
-            33 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure,
-            34 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
-            35 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure,
-            36 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskSuccess,
-            37 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskFailure,
-            38 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-            39 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure,
-            40 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-            41 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure,
-            42 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess,
-            43 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure,
-            44 => WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess,
-            45 => WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputFailure,
-            46 => WorkerResponseType::RestoreThresholdEd25519WorkerMaterialSuccess,
-            47 => WorkerResponseType::RestoreThresholdEd25519WorkerMaterialFailure,
-            48 => WorkerResponseType::ValidateThresholdEd25519WorkerMaterialSuccess,
-            49 => WorkerResponseType::ValidateThresholdEd25519WorkerMaterialFailure,
-            50 => WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess,
-            51 => WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure,
-            52 => WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess,
-            53 => WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialFailure,
-            54 => WorkerResponseType::BurnThresholdEd25519WorkerMaterialSuccess,
-            55 => WorkerResponseType::BurnThresholdEd25519WorkerMaterialFailure,
-            56 => WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialSuccess,
-            57 => WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialFailure,
-            58 => WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialSuccess,
-            59 => WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialFailure,
-            60 => WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialSuccess,
-            61 => WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialFailure,
+            1 => WorkerResponseType::SignNep413MessageSuccess,
+            2 => WorkerResponseType::SignDelegateActionSuccess,
+            3 => WorkerResponseType::SignTransactionsWithActionsFailure,
+            4 => WorkerResponseType::SignNep413MessageFailure,
+            5 => WorkerResponseType::SignDelegateActionFailure,
+            6 => WorkerResponseType::RegistrationProgress,
+            7 => WorkerResponseType::RegistrationComplete,
+            8 => WorkerResponseType::ExecuteActionsProgress,
+            9 => WorkerResponseType::ExecuteActionsComplete,
+            10 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess,
+            11 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure,
+            12 => WorkerResponseType::DeriveThresholdEd25519HssClientInputsSuccess,
+            13 => WorkerResponseType::DeriveThresholdEd25519HssClientInputsFailure,
+            14 => WorkerResponseType::PrepareThresholdEd25519HssSessionSuccess,
+            15 => WorkerResponseType::PrepareThresholdEd25519HssSessionFailure,
+            16 => WorkerResponseType::PrepareThresholdEd25519HssClientRequestSuccess,
+            17 => WorkerResponseType::PrepareThresholdEd25519HssClientRequestFailure,
+            18 => WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess,
+            19 => WorkerResponseType::OpenThresholdEd25519HssClientOutputFailure,
+            20 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess,
+            21 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
+            22 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
+            23 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
+            24 => WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
+            25 => WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareFailure,
+            26 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
+            27 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure,
+            28 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
+            29 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure,
+            30 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskSuccess,
+            31 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskFailure,
+            32 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            33 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure,
+            34 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            35 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure,
+            36 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess,
+            37 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure,
+            38 => WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputSuccess,
+            39 => WorkerResponseType::StoreThresholdEd25519WorkerMaterialFromHssOutputFailure,
+            40 => WorkerResponseType::RestoreThresholdEd25519WorkerMaterialSuccess,
+            41 => WorkerResponseType::RestoreThresholdEd25519WorkerMaterialFailure,
+            42 => WorkerResponseType::ValidateThresholdEd25519WorkerMaterialSuccess,
+            43 => WorkerResponseType::ValidateThresholdEd25519WorkerMaterialFailure,
+            44 => WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialSuccess,
+            45 => WorkerResponseType::CreateThresholdEd25519ClientPresignFromWorkerMaterialFailure,
+            46 => WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialSuccess,
+            47 => WorkerResponseType::SignThresholdEd25519ClientPresignFromWorkerMaterialFailure,
+            48 => WorkerResponseType::BurnThresholdEd25519WorkerMaterialSuccess,
+            49 => WorkerResponseType::BurnThresholdEd25519WorkerMaterialFailure,
+            50 => WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialSuccess,
+            51 => WorkerResponseType::PutThresholdEd25519SealedWorkerMaterialFailure,
+            52 => WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialSuccess,
+            53 => WorkerResponseType::ReadThresholdEd25519SealedWorkerMaterialFailure,
+            54 => WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialSuccess,
+            55 => WorkerResponseType::DeleteThresholdEd25519SealedWorkerMaterialFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
 }
 
-/// Convert WorkerResponseType enum to readable string for debugging.
-/// Used in logs to turn numeric response type values into names.
 pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static str {
     match response_type {
-        // Success responses
         WorkerResponseType::SignTransactionsWithActionsSuccess => {
             "SIGN_TRANSACTIONS_WITH_ACTIONS_SUCCESS"
         }
-        WorkerResponseType::SignDelegateActionSuccess => "SIGN_DELEGATE_ACTION_SUCCESS",
-        WorkerResponseType::ExtractCosePublicKeySuccess => "EXTRACT_COSE_PUBLIC_KEY_SUCCESS",
-        WorkerResponseType::SignTransactionWithKeyPairSuccess => {
-            "SIGN_TRANSACTION_WITH_KEYPAIR_SUCCESS"
-        }
         WorkerResponseType::SignNep413MessageSuccess => "SIGN_NEP413_MESSAGE_SUCCESS",
-
-        // Failure responses
+        WorkerResponseType::SignDelegateActionSuccess => "SIGN_DELEGATE_ACTION_SUCCESS",
         WorkerResponseType::SignTransactionsWithActionsFailure => {
             "SIGN_TRANSACTIONS_WITH_ACTIONS_FAILURE"
         }
-        WorkerResponseType::SignDelegateActionFailure => "SIGN_DELEGATE_ACTION_FAILURE",
-        WorkerResponseType::ExtractCosePublicKeyFailure => "EXTRACT_COSE_PUBLIC_KEY_FAILURE",
-        WorkerResponseType::SignTransactionWithKeyPairFailure => {
-            "SIGN_TRANSACTION_WITH_KEYPAIR_FAILURE"
-        }
         WorkerResponseType::SignNep413MessageFailure => "SIGN_NEP413_MESSAGE_FAILURE",
-
-        // Progress responses - for real-time updates during operations
+        WorkerResponseType::SignDelegateActionFailure => "SIGN_DELEGATE_ACTION_FAILURE",
         WorkerResponseType::RegistrationProgress => "REGISTRATION_PROGRESS",
         WorkerResponseType::RegistrationComplete => "REGISTRATION_COMPLETE",
         WorkerResponseType::ExecuteActionsProgress => "EXECUTE_ACTIONS_PROGRESS",
@@ -454,12 +321,6 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::DeriveThresholdEd25519HssClientInputsFailure => {
             "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_INPUTS_FAILURE"
-        }
-        WorkerResponseType::GenerateEphemeralNearKeypairSuccess => {
-            "GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS"
-        }
-        WorkerResponseType::GenerateEphemeralNearKeypairFailure => {
-            "GENERATE_EPHEMERAL_NEAR_KEYPAIR_FAILURE"
         }
         WorkerResponseType::PrepareThresholdEd25519HssSessionSuccess => {
             "PREPARE_THRESHOLD_ED25519_HSS_SESSION_SUCCESS"
@@ -590,17 +451,6 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
     }
 }
 
-/// Parsed outer worker request envelope (`{ type, payload }`) coming from JS.
-/// This:
-/// - Accepts either a plain JS object (browser) or a JSON string (Node / server).
-/// - Extracts the numeric `type` and converts it to `WorkerRequestType`.
-/// - Returns the raw numeric type alongside the `payload` `JsValue`.
-///
-/// The key design choice here is to *not* use `serde_wasm_bindgen` on the full
-/// envelope. `serde_wasm_bindgen::preserve` encodes `JsValue` fields using an
-/// internal "magic string" representation, which broke when callers passed
-/// plain JS objects as `payload`. By manually reading `type` and `payload`
-/// via `Reflect::get`, we avoid that fragile encoding layer entirely.
 pub struct SignerWorkerMessage {
     pub request_type: WorkerRequestType,
     pub request_type_raw: u32,
@@ -608,7 +458,6 @@ pub struct SignerWorkerMessage {
 }
 
 pub fn parse_worker_request_envelope(message_val: JsValue) -> Result<SignerWorkerMessage, JsValue> {
-    // Support both Object (Browser) and JSON String (Node.js/Server) inputs.
     let message_obj = if message_val.is_string() {
         let json_str = message_val.as_string().unwrap_or_default();
         js_sys::JSON::parse(&json_str).map_err(|e| {
@@ -618,8 +467,6 @@ pub fn parse_worker_request_envelope(message_val: JsValue) -> Result<SignerWorke
         message_val
     };
 
-    // Extract type and payload manually to avoid relying on serde_wasm_bindgen
-    // to deserialize JsValue fields via its internal "magic string" representation.
     let msg_type_js = js_sys::Reflect::get(&message_obj, &JsValue::from_str("type"))
         .map_err(|e| JsValue::from_str(&format!("Failed to read message.type: {:?}", e)))?;
     let msg_type_num = msg_type_js
@@ -638,7 +485,6 @@ pub fn parse_worker_request_envelope(message_val: JsValue) -> Result<SignerWorke
     })
 }
 
-/// Main worker response structure
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SignerWorkerResponse {
     #[serde(rename = "type")]

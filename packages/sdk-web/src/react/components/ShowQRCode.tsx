@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 import { useSeams } from '../context';
-import {
-  LinkDeviceFlowEvent,
-  LinkDeviceEventPhase,
-} from '../../core/types/sdkSentEvents';
+import { LinkDeviceFlowEvent } from '../../core/types/sdkSentEvents';
 import { toAccountId } from '../../core/types/accountIds';
 import './ShowQRCode.css';
 
@@ -55,14 +52,6 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
                 lastMessage: event.message,
               }));
               onEvent(event);
-              if (
-                event.phase === LinkDeviceEventPhase.STEP_08_COMPLETED &&
-                event.status === 'succeeded'
-              ) {
-                try {
-                  onClose();
-                } catch {}
-              }
             },
             onError: (error: Error) => {
               if (cancelled) return;

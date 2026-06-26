@@ -13,13 +13,11 @@ import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/inte
 import type { NearSigningApiDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import type { ThresholdEcdsaBootstrapStorePort } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WarmSessionMaterialWriter } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
-import type { NearKeyOperationsPort } from '@/core/signingEngine/useCases/nearKeyOperations';
 import type { TempoSigningDeps } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 
 export type CreateBrowserSigningRuntimeArgs = {
   config: SeamsConfigsReadonly;
   workerCtx: SignerWorkerManagerContext;
-  nearKeyOps: NearKeyOperationsPort;
   accountLifecycle: RegistrationAccountLifecycleDeps;
   ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
   getWarmSessionMaterialWriter: () => WarmSessionMaterialWriter;
@@ -48,7 +46,6 @@ export function createBrowserSigningRuntime(
     workers: {
       emailOtp: args.workerCtx,
     },
-    nearKeyOps: args.nearKeyOps,
     signing: {
       near: {
         getDeps: args.getNearSigningDeps,

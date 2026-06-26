@@ -196,7 +196,6 @@ test.describe('signing-engine flow architecture guardrails', () => {
       'resolveThresholdEd25519SessionId',
       'getEmailOtpThresholdEcdsaKeyRefForSigning',
       'requestExportPrivateKeysWithUi',
-      'extractCosePublicKey',
       'resolveAccountAuthMethodForSigning',
     ];
 
@@ -245,9 +244,10 @@ test.describe('signing-engine flow architecture guardrails', () => {
         'uiConfirm',
         'webauthnAuth',
         'workerManager',
+        'routerAb',
         'useCases',
       ],
-      chains: ['workers', 'workerManager', 'session', 'signers', 'interfaces'],
+      chains: ['workers', 'workerManager', 'session', 'signers', 'interfaces', 'threshold'],
       stepUpConfirmation: ['interfaces', 'webauthnAuth'],
       uiConfirm: [
         'chains',
@@ -259,7 +259,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
         'webauthnAuth',
         'workerManager',
       ],
-      webauthnAuth: [],
+      webauthnAuth: ['interfaces'],
       useCases: ['chains', 'interfaces', 'session', 'threshold'],
       workers: [],
     };

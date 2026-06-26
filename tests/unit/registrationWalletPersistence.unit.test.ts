@@ -119,7 +119,6 @@ test('wallet registration persists wallet signer before NEAR projection', async 
   const authenticators: unknown[] = [];
   const authMethods: unknown[] = [];
   const deps = {
-    extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
       upsertProfile: async (input: { profileId: string }) => {
         calls.push(`profile:${input.profileId}`);
@@ -178,6 +177,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
     nearAccountId: toAccountId('alice.testnet'),
     nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString('wallet_alice')),
     credential,
+    credentialPublicKeyB64u: 'AQID',
     signerSlot: 2,
     operationalPublicKey: 'ed25519:public',
     relayerKeyId: 'relayer-key',
@@ -193,7 +193,7 @@ test('wallet registration persists wallet signer before NEAR projection', async 
     'auth:near-profile:alice.testnet',
     'signer:wallet_alice',
     'signer:near-profile:alice.testnet',
-    'last:near-profile:alice.testnet:2',
+    'last:wallet_alice:2',
   ]);
   expect(authMethods[0]).toMatchObject({
     kind: 'passkey',
@@ -231,7 +231,6 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
   const keyMaterials: unknown[] = [];
   const authenticators: unknown[] = [];
   const deps = {
-    extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
       upsertProfile: async (input: { profileId: string }) => {
         calls.push(`profile:${input.profileId}`);
@@ -295,7 +294,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
     'profile:near-profile:alice.testnet',
     'signer:wallet_alice',
     'signer:near-profile:alice.testnet',
-    'last:near-profile:alice.testnet:3',
+    'last:wallet_alice:3',
   ]);
   expect(authenticators).toEqual([]);
   expect(activations[0]).toMatchObject({
@@ -334,7 +333,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
   const activations: unknown[] = [];
   const authenticators: unknown[] = [];
   const deps = {
-    extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
       upsertProfile: async (input: { profileId: string }) => {
         calls.push(`profile:${input.profileId}`);
@@ -446,7 +444,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
 test('wallet ECDSA signer validation fails before finalize batch side effects', async () => {
   let batchCalled = false;
   const deps = {
-    extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
       persistWalletSignerFinalize: async () => {
         batchCalled = true;
@@ -497,7 +494,6 @@ test('wallet add-signer persistence supports both later signer-family orders', a
       authenticators,
       activations,
       deps: {
-        extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
         indexedDB: {
           upsertProfile: async (input: { profileId: string }) => {
             calls.push(`profile:${input.profileId}`);
@@ -616,6 +612,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
     nearAccountId: toAccountId('matrix.testnet'),
     nearEd25519SigningKeyId: String(nearEd25519SigningKeyIdFromString(String(walletId))),
     credential,
+    credentialPublicKeyB64u: 'AQID',
     signerSlot: 1,
     operationalPublicKey: 'ed25519:public',
     relayerKeyId: 'relayer-key',

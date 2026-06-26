@@ -15,7 +15,7 @@
  *   return (
  *     <SeamsWebProvider configs={passkeyConfigs}>
  *       <div>
- *         <QRCodeScanner onDeviceLinked={(result) => console.log(result)} />
+ *         <QRCodeScanner onError={(error) => console.error(error)} />
  *         <AccountMenuButton username="alice" onLock={() => console.log('wallet locked')} />
  *       </div>
  *     </SeamsWebProvider>

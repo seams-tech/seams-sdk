@@ -17,7 +17,6 @@ import type {
   RegistrationAccountLifecycleDeps,
   RegistrationSessionDeps,
 } from '../../interfaces/operationDeps';
-import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import {
   atomicStoreRegistrationData as atomicStoreRegistrationDataValue,
   getAllUsers as getAllUsersValue,
@@ -68,7 +67,6 @@ export type {
 export type RegistrationPublicDeps = {
   accountLifecycle: RegistrationAccountLifecycleDeps;
   session: RegistrationSessionDeps;
-  signingKeyOps: Pick<NearSigningKeyOps, 'extractCosePublicKey'>;
 };
 
 export function storeUserData(
@@ -153,6 +151,7 @@ export function atomicStoreRegistrationData(
   args: {
     nearAccountId: AccountId;
     credential: WebAuthnRegistrationCredential;
+    credentialPublicKeyB64u: string;
     operationalPublicKey: string;
   },
 ): Promise<StoredRegistrationData> {
@@ -235,11 +234,4 @@ export function getAuthenticationCredentialsSerialized(
   },
 ): Promise<WebAuthnAuthenticationCredential> {
   return getAuthenticationCredentialsSerializedValue(deps.session, args);
-}
-
-export function extractCosePublicKey(
-  deps: RegistrationPublicDeps,
-  attestationObjectBase64url: string,
-): Promise<Uint8Array> {
-  return deps.signingKeyOps.extractCosePublicKey(attestationObjectBase64url);
 }

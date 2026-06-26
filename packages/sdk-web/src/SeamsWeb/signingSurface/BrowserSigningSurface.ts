@@ -220,18 +220,10 @@ export class BrowserSigningSurface {
     const signingRuntime = deps.createRuntime({
       config: this.seamsWebConfigs,
       workerCtx: this.signerWorkerManager.getContext(),
-      nearKeyOps: {
-        signTransactionWithEphemeralNearKeypairHandle: (args) =>
-          this.signerWorkerManager.nearKeyOps.signTransactionWithEphemeralNearKeypairHandle(args),
-        generateEphemeralNearKeypairHandle: (args) =>
-          this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypairHandle(args),
-      },
       accountLifecycle: {
         accountStore: deps.signingEngineStores.walletProfileAndSignerRecords.accountStore,
         userPreferencesManager: this.userPreferencesManager,
         nonceCoordinator: this.nonceCoordinator,
-        extractCosePublicKey: (attestationObjectBase64url: string) =>
-          this.signerWorkerManager.nearKeyOps.extractCosePublicKey(attestationObjectBase64url),
       },
       ecdsaBootstrapStore: this.ecdsaBootstrapStore,
       getWarmSessionMaterialWriter: () => this.touchConfirm,
@@ -330,7 +322,6 @@ export class BrowserSigningSurface {
     this.registrationPublicDeps = {
       accountLifecycle: this.enginePorts.registrationAccountLifecycleDeps,
       session: this.enginePorts.registrationSessionDeps,
-      signingKeyOps: this.enginePorts.nearKeyOpsDeps.signingKeyOps,
     };
     this.thresholdEd25519PublicDeps = this.enginePorts.thresholdEd25519LifecycleDeps;
 
@@ -620,26 +611,6 @@ export class BrowserSigningSurface {
     );
   }
 
-  signTransactionWithEphemeralNearKeypairHandle(
-    input: Parameters<
-      SignerWorkerManager['nearKeyOps']['signTransactionWithEphemeralNearKeypairHandle']
-    >[0],
-  ): ReturnType<
-    SignerWorkerManager['nearKeyOps']['signTransactionWithEphemeralNearKeypairHandle']
-  > {
-    return this.signerWorkerManager.nearKeyOps.signTransactionWithEphemeralNearKeypairHandle(
-      input,
-    );
-  }
-
-  generateEphemeralNearKeypairHandle(
-    input: Parameters<SignerWorkerManager['nearKeyOps']['generateEphemeralNearKeypairHandle']>[0],
-  ): ReturnType<
-    SignerWorkerManager['nearKeyOps']['generateEphemeralNearKeypairHandle']
-  > {
-    return this.signerWorkerManager.nearKeyOps.generateEphemeralNearKeypairHandle(input);
-  }
-
   requestWorkerOperation = <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,
@@ -720,13 +691,6 @@ export class BrowserSigningSurface {
     return registrationPublic.getAuthenticationCredentialsSerialized(
       this.registrationPublicDeps,
       args,
-    );
-  }
-
-  extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return registrationPublic.extractCosePublicKey(
-      this.registrationPublicDeps,
-      attestationObjectBase64url,
     );
   }
 

@@ -96,9 +96,9 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
       },
       {
         onQRDetected: (qrData) => {
-          const devicePublicKey = String(qrData.device2PublicKey || '').trim();
+          const sessionId = String(qrData.sessionId || '').trim();
           console.log('useQRCamera: Valid QR data detected -', {
-            devicePublicKey,
+            sessionId,
             accountId: qrData.accountId,
             timestamp: new Date(qrData.timestamp || 0).toISOString(),
           });

@@ -369,6 +369,11 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
       ok: true,
       walletId: INTENT.walletId,
       rpId: INTENT.rpId,
+      authMethod: {
+        kind: 'passkey',
+        credentialIdB64u: 'credential-id',
+        credentialPublicKeyB64u: 'credential-public-key',
+      },
       accountProvisioning: namedProvisioning('registration-store.testnet'),
       resolvedAccount: {
         kind: 'sponsored_named_account',
@@ -486,6 +491,11 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
         ok: true,
         walletId: INTENT.walletId,
         rpId: INTENT.rpId,
+        authMethod: {
+          kind: 'passkey',
+          credentialIdB64u: 'credential-id',
+          credentialPublicKeyB64u: 'credential-public-key',
+        },
         accountProvisioning: namedProvisioning('registration-store.testnet'),
         resolvedAccount: {
           kind: 'sponsored_named_account',

@@ -23,7 +23,6 @@ import type {
   UserProfileStoreSurface,
   WarmSessionStatusSurface,
   WalletIframeWarmupSurface,
-  WebAuthnAttestationSurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -77,7 +76,6 @@ export type {
   WalletSessionReadSurface,
   WalletSessionWebContext,
   WarmSessionStatusSurface,
-  WebAuthnAttestationSurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 
@@ -106,7 +104,6 @@ export interface SeamsWebSigningSurface
     EcdsaRegistrationSurface,
     WebAuthnRegistrationConfirmationSurface,
     PasskeyLoginAssertionSurface,
-    WebAuthnAttestationSurface,
     KeyExportSigningSurface,
     ThresholdEd25519HssClientSurface,
     ThresholdEd25519HssCeremonySurface {

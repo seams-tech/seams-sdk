@@ -23,6 +23,7 @@ import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnA
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import { EmailRecoveryPendingStore } from '@/utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
+import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { isObject } from '@shared/utils/validation';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
@@ -580,12 +581,14 @@ export class EmailRecoveryDomain {
       }
 
       const credentialId = String(credential.rawId || '').trim();
-      const attestationObject = String(credential.response?.attestationObject || '').trim();
-      if (!credentialId || !attestationObject) {
-        throw new Error('Missing WebAuthn registration attestation in credential');
+      const credentialPublicKeyB64u = String(ecdsaObj.credentialPublicKeyB64u || '').trim();
+      if (!credentialId || !credentialPublicKeyB64u) {
+        throw new Error('email-recovery/ecdsa/respond returned missing passkey credential data');
       }
-      const credentialPublicKey =
-        await context.signingEngine.extractCosePublicKey(attestationObject);
+      const credentialPublicKey = base64UrlDecode(credentialPublicKeyB64u);
+      if (credentialPublicKey.length === 0) {
+        throw new Error('email-recovery/ecdsa/respond returned empty credential public key');
+      }
       const clientParticipantId = Number(thresholdSection.clientParticipantId);
       const relayerParticipantId = Number(thresholdSection.relayerParticipantId);
       await context.signingEngine.storeUserData({

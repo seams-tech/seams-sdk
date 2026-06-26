@@ -41,6 +41,5 @@ export function createRegistrationAccountLifecycleDeps(args: {
     accountStore: args.accountStore,
     userPreferencesManager: args.createArgs.userPreferencesManager,
     nonceCoordinator: args.createArgs.nonceCoordinator,
-    extractCosePublicKey: args.createArgs.extractCosePublicKey,
   };
 }

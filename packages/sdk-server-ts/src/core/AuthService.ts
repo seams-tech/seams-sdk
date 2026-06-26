@@ -5,7 +5,7 @@ import {
   type AccessKeyList,
 } from './rpcClients/near/NearClient';
 import type { FinalExecutionOutcome, TxExecutionStatus } from '@near-js/types';
-import { toPublicKeyStringFromSecretKey } from './nearKeys';
+import { decodeNearSecretKey, toPublicKeyStringFromSecretKey } from './nearKeys';
 import { createAuthServiceConfig } from './config';
 import { formatGasToTGas, formatYoctoToNear } from './utils';
 import { parseContractExecutionError } from './errors';
@@ -53,12 +53,9 @@ import {
 } from './ThresholdService';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import initSignerWasm, {
-  handle_signer_message,
-  WorkerRequestType,
-  WorkerResponseType,
   type InitInput,
-  type WasmTransaction,
-  type WasmSignature,
+  threshold_ed25519_build_near_tx_unsigned_borsh,
+  threshold_ed25519_finalize_near_tx_from_signature,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 import type {
@@ -94,6 +91,7 @@ import type {
   WalletAddAuthMethodStartRequest,
   WalletAddAuthMethodStartResponse,
   WalletRegistrationFinalizeRequest,
+  WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
@@ -364,11 +362,6 @@ import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
 } from './ThresholdService/ethSignerWasm';
-import {
-  createDeviceLinkingSessionStore,
-  type DeviceLinkingSessionRecord,
-  type DeviceLinkingSessionStore,
-} from './DeviceLinkingSessionStore';
 import {
   createEmailRecoveryPreparationStore,
   type EmailRecoveryPreparationStore,
@@ -2817,8 +2810,6 @@ export class AuthService {
       expiresAtMs: number;
     }
   >();
-  private deviceLinkingSessionStoreInitialized = false;
-  private deviceLinkingSessionStore: DeviceLinkingSessionStore | null = null;
   private emailRecoveryPreparationStoreInitialized = false;
   private emailRecoveryPreparationStore: EmailRecoveryPreparationStore | null = null;
   private nearPublicKeyStoreInitialized = false;
@@ -2865,7 +2856,6 @@ export class AuthService {
     this.nearClient = new MinimalNearClient(this.config.nearRpcUrl);
     this.emailRecovery = new EmailRecoveryService({
       relayerAccount: this.config.relayerAccount,
-      relayerPrivateKey: this.config.relayerPrivateKey,
       networkId: this.config.networkId,
       emailDkimVerifierContract: EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT,
       nearClient: this.nearClient,
@@ -2875,7 +2865,7 @@ export class AuthService {
         this.queueTransaction(fn, label),
       fetchTxContext: (accountId: string, publicKey: string) =>
         this.fetchTxContext(accountId, publicKey),
-      signWithPrivateKey: (input) => this.signWithPrivateKey(input),
+      signGasRelayerNearTransaction: (input) => this.signGasRelayerNearTransaction(input),
       getRelayerPublicKey: () => this.relayerPublicKey,
     });
 
@@ -5090,29 +5080,6 @@ export class AuthService {
     }
   }
 
-  private getDeviceLinkingSessionStore(): DeviceLinkingSessionStore {
-    if (this.deviceLinkingSessionStoreInitialized && this.deviceLinkingSessionStore) {
-      return this.deviceLinkingSessionStore;
-    }
-    if (this.deviceLinkingSessionStoreInitialized) {
-      // Defensive: should never happen, but avoids returning null.
-      this.deviceLinkingSessionStore = createDeviceLinkingSessionStore({
-        config: this.config.thresholdStore || null,
-        logger: this.logger,
-        isNode: this.isNodeEnvironment(),
-      });
-      return this.deviceLinkingSessionStore;
-    }
-
-    this.deviceLinkingSessionStoreInitialized = true;
-    this.deviceLinkingSessionStore = createDeviceLinkingSessionStore({
-      config: this.config.thresholdStore || null,
-      logger: this.logger,
-      isNode: this.isNodeEnvironment(),
-    });
-    return this.deviceLinkingSessionStore;
-  }
-
   private getEmailRecoveryPreparationStore(): EmailRecoveryPreparationStore {
     if (this.emailRecoveryPreparationStoreInitialized && this.emailRecoveryPreparationStore) {
       return this.emailRecoveryPreparationStore;
@@ -5705,10 +5672,7 @@ export class AuthService {
           this.relayerPublicKey,
         );
 
-        // Sign with relayer private key using WASM
-        const signed = await this.signWithPrivateKey({
-          nearPrivateKey: this.config.relayerPrivateKey,
-          signerAccountId: this.config.relayerAccount,
+        const signed = await this.signGasRelayerNearTransaction({
           receiverId: request.accountId,
           nonce: nextNonce,
           blockHash: blockHash,
@@ -7543,6 +7507,25 @@ export class AuthService {
     return assertNever(input.authority);
   }
 
+  private walletRegistrationFinalizeAuthMethod(
+    authority: RegistrationAuthority,
+  ): WalletRegistrationFinalizeAuthMethod {
+    switch (authority.kind) {
+      case 'passkey':
+        return {
+          kind: 'passkey',
+          credentialIdB64u: authority.credentialIdB64u,
+          credentialPublicKeyB64u: authority.credentialPublicKeyB64u,
+        };
+      case 'email_otp':
+        return {
+          kind: 'email_otp',
+          registrationAuthorityId: authority.registrationAuthorityId,
+        };
+    }
+    return assertNever(authority);
+  }
+
   private async prepareGoogleEmailOtpRegistrationActivation(input: {
     authority: RegistrationAuthority;
     walletId: WalletId;
@@ -8598,6 +8581,7 @@ export class AuthService {
         ok: true,
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
+        authMethod: this.walletRegistrationFinalizeAuthMethod(ceremony.authority),
         accountProvisioning: ed25519.accountProvisioning,
         resolvedAccount: resolvedAccount.value,
         registrationDiagnostics: finalizeDiagnostics(),
@@ -8740,6 +8724,7 @@ export class AuthService {
         ok: true,
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
+        authMethod: this.walletRegistrationFinalizeAuthMethod(ceremony.authority),
         registrationDiagnostics: finalizeDiagnostics(),
         ecdsa: {
           walletKeys,
@@ -9045,6 +9030,7 @@ export class AuthService {
       ok: true,
       walletId: ceremony.intent.walletId,
       rpId: ceremony.intent.rpId,
+      authMethod: this.walletRegistrationFinalizeAuthMethod(ceremony.authority),
       accountProvisioning: ed25519.accountProvisioning,
       resolvedAccount: resolvedAccount.value,
       registrationDiagnostics: finalizeDiagnostics(),
@@ -15254,799 +15240,26 @@ export class AuthService {
     }
   }
 
-  async getLinkDeviceSession(request: {
-    session_id?: unknown;
-    sessionId?: unknown;
-  }): Promise<
-    { ok: true; session: DeviceLinkingSessionRecord } | { ok: false; code: string; message: string }
-  > {
-    try {
-      const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim();
-      if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(sessionId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid sessionId' };
-      }
-
-      const store = this.getDeviceLinkingSessionStore();
-      const session = await store.get(sessionId);
-      if (!session)
-        return { ok: false, code: 'not_found', message: 'Unknown or expired link-device session' };
-      return { ok: true, session };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to load link-device session',
-      };
-    }
+  async getLinkDeviceSession(_request: Record<string, unknown>): Promise<LinkDeviceUnsupported> {
+    return linkDeviceUnsupported();
   }
 
-  async registerLinkDeviceSession(request: {
-    session_id?: unknown;
-    sessionId?: unknown;
-    device2_public_key?: unknown;
-    device2PublicKey?: unknown;
-    expires_at_ms?: unknown;
-    expiresAtMs?: unknown;
-  }): Promise<
-    { ok: true; session: DeviceLinkingSessionRecord } | { ok: false; code: string; message: string }
-  > {
-    try {
-      const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim();
-      if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(sessionId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid sessionId' };
-      }
-
-      const device2PublicKey = String(
-        request?.device2_public_key ?? request?.device2PublicKey ?? '',
-      ).trim();
-      if (!device2PublicKey || !device2PublicKey.startsWith('ed25519:')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Invalid device2PublicKey (expected ed25519:...)',
-        };
-      }
-
-      const now = Date.now();
-      const requestedExpiresRaw = request?.expires_at_ms ?? request?.expiresAtMs;
-      const requestedExpires =
-        typeof requestedExpiresRaw === 'number' ? requestedExpiresRaw : Number(requestedExpiresRaw);
-      const ttlMs = 15 * 60_000;
-      const maxTtlMs = 60 * 60_000;
-      const baseExpires = now + ttlMs;
-      const expiresAtMs =
-        Number.isFinite(requestedExpires) && requestedExpires > now
-          ? Math.min(Math.floor(requestedExpires), now + maxTtlMs)
-          : baseExpires;
-
-      const store = this.getDeviceLinkingSessionStore();
-      const existing = await store.get(sessionId);
-      if (existing?.device2PublicKey && existing.device2PublicKey !== device2PublicKey) {
-        return { ok: false, code: 'conflict', message: 'Session public key mismatch' };
-      }
-
-      const session: DeviceLinkingSessionRecord = {
-        version: 'device_linking_session_v1',
-        sessionId,
-        device2PublicKey,
-        createdAtMs: existing?.createdAtMs ?? now,
-        expiresAtMs: Math.max(existing?.expiresAtMs ?? 0, expiresAtMs),
-        ...(existing?.claimedAtMs ? { claimedAtMs: existing.claimedAtMs } : {}),
-        ...(existing?.accountId ? { accountId: existing.accountId } : {}),
-        ...(existing?.signerSlot ? { signerSlot: existing.signerSlot } : {}),
-        ...(existing?.addKeyTxHash ? { addKeyTxHash: existing.addKeyTxHash } : {}),
-        ...(existing?.preparedEcdsa ? { preparedEcdsa: existing.preparedEcdsa } : {}),
-      };
-
-      await store.put(session);
-      this.logger.info('[link-device] session registered', {
-        sessionId,
-        device2PublicKey,
-        expiresAtMs: session.expiresAtMs,
-        hasExisting: !!existing,
-        storeKind: String((this.config.thresholdStore as any)?.kind || ''),
-      });
-      return { ok: true, session };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to register link-device session',
-      };
-    }
+  async registerLinkDeviceSession(
+    _request: Record<string, unknown>,
+  ): Promise<LinkDeviceUnsupported> {
+    return linkDeviceUnsupported();
   }
 
-  async claimLinkDeviceSession(request: {
-    session_id?: unknown;
-    sessionId?: unknown;
-    wallet_id?: unknown;
-    walletId?: unknown;
-    account_id?: unknown;
-    accountId?: unknown;
-    device2_public_key?: unknown;
-    device2PublicKey?: unknown;
-    signer_slot?: unknown;
-    signerSlot?: unknown;
-    add_key_tx_hash?: unknown;
-    addKeyTxHash?: unknown;
-  }): Promise<
-    { ok: true; session: DeviceLinkingSessionRecord } | { ok: false; code: string; message: string }
-  > {
-    try {
-      if ('threshold_ecdsa' in (request as unknown as Record<string, unknown>)) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message:
-            'threshold_ecdsa link-device bootstrap has been removed; use role-local ECDSA HSS bootstrap',
-        };
-      }
-      await this._ensureSignerAndRelayerAccount();
-
-      const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim();
-      if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(sessionId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid sessionId' };
-      }
-
-      const accountId = String(request?.account_id ?? request?.accountId ?? '').trim();
-      if (!accountId || !isValidAccountId(accountId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
-      }
-      const walletId = parseBoundaryWalletId(request?.wallet_id ?? request?.walletId);
-      if (!walletId) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid walletId' };
-      }
-
-      const device2PublicKey = String(
-        request?.device2_public_key ?? request?.device2PublicKey ?? '',
-      ).trim();
-      if (!device2PublicKey || !device2PublicKey.startsWith('ed25519:')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Invalid device2PublicKey (expected ed25519:...)',
-        };
-      }
-
-      const addKeyTxHash =
-        String(request?.add_key_tx_hash ?? request?.addKeyTxHash ?? '').trim() || undefined;
-
-      const keys = await this.nearClient.viewAccessKeyList(accountId);
-      const hasKey =
-        Array.isArray(keys?.keys) &&
-        keys.keys.some((k: any) => String(k?.public_key || '').trim() === device2PublicKey);
-      if (!hasKey) {
-        return {
-          ok: false,
-          code: 'missing_access_key',
-          message:
-            'device2 public key is not present on account (ensure AddKey has been submitted and propagated)',
-        };
-      }
-
-      const store = this.getDeviceLinkingSessionStore();
-      const existing = await store.get(sessionId);
-      if (existing?.accountId && existing.accountId !== accountId) {
-        return {
-          ok: false,
-          code: 'conflict',
-          message: 'Session is already claimed by a different accountId',
-        };
-      }
-      if (existing?.walletId && existing.walletId !== walletId) {
-        return {
-          ok: false,
-          code: 'conflict',
-          message: 'Session is already claimed by a different walletId',
-        };
-      }
-      if (existing?.device2PublicKey && existing.device2PublicKey !== device2PublicKey) {
-        return { ok: false, code: 'conflict', message: 'Session public key mismatch' };
-      }
-
-      const fallbackSignerSlot = coerceSignerSlot(
-        request?.signer_slot ?? request?.signerSlot ?? existing?.signerSlot ?? 2,
-        { min: 1, fallback: 2 },
-      );
-      let signerSlot = fallbackSignerSlot;
-      try {
-        const bindingStore = this.getWebAuthnCredentialBindingStore();
-        if (bindingStore.getMaxSignerSlot) {
-          const maxSignerSlot = await bindingStore.getMaxSignerSlot({ userId: walletId });
-          if (typeof maxSignerSlot === 'number' && maxSignerSlot >= signerSlot) {
-            signerSlot = maxSignerSlot + 1;
-          }
-        }
-      } catch {
-        // ignore and keep fallback
-      }
-
-      const now = Date.now();
-      const ttlMs = 15 * 60_000;
-      const expiresAtMs = Math.max(existing?.expiresAtMs ?? 0, now + ttlMs);
-
-      const session: DeviceLinkingSessionRecord = {
-        version: 'device_linking_session_v1',
-        sessionId,
-        device2PublicKey,
-        createdAtMs: existing?.createdAtMs ?? now,
-        expiresAtMs,
-        claimedAtMs: now,
-        walletId,
-        accountId,
-        signerSlot,
-        ...(addKeyTxHash ? { addKeyTxHash } : {}),
-        ...(existing?.preparedEcdsa ? { preparedEcdsa: existing.preparedEcdsa } : {}),
-      };
-
-      await store.put(session);
-
-      // Best-effort: persist the ephemeral (device2) key metadata. This key is expected to be deleted
-      // by Device2 during completion, but storing it helps UIs classify access keys while linking is in flight.
-      await this.recordNearPublicKeyMetadata({
-        userId: walletId,
-        publicKey: device2PublicKey,
-        kind: 'ephemeral',
-        signerSlot,
-        ...(addKeyTxHash ? { addedTxHash: addKeyTxHash } : {}),
-        source: 'link-device ephemeral NEAR public key metadata persistence',
-      });
-
-      this.logger.info('[link-device] session claimed', {
-        sessionId,
-        walletId,
-        accountId,
-        device2PublicKey,
-        signerSlot,
-        addKeyTxHash: addKeyTxHash || '',
-        storeKind: String((this.config.thresholdStore as any)?.kind || ''),
-      });
-      return { ok: true, session };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to claim link-device session',
-      };
-    }
+  async claimLinkDeviceSession(_request: Record<string, unknown>): Promise<LinkDeviceUnsupported> {
+    return linkDeviceUnsupported();
   }
 
-  async prepareLinkDevice(request: {
-    wallet_id?: unknown;
-    walletId?: unknown;
-    account_id?: unknown;
-    accountId?: unknown;
-    session_id?: unknown;
-    sessionId?: unknown;
-    signer_slot?: unknown;
-    signerSlot?: unknown;
-    threshold_ed25519?: unknown;
-    threshold_ecdsa_prepare?: unknown;
-    rp_id?: unknown;
-    webauthn_registration?: unknown;
-    expected_origin?: string;
-  }): Promise<
-    | {
-        ok: true;
-        walletId: string;
-        accountId: string;
-        signerSlot: number;
-        credentialIdB64u: string;
-        thresholdEd25519: {
-          relayerKeyId: string;
-          publicKey: string;
-          keyVersion?: string;
-          recoveryExportCapable?: boolean;
-          clientParticipantId?: number;
-          relayerParticipantId?: number;
-          participantIds?: number[];
-          nearAccountId: string;
-          nearEd25519SigningKeyId: string;
-          session?: ThresholdEd25519BootstrapSession;
-        };
-        ecdsa?: WalletRegistrationEcdsaPreparePayload;
-      }
-    | { ok: false; code: string; message: string }
-  > {
-    try {
-      if ('threshold_ecdsa' in (request as unknown as Record<string, unknown>)) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message:
-            'threshold_ecdsa link-device bootstrap has been removed; use role-local ECDSA HSS bootstrap',
-        };
-      }
-      await this._ensureSignerAndRelayerAccount();
-
-      const accountId = String(request?.account_id ?? request?.accountId ?? '').trim();
-      if (!accountId || !isValidAccountId(accountId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
-      }
-      const sessionId =
-        String(request?.session_id ?? request?.sessionId ?? '').trim() || undefined;
-      const walletId = parseBoundaryWalletId(request?.wallet_id ?? request?.walletId);
-      if (!walletId) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid walletId' };
-      }
-
-      const rpId = String(request?.rp_id || '').trim();
-      if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
-
-      const signerSlot = (() => {
-        const raw = request?.signer_slot ?? request?.signerSlot ?? 2;
-        const n = typeof raw === 'number' ? raw : Number(raw);
-        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
-      })();
-      const thresholdEd25519Bootstrap = parseThresholdEd25519RegistrationInput(
-        (request as any)?.threshold_ed25519,
-      );
-      const thresholdEd25519SessionPolicy = thresholdEd25519Bootstrap.sessionPolicy;
-      if (
-        (request as any)?.threshold_ed25519?.session_policy != null &&
-        !thresholdEd25519SessionPolicy
-      ) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy must be an object',
-        };
-      }
-      const thresholdEd25519SessionKind = thresholdEd25519Bootstrap.sessionKind;
-      if (thresholdEd25519SessionKind && thresholdEd25519SessionKind !== 'jwt') {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'threshold_ed25519.session_kind must be jwt',
-        };
-      }
-      if (!thresholdEd25519SessionPolicy && thresholdEd25519SessionKind) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'threshold_ed25519.session_policy is required when session_kind is provided',
-        };
-      }
-      const ecdsaPrepareSpec = normalizeAdjacentFlowEcdsaPrepareSpec(
-        (request as any)?.threshold_ecdsa_prepare,
-      );
-      if (!ecdsaPrepareSpec.ok) return ecdsaPrepareSpec;
-
-      const cred = request.webauthn_registration as any;
-      if (!cred || typeof cred !== 'object')
-        return { ok: false, code: 'invalid_body', message: 'Missing webauthn_registration' };
-
-      // NOTE: We reuse the same deterministic registration intent schema as account creation:
-      // `sha256("register:<accountId>:<signerSlot>")`. This keeps client-side plumbing simple
-      // (reuses existing SecureConfirm registration helpers).
-      const expectedIntent = `register:${accountId}:${signerSlot}`;
-      const expectedChallenge = base64UrlEncode(await sha256BytesUtf8(expectedIntent));
-
-      const clientData = parseClientDataJsonBase64url(String(cred.response?.clientDataJSON || ''));
-      if (clientData.type !== 'webauthn.create') {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Invalid webauthn_registration.clientDataJSON.type (expected webauthn.create)',
-        };
-      }
-      if (clientData.challenge !== expectedChallenge) {
-        return {
-          ok: false,
-          code: 'challenge_mismatch',
-          message: 'Registration challenge mismatch',
-        };
-      }
-      const originHost = originHostnameOrEmpty(clientData.origin);
-      if (!isHostWithinRpId(originHost, rpId)) {
-        return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
-      }
-
-      const mod = await loadSimpleWebAuthnServer();
-      const verifyRegistrationResponse = mod.verifyRegistrationResponse;
-      if (typeof verifyRegistrationResponse !== 'function') {
-        return {
-          ok: false,
-          code: 'unsupported',
-          message: 'WebAuthn registration verifier is unavailable in this runtime',
-        };
-      }
-
-      const expectedOriginStrict = toOptionalTrimmedString(request.expected_origin);
-      if (!expectedOriginStrict) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'expected_origin is required for WebAuthn registration verification',
-        };
-      }
-      const registration = await verifyRegistrationResponse({
-        response: cred,
-        expectedChallenge,
-        expectedOrigin: expectedOriginStrict,
-        expectedRPID: rpId,
-        requireUserVerification: false,
-      });
-      if (!registration?.verified) {
-        return { ok: false, code: 'not_verified', message: 'Registration verification failed' };
-      }
-
-      const threshold = this.getThresholdSigningService();
-      if (!threshold) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Threshold signing is not configured on this server',
-        };
-      }
-      const bindingStore = this.getWebAuthnCredentialBindingStore();
-      const existingRuntimePolicyScope = await resolveBoundThresholdRuntimePolicyScope({
-        bindingStore,
-        userId: walletId,
-        rpId,
-      });
-      const existingThresholdEd25519Binding = await resolveExistingThresholdEd25519Binding({
-        bindingStore,
-        userId: walletId,
-        rpId,
-      });
-      if (!existingThresholdEd25519Binding) {
-        return {
-          ok: false,
-          code: 'not_found',
-          message: 'No existing threshold-ed25519 key binding found for account',
-        };
-      }
-      if (existingThresholdEd25519Binding.userId !== walletId) {
-        return {
-          ok: false,
-          code: 'conflict',
-          message: 'Existing threshold-ed25519 binding walletId mismatch',
-        };
-      }
-      if (existingThresholdEd25519Binding.nearAccountId !== accountId) {
-        return {
-          ok: false,
-          code: 'conflict',
-          message: 'Existing threshold-ed25519 binding accountId mismatch',
-        };
-      }
-      const keygen = {
-        relayerKeyId: String(existingThresholdEd25519Binding.relayerKeyId || '').trim(),
-        publicKey: existingThresholdEd25519Binding.publicKey,
-        keyVersion: String(existingThresholdEd25519Binding.keyVersion || '').trim(),
-        recoveryExportCapable:
-          existingThresholdEd25519Binding.recoveryExportCapable === true ? true : undefined,
-        clientParticipantId: existingThresholdEd25519Binding.clientParticipantId,
-        relayerParticipantId: existingThresholdEd25519Binding.relayerParticipantId,
-        participantIds: existingThresholdEd25519Binding.participantIds,
-      };
-      if (
-        !keygen.relayerKeyId ||
-        !keygen.publicKey ||
-        !keygen.keyVersion ||
-        keygen.recoveryExportCapable !== true
-      ) {
-        return {
-          ok: false,
-          code: 'not_found',
-          message: 'Existing threshold-ed25519 binding is incomplete',
-        };
-      }
-      let ecdsaPrepare: WalletRegistrationEcdsaPreparePayload | undefined;
-      if (ecdsaPrepareSpec.value) {
-        if (!sessionId) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ecdsa_prepare requires a link-device session_id',
-          };
-        }
-        const ecdsaRuntimePolicyScope =
-          ecdsaPrepareSpec.value.runtimePolicyScope || existingRuntimePolicyScope;
-        const signingRootId =
-          ecdsaPrepareSpec.value.signingRootId ||
-          (ecdsaRuntimePolicyScope ? deriveSigningRootId(ecdsaRuntimePolicyScope) : undefined);
-        const signingRootVersion =
-          ecdsaPrepareSpec.value.signingRootVersion ||
-          ecdsaRuntimePolicyScope?.signingRootVersion ||
-          'default';
-        if (!signingRootId || !signingRootVersion) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'threshold_ecdsa_prepare requires a signing root',
-          };
-        }
-        ecdsaPrepare = await this.prepareEcdsaRegistrationStartPayload({
-          registrationCeremonyId: `link_device_${randomBase64Url(16)}`,
-          walletId: walletIdFromString(walletId),
-          rpId,
-          signingRootId,
-          signingRootVersion,
-          chainTargets: ecdsaPrepareSpec.value.chainTargets,
-          participantIds: ecdsaPrepareSpec.value.participantIds,
-          ...(ecdsaRuntimePolicyScope ? { runtimePolicyScope: ecdsaRuntimePolicyScope } : {}),
-        });
-      }
-      let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
-      if (thresholdEd25519SessionPolicy) {
-        const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const runtimePolicyScope =
-          normalizeThresholdRuntimePolicyScope(requestedSessionPolicy.runtimePolicyScope) ||
-          existingRuntimePolicyScope;
-        const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
-          requestedSessionPolicy,
-          expectedWalletId: existingThresholdEd25519Binding.userId,
-          expectedRelayerKeyId: keygen.relayerKeyId,
-          expectedNearAccountId: existingThresholdEd25519Binding.nearAccountId,
-          expectedNearEd25519SigningKeyId: existingThresholdEd25519Binding.nearEd25519SigningKeyId,
-          expectedRpId: rpId,
-        });
-        if (policyBindingError) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: policyBindingError,
-          };
-        }
-
-        const session = await threshold.mintEd25519SessionFromRegistration({
-          walletId: existingThresholdEd25519Binding.userId,
-          nearAccountId: existingThresholdEd25519Binding.nearAccountId,
-          nearEd25519SigningKeyId: existingThresholdEd25519Binding.nearEd25519SigningKeyId,
-          rpId,
-          relayerKeyId: keygen.relayerKeyId,
-          sessionPolicy: {
-            ...requestedSessionPolicy,
-            walletId: existingThresholdEd25519Binding.userId,
-            nearAccountId: existingThresholdEd25519Binding.nearAccountId,
-            nearEd25519SigningKeyId: existingThresholdEd25519Binding.nearEd25519SigningKeyId,
-            rpId,
-            relayerKeyId: keygen.relayerKeyId,
-            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-          } as any,
-        });
-        if (
-          !session.ok ||
-          !session.thresholdSessionId ||
-          !Number.isFinite(Number(session.expiresAtMs))
-        ) {
-          return {
-            ok: false,
-            code: session.code || 'internal',
-            message: session.message || 'threshold-ed25519 link-device bootstrap failed',
-          };
-        }
-        const normalizedSession = toThresholdEd25519BootstrapSession(session);
-        if (!normalizedSession) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold-ed25519 link-device bootstrap failed',
-          };
-        }
-        thresholdEd25519Session = normalizedSession;
-      }
-
-      const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
-      const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as
-        | Uint8Array
-        | undefined;
-      const counter = registration?.registrationInfo?.credential?.counter as number | undefined;
-
-      if (!credentialIdB64u || !credentialPublicKey) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'Registration verification did not return credential public key material',
-        };
-      }
-
-      const now = Date.now();
-
-      const authStore = this.getWebAuthnAuthenticatorStore();
-      await authStore.put(walletId, {
-        version: 'webauthn_authenticator_v1',
-        credentialIdB64u,
-        credentialPublicKeyB64u: base64UrlEncode(credentialPublicKey),
-        counter: Number.isFinite(counter) && counter! >= 0 ? Math.floor(counter!) : 0,
-        createdAtMs: now,
-        updatedAtMs: now,
-      });
-
-      await bindingStore.put({
-        version: 'webauthn_credential_binding_v1',
-        rpId,
-        credentialIdB64u,
-        userId: walletId,
-        nearAccountId: existingThresholdEd25519Binding.nearAccountId,
-        nearEd25519SigningKeyId: existingThresholdEd25519Binding.nearEd25519SigningKeyId,
-        signerSlot,
-        publicKey: keygen.publicKey,
-        relayerKeyId: keygen.relayerKeyId,
-        clientParticipantId: keygen.clientParticipantId,
-        relayerParticipantId: keygen.relayerParticipantId,
-        participantIds: keygen.participantIds,
-        ...(thresholdEd25519Session?.runtimePolicyScope || existingRuntimePolicyScope
-          ? {
-              runtimePolicyScope:
-                thresholdEd25519Session?.runtimePolicyScope || existingRuntimePolicyScope,
-            }
-          : {}),
-        createdAtMs: now,
-        updatedAtMs: now,
-      });
-
-      // Best-effort: persist key metadata for UI surfaces like "Linked Devices".
-      await this.recordNearPublicKeyMetadata({
-        userId: walletId,
-        publicKey: keygen.publicKey,
-        kind: 'threshold',
-        signerSlot,
-        rpId,
-        credentialIdB64u,
-        source: 'WebAuthn registration NEAR public key metadata persistence',
-      });
-
-      if (sessionId) {
-        const sessionStore = this.getDeviceLinkingSessionStore();
-        const existingSession = await sessionStore.get(sessionId);
-        if (!existingSession) {
-          return {
-            ok: false,
-            code: 'not_found',
-            message: 'Unknown or expired link-device session',
-          };
-        }
-        if (existingSession.accountId && existingSession.accountId !== accountId) {
-          return {
-            ok: false,
-            code: 'conflict',
-            message: 'Link-device session accountId mismatch',
-          };
-        }
-        if (existingSession.walletId && existingSession.walletId !== walletId) {
-          return {
-            ok: false,
-            code: 'conflict',
-            message: 'Link-device session walletId mismatch',
-          };
-        }
-
-        await sessionStore.put({
-          ...existingSession,
-          walletId,
-          ...(ecdsaPrepare ? { preparedEcdsa: ecdsaPrepare } : {}),
-        });
-      }
-
-      return {
-        ok: true,
-        walletId,
-        accountId,
-        signerSlot,
-        credentialIdB64u,
-        thresholdEd25519: {
-          relayerKeyId: keygen.relayerKeyId,
-          publicKey: keygen.publicKey,
-          ...(keygen.keyVersion ? { keyVersion: keygen.keyVersion } : {}),
-          ...(typeof keygen.recoveryExportCapable === 'boolean'
-            ? { recoveryExportCapable: keygen.recoveryExportCapable }
-            : {}),
-          clientParticipantId: keygen.clientParticipantId,
-          relayerParticipantId: keygen.relayerParticipantId,
-          participantIds: keygen.participantIds,
-          nearAccountId: existingThresholdEd25519Binding.nearAccountId,
-          nearEd25519SigningKeyId: existingThresholdEd25519Binding.nearEd25519SigningKeyId,
-          ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
-        },
-        ...(ecdsaPrepare ? { ecdsa: ecdsaPrepare } : {}),
-      };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Link device preparation failed',
-      };
-    }
+  async prepareLinkDevice(_request: Record<string, unknown>): Promise<LinkDeviceUnsupported> {
+    return linkDeviceUnsupported();
   }
 
-  async respondLinkDeviceEcdsa(request: {
-    session_id?: unknown;
-    sessionId?: unknown;
-    client_bootstrap?: unknown;
-    clientBootstrap?: unknown;
-  }): Promise<
-    | {
-        ok: true;
-        sessionId: string;
-        ecdsa: {
-          bootstrap: EcdsaHssServerBootstrapResponse;
-          walletKeys: WalletRegistrationEcdsaWalletKey[];
-        };
-      }
-    | { ok: false; code: string; message: string }
-  > {
-    try {
-      const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim();
-      if (!sessionId || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(sessionId)) {
-        return { ok: false, code: 'invalid_body', message: 'Invalid sessionId' };
-      }
-      const parsed = parseWalletRegistrationEcdsaClientBootstrap(
-        request?.client_bootstrap ?? request?.clientBootstrap,
-      );
-      if (!parsed) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Invalid Link Device ECDSA client bootstrap',
-        };
-      }
-
-      const sessionStore = this.getDeviceLinkingSessionStore();
-      const session = await sessionStore.get(sessionId);
-      if (!session) {
-        return {
-          ok: false,
-          code: 'not_found',
-          message: 'Unknown or expired link-device session',
-        };
-      }
-      const prepared = session.preparedEcdsa;
-      if (!prepared) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Link Device ECDSA prepare context is missing',
-        };
-      }
-      if (!isMatchingEcdsaClientBootstrap(prepared.prepare, parsed)) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Link Device ECDSA bootstrap identity mismatch',
-        };
-      }
-      const threshold = this.getThresholdSigningService();
-      if (!threshold) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Threshold signing is not configured on this server',
-        };
-      }
-      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(
-        toEcdsaHssClientBootstrapRequest(parsed),
-      );
-      if (!bootstrap.ok) {
-        return {
-          ok: false,
-          code: bootstrap.code || 'hss_respond_failed',
-          message: bootstrap.message || 'Link Device ECDSA HSS bootstrap failed',
-        };
-      }
-      const walletKeys = buildEcdsaWalletKeysFromBootstrap({
-        bootstrap: bootstrap.value,
-        chainTargets: prepared.chainTargets,
-        errorContext: 'Link Device ECDSA bootstrap',
-      });
-      if (!walletKeys.ok) return walletKeys;
-      return {
-        ok: true,
-        sessionId,
-        ecdsa: {
-          bootstrap: bootstrap.value,
-          walletKeys: walletKeys.walletKeys,
-        },
-      };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Link Device ECDSA response failed',
-      };
-    }
+  async respondLinkDeviceEcdsa(_request: Record<string, unknown>): Promise<LinkDeviceUnsupported> {
+    return linkDeviceUnsupported();
   }
 
   async prepareEmailRecovery(request: {
@@ -16440,6 +15653,7 @@ export class AuthService {
         requestId: string;
         signerSlot: number;
         credentialIdB64u: string;
+        credentialPublicKeyB64u: string;
         thresholdEd25519: {
           relayerKeyId: string;
           publicKey: string;
@@ -16641,6 +15855,7 @@ export class AuthService {
         requestId,
         signerSlot: walletBinding.signerSlot,
         credentialIdB64u: preparation.credentialIdB64u,
+        credentialPublicKeyB64u: preparation.credentialPublicKeyB64u,
         thresholdEd25519: preparation.thresholdEd25519,
         ecdsa: {
           bootstrap: bootstrap.value,
@@ -16762,11 +15977,10 @@ export class AuthService {
           nearClient: this.nearClient,
           relayerAccount: this.config.relayerAccount,
           relayerPublicKey: this.relayerPublicKey,
-          relayerPrivateKey: this.config.relayerPrivateKey,
           hash: input.hash,
           signedDelegate: input.signedDelegate,
           policy: input.policy,
-          signWithPrivateKey: (args) => this.signWithPrivateKey(args),
+          signGasRelayerNearTransaction: (args) => this.signGasRelayerNearTransaction(args),
         }),
       `execute signed delegate for ${senderId}`,
     );
@@ -16852,57 +16066,48 @@ export class AuthService {
     return { nextNonce, blockHash: txBlockHash };
   }
 
-  private async signWithPrivateKey(input: {
-    nearPrivateKey: string;
-    signerAccountId: string;
+  private async signGasRelayerNearTransaction(input: {
     receiverId: string;
     nonce: string;
     blockHash: string;
     actions: ActionArgsWasm[];
   }): Promise<SignedTransaction> {
     await this.ensureSignerWasm();
-    const message = {
-      type: WorkerRequestType.SignTransactionWithKeyPair,
-      payload: {
-        nearPrivateKey: input.nearPrivateKey,
-        signerAccountId: input.signerAccountId,
-        receiverId: input.receiverId,
-        nonce: input.nonce,
-        blockHash: input.blockHash,
-        actions: input.actions,
-      },
-    };
-    // uses wasm signer worker's SignTransactionWithKeyPair action (no WebAuthn/signing session required)
-    let response: unknown;
-    try {
-      response = await handle_signer_message(message);
-    } catch (e: unknown) {
-      const msg = errorMessage(e);
-      // Log payload for debugging (redacting private key)
-      this.logger.error('Signer WASM rejected message:', {
-        error: msg,
-        payload: JSON.stringify(message, (key, value) =>
-          key === 'nearPrivateKey' ? '[REDACTED]' : value,
-        ),
-      });
-
-      // This specific error is intentionally redacted inside the WASM worker.
-      // When it occurs in production, it's commonly due to a JS/WASM version mismatch
-      // (the JS message schema changed but an old worker wasm is still deployed).
-      if (msg.includes('Invalid payload for SIGN_TRANSACTION_WITH_KEYPAIR')) {
-        throw new Error(
-          `Signer WASM rejected SIGN_TRANSACTION_WITH_KEYPAIR payload: ${msg}. Rebuild + redeploy the relayer so the bundled \`wasm_signer_worker.js\` and \`wasm_signer_worker_bg.wasm\` come from the same build.`,
-        );
-      }
-      throw e instanceof Error ? e : new Error(msg || 'Signing failed');
-    }
-    const { transaction, signature, borshBytes } =
-      extractFirstSignedTransactionFromWorkerResponse(response);
-
-    return new SignedTransaction({
-      transaction: transaction,
-      signature: signature,
-      borsh_bytes: borshBytes,
+    const signerPublicKey = toPublicKeyStringFromSecretKey(this.config.relayerPrivateKey);
+    const unsignedTx = requireSingleUnsignedNearTxBorshOutput(
+      threshold_ed25519_build_near_tx_unsigned_borsh({
+        txSigningRequests: [
+          {
+            nearAccountId: this.config.relayerAccount,
+            receiverId: input.receiverId,
+            actions: input.actions,
+          },
+        ],
+        transactionContext: {
+          nearPublicKeyStr: signerPublicKey,
+          nextNonce: input.nonce,
+          txBlockHash: input.blockHash,
+        },
+      }),
+    );
+    const signatureB64u = await signNearDigestWithSecretKey({
+      nearPrivateKey: this.config.relayerPrivateKey,
+      signingDigestB64u: unsignedTx.signingDigestB64u,
+      expectedSignerPublicKey: signerPublicKey,
+    });
+    const finalized = requireFinalizeNearTxFromSignatureOutput(
+      threshold_ed25519_finalize_near_tx_from_signature({
+        unsignedTransactionBorshB64u: unsignedTx.unsignedTransactionBorshB64u,
+        signingDigestB64u: unsignedTx.signingDigestB64u,
+        signatureB64u,
+        expectedNearAccountId: this.config.relayerAccount,
+        expectedSignerPublicKey: signerPublicKey,
+      }),
+    );
+    return SignedTransaction.fromPlain({
+      transaction: null,
+      signature: null,
+      borsh_bytes: Array.from(base64UrlDecode(finalized.signedTransactionBorshB64u)),
     });
   }
 
@@ -16944,43 +16149,165 @@ export class AuthService {
   }
 }
 
-interface WorkerSignedTransactionPayload {
-  transaction: WasmTransaction;
-  signature: WasmSignature;
-  borshBytes?: number[];
-  borsh_bytes?: number[];
+type NearTxUnsignedBorshOutput = {
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+};
+
+type LinkDeviceUnsupported = {
+  ok: false;
+  code: 'unsupported';
+  message: string;
+};
+
+type FinalizeNearTxFromSignatureOutput = {
+  signedTransactionBorshB64u: string;
+  transactionHash: string;
+};
+
+const LINK_DEVICE_REFACTOR_84_MESSAGE =
+  'Linked-device lane creation is disabled until refactor 84 lands';
+
+const ED25519_PKCS8_SEED_PREFIX = Uint8Array.from([
+  0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04,
+  0x20,
+]);
+
+function linkDeviceUnsupported(): LinkDeviceUnsupported {
+  return {
+    ok: false,
+    code: 'unsupported',
+    message: LINK_DEVICE_REFACTOR_84_MESSAGE,
+  };
 }
 
-function extractFirstSignedTransactionFromWorkerResponse(response: any): {
-  transaction: WasmTransaction;
-  signature: WasmSignature;
-  borshBytes: number[];
-} {
-  const res = (typeof response === 'string' ? JSON.parse(response) : response) as
-    | {
-        type?: WorkerResponseType;
-        payload?: { signedTransactions?: WorkerSignedTransactionPayload[]; error?: string };
-      }
-    | undefined;
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
 
-  if (res?.type !== WorkerResponseType.SignTransactionWithKeyPairSuccess) {
-    const errMsg = res?.payload?.error || 'Signing failed';
-    throw new Error(errMsg);
-  }
+function requireNonEmptyString(value: unknown, label: string): string {
+  const text = String(value || '').trim();
+  if (!text) throw new Error(`${label} is required`);
+  return text;
+}
 
-  const payload = res?.payload;
-  const signedTxs = (payload?.signedTransactions ?? []) as WorkerSignedTransactionPayload[];
-  if (!Array.isArray(signedTxs) || signedTxs.length === 0) {
-    throw new Error('No signed transaction returned');
+function requireSingleUnsignedNearTxBorshOutput(value: unknown): NearTxUnsignedBorshOutput {
+  if (!Array.isArray(value) || value.length !== 1) {
+    throw new Error('Expected exactly one unsigned NEAR transaction from signer WASM');
   }
-  const first = signedTxs[0];
-  const borshBytes = first?.borshBytes ?? first?.borsh_bytes;
-  if (!Array.isArray(borshBytes)) {
-    throw new Error('Missing borsh bytes');
-  }
+  const record = requireRecord(value[0], 'unsigned NEAR transaction output');
   return {
-    transaction: first.transaction,
-    signature: first.signature,
-    borshBytes,
+    unsignedTransactionBorshB64u: requireNonEmptyString(
+      record.unsignedTransactionBorshB64u,
+      'unsignedTransactionBorshB64u',
+    ),
+    signingDigestB64u: requireNonEmptyString(record.signingDigestB64u, 'signingDigestB64u'),
   };
+}
+
+function requireFinalizeNearTxFromSignatureOutput(
+  value: unknown,
+): FinalizeNearTxFromSignatureOutput {
+  const record = requireRecord(value, 'finalized NEAR transaction output');
+  return {
+    signedTransactionBorshB64u: requireNonEmptyString(
+      record.signedTransactionBorshB64u,
+      'signedTransactionBorshB64u',
+    ),
+    transactionHash: requireNonEmptyString(record.transactionHash, 'transactionHash'),
+  };
+}
+
+function createEd25519Pkcs8FromSeed(seed32: Uint8Array): Uint8Array {
+  if (seed32.length !== 32) {
+    throw new Error(`Ed25519 seed must be 32 bytes, got ${seed32.length}`);
+  }
+  const pkcs8 = new Uint8Array(ED25519_PKCS8_SEED_PREFIX.length + seed32.length);
+  pkcs8.set(ED25519_PKCS8_SEED_PREFIX, 0);
+  pkcs8.set(seed32, ED25519_PKCS8_SEED_PREFIX.length);
+  return pkcs8;
+}
+
+async function signNearDigestWithSecretKey(args: {
+  nearPrivateKey: string;
+  signingDigestB64u: string;
+  expectedSignerPublicKey: string;
+}): Promise<string> {
+  const actualPublicKey = toPublicKeyStringFromSecretKey(args.nearPrivateKey);
+  if (actualPublicKey !== args.expectedSignerPublicKey) {
+    throw new Error('NEAR private key does not match expected signer public key');
+  }
+  const digest = base64UrlDecode(args.signingDigestB64u);
+  if (digest.length !== 32) {
+    throw new Error(`NEAR signing digest must be 32 bytes, got ${digest.length}`);
+  }
+
+  const secretKeyBytes = decodeNearSecretKey(args.nearPrivateKey);
+  const seed32 = new Uint8Array(secretKeyBytes.subarray(0, 32));
+  const pkcs8 = createEd25519Pkcs8FromSeed(seed32);
+  try {
+    const signature = await signEd25519MessageWithPkcs8(pkcs8, digest);
+    if (signature.length !== 64) {
+      throw new Error(`Ed25519 signature must be 64 bytes, got ${signature.length}`);
+    }
+    return base64UrlEncode(signature);
+  } finally {
+    secretKeyBytes.fill(0);
+    seed32.fill(0);
+    pkcs8.fill(0);
+  }
+}
+
+async function signEd25519MessageWithPkcs8(
+  pkcs8: Uint8Array,
+  message: Uint8Array,
+): Promise<Uint8Array> {
+  const nodeSignature = await signEd25519MessageWithNodeCrypto(pkcs8, message);
+  if (nodeSignature) return nodeSignature;
+  const webCryptoSignature = await signEd25519MessageWithWebCrypto(pkcs8, message);
+  if (webCryptoSignature) return webCryptoSignature;
+  throw new Error('Ed25519 private-key signing is unavailable in this runtime');
+}
+
+async function signEd25519MessageWithNodeCrypto(
+  pkcs8: Uint8Array,
+  message: Uint8Array,
+): Promise<Uint8Array | null> {
+  try {
+    const nodeCrypto = await import('node:crypto');
+    const { Buffer } = await import('node:buffer');
+    const key = nodeCrypto.createPrivateKey({
+      key: Buffer.from(pkcs8),
+      format: 'der',
+      type: 'pkcs8',
+    });
+    return new Uint8Array(nodeCrypto.sign(null, message, key));
+  } catch {
+    return null;
+  }
+}
+
+async function signEd25519MessageWithWebCrypto(
+  pkcs8: Uint8Array,
+  message: Uint8Array,
+): Promise<Uint8Array | null> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return null;
+  try {
+    const key = await subtle.importKey('pkcs8', copyToArrayBuffer(pkcs8), 'Ed25519', false, [
+      'sign',
+    ]);
+    return new Uint8Array(await subtle.sign('Ed25519', key, copyToArrayBuffer(message)));
+  } catch {
+    return null;
+  }
+}
+
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.length);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
 }

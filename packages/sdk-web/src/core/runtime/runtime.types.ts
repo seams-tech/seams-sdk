@@ -17,10 +17,6 @@ import type { ThresholdEcdsaBootstrapStorePort } from '@/core/signingEngine/sess
 import type { WarmSessionMaterialWriter } from '@/core/signingEngine/session/passkey/warmSessionMaterialWriter';
 import type { EcdsaRegistrationSessionsService } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
-import type {
-  NearKeyOperationsPort,
-  NearKeyOperationsService,
-} from '@/core/signingEngine/useCases/nearKeyOperations';
 import type { RegistrationAccountsService } from '@/core/signingEngine/flows/registration/services/registrationAccounts';
 import type { NearSigningApiDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import type {
@@ -113,7 +109,6 @@ export type SigningRuntimeEvmFamilySigningService = {
 
 export type SigningRuntimeServices = {
   warmSessions: WarmSessionHydrationService;
-  nearKeyOperations: NearKeyOperationsService;
   registrationAccounts: RegistrationAccountsService;
   nearSigning: SigningRuntimeNearSigningService;
   evmFamilySigning: SigningRuntimeEvmFamilySigningService;
@@ -127,7 +122,6 @@ export type SigningRuntimeDeps = {
   runtimePorts: RuntimePorts;
   relayers: SigningRuntimeRelayerClients;
   workers: SigningRuntimeWorkerPorts;
-  nearKeyOps: NearKeyOperationsPort;
   signing: {
     near: SigningRuntimeNearSigningDeps;
     evmFamily: SigningRuntimeEvmFamilySigningDeps;

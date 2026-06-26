@@ -23,7 +23,6 @@ import {
 
 export type {
   CreateSigningEnginePortsArgs,
-  NearKeyOpsDeps,
   SignTempoPortInput,
   SigningEngineConveniencePorts,
   SigningEnginePorts,
@@ -81,9 +80,6 @@ export function createSigningEnginePorts(
       credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
-    nearKeyOpsDeps: {
-      signingKeyOps: args.signerWorkerManager.nearKeyOps,
-    },
     resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
       createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(args),
     signingSessionCoordinator,

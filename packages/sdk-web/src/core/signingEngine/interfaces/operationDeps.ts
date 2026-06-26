@@ -231,7 +231,6 @@ export type RegistrationAccountLifecycleDeps = {
   accountStore: RegistrationAccountStorePort;
   userPreferencesManager: Pick<UserPreferencesManager, 'setCurrentWallet' | 'reloadUserSettings'>;
   nonceCoordinator: Pick<NonceCoordinator, 'initializeNearAccessKey' | 'prefetchNearContext'>;
-  extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
 };
 
 export type RegistrationSessionDeps = {

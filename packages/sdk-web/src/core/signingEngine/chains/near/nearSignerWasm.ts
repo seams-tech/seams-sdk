@@ -1,8 +1,5 @@
-import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
-import { type ActionArgsWasm, validateActionArgsWasm } from '@/core/types/actions';
 import {
   NearSignerWorkerCustomRequestType,
-  isExtractCosePublicKeySuccess,
   WorkerRequestType,
   WorkerResponseType,
   type ThresholdEd25519ClientPresignBurnResult,
@@ -36,18 +33,15 @@ import {
   type ThresholdEd25519DecodeSignedNearTxBorshResult,
   type ThresholdEd25519PrepareHssClientOutputMaskHandleRequest,
   type ThresholdEd25519PrepareHssClientOutputMaskHandleResult,
-  type GenerateEphemeralNearKeypairHandleResult,
   type ThresholdEd25519WorkerMaterialBinding,
   type ThresholdEd25519WorkerMaterialSessionBinding,
   type ThresholdEd25519WorkerMaterialCredentialAuthorization,
   type ThresholdEd25519WorkerMaterialSealAuthorization,
-  type WasmTransactionSignResult,
   type WasmDeriveThresholdEd25519ClientVerifyingShareResult,
   type WasmSignedDelegate,
   type TransactionPayload,
 } from '@/core/types/signer-worker';
 import type { TransactionContext } from '@/core/types/rpc';
-import { ensureEd25519Prefix } from '@shared/utils/validation';
 import {
   executeWorkerOperation,
   type WorkerOperationContext,
@@ -588,32 +582,6 @@ export async function decodeThresholdEd25519SignedNearTxBorshWasm(args: {
   return requireThresholdEd25519DecodeSignedNearTxBorshResult(response);
 }
 
-export function parseCosePublicKeyBytesFromWorker(value: unknown): Uint8Array {
-  if (value instanceof Uint8Array) {
-    if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
-    return new Uint8Array(value);
-  }
-  if (value instanceof ArrayBuffer) {
-    if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
-    return new Uint8Array(value.slice(0));
-  }
-  if (ArrayBuffer.isView(value)) {
-    if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
-    return new Uint8Array(
-      value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength),
-    );
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) throw new Error('COSE public key extraction returned empty bytes');
-    const bytes = value.map((entry) => Number(entry));
-    if (!bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
-      throw new Error('COSE public key extraction returned invalid byte array');
-    }
-    return Uint8Array.from(bytes);
-  }
-  throw new Error('COSE public key extraction returned invalid byte shape');
-}
-
 function requireThresholdEd25519ClientPresignCreateResult(
   value: unknown,
 ): ThresholdEd25519ClientPresignCreateResult {
@@ -967,114 +935,5 @@ export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
   return {
     nearAccountId,
     clientVerifyingShareB64u,
-  };
-}
-
-export async function extractCosePublicKeyWasm(args: {
-  attestationObjectBase64url: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<Uint8Array> {
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      type: WorkerRequestType.ExtractCosePublicKey,
-      payload: {
-        attestationObjectBase64url: args.attestationObjectBase64url,
-      },
-    },
-  });
-
-  if (!isExtractCosePublicKeySuccess(response)) {
-    throw new Error('COSE public key extraction failed in WASM worker');
-  }
-
-  return parseCosePublicKeyBytesFromWorker(response.payload.cosePublicKeyBytes);
-}
-
-export async function signTransactionWithEphemeralNearKeypairHandleWasm(args: {
-  keyHandle: string;
-  signerAccountId: string;
-  receiverId: string;
-  nonce: string;
-  blockHash: string;
-  actions: ActionArgsWasm[];
-  workerCtx: WorkerOperationContext;
-}): Promise<{ signedTransaction: SignedTransaction; logs?: string[] }> {
-  args.actions.forEach((action) => {
-    validateActionArgsWasm(action);
-  });
-
-  const wasmResult = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      type: NearSignerWorkerCustomRequestType.SignTransactionWithEphemeralNearKeypairHandle,
-      payload: {
-        keyHandle: args.keyHandle,
-        signerAccountId: args.signerAccountId,
-        receiverId: args.receiverId,
-        nonce: args.nonce,
-        blockHash: args.blockHash,
-        actions: args.actions,
-      },
-    },
-  });
-
-  return parseSingleSignedTransactionWasmResult(wasmResult);
-}
-
-export async function generateEphemeralNearKeypairHandleWasm(args: {
-  expiresAtMs: number;
-  workerCtx: WorkerOperationContext;
-}): Promise<GenerateEphemeralNearKeypairHandleResult> {
-  const response = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: 'nearSigner',
-    request: {
-      type: NearSignerWorkerCustomRequestType.GenerateEphemeralNearKeypairHandle,
-      payload: {
-        expiresAtMs: args.expiresAtMs,
-      },
-    },
-  });
-
-  const publicKey = ensureEd25519Prefix(
-    String((response as { publicKey?: unknown }).publicKey || '').trim(),
-  );
-  const keyHandle = String((response as { keyHandle?: unknown }).keyHandle || '').trim();
-  const expiresAtMs = Number((response as { expiresAtMs?: unknown }).expiresAtMs);
-  const remainingUses = Number((response as { remainingUses?: unknown }).remainingUses);
-  if (!publicKey || !keyHandle || !Number.isSafeInteger(expiresAtMs) || remainingUses !== 1) {
-    throw new Error('Worker returned invalid ephemeral NEAR keypair handle');
-  }
-
-  return { publicKey, keyHandle, expiresAtMs, remainingUses };
-}
-
-function parseSingleSignedTransactionWasmResult(wasmResult: WasmTransactionSignResult): {
-  signedTransaction: SignedTransaction;
-  logs?: string[];
-} {
-  if (!wasmResult.success) {
-    throw new Error(wasmResult.error || 'Transaction signing failed');
-  }
-
-  const signedTransactions = wasmResult.signedTransactions || [];
-  if (signedTransactions.length !== 1) {
-    throw new Error(`Expected 1 signed transaction but received ${signedTransactions.length}`);
-  }
-  const signedTx = signedTransactions[0];
-  if (!signedTx || !signedTx.transaction || !signedTx.signature) {
-    throw new Error('Incomplete signed transaction data received');
-  }
-
-  return {
-    signedTransaction: new SignedTransaction({
-      transaction: signedTx.transaction,
-      signature: signedTx.signature,
-      borsh_bytes: Array.from(signedTx.borshBytes || []),
-    }),
-    logs: wasmResult.logs,
   };
 }

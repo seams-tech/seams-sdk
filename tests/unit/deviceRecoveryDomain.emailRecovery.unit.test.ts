@@ -283,7 +283,6 @@ function createLocalDomain(options?: {
           keyVersion: 'threshold-ed25519-hss-v1',
         },
       }),
-      extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
       storeUserData: async (input: any) => {
         storeUserDataCalls.push(input);
         usersByAccount.set(String(input?.nearAccountId || ''), input);
@@ -397,6 +396,7 @@ test.describe('EmailRecoveryDomain', () => {
                 prepare: {
                   formatVersion: 'ecdsa-hss-role-local',
                   walletId: TEST_WALLET_ID,
+                  walletKeyId: 'wallet-key-email-recovery',
                   rpId: 'example.test',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
                   runtimePolicyScope: {
@@ -432,6 +432,8 @@ test.describe('EmailRecoveryDomain', () => {
             nearAccountId: TEST_NEAR_ACCOUNT_ID,
             nearEd25519SigningKeyId: TEST_ED25519_KEY_SCOPE_ID,
             walletBinding: TEST_WALLET_BINDING,
+            credentialIdB64u: 'raw-cred-1',
+            credentialPublicKeyB64u: 'AQID',
             thresholdEd25519: {
               keyVersion: 'threshold-ed25519-hss-v1',
               recoveryExportCapable: true,
@@ -472,6 +474,7 @@ test.describe('EmailRecoveryDomain', () => {
                   keyScope: 'evm-family',
                   chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
                   walletId: TEST_WALLET_ID,
+                  walletKeyId: 'wallet-key-email-recovery',
                   rpId: 'example.test',
                   keyHandle: 'key-handle',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',

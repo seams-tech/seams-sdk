@@ -25,7 +25,6 @@ import {
 } from './workerTypes';
 import {
   NearSignerWorkerCustomRequestType,
-  WorkerRequestType,
   type ThresholdEd25519ClientPresignCreateFromMaterialHandleRequest,
   type ThresholdEd25519ClientPresignSignFromMaterialHandleRequest,
   type ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest as NearSignerThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleRequest,
@@ -313,16 +312,6 @@ void invalidNearDigestAsMaterial;
 type InvalidNearMaterialAsDigest = NearEd25519DigestOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreWorkerMaterialFromHssOutput>;
 declare const invalidNearMaterialAsDigest: InvalidNearMaterialAsDigest;
 void invalidNearMaterialAsDigest;
-
-// @ts-expect-error Raw ephemeral keypair generation is kept behind worker-held handles.
-type InvalidRawEphemeralNearKeypairOperation = NearWorkerOperationRequest<typeof WorkerRequestType.GenerateEphemeralNearKeypair>;
-declare const invalidRawEphemeralNearKeypairOperation: InvalidRawEphemeralNearKeypairOperation;
-void invalidRawEphemeralNearKeypairOperation;
-
-// @ts-expect-error Raw NEAR private-key signing is kept behind worker-held handles.
-type InvalidRawNearKeypairSigningOperation = NearWorkerOperationRequest<typeof WorkerRequestType.SignTransactionWithKeyPair>;
-declare const invalidRawNearKeypairSigningOperation: InvalidRawNearKeypairSigningOperation;
-void invalidRawNearKeypairSigningOperation;
 
 // @ts-expect-error Ed25519 HSS material operations cannot use the ECDSA role-local domain.
 type InvalidHssEd25519AsEcdsaRoleLocal = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.PrepareThresholdEd25519HssClientOutputMaskHandle>;

@@ -5,7 +5,6 @@ import type {
   AuthUnlinkIdentityRequest,
   PasskeyLoginOptionsRequest,
 } from './authRequestValidation';
-import type { PrepareLinkDeviceRequest } from './linkDeviceRequestValidation';
 import type { PrepareEmailRecoveryRequest } from './emailRecoveryRequestValidation';
 import type { RouterAbEcdsaHssKeyIdentitiesRequest } from './thresholdEcdsaRequestValidation';
 
@@ -22,30 +21,6 @@ const passkeyOptionsWithLegacyNames: PasskeyLoginOptionsRequest = {
   ttlMs: 60_000,
 };
 void passkeyOptionsWithLegacyNames;
-
-const linkDevicePrepare: PrepareLinkDeviceRequest = {
-  session_id: 'session-1',
-  wallet_id: 'wallet-1',
-  account_id: 'alice.testnet',
-  rp_id: 'example.localhost',
-  webauthn_registration: {},
-  threshold_ecdsa_prepare: {},
-  expected_origin: 'https://example.localhost',
-};
-void linkDevicePrepare;
-
-const linkDevicePrepareWithLegacyWalletId: PrepareLinkDeviceRequest = {
-  session_id: 'session-1',
-  wallet_id: 'wallet-1',
-  account_id: 'alice.testnet',
-  rp_id: 'example.localhost',
-  webauthn_registration: {},
-  threshold_ecdsa_prepare: {},
-  expected_origin: 'https://example.localhost',
-  // @ts-expect-error Link-device prepare uses wallet_id at the route boundary.
-  walletId: 'wallet-1',
-};
-void linkDevicePrepareWithLegacyWalletId;
 
 const emailRecoveryPrepare: PrepareEmailRecoveryRequest = {
   account_id: 'wallet-1',

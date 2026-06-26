@@ -54,14 +54,13 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
 
             return {
               relayerAccount: 'w3a-relayer.testnet',
-              relayerPrivateKey: 'ed25519:dummy',
               networkId: 'testnet',
               emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
               nearClient,
               ensureSignerAndRelayerAccount: async () => {},
               queueTransaction: async <T>(fn: () => Promise<T>, _label: string): Promise<T> => fn(),
               fetchTxContext: async () => ({ nextNonce: '1', blockHash: 'block-hash' }),
-              signWithPrivateKey: async (input: any) => {
+              signGasRelayerNearTransaction: async (input: any) => {
                 return {
                   transaction: { dummy: true },
                   signature: {},
@@ -137,14 +136,13 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
 
             return {
               relayerAccount: 'w3a-relayer.testnet',
-              relayerPrivateKey: 'ed25519:dummy',
               networkId: 'testnet',
               emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
               nearClient,
               ensureSignerAndRelayerAccount: async () => {},
               queueTransaction: async <T>(fn: () => Promise<T>, _label: string): Promise<T> => fn(),
               fetchTxContext: async () => ({ nextNonce: '1', blockHash: 'block-hash' }),
-              signWithPrivateKey: async (input: any) => {
+              signGasRelayerNearTransaction: async (input: any) => {
                 signedArgsRef.current = input;
                 return {
                   transaction: { dummy: true },
@@ -206,7 +204,8 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
     expect(viewCall.params.method).toBe('get_outlayer_encryption_public_key');
 
     expect(signedArgs).toBeTruthy();
-    expect(signedArgs.signerAccountId).toBe('w3a-relayer.testnet');
+    expect(signedArgs.signerAccountId).toBeUndefined();
+    expect(signedArgs.nearPrivateKey).toBeUndefined();
     // Encrypted path now calls the per-account EmailRecoverer contract.
     expect(signedArgs.receiverId).toBe('kerp30.w3a-v1.testnet');
     expect(Array.isArray(signedArgs.actions)).toBe(true);
@@ -269,14 +268,13 @@ test.describe('EmailRecoveryService.requestEmailRecovery', () => {
 
             return {
               relayerAccount: 'w3a-relayer.testnet',
-              relayerPrivateKey: 'ed25519:dummy',
               networkId: 'testnet',
               emailDkimVerifierContract: 'email-dkim-verifier-v1.testnet',
               nearClient,
               ensureSignerAndRelayerAccount: async () => {},
               queueTransaction: async <T>(fn: () => Promise<T>, _label: string): Promise<T> => fn(),
               fetchTxContext: async () => ({ nextNonce: '1', blockHash: 'block-hash' }),
-              signWithPrivateKey: async (input: any) => {
+              signGasRelayerNearTransaction: async (input: any) => {
                 signedArgsRef.current = input;
                 return {
                   transaction: { dummy: true },
@@ -333,7 +331,8 @@ test.describe('EmailRecoveryService.requestEmailRecovery', () => {
     expect(result.transactionHash).toBe('request-email-recovery-tx-hash');
 
     expect(signedArgs).toBeTruthy();
-    expect(signedArgs.signerAccountId).toBe('w3a-relayer.testnet');
+    expect(signedArgs.signerAccountId).toBeUndefined();
+    expect(signedArgs.nearPrivateKey).toBeUndefined();
     expect(signedArgs.receiverId).toBe('kerp30.w3a-v1.testnet');
     expect(Array.isArray(signedArgs.actions)).toBe(true);
     expect(signedArgs.actions.length).toBe(1);

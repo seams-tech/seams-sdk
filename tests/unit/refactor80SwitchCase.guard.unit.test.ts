@@ -270,35 +270,21 @@ test('Refactor 80 sync-account routes parse request bodies at the boundary', () 
   }
 });
 
-test('Refactor 80 link-device routes parse request bodies at the boundary', () => {
-  const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/linkDeviceRequestValidation.ts',
-  );
+test('Refactor 80 link-device routes are refactor-84 stubs', () => {
   const guardedFiles = [
     'packages/sdk-server-ts/src/router/express/routes/linkDevice.ts',
     'packages/sdk-server-ts/src/router/cloudflare/routes/linkDevice.ts',
   ];
 
-  expect(parserSource).toContain('export function parseRegisterLinkDeviceSessionRequest');
-  expect(parserSource).toContain('export function parseClaimLinkDeviceSessionRequest');
-  expect(parserSource).toContain('export function parsePrepareLinkDeviceRequest');
-  expect(parserSource).toContain('export function parseRespondLinkDeviceEcdsaRequest');
-  expect(parserSource).toContain('Unsupported ${context} field');
-  expect(parserSource).toContain("'link-device session'");
-  expect(parserSource).toContain("'link-device claim'");
-  expect(parserSource).toContain("'link-device prepare'");
-  expect(parserSource).toContain("'link-device ECDSA respond'");
-  expect(parserSource).not.toMatch(/['"]sessionId['"]/);
-  expect(parserSource).not.toMatch(/['"]accountId['"]/);
-  expect(parserSource).not.toMatch(/['"]walletId['"]/);
-  expect(parserSource).not.toContain('threshold_ecdsa link-device bootstrap has been removed');
-
   for (const relativePath of guardedFiles) {
     const source = readRepoSource(relativePath);
-    expect(source).toContain('parseRegisterLinkDeviceSessionRequest');
-    expect(source).toContain('parseClaimLinkDeviceSessionRequest');
-    expect(source).toContain('parsePrepareLinkDeviceRequest');
-    expect(source).toContain('parseRespondLinkDeviceEcdsaRequest');
+    expect(source).toContain('Linked-device lane creation is disabled until refactor 84 lands');
+    expect(source).toContain('unsupported');
+    expect(source).toContain('410');
+    expect(source).not.toContain('parseRegisterLinkDeviceSessionRequest');
+    expect(source).not.toContain('parseClaimLinkDeviceSessionRequest');
+    expect(source).not.toContain('parsePrepareLinkDeviceRequest');
+    expect(source).not.toContain('parseRespondLinkDeviceEcdsaRequest');
     expect(source).not.toContain('registerLinkDeviceSession({ ...(req.body || {}) })');
     expect(source).not.toContain('claimLinkDeviceSession({ ...(req.body || {}) })');
     expect(source).not.toContain('respondLinkDeviceEcdsa({ ...(req.body || {}) })');

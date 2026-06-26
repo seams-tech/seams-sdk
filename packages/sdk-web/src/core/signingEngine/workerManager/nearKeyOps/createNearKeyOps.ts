@@ -1,11 +1,6 @@
 import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyOps';
 import type { SignerWorkerManagerContext } from '../SignerWorkerManager';
-import {
-  deriveThresholdEd25519ClientVerifyingShareWasm,
-  extractCosePublicKeyWasm,
-  generateEphemeralNearKeypairHandleWasm,
-  signTransactionWithEphemeralNearKeypairHandleWasm,
-} from '@/core/signingEngine/chains/near/nearSignerWasm';
+import { deriveThresholdEd25519ClientVerifyingShareWasm } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 
 export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): NearSigningKeyOps {
@@ -65,21 +60,6 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
           error: message,
         };
       }
-    },
-    async extractCosePublicKey(attestationObjectBase64url) {
-      return extractCosePublicKeyWasm({
-        workerCtx: getContext(),
-        attestationObjectBase64url,
-      });
-    },
-    async signTransactionWithEphemeralNearKeypairHandle(args) {
-      return signTransactionWithEphemeralNearKeypairHandleWasm({
-        workerCtx: getContext(),
-        ...args,
-      });
-    },
-    async generateEphemeralNearKeypairHandle(args) {
-      return generateEphemeralNearKeypairHandleWasm({ workerCtx: getContext(), ...args });
     },
   };
 }

@@ -939,11 +939,23 @@ export type WalletRegistrationFinalizeRequest = {
   };
 };
 
+export type WalletRegistrationFinalizeAuthMethod =
+  | {
+      kind: 'passkey';
+      credentialIdB64u: string;
+      credentialPublicKeyB64u: string;
+    }
+  | {
+      kind: 'email_otp';
+      registrationAuthorityId: string;
+    };
+
 export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
       walletId: WalletId;
       rpId: string;
+      authMethod: WalletRegistrationFinalizeAuthMethod;
       accountProvisioning: RegistrationNearAccountProvisioning;
       resolvedAccount: ResolvedRegistrationNearAccount;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
@@ -967,6 +979,7 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId: string;
+      authMethod: WalletRegistrationFinalizeAuthMethod;
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ecdsa: {
         walletKeys: WalletRegistrationEcdsaWalletKey[];
@@ -982,6 +995,7 @@ export type WalletRegistrationFinalizeResponse =
       rpId: string;
       reason: 'replay_without_session_material';
       registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      authMethod?: never;
       ed25519?: never;
       ecdsa?: never;
     }

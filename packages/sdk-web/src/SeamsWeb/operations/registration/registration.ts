@@ -80,6 +80,7 @@ import {
   startWalletRegistration,
   type WalletRegistrationEcdsaHssRespondBootstrap,
   type WalletRegistrationEmailOtpBackupAck,
+  type WalletRegistrationFinalizeResponse,
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '@/core/rpcClients/relayer/walletRegistration';
@@ -1655,6 +1656,29 @@ function passkeyEcdsaCredentialIdFromPrepared(
   return credentialIdB64u;
 }
 
+function requireFinalizedPasskeyCredentialPublicKeyB64u(args: {
+  finalized: WalletRegistrationFinalizeResponse;
+  credential: WebAuthnRegistrationCredential;
+}): string {
+  if ('kind' in args.finalized && args.finalized.kind === 'already_finalized_restore_required') {
+    throw new Error('Passkey registration did not finalize with credential material');
+  }
+  const authMethod = args.finalized.authMethod;
+  if (!authMethod || authMethod.kind !== 'passkey') {
+    throw new Error('Passkey registration finalize returned non-passkey auth material');
+  }
+  const localCredentialId = String(args.credential.rawId || args.credential.id || '').trim();
+  const returnedCredentialId = String(authMethod.credentialIdB64u || '').trim();
+  if (!localCredentialId || returnedCredentialId !== localCredentialId) {
+    throw new Error('Passkey registration finalize returned credential id mismatch');
+  }
+  const credentialPublicKeyB64u = String(authMethod.credentialPublicKeyB64u || '').trim();
+  if (!credentialPublicKeyB64u) {
+    throw new Error('Passkey registration finalize returned missing credentialPublicKeyB64u');
+  }
+  return credentialPublicKeyB64u;
+}
+
 function emitRegistrationEvent(
   onEvent: RegistrationHooksOptions['onEvent'] | undefined,
   accountId: string,
@@ -2217,6 +2241,10 @@ async function registerEcdsaWalletOnly(args: {
         await context.signingEngine.finalizeWalletEcdsaRegistration({
           walletId: finalized.walletId,
           credential: passkeyAuthority.credential,
+          credentialPublicKeyB64u: requireFinalizedPasskeyCredentialPublicKeyB64u({
+            finalized,
+            credential: passkeyAuthority.credential,
+          }),
           walletKeys,
         });
       } else {
@@ -2803,6 +2831,10 @@ async function registerWalletInternal(
                 nearAccountId,
                 nearEd25519SigningKeyId: finalizedEd25519.nearEd25519SigningKeyId,
                 credential: passkeyAuthority!.credential,
+                credentialPublicKeyB64u: requireFinalizedPasskeyCredentialPublicKeyB64u({
+                  finalized,
+                  credential: passkeyAuthority!.credential,
+                }),
                 operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
                 signerSlot: ed25519Selection.signerSlot,
                 relayerKeyId: finalizedEd25519.relayerKeyId,

@@ -21,14 +21,13 @@ const verifiedRecoveryRequest = buildVerifiedEmailRecoveryRequest({
 const { actions } = await buildEncryptedEmailRecoveryActions(
   {
     relayerAccount: 'w3a-relayer.testnet',
-    relayerPrivateKey: 'ed25519:dummy',
     networkId: 'testnet',
     emailDkimVerifierContract: 'email-dkim-verifier.testnet',
     nearClient: {} as never,
     ensureSignerAndRelayerAccount: async () => {},
     queueTransaction: async <T>(fn: () => Promise<T>) => fn(),
     fetchTxContext: async () => ({ nextNonce: '1', blockHash: 'block-hash' }),
-    signWithPrivateKey: async () => ({}) as never,
+    signGasRelayerNearTransaction: async () => ({}) as never,
     getRelayerPublicKey: () => 'relayer-public-key',
   },
   {

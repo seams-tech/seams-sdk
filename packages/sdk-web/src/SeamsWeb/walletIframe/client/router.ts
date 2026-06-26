@@ -2115,29 +2115,6 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async signTransactionWithKeyPair(payload: {
-    walletId: string;
-    nearAccountId: string;
-    signedTransaction: SignedTransaction;
-    options?: {
-      onEvent?: (ev: SigningFlowEvent) => void;
-    };
-  }): Promise<ActionResult> {
-    // Strip non-cloneable functions from options; host emits PROGRESS events
-    const { options } = payload;
-    const res = await this.post<ActionResult>({
-      type: 'PM_SEND_TRANSACTION',
-      payload: {
-        walletId: payload.walletId,
-        nearAccountId: payload.nearAccountId,
-        signedTransaction: payload.signedTransaction,
-        options: options,
-      },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
-    });
-    return res.result;
-  }
-
   async executeAction(payload: {
     walletId: string;
     nearAccountId: string;
@@ -2367,8 +2344,6 @@ export class WalletIframeRouter {
             }
           : {}),
       },
-      // Keep the progress subscription alive after the initial QR is returned so Device2 can
-      // continue polling and later trigger an in-iframe confirmation + TouchID prompt.
       options: {
         sticky: true,
         onProgress: this.wrapOnEvent(payload?.options?.onEvent, isLinkDeviceFlowEvent),

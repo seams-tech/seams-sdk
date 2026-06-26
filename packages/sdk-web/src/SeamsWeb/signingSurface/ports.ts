@@ -36,11 +36,7 @@ import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigni
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
-import type {
-  NearEphemeralKeypair,
-  NearEphemeralKeyHandleSigningInput,
-} from '@/core/signingEngine/useCases/nearKeyOperations';
-import type { NearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
+import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type {
   ClientAuthenticatorData,
@@ -123,13 +119,6 @@ export interface NearSigningSurface extends NonceCoordinatorSurface {
   signNear<TRequest extends NearSignIntentRequest>(
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>>;
-  signTransactionWithEphemeralNearKeypairHandle(
-    input: NearEphemeralKeyHandleSigningInput,
-  ): Promise<{
-    signedTransaction: SignedTransaction;
-    logs?: string[];
-  }>;
-  generateEphemeralNearKeypairHandle(input: { expiresAtMs: number }): Promise<NearEphemeralKeypair>;
 }
 
 export interface EvmFamilySigningSurface {
@@ -352,10 +341,6 @@ export interface PasskeyLoginAssertionSurface {
   }): Promise<WebAuthnAuthenticationCredential>;
 }
 
-export interface WebAuthnAttestationSurface {
-  extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array>;
-}
-
 export interface EmailOtpSigningSessionSurface {
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -542,7 +527,6 @@ export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurfac
 
 export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
   WebAuthnRegistrationConfirmationSurface &
-  WebAuthnAttestationSurface &
   Pick<EcdsaRegistrationSurface, 'preparePasskeyEcdsaBootstrap' | 'storeWalletEcdsaSignerRecords'>;
 
 export type EmailRecoveryWebContext = SeamsWebBaseContext<EmailRecoverySigningSurface>;
@@ -554,7 +538,6 @@ export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   RpIdSurface &
   WebAuthnRegistrationConfirmationSurface &
-  WebAuthnAttestationSurface &
   Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
     'storeUserData' | 'storeAuthenticator'

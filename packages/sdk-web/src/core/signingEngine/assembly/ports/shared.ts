@@ -9,7 +9,6 @@ import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/evmSigning.types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/tempoSigning.types';
-import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type {
   EmailOtpEcdsaSigningBootstrapResult,
   EvmFamilySigningDeps,
@@ -130,7 +129,6 @@ export type CreateSigningEnginePortsArgs = {
   shouldPrewarmWorkers: WorkerResourceWarmupDeps['shouldPrewarmWorkers'];
   getTheme: () => ThemeName;
   signTempo: SigningEngineConveniencePorts['signTempo'];
-  extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
   activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
   persistThresholdEcdsaBootstrapForWalletTarget: WalletSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
   upsertThresholdEcdsaSessionFromBootstrap: WalletSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
@@ -229,15 +227,6 @@ export type CreateSigningEnginePortsArgs = {
   }) => Promise<T>;
 };
 
-export type NearKeyOpsDeps = {
-  signingKeyOps: Pick<
-    NearSigningKeyOps,
-    | 'extractCosePublicKey'
-    | 'signTransactionWithEphemeralNearKeypairHandle'
-    | 'generateEphemeralNearKeypairHandle'
-  >;
-};
-
 export type SigningEnginePorts = {
   thresholdEd25519LifecycleDeps: ThresholdEd25519LifecycleDeps;
   nearSigningDeps: NearSigningApiDeps;
@@ -246,7 +235,6 @@ export type SigningEnginePorts = {
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
   walletSessionActivationDeps: WalletSessionActivationDeps;
-  nearKeyOpsDeps: NearKeyOpsDeps;
   resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (
     walletId: WalletId,
     chainTarget: ThresholdEcdsaChainTarget,

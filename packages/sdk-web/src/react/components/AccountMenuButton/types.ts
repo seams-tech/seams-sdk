@@ -1,6 +1,5 @@
 import type { ToggleColorProps } from './Toggle';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { LinkDeviceResult } from '@/core/types/linkDevice';
 import type { ThemeName } from '@/core/signingEngine/uiConfirm/ui/confirm-ui-types';
 
 export interface ProfileDimensions {
@@ -46,7 +45,6 @@ export interface HighlightedProfileMenuItem {
 }
 
 export interface DeviceLinkingScannerParams {
-  onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
   onEvent?: (event: LinkDeviceFlowEvent) => void;

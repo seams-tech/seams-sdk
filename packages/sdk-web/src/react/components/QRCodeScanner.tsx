@@ -1,39 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { DeviceLinkingQRData, LinkDeviceResult } from '@/core/types/linkDevice';
+import type { DeviceLinkingQRData } from '@/core/types/linkDevice';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import { useQRCamera, QRScanMode } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { Theme, useTheme } from './theme';
 
 /**
- * QR Code Scanner Component for Device Linking
- *
- * This component provides a complete QR code scanning interface for device linking.
- * It supports both camera-based scanning and file upload scanning.
- *
- * **Important:** This component should be used inside a SeamsWeb context.
- * Wrap your app with PasskeyProvider (useSeams available) for full functionality.
- *
- * @example
- * ```tsx
- * import { PasskeyProvider } from '@seams/sdk/react';
- * import { QRCodeScanner } from '@seams/sdk/react';
- *
- * function App() {
- *   return (
- *     <PasskeyProvider configs={passkeyConfigs}>
- *       <QRCodeScanner
- *         onDeviceLinked={(result) => console.log('Device linked:', result)}
- *         onError={(error) => console.error('Error:', error)}
- *       />
- *     </PasskeyProvider>
- *   );
- * }
- * ```
+ * QR scanner shell kept for the refactor-84 link-device replacement.
  */
 export interface QRCodeScannerProps {
   onQRCodeScanned?: (qrData: DeviceLinkingQRData) => void;
-  onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
   onEvent?: (event: LinkDeviceFlowEvent) => void;
@@ -47,7 +23,6 @@ export interface QRCodeScannerProps {
 
 export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   onQRCodeScanned,
-  onDeviceLinked,
   onError,
   onClose,
   onEvent,
@@ -65,7 +40,6 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   );
 
   const { linkDevice } = useDeviceLinking({
-    onDeviceLinked,
     onError,
     onClose,
     onEvent,

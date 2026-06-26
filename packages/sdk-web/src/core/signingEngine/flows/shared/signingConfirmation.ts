@@ -8,6 +8,7 @@ import {
   confirmSigningOperation,
   type ConfirmIntentDigestSigningOperationRequest,
   type ConfirmIntentDigestSigningOperationResult,
+  type ConfirmNearStepUpSigningOperationResult,
   type ConfirmSigningOperationParams,
   type ConfirmSigningOperationResult,
   type ConfirmSigningOperationRuntime,
@@ -40,6 +41,7 @@ import { secureRandomId } from '@shared/utils/secureRandomId';
 export type {
   ConfirmIntentDigestSigningOperationRequest,
   ConfirmIntentDigestSigningOperationResult,
+  ConfirmNearStepUpSigningOperationResult,
   ConfirmSignatureOnlySigningOperationRequest,
   ConfirmSignatureOnlySigningOperationResult,
   ConfirmTransactionSigningOperationRequest,

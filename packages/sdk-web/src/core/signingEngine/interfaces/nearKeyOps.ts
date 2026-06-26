@@ -1,11 +1,4 @@
-import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
-import type { ActionArgsWasm } from '@/core/types/actions';
-import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import type { AccountId } from '@/core/types/accountIds';
-import type {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '@/core/types';
 
 export type NearSigningKeyOps = {
   deriveThresholdEd25519ClientVerifyingShare(args: {
@@ -32,23 +25,5 @@ export type NearSigningKeyOps = {
     yClientB64u: string;
     tauClientB64u: string;
     error?: string;
-  }>;
-  extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array>;
-  signTransactionWithEphemeralNearKeypairHandle(args: {
-    keyHandle: string;
-    signerAccountId: string;
-    receiverId: string;
-    nonce: string;
-    blockHash: string;
-    actions: ActionArgsWasm[];
-  }): Promise<{
-    signedTransaction: SignedTransaction;
-    logs?: string[];
-  }>;
-  generateEphemeralNearKeypairHandle(args: { expiresAtMs: number }): Promise<{
-    publicKey: string;
-    keyHandle: string;
-    expiresAtMs: number;
-    remainingUses: number;
   }>;
 };

@@ -84,9 +84,6 @@ export const NearSignerWorkerCustomRequestType = {
   ThresholdEd25519FinalizeNearTxFromSignature: 'thresholdEd25519FinalizeNearTxFromSignature',
   ThresholdEd25519BuildNearTxUnsignedBorsh: 'thresholdEd25519BuildNearTxUnsignedBorsh',
   ThresholdEd25519DecodeSignedNearTxBorsh: 'thresholdEd25519DecodeSignedNearTxBorsh',
-  GenerateEphemeralNearKeypairHandle: 'generateEphemeralNearKeypairHandle',
-  SignTransactionWithEphemeralNearKeypairHandle:
-    'signTransactionWithEphemeralNearKeypairHandle',
 } as const;
 
 export type NearSignerWorkerCustomRequestType =
@@ -629,17 +626,6 @@ export interface WasmSignTransactionsWithActionsRequest {
   credential?: string;
 }
 
-export type GenerateEphemeralNearKeypairHandleRequest = {
-  expiresAtMs: number;
-};
-
-export type GenerateEphemeralNearKeypairHandleResult = {
-  publicKey: string;
-  keyHandle: string;
-  expiresAtMs: number;
-  remainingUses: number;
-};
-
 export interface WasmSignDelegateActionRequest {
   rpcCall: RpcCallPayload;
   sessionId: string;
@@ -658,7 +644,6 @@ export interface DelegatePayload {
   maxBlockHeight: string;
   publicKey: string;
 }
-export type WasmExtractCosePublicKeyRequest = StripFree<wasmModule.ExtractCoseRequest>;
 export interface WasmSignNep413MessageRequest {
   sessionId: string;
   accountId: string;
@@ -670,15 +655,6 @@ export interface WasmSignNep413MessageRequest {
   state?: string;
   credential?: string;
 }
-export type SignTransactionWithEphemeralNearKeypairHandleRequest = {
-  keyHandle: string;
-  signerAccountId: string;
-  receiverId: string;
-  nonce: string;
-  blockHash: string;
-  actions: ActionArgsWasm[];
-};
-
 export type WasmRequestPayload =
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
   | WasmDeriveThresholdEd25519HssClientInputsRequest
@@ -691,7 +667,6 @@ export type WasmRequestPayload =
   | WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest
   | WasmSignTransactionsWithActionsRequest
   | WasmSignDelegateActionRequest
-  | WasmExtractCosePublicKeyRequest
   | WasmSignNep413MessageRequest;
 
 // WASM Worker Response Types
@@ -762,11 +737,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.SignDelegateAction;
     request: WasmSignDelegateActionRequest;
     result: WasmDelegateSignResult;
-  };
-  [WorkerRequestType.ExtractCosePublicKey]: {
-    type: WorkerRequestType.ExtractCosePublicKey;
-    request: WasmExtractCosePublicKeyRequest;
-    result: wasmModule.CoseExtractionResult;
   };
   [WorkerRequestType.SignNep413Message]: {
     type: WorkerRequestType.SignNep413Message;
@@ -965,7 +935,6 @@ export interface RequestResponseMap {
   [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
-  [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
   [WorkerRequestType.SignNep413Message]: wasmModule.SignNep413Result;
 }
 
@@ -1033,9 +1002,6 @@ export type TransactionResponse = WorkerResponseForRequest<
 export type DelegateSignResponse = WorkerResponseForRequest<
   typeof WorkerRequestType.SignDelegateAction
 >;
-export type CoseExtractionResponse = WorkerResponseForRequest<
-  typeof WorkerRequestType.ExtractCosePublicKey
->;
 export type Nep413SigningResponse = WorkerResponseForRequest<
   typeof WorkerRequestType.SignNep413Message
 >;
@@ -1059,7 +1025,6 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
   return (
     response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
     response.type === WorkerResponseType.SignDelegateActionSuccess ||
-    response.type === WorkerResponseType.ExtractCosePublicKeySuccess ||
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess ||
@@ -1079,7 +1044,6 @@ export function isWorkerError<T extends RequestTypeKey>(
   return (
     response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
     response.type === WorkerResponseType.SignDelegateActionFailure ||
-    response.type === WorkerResponseType.ExtractCosePublicKeyFailure ||
     response.type === WorkerResponseType.SignNep413MessageFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsFailure ||
@@ -1106,12 +1070,6 @@ export function isSignDelegateActionSuccess(
   response: DelegateSignResponse,
 ): response is WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction> {
   return response.type === WorkerResponseType.SignDelegateActionSuccess;
-}
-
-export function isExtractCosePublicKeySuccess(
-  response: CoseExtractionResponse,
-): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
-  return response.type === WorkerResponseType.ExtractCosePublicKeySuccess;
 }
 
 export function isSignNep413MessageSuccess(

@@ -8,10 +8,15 @@ function stripEd25519Prefix(value: string): string {
     .replace(/^ed25519:/i, '');
 }
 
-export function toPublicKeyStringFromSecretKey(secretKey: string): string {
+export function decodeNearSecretKey(secretKey: string): Uint8Array {
   const bytes = bs58.decode(stripEd25519Prefix(secretKey));
   if (bytes.length !== 64) {
     throw new Error(`Invalid NEAR secret key length: ${bytes.length}`);
   }
+  return bytes;
+}
+
+export function toPublicKeyStringFromSecretKey(secretKey: string): string {
+  const bytes = decodeNearSecretKey(secretKey);
   return ensureEd25519Prefix(bs58.encode(bytes.subarray(32, 64)));
 }

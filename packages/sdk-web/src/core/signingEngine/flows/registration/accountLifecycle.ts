@@ -1,7 +1,7 @@
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { WalletId } from '@shared/utils/registrationIntent';
 import { compactImplicitNearAccountId } from '@shared/utils/near';
-import { base64UrlEncode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
@@ -66,6 +66,7 @@ export type StoreWalletEd25519RegistrationInput = {
   nearAccountId: AccountId;
   nearEd25519SigningKeyId: string;
   credential: WebAuthnRegistrationCredential;
+  credentialPublicKeyB64u: string;
   signerSlot: number;
   operationalPublicKey: string;
   relayerKeyId: string;
@@ -77,7 +78,7 @@ export type StoreWalletEd25519RegistrationInput = {
 
 export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   StoreWalletEd25519RegistrationInput,
-  'credential'
+  'credential' | 'credentialPublicKeyB64u'
 > & {
   email: string;
   registrationAuthorityId: string;
@@ -120,6 +121,7 @@ export type StoreWalletEcdsaSignerRecordsInput = {
 
 export type StoreWalletEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInput & {
   credential: WebAuthnRegistrationCredential;
+  credentialPublicKeyB64u: string;
 };
 
 export type StoreWalletEmailOtpEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInput & {
@@ -142,6 +144,18 @@ const WALLET_SUBJECT_CHAIN_ID_KEY = 'wallet';
 const WALLET_SUBJECT_ACCOUNT_MODEL = 'wallet';
 const THRESHOLD_ECDSA_ACCOUNT_MODEL = 'threshold-ecdsa';
 const LOCAL_WALLET_AUTH_RP_ID = 'local';
+
+function verifiedCredentialPublicKeyBytes(value: string, field: string): Uint8Array {
+  const credentialPublicKeyB64u = String(value || '').trim();
+  if (!credentialPublicKeyB64u) {
+    throw new Error(`SeamsWalletDB: ${field} is required`);
+  }
+  const credentialPublicKey = base64UrlDecode(credentialPublicKeyB64u);
+  if (credentialPublicKey.length === 0) {
+    throw new Error(`SeamsWalletDB: ${field} decoded to empty credential public key`);
+  }
+  return credentialPublicKey;
+}
 
 async function resolveNearProfileContext(
   deps: RegistrationAccountLifecycleDeps,
@@ -603,13 +617,16 @@ export async function atomicStoreRegistrationData(
   args: {
     nearAccountId: AccountId;
     credential: WebAuthnRegistrationCredential;
+    credentialPublicKeyB64u: string;
     operationalPublicKey: string;
   },
 ): Promise<StoredRegistrationData> {
   const credentialId: string = args.credential.rawId;
-  const attestationB64u: string = args.credential.response.attestationObject;
   const transports: string[] = args.credential.response?.transports;
-  const credentialPublicKey = await deps.extractCosePublicKey(attestationB64u);
+  const credentialPublicKey = verifiedCredentialPublicKeyBytes(
+    args.credentialPublicKeyB64u,
+    'credentialPublicKeyB64u',
+  );
 
   const activation = await storeUserData(deps, {
     nearAccountId: args.nearAccountId,
@@ -704,7 +721,10 @@ export async function storeWalletEd25519RegistrationData(
   if (!nearEd25519SigningKeyId) {
     throw new Error('SeamsWalletDB: nearEd25519SigningKeyId is required');
   }
-  const credentialPublicKey = await deps.extractCosePublicKey(args.credential.response.attestationObject);
+  const credentialPublicKey = verifiedCredentialPublicKeyBytes(
+    args.credentialPublicKeyB64u,
+    'credentialPublicKeyB64u',
+  );
   const passkeyCredential = {
     id: args.credential.id,
     rawId: credentialId,
@@ -1310,8 +1330,9 @@ export async function finalizeWalletEcdsaRegistration(
   if (!credentialId) {
     throw new Error('SeamsWalletDB: registration credential rawId is required');
   }
-  const credentialPublicKey = await deps.extractCosePublicKey(
-    args.credential.response.attestationObject,
+  const credentialPublicKey = verifiedCredentialPublicKeyBytes(
+    args.credentialPublicKeyB64u,
+    'credentialPublicKeyB64u',
   );
   const passkeyCredential = {
     id: args.credential.id,

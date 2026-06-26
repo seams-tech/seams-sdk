@@ -187,11 +187,10 @@ export async function sendEmailRecoveryTransaction(
 ): Promise<EmailRecoveryResult> {
   const {
     relayerAccount,
-    relayerPrivateKey,
     nearClient,
     queueTransaction,
     fetchTxContext,
-    signWithPrivateKey,
+    signGasRelayerNearTransaction,
     getRelayerPublicKey,
   } = deps;
 
@@ -202,9 +201,7 @@ export async function sendEmailRecoveryTransaction(
       const relayerPublicKey = getRelayerPublicKey();
       const { nextNonce, blockHash } = await fetchTxContext(relayerAccount, relayerPublicKey);
 
-      const signed = await signWithPrivateKey({
-        nearPrivateKey: relayerPrivateKey,
-        signerAccountId: relayerAccount,
+      const signed = await signGasRelayerNearTransaction({
         receiverId,
         nonce: nextNonce,
         blockHash,

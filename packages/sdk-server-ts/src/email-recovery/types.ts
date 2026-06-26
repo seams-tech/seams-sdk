@@ -6,7 +6,6 @@ import type { RecoveryEmailPayload } from '@shared/utils/recoveryEmail';
 
 export interface EmailRecoveryServiceDeps {
   relayerAccount: string;
-  relayerPrivateKey: string;
   networkId: string;
   emailDkimVerifierContract: string;
   nearClient: MinimalNearClient;
@@ -21,9 +20,7 @@ export interface EmailRecoveryServiceDeps {
     accountId: string,
     publicKey: string,
   ): Promise<{ nextNonce: string; blockHash: string }>;
-  signWithPrivateKey(input: {
-    nearPrivateKey: string;
-    signerAccountId: string;
+  signGasRelayerNearTransaction(input: {
     receiverId: string;
     nonce: string;
     blockHash: string;

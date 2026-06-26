@@ -1,6 +1,5 @@
 mod actions;
 mod config;
-mod cose;
 mod crypto;
 mod encoders;
 mod error;
@@ -42,15 +41,12 @@ use log::debug;
 use wasm_bindgen::prelude::*;
 
 pub use handlers::{
-    CoseExtractionResult,
     // Delegate Actions
     DelegatePayload,
     DelegateSignResult,
     // Threshold Signing
     DeriveThresholdEd25519ClientVerifyingShareRequest,
     DeriveThresholdEd25519HssClientInputsRequest,
-    // Extract Cose Public Key
-    ExtractCoseRequest,
     KeyActionResult,
     SignDelegateActionRequest,
     // Sign Nep413 Message
@@ -209,17 +205,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
         }
-        WorkerRequestType::ExtractCosePublicKey => {
-            let request: ExtractCoseRequest = parse_typed_payload(&payload_js, request_type)?;
-            let result = handlers::handle_extract_cose_public_key(request).await?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
-        WorkerRequestType::SignTransactionWithKeyPair => {
-            return Err(JsValue::from_str(
-                "SignTransactionWithKeyPair is available only through worker-held handles",
-            ));
-        }
         WorkerRequestType::SignNep413Message => {
             let request: SignNep413Request = parse_typed_payload(&payload_js, request_type)?;
             let result = handlers::handle_sign_nep413_message(request).await?;
@@ -247,11 +232,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 handlers::handle_threshold_ed25519_derive_hss_client_inputs(request).await?;
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
-        WorkerRequestType::GenerateEphemeralNearKeypair => {
-            return Err(JsValue::from_str(
-                "GenerateEphemeralNearKeypair is available only through worker-held handles",
-            ));
         }
         WorkerRequestType::PrepareThresholdEd25519HssSession => {
             #[cfg(feature = "hss-client-exports")]
@@ -461,23 +441,12 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             WorkerResponseType::SignTransactionsWithActionsSuccess
         }
         WorkerRequestType::SignDelegateAction => WorkerResponseType::SignDelegateActionSuccess,
-        WorkerRequestType::ExtractCosePublicKey => WorkerResponseType::ExtractCosePublicKeySuccess,
-        WorkerRequestType::SignTransactionWithKeyPair => {
-            return Err(JsValue::from_str(
-                "SignTransactionWithKeyPair is available only through worker-held handles",
-            ));
-        }
         WorkerRequestType::SignNep413Message => WorkerResponseType::SignNep413MessageSuccess,
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess
         }
         WorkerRequestType::DeriveThresholdEd25519HssClientInputs => {
             WorkerResponseType::DeriveThresholdEd25519HssClientInputsSuccess
-        }
-        WorkerRequestType::GenerateEphemeralNearKeypair => {
-            return Err(JsValue::from_str(
-                "GenerateEphemeralNearKeypair is available only through worker-held handles",
-            ));
         }
         WorkerRequestType::PrepareThresholdEd25519HssSession => {
             WorkerResponseType::PrepareThresholdEd25519HssSessionSuccess

@@ -1,125 +1,79 @@
 import { expect, test } from '@playwright/test';
 import { LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
 import { linkDeviceWithScannedQRData } from '@/SeamsWeb/operations/devices/scanDevice';
+import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import { LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
 
 function createDisplayContext() {
-  return {
-    configs: {
-      network: {
-        relayer: {
-          url: '',
-        },
-      },
-    },
-    signingRuntime: {
-      services: {
-        nearKeyOperations: {
-          generateEphemeralNearKeypairHandle: async () => ({
-            publicKey: 'ed25519:device2-public-key',
-            keyHandle: 'device2-key-handle',
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 1,
-          }),
-        },
-      },
-    },
-    signingEngine: {
-      generateEphemeralNearKeypairHandle: async () => ({
-        publicKey: 'ed25519:device2-public-key',
-        keyHandle: 'device2-key-handle',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 1,
-      }),
-    },
-  } as any;
+  return {} as any;
 }
 
-test.describe('link-device wallet flow events', () => {
-  test('emits QR-display role sequence for device2', async () => {
+test.describe('link-device stubs', () => {
+  test('device2 QR flow fails with the refactor-84 stub error', async () => {
     const events: any[] = [];
+    const errors: Error[] = [];
     const flow = new LinkDeviceFlow(createDisplayContext(), {
-      signerSlot: 3,
       options: {
         onEvent: (event: any) => events.push(event),
+        onError: (error: Error) => errors.push(error),
       },
     } as any);
 
-    (flow as any).registerSessionOnRelay = async () => undefined;
-    (flow as any).waitForClaimAndComplete = async () => undefined;
+    await expect(flow.generateQR()).rejects.toThrow(
+      'Linked-device lane creation is disabled until refactor 84 lands',
+    );
 
-    const result = await flow.generateQR();
-    flow.cancel();
-
-    expect(result.qrData).toMatchObject({
-      device2PublicKey: 'ed25519:device2-public-key',
-      version: 'v3',
-    });
-    expect(result.qrCodeDataURL).toContain('data:image/');
-
-    expect(events.map((event) => event.phase)).toEqual([
-      LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
-      LinkDeviceEventPhase.STEP_01_QR_DISPLAYED,
-      LinkDeviceEventPhase.CANCELLED,
-    ]);
-    expect(events.map((event) => event.flow)).toEqual([
-      'link_device',
-      'link_device',
-      'link_device',
-    ]);
-    expect(events.map((event) => event.step)).toEqual([1, 1, 0]);
-    expect(events.map((event) => event.data?.role)).toEqual(['display', 'display', undefined]);
-    expect(events.map((event) => event.interaction?.overlay)).toEqual([undefined, 'hide', 'hide']);
+    expect(events.map((event) => event.phase)).toEqual([LinkDeviceEventPhase.FAILED]);
     expect(events.at(-1)).toMatchObject({
-      status: 'cancelled',
-      interaction: {
-        kind: 'qr_display',
-        overlay: 'hide',
+      flow: 'link_device',
+      status: 'failed',
+      error: {
+        code: DeviceLinkingErrorCode.UNSUPPORTED,
+        retryable: false,
       },
+    });
+    expect(errors).toHaveLength(1);
+    expect(flow.getState()).toMatchObject({
+      phase: LinkDeviceEventPhase.FAILED,
+      cancelled: false,
     });
   });
 
-  test('emits QR-scanner role sequence for invalid scanned data', async () => {
+  test('scanner flow validates QR envelope then fails with the refactor-84 stub error', async () => {
     const events: any[] = [];
     const errors: Error[] = [];
-    const originalConsoleError = console.error;
-    console.error = () => undefined;
 
-    try {
-      await expect(
-        linkDeviceWithScannedQRData(
-          {} as any,
-          {
-            sessionId: 'ldsess-invalid',
-            timestamp: Date.now(),
-            version: 'v3',
-          },
-          {
-            fundingAmount: '0',
-            onEvent: (event: any) => events.push(event),
-            onError: (error: Error) => errors.push(error),
-          },
-        ),
-      ).rejects.toThrow('Failed to scan and link device');
-    } finally {
-      console.error = originalConsoleError;
-    }
+    await expect(
+      linkDeviceWithScannedQRData(
+        {} as any,
+        {
+          sessionId: 'ldsess-valid',
+          timestamp: Date.now(),
+          version: 'refactor-84-stub',
+        },
+        {
+          fundingAmount: '0',
+          onEvent: (event: any) => events.push(event),
+          onError: (error: Error) => errors.push(error),
+        },
+      ),
+    ).rejects.toThrow('Linked-device lane creation is disabled until refactor 84 lands');
 
     expect(events.map((event) => event.phase)).toEqual([
       LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       LinkDeviceEventPhase.FAILED,
     ]);
     expect(events.map((event) => event.flow)).toEqual(['link_device', 'link_device']);
-    expect(events.map((event) => event.step)).toEqual([2, 0]);
-    expect(events.map((event) => event.data?.role)).toEqual(['scanner', 'scanner']);
-    expect(events.map((event) => event.interaction?.overlay)).toEqual(['none', 'hide']);
     expect(events.at(-1)).toMatchObject({
       status: 'failed',
+      data: {
+        role: 'scanner',
+      },
       error: {
-        retryable: true,
+        code: DeviceLinkingErrorCode.UNSUPPORTED,
+        retryable: false,
       },
     });
     expect(errors).toHaveLength(1);
-    expect(errors[0]?.message).toContain('Failed to scan and link device');
   });
 });

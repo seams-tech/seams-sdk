@@ -10,6 +10,7 @@ import type {
   RegistrationPreparationId,
   WalletAddSignerStartResponse,
   WalletRegistrationEcdsaWalletKey,
+  WalletRegistrationFinalizeAuthMethod,
   WalletRegistrationFinalizeResponse,
   WalletRegistrationStartResponse,
   WalletId,
@@ -916,6 +917,34 @@ function parseJsonValue(value: unknown): unknown {
   }
 }
 
+function parseWalletRegistrationFinalizeAuthMethod(
+  value: unknown,
+): WalletRegistrationFinalizeAuthMethod | null {
+  if (!isRecord(value)) return null;
+  switch (value.kind) {
+    case 'passkey': {
+      const credentialIdB64u = trimString(value.credentialIdB64u);
+      const credentialPublicKeyB64u = trimString(value.credentialPublicKeyB64u);
+      if (!credentialIdB64u || !credentialPublicKeyB64u) return null;
+      return {
+        kind: 'passkey',
+        credentialIdB64u,
+        credentialPublicKeyB64u,
+      };
+    }
+    case 'email_otp': {
+      const registrationAuthorityId = trimString(value.registrationAuthorityId);
+      if (!registrationAuthorityId) return null;
+      return {
+        kind: 'email_otp',
+        registrationAuthorityId,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
 function parseFinalizeReplayResponse(
   value: unknown,
 ): Extract<WalletRegistrationFinalizeResponse, { ok: true }> | null {
@@ -924,6 +953,18 @@ function parseFinalizeReplayResponse(
   const rpId = trimString(value.rpId);
   if (!walletIdRaw || !rpId) return null;
   const walletId = walletIdFromString(walletIdRaw);
+  if (value.kind === 'already_finalized_restore_required') {
+    if (value.reason !== 'replay_without_session_material') return null;
+    return {
+      ok: true,
+      kind: 'already_finalized_restore_required',
+      walletId,
+      rpId,
+      reason: 'replay_without_session_material',
+    };
+  }
+  const authMethod = parseWalletRegistrationFinalizeAuthMethod(value.authMethod);
+  if (!authMethod) return null;
   let ed25519: Extract<WalletRegistrationFinalizeResponse, { ok: true }>['ed25519'];
   const accountProvisioning = isRecord(value.accountProvisioning)
     ? (value.accountProvisioning as Extract<
@@ -985,6 +1026,7 @@ function parseFinalizeReplayResponse(
       ok: true,
       walletId,
       rpId,
+      authMethod,
       accountProvisioning: accountProvisioning!,
       resolvedAccount: resolvedAccount!,
       ed25519,
@@ -996,6 +1038,7 @@ function parseFinalizeReplayResponse(
       ok: true,
       walletId,
       rpId,
+      authMethod,
       ecdsa,
     };
   }

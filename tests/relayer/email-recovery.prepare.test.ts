@@ -124,6 +124,7 @@ function makePreparedRecoveryService() {
       requestId: 'ABC123',
       signerSlot: 7,
       credentialIdB64u: 'cred-b64u',
+      credentialPublicKeyB64u: 'AQID',
       thresholdEd25519: {
         relayerKeyId: 'rk-near',
         publicKey: 'ed25519:recovery-key',

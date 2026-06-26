@@ -62,8 +62,6 @@ const sessionIdBoundaryRoots = [
 const classifiedSessionIdPublicSurfaceFiles: Record<string, SessionIdSurfaceClassification> = {
   'apps/web-client/src/flows/demo/hooks/useDemoSigningSession.ts':
     'rename_later_agent_b_signing_or_wasm',
-  'packages/sdk-server-ts/src/core/DeviceLinkingSessionStore.ts':
-    'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts':
     'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RecoverySessionStore.ts': 'keep_app_device_or_recovery_session',

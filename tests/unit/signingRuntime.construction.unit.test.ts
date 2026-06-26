@@ -120,14 +120,6 @@ test.describe('SigningRuntime construction', () => {
           },
         },
       },
-      nearKeyOps: {
-        async signTransactionWithEphemeralNearKeypairHandle() {
-          throw new Error('in-memory runtime has no NEAR key signer');
-        },
-        async generateEphemeralNearKeypairHandle() {
-          throw new Error('in-memory runtime has no NEAR key generator');
-        },
-      },
       signing: {
         near: {
           getDeps() {
@@ -157,9 +149,6 @@ test.describe('SigningRuntime construction', () => {
           nonceCoordinator: {
             initializeNearAccessKey() {},
             async prefetchNearContext() {},
-          },
-          async extractCosePublicKey() {
-            throw new Error('in-memory runtime has no COSE parser');
           },
         },
         ecdsaBootstrapStore: {

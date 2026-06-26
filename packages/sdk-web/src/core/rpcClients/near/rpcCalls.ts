@@ -11,38 +11,16 @@
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { SeamsConfigsReadonly } from '../../types/seams';
-import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { FinalExecutionOutcome } from '@near-js/types';
 
 import { TransactionContext } from '../../types/rpc';
-import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
-import { secureRandomId } from '@shared/utils/secureRandomId';
-import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import {
   joinNormalizedUrl,
   normalizeJwtCookieSessionKind,
   stripTrailingSlashes,
 } from '@shared/utils/normalize';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
-import { ActionType } from '../../types/actions';
-import { resolvePrimaryNearRpcUrl } from '../../config/chains';
-import {
-  nearAccountRefFromAccountId,
-  toWalletId,
-} from '../../signingEngine/interfaces/ecdsaChainTarget';
-import {
-  createLinkDeviceFlowEvent,
-  LinkDeviceEventPhase,
-  type LinkDeviceFlowEvent,
-  SigningEventPhase,
-} from '../../types/sdkSentEvents';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import type {
-  NearSignIntentRequest,
-  NearSignIntentResult,
-} from '../../signingEngine/flows/signNear/signNear';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,
@@ -351,11 +329,6 @@ export async function exchangeSession(
 // CONTRACT CALL RESPONSES
 // ===========================
 
-export interface DeviceLinkingResult {
-  linkedAccountId: string;
-  signerSlot: number;
-}
-
 export interface CredentialIdsResult {
   credentialIds: string[];
 }
@@ -469,131 +442,5 @@ export async function getEmailRecoveryAttempt(
         ? String((raw as Record<string, unknown>).new_public_key || '')
         : (raw.newPublicKey ?? null),
     status: status as RecoveryAttemptStatus,
-  };
-}
-
-// ===========================
-// DEVICE LINKING TRANSACTION CALLS
-// ===========================
-
-/**
- * Execute device1's linking transactions (AddKey + Contract mapping)
- * This function signs and broadcasts both transactions required for device linking
- */
-type DeviceLinkingContractCallDeps = {
-  nearClient: NearClient;
-  chains: SeamsConfigsReadonly['network']['chains'];
-  signNear: <TRequest extends NearSignIntentRequest>(
-    request: TRequest,
-  ) => Promise<NearSignIntentResult<TRequest>>;
-};
-
-export async function executeDeviceLinkingContractCalls({
-  deps,
-  device1AccountId,
-  device2PublicKey,
-  onEvent,
-  confirmationConfigOverride,
-  confirmerText,
-}: {
-  deps: DeviceLinkingContractCallDeps;
-  device1AccountId: AccountId;
-  device2PublicKey: string;
-  onEvent?: (event: LinkDeviceFlowEvent) => void;
-  confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  confirmerText?: { title?: string; body?: string };
-}): Promise<{
-  addKeyTxResult: FinalExecutionOutcome;
-}> {
-  const commandSubject = {
-    walletSession: {
-      walletId: toWalletId(device1AccountId),
-      walletSessionUserId: String(device1AccountId),
-    },
-    nearAccount: nearAccountRefFromAccountId(device1AccountId),
-  };
-  const signTransaction = () =>
-    deps.signNear({
-      chain: 'near',
-      kind: 'transactionWithActions',
-      args: {
-        commandSubject,
-        sessionId: secureRandomId('link-device', 32, 'link device signing session IDs'),
-        rpcCall: {
-          nearRpcUrl: resolvePrimaryNearRpcUrl(deps.chains),
-          nearAccountId: device1AccountId,
-        },
-        confirmationConfigOverride,
-        sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod,
-        title: confirmerText?.title,
-        body: confirmerText?.body,
-        transaction: {
-          receiverId: device1AccountId,
-          actions: [
-            {
-              action_type: ActionType.AddKey,
-              public_key: device2PublicKey,
-              access_key: JSON.stringify({
-                // NEAR-style AccessKey JSON shape, matching near-api-js:
-                // { nonce: number, permission: { FullAccess: {} } }
-                nonce: 0,
-                permission: { FullAccess: {} },
-              }),
-            },
-          ],
-        },
-        onEvent: (progress) => {
-          // Keep device-linking progress semantic and surface signing as a loading state.
-          if (progress.phase === SigningEventPhase.STEP_11_TRANSACTION_SIGNED) {
-            onEvent?.(
-              createLinkDeviceFlowEvent({
-                flowId: `link-device-scan:${device2PublicKey}`,
-                accountId: String(device1AccountId),
-                phase: LinkDeviceEventPhase.STEP_03_AUTHORIZATION_SUCCEEDED,
-                status: 'succeeded',
-                data: {
-                  role: 'scanner',
-                  signingPhase: progress.phase,
-                  device2PublicKey,
-                },
-              }),
-            );
-          }
-        },
-      },
-    });
-
-  const signedTransaction = await signTransaction();
-
-  if (!signedTransaction.signedTransaction) {
-    throw new Error('AddKey transaction signing failed');
-  }
-
-  let addKeyTxResult: FinalExecutionOutcome;
-  try {
-    addKeyTxResult = await deps.nearClient.sendTransaction(
-      signedTransaction.signedTransaction,
-      DEFAULT_WAIT_STATUS.linkDeviceAddKey,
-    );
-  } catch (txError: unknown) {
-    throw new Error(`Transaction broadcasting failed: ${errorMessage(txError)}`);
-  }
-
-  onEvent?.(
-    createLinkDeviceFlowEvent({
-      flowId: `link-device-scan:${device2PublicKey}`,
-      accountId: String(device1AccountId),
-      phase: LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED,
-      status: 'succeeded',
-      data: {
-        role: 'scanner',
-        device2PublicKey,
-        transactionId: addKeyTxResult?.transaction?.hash,
-      },
-    }),
-  );
-
-  return {
-    addKeyTxResult,
   };
 }
