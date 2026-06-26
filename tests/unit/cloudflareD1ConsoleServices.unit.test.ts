@@ -137,7 +137,7 @@ function noop(): void {}
 
 function firstFakeD1Row<T>(query: string): T | null {
   if (query.includes('sqlite_master') && query.includes('console_runtime_snapshot_outbox')) {
-    return { table_count: 38 } as T;
+    return { table_count: 40 } as T;
   }
   if (query.includes('sqlite_master') && query.includes('signer_email_otp_registration_attempts')) {
     return { table_count: 20 } as T;
@@ -275,7 +275,7 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
     backend: 'cloudflare_d1_do',
     namespace: 'seams-local-test',
     schemas: {
-      consoleTables: 38,
+      consoleTables: 40,
       signerTables: 20,
     },
     admission: {

@@ -68,10 +68,12 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'console_invoices',
   'console_invoice_line_items',
   'console_stripe_webhook_events',
+  'console_billing_prepaid_reservation_summaries',
   'console_billing_prepaid_reservations',
   'console_sponsorship_spend_cap_windows',
   'console_sponsorship_spend_cap_reservations',
   'console_sponsored_call_records',
+  'console_runtime_snapshots',
   'console_runtime_snapshot_outbox',
 ]);
 

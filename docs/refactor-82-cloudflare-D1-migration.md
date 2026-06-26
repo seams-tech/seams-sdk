@@ -125,8 +125,9 @@ Completed so far:
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
 - Wired the local D1/DO smoke Worker `/readyz` path to verify the required
-  local D1 table sets and exercise the Durable Object normal-signing admission
-  operation without importing Postgres-backed modules.
+  local D1 table sets, currently 40 console tables and 20 signer tables, and
+  exercise the Durable Object normal-signing admission operation without
+  importing Postgres-backed modules.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -205,9 +206,9 @@ Remaining before D1 staging:
 
 - Finish only the console and signer D1 adapters required by the first staging
   dashboard, signer, sponsored gas, billing, and reconciliation flows.
-- Add the remaining local smoke coverage and coordination tests required by
-  staging signer flows.
-- Add local Wrangler/Miniflare smoke coverage for every required D1 table.
+- Keep local Wrangler/Miniflare smoke coverage in lockstep with every required
+  D1 table, and add only the remaining coordination tests required by staging
+  signer flows.
 - Add staging import, restore, and R2 export drills.
 - Keep the Postgres escape hatch as a typed full-family contract until a tenant
   or deployment actually needs Postgres.
@@ -280,17 +281,21 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 Local commands:
 
 ```bash
-pnpm wrangler d1 migrations apply seams-console --local
-pnpm wrangler d1 migrations apply seams-signer --local
-pnpm wrangler d1 execute seams-console --local --command "SELECT 1"
-pnpm wrangler d1 execute seams-signer --local --command "SELECT 1"
-pnpm wrangler dev --persist-to .wrangler/state/seams-d1
+pnpm --dir packages/sdk-server-ts run d1:local:prepare
+pnpm --dir packages/sdk-server-ts run d1:local:dev
+curl http://127.0.0.1:8787/readyz
 ```
+
+The package scripts pin `wrangler.d1-local.toml` and
+`.wrangler/state/seams-d1`, so local D1 and Durable Object state stays under
+the SDK package and mirrors the production binding names: `CONSOLE_DB`,
+`SIGNER_DB`, and `THRESHOLD_STORE`.
 
 Inspection:
 
-- Open local SQLite files under `.wrangler/state/seams-d1` in TablePlus with
-  the SQLite driver.
+- Open local SQLite files under
+  `packages/sdk-server-ts/.wrangler/state/seams-d1` in TablePlus with the
+  SQLite driver.
 - Treat TablePlus as read-only.
 - Remote D1 has no TablePlus TCP endpoint. Use `wrangler d1 execute`,
   `wrangler d1 export`, Cloudflare dashboard tools, or a purpose-built admin
@@ -935,25 +940,35 @@ Exit criteria:
 
 ### Step 4: Make Local Development D1/DO By Default
 
-Status: local Worker and bundle smoke complete; full app path still in progress.
+Status: SDK package command path, local Worker, and bundle smoke complete; full
+dashboard/signer app launcher path still in progress.
 
 Work:
 
-- Make the default local console/signer path use Wrangler/Miniflare D1 and local
-  Durable Object storage for staging-required flows.
+- Keep the default SDK local console/signer path on Wrangler/Miniflare D1 and
+  local Durable Object storage for staging-required flows.
 - Keep `/readyz` validating the required local D1 table sets and Durable Object
   normal-signing admission operation.
 - Keep Docker Postgres available only for legacy tests and unfinished non-staging
   paths while those paths are being removed from the default workflow.
-- Add reset, seed, migrate, and smoke commands for local D1/DO.
+- Use `pnpm --dir packages/sdk-server-ts run d1:local:prepare` for local
+  migrations plus table smoke, and
+  `pnpm --dir packages/sdk-server-ts run d1:local:dev` for Wrangler dev.
+- Use `GET /readyz` on the local Worker as the exact readiness gate. It must
+  report `backend: "cloudflare_d1_do"`, 40 console tables, 20 signer tables,
+  and a configured Durable Object admission reservation.
+- Reset clean local state by deleting
+  `packages/sdk-server-ts/.wrangler/state/seams-d1`; add a fixture seed/import
+  command only after the staging fixture format is chosen.
 - Document read-only TablePlus inspection of local SQLite files under
-  `.wrangler/state`.
+  `packages/sdk-server-ts/.wrangler/state/seams-d1`.
 
 Exit criteria:
 
 - A developer can run the dashboard, signer flows, sponsored gas billing, and
   reconciliation locally without Docker Postgres.
-- The local command path mirrors Cloudflare bindings and D1 API behavior.
+- The local command path mirrors Cloudflare bindings, D1 API behavior, and
+  Durable Object storage behavior.
 
 ### Step 5: Port Tests To D1/DO
 
@@ -1010,14 +1025,17 @@ Minimum checks before first D1 staging deploy:
 - Durable Object coordination tests for normal-signing admission, budgets,
   replay guards, presignature pools, signing-root coordination, and session
   consumption.
-- Local Wrangler D1 smoke:
+- Local Wrangler D1/DO smoke:
 
 ```bash
-pnpm wrangler d1 migrations apply seams-console --local
-pnpm wrangler d1 migrations apply seams-signer --local
-pnpm wrangler d1 execute seams-console --local --command "SELECT 1"
-pnpm wrangler d1 execute seams-signer --local --command "SELECT 1"
+pnpm --dir packages/sdk-server-ts run d1:local:prepare
+pnpm --dir packages/sdk-server-ts run d1:local:dev
+curl http://127.0.0.1:8787/readyz
 ```
+
+The local `/readyz` response must confirm `cloudflare_d1_do`, 40 console
+tables, 20 signer tables, `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, and a
+successful Durable Object normal-signing admission reservation.
 
 ## Immediate Next Steps
 
@@ -1040,24 +1058,26 @@ Completed baseline:
   barrel imports or re-exports. Express remains the Node/Postgres-facing path.
 - `tests/unit/refactor82CloudflareD1Runtime.guard.unit.test.ts` now enforces
   the no-Postgres Worker runtime graph from the Cloudflare entrypoints.
+- The SDK local command path runs D1 migrations and table smoke for the
+  simplified D1/DO surface, and `/readyz` enforces 40 console tables, 20 signer
+  tables, and Durable Object admission readiness.
 
 Proceed in this order:
 
-1. Re-audit current Postgres coupling in `seams-signer` and `seams-console`
-   against the simplified staging scope.
-2. Finalize D1 schemas and Durable Object ownership boundaries only for the
+1. Inventory any remaining Postgres coupling in `seams-signer` and
+   `seams-console` against the simplified staging scope.
+2. Freeze D1 schemas and Durable Object ownership boundaries only for the
    staging-required dashboard, signer, sponsored gas, billing, and
    reconciliation flows.
-3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
-   local Wrangler/Miniflare readiness path now validates required D1 tables and
-   DO-backed normal-signing admission without Postgres modules.
-4. Audit remaining Cloudflare Worker route dependencies for accidental imports
-   from Postgres-bearing files.
-5. Make local development run on Wrangler/Miniflare D1 and local Durable Object
-   storage by default for the full dashboard/signer application path.
-6. Port staging-required persistence tests to the D1/DO adapters and keep pure
+3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
+   Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
+   dependency test.
+4. Make the full local dashboard/signer application path use
+   Wrangler/Miniflare D1 and local Durable Object storage by default. The SDK
+   package path already uses this shape.
+5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
-7. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
+6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
    tests, sponsored gas reconciliation checks, signer custody checks, and backup
    drills pass.
 
