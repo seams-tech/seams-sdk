@@ -31,13 +31,17 @@ import {
   parseOptionalPositiveInteger,
   type SponsoredEvmCall,
 } from './evm';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from './evmRoutes';
+
+export {
+  DEFAULT_SPONSORED_EVM_CALL_ROUTE,
+  DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
+} from './evmRoutes';
 
 const DEFAULT_SPONSORED_EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';
 const DEFAULT_SPONSORED_EVM_CHAIN_ID = 42_431;
 const DEFAULT_MAX_PRIORITY_FEE_PER_GAS = 2_000_000_000n;
 const DEFAULT_MAX_FEE_PER_GAS = 40_000_000_000n;
-export const DEFAULT_SPONSORED_EVM_CALL_ROUTE = '/sponsorships/evm/call';
-export const DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID = 'sponsored_evm_call_v1';
 
 export type SponsoredEvmChainExecutorConfig = {
   chainId: number;

@@ -284,3 +284,29 @@ test('local D1 Worker ready smoke validates D1 tables and DO admission', async (
     },
   });
 });
+
+test('local D1 Worker serves console routes through D1 console services', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/console/readyz', {
+      headers: {
+        'x-console-user-id': 'local-user',
+        'x-console-org-id': 'local-org',
+        'x-console-roles': 'owner,admin',
+      },
+    }),
+    {
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    service: 'console',
+  });
+});

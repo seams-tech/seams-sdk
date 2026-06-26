@@ -1,11 +1,15 @@
 import type { RouterAbNormalSigningAdmissionInput } from '../routerAbPrivateSigningWorker';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
-import type { CfExecutionContext } from './cloudflare.types';
+import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '../console';
+import type { SigningRootKekProvider } from '../../core/ThresholdService/signingRootKekProvider';
+import type { CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
 } from '../../core/types';
+import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
+import { createCloudflareD1ConsoleServiceBundle } from './d1ConsoleServices';
 
 export { ThresholdStoreDurableObject };
 
@@ -14,6 +18,13 @@ interface LocalD1DevEnv {
   readonly SIGNER_DB: D1DatabaseLike;
   readonly THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
+  readonly SEAMS_LOCAL_CONSOLE_USER_ID?: string;
+  readonly SEAMS_LOCAL_CONSOLE_ORG_ID?: string;
+  readonly SEAMS_LOCAL_CONSOLE_PROJECT_ID?: string;
+  readonly SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID?: string;
+  readonly SEAMS_LOCAL_CONSOLE_ROLES?: string;
+  readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_ID?: string;
+  readonly SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U?: string;
 }
 
 type TableCountRow = {
@@ -33,6 +44,23 @@ type ReadyAdmissionResult = {
 type AdmissionDoOk<T> = { readonly ok: true; readonly value: T };
 type AdmissionDoErr = { readonly ok: false; readonly code: string; readonly message: string };
 type AdmissionDoResp<T> = AdmissionDoOk<T> | AdmissionDoErr;
+
+const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
+const DEFAULT_LOCAL_CONSOLE_ORG_ID = 'local-smoke-org';
+const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
+const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
+const DEFAULT_LOCAL_CONSOLE_ROLES = Object.freeze([
+  'owner',
+  'admin',
+  'platform_admin',
+  'security_admin',
+  'billing_admin',
+  'developer',
+  'ops',
+]);
+const DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID = 'signing-root-kek-local-r1';
+const DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const localConsoleHandlers = new WeakMap<LocalD1DevEnv, Promise<FetchHandler>>();
 
 const CONSOLE_READY_TABLES = Object.freeze([
   'console_organizations',
@@ -119,6 +147,166 @@ function parseReadyTableCount(row: TableCountRow | null): number {
 function localTenantStorageNamespace(env: LocalD1DevEnv): string {
   const namespace = String(env.SEAMS_TENANT_STORAGE_NAMESPACE || '').trim();
   return namespace || 'seams-local';
+}
+
+class LocalD1DevConsoleAuthAdapter implements ConsoleAuthAdapter {
+  constructor(private readonly env: LocalD1DevEnv) {}
+
+  authenticate(headers: HeaderRecord): { readonly ok: true; readonly claims: ConsoleAuthClaims } {
+    return {
+      ok: true,
+      claims: localConsoleAuthClaims(this.env, headers),
+    };
+  }
+}
+
+class LocalD1DevReadyCheck {
+  constructor(private readonly env: LocalD1DevEnv) {}
+
+  async check(): Promise<void> {
+    await assertLocalD1DoReady(this.env);
+  }
+}
+
+function normalizeLocalString(input: unknown): string {
+  return typeof input === 'string' ? input.trim() : '';
+}
+
+function headerString(headers: HeaderRecord, name: string): string {
+  const value = headers[name.toLowerCase()] ?? headers[name];
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const normalized = normalizeLocalString(item);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+  return normalizeLocalString(value);
+}
+
+function headerOrEnvString(input: {
+  readonly headers: HeaderRecord;
+  readonly headerName: string;
+  readonly envValue: unknown;
+  readonly fallback: string;
+}): string {
+  return (
+    headerString(input.headers, input.headerName) ||
+    normalizeLocalString(input.envValue) ||
+    input.fallback
+  );
+}
+
+function parseLocalConsoleRoles(input: string): string[] {
+  const roles: string[] = [];
+  for (const role of input.split(',')) {
+    const normalized = role.trim().toLowerCase();
+    if (normalized) roles.push(normalized);
+  }
+  return roles.length > 0 ? roles : [...DEFAULT_LOCAL_CONSOLE_ROLES];
+}
+
+function localConsoleAuthClaims(
+  env: LocalD1DevEnv,
+  headers: HeaderRecord,
+): ConsoleAuthClaims {
+  const roles = parseLocalConsoleRoles(
+    headerOrEnvString({
+      headers,
+      headerName: 'x-console-roles',
+      envValue: env.SEAMS_LOCAL_CONSOLE_ROLES,
+      fallback: DEFAULT_LOCAL_CONSOLE_ROLES.join(','),
+    }),
+  );
+  return {
+    userId: headerOrEnvString({
+      headers,
+      headerName: 'x-console-user-id',
+      envValue: env.SEAMS_LOCAL_CONSOLE_USER_ID,
+      fallback: DEFAULT_LOCAL_CONSOLE_USER_ID,
+    }),
+    orgId: headerOrEnvString({
+      headers,
+      headerName: 'x-console-org-id',
+      envValue: env.SEAMS_LOCAL_CONSOLE_ORG_ID,
+      fallback: DEFAULT_LOCAL_CONSOLE_ORG_ID,
+    }),
+    projectId: headerOrEnvString({
+      headers,
+      headerName: 'x-console-project-id',
+      envValue: env.SEAMS_LOCAL_CONSOLE_PROJECT_ID,
+      fallback: DEFAULT_LOCAL_CONSOLE_PROJECT_ID,
+    }),
+    environmentId: headerOrEnvString({
+      headers,
+      headerName: 'x-console-environment-id',
+      envValue: env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID,
+      fallback: DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID,
+    }),
+    roles,
+  };
+}
+
+function localSigningRootKekProvider(env: LocalD1DevEnv): SigningRootKekProvider {
+  const kekId =
+    normalizeLocalString(env.SEAMS_LOCAL_SIGNING_ROOT_KEK_ID) ||
+    DEFAULT_LOCAL_SIGNING_ROOT_KEK_ID;
+  const kekB64u =
+    normalizeLocalString(env.SEAMS_LOCAL_SIGNING_ROOT_KEK_B64U) ||
+    DEFAULT_LOCAL_SIGNING_ROOT_KEK_B64U;
+  return {
+    kind: 'worker_secret',
+    workerSecretsByKekId: {
+      [kekId]: kekB64u,
+    },
+    encoding: 'base64url',
+  };
+}
+
+function isConsolePath(pathname: string): boolean {
+  return pathname === '/console' || pathname.startsWith('/console/');
+}
+
+async function assertLocalD1DoReady(env: LocalD1DevEnv): Promise<void> {
+  await assertLocalD1Schemas(env);
+  await runD1DoAdmissionSmoke(env);
+}
+
+function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
+  const readyCheck = new LocalD1DevReadyCheck(env);
+  return readyCheck.check.bind(readyCheck);
+}
+
+async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const bundle = await createCloudflareD1ConsoleServiceBundle({
+    bindings: {
+      consoleDatabase: env.CONSOLE_DB,
+      signerMetadataDatabase: env.SIGNER_DB,
+      thresholdStore: env.THRESHOLD_STORE,
+      kekProvider: localSigningRootKekProvider(env),
+    },
+    route: {
+      namespace: localTenantStorageNamespace(env),
+    },
+    adapters: {
+      ensureSchema: false,
+    },
+  });
+  return createCloudflareConsoleRouter({
+    ...bundle.consoleRouterOptions,
+    healthz: true,
+    readyz: true,
+    auth: new LocalD1DevConsoleAuthAdapter(env),
+    readyCheck: createLocalReadyCheck(env),
+  });
+}
+
+function localConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const existing = localConsoleHandlers.get(env);
+  if (existing) return existing;
+  const created = createLocalConsoleHandler(env);
+  localConsoleHandlers.set(env, created);
+  return created;
 }
 
 function localAdmissionInput(nowMs: number): RouterAbNormalSigningAdmissionInput {
@@ -346,16 +534,20 @@ async function handleReady(env: LocalD1DevEnv): Promise<Response> {
 async function fetch(
   request: Request,
   env: LocalD1DevEnv,
-  _ctx: CfExecutionContext,
+  ctx: CfExecutionContext,
 ): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === '/healthz') return jsonResponse({ ok: true });
   if (url.pathname === '/readyz') return await handleReady(env);
+  if (isConsolePath(url.pathname)) {
+    const handler = await localConsoleHandler(env);
+    return await handler(request, env, ctx);
+  }
   return jsonResponse(
     {
       ok: true,
       service: 'seams-sdk-d1-local',
-      endpoints: ['/healthz', '/readyz'],
+      endpoints: ['/healthz', '/readyz', '/console/healthz', '/console/readyz', '/console/*'],
     },
     { status: 200 },
   );

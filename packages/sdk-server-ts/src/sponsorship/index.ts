@@ -34,6 +34,8 @@ export type {
 export {
   DEFAULT_SPONSORED_EVM_CALL_ROUTE,
   DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
+} from './evmRoutes';
+export {
   executeSponsoredEvmCall,
   resolveSponsoredEvmExecutorForChain,
   resolveSponsoredEvmCallConfigFromEnv,

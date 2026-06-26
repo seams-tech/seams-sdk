@@ -128,6 +128,9 @@ Completed so far:
   local D1 table sets, currently 40 console tables and 20 signer tables, and
   exercise the Durable Object normal-signing admission operation without
   importing Postgres-backed modules.
+- Wired the local Wrangler Worker `/console/*` path to the real Cloudflare
+  console router backed by the D1/DO service bundle, with local-only static
+  console auth and `/console/readyz` coverage.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -284,6 +287,7 @@ Local commands:
 pnpm --dir packages/sdk-server-ts run d1:local:prepare
 pnpm --dir packages/sdk-server-ts run d1:local:dev
 curl http://127.0.0.1:8787/readyz
+curl http://127.0.0.1:8787/console/readyz
 ```
 
 The package scripts pin `wrangler.d1-local.toml` and
@@ -940,8 +944,8 @@ Exit criteria:
 
 ### Step 4: Make Local Development D1/DO By Default
 
-Status: SDK package command path, local Worker, and bundle smoke complete; full
-dashboard/signer app launcher path still in progress.
+Status: SDK package command path, local D1/DO console Worker path, and bundle
+smoke complete; full relay/signer app launcher path still in progress.
 
 Work:
 
@@ -957,6 +961,9 @@ Work:
 - Use `GET /readyz` on the local Worker as the exact readiness gate. It must
   report `backend: "cloudflare_d1_do"`, 40 console tables, 20 signer tables,
   and a configured Durable Object admission reservation.
+- Use `/console/*` on the same local Worker for real D1-backed console route
+  development. Local console auth reads optional `X-Console-*` headers and falls
+  back to deterministic local claims.
 - Reset clean local state by deleting
   `packages/sdk-server-ts/.wrangler/state/seams-d1`; add a fixture seed/import
   command only after the staging fixture format is chosen.
@@ -1031,6 +1038,7 @@ Minimum checks before first D1 staging deploy:
 pnpm --dir packages/sdk-server-ts run d1:local:prepare
 pnpm --dir packages/sdk-server-ts run d1:local:dev
 curl http://127.0.0.1:8787/readyz
+curl http://127.0.0.1:8787/console/readyz
 ```
 
 The local `/readyz` response must confirm `cloudflare_d1_do`, 40 console
@@ -1061,6 +1069,9 @@ Completed baseline:
 - The SDK local command path runs D1 migrations and table smoke for the
   simplified D1/DO surface, and `/readyz` enforces 40 console tables, 20 signer
   tables, and Durable Object admission readiness.
+- The same SDK local Worker serves `/console/*` through the D1-backed
+  Cloudflare console router, so console route development can use Wrangler D1
+  without Docker Postgres.
 
 Proceed in this order:
 
@@ -1072,9 +1083,9 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports, with
    Cloudflare Worker imports kept on D1/DO leaves and guarded by the runtime
    dependency test.
-4. Make the full local dashboard/signer application path use
+4. Make the remaining local relay/signer application path use
    Wrangler/Miniflare D1 and local Durable Object storage by default. The SDK
-   package path already uses this shape.
+   package path and console route path already use this shape.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination

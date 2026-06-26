@@ -19,10 +19,8 @@ import {
   type SponsoredEvmPolicyMatch,
   type SponsoredEvmPolicyMismatch,
 } from '../sponsorship/evm';
-import {
-  DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
-  type SponsoredEvmCallExecutorConfig,
-} from '../sponsorship/evmRelay';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID } from '../sponsorship/evmRoutes';
+import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import {
   buildSponsoredSpendCapSourceEventId,
   executeSponsorshipAdapter,

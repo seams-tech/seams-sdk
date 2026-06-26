@@ -1,4 +1,4 @@
-import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../sponsorship/evmRelay';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../sponsorship/evmRoutes';
 import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,
