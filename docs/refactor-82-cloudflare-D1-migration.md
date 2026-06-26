@@ -66,6 +66,9 @@ Authoritative Cloudflare references:
 - Cloudflare cron helpers are D1-only for refactor 82 staging. Billing monthly
   finalization, runtime snapshot outbox dispatch, and webhook retry dispatch
   accept D1 bindings and call D1 runners directly.
+- The Worker-facing `cloudflare-adaptor` barrel exports D1/DO adapters,
+  Cloudflare route factories, and in-memory test helpers only. Postgres adapter
+  exports stay on Node/Postgres entrypoints or direct module imports.
 
 ## Simplification Decisions
 
@@ -172,6 +175,9 @@ Completed so far:
   Postgres helpers while D1/DO staging is the target backend family.
 - Switched the Cloudflare cron helper from Postgres URLs, advisory locks, and
   Postgres default runners to D1 database bindings and D1 default runners.
+- Removed Postgres adapter exports from the Worker-facing
+  `cloudflare-adaptor` barrel and filled in existing D1 exports for prepaid
+  reservations, sponsored-call records, and webhook retry dispatch.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and
@@ -1007,6 +1013,9 @@ Completed baseline:
   choices.
 - The Cloudflare D1 service bundle imports Postgres-free D1 signing-root and
   Durable Object admission leaf modules.
+- The Worker-facing `cloudflare-adaptor` barrel exposes D1/DO and in-memory
+  test helpers without re-exporting Postgres adapters or mixed storage route
+  unions.
 
 Proceed in this order:
 
@@ -1018,8 +1027,8 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
    local Wrangler/Miniflare readiness path now validates required D1 tables and
    DO-backed normal-signing admission without Postgres modules.
-4. Audit remaining Cloudflare Worker import barrels and route modules for
-   accidental imports from Postgres-bearing files.
+4. Audit remaining Cloudflare Worker route modules for accidental imports from
+   Postgres-bearing files.
 5. Make local development run on Wrangler/Miniflare D1 and local Durable Object
    storage by default for the full dashboard/signer application path.
 6. Port staging-required persistence tests to the D1/DO adapters and keep pure
