@@ -94,13 +94,15 @@ Completed so far:
   team RBAC, policies, wallet index, API keys, approvals, key exports, audit,
   bootstrap tokens, billing account/ledger settlement, prepaid billing
   reservations, sponsorship spend caps, sponsored call records, runtime
-  snapshot storage/outbox, and sealed signing-root secret shares.
+  snapshot storage/outbox, webhook endpoint/delivery persistence, and sealed
+  signing-root secret shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
 - Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
   wallet index, approvals, key exports, audit, bootstrap tokens, billing, prepaid
   reservations, sponsorship spend caps, sponsored calls, runtime snapshots, and
-  signer secret storage into the Cloudflare service bundle.
+  signer secret storage into the Cloudflare service bundle. Webhooks are wired
+  when a webhook signing-secret cipher is configured.
 - Added local Wrangler/Miniflare D1 configuration, append-only migrations,
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
@@ -110,11 +112,12 @@ Completed so far:
   bootstrap/versioning/assignment resolution, API key auth and tenant scoping,
   wallet index filters/search/pagination and tenant scoping, approval MFA and
   conditional-decision transitions, key export MFA approval thresholds,
-  duplicate-approver rejection, tenant scoping, audit event/evidence tenant
-  scoping, bootstrap token redemption atomicity, prepaid reservation atomicity,
-  sponsorship spend-cap atomic reservation/settlement/release, sponsored-call
-  idempotency, atomic sponsored gas settlement, and signer secret tenant
-  scoping.
+  duplicate-approver rejection, tenant scoping, webhook sealed-secret storage,
+  category dispatch, dead-letter creation, replay resolution, audit
+  event/evidence tenant scoping, bootstrap token redemption atomicity, prepaid
+  reservation atomicity, sponsorship spend-cap atomic
+  reservation/settlement/release, sponsored-call idempotency, atomic sponsored
+  gas settlement, and signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -322,8 +325,8 @@ Current Postgres coupling is concentrated in:
 | Sponsorship spend caps | `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations` | `CONSOLE_DB` D1 | Trigger-backed D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, source-event idempotency, tenant-scoped usage lookup, and reservation/settlement/release contract tests are in place. Window usage mutation stays SQLite-atomic inside reservation insert and lifecycle transition triggers. |
 | Key exports | `console_key_exports` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, tenant-scoped list/create/approve, MFA enforcement, duplicate-approver checks, approval threshold transitions, and conditional approval update tests are in place. Approval and constraint JSON is stored as `TEXT` and parsed at the adapter boundary. |
 | Runtime snapshots | `console_runtime_snapshots`, `console_runtime_snapshot_outbox` | `CONSOLE_DB` D1 | Already has D1 schema. Replace `SKIP LOCKED` with claim lease columns and conditional updates. |
-| Webhooks | `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 | Replace GIN category index with `console_webhook_endpoint_categories(namespace, org_id, endpoint_id, category)`. Payload JSON is `TEXT`. |
-| Key export and webhook secrets | `console_key_exports`, `console_webhook_endpoints.signing_secret` | `CONSOLE_DB` D1 plus secrets adapter | Store only encrypted/derived values in D1 when values can authorize actions. |
+| Webhooks | `console_webhook_endpoints`, `console_webhook_endpoint_categories`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters` | `CONSOLE_DB` D1 plus webhook secret cipher | D1 route-service adapter, append-only migration, local smoke coverage, optional Cloudflare bundle wiring, endpoint CRUD, category side-table lookup, event dispatch, delivery/attempt/dead-letter pages, replay resolution, and sealed signing-secret tests are in place. D1 retry-dispatch cron replacement is still pending. |
+| Key export and webhook secrets | `console_key_exports`, `console_webhook_endpoints.signing_secret` | `CONSOLE_DB` D1 plus secrets adapter | Key exports store approval/constraint JSON only. Webhook D1 rows store sealed signing-secret ciphertext, KEK ID, and envelope version. Plaintext webhook signing secrets stay in process memory only during endpoint creation and request signing. |
 | Observability | `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, `console_observability_request_rollups_minute` | R2/Analytics Engine plus limited D1 rollups | Keep high-volume raw events outside shared D1. D1 may store compact dashboard rollups and dedup markers only. |
 
 ### Signer Table Ownership
@@ -359,11 +362,12 @@ Current Postgres coupling is concentrated in:
 
 Before D1 staging, these adapters must exist behind domain-store ports:
 
-- Console D1 remaining: webhooks and compact observability rollups.
+- Console D1 remaining: D1 webhook retry-dispatch cron and compact
+  observability rollups.
 - Console D1 in place: org/project/env, account/profile, team RBAC, policies,
   wallet index, API keys, approvals, key exports, audit, bootstrap tokens,
   billing ledger sponsored settlement, prepaid reservations, sponsorship spend
-  caps, sponsored calls, and runtime snapshots.
+  caps, sponsored calls, runtime snapshots, and the webhook route service.
 - Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
   email OTP, recovery, identity links, app sessions, threshold key metadata,
   and sealed signing-root secret shares.
@@ -793,8 +797,8 @@ Status: in progress.
 
 Work:
 
-- Finish remaining console D1 adapters for webhooks and compact observability
-  rollups.
+- Finish remaining console D1 adapters for webhook retry dispatch and compact
+  observability rollups.
 - Finish remaining signer D1 adapters for wallet metadata, wallet auth,
   WebAuthn, email OTP, recovery, identity links, app sessions, and threshold key
   metadata.
@@ -903,7 +907,8 @@ Completed:
 3. Add D1 adapters for org/project/env, account/profile, team RBAC, policies,
    wallet index, API keys, approvals, key exports, audit, bootstrap tokens,
    billing ledger settlement, prepaid reservations, sponsorship spend caps,
-   sponsored calls, runtime snapshots, and sealed signing-root secret shares.
+   sponsored calls, runtime snapshots, webhook route-service persistence, and
+   sealed signing-root secret shares.
 4. Make local development run on Wrangler/Miniflare D1 for the implemented D1
    adapters.
 5. Port focused adapter tests to D1 for the implemented D1 adapters.
@@ -915,8 +920,8 @@ Completed:
 
 Next:
 
-1. Continue Step 3 by adding the remaining console D1 adapters: webhooks and
-   compact observability rollups.
+1. Continue Step 3 by adding the remaining console D1 adapters: webhook retry
+   dispatch and compact observability rollups.
 2. Continue Step 3 by adding the remaining signer D1 metadata adapters: wallet
    metadata, wallet auth, WebAuthn, email OTP, recovery, identity links, app
    sessions, and threshold key metadata.

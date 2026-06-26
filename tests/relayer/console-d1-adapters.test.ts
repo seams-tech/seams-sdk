@@ -26,6 +26,15 @@ import { createD1ConsoleSponsoredCallService } from '../../packages/sdk-server-t
 import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/sdk-server-ts/src/console/sponsorshipSpendCaps/d1';
 import { createD1ConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/d1';
 import { createD1ConsoleWalletService } from '../../packages/sdk-server-ts/src/console/wallets/d1';
+import {
+  createAesGcmConsoleWebhookSecretCipher,
+  createD1ConsoleWebhookService,
+} from '../../packages/sdk-server-ts/src/console/webhooks/d1';
+import type {
+  WebhookDispatchAdapter,
+  WebhookDispatchRequest,
+  WebhookDispatchResult,
+} from '../../packages/sdk-server-ts/src/console/webhooks/service';
 import { D1SigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   D1DatabaseLike,
@@ -170,6 +179,26 @@ class TestMutableClock {
 
   now(): Date {
     return new Date(this.currentMs);
+  }
+}
+
+class D1WebhookDispatchHarness implements WebhookDispatchAdapter {
+  readonly requests: WebhookDispatchRequest[] = [];
+  private readonly queuedResults: WebhookDispatchResult[] = [];
+
+  pushResult(result: WebhookDispatchResult): void {
+    this.queuedResults.push(result);
+  }
+
+  async dispatch(input: WebhookDispatchRequest): Promise<WebhookDispatchResult> {
+    this.requests.push(input);
+    return (
+      this.queuedResults.shift() || {
+        ok: true,
+        statusCode: 200,
+        responseBody: 'ok',
+      }
+    );
   }
 }
 
@@ -393,6 +422,13 @@ function toInteger(value: unknown): number {
 function errorCode(error: unknown): string {
   const maybeCode = isErrorWithCode(error) ? error.code : null;
   return String(maybeCode || '');
+}
+
+function createD1WebhookTestSecretCipher() {
+  return createAesGcmConsoleWebhookSecretCipher({
+    keyId: 'webhook-test-key-r1',
+    keyBytes: new Uint8Array(32).fill(7),
+  });
 }
 
 function isErrorWithCode(input: unknown): input is ErrorWithCode {
@@ -1576,6 +1612,195 @@ test.describe('D1 adapter contracts', () => {
           environmentId: 'env-d1-key-exports-dev',
         }),
       ).resolves.toEqual([expect.objectContaining({ id: second.id })]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('webhook adapter stores sealed secrets and records D1 delivery lifecycle', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T02:50:00.000Z');
+      const dispatcher = new D1WebhookDispatchHarness();
+      const service = await createD1ConsoleWebhookService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: clock.now,
+        dispatcher,
+        secretCipher: createD1WebhookTestSecretCipher(),
+        endpointDegradedThreshold: 1,
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-webhooks-primary',
+        actorUserId: 'user-d1-webhooks-primary',
+        roles: ['admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-webhooks-secondary',
+        actorUserId: 'user-d1-webhooks-secondary',
+        roles: ['admin'],
+      };
+
+      const endpoint = await service.createEndpoint(primaryCtx, {
+        url: 'https://example.com/d1-webhooks',
+        eventCategories: ['billing', 'session', 'billing'],
+      });
+      expect(endpoint).toMatchObject({
+        orgId: primaryCtx.orgId,
+        url: 'https://example.com/d1-webhooks',
+        eventCategories: ['billing', 'session'],
+        status: 'ACTIVE',
+        secretVersion: 1,
+        createdAt: '2026-06-27T02:50:00.000Z',
+      });
+      expect(endpoint.secretPreview.startsWith('whsec_')).toBe(true);
+      await expect(service.listEndpoints(secondaryCtx)).resolves.toHaveLength(0);
+
+      const secretRow = await temp.database
+        .prepare(
+          `SELECT signing_secret_ciphertext_b64u, signing_secret_key_id
+             FROM console_webhook_endpoints
+            WHERE namespace = ?
+              AND org_id = ?
+              AND id = ?`,
+        )
+        .bind('d1-contracts', primaryCtx.orgId, endpoint.id)
+        .first<SqliteJsonRow>();
+      expect(String(secretRow?.signing_secret_ciphertext_b64u || '').startsWith('whsec_')).toBe(
+        false,
+      );
+      expect(secretRow?.signing_secret_key_id).toBe('webhook-test-key-r1');
+
+      dispatcher.pushResult({
+        ok: true,
+        statusCode: 202,
+        responseBody: 'accepted',
+      });
+      clock.set('2026-06-27T02:51:00.000Z');
+      const delivered = await service.emitEvent(primaryCtx, {
+        eventId: 'evt-d1-webhooks-billing',
+        eventType: 'billing.credit_purchase.settled',
+        payload: { invoiceId: 'inv-d1-webhooks' },
+      });
+      expect(delivered).toEqual({
+        eventId: 'evt-d1-webhooks-billing',
+        attempted: 1,
+        delivered: 1,
+        failed: 0,
+      });
+      expect(dispatcher.requests).toHaveLength(1);
+      expect(dispatcher.requests[0].headers['X-Console-Webhook-Signature']).toContain('v1=');
+      expect(JSON.parse(dispatcher.requests[0].body)).toMatchObject({
+        id: 'evt-d1-webhooks-billing',
+        type: 'billing.credit_purchase.settled',
+        data: { invoiceId: 'inv-d1-webhooks' },
+      });
+
+      const deliveryPage = await service.listDeliveries(primaryCtx, endpoint.id);
+      expect(deliveryPage.items).toHaveLength(1);
+      expect(deliveryPage.items[0]).toMatchObject({
+        eventId: 'evt-d1-webhooks-billing',
+        status: 'SUCCEEDED',
+        attemptCount: 1,
+        replayCount: 0,
+        responseStatus: 202,
+      });
+      const attemptPage = await service.listAttempts(primaryCtx, endpoint.id, {
+        deliveryId: deliveryPage.items[0].id,
+      });
+      expect(attemptPage.items).toEqual([
+        expect.objectContaining({
+          status: 'SUCCEEDED',
+          responseStatus: 202,
+          isReplay: false,
+        }),
+      ]);
+
+      dispatcher.pushResult({
+        ok: false,
+        statusCode: 500,
+        responseBody: 'failed',
+        errorMessage: 'HTTP 500',
+      });
+      clock.set('2026-06-27T02:52:00.000Z');
+      const failed = await service.emitEvent(primaryCtx, {
+        eventId: 'evt-d1-webhooks-session',
+        eventType: 'session.warm.expired',
+        payload: { sessionId: 'sess-d1-webhooks' },
+      });
+      expect(failed).toEqual({
+        eventId: 'evt-d1-webhooks-session',
+        attempted: 1,
+        delivered: 0,
+        failed: 1,
+      });
+
+      const deadLetterPage = await service.listDeadLetters(primaryCtx, endpoint.id, {
+        includeResolved: false,
+      });
+      expect(deadLetterPage.items).toHaveLength(1);
+      expect(deadLetterPage.items[0]).toMatchObject({
+        eventId: 'evt-d1-webhooks-session',
+        failedAttempts: 1,
+        lastResponseStatus: 500,
+        resolvedAt: null,
+      });
+
+      dispatcher.pushResult({
+        ok: true,
+        statusCode: 200,
+        responseBody: 'replayed',
+      });
+      clock.set('2026-06-27T02:53:00.000Z');
+      const replay = await service.replayDelivery(primaryCtx, endpoint.id, {
+        deliveryId: deadLetterPage.items[0].deliveryId,
+      });
+      expect(replay).toMatchObject({
+        replayed: true,
+        delivery: {
+          status: 'SUCCEEDED',
+          attemptCount: 2,
+          replayCount: 1,
+          responseStatus: 200,
+        },
+      });
+
+      await expect(
+        service.listDeadLetters(primaryCtx, endpoint.id, { includeResolved: false }),
+      ).resolves.toEqual({ items: [] });
+      await expect(
+        service.listDeadLetters(primaryCtx, endpoint.id, { includeResolved: true }),
+      ).resolves.toEqual({
+        items: [expect.objectContaining({ resolvedAt: '2026-06-27T02:53:00.000Z' })],
+      });
+
+      const disabled = await service.updateEndpoint(primaryCtx, endpoint.id, {
+        status: 'DISABLED',
+        eventCategories: ['billing'],
+      });
+      expect(disabled).toMatchObject({
+        status: 'DISABLED',
+        eventCategories: ['billing'],
+      });
+      const skipped = await service.emitEvent(primaryCtx, {
+        eventId: 'evt-d1-webhooks-disabled',
+        eventType: 'billing.credit_purchase.settled',
+        payload: {},
+      });
+      expect(skipped).toEqual({
+        eventId: 'evt-d1-webhooks-disabled',
+        attempted: 0,
+        delivered: 0,
+        failed: 0,
+      });
+
+      const removed = await service.deleteEndpoint(primaryCtx, endpoint.id);
+      expect(removed).toMatchObject({
+        removed: true,
+        endpoint: { id: endpoint.id },
+      });
+      await expect(service.listEndpoints(primaryCtx)).resolves.toEqual([]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

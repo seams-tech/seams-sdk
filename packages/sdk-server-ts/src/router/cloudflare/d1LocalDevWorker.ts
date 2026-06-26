@@ -15,6 +15,7 @@ import { ensureConsoleSponsoredCallD1Schema } from '../../console/sponsoredCalls
 import { ensureConsoleSponsorshipSpendCapD1Schema } from '../../console/sponsorshipSpendCaps/d1';
 import { ensureConsoleTeamRbacD1Schema } from '../../console/teamRbac/d1';
 import { ensureConsoleWalletsD1Schema } from '../../console/wallets/d1';
+import { ensureConsoleWebhooksD1Schema } from '../../console/webhooks/d1';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
 import type { CfExecutionContext } from './cloudflare.types';
 import { ThresholdStoreDurableObject } from './durableObjects/thresholdStore';
@@ -71,6 +72,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureConsoleApiKeysD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleApprovalsD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleKeyExportsD1Schema({ database: env.CONSOLE_DB });
+  await ensureConsoleWebhooksD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleAuditD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBootstrapTokensD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingD1Schema({ database: env.CONSOLE_DB });

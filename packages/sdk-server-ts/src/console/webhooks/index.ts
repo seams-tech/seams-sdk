@@ -37,6 +37,25 @@ export {
   createPostgresConsoleWebhookService,
   runPostgresConsoleWebhookRetryDispatch,
 } from './postgres';
+export type {
+  AesGcmConsoleWebhookSecretCipherOptions,
+  ConsoleWebhookD1Service,
+  ConsoleWebhookSealedSecret,
+  ConsoleWebhookSecretCipher,
+  ConsoleWebhookSecretOpenInput,
+  ConsoleWebhookSecretSealInput,
+  ConsoleWebhooksD1Runtime,
+  D1ConsoleWebhookSchemaOptions,
+  D1ConsoleWebhookServiceOptions,
+} from './d1';
+export {
+  CONSOLE_WEBHOOKS_D1_RUNTIME,
+  CONSOLE_WEBHOOKS_D1_SCHEMA_SQL,
+  createAesGcmConsoleWebhookSecretCipher,
+  createD1ConsoleWebhookService,
+  ensureConsoleWebhooksD1Schema,
+  getConsoleWebhooksD1Runtime,
+} from './d1';
 export { ConsoleWebhookError, isConsoleWebhookError } from './errors';
 export {
   parseListConsoleWebhookDeliveriesRequest,
