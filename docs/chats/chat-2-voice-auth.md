@@ -56,7 +56,7 @@ Important security decisions:
 - For low-risk owner commands, the target UX is: user simply speaks and the
   robot responds.
 
-This framing was written into `docs/voiceID/readme.md`.
+This framing was written into `voiceId/docs/readme.md`.
 
 ## Robotics Use Case
 
@@ -307,7 +307,7 @@ after future implementation changes.
 The live implementation plan is:
 
 ```text
-docs/voiceID/voiceId-mvp-1-tasks.md
+voiceId/docs/voiceId-mvp-1-tasks.md
 ```
 
 Current plan state:
@@ -366,13 +366,13 @@ The user added shorthand for this repo:
   implementing.
 
 When the user says to update the plan, treat
-`docs/voiceID/voiceId-mvp-1-tasks.md` as the progress surface.
+`voiceId/docs/voiceId-mvp-1-tasks.md` as the progress surface.
 
 ## Resume Notes
 
 When resuming:
 
-1. Inspect `docs/voiceID/voiceId-mvp-1-tasks.md`.
+1. Inspect `voiceId/docs/voiceId-mvp-1-tasks.md`.
 2. Inspect the current `voiceId/` diff before editing.
 3. Ignore unrelated dirty files outside the VoiceID work.
 4. Keep VoiceID isolated from the main wallet/auth SDK until the module boundary

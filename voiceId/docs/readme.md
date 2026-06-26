@@ -94,7 +94,7 @@ Required controls:
 2. **Local freshness and replay resistance**: the robot or embedded device
    checks that speech is fresh, captured locally, and bound to the current
    command window. Camera-backed liveness is a separate future plan in
-   `docs/voiceID/voiceId-camera-liveness-future.md`.
+   `voiceId/docs/voiceId-camera-liveness-future.md`.
 3. **Device-bound key material**: the client signing share remains on the
    embedded device or its sidecar.
 4. **Server policy**: the server co-signer checks risk, rate limits, device
@@ -203,7 +203,7 @@ Before VoiceID can authorize embedded transaction signing:
 2. The spoken phrase or parsed command must bind to that `intentDigest`.
 3. Voice matching must be separated from phrase or intent transcription.
 4. Camera-backed liveness belongs to
-   `docs/voiceID/voiceId-camera-liveness-future.md`.
+   `voiceId/docs/voiceId-camera-liveness-future.md`.
 5. The embedded device should keep its signing share device-bound.
 6. The server co-signer should enforce risk policy before participating.
 7. Raw audio and diagnostic media should have explicit retention rules.
@@ -231,7 +231,7 @@ Remaining implementation work:
    owner-presence authorization.
 2. Expand normal SDK demo or fixture coverage around that policy consumption.
 3. Implement the concrete Router A/B admission adapter in
-   `docs/voiceID/voiceId-router-policy-issuer.md`.
+   `voiceId/docs/voiceId-router-policy-issuer.md`.
 4. Add an end-to-end test from accepted VoiceID wallet policy decision to Router
    admission, SigningWorker prepare/finalize, and signature after the normal SDK
    path works.
@@ -241,4 +241,4 @@ Remaining implementation work:
    speaker thresholds.
 
 Camera, face, mouth, and lip-sync work is tracked separately in
-`docs/voiceID/voiceId-camera-liveness-future.md`.
+`voiceId/docs/voiceId-camera-liveness-future.md`.

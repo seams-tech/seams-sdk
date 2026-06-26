@@ -240,7 +240,7 @@ Wallet policy update:
 - Owner-presence authorization now requires `policyVersion` and emits an
   `owner_presence_authorized` audit event with result kind, decision kind,
   decision reason, and no raw capture fields.
-- `docs/voiceID/voiceId-router-policy-issuer.md` now captures the issuer
+- `voiceId/docs/voiceId-router-policy-issuer.md` now captures the issuer
   contract: accepted wallet policy decisions can issue one short-lived Router
   JWT for the bound intent, while step-up-required decisions stay non-signing.
 - Current sequencing keeps the first SDK test on the normal SDK relay/module
@@ -283,7 +283,7 @@ Camera work is intentionally out of scope for the current browser VoiceID MVP.
 Deferred plan:
 
 ```text
-docs/voiceID/voiceId-camera-liveness-future.md
+voiceId/docs/voiceId-camera-liveness-future.md
 ```
 
 Do not mix camera tasks back into MVP 1 unless the user explicitly asks to
@@ -315,12 +315,12 @@ rtk git diff --check -- voiceId/demo/src/main.ts
 
 Primary plans:
 
-- `docs/voiceID/voiceId-mvp-1.md`
-- `docs/voiceID/voiceId-mvp-1-tasks.md`
-- `docs/voiceID/voiceId-mvp-2.md`
-- `docs/voiceID/voiceId-camera-liveness-future.md`
-- `docs/voiceID/voiceId-router-policy-issuer.md`
-- `docs/voiceID/readme.md`
+- `voiceId/docs/voiceId-mvp-1.md`
+- `voiceId/docs/voiceId-mvp-1-tasks.md`
+- `voiceId/docs/voiceId-mvp-2.md`
+- `voiceId/docs/voiceId-camera-liveness-future.md`
+- `voiceId/docs/voiceId-router-policy-issuer.md`
+- `voiceId/docs/readme.md`
 - `voiceId/README.md`
 
 Core code:
@@ -391,7 +391,7 @@ Recommended next work queue:
 
 To resume this work:
 
-1. Read `docs/voiceID/voiceId-mvp-1-tasks.md`.
+1. Read `voiceId/docs/voiceId-mvp-1-tasks.md`.
 2. Inspect `voiceId/` diff before editing because the worktree may contain
    unrelated in-progress VoiceID changes.
 3. Keep work scoped to VoiceID unless the user explicitly asks to touch the main

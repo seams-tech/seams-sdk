@@ -7,7 +7,7 @@ Related docs:
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
 - [VoiceID SDK auth method integration](voiceId-sdk-auth-method-integration.md)
 - [VoiceID MVP 2](voiceId-mvp-2.md)
-- [Router A/B signer architecture](../router-a-b-SPEC.md)
+- [Router A/B signer architecture](../../docs/router-a-b-SPEC.md)
 
 ## Goal
 

@@ -217,7 +217,7 @@ return `invalid_state`.
 
 Camera, face, mouth, and lip-sync work is not part of the current MVP. That
 future track lives in
-`docs/voiceID/voiceId-camera-liveness-future.md`. The current MVP keeps only the
+`voiceId/docs/voiceId-camera-liveness-future.md`. The current MVP keeps only the
 audio/device liveness boundary in active code.
 
 D1-compatible durable stores live in

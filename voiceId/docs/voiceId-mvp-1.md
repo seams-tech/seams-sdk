@@ -6,10 +6,10 @@ This document scopes phase 1 to browser-captured, server-verified VoiceID. It
 does not include robotics, MPC signing, x402, face recognition, or audio-visual
 liveness. Those remain separate follow-on tracks.
 
-Follow-on plan: `docs/voiceID/voiceId-mvp-2.md` covers the next stage:
+Follow-on plan: `voiceId/docs/voiceId-mvp-2.md` covers the next stage:
 ECAPA-backed verification, quality-first gating, expanded calibration fixtures,
 intent binding, and wallet/robot policy integration. Camera-backed liveness is
-tracked separately in `docs/voiceID/voiceId-camera-liveness-future.md`.
+tracked separately in `voiceId/docs/voiceId-camera-liveness-future.md`.
 
 ## Purpose
 

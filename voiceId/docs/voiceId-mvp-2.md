@@ -24,7 +24,7 @@ signing flows through the dedicated SigningWorker, and Deriver A/B remain off
 the hot signing path except for setup/export/recovery/SigningWorker refresh.
 
 Camera, face, mouth, and lip-sync extraction are outside MVP 2. They are tracked
-in `docs/voiceID/voiceId-camera-liveness-future.md`.
+in `voiceId/docs/voiceId-camera-liveness-future.md`.
 
 ## Scope Boundary
 
@@ -411,7 +411,7 @@ shortest possible operation window.
 MVP 2 keeps a typed liveness/owner-presence result boundary so wallet, robot,
 and Router A/B policy can distinguish accepted, rejected, and uncertain
 branches. Camera-backed liveness timing is deferred to
-`docs/voiceID/voiceId-camera-liveness-future.md`.
+`voiceId/docs/voiceId-camera-liveness-future.md`.
 
 The current MVP liveness boundary should focus on:
 
@@ -741,7 +741,7 @@ type VoiceIdOwnerPresenceResult =
 Accepted results require accepted phrase, speaker, quality, and intent checks.
 Browser-only policy experiments may configure liveness as `not_required` only
 when the policy explicitly allows it. Camera-backed liveness requirements belong
-to `docs/voiceID/voiceId-camera-liveness-future.md`.
+to `voiceId/docs/voiceId-camera-liveness-future.md`.
 
 The implemented policy surface lives in `voiceId/shared/src/policy.ts` and is
 exported through the VoiceID server index. `VoiceIdIntentDigest` is an unpadded
@@ -904,7 +904,7 @@ Policy:
 3. Current browser-first policy experiments use voice, phrase, intent binding,
    device/session policy, and step-up rules without claiming camera liveness.
 4. Camera-backed liveness policy is tracked separately in
-   `docs/voiceID/voiceId-camera-liveness-future.md`.
+   `voiceId/docs/voiceId-camera-liveness-future.md`.
 
 Validation:
 
@@ -914,7 +914,7 @@ Validation:
 3. Missing liveness does not silently downgrade into accepted policy when policy
    requires liveness.
 4. Camera-specific validation lives in
-   `docs/voiceID/voiceId-camera-liveness-future.md`.
+   `voiceId/docs/voiceId-camera-liveness-future.md`.
 
 ## Workstream 6: Wallet, MPC, And Robot Policy
 
@@ -1079,7 +1079,7 @@ Remaining order:
 8. Defer Router A/B admission-adapter and signing tests until the normal SDK
    path works.
 9. Future camera, face, mouth, and lip-sync work lives in
-   `docs/voiceID/voiceId-camera-liveness-future.md`.
+   `voiceId/docs/voiceId-camera-liveness-future.md`.
 
 ## Research Basis
 

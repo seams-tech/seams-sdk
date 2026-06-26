@@ -8,7 +8,7 @@ Related docs:
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
 - [VoiceID normal SDK transaction signing plan](voiceId-normal-sdk-transaction-signing.md)
 - [VoiceID Router policy issuer](voiceId-router-policy-issuer.md)
-- [Router A/B signer architecture](../router-a-b-SPEC.md)
+- [Router A/B signer architecture](../../docs/router-a-b-SPEC.md)
 
 ## Goal
 

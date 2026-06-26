@@ -142,7 +142,7 @@ Missing liveness should return `uncertain` for signing flows unless policy
 explicitly allows voice-only demo mode.
 
 Camera, face, mouth, and lip-sync liveness are deferred to
-`docs/voiceID/voiceId-camera-liveness-future.md`.
+`voiceId/docs/voiceId-camera-liveness-future.md`.
 
 ## Cloudflare Primary Deployment
 

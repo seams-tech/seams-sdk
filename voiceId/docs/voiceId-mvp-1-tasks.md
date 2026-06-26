@@ -32,7 +32,7 @@ MVP 2 now documents the recommended answers for verifier runtime mode, quality
 semantics, template format, threshold config, fixture targets, transcript
 provider, intent digest schema, policy result shape, storage boundary, and
 fallback model policy. Camera-backed liveness work has moved to
-`docs/voiceID/voiceId-camera-liveness-future.md`.
+`voiceId/docs/voiceId-camera-liveness-future.md`.
 The Python verifier now has an ECAPA runtime path behind the existing app
 boundary: it decodes/resamples audio with `ffmpeg`, runs quality-first gates,
 applies a lightweight frame-energy VAD before speaker scoring, extracts
@@ -71,18 +71,18 @@ The immediate integration target is the normal SDK: mount VoiceID through
 `RelayRouterModule`, exercise the API and owner-presence policy result, and keep
 Router A/B out of the first SDK test path. The later Router A/B admission
 adapter contract is documented in
-`docs/voiceID/voiceId-router-policy-issuer.md` for the signing phase after
+`voiceId/docs/voiceId-router-policy-issuer.md` for the signing phase after
 normal SDK testing works.
 The phased normal-SDK transaction-signing TODO list lives in
-`docs/voiceID/voiceId-normal-sdk-transaction-signing.md`.
+`voiceId/docs/voiceId-normal-sdk-transaction-signing.md`.
 The SDK auth-method integration plan lives in
-`docs/voiceID/voiceId-sdk-auth-method-integration.md`.
-The VoiceID UI/UX requirements live in `docs/voiceID/voiceID-UI.md`.
+`voiceId/docs/voiceId-sdk-auth-method-integration.md`.
+The VoiceID UI/UX requirements live in `voiceId/voiceId/docs-UI.md`.
 The VoiceID API now exposes `POST /voice-id/owner-presence/authorize`, which
 combines a completed verification record, `intentDigest`, use case, and typed
 liveness or owner-presence signals into one authorization decision. Camera,
 face, mouth, and lip-sync extraction are explicitly out of scope for this MVP
-and tracked separately in `docs/voiceID/voiceId-camera-liveness-future.md`.
+and tracked separately in `voiceId/docs/voiceId-camera-liveness-future.md`.
 The TypeScript service and Cloudflare factory now expose a typed speaker
 threshold config boundary. Fake mode defaults to `0.82`; ECAPA local-dev and
 Cloudflare sidecar flows default to the current fixture-calibrated `0.6352`
@@ -92,10 +92,10 @@ WebCrypto-backed `intentDigest` builder, and a spoken-command parser for token
 transfers, wallet-session authorization, and basic robot commands.
 
 This task plan implements the standalone browser-captured, server-verified
-VoiceID MVP described in `docs/voiceID/voiceId-mvp-1.md`.
+VoiceID MVP described in `voiceId/docs/voiceId-mvp-1.md`.
 
 The follow-on ECAPA, quality-gating, intent-binding, liveness, and wallet/MPC
-policy plan is in `docs/voiceID/voiceId-mvp-2.md`.
+policy plan is in `voiceId/docs/voiceId-mvp-2.md`.
 
 ## Implementation Shape
 
@@ -269,18 +269,18 @@ Remaining:
   - [x] keep the loop independent from signing APIs
   - [ ] manually run the browser microphone loop end to end
 - [ ] Implement the phased normal-SDK transaction-signing plan in
-  `docs/voiceID/voiceId-normal-sdk-transaction-signing.md`.
+  `voiceId/docs/voiceId-normal-sdk-transaction-signing.md`.
 - [ ] Implement the SDK auth-method integration plan in
-  `docs/voiceID/voiceId-sdk-auth-method-integration.md`.
+  `voiceId/docs/voiceId-sdk-auth-method-integration.md`.
 - [ ] Implement the VoiceID UI/UX requirements in
-  `docs/voiceID/voiceID-UI.md`.
+  `voiceId/voiceId/docs-UI.md`.
 - [ ] Add independent human different-speaker clips before tightening thresholds
   or making stronger security claims.
 - [ ] Compare fallback pretrained speaker-verification models only if ECAPA has
   calibration, licensing, latency, or deployment problems.
 - [ ] After normal SDK testing works, implement the concrete Router A/B
   admission adapter described in
-  `docs/voiceID/voiceId-router-policy-issuer.md`.
+  `voiceId/docs/voiceId-router-policy-issuer.md`.
 - [ ] Add a later Router A/B signing test from accepted VoiceID wallet policy
   decision to Router admission, SigningWorker prepare/finalize, and signature.
 
@@ -1079,7 +1079,7 @@ Validation:
 
 Goal: add local owner-presence policy for robotics and embedded devices.
 Camera, face, mouth, and lip-sync tasks are tracked separately in
-`docs/voiceID/voiceId-camera-liveness-future.md`. This phase keeps only the
+`voiceId/docs/voiceId-camera-liveness-future.md`. This phase keeps only the
 typed owner-presence boundary needed by the current MVP.
 
 - [x] Add liveness result types:
@@ -1163,7 +1163,7 @@ should not enter the normal VoiceID signing path.
   `intentDigest`.
 - [x] Add embedded device/sidecar policy boundary.
 - [x] Document the Router A/B admission adapter contract in
-  `docs/voiceID/voiceId-router-policy-issuer.md`.
+  `voiceId/docs/voiceId-router-policy-issuer.md`.
 - [x] Test the normal SDK path before implementing the Router A/B signer
   adapter:
   - [x] mount VoiceID through `RelayRouterModule`
