@@ -51,6 +51,10 @@ import {
   type ConsoleBillingPrepaidReservationService,
 } from '../../console/billingPrepaidReservations';
 import {
+  createD1ConsoleKeyExportService,
+  type ConsoleKeyExportService,
+} from '../../console/keyExports';
+import {
   createD1ConsoleOrgProjectEnvService,
   type ConsoleOrgProjectEnvService,
 } from '../../console/orgProjectEnv';
@@ -149,6 +153,7 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
   readonly approvals: ConsoleApprovalService;
+  readonly keyExports: ConsoleKeyExportService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -166,6 +171,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
   readonly approvals: ConsoleApprovalService;
+  readonly keyExports: ConsoleKeyExportService;
   readonly bootstrapTokens: ConsoleBootstrapTokenService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
@@ -495,6 +501,17 @@ async function createCloudflareD1Approvals(
   });
 }
 
+async function createCloudflareD1KeyExports(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleKeyExportService> {
+  return await createD1ConsoleKeyExportService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1Audit(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleAuditService> {
@@ -601,6 +618,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly wallets: ConsoleWalletService;
   readonly apiKeys: ConsoleApiKeyService;
   readonly approvals: ConsoleApprovalService;
+  readonly keyExports: ConsoleKeyExportService;
   readonly audit: ConsoleAuditService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
@@ -617,6 +635,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
     wallets: input.wallets,
     apiKeys: input.apiKeys,
     approvals: input.approvals,
+    keyExports: input.keyExports,
     audit: input.audit,
     billing: input.billing,
     prepaidReservations: input.prepaidReservations,
@@ -641,6 +660,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
   const wallets = await createCloudflareD1Wallets(normalized);
   const apiKeys = await createCloudflareD1ApiKeys(normalized);
   const approvals = await createCloudflareD1Approvals(normalized);
+  const keyExports = await createCloudflareD1KeyExports(normalized);
   const audit = await createCloudflareD1Audit(normalized);
   const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
   const billing = await createCloudflareD1Billing(normalized);
@@ -658,6 +678,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     wallets,
     apiKeys,
     approvals,
+    keyExports,
     audit,
     billing,
     prepaidReservations,
@@ -674,6 +695,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     wallets,
     apiKeys,
     approvals,
+    keyExports,
     bootstrapTokens,
     audit,
     billing,

@@ -479,6 +479,10 @@ export type {
 export type {
   ConsoleKeyExportsContext,
   ConsoleKeyExportService,
+  ConsoleKeyExportsD1Runtime,
+  ConsoleKeyExportD1Service,
+  D1ConsoleKeyExportSchemaOptions,
+  D1ConsoleKeyExportServiceOptions,
   InMemoryConsoleKeyExportServiceOptions,
   PostgresConsoleKeyExportSchemaOptions,
   PostgresConsoleKeyExportServiceOptions,
@@ -717,6 +721,11 @@ export {
   ConsoleSponsorshipSpendCapError,
 } from '../console/sponsorshipSpendCaps';
 export {
+  CONSOLE_KEY_EXPORTS_D1_RUNTIME,
+  CONSOLE_KEY_EXPORTS_D1_SCHEMA_SQL,
+  createD1ConsoleKeyExportService,
+  ensureConsoleKeyExportsD1Schema,
+  getConsoleKeyExportsD1Runtime,
   createInMemoryConsoleKeyExportService,
   ensureConsoleKeyExportsPostgresSchema,
   createPostgresConsoleKeyExportService,

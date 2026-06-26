@@ -13,6 +13,7 @@ import {
 } from '../../packages/sdk-server-ts/src/console/billing/d1';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
 import { createD1ConsoleBootstrapTokenService } from '../../packages/sdk-server-ts/src/console/bootstrapTokens/d1';
+import { createD1ConsoleKeyExportService } from '../../packages/sdk-server-ts/src/console/keyExports/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
 import {
@@ -152,6 +153,23 @@ class RuntimeSnapshotOutboxRaceHarness {
 
   async competitorDispatch(event: ConsoleRuntimeSnapshotOutboxEvent): Promise<void> {
     this.dispatchedEventIds.push(`competitor:${event.eventId}`);
+  }
+}
+
+class TestMutableClock {
+  private currentMs: number;
+
+  constructor(initialIso: string) {
+    this.currentMs = Date.parse(initialIso);
+    this.now = this.now.bind(this);
+  }
+
+  set(iso: string): void {
+    this.currentMs = Date.parse(iso);
+  }
+
+  now(): Date {
+    return new Date(this.currentMs);
   }
 }
 
@@ -1388,6 +1406,176 @@ test.describe('D1 adapter contracts', () => {
         expect.objectContaining({ id: policyPublish.id }),
         expect.objectContaining({ id: keyExport.id }),
       ]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('key export adapter records MFA approvals through D1 conditional updates', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const clock = new TestMutableClock('2026-06-27T02:40:00.000Z');
+      const service = await createD1ConsoleKeyExportService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: clock.now,
+      });
+      const requesterCtx = {
+        orgId: 'org-d1-key-exports-primary',
+        actorUserId: 'user-d1-key-exports-requester',
+        roles: ['admin'],
+      };
+      const approverCtx = {
+        orgId: requesterCtx.orgId,
+        actorUserId: 'user-d1-key-exports-approver',
+        roles: ['security_admin'],
+      };
+      const finalApproverCtx = {
+        orgId: requesterCtx.orgId,
+        actorUserId: 'user-d1-key-exports-final-approver',
+        roles: ['security_admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-key-exports-secondary',
+        actorUserId: 'user-d1-key-exports-secondary',
+        roles: ['security_admin'],
+      };
+
+      const created = await service.createKeyExport(requesterCtx, {
+        id: 'key-export-d1-root',
+        environmentId: 'env-d1-key-exports-prod',
+        walletId: 'wallet-d1-key-export',
+        mode: 'APPROVAL_REQUIRED',
+        reason: 'Export encrypted root share for custody recovery',
+        requiredApprovals: 2,
+        constraints: {
+          roles: ['owner', 'owner', 'security_admin'],
+          chains: ['Base'],
+          walletTypes: ['EOA'],
+          environmentIds: ['env-d1-key-exports-prod'],
+        },
+      });
+      expect(created).toMatchObject({
+        id: 'key-export-d1-root',
+        orgId: requesterCtx.orgId,
+        environmentId: 'env-d1-key-exports-prod',
+        walletId: 'wallet-d1-key-export',
+        status: 'PENDING_APPROVAL',
+        requestedByUserId: requesterCtx.actorUserId,
+        requiredApprovals: 2,
+        approvals: [],
+        constraints: {
+          roles: ['owner', 'security_admin'],
+          chains: ['Base'],
+          walletTypes: ['EOA'],
+          environmentIds: ['env-d1-key-exports-prod'],
+        },
+        createdAt: '2026-06-27T02:40:00.000Z',
+      });
+
+      await expect(service.listKeyExports(secondaryCtx)).resolves.toHaveLength(0);
+      await expect(
+        service.approveKeyExport(secondaryCtx, created.id, {
+          reason: 'Cross tenant approval',
+          mfaVerified: true,
+        }),
+      ).resolves.toBeNull();
+
+      let duplicateCreateError: unknown = null;
+      try {
+        await service.createKeyExport(requesterCtx, {
+          id: created.id,
+          environmentId: 'env-d1-key-exports-prod',
+          reason: 'Duplicate export',
+        });
+      } catch (error: unknown) {
+        duplicateCreateError = error;
+      }
+      expect(errorCode(duplicateCreateError)).toBe('key_export_exists');
+
+      let missingMfaError: unknown = null;
+      try {
+        await service.approveKeyExport(approverCtx, created.id, {
+          reason: 'Approve without MFA',
+          mfaVerified: false,
+        });
+      } catch (error: unknown) {
+        missingMfaError = error;
+      }
+      expect(errorCode(missingMfaError)).toBe('mfa_required');
+
+      clock.set('2026-06-27T02:41:00.000Z');
+      const firstApproval = await service.approveKeyExport(approverCtx, created.id, {
+        reason: 'MFA verified',
+        mfaVerified: true,
+      });
+      expect(firstApproval).toMatchObject({
+        status: 'PENDING_APPROVAL',
+        approvals: [
+          {
+            approverUserId: approverCtx.actorUserId,
+            approvedAt: '2026-06-27T02:41:00.000Z',
+            reason: 'MFA verified',
+            mfaVerified: true,
+          },
+        ],
+      });
+
+      await expect(
+        service.approveKeyExport(approverCtx, created.id, {
+          reason: 'Duplicate approval',
+          mfaVerified: true,
+        }),
+      ).rejects.toMatchObject({ code: 'already_approved' });
+
+      await expect(
+        service.listKeyExports(requesterCtx, {
+          environmentId: 'env-d1-key-exports-prod',
+          status: 'PENDING_APPROVAL',
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: created.id })]);
+
+      clock.set('2026-06-27T02:42:00.000Z');
+      const finalApproval = await service.approveKeyExport(finalApproverCtx, created.id, {
+        reason: 'Second approval',
+        mfaVerified: true,
+      });
+      expect(finalApproval).toMatchObject({
+        status: 'APPROVED',
+        updatedAt: '2026-06-27T02:42:00.000Z',
+      });
+      expect(finalApproval?.approvals).toHaveLength(2);
+
+      await expect(
+        service.approveKeyExport(finalApproverCtx, created.id, {
+          reason: 'Too late',
+          mfaVerified: true,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_state' });
+
+      await expect(
+        service.listKeyExports(requesterCtx, { status: 'APPROVED' }),
+      ).resolves.toEqual([expect.objectContaining({ id: created.id })]);
+
+      clock.set('2026-06-27T02:43:00.000Z');
+      const second = await service.createKeyExport(requesterCtx, {
+        id: 'key-export-d1-dev',
+        environmentId: 'env-d1-key-exports-dev',
+        mode: 'ALLOWED_WITH_CONSTRAINTS',
+        reason: 'Development export',
+        requiredApprovals: 1,
+      });
+      expect(second).toMatchObject({
+        status: 'PENDING_APPROVAL',
+        mode: 'ALLOWED_WITH_CONSTRAINTS',
+        requiredApprovals: 1,
+      });
+      await expect(
+        service.listKeyExports(requesterCtx, {
+          environmentId: 'env-d1-key-exports-dev',
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: second.id })]);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
