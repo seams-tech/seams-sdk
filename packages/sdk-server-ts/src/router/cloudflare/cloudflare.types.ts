@@ -1,3 +1,6 @@
+import type { CloudflareDurableObjectNamespaceLike } from '../../core/types';
+import type { D1DatabaseLike } from '../../storage/tenantRoute';
+
 // Minimal Worker runtime types (avoid adding @cloudflare/workers-types dependency here)
 export type CfEnv = object;
 
@@ -41,6 +44,12 @@ export interface RelayCloudflareWorkerEnv {
 
   // Optional: Threshold signing (2-party FROST).
   // The SDK enables `/threshold-ed25519/*` endpoints when `thresholdStore` is configured.
+}
+
+export interface SeamsD1DoTenantStorageWorkerEnv {
+  CONSOLE_DB: D1DatabaseLike;
+  SIGNER_DB: D1DatabaseLike;
+  THRESHOLD_STORE: CloudflareDurableObjectNamespaceLike;
 }
 
 export interface CfExecutionContext {

@@ -21,6 +21,7 @@ import type {
   ConsoleObservabilityService,
 } from '../console/observability';
 import type { SessionAdapter } from './relay';
+import type { TenantStorageRouteResolver } from '../storage/tenantRoute';
 
 export type ConsoleRole =
   | 'owner'
@@ -51,7 +52,19 @@ export interface ConsoleAuthAdapter {
   authenticate(headers: HeaderRecord): Promise<ConsoleAuthAdapterResult> | ConsoleAuthAdapterResult;
 }
 
-export interface ConsoleRouterOptions {
+export type ConsoleTenantStorageRoutingOptions =
+  | {
+      tenantStorageRouteResolver?: null | undefined;
+      tenantStorageNamespace?: never;
+    }
+  | {
+      tenantStorageRouteResolver: TenantStorageRouteResolver;
+      tenantStorageNamespace: string;
+    };
+
+export type ConsoleRouterOptions = ConsoleRouterBaseOptions & ConsoleTenantStorageRoutingOptions;
+
+export interface ConsoleRouterBaseOptions {
   healthz?: boolean;
   readyz?: boolean;
   /**

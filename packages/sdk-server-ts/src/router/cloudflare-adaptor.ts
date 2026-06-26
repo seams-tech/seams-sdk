@@ -669,6 +669,7 @@ export {
 export type {
   CfEnv,
   RelayCloudflareWorkerEnv,
+  SeamsD1DoTenantStorageWorkerEnv,
   CfExecutionContext,
   CfScheduledEvent,
   CfEmailMessage,
@@ -676,6 +677,48 @@ export type {
   ScheduledHandler,
   EmailHandler,
 } from './cloudflare/cloudflare.types';
+export type {
+  CloudflareTenantStorageRoute,
+  CloudflareTenantTopology,
+  ConsoleD1StorageTarget,
+  ConsolePostgresStorageTarget,
+  ConsoleStorageTarget,
+  D1BindingName,
+  D1DatabaseLike,
+  D1DatabaseName,
+  D1PreparedStatementLike,
+  DurableObjectBindingName,
+  HyperdriveBindingLike,
+  HyperdriveBindingName,
+  NamespaceId,
+  OrgId,
+  PostgresMigrationReason,
+  PostgresSchemaName,
+  PostgresTenantStorageRoute,
+  ResolveTenantStorageRouteInput,
+  RouteVersion,
+  SignerD1DoStorageTarget,
+  SignerPostgresStorageTarget,
+  SignerStorageTarget,
+  StaticCloudflareTenantStorageRouteResolverBindingInput,
+  StaticCloudflareTenantStorageRouteResolverInput,
+  TenantDataJurisdiction,
+  TenantStorageBackendFamily,
+  TenantStorageRoute,
+  TenantStorageRouteDiagnostic,
+  TenantStorageRouteResolver,
+  TenantStoreFactory,
+} from '../storage/tenantRoute';
+export {
+  StaticCloudflareTenantStorageRouteResolver,
+  createCloudflareTenantStorageRoute,
+  createConsoleD1StorageTarget,
+  createSignerD1DoStorageTarget,
+  createStaticCloudflareTenantStorageRouteResolver,
+  createStaticCloudflareTenantStorageRouteResolverFromBindings,
+  tenantStorageRouteBackendFamily,
+  tenantStorageRouteDiagnostic,
+} from '../storage/tenantRoute';
 
 export type { CloudflareEmailHandlerOptions } from './cloudflare/email';
 export { createCloudflareEmailHandler } from './cloudflare/email';

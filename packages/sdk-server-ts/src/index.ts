@@ -158,6 +158,7 @@ export type {
   RelayRouteExtensionTransport,
 } from './router/routeExtensions';
 export * from './router/ror';
+export * from './storage/tenantRoute';
 export * from './console/account';
 export * from './console/gasSponsorship';
 export * from './console/sponsorshipSpendCaps';

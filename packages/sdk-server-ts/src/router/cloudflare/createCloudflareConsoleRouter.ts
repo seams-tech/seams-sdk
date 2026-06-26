@@ -194,6 +194,12 @@ import type { RouteDefinition } from '../routeDefinitions';
 import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { headersToRecord, json, readJson } from './http';
+import {
+  tenantStorageRouteDiagnostic,
+  type TenantStorageRoute,
+  type TenantStorageRouteDiagnostic,
+  type TenantStorageRouteResolver,
+} from '../../storage/tenantRoute';
 
 export interface CloudflareConsoleContext {
   request: Request;
@@ -225,6 +231,10 @@ export interface CloudflareConsoleContext {
   account: ConsoleAccountService | null;
   observability: ConsoleObservabilityService | null;
   observabilityIngestion: ConsoleObservabilityIngestionService | null;
+  tenantStorageRouteResolver: TenantStorageRouteResolver | null;
+  tenantStorageNamespace: string | null;
+  tenantStorageRoute?: TenantStorageRoute;
+  tenantStorageRouteDiagnostic?: TenantStorageRouteDiagnostic;
   authClaims?: ConsoleAuthClaims;
 }
 
@@ -777,7 +787,35 @@ async function requireConsoleAuth(
     return { ok: false, response: sendAuthFailure(auth) };
   }
   ctx.authClaims = auth.claims;
+  const routeResolutionFailure = resolveTenantStorageRouteForConsoleRequest(ctx, auth.claims);
+  if (routeResolutionFailure) {
+    return { ok: false, response: routeResolutionFailure };
+  }
   return { ok: true, claims: auth.claims };
+}
+
+function resolveTenantStorageRouteForConsoleRequest(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+): Response | null {
+  if (!ctx.tenantStorageRouteResolver) return null;
+  if (!ctx.tenantStorageNamespace) {
+    return json(
+      {
+        ok: false,
+        code: 'tenant_storage_namespace_not_configured',
+        message: 'Tenant storage namespace is not configured on this server',
+      },
+      { status: 500 },
+    );
+  }
+  const route = ctx.tenantStorageRouteResolver.resolveTenantStorageRoute({
+    namespace: ctx.tenantStorageNamespace,
+    orgId: claims.orgId,
+  });
+  ctx.tenantStorageRoute = route;
+  ctx.tenantStorageRouteDiagnostic = tenantStorageRouteDiagnostic(route);
+  return null;
 }
 
 function requireBillingService(ctx: CloudflareConsoleContext): ConsoleBillingService | Response {
@@ -4422,6 +4460,10 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const observability = opts.observability === undefined ? null : opts.observability;
   const observabilityIngestion =
     opts.observabilityIngestion === undefined ? null : opts.observabilityIngestion;
+  const tenantStorageRouteResolver = opts.tenantStorageRouteResolver || null;
+  const tenantStorageNamespace = tenantStorageRouteResolver
+    ? String(opts.tenantStorageNamespace || '').trim() || null
+    : null;
 
   const handlers: Array<(ctx: CloudflareConsoleContext) => Promise<Response | null>> = [
     handleConsoleHealth,
@@ -4492,6 +4534,8 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       account,
       observability,
       observabilityIngestion,
+      tenantStorageRouteResolver,
+      tenantStorageNamespace,
     };
 
     try {

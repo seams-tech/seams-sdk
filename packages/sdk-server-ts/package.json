@@ -33,6 +33,11 @@
       "default": "./dist/esm/storage/postgres.js",
       "types": "./dist/types/sdk-server-ts/src/storage/postgres.d.ts"
     },
+    "./storage/tenant-route": {
+      "import": "./dist/esm/storage/tenantRoute.js",
+      "default": "./dist/esm/storage/tenantRoute.js",
+      "types": "./dist/types/sdk-server-ts/src/storage/tenantRoute.d.ts"
+    },
     "./wasm/signer": {
       "import": "./dist/esm/wasm/signer.js",
       "default": "./dist/esm/wasm/signer.js",
