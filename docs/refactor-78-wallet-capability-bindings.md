@@ -31,6 +31,12 @@ Ed25519 signer.
 This refactor makes that model explicit. Core code must pass narrow capability
 bindings instead of deriving one identity from another.
 
+Refactor 79 consumes these capability bindings as exact signing-lane authority:
+`NearEd25519SignerBinding` and `EvmFamilyEcdsaSignerBinding` are wrapped under
+`ExactSigningLaneIdentity.signer`, while Refactor 78 remains the owner of the
+wallet/account/signer capability model. Refactor 79 owns exact-lane keys,
+selection, restore, export, budget, and operation-state enforcement.
+
 ## Original Problem
 
 The implementation audit found several post-refactor paths that treated

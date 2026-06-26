@@ -25,6 +25,8 @@ const EMAIL_OTP_ECDSA_RESTORE = {
 } as const;
 
 const PASSKEY_ED25519_RESTORE = {
+  nearAccountId: 'sealed-ed25519.testnet',
+  nearEd25519SigningKeyId: 'near-ed25519-sealed-ed25519',
   rpId: 'wallet.example.localhost',
   relayerKeyId: 'relayer-key',
   participantIds: [1, 2, 3],
@@ -2183,6 +2185,59 @@ test.describe('signing session sealed store', () => {
     );
     expect(result.published?.updatedAtMs).toBe(22_222);
     expect(result.ecdsaAfterClear).toBeNull();
+  });
+
+  test('persists split NEAR Ed25519 sealed session identity', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+
+        const walletId = 'frost-vermillion-k7p9m2';
+        const nearAccountId =
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+        const nearEd25519SigningKeyId = 'near-ed25519-frost-vermillion-k7p9m2';
+        const thresholdSessionId = 'split-ed25519-sealed-session';
+
+        await mod.writeExactSealedSession(
+          mod.buildCurrentSealedSessionRecord({
+            thresholdSessionId,
+            signingGrantId: 'split-ed25519-wallet-session',
+            curve: 'ed25519',
+            thresholdSessionIds: { ed25519: thresholdSessionId },
+            authMethod: 'passkey',
+            walletId,
+            userId: walletId,
+            signingRootId: 'split-ed25519-root',
+            ed25519Restore: {
+              ...PASSKEY_ED25519_RESTORE,
+              nearAccountId,
+              nearEd25519SigningKeyId,
+            },
+            relayerUrl: 'https://relay.example',
+            sealedSecretB64u: 'sealed-split-ed25519',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 5,
+            updatedAtMs: 33_333,
+          })!,
+        );
+
+        return await mod.readExactSealedSession(thresholdSessionId, {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result?.walletId).toBe('frost-vermillion-k7p9m2');
+    expect(result?.ed25519Restore?.nearAccountId).toBe(
+      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    );
+    expect(result?.ed25519Restore?.nearEd25519SigningKeyId).toBe(
+      'near-ed25519-frost-vermillion-k7p9m2',
+    );
+    expect(result?.updatedAtMs).toBe(33_333);
   });
 
   test('can delete durable sealed record through explicit exact-purpose options', async ({

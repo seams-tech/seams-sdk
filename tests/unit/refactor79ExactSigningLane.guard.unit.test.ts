@@ -232,10 +232,26 @@ test('Refactor 79 planning lane base does not carry optional session identity', 
     'type BaseResolvedSigningSessionIdentity =',
     'export type ResolvedEd25519SigningSessionIdentity =',
   );
+  const summarySource = sourceRangeBetween(
+    source,
+    'export function summarizeSigningLane(lane: SigningSessionPlanningLane): SigningLaneSummary {',
+    'function normalizeLaneIdentityField(value: unknown): string {',
+  );
 
   expect(basePlanningLane).not.toContain('thresholdSessionId?:');
   expect(basePlanningLane).not.toContain('backingMaterialSessionId?:');
   expect(basePlanningLane).not.toContain('activeSignerSlot?:');
+  for (const staleSignerField of [
+    'walletId:',
+    'nearAccountId:',
+    'nearEd25519SigningKeyId:',
+    'chainTarget:',
+    'keyHandle:',
+    'key:',
+  ]) {
+    expect(basePlanningLane).not.toContain(staleSignerField);
+    expect(runtimeState).not.toContain(staleSignerField);
+  }
   expect(source).not.toMatch(/backingMaterialSessionId\?:\s*BackingMaterialSessionId/);
   expect(source).not.toMatch(/activeSignerSlot\?:\s*number/);
   expect(runtimeState).toContain("runtimeState: 'no_runtime_material';");
@@ -243,6 +259,12 @@ test('Refactor 79 planning lane base does not carry optional session identity', 
   expect(runtimeState).toContain("runtimeState: 'active_signer';");
   expect(runtimeState).toContain("runtimeState: 'backing_material_with_active_signer';");
   expect(resolvedIdentity).toContain('BranchSigningSessionRuntimeState');
+  expect(summarySource).toContain('const signer = lane.identity.signer;');
+  expect(summarySource).not.toContain('lane.walletId');
+  expect(summarySource).not.toContain('lane.nearAccountId');
+  expect(summarySource).not.toContain('lane.nearEd25519SigningKeyId');
+  expect(summarySource).not.toContain('lane.chainTarget');
+  expect(summarySource).not.toContain('lane.keyHandle');
 });
 
 test('Refactor 79 Email OTP ECDSA worker handles are wallet-key scoped', () => {

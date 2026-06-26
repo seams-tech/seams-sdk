@@ -2,8 +2,9 @@
 
 Date created: June 22, 2026
 
-Status: implemented and audited for exact signing-lane authority. Phase 12 is
-non-blocking cleanup for temporary projections, aliases, and small type sidecars.
+Status: implemented and audited, including Phase 12 cleanup for temporary
+projections, aliases, IndexedDB split-identity coverage, and small type
+sidecars.
 
 Related plans:
 
@@ -1560,7 +1561,7 @@ Tasks:
 - [x] Update selected lanes, planning lanes, and spend plans so core authority
       flows carry `identity: ExactSigningLaneIdentity` instead of rebuilding
       exact identity from repeated flat branch fields.
-- [ ] Continue readiness-record and operation-state projection cleanup so
+- [x] Continue readiness-record and operation-state projection cleanup so
       non-authority runtime records consume selected/planning lane `identity`
       instead of accepting their own flat branch authority fields.
 - [x] Update exact-lane boundary parsers for public API, iframe, UiConfirm,
@@ -1612,7 +1613,7 @@ Tasks:
       `key` on `ExactSigningLaneIdentity`.
 - [x] Add type fixtures proving exhaustive switches over `identity.signer.kind`
       narrow the threshold-session id to the correct branch.
-- [ ] Add IndexedDB repository tests for wallet signer rows, key-material rows,
+- [x] Add IndexedDB repository tests for wallet signer rows, key-material rows,
       sealed session rows, nonce leases, and last-profile state using an implicit
       fixture where `walletId !== nearAccountId !== nearEd25519SigningKeyId`.
 - [x] Add source guards rejecting fallback/coercion patterns such as
@@ -1624,7 +1625,7 @@ Tasks:
 - [x] Add storage parser tests proving obsolete persisted `ed25519KeyScopeId`
       shapes are either upgraded at the boundary into
       `nearEd25519SigningKeyId` or rejected with a typed persistence error.
-- [ ] Update docs/refactor-78-wallet-capability-bindings.md to reference this
+- [x] Update docs/refactor-78-wallet-capability-bindings.md to reference this
       phase as the consumer of its signer binding model, without duplicating the
       exact-lane implementation plan there.
 
@@ -1995,15 +1996,15 @@ Findings to fix before completion:
 - [x] Phase 11: `ExactSigningLaneIdentity` root shape collapses branch-specific
   protocol/key fields under `signer`, using `NearEd25519SignerBinding` and
   `EvmFamilyEcdsaSignerBinding`.
-- [ ] Phase 12: delete temporary selected/planning lane projections,
+- [x] Phase 12: delete temporary selected/planning lane projections,
   `walletSessionUserId` ECDSA aliases, and duplicate diagnostic summary helpers
   after exact identity cutover. The tiny confirmation-config type sidecar has
   been merged.
 
 ## Review: Final Targeted Auditor Pass, 2026-06-26
 
-Status: final targeted Refactor 79 authority findings are addressed. The
-remaining Phase 12 items are code-shape cleanup and are not authority blockers.
+Status: final targeted Refactor 79 authority findings are addressed, and Phase
+12 cleanup is closed.
 
 - [x] P1: Ed25519 persisted session lane keys were too broad. The canonical key
   and matcher now include `walletId`, `nearAccountId`,
