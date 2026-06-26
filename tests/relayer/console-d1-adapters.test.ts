@@ -6,6 +6,7 @@ import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
+import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
 import {
   createD1ConsoleRuntimeSnapshotService,
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
@@ -651,6 +652,187 @@ test.describe('D1 adapter contracts', () => {
         ? await service.listOrganizationMembers('org-d1-team-rbac-other')
         : [];
       expect(otherOrgMembers).toEqual([]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('policy adapter bootstraps defaults and resolves published scope precedence', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const service = await createD1ConsolePolicyService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date('2026-06-27T00:00:00.000Z'),
+      });
+      const ctx = {
+        orgId: 'org-d1-policies',
+        actorUserId: 'user-d1-policies',
+        roles: ['admin'],
+      };
+
+      const initialPolicies = await service.listPolicies(ctx);
+      expect(initialPolicies).toHaveLength(1);
+      const defaultPolicy = initialPolicies[0];
+      expect(defaultPolicy).toMatchObject({
+        orgId: ctx.orgId,
+        isSystemDefault: true,
+        kind: 'TRANSACTION',
+        status: 'PUBLISHED',
+        version: 1,
+      });
+
+      const defaultVersions = await service.listPolicyVersions(ctx, defaultPolicy.id);
+      expect(defaultVersions).toEqual([
+        expect.objectContaining({
+          policyId: defaultPolicy.id,
+          version: 1,
+          actorUserId: 'system-bootstrap',
+        }),
+      ]);
+
+      let defaultDeleteError: unknown = null;
+      try {
+        await service.deletePolicy(ctx, defaultPolicy.id);
+      } catch (error: unknown) {
+        defaultDeleteError = error;
+      }
+      expect(errorCode(defaultDeleteError)).toBe('default_policy_protected');
+
+      const created = await service.createPolicy(ctx, {
+        kind: 'TRANSACTION',
+        name: 'D1 Project Policy',
+        rules: {
+          allowedChains: ['eip155:84532'],
+          blockedActions: ['delete_wallet'],
+        },
+        assignment: {
+          scopeType: 'PROJECT',
+          scopeId: 'project-d1-policy',
+        },
+      });
+      expect(created.status).toBe('DRAFT');
+      expect(created.version).toBe(0);
+
+      const firstPublish = await service.publishPolicy(ctx, created.id);
+      expect(firstPublish?.policy).toMatchObject({
+        id: created.id,
+        status: 'PUBLISHED',
+        version: 1,
+      });
+
+      const updated = await service.updatePolicy(ctx, created.id, {
+        rules: {
+          allowedChains: ['eip155:1'],
+          blockedActions: ['delete_wallet'],
+        },
+      });
+      expect(updated?.status).toBe('DRAFT');
+      const secondPublish = await service.publishPolicy(ctx, created.id);
+      expect(secondPublish?.policy.version).toBe(2);
+
+      const versions = await service.listPolicyVersions(ctx, created.id);
+      expect(versions?.map((version) => version.version)).toEqual([2, 1]);
+      expect(versions?.map((version) => version.actorUserId)).toEqual([
+        ctx.actorUserId,
+        ctx.actorUserId,
+      ]);
+
+      const allowedSimulation = await service.simulatePolicy(ctx, created.id, {
+        action: 'sign_transaction',
+        chain: 'eip155:1',
+        amountMinor: 1,
+      });
+      expect(allowedSimulation?.decision).toBe('ALLOW');
+
+      const deniedSimulation = await service.simulatePolicy(ctx, created.id, {
+        action: 'sign_transaction',
+        chain: 'eip155:84532',
+        amountMinor: 1,
+      });
+      expect(deniedSimulation?.decision).toBe('DENY');
+      expect(deniedSimulation?.denyReasons.map((reason) => reason.code)).toContain(
+        'CHAIN_NOT_ALLOWED',
+      );
+
+      const envAssignment = await service.upsertAssignment(ctx, {
+        scopeType: 'ENVIRONMENT',
+        scopeId: 'env-d1-policy',
+        policyId: created.id,
+      });
+      const resolved = await service.resolvePoliciesForWallets(ctx, [
+        {
+          walletId: 'wallet-d1-env',
+          projectId: 'project-d1-policy',
+          environmentId: 'env-d1-policy',
+        },
+        {
+          walletId: 'wallet-d1-project',
+          projectId: 'project-d1-policy',
+        },
+        {
+          walletId: 'wallet-d1-default',
+        },
+      ]);
+      expect(resolved).toEqual({
+        'wallet-d1-env': created.id,
+        'wallet-d1-project': created.id,
+        'wallet-d1-default': defaultPolicy.id,
+      });
+
+      const removedAssignment = await service.deleteAssignment(ctx, envAssignment.id);
+      expect(removedAssignment.removed).toBe(true);
+      const resolvedAfterDelete = await service.resolvePoliciesForWallets(ctx, [
+        {
+          walletId: 'wallet-d1-env',
+          projectId: 'project-d1-policy',
+          environmentId: 'env-d1-policy',
+        },
+      ]);
+      expect(resolvedAfterDelete['wallet-d1-env']).toBe(created.id);
+
+      const gasPolicy = await service.createPolicy(ctx, {
+        kind: 'GAS_SPONSORSHIP',
+        name: 'D1 Gas Policy',
+        rules: {
+          kind: 'evm_call',
+          scopeType: 'ENVIRONMENT',
+          projectId: 'project-d1-policy',
+          environmentId: 'env-d1-policy',
+          allowedCalls: [
+            {
+              chainId: 84532,
+              to: '0x1111111111111111111111111111111111111111',
+              functionSignature: 'mint(address)',
+              maxGasLimit: '100000',
+              maxValueWei: '0',
+            },
+          ],
+        },
+      });
+
+      let gasAssignmentError: unknown = null;
+      try {
+        await service.upsertAssignment(ctx, {
+          scopeType: 'WALLET',
+          scopeId: 'wallet-d1-gas',
+          policyId: gasPolicy.id,
+        });
+      } catch (error: unknown) {
+        gasAssignmentError = error;
+      }
+      expect(errorCode(gasAssignmentError)).toBe('policy_assignment_unsupported');
+
+      const otherCtx = {
+        orgId: 'org-d1-policies-other',
+        actorUserId: 'user-d1-policies-other',
+        roles: ['admin'],
+      };
+      await expect(service.getPolicy(otherCtx, created.id)).resolves.toBeNull();
+      const otherPolicies = await service.listPolicies(otherCtx);
+      expect(otherPolicies).toHaveLength(1);
+      expect(otherPolicies[0].id).not.toBe(defaultPolicy.id);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

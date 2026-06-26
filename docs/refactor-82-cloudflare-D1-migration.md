@@ -65,19 +65,20 @@ Completed so far:
 - Added tenant storage route types that make D1/DO and Postgres full-family
   choices.
 - Added D1 adapters for org/project/environment records, account profiles,
-  team RBAC, prepaid billing reservations, sponsored call records, runtime
-  snapshot storage/outbox, and sealed signing-root secret shares.
+  team RBAC, policies, prepaid billing reservations, sponsored call records,
+  runtime snapshot storage/outbox, and sealed signing-root secret shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
-- Wired D1 org/project/env, Team RBAC, account/profile, and signer secret
-  storage into the Cloudflare service bundle.
+- Wired D1 org/project/env, Team RBAC, account/profile, policies, and signer
+  secret storage into the Cloudflare service bundle.
 - Added local Wrangler/Miniflare D1 configuration, append-only migrations,
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
-  resolution, team RBAC owner/member lifecycle invariants, prepaid reservation
-  atomicity, sponsored-call idempotency, and signer secret tenant scoping.
+  resolution, team RBAC owner/member lifecycle invariants, policy default
+  bootstrap/versioning/assignment resolution, prepaid reservation atomicity,
+  sponsored-call idempotency, and signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -265,7 +266,7 @@ Current Postgres coupling is concentrated in:
 | Approvals | `console_approvals` | `CONSOLE_DB` D1 | Replace `FOR UPDATE` approval transitions with state-specific conditional updates. |
 | Audit | `console_audit_events`, `console_audit_evidence` | `CONSOLE_DB` D1 | Append-only tenant rows. Store evidence JSON as `TEXT` and parse at adapter boundary. |
 | Bootstrap tokens | `console_bootstrap_tokens` | `CONSOLE_DB` D1 | Replace redemption row locks with conditional `UPDATE ... WHERE status = 'issued' AND used_count < max_uses`. |
-| Policies | `console_policies`, `console_policy_versions`, `console_policy_assignments` | `CONSOLE_DB` D1 | Store policy JSON as `TEXT`; maintain tenant-first indexes and system-default uniqueness. |
+| Policies | `console_policies`, `console_policy_versions`, `console_policy_assignments` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, system-default uniqueness, publish-version history, and assignment-resolution contract test are in place. Policy JSON is stored as `TEXT`. |
 | API keys | `console_api_keys` | `CONSOLE_DB` D1 | Keep auth lookup index on key hash/kind plus tenant identity. |
 | Wallet index | `console_wallet_index` | `CONSOLE_DB` D1 | Queryable dashboard index only; signer ownership stays in `SIGNER_DB`/DO. |
 | Billing | `console_billing_accounts`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_stripe_webhook_events` | `CONSOLE_DB` D1 | Ledger and Stripe event idempotency stay append-only. Monthly finalization uses D1 batches or a Worker job with idempotent resume markers. |
@@ -311,11 +312,11 @@ Current Postgres coupling is concentrated in:
 
 Before D1 staging, these adapters must exist behind domain-store ports:
 
-- Console D1 remaining: approvals, audit, bootstrap tokens, policies, API keys,
+- Console D1 remaining: approvals, audit, bootstrap tokens, API keys,
   wallet index, billing ledger, spend caps, key exports, webhooks, and compact
   observability rollups.
-- Console D1 in place: org/project/env, account/profile, team RBAC, prepaid
-  reservations, sponsored calls, and runtime snapshots.
+- Console D1 in place: org/project/env, account/profile, team RBAC, policies,
+  prepaid reservations, sponsored calls, and runtime snapshots.
 - Signer D1: WebAuthn, registration ceremonies, wallet metadata, auth methods,
   email OTP, recovery, identity links, app sessions, threshold key metadata,
   and sealed signing-root secret shares.
@@ -777,18 +778,20 @@ Completed:
 
 1. Inventory current Postgres coupling in `seams-signer` and `seams-console`.
 2. Define the first D1 schemas and Durable Object ownership boundaries.
-3. Add D1 adapters for org/project/env, account/profile, team RBAC, prepaid
-   reservations, sponsored calls, runtime snapshots, and sealed signing-root
-   secret shares.
+3. Add D1 adapters for org/project/env, account/profile, team RBAC, policies,
+   prepaid reservations, sponsored calls, runtime snapshots, and sealed
+   signing-root secret shares.
 4. Make local development run on Wrangler/Miniflare D1 for the implemented D1
    adapters.
 5. Port focused adapter tests to D1 for the implemented D1 adapters.
 
 Next:
 
-1. Add the remaining console D1 adapters, starting with policies.
-2. Add D1 billing ledger settlement finalization for sponsored EVM gas
+1. Add D1 billing ledger settlement finalization for sponsored EVM gas
    payments.
+2. Add the remaining console D1 adapters: approvals, audit, bootstrap tokens,
+   API keys, wallet index, spend caps, key exports, webhooks, and compact
+   observability rollups.
 3. Add the remaining signer D1 metadata adapters for wallet auth and WebAuthn.
 4. Add Durable Object tests for normal-signing admission quotas and signing-root
    coordination.

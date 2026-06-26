@@ -76,6 +76,20 @@ export {
   createPostgresConsolePolicyService,
 } from './postgres';
 
+export type {
+  D1ConsolePolicySchemaOptions,
+  D1ConsolePolicyServiceOptions,
+  ConsolePolicyD1Runtime,
+  ConsolePolicyD1Service,
+} from './d1';
+export {
+  CONSOLE_POLICY_D1_RUNTIME,
+  CONSOLE_POLICY_D1_SCHEMA_SQL,
+  ensureConsolePolicyD1Schema,
+  createD1ConsolePolicyService,
+  getConsolePolicyD1Runtime,
+} from './d1';
+
 export {
   parseCreateConsolePolicyRequest,
   parseListConsolePoliciesRequest,

@@ -270,6 +270,8 @@ export type {
 export type {
   ConsolePoliciesContext,
   ConsolePolicyService,
+  D1ConsolePolicySchemaOptions,
+  D1ConsolePolicyServiceOptions,
   InMemoryConsolePolicyServiceOptions,
   PostgresConsolePolicySchemaOptions,
   PostgresConsolePolicyServiceOptions,
@@ -568,6 +570,10 @@ export {
   ConsoleWalletError,
 } from '../console/wallets';
 export { createInMemoryConsolePolicyService } from '../console/policies/service';
+export {
+  createD1ConsolePolicyService,
+  ensureConsolePolicyD1Schema,
+} from '../console/policies';
 export {
   ensureConsolePoliciesPostgresSchema,
   createPostgresConsolePolicyService,
