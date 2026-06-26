@@ -56,7 +56,7 @@ const kekProvider: SigningRootKekProvider = {
 };
 
 const route: CloudflareTenantStorageRoute = {
-  kind: 'cloudflare',
+  kind: 'cloudflare_d1_do',
   namespace: 'seams',
   orgId: 'org_test',
   routeVersion: 1,

@@ -1,7 +1,7 @@
 import type { CloudflareDurableObjectNamespaceLike } from '../core/types';
 import type { SigningRootKekProvider } from '../core/ThresholdService/signingRootKekProvider';
 
-export type TenantStorageBackendFamily = 'cloudflare' | 'postgres';
+export type TenantStorageBackendFamily = 'cloudflare_d1_do' | 'postgres';
 export type CloudflareTenantTopology = 'shared' | 'dedicated_tenant';
 export type TenantDataJurisdiction = 'automatic' | 'wnam' | 'enam' | 'weur' | 'eeur' | 'apac';
 export type PostgresMigrationReason =
@@ -96,7 +96,7 @@ export type ConsoleStorageTarget = ConsoleD1StorageTarget | ConsolePostgresStora
 export type SignerStorageTarget = SignerD1DoStorageTarget | SignerPostgresStorageTarget;
 
 export type CloudflareTenantStorageRoute = {
-  readonly kind: 'cloudflare';
+  readonly kind: 'cloudflare_d1_do';
   readonly namespace: NamespaceId;
   readonly orgId: OrgId;
   readonly routeVersion: RouteVersion;
@@ -238,7 +238,7 @@ export function createCloudflareTenantStorageRoute(input: {
   readonly signer: SignerD1DoStorageTarget;
 }): CloudflareTenantStorageRoute {
   return {
-    kind: 'cloudflare',
+    kind: 'cloudflare_d1_do',
     namespace: normalizeRequiredString(input.namespace, 'namespace'),
     orgId: normalizeRequiredString(input.orgId, 'orgId'),
     routeVersion: normalizeRouteVersion(input.routeVersion),
@@ -312,8 +312,8 @@ export function tenantStorageRouteBackendFamily(
   route: TenantStorageRoute,
 ): TenantStorageBackendFamily {
   switch (route.kind) {
-    case 'cloudflare':
-      return 'cloudflare';
+    case 'cloudflare_d1_do':
+      return 'cloudflare_d1_do';
     case 'postgres':
       return 'postgres';
     default:

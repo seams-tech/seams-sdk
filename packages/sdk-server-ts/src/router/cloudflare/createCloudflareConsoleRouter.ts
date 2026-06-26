@@ -192,7 +192,7 @@ import {
 } from '../../storage/tenantRoute';
 
 type CloudflareConsoleTenantStorageRouteDiagnostic = {
-  readonly backendFamily: 'cloudflare';
+  readonly backendFamily: 'cloudflare_d1_do';
   readonly namespace: string;
   readonly orgId: string;
   readonly routeVersion: number;
@@ -812,7 +812,7 @@ function resolveTenantStorageRouteForConsoleRequest(
   });
   ctx.tenantStorageRoute = route;
   ctx.tenantStorageRouteDiagnostic = {
-    backendFamily: 'cloudflare',
+    backendFamily: 'cloudflare_d1_do',
     namespace: route.namespace,
     orgId: route.orgId,
     routeVersion: route.routeVersion,

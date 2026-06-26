@@ -133,7 +133,7 @@ const resolvedRoute = resolver.resolveTenantStorageRoute({
   namespace: 'seams',
   orgId: 'org_test',
 });
-const resolvedRouteKind: 'cloudflare' = resolvedRoute.kind;
+const resolvedRouteKind: 'cloudflare_d1_do' = resolvedRoute.kind;
 
 const resolverFromBindings = createStaticCloudflareTenantStorageRouteResolverFromBindings({
   routeVersion: 1,
@@ -153,10 +153,10 @@ const resolvedFromBindings = resolverFromBindings.resolveTenantStorageRoute({
   namespace: 'seams',
   orgId: 'org_test',
 });
-const resolvedFromBindingsKind: 'cloudflare' = resolvedFromBindings.kind;
+const resolvedFromBindingsKind: 'cloudflare_d1_do' = resolvedFromBindings.kind;
 
 const invalidCloudflareConsoleTarget: CloudflareTenantStorageRoute = {
-  kind: 'cloudflare',
+  kind: 'cloudflare_d1_do',
   namespace: 'seams',
   orgId: 'org_test',
   routeVersion: 1,
@@ -168,7 +168,7 @@ const invalidCloudflareConsoleTarget: CloudflareTenantStorageRoute = {
 };
 
 const invalidCloudflareSignerTarget: CloudflareTenantStorageRoute = {
-  kind: 'cloudflare',
+  kind: 'cloudflare_d1_do',
   namespace: 'seams',
   orgId: 'org_test',
   routeVersion: 1,
@@ -180,7 +180,7 @@ const invalidCloudflareSignerTarget: CloudflareTenantStorageRoute = {
 };
 
 const invalidCloudflareMigrationReason: CloudflareTenantStorageRoute = {
-  kind: 'cloudflare',
+  kind: 'cloudflare_d1_do',
   namespace: 'seams',
   orgId: 'org_test',
   routeVersion: 1,
