@@ -1,37 +1,42 @@
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
-import type { ConsoleBillingD1Runtime, ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingService } from '../console/billing/service';
+import type { ConsoleBillingD1Runtime } from '../console/billing/d1';
 import {
   createSponsoredExecutionDebitD1InsertStatement,
   getConsoleBillingD1Runtime,
-} from '../console/billing';
+} from '../console/billing/d1';
 import type {
   ConsoleBillingPrepaidReservation,
+} from '../console/billingPrepaidReservations/types';
+import type {
   ConsoleBillingPrepaidReservationD1Runtime,
+} from '../console/billingPrepaidReservations/d1';
+import type {
   ConsoleBillingPrepaidReservationService,
-} from '../console/billingPrepaidReservations';
+} from '../console/billingPrepaidReservations/service';
 import {
-  ConsoleBillingPrepaidReservationError,
   createReleaseConsoleBillingPrepaidReservationD1Statement,
   createSettleConsoleBillingPrepaidReservationD1Statement,
   getConsoleBillingPrepaidReservationD1Runtime,
-} from '../console/billingPrepaidReservations';
+} from '../console/billingPrepaidReservations/d1';
+import { ConsoleBillingPrepaidReservationError } from '../console/billingPrepaidReservations/errors';
 import type {
-  ConsoleSponsoredCallD1Runtime,
   ConsoleSponsoredCallExecutorKind,
   ConsoleSponsoredCallFeeUnit,
   ConsoleSponsoredCallReceiptStatus,
   ConsoleSponsoredCallRecord,
-  ConsoleSponsoredCallService,
   CreateConsoleSponsoredCallRecordRequest,
-} from '../console/sponsoredCalls';
+} from '../console/sponsoredCalls/types';
+import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls/service';
+import type { ConsoleSponsoredCallD1Runtime } from '../console/sponsoredCalls/d1';
 import {
   createD1ConsoleSponsoredCallRecordInsertStatement,
   getConsoleSponsoredCallD1Runtime,
   loadD1ConsoleSponsoredCallRecordById,
   loadD1ConsoleSponsoredCallRecordByIdempotencyKey,
-} from '../console/sponsoredCalls';
+} from '../console/sponsoredCalls/d1';
 import type { ConsoleBillingContext } from '../console/billing/service';
-import type { ConsoleBillingPrepaidReservationContext } from '../console/billingPrepaidReservations';
+import type { ConsoleBillingPrepaidReservationContext } from '../console/billingPrepaidReservations/service';
 import type { ConsoleSponsoredCallContext } from '../console/sponsoredCalls/service';
 import type { D1PreparedStatementLike } from '../storage/tenantRoute';
 import type { RouteResponse } from './routeExecutionContext';

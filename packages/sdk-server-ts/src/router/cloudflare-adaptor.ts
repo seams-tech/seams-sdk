@@ -186,8 +186,10 @@ export {
   createD1ConsoleBootstrapTokenService,
   ensureConsoleBootstrapTokensD1Schema,
   getConsoleBootstrapTokensD1Runtime,
+} from '../console/bootstrapTokens/d1';
+export {
   createInMemoryConsoleBootstrapTokenService,
-} from '../console/bootstrapTokens';
+} from '../console/bootstrapTokens/service';
 export type {
   ConsoleAuditExportsContext,
   ConsoleAuditExportsService,
@@ -533,94 +535,138 @@ export type {
 export {
   createD1ConsoleOrgProjectEnvService,
   ensureConsoleOrgProjectEnvD1Schema,
+} from '../console/orgProjectEnv/d1';
+export {
   createInMemoryConsoleOrgProjectEnvService,
+} from '../console/orgProjectEnv/service';
+export {
   isConsoleOrgProjectEnvError,
   ConsoleOrgProjectEnvError,
-} from '../console/orgProjectEnv';
+} from '../console/orgProjectEnv/errors';
 export {
   createD1ConsoleTeamRbacService,
   ensureConsoleTeamRbacD1Schema,
+} from '../console/teamRbac/d1';
+export {
   createInMemoryConsoleTeamRbacService,
+} from '../console/teamRbac/service';
+export {
   parseListConsoleTeamMembersRequest,
   parseInviteConsoleTeamMemberRequest,
   parseUpdateConsoleTeamMemberRolesRequest,
+} from '../console/teamRbac/requests';
+export {
   isConsoleTeamRbacError,
   ConsoleTeamRbacError,
-} from '../console/teamRbac';
+} from '../console/teamRbac/errors';
 export {
   CONSOLE_APPROVALS_D1_RUNTIME,
   CONSOLE_APPROVALS_D1_SCHEMA_SQL,
   createD1ConsoleApprovalService,
   ensureConsoleApprovalsD1Schema,
   getConsoleApprovalsD1Runtime,
+} from '../console/approvals/d1';
+export {
   createInMemoryConsoleApprovalService,
+} from '../console/approvals/service';
+export {
   parseListConsoleApprovalsRequest,
   parseCreateConsoleApprovalRequest,
   parseApproveConsoleApprovalRequest,
   parseRejectConsoleApprovalRequest,
+} from '../console/approvals/requests';
+export {
   isConsoleApprovalsError,
   ConsoleApprovalsError,
-} from '../console/approvals';
+} from '../console/approvals/errors';
 export {
   CONSOLE_AUDIT_D1_RUNTIME,
   CONSOLE_AUDIT_D1_SCHEMA_SQL,
   createD1ConsoleAuditService,
   ensureConsoleAuditD1Schema,
   getConsoleAuditD1Runtime,
+} from '../console/audit/d1';
+export {
   createInMemoryConsoleAuditService,
+} from '../console/audit/service';
+export {
   parseListConsoleAuditEventsRequest,
   parseListConsoleAuditEvidenceRequest,
+} from '../console/audit/requests';
+export {
   isConsoleAuditError,
   ConsoleAuditError,
-} from '../console/audit';
+} from '../console/audit/errors';
 export {
   createInMemoryConsoleAuditExportsService,
+} from '../console/auditExports/service';
+export {
   parseListConsoleAuditExportsRequest,
   parseCreateConsoleAuditExportRequest,
+} from '../console/auditExports/requests';
+export {
   isConsoleAuditExportsError,
   ConsoleAuditExportsError,
-} from '../console/auditExports';
+} from '../console/auditExports/errors';
 export {
   createInMemoryConsoleEnterpriseIsolationService,
+} from '../console/enterpriseIsolation/service';
+export {
   parseGetConsoleEnterpriseIsolationRequest,
   parseTriggerConsoleEnterpriseIsolationRequest,
+} from '../console/enterpriseIsolation/requests';
+export {
   isConsoleEnterpriseIsolationError,
   ConsoleEnterpriseIsolationError,
-} from '../console/enterpriseIsolation';
+} from '../console/enterpriseIsolation/errors';
 export {
   createInMemoryConsoleOnboardingService,
+} from '../console/onboarding/service';
+export {
   parseGetConsoleOnboardingStateRequest,
   parseCreateConsoleOnboardingOrganizationRequest,
   parseCreateConsoleOnboardingProjectRequest,
+} from '../console/onboarding/requests';
+export {
   isConsoleOnboardingError,
   ConsoleOnboardingError,
-} from '../console/onboarding';
+} from '../console/onboarding/errors';
 export {
   createD1ConsoleAccountService,
   ensureConsoleAccountD1Schema,
+} from '../console/account/d1';
+export {
   createInMemoryConsoleAccountService,
+} from '../console/account/service';
+export {
   parsePatchConsoleAccountProfileRequest,
   parseCreateConsoleAccountOrganizationRequest,
   parseUpdateConsoleAccountOrganizationRequest,
   parseTransferConsoleAccountOrganizationOwnerRequest,
+} from '../console/account/requests';
+export {
   isConsoleAccountError,
   ConsoleAccountError,
-} from '../console/account';
+} from '../console/account/errors';
 export {
   CONSOLE_WALLETS_D1_RUNTIME,
   CONSOLE_WALLETS_D1_SCHEMA_SQL,
   createD1ConsoleWalletService,
   ensureConsoleWalletsD1Schema,
   getConsoleWalletsD1Runtime,
+} from '../console/wallets/d1';
+export {
   createInMemoryConsoleWalletService,
+} from '../console/wallets/service';
+export {
   isConsoleWalletError,
   ConsoleWalletError,
-} from '../console/wallets';
+} from '../console/wallets/errors';
 export { createInMemoryConsolePolicyService } from '../console/policies/service';
 export {
   createD1ConsolePolicyService,
   ensureConsolePolicyD1Schema,
-} from '../console/policies';
+} from '../console/policies/d1';
 export { isConsolePolicyError, ConsolePolicyError } from '../console/policies/errors';
 export {
   CONSOLE_API_KEYS_D1_RUNTIME,
@@ -628,38 +674,51 @@ export {
   createD1ConsoleApiKeyService,
   ensureConsoleApiKeysD1Schema,
   getConsoleApiKeysD1Runtime,
+} from '../console/apiKeys/d1';
+export {
   createInMemoryConsoleApiKeyService,
+} from '../console/apiKeys/service';
+export {
   isConsoleApiKeyError,
   ConsoleApiKeyError,
-} from '../console/apiKeys';
+} from '../console/apiKeys/errors';
 export {
   createInMemoryConsoleBillingService,
+} from '../console/billing/service';
+export {
   ensureConsoleBillingD1Schema,
   createD1ConsoleBillingService,
   getConsoleBillingD1Runtime,
   createSponsoredExecutionDebitD1InsertStatement,
   runD1ConsoleBillingMonthlyFinalization,
+} from '../console/billing/d1';
+export {
   createDefaultBillingProviderAdapters,
   resolveBillingProviderAdapters,
+} from '../console/billing/providers';
+export {
   isConsoleBillingError,
   ConsoleBillingError,
-} from '../console/billing';
+} from '../console/billing/errors';
 export {
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME,
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_SCHEMA_SQL,
-  createInMemoryConsoleBillingPrepaidReservationService,
   createReleaseConsoleBillingPrepaidReservationD1Statement,
   createSettleConsoleBillingPrepaidReservationD1Statement,
   ensureConsoleBillingPrepaidReservationD1Schema,
   createD1ConsoleBillingPrepaidReservationService,
   getConsoleBillingPrepaidReservationD1Runtime,
+} from '../console/billingPrepaidReservations/d1';
+export {
+  createInMemoryConsoleBillingPrepaidReservationService,
+} from '../console/billingPrepaidReservations/service';
+export {
   isConsoleBillingPrepaidReservationError,
   ConsoleBillingPrepaidReservationError,
-} from '../console/billingPrepaidReservations';
+} from '../console/billingPrepaidReservations/errors';
 export {
   CONSOLE_SPONSORED_CALL_D1_RUNTIME,
   CONSOLE_SPONSORED_CALL_D1_SCHEMA_SQL,
-  createInMemoryConsoleSponsoredCallService,
   createD1ConsoleSponsoredCallRecordInsertStatement,
   createD1ConsoleSponsoredCallRecord,
   createD1ConsoleSponsoredCallService,
@@ -667,48 +726,73 @@ export {
   getConsoleSponsoredCallD1Runtime,
   loadD1ConsoleSponsoredCallRecordById,
   loadD1ConsoleSponsoredCallRecordByIdempotencyKey,
+} from '../console/sponsoredCalls/d1';
+export {
+  createInMemoryConsoleSponsoredCallService,
+} from '../console/sponsoredCalls/service';
+export {
   listConsoleSponsoredCallReconciliationPage,
+} from '../console/sponsoredCalls/reconciliation';
+export {
   parseListConsoleSponsoredCallRecordsRequest,
+} from '../console/sponsoredCalls/requests';
+export {
   isConsoleSponsoredCallError,
   ConsoleSponsoredCallError,
-} from '../console/sponsoredCalls';
+} from '../console/sponsoredCalls/errors';
 export {
   CONSOLE_WEBHOOKS_D1_RUNTIME,
   CONSOLE_WEBHOOKS_D1_SCHEMA_SQL,
   createAesGcmConsoleWebhookSecretCipher,
   createD1ConsoleWebhookService,
-  createInMemoryConsoleWebhookService,
   ensureConsoleWebhooksD1Schema,
   getConsoleWebhooksD1Runtime,
   runD1ConsoleWebhookRetryDispatch,
+} from '../console/webhooks/d1';
+export {
+  createInMemoryConsoleWebhookService,
+} from '../console/webhooks/service';
+export {
   isConsoleWebhookError,
   ConsoleWebhookError,
-} from '../console/webhooks';
+} from '../console/webhooks/errors';
 export {
   CONSOLE_SPONSORSHIP_SPEND_CAP_D1_RUNTIME,
   CONSOLE_SPONSORSHIP_SPEND_CAP_D1_SCHEMA_SQL,
   createD1ConsoleSponsorshipSpendCapService,
   ensureConsoleSponsorshipSpendCapD1Schema,
   getConsoleSponsorshipSpendCapD1Runtime,
+} from '../console/sponsorshipSpendCaps/d1';
+export {
   createInMemoryConsoleSponsorshipSpendCapService,
+} from '../console/sponsorshipSpendCaps/service';
+export {
   isConsoleSponsorshipSpendCapError,
   ConsoleSponsorshipSpendCapError,
-} from '../console/sponsorshipSpendCaps';
+} from '../console/sponsorshipSpendCaps/errors';
 export {
   CONSOLE_KEY_EXPORTS_D1_RUNTIME,
   CONSOLE_KEY_EXPORTS_D1_SCHEMA_SQL,
   createD1ConsoleKeyExportService,
   ensureConsoleKeyExportsD1Schema,
   getConsoleKeyExportsD1Runtime,
+} from '../console/keyExports/d1';
+export {
   createInMemoryConsoleKeyExportService,
+} from '../console/keyExports/service';
+export {
   parseListConsoleKeyExportsRequest,
   parseCreateConsoleKeyExportRequest,
   parseApproveConsoleKeyExportRequest,
+} from '../console/keyExports/requests';
+export {
   isConsoleKeyExportError,
   ConsoleKeyExportError,
-} from '../console/keyExports';
+} from '../console/keyExports/errors';
 export {
   createInMemoryConsoleRuntimeSnapshotService,
+} from '../console/runtimeSnapshots/service';
+export {
   CONSOLE_RUNTIME_SNAPSHOT_D1_RUNTIME,
   CONSOLE_RUNTIME_SNAPSHOT_D1_SCHEMA_SQL,
   createD1ConsoleRuntimeSnapshotService,
@@ -716,37 +800,51 @@ export {
   getConsoleRuntimeSnapshotD1Runtime,
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
   runD1ConsoleRuntimeSnapshotRetentionCleanup,
+} from '../console/runtimeSnapshots/d1';
+export {
   parseListConsoleRuntimeSnapshotsRequest,
   parseGetLatestConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,
   parsePublishCurrentConsoleRuntimeSnapshotRequest,
+} from '../console/runtimeSnapshots/requests';
+export {
   isConsoleRuntimeSnapshotError,
   ConsoleRuntimeSnapshotError,
-} from '../console/runtimeSnapshots';
+} from '../console/runtimeSnapshots/errors';
 export {
   CONSOLE_OBSERVABILITY_D1_RUNTIME,
   CONSOLE_OBSERVABILITY_INGESTION_D1_RUNTIME,
   CONSOLE_OBSERVABILITY_D1_SCHEMA_SQL,
   createD1ConsoleObservabilityService,
   createD1ConsoleObservabilityIngestionService,
-  createInMemoryConsoleObservabilityService,
   ensureConsoleObservabilityD1Schema,
   getConsoleObservabilityD1Runtime,
   getConsoleObservabilityIngestionD1Runtime,
+} from '../console/observability/d1';
+export {
+  createInMemoryConsoleObservabilityService,
+} from '../console/observability/service';
+export {
   redactConsoleObservabilityMetadata,
+} from '../console/observability/redaction';
+export {
   buildWebhookDeadLetterObservabilityEvent,
   buildWebhookRetryExhaustedObservabilityEvent,
   buildWebhookEndpointDegradedObservabilityEvent,
   buildBillingFailureObservabilityEvent,
   buildBillingStripeWebhookFailureObservabilityEvent,
   buildApprovalFailureObservabilityEvent,
+} from '../console/observability/adapters';
+export {
   parseGetConsoleObservabilitySummaryRequest,
   parseListConsoleObservabilityEventsRequest,
   parseGetConsoleObservabilityTimeseriesRequest,
   parseListConsoleObservabilityServicesRequest,
+} from '../console/observability/requests';
+export {
   isConsoleObservabilityError,
   ConsoleObservabilityError,
-} from '../console/observability';
+} from '../console/observability/errors';
 
 export type {
   CfEnv,

@@ -1,23 +1,29 @@
+import { ConsoleBillingError } from '../console/billing/errors';
+import type { ConsoleBillingService } from '../console/billing/service';
+import type {
+  BillingAccountActivityRequest,
+  BillingAccountActivityResult,
+  BillingManualAdjustmentRequest,
+  BillingOverview,
+} from '../console/billing/types';
 import {
-  ConsoleBillingError,
   parseBillingAccountActivityRequest,
   parseBillingManualAdjustmentRequest,
-  type BillingAccountActivityRequest,
-  type BillingAccountActivityResult,
-  type BillingManualAdjustmentRequest,
-  type BillingOverview,
-  type ConsoleBillingService,
-} from '../console/billing';
+} from '../console/billing/requests';
 import type {
   ConsoleOrgProjectEnvService,
+} from '../console/orgProjectEnv/service';
+import type {
   ConsoleOrganization,
   ConsoleProject,
-} from '../console/orgProjectEnv';
+} from '../console/orgProjectEnv/types';
+import type {
+  ConsoleTeamRbacService,
+} from '../console/teamRbac/service';
 import type {
   ConsoleTeamMember,
   ConsoleTeamMembershipStatus,
-  ConsoleTeamRbacService,
-} from '../console/teamRbac';
+} from '../console/teamRbac/types';
 import {
   readRequiredStringField,
   readOptionalQueryStringField,

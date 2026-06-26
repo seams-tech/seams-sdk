@@ -183,6 +183,10 @@ Completed so far:
 - Pointed the Cloudflare console router, Cloudflare observability route helper,
   API credential helper, and app-session auth helper at console leaf modules so
   Worker request paths do not import mixed console barrels at runtime.
+- Pointed Cloudflare adaptor runtime exports, sponsored settlement helpers,
+  platform billing helpers, API wallet helpers, sponsorship billing events, and
+  runtime snapshot payload helpers at leaf modules. The non-Express router
+  runtime graph now has no console barrel imports or re-exports.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and
@@ -1023,6 +1027,8 @@ Completed baseline:
   unions.
 - The Cloudflare console router and observability route helper import service,
   request, error, type, and D1 leaves directly instead of mixed console barrels.
+- A runtime import scan over non-Express router modules reports no console
+  barrel imports or re-exports. Express remains the Node/Postgres-facing path.
 
 Proceed in this order:
 

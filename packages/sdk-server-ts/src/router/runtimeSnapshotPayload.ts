@@ -1,8 +1,8 @@
 import {
   projectConsoleGasSponsorshipPolicyProjection,
-  resolveSponsoredCallPoliciesFromProjections,
   sortConsoleGasSponsorshipPolicyProjections,
-} from '../console/gasSponsorship';
+} from '../console/gasSponsorship/service';
+import { resolveSponsoredCallPoliciesFromProjections } from '../console/gasSponsorship/onboarding';
 import type { ConsolePolicy, ConsolePolicyService } from '../console/policies';
 import type { ConsoleRuntimeSnapshotPayload } from '../console/runtimeSnapshots';
 

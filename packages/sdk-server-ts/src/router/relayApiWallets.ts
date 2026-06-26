@@ -1,12 +1,10 @@
+import type { ConsoleWalletService, ConsoleWalletsContext } from '../console/wallets/service';
+import type { ConsoleWallet, ConsoleWalletPage } from '../console/wallets/types';
+import { isConsoleWalletError } from '../console/wallets/errors';
 import {
-  type ConsoleWallet,
-  type ConsoleWalletPage,
-  type ConsoleWalletService,
-  type ConsoleWalletsContext,
-  isConsoleWalletError,
   parseListConsoleWalletsRequest,
   parseSearchConsoleWalletsRequest,
-} from '../console/wallets';
+} from '../console/wallets/requests';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolveSecretKeyApiCredentialAuth } from './relayApiCredentialAuth';

@@ -1,12 +1,12 @@
-import type { ConsoleBillingContext, ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingContext, ConsoleBillingService } from '../console/billing/service';
 import { resolveBillingLiveEnvironmentState } from '../console/billing/readiness';
 import type { BillingLiveEnvironmentState } from '../console/billing/types';
 import {
   buildBillingBalanceTransitionObservabilityEvent,
   buildBillingSponsorshipBlockedObservabilityEvent,
-  type ConsoleObservabilityIngestionService,
-} from '../console/observability';
-import type { ConsoleWebhookService } from '../console/webhooks';
+} from '../console/observability/adapters';
+import type { ConsoleObservabilityIngestionService } from '../console/observability/incidentIngest';
+import type { ConsoleWebhookService } from '../console/webhooks/service';
 import type { NormalizedRouterLogger } from './logger';
 
 export interface SponsorshipBillingBalanceSnapshot {
