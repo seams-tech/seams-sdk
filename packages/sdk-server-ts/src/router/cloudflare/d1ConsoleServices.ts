@@ -21,80 +21,52 @@ import {
   normalizeSigningRootSecretShareId,
   type SealedSigningRootSecretShare,
 } from '../../core/ThresholdService/signingRootSecretShareWires';
-import {
-  createD1ConsoleAccountService,
-  type ConsoleAccountService,
-} from '../../console/account';
-import {
-  createD1ConsoleApiKeyService,
-  type ConsoleApiKeyService,
-} from '../../console/apiKeys';
-import {
-  createD1ConsoleApprovalService,
-  type ConsoleApprovalService,
-} from '../../console/approvals';
-import {
-  createD1ConsoleAuditService,
-  type ConsoleAuditService,
-} from '../../console/audit';
-import {
-  createD1ConsoleBootstrapTokenService,
-  type ConsoleBootstrapTokenService,
-} from '../../console/bootstrapTokens';
-import {
-  createD1ConsoleBillingService,
-  type BillingProviderAdapters,
-  type ConsoleBillingService,
-} from '../../console/billing';
-import {
-  createD1ConsoleBillingPrepaidReservationService,
-  type ConsoleBillingPrepaidReservationService,
-} from '../../console/billingPrepaidReservations';
-import {
-  createD1ConsoleKeyExportService,
-  type ConsoleKeyExportService,
-} from '../../console/keyExports';
+import { createD1ConsoleAccountService } from '../../console/account/d1';
+import type { ConsoleAccountService } from '../../console/account/service';
+import { createD1ConsoleApiKeyService } from '../../console/apiKeys/d1';
+import type { ConsoleApiKeyService } from '../../console/apiKeys/service';
+import { createD1ConsoleApprovalService } from '../../console/approvals/d1';
+import type { ConsoleApprovalService } from '../../console/approvals/service';
+import { createD1ConsoleAuditService } from '../../console/audit/d1';
+import type { ConsoleAuditService } from '../../console/audit/service';
+import { createD1ConsoleBootstrapTokenService } from '../../console/bootstrapTokens/d1';
+import type { ConsoleBootstrapTokenService } from '../../console/bootstrapTokens/service';
+import { createD1ConsoleBillingService } from '../../console/billing/d1';
+import type { BillingProviderAdapters } from '../../console/billing/providers';
+import type { ConsoleBillingService } from '../../console/billing/service';
+import { createD1ConsoleBillingPrepaidReservationService } from '../../console/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../console/billingPrepaidReservations/service';
+import { createD1ConsoleKeyExportService } from '../../console/keyExports/d1';
+import type { ConsoleKeyExportService } from '../../console/keyExports/service';
 import {
   createD1ConsoleWebhookService,
   type ConsoleWebhookSecretCipher,
-  type ConsoleWebhookService,
-  type WebhookDispatchAdapter,
-} from '../../console/webhooks';
-import {
-  createD1ConsoleOrgProjectEnvService,
-  type ConsoleOrgProjectEnvService,
-} from '../../console/orgProjectEnv';
+} from '../../console/webhooks/d1';
+import type {
+  ConsoleWebhookService,
+  WebhookDispatchAdapter,
+} from '../../console/webhooks/service';
+import { createD1ConsoleOrgProjectEnvService } from '../../console/orgProjectEnv/d1';
+import type { ConsoleOrgProjectEnvService } from '../../console/orgProjectEnv/service';
 import {
   createD1ConsoleObservabilityIngestionService,
   createD1ConsoleObservabilityService,
-  type ConsoleObservabilityIngestionService,
-  type ConsoleObservabilityMetadataRedactionPolicy,
-  type ConsoleObservabilityService,
-} from '../../console/observability';
-import {
-  createD1ConsolePolicyService,
-  type ConsolePolicyService,
-} from '../../console/policies';
-import {
-  createD1ConsoleSponsoredCallService,
-  type ConsoleSponsoredCallService,
-} from '../../console/sponsoredCalls';
-import {
-  createD1ConsoleSponsorshipSpendCapService,
-  type ConsoleSponsorshipSpendCapService,
-} from '../../console/sponsorshipSpendCaps';
-import {
-  createD1ConsoleTeamRbacService,
-  type ConsoleTeamRbacService,
-} from '../../console/teamRbac';
-import {
-  createD1ConsoleWalletService,
-  type ConsoleWalletService,
-} from '../../console/wallets';
-import {
-  createD1ConsoleRuntimeSnapshotService,
-  type ConsoleRuntimeSnapshotService,
-} from '../../console/runtimeSnapshots';
+} from '../../console/observability/d1';
+import type { ConsoleObservabilityIngestionService } from '../../console/observability/incidentIngest';
+import type { ConsoleObservabilityService } from '../../console/observability/service';
+import type { ConsoleObservabilityMetadataRedactionPolicy } from '../../console/observability/types';
+import { createD1ConsolePolicyService } from '../../console/policies/d1';
+import type { ConsolePolicyService } from '../../console/policies/service';
+import { createD1ConsoleSponsoredCallService } from '../../console/sponsoredCalls/d1';
+import type { ConsoleSponsoredCallService } from '../../console/sponsoredCalls/service';
+import { createD1ConsoleSponsorshipSpendCapService } from '../../console/sponsorshipSpendCaps/d1';
+import type { ConsoleSponsorshipSpendCapService } from '../../console/sponsorshipSpendCaps/service';
+import { createD1ConsoleTeamRbacService } from '../../console/teamRbac/d1';
+import type { ConsoleTeamRbacService } from '../../console/teamRbac/service';
+import { createD1ConsoleWalletService } from '../../console/wallets/d1';
+import type { ConsoleWalletService } from '../../console/wallets/service';
+import { createD1ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/d1';
+import type { ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/service';
 import type { RouterAbNormalSigningAdmissionAdapter } from '../routerAbPrivateSigningWorker';
 import {
   createCloudflareDurableObjectRouterAbNormalSigningAdmissionStore,

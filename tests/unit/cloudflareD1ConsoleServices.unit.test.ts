@@ -12,14 +12,18 @@ import type {
   D1PreparedStatementLike,
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/cloudflare.types';
+import localD1DevWorker from '../../packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker';
 
 class FakeD1PreparedStatement implements D1PreparedStatementLike {
+  constructor(private readonly query: string) {}
+
   bind(): D1PreparedStatementLike {
     return this;
   }
 
   async first<T = unknown>(): Promise<T | null> {
-    return null;
+    return firstFakeD1Row<T>(this.query);
   }
 
   async all<T = unknown>(): Promise<D1ResultLike<T>> {
@@ -39,8 +43,8 @@ class FakeD1PreparedStatement implements D1PreparedStatementLike {
 }
 
 class FakeD1Database implements D1DatabaseLike {
-  prepare(): D1PreparedStatementLike {
-    return new FakeD1PreparedStatement();
+  prepare(query: string): D1PreparedStatementLike {
+    return new FakeD1PreparedStatement(query);
   }
 
   async batch<T = unknown>(): Promise<readonly T[]> {
@@ -131,6 +135,27 @@ function settleStorageTransaction<T>(promise: Promise<T>): Promise<void> {
 
 function noop(): void {}
 
+function firstFakeD1Row<T>(query: string): T | null {
+  if (query.includes('sqlite_master') && query.includes('console_runtime_snapshot_outbox')) {
+    return { table_count: 38 } as T;
+  }
+  if (query.includes('sqlite_master') && query.includes('signer_email_otp_registration_attempts')) {
+    return { table_count: 20 } as T;
+  }
+  return null;
+}
+
+function createFakeExecutionContext(): CfExecutionContext {
+  return {
+    waitUntil,
+    passThroughOnException,
+  };
+}
+
+function waitUntil(_promise: Promise<unknown>): void {}
+
+function passThroughOnException(): void {}
+
 function createKekProvider(): SigningRootKekProvider {
   return {
     kind: 'worker_secret',
@@ -183,4 +208,33 @@ test('Cloudflare D1 service bundle wires DO-backed normal-signing admission into
 
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
   await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
+});
+
+test('local D1 Worker ready smoke validates D1 tables and DO admission', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/readyz'),
+    {
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      THRESHOLD_STORE: new MemoryDurableObjectNamespace(),
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: true,
+    backend: 'cloudflare_d1_do',
+    namespace: 'seams-local-test',
+    schemas: {
+      consoleTables: 38,
+      signerTables: 20,
+    },
+    admission: {
+      durableObject: 'configured',
+      quotaReservation: 'accepted',
+    },
+  });
 });

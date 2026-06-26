@@ -113,6 +113,9 @@ Completed so far:
 - Added local Wrangler/Miniflare D1 configuration, append-only migrations,
   smoke Worker, and package scripts.
 - Verified local D1 migrations and `/readyz` smoke against Wrangler.
+- Wired the local D1/DO smoke Worker `/readyz` path to verify the required
+  local D1 table sets and exercise the Durable Object normal-signing admission
+  operation without importing Postgres-backed modules.
 - Added targeted SQLite-backed D1 adapter contract tests for
   org/project/environment tenant scoping, account profile and organization
   resolution, team RBAC owner/member lifecycle invariants, policy default
@@ -156,8 +159,8 @@ Remaining before D1 staging:
 
 - Finish only the console and signer D1 adapters required by the first staging
   dashboard, signer, sponsored gas, billing, and reconciliation flows.
-- Add the remaining local default D1/DO wiring, smoke coverage, and coordination
-  tests required by staging signer flows.
+- Add the remaining local smoke coverage and coordination tests required by
+  staging signer flows.
 - Add local Wrangler/Miniflare smoke coverage for every required D1 table.
 - Add staging import, restore, and R2 export drills.
 - Keep the Postgres escape hatch as a typed full-family contract until a tenant
@@ -876,12 +879,14 @@ Exit criteria:
 
 ### Step 4: Make Local Development D1/DO By Default
 
-Status: partly complete.
+Status: local Worker and bundle smoke complete; full app path still in progress.
 
 Work:
 
 - Make the default local console/signer path use Wrangler/Miniflare D1 and local
   Durable Object storage for staging-required flows.
+- Keep `/readyz` validating the required local D1 table sets and Durable Object
+  normal-signing admission operation.
 - Keep Docker Postgres available only for legacy tests and unfinished non-staging
   paths while those paths are being removed from the default workflow.
 - Add reset, seed, migrate, and smoke commands for local D1/DO.
@@ -977,10 +982,10 @@ Proceed in this order:
    staging-required dashboard, signer, sponsored gas, billing, and
    reconciliation flows.
 3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
-   known next gap is making the local Wrangler/Miniflare development path select
-   the D1/DO bundle by default for staging-required relay and console flows.
+   local Wrangler/Miniflare readiness path now validates required D1 tables and
+   DO-backed normal-signing admission without Postgres modules.
 4. Make local development run on Wrangler/Miniflare D1 and local Durable Object
-   storage by default for staging-required flows.
+   storage by default for the full dashboard/signer application path.
 5. Port staging-required persistence tests to the D1/DO adapters and keep pure
    unit tests on fakes where SQL or Durable Object semantics are irrelevant.
 6. Deploy D1/DO staging only after local D1 smoke, Durable Object coordination
