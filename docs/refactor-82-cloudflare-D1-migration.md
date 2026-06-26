@@ -187,6 +187,9 @@ Completed so far:
   platform billing helpers, API wallet helpers, sponsorship billing events, and
   runtime snapshot payload helpers at leaf modules. The non-Express router
   runtime graph now has no console barrel imports or re-exports.
+- Pointed Cloudflare router session-seal handling and route definition path
+  builders at session-seal transport leaves so Worker routes do not link the
+  Postgres idempotency backend exports from the session-seal barrel.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and

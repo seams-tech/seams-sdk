@@ -51,7 +51,7 @@ import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
-import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal';
+import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal/transport/cloudflare';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
 import {
