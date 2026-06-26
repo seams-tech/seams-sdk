@@ -180,6 +180,9 @@ Completed so far:
 - Removed Postgres adapter exports from the Worker-facing
   `cloudflare-adaptor` barrel and filled in existing D1 exports for prepaid
   reservations, sponsored-call records, and webhook retry dispatch.
+- Pointed the Cloudflare console router, Cloudflare observability route helper,
+  API credential helper, and app-session auth helper at console leaf modules so
+  Worker request paths do not import mixed console barrels at runtime.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and
@@ -1018,6 +1021,8 @@ Completed baseline:
 - The Worker-facing `cloudflare-adaptor` barrel exposes D1/DO and in-memory
   test helpers without re-exporting Postgres adapters or mixed storage route
   unions.
+- The Cloudflare console router and observability route helper import service,
+  request, error, type, and D1 leaves directly instead of mixed console barrels.
 
 Proceed in this order:
 
@@ -1029,8 +1034,8 @@ Proceed in this order:
 3. Wire any remaining D1/DO adapters behind existing domain-store ports. The
    local Wrangler/Miniflare readiness path now validates required D1 tables and
    DO-backed normal-signing admission without Postgres modules.
-4. Audit remaining Cloudflare Worker route modules for accidental imports from
-   Postgres-bearing files.
+4. Audit remaining Cloudflare Worker route dependencies for accidental imports
+   from Postgres-bearing files.
 5. Make local development run on Wrangler/Miniflare D1 and local Durable Object
    storage by default for the full dashboard/signer application path.
 6. Port staging-required persistence tests to the D1/DO adapters and keep pure

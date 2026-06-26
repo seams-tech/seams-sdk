@@ -1,6 +1,6 @@
-import type { ConsoleAuditService } from '../console/audit';
-import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
-import { type ConsoleTeamRbacService } from '../console/teamRbac';
+import type { ConsoleAuditService } from '../console/audit/service';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv/service';
+import type { ConsoleTeamRbacService } from '../console/teamRbac/service';
 import {
   CONSOLE_ORG_SCOPED_TEAM_ROLES,
   type ConsoleOrgScopedTeamRole,

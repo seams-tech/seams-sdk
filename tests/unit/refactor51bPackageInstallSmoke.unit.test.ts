@@ -176,8 +176,11 @@ test.describe('refactor 51b package install smoke', () => {
           if (typeof cloudflareRouter.createCloudflareConsoleRouter !== 'function') {
             throw new Error('missing createCloudflareConsoleRouter export');
           }
-          if (typeof cloudflareRouter.createPostgresConsoleBootstrapTokenService !== 'function') {
-            throw new Error('missing Cloudflare Postgres service export');
+          if (typeof cloudflareRouter.createD1ConsoleBootstrapTokenService !== 'function') {
+            throw new Error('missing Cloudflare D1 bootstrap-token service export');
+          }
+          if (typeof cloudflareRouter.createPostgresConsoleBootstrapTokenService !== 'undefined') {
+            throw new Error('unexpected Cloudflare Postgres service export');
           }
 
           const storage = await import('@seams/sdk-server/storage/postgres');

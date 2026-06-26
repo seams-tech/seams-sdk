@@ -1,6 +1,7 @@
 import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
-import { parseBootstrapToken, type ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
-import type { ConsoleApiKey } from '../console/apiKeys';
+import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens/service';
+import { parseBootstrapToken } from '../console/bootstrapTokens/secret';
+import type { ConsoleApiKey } from '../console/apiKeys/types';
 import {
   enforceRoutePolicy,
   type RoutePolicyResolutionResult,

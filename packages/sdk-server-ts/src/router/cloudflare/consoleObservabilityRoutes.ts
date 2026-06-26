@@ -3,8 +3,8 @@ import {
   parseGetConsoleObservabilityTimeseriesRequest,
   parseListConsoleObservabilityEventsRequest,
   parseListConsoleObservabilityServicesRequest,
-  type ConsoleObservabilityService,
-} from '../../console/observability';
+} from '../../console/observability/requests';
+import type { ConsoleObservabilityService } from '../../console/observability/service';
 import type { ConsoleAuthClaims } from '../console';
 
 export interface CloudflareConsoleObservabilityRouteContext {

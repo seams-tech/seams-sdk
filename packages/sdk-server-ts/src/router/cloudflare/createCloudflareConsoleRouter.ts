@@ -1,13 +1,16 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
+import type { ConsoleBillingService } from '../../console/billing/service';
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
   CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
-  ConsoleBillingError,
+} from '../../console/billing/pdf';
+import {
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
   ensureBillingReadyForLiveEnvironment,
   getBillingLiveEnvironmentReadiness,
-  isConsoleBillingError,
+} from '../../console/billing/readiness';
+import {
   parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
@@ -16,130 +19,119 @@ import {
   parseGenerateMonthlyInvoiceRequest,
   parseStripeWebhookEventRequest,
   parseStripeCheckoutSessionRequest,
-  type ConsoleBillingService,
-} from '../../console/billing';
-import type { ConsoleBillingPrepaidReservationService } from '../../console/billingPrepaidReservations';
+} from '../../console/billing/requests';
+import { ConsoleBillingError, isConsoleBillingError } from '../../console/billing/errors';
+import type { ConsoleBillingPrepaidReservationService } from '../../console/billingPrepaidReservations/service';
+import type { ConsoleSponsoredCallService } from '../../console/sponsoredCalls/service';
+import { isConsoleSponsoredCallError } from '../../console/sponsoredCalls/errors';
+import { listConsoleSponsoredCallReconciliationPage } from '../../console/sponsoredCalls/reconciliation';
+import { parseListConsoleSponsoredCallRecordsRequest } from '../../console/sponsoredCalls/requests';
+import type { ConsoleApiKeyService } from '../../console/apiKeys/service';
+import { isConsoleApiKeyError } from '../../console/apiKeys/errors';
 import {
-  isConsoleSponsoredCallError,
-  listConsoleSponsoredCallReconciliationPage,
-  parseListConsoleSponsoredCallRecordsRequest,
-  type ConsoleSponsoredCallService,
-} from '../../console/sponsoredCalls';
-import {
-  isConsoleApiKeyError,
   parseCreateConsoleApiKeyRequest,
   parseRevokeConsoleApiKeyRequest,
   parseRotateConsoleApiKeyRequest,
   parseUpdateConsoleApiKeyRequest,
-  type ConsoleApiKeyService,
-} from '../../console/apiKeys';
+} from '../../console/apiKeys/requests';
+import type { ConsoleOrgProjectEnvService } from '../../console/orgProjectEnv/service';
+import { isConsoleOrgProjectEnvError } from '../../console/orgProjectEnv/errors';
 import {
   parseCreateConsoleEnvironmentRequest,
   parseCreateConsoleProjectRequest,
-  isConsoleOrgProjectEnvError,
   parseListConsoleProjectsRequest,
   parseListConsoleEnvironmentsRequest,
   parseUpdateConsoleEnvironmentRequest,
   parseUpdateConsoleProjectRequest,
-  type ConsoleOrgProjectEnvService,
-} from '../../console/orgProjectEnv';
+} from '../../console/orgProjectEnv/requests';
+import type { ConsoleWalletService } from '../../console/wallets/service';
+import { isConsoleWalletError } from '../../console/wallets/errors';
+import { parseListConsoleWalletsRequest, parseSearchConsoleWalletsRequest } from '../../console/wallets/requests';
+import type { ConsolePolicyService } from '../../console/policies/service';
+import { isConsolePolicyError } from '../../console/policies/errors';
 import {
-  isConsoleWalletError,
-  parseListConsoleWalletsRequest,
-  parseSearchConsoleWalletsRequest,
-  type ConsoleWalletService,
-} from '../../console/wallets';
-import {
-  isConsolePolicyError,
   parseCreateConsolePolicyRequest,
   parseListConsolePoliciesRequest,
   parseListConsolePolicyAssignmentsRequest,
   parseSimulateConsolePolicyRequest,
   parseUpsertConsolePolicyAssignmentRequest,
   parseUpdateConsolePolicyRequest,
-  type ConsolePolicyService,
-} from '../../console/policies';
+} from '../../console/policies/requests';
+import type { ConsoleWebhookService } from '../../console/webhooks/service';
+import { isConsoleWebhookError } from '../../console/webhooks/errors';
 import {
-  isConsoleWebhookError,
   parseCreateConsoleWebhookEndpointRequest,
   parseListConsoleWebhookDeliveriesRequest,
   parseListConsoleWebhookAttemptsRequest,
   parseListConsoleWebhookDeadLettersRequest,
   parseReplayConsoleWebhookDeliveryRequest,
   parseUpdateConsoleWebhookEndpointRequest,
-  type ConsoleWebhookService,
-} from '../../console/webhooks';
+} from '../../console/webhooks/requests';
+import type { ConsoleKeyExportService } from '../../console/keyExports/service';
+import { isConsoleKeyExportError } from '../../console/keyExports/errors';
 import {
-  isConsoleKeyExportError,
   parseApproveConsoleKeyExportRequest,
   parseCreateConsoleKeyExportRequest,
   parseListConsoleKeyExportsRequest,
-  type ConsoleKeyExportService,
-} from '../../console/keyExports';
+} from '../../console/keyExports/requests';
+import type { ConsoleRuntimeSnapshotService } from '../../console/runtimeSnapshots/service';
+import { isConsoleRuntimeSnapshotError } from '../../console/runtimeSnapshots/errors';
 import {
-  isConsoleRuntimeSnapshotError,
   parseGetLatestConsoleRuntimeSnapshotRequest,
   parseListConsoleRuntimeSnapshotsRequest,
   parsePublishCurrentConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,
-  type ConsoleRuntimeSnapshotService,
-} from '../../console/runtimeSnapshots';
+} from '../../console/runtimeSnapshots/requests';
+import type { ConsoleTeamRbacService } from '../../console/teamRbac/service';
+import { isConsoleTeamRbacError } from '../../console/teamRbac/errors';
 import {
-  isConsoleTeamRbacError,
   parseInviteConsoleTeamMemberRequest,
   parseListConsoleTeamMembersRequest,
   parseUpdateConsoleTeamMemberRolesRequest,
-  type ConsoleTeamRbacService,
-} from '../../console/teamRbac';
+} from '../../console/teamRbac/requests';
+import type { CreateConsoleApprovalRequest, ConsoleApprovalOperationType } from '../../console/approvals/types';
+import type { ConsoleApprovalService } from '../../console/approvals/service';
+import { isConsoleApprovalsError } from '../../console/approvals/errors';
 import {
-  type CreateConsoleApprovalRequest,
-  type ConsoleApprovalOperationType,
-  isConsoleApprovalsError,
   parseApproveConsoleApprovalRequest,
   parseCreateConsoleApprovalRequest,
   parseListConsoleApprovalsRequest,
   parseRejectConsoleApprovalRequest,
-  type ConsoleApprovalService,
-} from '../../console/approvals';
+} from '../../console/approvals/requests';
+import type { ConsoleAuditService } from '../../console/audit/service';
+import { isConsoleAuditError } from '../../console/audit/errors';
+import { parseListConsoleAuditEventsRequest, parseListConsoleAuditEvidenceRequest } from '../../console/audit/requests';
+import type { ConsoleAuditExportsService } from '../../console/auditExports/service';
+import { isConsoleAuditExportsError } from '../../console/auditExports/errors';
 import {
-  isConsoleAuditError,
-  parseListConsoleAuditEventsRequest,
-  parseListConsoleAuditEvidenceRequest,
-  type ConsoleAuditService,
-} from '../../console/audit';
-import {
-  isConsoleAuditExportsError,
   parseCreateConsoleAuditExportRequest,
   parseListConsoleAuditExportsRequest,
-  type ConsoleAuditExportsService,
-} from '../../console/auditExports';
+} from '../../console/auditExports/requests';
+import type { ConsoleEnterpriseIsolationService } from '../../console/enterpriseIsolation/service';
+import { isConsoleEnterpriseIsolationError } from '../../console/enterpriseIsolation/errors';
 import {
-  isConsoleEnterpriseIsolationError,
   parseGetConsoleEnterpriseIsolationRequest,
   parseTriggerConsoleEnterpriseIsolationRequest,
-  type ConsoleEnterpriseIsolationService,
-} from '../../console/enterpriseIsolation';
+} from '../../console/enterpriseIsolation/requests';
+import type { ConsoleOnboardingService } from '../../console/onboarding/service';
+import { isConsoleOnboardingError } from '../../console/onboarding/errors';
 import {
-  isConsoleOnboardingError,
   parseCreateConsoleOnboardingOrganizationRequest,
   parseCreateConsoleOnboardingProjectRequest,
   parseGetConsoleOnboardingStateRequest,
   parseGetConsoleOnboardingTelemetryRequest,
-  type ConsoleOnboardingService,
-} from '../../console/onboarding';
+} from '../../console/onboarding/requests';
+import type { ConsoleAccountService } from '../../console/account/service';
+import { isConsoleAccountError } from '../../console/account/errors';
 import {
-  isConsoleAccountError,
   parseCreateConsoleAccountOrganizationRequest,
   parsePatchConsoleAccountProfileRequest,
   parseTransferConsoleAccountOrganizationOwnerRequest,
   parseUpdateConsoleAccountOrganizationRequest,
-  type ConsoleAccountService,
-} from '../../console/account';
-import {
-  isConsoleObservabilityError,
-  type ConsoleObservabilityIngestionService,
-  type ConsoleObservabilityService,
-} from '../../console/observability';
+} from '../../console/account/requests';
+import type { ConsoleObservabilityIngestionService } from '../../console/observability/incidentIngest';
+import type { ConsoleObservabilityService } from '../../console/observability/service';
+import { isConsoleObservabilityError } from '../../console/observability/errors';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
@@ -195,11 +187,16 @@ import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './cloudflare.types';
 import { headersToRecord, json, readJson } from './http';
 import {
-  tenantStorageRouteDiagnostic,
-  type TenantStorageRoute,
-  type TenantStorageRouteDiagnostic,
+  type CloudflareTenantStorageRoute,
   type TenantStorageRouteResolver,
 } from '../../storage/tenantRoute';
+
+type CloudflareConsoleTenantStorageRouteDiagnostic = {
+  readonly backendFamily: 'cloudflare';
+  readonly namespace: string;
+  readonly orgId: string;
+  readonly routeVersion: number;
+};
 
 export interface CloudflareConsoleContext {
   request: Request;
@@ -233,8 +230,8 @@ export interface CloudflareConsoleContext {
   observabilityIngestion: ConsoleObservabilityIngestionService | null;
   tenantStorageRouteResolver: TenantStorageRouteResolver | null;
   tenantStorageNamespace: string | null;
-  tenantStorageRoute?: TenantStorageRoute;
-  tenantStorageRouteDiagnostic?: TenantStorageRouteDiagnostic;
+  tenantStorageRoute?: CloudflareTenantStorageRoute;
+  tenantStorageRouteDiagnostic?: CloudflareConsoleTenantStorageRouteDiagnostic;
   authClaims?: ConsoleAuthClaims;
 }
 
@@ -814,7 +811,12 @@ function resolveTenantStorageRouteForConsoleRequest(
     orgId: claims.orgId,
   });
   ctx.tenantStorageRoute = route;
-  ctx.tenantStorageRouteDiagnostic = tenantStorageRouteDiagnostic(route);
+  ctx.tenantStorageRouteDiagnostic = {
+    backendFamily: 'cloudflare',
+    namespace: route.namespace,
+    orgId: route.orgId,
+    routeVersion: route.routeVersion,
+  };
   return null;
 }
 
