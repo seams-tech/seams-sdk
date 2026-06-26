@@ -46,6 +46,21 @@ import {
   D1EmailRecoveryPreparationStore,
   type EmailRecoveryPreparationRecord,
 } from '../../packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore';
+import {
+  D1EmailOtpAuthStateStore,
+  D1EmailOtpChallengeStore,
+  D1EmailOtpGrantStore,
+  D1EmailOtpRecoveryWrappedEnrollmentEscrowStore,
+  D1EmailOtpRegistrationAttemptStore,
+  D1EmailOtpUnlockChallengeStore,
+  D1EmailOtpWalletEnrollmentStore,
+  type EmailOtpChallengeContextInput,
+  type EmailOtpChallengeRecord,
+  type EmailOtpGrantRecord,
+  type EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  type EmailOtpWalletEnrollmentRecord,
+  type GoogleEmailOtpRegistrationAttemptRecord,
+} from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
 import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
 import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
 import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
@@ -69,6 +84,16 @@ import type {
   D1ResultLike,
 } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+} from '../../packages/shared-ts/src/utils/emailOtpDomain';
+import {
+  EMAIL_OTP_RECOVERY_WRAP_ALG,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+} from '../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
 import {
   recordSponsoredExecution,
   type RecordSponsoredExecutionInput,
@@ -576,6 +601,174 @@ function buildD1EmailRecoveryPreparationRecord(input: {
         remainingUses: 10,
         participantIds: [1, 2],
       },
+    },
+  };
+}
+
+function buildD1EmailOtpChallengeContext(input: {
+  readonly nowMs: number;
+}): EmailOtpChallengeContextInput {
+  return {
+    challengeSubjectId: 'google-subject-d1-email-otp',
+    walletId: 'wallet-d1-email-otp',
+    orgId: 'org-d1-signer',
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash: 'session-hash-d1-email-otp',
+    appSessionVersion: 'app-session-v1',
+    action: WALLET_EMAIL_OTP_ACTIONS.login,
+    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    nowMs: input.nowMs,
+  };
+}
+
+function buildD1EmailOtpChallengeRecord(input: {
+  readonly challengeId: string;
+  readonly otpCode: string;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
+}): EmailOtpChallengeRecord {
+  return {
+    version: 'email_otp_challenge_v1',
+    challengeId: input.challengeId,
+    challengeSubjectId: 'google-subject-d1-email-otp',
+    walletId: 'wallet-d1-email-otp',
+    orgId: 'org-d1-signer',
+    otpChannel: EMAIL_OTP_CHANNEL,
+    email: 'email-otp-d1@example.com',
+    otpCode: input.otpCode,
+    sessionHash: 'session-hash-d1-email-otp',
+    appSessionVersion: 'app-session-v1',
+    action: WALLET_EMAIL_OTP_ACTIONS.login,
+    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    createdAtMs: input.createdAtMs,
+    expiresAtMs: input.expiresAtMs,
+    attemptCount: 0,
+    maxAttempts: 5,
+  };
+}
+
+function buildD1EmailOtpGrantRecord(input: {
+  readonly grantToken: string;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+}): EmailOtpGrantRecord {
+  return {
+    version: 'email_otp_grant_v1',
+    grantToken: input.grantToken,
+    userId: 'google-subject-d1-email-otp',
+    walletId: 'wallet-d1-email-otp',
+    orgId: 'org-d1-signer',
+    challengeId: 'email-otp-challenge-latest',
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash: 'session-hash-d1-email-otp',
+    appSessionVersion: 'app-session-v1',
+    action: WALLET_EMAIL_OTP_ACTIONS.unseal,
+    issuedAtMs: input.issuedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  };
+}
+
+function buildD1EmailOtpWalletEnrollmentRecord(input: {
+  readonly updatedAtMs: number;
+}): EmailOtpWalletEnrollmentRecord {
+  return {
+    version: 'email_otp_wallet_enrollment_v1',
+    walletId: 'wallet-d1-email-otp',
+    providerUserId: 'google-subject-d1-email-otp',
+    orgId: 'org-d1-signer',
+    verifiedEmail: 'email-otp-d1@example.com',
+    enrollmentId: 'email-otp-enrollment-d1',
+    enrollmentVersion: 'enrollment-v1',
+    enrollmentSealKeyVersion: 'seal-key-v1',
+    signingRootId: 'signing-root-email-otp-d1',
+    signingRootVersion: 'signing-root-version-v1',
+    recoveryWrappedEnrollmentEscrowCount: 2,
+    clientUnlockPublicKeyB64u: 'clientUnlockPublicKeyB64u',
+    unlockKeyVersion: 'unlock-key-v1',
+    thresholdEcdsaClientVerifyingShareB64u: 'thresholdEcdsaClientVerifyingShareB64u',
+    createdAtMs: Date.parse('2026-06-27T10:00:00.000Z'),
+    updatedAtMs: input.updatedAtMs,
+  };
+}
+
+function buildD1EmailOtpEscrowRecord(input: {
+  readonly recoveryKeyId: string;
+  readonly recoveryKeyStatus: 'active' | 'consumed';
+  readonly updatedAtMs: number;
+}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord {
+  const base = {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
+    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+    walletId: 'wallet-d1-email-otp',
+    userId: 'google-subject-d1-email-otp',
+    authSubjectId: 'google-subject-d1-email-otp',
+    authMethod: 'google_sso_email_otp' as const,
+    enrollmentId: 'email-otp-enrollment-d1',
+    enrollmentVersion: 'enrollment-v1',
+    enrollmentSealKeyVersion: 'seal-key-v1',
+    signingRootId: 'signing-root-email-otp-d1',
+    signingRootVersion: 'signing-root-version-v1',
+    recoveryKeyId: input.recoveryKeyId,
+    nonceB64u: 'AAAAAAAAAAAA',
+    wrappedDeviceEnrollmentEscrowB64u: 'BBBBBBBBBBBB',
+    aadHashB64u: 'CCCCCCCCCCCC',
+    issuedAtMs: Date.parse('2026-06-27T10:00:00.000Z'),
+    updatedAtMs: input.updatedAtMs,
+  };
+  if (input.recoveryKeyStatus === 'active') {
+    return { ...base, recoveryKeyStatus: 'active' };
+  }
+  return {
+    ...base,
+    recoveryKeyStatus: 'consumed',
+    consumedAtMs: input.updatedAtMs,
+  };
+}
+
+function buildD1EmailOtpRegistrationAttemptRecord(input: {
+  readonly attemptId: string;
+  readonly appSessionVersion: string;
+  readonly walletId: string;
+  readonly runtimeProjectId: string;
+  readonly updatedAtMs: number;
+  readonly expiresAtMs: number;
+}): GoogleEmailOtpRegistrationAttemptRecord {
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId: input.attemptId,
+    providerSubject: 'google-subject-d1-email-otp',
+    email: 'email-otp-d1@example.com',
+    walletId: input.walletId,
+    offerId: 'email-otp-offer-d1',
+    offerCandidates: [
+      {
+        candidateId: 'candidate-primary',
+        walletId: input.walletId,
+        collisionCounter: 0,
+      },
+      {
+        candidateId: 'candidate-secondary',
+        walletId: 'wallet-d1-email-otp-offer-candidate',
+        collisionCounter: 1,
+      },
+    ],
+    selectedCandidateId: 'candidate-primary',
+    appSessionVersion: input.appSessionVersion,
+    authProvider: 'google_oidc',
+    accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce: 'wallet-id-nonce-d1',
+    collisionCounter: 0,
+    state: 'started',
+    createdAtMs: Date.parse('2026-06-27T10:00:00.000Z'),
+    updatedAtMs: input.updatedAtMs,
+    expiresAtMs: input.expiresAtMs,
+    runtimePolicyScope: {
+      orgId: 'org-d1-signer',
+      projectId: input.runtimeProjectId,
+      envId: 'env-production',
+      signingRootVersion: 'signing-root-version-v1',
     },
   };
 }
@@ -3998,6 +4191,270 @@ test.describe('D1 adapter contracts', () => {
       await expect(
         preparationStore.get('email-recovery-preparation-delete-d1'),
       ).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer Email OTP stores are scoped and consume one-time records in D1', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const nowMs = Date.parse('2026-06-27T10:05:00.000Z');
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+      };
+      const otherEnvScope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-development',
+        ensureSchema: false,
+      };
+      const challengeStore = new D1EmailOtpChallengeStore(scope);
+      const otherEnvChallengeStore = new D1EmailOtpChallengeStore(otherEnvScope);
+      const grantStore = new D1EmailOtpGrantStore(scope);
+      const otherEnvGrantStore = new D1EmailOtpGrantStore(otherEnvScope);
+      const enrollmentStore = new D1EmailOtpWalletEnrollmentStore(scope);
+      const otherEnvEnrollmentStore = new D1EmailOtpWalletEnrollmentStore(otherEnvScope);
+      const escrowStore = new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(scope);
+      const otherEnvEscrowStore = new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(otherEnvScope);
+      const authStateStore = new D1EmailOtpAuthStateStore(scope);
+      const otherEnvAuthStateStore = new D1EmailOtpAuthStateStore(otherEnvScope);
+      const unlockChallengeStore = new D1EmailOtpUnlockChallengeStore(scope);
+      const otherEnvUnlockChallengeStore = new D1EmailOtpUnlockChallengeStore(otherEnvScope);
+      const registrationAttemptStore = new D1EmailOtpRegistrationAttemptStore(scope);
+      const otherEnvRegistrationAttemptStore = new D1EmailOtpRegistrationAttemptStore(
+        otherEnvScope,
+      );
+
+      const oldestChallenge = buildD1EmailOtpChallengeRecord({
+        challengeId: 'email-otp-challenge-oldest',
+        otpCode: '111111',
+        createdAtMs: Date.parse('2026-06-27T10:00:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T10:30:00.000Z'),
+      });
+      const latestChallenge = buildD1EmailOtpChallengeRecord({
+        challengeId: 'email-otp-challenge-latest',
+        otpCode: '222222',
+        createdAtMs: Date.parse('2026-06-27T10:01:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T10:40:00.000Z'),
+      });
+      const expiredChallenge = buildD1EmailOtpChallengeRecord({
+        challengeId: 'email-otp-challenge-expired',
+        otpCode: '333333',
+        createdAtMs: Date.parse('2026-06-27T09:00:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T09:30:00.000Z'),
+      });
+      const challengeContext = buildD1EmailOtpChallengeContext({ nowMs });
+
+      await challengeStore.put(oldestChallenge);
+      await challengeStore.put(latestChallenge);
+      await challengeStore.put(expiredChallenge);
+      await expect(challengeStore.get('email-otp-challenge-latest')).resolves.toMatchObject({
+        challengeId: 'email-otp-challenge-latest',
+      });
+      await expect(otherEnvChallengeStore.get('email-otp-challenge-latest')).resolves.toBeNull();
+      await expect(challengeStore.countActiveByContext(challengeContext)).resolves.toBe(2);
+      await expect(
+        challengeStore.findLatestActiveByContext(challengeContext),
+      ).resolves.toMatchObject({ challengeId: 'email-otp-challenge-latest' });
+      await expect(
+        challengeStore.findActiveByContext({
+          ...challengeContext,
+          otpCode: '222222',
+        }),
+      ).resolves.toMatchObject({ challengeId: 'email-otp-challenge-latest' });
+      await expect(
+        challengeStore.deleteOldestActiveByContext(challengeContext),
+      ).resolves.toMatchObject({ challengeId: 'email-otp-challenge-oldest' });
+      await expect(challengeStore.countActiveByContext(challengeContext)).resolves.toBe(1);
+      const expiredChallenges = await challengeStore.deleteExpired(nowMs);
+      expect(expiredChallenges.map((challenge) => challenge.challengeId)).toEqual([
+        'email-otp-challenge-expired',
+      ]);
+
+      const grant = buildD1EmailOtpGrantRecord({
+        grantToken: 'email-otp-grant-d1',
+        issuedAtMs: nowMs,
+        expiresAtMs: Date.parse('2026-06-27T10:30:00.000Z'),
+      });
+      await grantStore.put(grant);
+      await expect(grantStore.get('email-otp-grant-d1')).resolves.toMatchObject({
+        grantToken: 'email-otp-grant-d1',
+      });
+      await expect(otherEnvGrantStore.get('email-otp-grant-d1')).resolves.toBeNull();
+      await expect(grantStore.consume('email-otp-grant-d1')).resolves.toMatchObject({
+        grantToken: 'email-otp-grant-d1',
+      });
+      await expect(grantStore.consume('email-otp-grant-d1')).resolves.toBeNull();
+
+      const enrollment = buildD1EmailOtpWalletEnrollmentRecord({
+        updatedAtMs: Date.parse('2026-06-27T10:01:00.000Z'),
+      });
+      await enrollmentStore.put(enrollment);
+      await expect(enrollmentStore.get('wallet-d1-email-otp')).resolves.toMatchObject({
+        walletId: 'wallet-d1-email-otp',
+        providerUserId: 'google-subject-d1-email-otp',
+      });
+      await expect(
+        enrollmentStore.getByProviderUserId({
+          providerUserId: 'google-subject-d1-email-otp',
+          orgId: 'org-d1-signer',
+        }),
+      ).resolves.toMatchObject({ walletId: 'wallet-d1-email-otp' });
+      await expect(otherEnvEnrollmentStore.get('wallet-d1-email-otp')).resolves.toBeNull();
+
+      const activeEscrow = buildD1EmailOtpEscrowRecord({
+        recoveryKeyId: 'recovery-key-active',
+        recoveryKeyStatus: 'active',
+        updatedAtMs: Date.parse('2026-06-27T10:02:00.000Z'),
+      });
+      const consumedEscrow = buildD1EmailOtpEscrowRecord({
+        recoveryKeyId: 'recovery-key-consumed',
+        recoveryKeyStatus: 'consumed',
+        updatedAtMs: Date.parse('2026-06-27T10:03:00.000Z'),
+      });
+      await escrowStore.putMany([activeEscrow, consumedEscrow]);
+      await expect(
+        escrowStore.get({
+          walletId: 'wallet-d1-email-otp',
+          recoveryKeyId: 'recovery-key-active',
+        }),
+      ).resolves.toMatchObject({ recoveryKeyStatus: 'active' });
+      await expect(escrowStore.listActiveByWallet('wallet-d1-email-otp')).resolves.toHaveLength(1);
+      await expect(escrowStore.listByWallet('wallet-d1-email-otp')).resolves.toHaveLength(2);
+      await expect(otherEnvEscrowStore.listByWallet('wallet-d1-email-otp')).resolves.toHaveLength(
+        0,
+      );
+      await escrowStore.del({
+        walletId: 'wallet-d1-email-otp',
+        recoveryKeyId: 'recovery-key-active',
+      });
+      await expect(
+        escrowStore.get({
+          walletId: 'wallet-d1-email-otp',
+          recoveryKeyId: 'recovery-key-active',
+        }),
+      ).resolves.toBeNull();
+
+      await authStateStore.put({
+        version: 'email_otp_auth_state_v1',
+        walletId: 'wallet-d1-email-otp',
+        providerUserId: 'google-subject-d1-email-otp',
+        orgId: 'org-d1-signer',
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+        otpFailureCount: 1,
+        lastEmailOtpLoginAtMs: nowMs,
+      });
+      await expect(authStateStore.get('wallet-d1-email-otp')).resolves.toMatchObject({
+        otpFailureCount: 1,
+      });
+      await expect(otherEnvAuthStateStore.get('wallet-d1-email-otp')).resolves.toBeNull();
+
+      await unlockChallengeStore.put({
+        version: 'email_otp_unlock_challenge_v1',
+        challengeId: 'email-otp-unlock-challenge-d1',
+        walletId: 'wallet-d1-email-otp',
+        userId: 'google-subject-d1-email-otp',
+        orgId: 'org-d1-signer',
+        challengeB64u: 'unlockChallengeB64u',
+        createdAtMs: nowMs,
+        expiresAtMs: Date.parse('2026-06-27T10:30:00.000Z'),
+      });
+      await expect(
+        otherEnvUnlockChallengeStore.consume('email-otp-unlock-challenge-d1'),
+      ).resolves.toBeNull();
+      await expect(
+        unlockChallengeStore.consume('email-otp-unlock-challenge-d1'),
+      ).resolves.toMatchObject({ challengeId: 'email-otp-unlock-challenge-d1' });
+      await expect(unlockChallengeStore.consume('email-otp-unlock-challenge-d1')).resolves.toBeNull();
+
+      const activeAttempt = buildD1EmailOtpRegistrationAttemptRecord({
+        attemptId: 'email-otp-registration-active',
+        appSessionVersion: 'app-session-v1',
+        walletId: 'wallet-d1-email-otp-registration',
+        runtimeProjectId: 'project-d1-signer',
+        updatedAtMs: Date.parse('2026-06-27T10:01:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T10:30:00.000Z'),
+      });
+      const wrongRuntimeAttempt = buildD1EmailOtpRegistrationAttemptRecord({
+        attemptId: 'email-otp-registration-wrong-runtime',
+        appSessionVersion: 'app-session-v1',
+        walletId: 'wallet-d1-email-otp-registration-wrong-runtime',
+        runtimeProjectId: 'project-other-runtime',
+        updatedAtMs: Date.parse('2026-06-27T10:04:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T10:30:00.000Z'),
+      });
+      const replacedAttempt = buildD1EmailOtpRegistrationAttemptRecord({
+        attemptId: 'email-otp-registration-replaced',
+        appSessionVersion: 'app-session-old',
+        walletId: 'wallet-d1-email-otp-registration-replaced',
+        runtimeProjectId: 'project-d1-signer',
+        updatedAtMs: Date.parse('2026-06-27T10:02:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T10:30:00.000Z'),
+      });
+      const expiredAttempt = buildD1EmailOtpRegistrationAttemptRecord({
+        attemptId: 'email-otp-registration-expired',
+        appSessionVersion: 'app-session-expired',
+        walletId: 'wallet-d1-email-otp-registration-expired',
+        runtimeProjectId: 'project-d1-signer',
+        updatedAtMs: Date.parse('2026-06-27T10:02:00.000Z'),
+        expiresAtMs: Date.parse('2026-06-27T10:04:00.000Z'),
+      });
+      await registrationAttemptStore.put(activeAttempt);
+      await registrationAttemptStore.put(wrongRuntimeAttempt);
+      await registrationAttemptStore.put(replacedAttempt);
+      await registrationAttemptStore.put(expiredAttempt);
+      await expect(
+        otherEnvRegistrationAttemptStore.get('email-otp-registration-active'),
+      ).resolves.toBeNull();
+      await expect(
+        registrationAttemptStore.findStartedBySubjectEmail({
+          providerSubject: 'google-subject-d1-email-otp',
+          email: 'email-otp-d1@example.com',
+          orgId: 'org-d1-signer',
+          appSessionVersion: 'app-session-v1',
+          runtimePolicyScope: {
+            orgId: 'org-d1-signer',
+            projectId: 'project-d1-signer',
+            envId: 'env-production',
+            signingRootVersion: 'signing-root-version-v1',
+          },
+          nowMs,
+        }),
+      ).resolves.toMatchObject({ attemptId: 'email-otp-registration-active' });
+      await expect(
+        registrationAttemptStore.hasLiveStartedWalletAttempt({
+          walletId: 'wallet-d1-email-otp-offer-candidate',
+          nowMs,
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        registrationAttemptStore.abandonStartedBySubjectEmailExceptAppSession({
+          providerSubject: 'google-subject-d1-email-otp',
+          email: 'email-otp-d1@example.com',
+          orgId: 'org-d1-signer',
+          appSessionVersion: 'app-session-v1',
+          runtimePolicyScope: {
+            orgId: 'org-d1-signer',
+            projectId: 'project-d1-signer',
+            envId: 'env-production',
+            signingRootVersion: 'signing-root-version-v1',
+          },
+          nowMs,
+          failureCode: 'app_session_version_replaced',
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        registrationAttemptStore.get('email-otp-registration-replaced'),
+      ).resolves.toMatchObject({ state: 'abandoned' });
+      await expect(registrationAttemptStore.deleteExpired(nowMs)).resolves.toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

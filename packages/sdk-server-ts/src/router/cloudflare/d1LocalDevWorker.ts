@@ -17,6 +17,7 @@ import { ensureConsoleSponsorshipSpendCapD1Schema } from '../../console/sponsors
 import { ensureConsoleTeamRbacD1Schema } from '../../console/teamRbac/d1';
 import { ensureConsoleWalletsD1Schema } from '../../console/wallets/d1';
 import { ensureConsoleWebhooksD1Schema } from '../../console/webhooks/d1';
+import { ensureEmailOtpStoreD1Schema } from '../../core/EmailOtpStores';
 import { ensureEmailRecoveryPreparationStoreD1Schema } from '../../core/EmailRecoveryPreparationStore';
 import { ensureNearPublicKeyStoreD1Schema } from '../../core/NearPublicKeyStore';
 import { ensureRecoveryExecutionStoreD1Schema } from '../../core/RecoveryExecutionStore';
@@ -80,11 +81,18 @@ async function assertSignerD1Schema(database: D1DatabaseLike): Promise<void> {
             'signer_recovery_sessions',
             'signer_recovery_executions',
             'signer_near_public_keys',
-            'signer_email_recovery_preparations'
+            'signer_email_recovery_preparations',
+            'signer_email_otp_challenges',
+            'signer_email_otp_grants',
+            'signer_email_otp_wallet_enrollments',
+            'signer_email_otp_recovery_wrapped_enrollment_escrows',
+            'signer_email_otp_auth_states',
+            'signer_email_otp_unlock_challenges',
+            'signer_email_otp_registration_attempts'
           )`,
     )
     .first<TableCountRow>();
-  if (parseReadyTableCount(row) !== 13) {
+  if (parseReadyTableCount(row) !== 20) {
     throw new Error('local SIGNER_DB migration has not created all required signer tables');
   }
 }
@@ -118,6 +126,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureRecoveryExecutionStoreD1Schema({ database: env.SIGNER_DB });
   await ensureNearPublicKeyStoreD1Schema({ database: env.SIGNER_DB });
   await ensureEmailRecoveryPreparationStoreD1Schema({ database: env.SIGNER_DB });
+  await ensureEmailOtpStoreD1Schema({ database: env.SIGNER_DB });
   await assertSignerD1Schema(env.SIGNER_DB);
 }
 
