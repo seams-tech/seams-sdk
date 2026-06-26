@@ -95,6 +95,28 @@ export interface D1ConsoleBillingServiceOptions {
   providers?: Partial<BillingProviderAdapters>;
 }
 
+export interface D1ConsoleBillingMonthlyFinalizationOptions {
+  database: D1DatabaseLike;
+  namespace?: string;
+  orgIds?: string[];
+  periodMonthUtc?: string;
+  ensureSchema?: boolean;
+  now?: () => Date;
+}
+
+export interface D1ConsoleBillingMonthlyFinalizationResult {
+  namespace: string;
+  periodMonthUtc: string;
+  orgCount: number;
+  generatedCount: number;
+  skippedCount: number;
+  failures: Array<{
+    orgId: string;
+    code: string;
+    message: string;
+  }>;
+}
+
 export interface D1ConsoleBillingState {
   database: D1DatabaseLike;
   namespace: string;
@@ -437,6 +459,10 @@ function monthUtc(now: Date): string {
   return `${year}-${month}`;
 }
 
+function previousMonthUtc(now: Date): string {
+  return monthUtc(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
+}
+
 function monthUtcFromMs(ms: number): string {
   return monthUtc(new Date(ms));
 }
@@ -757,6 +783,34 @@ function activityEntryForLedger(entry: BillingLedgerEntry): BillingInvoiceActivi
     summary: entry.description,
     visibility: 'CUSTOMER',
   };
+}
+
+function sortLineItems(items: BillingInvoiceLineItem[]): BillingInvoiceLineItem[] {
+  return [...items].sort((left, right) => {
+    const typeDiff = left.itemType.localeCompare(right.itemType);
+    if (typeDiff !== 0) return typeDiff;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function lineItemsEquivalent(
+  leftInput: readonly BillingInvoiceLineItem[],
+  rightInput: readonly BillingInvoiceLineItem[],
+): boolean {
+  const left = sortLineItems([...leftInput]);
+  const right = sortLineItems([...rightInput]);
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+    if (!leftItem || !rightItem) return false;
+    if (leftItem.itemType !== rightItem.itemType) return false;
+    if (leftItem.quantity !== rightItem.quantity) return false;
+    if (leftItem.unitAmountMinor !== rightItem.unitAmountMinor) return false;
+    if (leftItem.amountMinor !== rightItem.amountMinor) return false;
+    if (leftItem.periodMonthUtc !== rightItem.periodMonthUtc) return false;
+  }
+  return true;
 }
 
 function buildInvoiceListSummary(invoices: readonly BillingInvoice[]): BillingInvoiceListSummary {
@@ -1161,6 +1215,73 @@ function buildPurchaseReceiptStatements(input: {
   ];
 }
 
+function buildUsageStatementLineItems(input: {
+  invoice: BillingInvoice;
+  usageDebitMinor: number;
+  sponsoredExecutionDebitMinor: number;
+  createdAtMs: number;
+}): BillingInvoiceLineItem[] {
+  const items: BillingInvoiceLineItem[] = [];
+  if (input.usageDebitMinor > 0) {
+    items.push({
+      id: `ili_${input.invoice.id}_maw_usage_debit`,
+      orgId: input.invoice.orgId,
+      invoiceId: input.invoice.id,
+      periodMonthUtc: input.invoice.periodMonthUtc,
+      itemType: 'MAW_USAGE_DEBIT',
+      description: `Monthly Active Wallet usage (${input.invoice.periodMonthUtc})`,
+      quantity: Math.max(1, Math.round(input.usageDebitMinor / MAW_USAGE_DEBIT_MINOR)),
+      unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
+      amountMinor: input.usageDebitMinor,
+      createdAt: toIso(input.createdAtMs),
+    });
+  }
+  if (input.sponsoredExecutionDebitMinor > 0) {
+    items.push({
+      id: `ili_${input.invoice.id}_sponsored_execution_debit`,
+      orgId: input.invoice.orgId,
+      invoiceId: input.invoice.id,
+      periodMonthUtc: input.invoice.periodMonthUtc,
+      itemType: 'SPONSORED_EXECUTION_DEBIT',
+      description: `Sponsored execution spend (${input.invoice.periodMonthUtc})`,
+      quantity: 1,
+      unitAmountMinor: input.sponsoredExecutionDebitMinor,
+      amountMinor: input.sponsoredExecutionDebitMinor,
+      createdAt: toIso(input.createdAtMs),
+    });
+  }
+  return sortLineItems(items);
+}
+
+function buildUsageStatementLineItemStatements(input: {
+  state: D1ConsoleBillingState;
+  lineItems: readonly BillingInvoiceLineItem[];
+  createdAtMs: number;
+}): readonly D1PreparedStatementLike[] {
+  return input.lineItems.map((lineItem) =>
+    input.state.database
+      .prepare(
+        `INSERT INTO console_invoice_line_items
+          (namespace, org_id, id, invoice_id, period_month_utc, item_type, description, quantity, unit_amount_minor, amount_minor, created_at_ms)
+         VALUES
+          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        input.state.namespace,
+        lineItem.orgId,
+        lineItem.id,
+        lineItem.invoiceId,
+        lineItem.periodMonthUtc,
+        lineItem.itemType,
+        lineItem.description,
+        lineItem.quantity,
+        lineItem.unitAmountMinor,
+        lineItem.amountMinor,
+        input.createdAtMs,
+      ),
+  );
+}
+
 export function createD1BillingLedgerEntryInsertStatement(
   database: D1DatabaseLike,
   input: LedgerEntryInsertInput,
@@ -1368,6 +1489,222 @@ export function createSponsoredExecutionDebitD1InsertStatement(input: {
     entryId: input.entryId,
     occurredAtMs: input.occurredAtMs,
   });
+}
+
+async function getUsageStatementTotals(input: {
+  state: D1ConsoleBillingState;
+  orgId: string;
+  periodMonthUtc: string;
+}): Promise<{
+  usageDebitMinor: number;
+  sponsoredExecutionDebitMinor: number;
+  amountDueMinor: number;
+}> {
+  const row = await queryOne(
+    input.state.database,
+    `SELECT
+        COALESCE(SUM(CASE WHEN entry_type = 'USAGE_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS usage_debit_minor,
+        COALESCE(SUM(CASE WHEN entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0) AS sponsored_execution_debit_minor
+       FROM console_billing_ledger_entries
+      WHERE namespace = ?
+        AND org_id = ?
+        AND entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT')
+        AND month_utc = ?`,
+    [input.state.namespace, input.orgId, input.periodMonthUtc],
+  );
+  const usageDebitMinor = Math.max(0, toNumber(row?.usage_debit_minor));
+  const sponsoredExecutionDebitMinor = Math.max(0, toNumber(row?.sponsored_execution_debit_minor));
+  return {
+    usageDebitMinor,
+    sponsoredExecutionDebitMinor,
+    amountDueMinor: usageDebitMinor + sponsoredExecutionDebitMinor,
+  };
+}
+
+async function reconcileUsageDebitCoverageD1(input: {
+  state: D1ConsoleBillingState;
+  ctx: ConsoleBillingContext;
+  periodMonthUtc: string;
+  monthlyActiveWallets: number;
+  createdAtMs: number;
+}): Promise<void> {
+  const totals = await getUsageStatementTotals({
+    state: input.state,
+    orgId: input.ctx.orgId,
+    periodMonthUtc: input.periodMonthUtc,
+  });
+  const targetUsageDebitMinor =
+    Math.max(0, Math.trunc(input.monthlyActiveWallets)) * MAW_USAGE_DEBIT_MINOR;
+  const missingAmountMinor = Math.max(0, targetUsageDebitMinor - totals.usageDebitMinor);
+  if (missingAmountMinor <= 0) return;
+
+  const entryId = `ble_usage_reconcile_${input.ctx.orgId}_${input.periodMonthUtc.replace('-', '')}`;
+  try {
+    await createD1BillingLedgerEntryInsertStatement(input.state.database, {
+      namespace: input.state.namespace,
+      orgId: input.ctx.orgId,
+      entryId,
+      type: 'USAGE_DEBIT',
+      amountMinor: -missingAmountMinor,
+      description: `Reconciled MAW usage debit coverage (${input.periodMonthUtc})`,
+      monthUtc: input.periodMonthUtc,
+      relatedInvoiceId: makeUsageStatementId(input.ctx.orgId, input.periodMonthUtc),
+      relatedPurchaseId: null,
+      sourceEventId: `usage_statement:${input.periodMonthUtc}`,
+      actorType: 'SYSTEM',
+      actorUserId: input.ctx.actorUserId,
+      reasonCode: 'usage_statement_reconciliation',
+      note: `Reconciled ${Math.round(missingAmountMinor / MAW_USAGE_DEBIT_MINOR)} missing MAW debit(s) into the monthly usage statement.`,
+      idempotencyKey: `usage_statement:${input.ctx.orgId}:${input.periodMonthUtc}`,
+      createdAtMs: input.createdAtMs,
+    }).run();
+  } catch (error: unknown) {
+    if (!isD1ConstraintError(error)) throw error;
+  }
+}
+
+async function syncUsageStatementD1(input: {
+  state: D1ConsoleBillingState;
+  orgId: string;
+  periodMonthUtc: string;
+  createdAtMs: number;
+}): Promise<{
+  invoice: BillingInvoice;
+  lineItems: BillingInvoiceLineItem[];
+}> {
+  const invoiceId = makeUsageStatementId(input.orgId, input.periodMonthUtc);
+  const existingInvoice = await loadPersistedInvoiceById({
+    database: input.state.database,
+    namespace: input.state.namespace,
+    orgId: input.orgId,
+    invoiceId,
+  });
+  const seedInvoice: BillingInvoice = existingInvoice || {
+    id: invoiceId,
+    orgId: input.orgId,
+    documentType: 'USAGE_STATEMENT',
+    status: 'PAID',
+    currency: 'USD',
+    amountDueMinor: 0,
+    amountPaidMinor: 0,
+    periodMonthUtc: input.periodMonthUtc,
+    createdAt: toIso(input.createdAtMs),
+    dueAt: null,
+  };
+  const totals = await getUsageStatementTotals({
+    state: input.state,
+    orgId: input.orgId,
+    periodMonthUtc: input.periodMonthUtc,
+  });
+  const lineItems = buildUsageStatementLineItems({
+    invoice: seedInvoice,
+    usageDebitMinor: totals.usageDebitMinor,
+    sponsoredExecutionDebitMinor: totals.sponsoredExecutionDebitMinor,
+    createdAtMs: input.createdAtMs,
+  });
+  await input.state.database.batch([
+    input.state.database
+      .prepare(
+        `INSERT INTO console_invoices
+          (namespace, org_id, id, document_type, status, currency, amount_due_minor, amount_paid_minor, period_month_utc, created_at_ms, due_at_ms)
+         VALUES
+          (?, ?, ?, 'USAGE_STATEMENT', 'PAID', 'USD', ?, ?, ?, ?, NULL)
+         ON CONFLICT(namespace, org_id, id) DO UPDATE
+           SET amount_due_minor = excluded.amount_due_minor,
+               amount_paid_minor = excluded.amount_paid_minor,
+               status = 'PAID',
+               due_at_ms = NULL`,
+      )
+      .bind(
+        input.state.namespace,
+        input.orgId,
+        invoiceId,
+        totals.amountDueMinor,
+        totals.amountDueMinor,
+        input.periodMonthUtc,
+        input.createdAtMs,
+      ),
+    input.state.database
+      .prepare(
+        `DELETE FROM console_invoice_line_items
+          WHERE namespace = ?
+            AND org_id = ?
+            AND invoice_id = ?`,
+      )
+      .bind(input.state.namespace, input.orgId, invoiceId),
+    ...buildUsageStatementLineItemStatements({
+      state: input.state,
+      lineItems,
+      createdAtMs: input.createdAtMs,
+    }),
+  ]);
+  const invoice = await loadPersistedInvoiceById({
+    database: input.state.database,
+    namespace: input.state.namespace,
+    orgId: input.orgId,
+    invoiceId,
+  });
+  if (!invoice) {
+    throw new ConsoleBillingError(
+      'invoice_generate_failed',
+      500,
+      'Failed to create usage statement',
+    );
+  }
+  return { invoice, lineItems };
+}
+
+async function generateMonthlyInvoiceD1(input: {
+  state: D1ConsoleBillingState;
+  ctx: ConsoleBillingContext;
+  periodMonthUtc: string;
+}): Promise<GenerateMonthlyInvoiceResult> {
+  const createdAtMs = nowMs(input.state.now());
+  const monthlyActiveWallets = await countMonthlyActiveWallets({
+    database: input.state.database,
+    namespace: input.state.namespace,
+    orgId: input.ctx.orgId,
+    monthUtcValue: input.periodMonthUtc,
+  });
+  await reconcileUsageDebitCoverageD1({
+    state: input.state,
+    ctx: input.ctx,
+    periodMonthUtc: input.periodMonthUtc,
+    monthlyActiveWallets,
+    createdAtMs,
+  });
+  const invoiceId = makeUsageStatementId(input.ctx.orgId, input.periodMonthUtc);
+  const previousInvoice = await loadPersistedInvoiceById({
+    database: input.state.database,
+    namespace: input.state.namespace,
+    orgId: input.ctx.orgId,
+    invoiceId,
+  });
+  const previousLineItems = previousInvoice
+    ? await listPersistedInvoiceLineItems({
+        database: input.state.database,
+        namespace: input.state.namespace,
+        orgId: input.ctx.orgId,
+        invoiceId,
+      })
+    : [];
+  const synced = await syncUsageStatementD1({
+    state: input.state,
+    orgId: input.ctx.orgId,
+    periodMonthUtc: input.periodMonthUtc,
+    createdAtMs,
+  });
+  const generated =
+    !previousInvoice ||
+    previousInvoice.amountDueMinor !== synced.invoice.amountDueMinor ||
+    !lineItemsEquivalent(previousLineItems, synced.lineItems);
+  return {
+    generated,
+    invoice: synced.invoice,
+    lineItems: sortLineItems(synced.lineItems),
+    monthlyActiveWallets,
+    pricing: { mawUnitPriceMinor: MAW_USAGE_DEBIT_MINOR },
+  };
 }
 
 async function syncPurchaseReceiptD1(input: {
@@ -1868,32 +2205,11 @@ export async function createD1ConsoleBillingService(
       request: GenerateMonthlyInvoiceRequest,
     ): Promise<GenerateMonthlyInvoiceResult> {
       const periodMonthUtc = normalizeMonthUtc(request.periodMonthUtc);
-      const entries = await listLedgerEntries({
-        database: state.database,
-        namespace: state.namespace,
-        orgId: ctx.orgId,
-        monthUtcValue: periodMonthUtc,
-        limit: 1000,
+      return await generateMonthlyInvoiceD1({
+        state,
+        ctx,
+        periodMonthUtc,
       });
-      const invoice = statementInvoiceFromLedger({
-        orgId: ctx.orgId,
-        monthUtcValue: periodMonthUtc,
-        entries,
-        createdAtMs: nowMs(state.now()),
-      });
-      const monthlyActiveWallets = await countMonthlyActiveWallets({
-        database: state.database,
-        namespace: state.namespace,
-        orgId: ctx.orgId,
-        monthUtcValue: periodMonthUtc,
-      });
-      return {
-        generated: false,
-        invoice,
-        lineItems: invoiceLineItemsForStatement({ invoice, entries }),
-        monthlyActiveWallets,
-        pricing: { mawUnitPriceMinor: MAW_USAGE_DEBIT_MINOR },
-      };
     },
 
     async grantManualSupportCredit(
@@ -2076,6 +2392,67 @@ export async function createD1ConsoleBillingService(
   };
 
   return service;
+}
+
+export async function runD1ConsoleBillingMonthlyFinalization(
+  options: D1ConsoleBillingMonthlyFinalizationOptions,
+): Promise<D1ConsoleBillingMonthlyFinalizationResult> {
+  const namespace = ensureNamespace(options.namespace);
+  const now = options.now || defaultNow;
+  const periodMonthUtc = options.periodMonthUtc
+    ? normalizeMonthUtc(options.periodMonthUtc)
+    : previousMonthUtc(now());
+  const orgIds = Array.from(
+    new Set(
+      (Array.isArray(options.orgIds) ? options.orgIds : [])
+        .map((orgId) => String(orgId || '').trim())
+        .filter(Boolean),
+    ),
+  );
+  if (orgIds.length === 0) {
+    throw new Error('Billing monthly finalization requires at least one orgId');
+  }
+  const service = await createD1ConsoleBillingService({
+    database: options.database,
+    namespace,
+    ensureSchema: options.ensureSchema !== false,
+    now,
+  });
+
+  let generatedCount = 0;
+  let skippedCount = 0;
+  const failures: D1ConsoleBillingMonthlyFinalizationResult['failures'] = [];
+
+  for (const orgId of orgIds) {
+    try {
+      const out = await service.generateMonthlyInvoice(
+        {
+          orgId,
+          actorUserId: 'system-billing-finalizer',
+          roles: ['ops'],
+        },
+        { periodMonthUtc },
+      );
+      if (out.generated) {
+        generatedCount += 1;
+      } else {
+        skippedCount += 1;
+      }
+    } catch (error: unknown) {
+      const code = error instanceof ConsoleBillingError ? error.code : 'internal';
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push({ orgId, code, message });
+    }
+  }
+
+  return {
+    namespace,
+    periodMonthUtc,
+    orgCount: orgIds.length,
+    generatedCount,
+    skippedCount,
+    failures,
+  };
 }
 
 async function countStatementMonths(state: D1ConsoleBillingState, orgId: string): Promise<number> {

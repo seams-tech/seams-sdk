@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/d1';
-import { createD1ConsoleBillingService } from '../../packages/sdk-server-ts/src/console/billing/d1';
+import {
+  createD1ConsoleBillingService,
+  runD1ConsoleBillingMonthlyFinalization,
+} from '../../packages/sdk-server-ts/src/console/billing/d1';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
@@ -1105,6 +1108,114 @@ test.describe('D1 adapter contracts', () => {
       });
       expect(invoices.totalCount).toBe(1);
       expect(invoices.summary.receiptCount).toBe(1);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('billing monthly finalization persists D1 usage statements idempotently', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const namespace = 'd1-contracts';
+      const orgId = 'org-d1-billing-monthly';
+      const billing = await createD1ConsoleBillingService({
+        database: temp.database,
+        namespace,
+        ensureSchema: true,
+        now: fixedD1AtomicBillingNow,
+      });
+      const ctx = {
+        orgId,
+        actorUserId: 'user-d1-billing-monthly',
+        roles: ['admin'],
+      };
+
+      await temp.database
+        .prepare(
+          `INSERT INTO console_billing_monthly_active_wallets
+            (namespace, org_id, month_utc, wallet_id, source_event_id, created_at_ms)
+           VALUES
+            (?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          namespace,
+          orgId,
+          '2026-05',
+          'wallet-d1-monthly-1',
+          'usage-event-d1-monthly-1',
+          Date.parse('2026-05-10T00:00:00.000Z'),
+        )
+        .run();
+
+      const first = await runD1ConsoleBillingMonthlyFinalization({
+        database: temp.database,
+        namespace,
+        orgIds: [orgId],
+        periodMonthUtc: '2026-05',
+        ensureSchema: false,
+        now: fixedD1AtomicBillingNow,
+      });
+      expect(first).toMatchObject({
+        periodMonthUtc: '2026-05',
+        orgCount: 1,
+        generatedCount: 1,
+        skippedCount: 0,
+        failures: [],
+      });
+
+      const invoices = await billing.listInvoicesPage(ctx, {
+        documentType: 'USAGE_STATEMENT',
+        periodMonthUtc: '2026-05',
+        limit: 10,
+      });
+      expect(invoices.totalCount).toBe(1);
+      expect(invoices.invoices[0]).toMatchObject({
+        documentType: 'USAGE_STATEMENT',
+        status: 'PAID',
+        amountDueMinor: 300,
+        amountPaidMinor: 300,
+      });
+
+      const lineItems = await billing.listInvoiceLineItems(ctx, invoices.invoices[0]?.id || '');
+      expect(lineItems).toEqual([
+        expect.objectContaining({
+          itemType: 'MAW_USAGE_DEBIT',
+          quantity: 1,
+          unitAmountMinor: 300,
+          amountMinor: 300,
+        }),
+      ]);
+
+      const activity = await billing.listAccountActivity(ctx, {
+        eventType: 'USAGE_DEBIT',
+        periodMonthUtc: '2026-05',
+        limit: 10,
+      });
+      expect(activity.entries).toHaveLength(1);
+      expect(activity.entries[0]).toMatchObject({
+        amountMinor: -300,
+        reasonCode: 'usage_statement_reconciliation',
+      });
+
+      const second = await runD1ConsoleBillingMonthlyFinalization({
+        database: temp.database,
+        namespace,
+        orgIds: [orgId],
+        periodMonthUtc: '2026-05',
+        ensureSchema: false,
+        now: fixedD1AtomicBillingNow,
+      });
+      expect(second).toMatchObject({
+        generatedCount: 0,
+        skippedCount: 1,
+        failures: [],
+      });
+      const repeatedActivity = await billing.listAccountActivity(ctx, {
+        eventType: 'USAGE_DEBIT',
+        periodMonthUtc: '2026-05',
+        limit: 10,
+      });
+      expect(repeatedActivity.entries).toHaveLength(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

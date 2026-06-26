@@ -82,6 +82,8 @@ export type {
   ConsoleBillingD1Service,
   D1ConsoleBillingSchemaOptions,
   D1ConsoleBillingServiceOptions,
+  D1ConsoleBillingMonthlyFinalizationOptions,
+  D1ConsoleBillingMonthlyFinalizationResult,
 } from './d1';
 export {
   CONSOLE_BILLING_D1_RUNTIME,
@@ -92,6 +94,7 @@ export {
   ensureConsoleBillingD1Schema,
   getConsoleBillingD1Runtime,
   recordSponsoredExecutionDebitD1,
+  runD1ConsoleBillingMonthlyFinalization,
 } from './d1';
 
 export { ConsoleBillingError, isConsoleBillingError } from './errors';

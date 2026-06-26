@@ -92,14 +92,13 @@ Completed so far:
   key to prevent retry debits.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
+- Added persisted D1 monthly usage statements, MAW debit reconciliation, and
+  the D1 monthly billing finalization runner.
 
 Remaining before D1 staging:
 
 - Fill the remaining console and signer D1 schemas beyond the first adapter
   slice.
-- Complete the remaining billing surfaces outside the sponsored-gas settlement
-  slice: finalized monthly usage statement persistence and monthly usage
-  finalization jobs.
 - Add remaining Durable Object coordination tests for normal-signing admission
   quotas and signing-root coordination.
 - Add staging import/restore smoke checks and R2 export drills.
@@ -281,7 +280,7 @@ Current Postgres coupling is concentrated in:
 | Policies | `console_policies`, `console_policy_versions`, `console_policy_assignments` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, system-default uniqueness, publish-version history, and assignment-resolution contract test are in place. Policy JSON is stored as `TEXT`. |
 | API keys | `console_api_keys` | `CONSOLE_DB` D1 | Keep auth lookup index on key hash/kind plus tenant identity. |
 | Wallet index | `console_wallet_index` | `CONSOLE_DB` D1 | Queryable dashboard index only; signer ownership stays in `SIGNER_DB`/DO. |
-| Billing | `console_billing_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_billing_monthly_active_wallets`, `console_billing_credit_purchases`, `console_invoices`, `console_invoice_line_items`, `console_stripe_webhook_events`; later `console_usage_meter_events`, `console_usage_rollups_monthly` if per-event usage audit or rollup replay becomes necessary | `CONSOLE_DB` D1 | D1 billing account/ledger tables, Stripe credit purchases, receipt invoices, receipt line items, webhook idempotency, append-only migrations, local smoke coverage, Cloudflare bundle wiring, manual credit/debit support, projected statement reads, and sponsored execution debit statements are in place. Remaining: persisted monthly usage statements and monthly finalization jobs. |
+| Billing | `console_billing_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_billing_monthly_active_wallets`, `console_billing_credit_purchases`, `console_invoices`, `console_invoice_line_items`, `console_stripe_webhook_events`; later `console_usage_meter_events`, `console_usage_rollups_monthly` if per-event usage audit or rollup replay becomes necessary | `CONSOLE_DB` D1 | D1 billing account/ledger tables, Stripe credit purchases, receipt invoices, monthly usage statements, receipt/statement line items, webhook idempotency, monthly finalization runner, append-only migrations, local smoke coverage, Cloudflare bundle wiring, manual credit/debit support, and sponsored execution debit statements are in place. |
 | Prepaid reservations | `console_billing_prepaid_reservation_summaries`, `console_billing_prepaid_reservations` | `CONSOLE_DB` D1 | Trigger-backed D1 adapter, append-only migration, local smoke coverage, and contract tests are in place. Summary mutation and reservation lifecycle transitions remain SQLite-atomic. |
 | Sponsored calls | `console_sponsored_call_records` | `CONSOLE_DB` D1 | D1 adapter, append-only migration, local smoke coverage, Cloudflare bundle wiring, idempotency test, and atomic sponsored gas settlement contract test are in place. |
 | Sponsorship spend caps | `console_sponsorship_spend_cap_windows`, `console_sponsorship_spend_cap_reservations` | `CONSOLE_DB` D1 | Replace row locks with atomic conditional upserts against the window row. Keep source-event uniqueness. |
@@ -325,8 +324,8 @@ Current Postgres coupling is concentrated in:
 Before D1 staging, these adapters must exist behind domain-store ports:
 
 - Console D1 remaining: approvals, audit, bootstrap tokens, API keys,
-  wallet index, remaining billing monthly-finalization surfaces, spend caps,
-  key exports, webhooks, and compact observability rollups.
+  wallet index, spend caps, key exports, webhooks, and compact observability
+  rollups.
 - Console D1 in place: org/project/env, account/profile, team RBAC, policies,
   billing ledger sponsored settlement, prepaid reservations, sponsored calls,
   and runtime snapshots.
@@ -805,18 +804,18 @@ Completed:
 6. Add D1 billing ledger settlement finalization for sponsored EVM gas payments.
 7. Add D1 Stripe credit purchase persistence, purchase receipts, and webhook
    idempotency.
+8. Add persisted D1 monthly usage statements and the D1 monthly billing
+   finalization runner.
 
 Next:
 
-1. Complete the remaining billing D1 surfaces: persisted monthly usage
-   statements and monthly usage finalization jobs.
-2. Add the remaining console D1 adapters: approvals, audit, bootstrap tokens,
+1. Add the remaining console D1 adapters: approvals, audit, bootstrap tokens,
    API keys, wallet index, spend caps, key exports, webhooks, and compact
    observability rollups.
-3. Add the remaining signer D1 metadata adapters for wallet auth and WebAuthn.
-4. Add Durable Object tests for normal-signing admission quotas and signing-root
+2. Add the remaining signer D1 metadata adapters for wallet auth and WebAuthn.
+3. Add Durable Object tests for normal-signing admission quotas and signing-root
    coordination.
-5. Deploy staging only after local D1 smoke covers every required D1 table and
+4. Deploy staging only after local D1 smoke covers every required D1 table and
    all D1 adapter contract tests pass.
 
 Key rule for execution: no half-Postgres staging. If D1 is the target, staging
