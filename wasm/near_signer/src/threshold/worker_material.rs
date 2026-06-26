@@ -399,7 +399,6 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-static CLIENT_PRESIGN_HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
 static WORKER_MATERIAL_HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
 static MATERIAL_AUTHORIZATION_HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
 static HSS_CLIENT_OUTPUT_MASK_HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -1288,7 +1287,7 @@ fn create_client_presign_from_worker_material(
                 key_package.verifying_share().serialize().map_err(|e| {
                     JsValue::from_str(&format!("Failed to serialize client verifying share: {e}"))
                 })?;
-            let nonce_handle = next_client_presign_handle();
+            let nonce_handle = next_client_presign_handle()?;
             CLIENT_PRESIGN_NONCE_BY_HANDLE.with(|store| {
                 store.borrow_mut().insert(
                     nonce_handle.clone(),
@@ -2079,9 +2078,12 @@ fn identifier_from_participant_id(
         .map_err(|_| JsValue::from_str(&format!("Invalid {field_name}")))
 }
 
-fn next_client_presign_handle() -> String {
-    let id = CLIENT_PRESIGN_HANDLE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("ed25519-client-presign:{id}")
+fn next_client_presign_handle() -> Result<String, JsValue> {
+    let bytes = random_fixed_bytes::<16>("client presign handle")?;
+    Ok(format!(
+        "ed25519-client-presign:{}",
+        base64_url_encode(&bytes)
+    ))
 }
 
 fn random_worker_material_handle() -> Result<String, JsValue> {

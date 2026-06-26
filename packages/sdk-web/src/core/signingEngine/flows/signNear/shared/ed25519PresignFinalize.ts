@@ -517,6 +517,8 @@ function reserveRouterAbEd25519PresignForNormalSigning(
   });
 }
 
+function ignoreClientPresignBurnFailure(): void {}
+
 async function signReservedRouterAbEd25519Presign(args: {
   input: RouterAbEd25519PresignPoolSigningInput;
   reservation: RouterAbEd25519PresignPoolReservation;
@@ -591,6 +593,11 @@ async function signReservedRouterAbEd25519Presign(args: {
       signerPublicKey: input.thresholdKeyMaterial.publicKey,
     };
   } catch (error) {
+    await burnThresholdEd25519ClientPresignWasm({
+      sessionId: input.thresholdSessionId,
+      clientNonceHandleB64u: reservation.reservation.entry.nonceHandle,
+      workerCtx: input.ctx,
+    }).catch(ignoreClientPresignBurnFailure);
     burnThresholdEd25519ReservedPresign({
       scopeKey: reservation.scopeKey,
       reservation: reservation.reservation,
