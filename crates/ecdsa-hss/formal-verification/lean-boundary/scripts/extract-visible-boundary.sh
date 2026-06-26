@@ -38,6 +38,8 @@ mkdir -p "${GENERATED_DIR}"
     -- --lib
 )
 
+node "${SCRIPT_DIR}/normalize-visible-boundary-llbc.mjs" "${LLBC_FILE}"
+
 "${AENEAS_BIN}" \
   -backend lean \
   -dest "${GENERATED_DIR}" \

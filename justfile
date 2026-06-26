@@ -44,7 +44,7 @@ ecdsa-hss-fv-parity:
 
 # Run the current Verus verifier for `ecdsa-hss`.
 ecdsa-hss-fv-verus:
-  cargo verus verify --manifest-path crates/ecdsa-hss/formal-verification/verus/Cargo.toml
+  cargo verus verify --manifest-path crates/ecdsa-hss/formal-verification/verus/Cargo.toml -- --rlimit 100
 
 # Run the current full formal-verification path for `ecdsa-hss`.
 ecdsa-hss-fv:
@@ -56,6 +56,7 @@ ecdsa-hss-fv:
 # Run the Aeneas/Lean boundary extraction and workspace check for `ecdsa-hss`.
 ecdsa-hss-fv-boundary:
   cd crates/ecdsa-hss/formal-verification/lean-boundary && ./scripts/extract-visible-boundary.sh
+  git diff --exit-code -- crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-input/ecdsa_hss.llbc || (echo "ECDSA-HSS visible-boundary extraction drifted; commit the regenerated LLBC artifact or fix extraction." >&2; exit 1)
   cd crates/ecdsa-hss/formal-verification/lean-boundary && $HOME/.elan/bin/lake build
 
 # Run the Lean privacy workspace for `ecdsa-hss`.

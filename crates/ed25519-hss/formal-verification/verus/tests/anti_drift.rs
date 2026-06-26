@@ -41,6 +41,38 @@ fn assert_ts_export_has_required_string_field(source: &str, export_name: &str, f
     );
 }
 
+fn ts_export_body<'a>(source: &'a str, export_name: &str) -> &'a str {
+    let interface_marker = format!("export interface {export_name}");
+    let type_marker = format!("export type {export_name}");
+    let start = source
+        .find(&interface_marker)
+        .or_else(|| source.find(&type_marker))
+        .expect("exported TypeScript shape should exist");
+    let rest = &source[start..];
+    let next_export = rest.find("\nexport ").unwrap_or(rest.len());
+    &rest[..next_export]
+}
+
+fn assert_ts_export_has_required_number_field(source: &str, export_name: &str, field: &str) {
+    let body = ts_export_body(source, export_name);
+    assert!(
+        body.contains(&format!("{field}: number;")),
+        "{export_name} should require {field}: number"
+    );
+    assert!(
+        !body.contains(&format!("{field}?:")),
+        "{export_name} should not make {field} optional"
+    );
+}
+
+fn assert_ts_export_omits_field(source: &str, export_name: &str, field: &str) {
+    let body = ts_export_body(source, export_name);
+    assert!(
+        !body.contains(field),
+        "{export_name} should not expose {field}"
+    );
+}
+
 fn sample_f_expand_input() -> production::shared::FExpandInput {
     production::shared::FExpandInput {
         context: sample_context(),
@@ -574,7 +606,7 @@ fn anti_drift_projection_mode_and_staged_artifact_boundary_matches_verified_mirr
 }
 
 #[test]
-fn anti_drift_client_owned_wasm_boundary_requires_fixed_client_output_mask() {
+fn anti_drift_client_owned_worker_boundary_uses_one_use_mask_handle() {
     let build_shape = mirror::server::api::client_owned_wasm_request_shape(
         mirror::server::api::ClientOwnedWasmRequestKind::BuildClientOwnedStagedEvaluatorArtifact,
     );
@@ -589,25 +621,69 @@ fn anti_drift_client_owned_wasm_boundary_requires_fixed_client_output_mask() {
     assert!(open_shape.has_client_output_mask_b64u);
     assert_eq!(open_shape.client_output_mask_len, 32);
 
-    let signer_worker_types = read_workspace_file("packages/sdk-web/src/core/types/signer-worker.ts");
+    let signer_worker_types = read_workspace_file(
+        "packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts",
+    );
     assert_ts_export_has_required_string_field(
         &signer_worker_types,
-        "WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest",
+        "PrepareThresholdEd25519HssClientOutputMaskHandleResult",
+        "clientOutputMaskHandle",
+    );
+    assert_ts_export_has_required_string_field(
+        &signer_worker_types,
+        "PrepareThresholdEd25519HssClientOutputMaskHandleResult",
+        "contextBindingB64u",
+    );
+    assert_ts_export_has_required_number_field(
+        &signer_worker_types,
+        "PrepareThresholdEd25519HssClientOutputMaskHandleResult",
+        "expiresAtMs",
+    );
+    assert_ts_export_has_required_number_field(
+        &signer_worker_types,
+        "PrepareThresholdEd25519HssClientOutputMaskHandleResult",
+        "remainingUses",
+    );
+    assert_ts_export_omits_field(
+        &signer_worker_types,
+        "PrepareThresholdEd25519HssClientOutputMaskHandleRequest",
         "clientOutputMaskB64u",
     );
     assert_ts_export_has_required_string_field(
         &signer_worker_types,
-        "WasmOpenThresholdEd25519HssClientOutputRequest",
+        "BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest",
+        "clientOutputMaskHandle",
+    );
+    assert_ts_export_has_required_string_field(
+        &signer_worker_types,
+        "BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest",
+        "expectedContextBindingB64u",
+    );
+    assert_ts_export_omits_field(
+        &signer_worker_types,
+        "BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleRequest",
         "clientOutputMaskB64u",
     );
 
     let sdk_wasm_wrapper = read_workspace_file(
         "packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts",
     );
-    assert!(sdk_wasm_wrapper.contains(
-        "const clientOutputMaskB64u = requireClientOutputMask32B64u(input.clientOutputMaskB64u);"
-    ));
-    assert!(sdk_wasm_wrapper.contains("clientOutputMaskB64u must decode to 32 bytes"));
+    assert!(sdk_wasm_wrapper
+        .contains("prepareThresholdEd25519HssClientOutputMaskHandleWasm"));
+    assert!(sdk_wasm_wrapper
+        .contains("buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFromMaskHandleWasm"));
+    assert!(sdk_wasm_wrapper.contains("remainingUses !== 1"));
+    assert!(!sdk_wasm_wrapper.contains("input.clientOutputMaskB64u"));
+
+    let hss_client_worker = read_workspace_file(
+        "packages/sdk-web/src/core/signingEngine/workerManager/workers/hss-client.worker.ts",
+    );
+    assert!(hss_client_worker.contains("fieldName: 'clientOutputMaskB64u'"));
+    assert!(hss_client_worker.contains("byteLength: ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES"));
+    assert!(hss_client_worker.contains("ed25519HssClientOutputMaskStore.delete(args.clientOutputMaskHandle)"));
+    assert!(hss_client_worker.contains("stored.contextBindingB64u !== args.expectedContextBindingB64u"));
+    assert!(hss_client_worker.contains("stored.remainingUses !== 1"));
+    assert!(hss_client_worker.contains("clientOutputMaskB64u,"));
 
     let browser_wasm = read_workspace_file("wasm/hss_client_signer/src/threshold_hss.rs");
     assert!(browser_wasm
