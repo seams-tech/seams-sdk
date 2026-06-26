@@ -2,7 +2,7 @@ use router_ab_core::{LocalHttpPathV1, LocalServiceRoleV1};
 use router_ab_dev::{
     local_env_materialization_plan_v1, run_example_local_router_ab_hss_dev_http_ceremony_v1,
     LocalDeriverPeerMessageReceiptV1, LocalHttpServiceBindingClientV1,
-    LocalSigningWorkerActivationRouteReceiptV1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    LocalSigningWorkerActivationRouteReceiptV1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
 };
 use serde::Serialize;
 use std::{
@@ -254,7 +254,7 @@ fn local_worker_accepts_only_signing_worker_activation_over_http(
         run_example_local_router_ab_hss_dev_http_ceremony_v1("derived-gamma", "split-epoch-1")?;
     let (status, body) = post_json_to_path(
         &signing_worker_url,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
         &ceremony.core_http_ceremony.signing_worker_activation,
     )?;
     assert_eq!(status, 200);
@@ -269,7 +269,7 @@ fn local_worker_accepts_only_signing_worker_activation_over_http(
     });
     let (status, body) = post_json_to_path(
         &signing_worker_url,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
         &client_bundle_activation,
     )?;
     assert_eq!(status, 400);

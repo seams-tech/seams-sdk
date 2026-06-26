@@ -416,16 +416,16 @@ async function ensureRouterServer() {
     const healthStatus = await describeUrlStatus(`${routerServerBaseUrl}/healthz`);
     const wellKnownStatus = await describeUrlStatus(routerServerInternalWellKnownUrl);
     throw new Error(
-      `${routerServerBaseUrl} is already listening but is not the Router server (${healthStatus}, well-known ${wellKnownStatus}). Stop that process or start the Router server with pnpm server.`,
+      `${routerServerBaseUrl} is already listening but is not the Router server (${healthStatus}, well-known ${wellKnownStatus}). Stop that process or start the Router server with pnpm router:server.`,
     );
   }
 
-  appendLine(pane, 'router server not running; starting pnpm server...');
+  appendLine(pane, 'router server not running; starting pnpm router:server...');
   const signingWorkerUrl = readEnvValue(
     join(root, '.env.router-ab.signing-worker.local'),
     'SIGNING_WORKER_URL',
   );
-  const child = spawn('pnpm', ['run', 'server'], {
+  const child = spawn('pnpm', ['run', 'router:server'], {
     cwd: repoRoot,
     env: {
       ...process.env,

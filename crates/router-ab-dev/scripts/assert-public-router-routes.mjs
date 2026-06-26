@@ -13,12 +13,12 @@ const expectedUpstream = process.env.ROUTER_AB_LOCAL_ROUTER_UPSTREAM || '127.0.0
 const routeProbes = [
   {
     label: 'Ed25519 normal signing prepare',
-    path: '/v2/router-ab/ed25519/sign/prepare',
+    path: '/router-ab/ed25519/sign/prepare',
     headers: { authorization: 'Bearer local-router-route-smoke.invalid' },
   },
   {
     label: 'Ed25519 Wallet Session issuance',
-    path: '/v2/router-ab/wallet-session/ed25519',
+    path: '/router-ab/wallet-session/ed25519',
     headers: {},
   },
 ];
@@ -55,11 +55,11 @@ function assertCaddySingleRouterUpstream() {
   const block = extractCaddySiteBlock(source, 'localhost:9444');
   const forbiddenMarkers = [
     '@router_ab_public_signing',
-    '/v2/router-ab/ed25519/sign',
-    '/v1/hss/ecdsa/sign',
+    '/router-ab/ed25519/sign',
+    '/router-ab/ecdsa-hss/sign',
     'handle @router_ab',
-    'handle_path /v2/router-ab',
-    'handle_path /v1/hss/ecdsa',
+    'handle_path /router-ab',
+    'handle_path /router-ab/ecdsa-hss',
   ];
   const offenders = forbiddenMarkers.filter((marker) => block.includes(marker));
   if (offenders.length > 0) {

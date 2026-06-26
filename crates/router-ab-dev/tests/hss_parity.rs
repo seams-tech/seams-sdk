@@ -11,9 +11,9 @@ use router_ab_dev::{
     verify_committed_ed25519_hss_split_server_fixture_at_epoch_v1,
     verify_committed_ed25519_hss_split_server_fixture_v1,
     verify_committed_ed25519_hss_split_server_fixtures_v1,
-    verify_committed_ed25519_hss_split_server_role_shares_v1, LOCAL_DERIVER_A_PEER_PATH_V1,
-    LOCAL_DERIVER_A_PRIVATE_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_DERIVER_B_PRIVATE_PATH_V1,
-    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    verify_committed_ed25519_hss_split_server_role_shares_v1, LOCAL_DERIVER_A_PEER_PATH,
+    LOCAL_DERIVER_A_PRIVATE_PATH, LOCAL_DERIVER_B_PEER_PATH, LOCAL_DERIVER_B_PRIVATE_PATH,
+    LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
 };
 use std::{fs, path::Path};
 
@@ -198,13 +198,13 @@ fn dev_adapter_http_ceremony_maps_checked_paths_to_production_style_routes() {
     .expect("Deriver B to Deriver A endpoint");
 
     assert_eq!(router_to_a.owner, LocalServiceRoleV1::DeriverA);
-    assert_eq!(router_to_a.path, LOCAL_DERIVER_A_PRIVATE_PATH_V1);
+    assert_eq!(router_to_a.path, LOCAL_DERIVER_A_PRIVATE_PATH);
     assert_eq!(router_to_b.owner, LocalServiceRoleV1::DeriverB);
-    assert_eq!(router_to_b.path, LOCAL_DERIVER_B_PRIVATE_PATH_V1);
+    assert_eq!(router_to_b.path, LOCAL_DERIVER_B_PRIVATE_PATH);
     assert_eq!(a_to_b.owner, LocalServiceRoleV1::DeriverB);
-    assert_eq!(a_to_b.path, LOCAL_DERIVER_B_PEER_PATH_V1);
+    assert_eq!(a_to_b.path, LOCAL_DERIVER_B_PEER_PATH);
     assert_eq!(b_to_a.owner, LocalServiceRoleV1::DeriverA);
-    assert_eq!(b_to_a.path, LOCAL_DERIVER_A_PEER_PATH_V1);
+    assert_eq!(b_to_a.path, LOCAL_DERIVER_A_PEER_PATH);
 
     result
         .core_http_ceremony
@@ -277,13 +277,13 @@ fn dev_adapter_deriver_peer_receipts_validate_direct_ab_messages() {
 
     let b_receipt = handle_local_deriver_peer_message_json_v1(
         LocalServiceRoleV1::DeriverB,
-        LOCAL_DERIVER_B_PEER_PATH_V1,
+        LOCAL_DERIVER_B_PEER_PATH,
         &a_to_b_body,
     )
     .expect("Deriver B accepts A peer message");
     let a_receipt = handle_local_deriver_peer_message_json_v1(
         LocalServiceRoleV1::DeriverA,
-        LOCAL_DERIVER_A_PEER_PATH_V1,
+        LOCAL_DERIVER_A_PEER_PATH,
         &b_to_a_body,
     )
     .expect("Deriver A accepts B peer message");
@@ -312,7 +312,7 @@ fn dev_adapter_signing_worker_activation_accepts_only_x_server_base_bundles() {
 
     let receipt = handle_local_signing_worker_activation_json_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
         &activation_body,
     )
     .expect("SigningWorker accepts server-output activation");
@@ -338,7 +338,7 @@ fn dev_adapter_signing_worker_activation_accepts_only_x_server_base_bundles() {
     });
     let err = handle_local_signing_worker_activation_json_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
         client_bundle_activation.to_string().as_bytes(),
     )
     .expect_err("SigningWorker must reject client-output bundles");
@@ -357,7 +357,7 @@ fn dev_adapter_local_route_diagnostics_stay_redacted() {
         .expect("router response JSON");
     let peer_response = handle_local_deriver_peer_message_json_v1(
         LocalServiceRoleV1::DeriverB,
-        LOCAL_DERIVER_B_PEER_PATH_V1,
+        LOCAL_DERIVER_B_PEER_PATH,
         &serde_json::to_vec(
             &ceremony
                 .core_http_ceremony
@@ -370,7 +370,7 @@ fn dev_adapter_local_route_diagnostics_stay_redacted() {
     .expect("peer receipt JSON");
     let activation_response = handle_local_signing_worker_activation_json_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+        LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
         &serde_json::to_vec(&ceremony.core_http_ceremony.signing_worker_activation)
             .expect("activation JSON"),
     )

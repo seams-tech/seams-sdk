@@ -15,16 +15,15 @@ use super::{
     handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1,
     handle_local_signing_worker_normal_signing_round1_prepare_json_v1,
     local_worker_health_response_json_v1, local_worker_owns_path_v1, LocalSigningWorkerConfigV1,
-    LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1,
-    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1, LOCAL_WORKER_HEALTH_PATH_V1,
-    LOCAL_WORKER_READY_PATH_V1,
+    LocalWorkerRoleConfigV1, LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_B_PEER_PATH,
+    LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH, LOCAL_WORKER_HEALTH_PATH,
+    LOCAL_WORKER_READY_PATH,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -39,7 +38,7 @@ pub fn local_dev_http_handle_request_v1(
     let method = request.method.as_str();
     let path = request.path.as_str();
 
-    if path == LOCAL_WORKER_HEALTH_PATH_V1 || path == LOCAL_WORKER_READY_PATH_V1 {
+    if path == LOCAL_WORKER_HEALTH_PATH || path == LOCAL_WORKER_READY_PATH {
         let role = topology.local_http_error_role();
         if method == "GET" {
             let LocalDevHttpTopologyV1::FourWorker(config) = topology;
@@ -48,19 +47,19 @@ pub fn local_dev_http_handle_request_v1(
         return local_dev_http_error_body_v1(role, path, 405, "method not allowed");
     }
 
-    if path == LOCAL_DERIVER_A_PEER_PATH_V1 {
+    if path == LOCAL_DERIVER_A_PEER_PATH {
         return local_dev_deriver_peer_route_v1(topology, request, LocalServiceRoleV1::DeriverA);
     }
 
-    if path == LOCAL_DERIVER_B_PEER_PATH_V1 {
+    if path == LOCAL_DERIVER_B_PEER_PATH {
         return local_dev_deriver_peer_route_v1(topology, request, LocalServiceRoleV1::DeriverB);
     }
 
-    if path == LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_ACTIVATION_PATH {
         return local_dev_signing_worker_activation_route_v1(topology, request);
     }
 
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
                 signing_worker,
@@ -71,7 +70,7 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1(
                 signing_worker,
@@ -82,7 +81,7 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1(
                 signing_worker,
@@ -93,7 +92,7 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_normal_signing_json_v1(
                 signing_worker,
@@ -104,7 +103,7 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_ecdsa_hss_presignature_pool_put_json_v1(
                 signing_worker,
@@ -115,7 +114,7 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_ecdsa_hss_prepare_json_v1(
                 signing_worker,
@@ -126,7 +125,7 @@ pub fn local_dev_http_handle_request_v1(
         });
     }
 
-    if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1 {
+    if path == LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH {
         return local_dev_signing_worker_private_route_v1(topology, request, |signing_worker| {
             handle_local_signing_worker_ecdsa_hss_finalize_json_v1(
                 signing_worker,

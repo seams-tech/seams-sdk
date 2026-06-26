@@ -59,7 +59,7 @@ requireSourceRangeIncludes(
 requireSourceRangeIncludes(
   'P1: strict Cloudflare Router private grant route is missing internal service auth',
   strictWorkerSource,
-  'CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH_V1',
+  'CLOUDFLARE_ROUTER_WALLET_BUDGET_PUT_GRANT_PRIVATE_REQUEST_PATH',
   'if request.method() == Method::Options',
   'require_cloudflare_internal_service_auth_request_v1',
 );
@@ -80,8 +80,8 @@ requireSourceRangeIncludes(
 requireSourceRangeIncludes(
   'P1: strict Cloudflare Wallet Budget status route is missing from strict Router dispatch',
   strictWorkerSource,
-  'CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH_V1',
-  'if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH_V2',
+  'CLOUDFLARE_ROUTER_WALLET_BUDGET_STATUS_PUBLIC_REQUEST_PATH',
+  'if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH',
   'handle_cloudflare_router_wallet_budget_status_authenticated_public_request_v1',
 );
 requireSourceRangeIncludes(
@@ -273,17 +273,17 @@ for (const [label, source, needle] of [
   [
     'P0: ECDSA-HSS registration public route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH_V1',
+    'CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH',
   ],
   [
     'P0: ECDSA-HSS export public route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH_V1',
+    'CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH',
   ],
   [
     'P0: ECDSA-HSS SigningWorker activation route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH_V1',
+    'CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH',
   ],
   [
     'P0: ECDSA-HSS activation does not derive identity through the ECDSA-HSS crate',
@@ -303,12 +303,12 @@ for (const [label, source, needle] of [
   [
     'P0: ECDSA-HSS Signer A export private Deriver route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH_V1',
+    'CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
   ],
   [
     'P0: ECDSA-HSS Signer B export private Deriver route is missing',
     strictWorkerSource,
-    'CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH_V1',
+    'CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH',
   ],
   [
     'P0: Signer A wrangler config is missing SIGNING_WORKER service binding',

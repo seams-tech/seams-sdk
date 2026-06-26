@@ -53,9 +53,11 @@ pnpm router -- --fresh
 pnpm router:multiplex -- --fresh
 ```
 
-`pnpm server` starts the main Router server under `apps/web-server`. The Rust
-local worker binary now exposes only Deriver A, Deriver B, and SigningWorker
-private roles; the SDK Router route table owns the browser-facing local API.
+`pnpm router:server` is the lower-level main Router server command under
+`apps/web-server`; `pnpm router` starts it automatically for the normal local
+backend stack. The Rust local worker binary now exposes only Deriver A, Deriver
+B, and SigningWorker private roles; the SDK Router route table owns the
+browser-facing local API.
 
 If the default ports `9090-9093` are already in use, generate the same local
 environment with free localhost ports:

@@ -5,7 +5,7 @@ use router_ab_dev::{
     local_env_materialization_plan_v1, local_worker_bind_addr_v1, parse_local_env_file_contents_v1,
     parse_local_worker_role_config_for_role_v1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_ENV_FILE_V1, LOCAL_DERIVER_B_ENV_FILE_V1, LOCAL_ROUTER_ENV_FILE_V1,
-    LOCAL_SIGNING_WORKER_ENV_FILE_V1, LOCAL_WORKER_HEALTH_PATH_V1,
+    LOCAL_SIGNING_WORKER_ENV_FILE_V1, LOCAL_WORKER_HEALTH_PATH,
 };
 use serde::Serialize;
 use std::{
@@ -202,7 +202,7 @@ pub fn wait_for_existing_health(url: &str) -> Result<(), Box<dyn std::error::Err
 }
 
 pub fn get_health(base_url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    get_path(base_url, LOCAL_WORKER_HEALTH_PATH_V1)
+    get_path(base_url, LOCAL_WORKER_HEALTH_PATH)
 }
 
 pub fn get_path(base_url: &str, path: &str) -> Result<String, Box<dyn std::error::Error>> {

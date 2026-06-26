@@ -9,24 +9,23 @@ use router_ab_dev::{
     parse_local_worker_role_config_for_role_v1, parse_local_worker_role_config_v1,
     LocalHttpServiceBindingClientV1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1, LOCAL_DERIVER_A_ENV_FILE_V1,
-    LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_A_PRIVATE_PATH_V1, LOCAL_DERIVER_A_STATE_DIR_V1,
+    LOCAL_DERIVER_A_PEER_PATH, LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_A_PRIVATE_PATH, LOCAL_DERIVER_A_STATE_DIR_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1, LOCAL_DERIVER_B_ENV_FILE_V1,
-    LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
-    LOCAL_DERIVER_B_PRIVATE_PATH_V1, LOCAL_DERIVER_B_STATE_DIR_V1,
+    LOCAL_DERIVER_B_PEER_PATH, LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_B_PRIVATE_PATH, LOCAL_DERIVER_B_STATE_DIR_V1,
     LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1, LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
-    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
-    LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
-    LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2, LOCAL_ROUTER_PUBLIC_URL_ENV_V1,
-    LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1,
-    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1,
+    LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH, LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH,
+    LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH,
+    LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH, LOCAL_ROUTER_PUBLIC_URL_ENV_V1,
+    LOCAL_ROUTER_STATE_DIR_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH,
+    LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1, LOCAL_SIGNING_WORKER_STATE_DIR_V1,
-    LOCAL_WORKER_HEALTH_PATH_V1, LOCAL_WORKER_READY_PATH_V1, LOCAL_WORKER_ROLE_ENV_V1,
+    LOCAL_WORKER_HEALTH_PATH, LOCAL_WORKER_READY_PATH, LOCAL_WORKER_ROLE_ENV_V1,
     LOCAL_WORKER_STARTUP_EPOCH_V1,
 };
 use std::{
@@ -211,49 +210,49 @@ fn local_worker_route_ownership_uses_production_style_paths() {
     assert_eq!(
         local_worker_owned_paths_v1(LocalServiceRoleV1::Router),
         &[
-            LOCAL_WORKER_HEALTH_PATH_V1,
-            LOCAL_WORKER_READY_PATH_V1,
-            LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
-            LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
-            LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1,
-            LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1,
+            LOCAL_WORKER_HEALTH_PATH,
+            LOCAL_WORKER_READY_PATH,
+            LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH,
+            LOCAL_ROUTER_NORMAL_SIGNING_PATH,
+            LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH,
+            LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH,
         ]
     );
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1
+        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1
+        LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1
+        LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1
+        LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::DeriverA,
-        LOCAL_DERIVER_A_PRIVATE_PATH_V1
+        LOCAL_DERIVER_A_PRIVATE_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::DeriverA,
-        LOCAL_DERIVER_A_PEER_PATH_V1
+        LOCAL_DERIVER_A_PEER_PATH
     ));
     assert!(!local_worker_owns_path_v1(
         LocalServiceRoleV1::DeriverB,
-        LOCAL_DERIVER_A_PRIVATE_PATH_V1
+        LOCAL_DERIVER_A_PRIVATE_PATH
     ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::SigningWorker,
-        LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1
+        LOCAL_SIGNING_WORKER_ACTIVATION_PATH
     ));
 }
 
@@ -261,19 +260,19 @@ fn local_worker_route_ownership_uses_production_style_paths() {
 fn local_http_service_binding_maps_checked_paths_to_production_routes() {
     assert_eq!(
         local_http_service_binding_path_v1(LocalHttpPathV1::RouterToSignerA),
-        LOCAL_DERIVER_A_PRIVATE_PATH_V1
+        LOCAL_DERIVER_A_PRIVATE_PATH
     );
     assert_eq!(
         local_http_service_binding_path_v1(LocalHttpPathV1::RouterToSignerB),
-        LOCAL_DERIVER_B_PRIVATE_PATH_V1
+        LOCAL_DERIVER_B_PRIVATE_PATH
     );
     assert_eq!(
         local_http_service_binding_path_v1(LocalHttpPathV1::SignerAToSignerB),
-        LOCAL_DERIVER_B_PEER_PATH_V1
+        LOCAL_DERIVER_B_PEER_PATH
     );
     assert_eq!(
         local_http_service_binding_path_v1(LocalHttpPathV1::SignerBToSignerA),
-        LOCAL_DERIVER_A_PEER_PATH_V1
+        LOCAL_DERIVER_A_PEER_PATH
     );
 
     let endpoint = local_http_service_binding_endpoint_v1(
@@ -283,7 +282,7 @@ fn local_http_service_binding_maps_checked_paths_to_production_routes() {
     .expect("endpoint parses");
     assert_eq!(endpoint.owner, LocalServiceRoleV1::DeriverA);
     assert_eq!(endpoint.bind_addr, "127.0.0.1:9091");
-    assert_eq!(endpoint.path, LOCAL_DERIVER_A_PRIVATE_PATH_V1);
+    assert_eq!(endpoint.path, LOCAL_DERIVER_A_PRIVATE_PATH);
     assert_eq!(
         endpoint.url,
         local_http_service_binding_url_v1(
@@ -308,7 +307,7 @@ fn local_http_service_binding_client_posts_canonical_wire_bytes() {
             .expect("request header terminator");
         let headers =
             std::str::from_utf8(&request[..header_end]).expect("request headers are UTF-8");
-        assert!(headers.starts_with("POST /router-ab/v1/signer-a HTTP/1.1"));
+        assert!(headers.starts_with("POST /router-ab/signer-a HTTP/1.1"));
         assert!(headers.contains(&format!(
             "content-type: {LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1}"
         )));
@@ -347,7 +346,7 @@ fn local_http_service_binding_client_posts_worker_shaped_json() {
             .expect("request header terminator");
         let headers =
             std::str::from_utf8(&request[..header_end]).expect("request headers are UTF-8");
-        assert!(headers.starts_with("POST /router-ab/v1/signer-b/peer HTTP/1.1"));
+        assert!(headers.starts_with("POST /router-ab/signer-b/peer HTTP/1.1"));
         assert!(headers.contains(&format!("content-type: {LOCAL_HTTP_JSON_CONTENT_TYPE_V1}")));
         let body: serde_json::Value =
             serde_json::from_slice(&request[header_end + 4..]).expect("request JSON parses");

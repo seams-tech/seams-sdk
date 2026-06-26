@@ -154,10 +154,10 @@ impl Default for LocalHttpServiceBindingClientV1 {
 /// Returns the production-style path for a checked local transport path.
 pub fn local_http_service_binding_path_v1(path: LocalHttpPathV1) -> &'static str {
     match path {
-        LocalHttpPathV1::RouterToSignerA => super::LOCAL_DERIVER_A_PRIVATE_PATH_V1,
-        LocalHttpPathV1::RouterToSignerB => super::LOCAL_DERIVER_B_PRIVATE_PATH_V1,
-        LocalHttpPathV1::SignerAToSignerB => super::LOCAL_DERIVER_B_PEER_PATH_V1,
-        LocalHttpPathV1::SignerBToSignerA => super::LOCAL_DERIVER_A_PEER_PATH_V1,
+        LocalHttpPathV1::RouterToSignerA => super::LOCAL_DERIVER_A_PRIVATE_PATH,
+        LocalHttpPathV1::RouterToSignerB => super::LOCAL_DERIVER_B_PRIVATE_PATH,
+        LocalHttpPathV1::SignerAToSignerB => super::LOCAL_DERIVER_B_PEER_PATH,
+        LocalHttpPathV1::SignerBToSignerA => super::LOCAL_DERIVER_A_PEER_PATH,
     }
 }
 
