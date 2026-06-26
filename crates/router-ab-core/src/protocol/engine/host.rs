@@ -36,16 +36,8 @@ pub enum AuditEventV1 {
         session_id: String,
         /// Selected SigningWorker/server id.
         selected_server_id: String,
-        /// Stable threshold ECDSA key id.
-        ecdsa_threshold_key_id: String,
-        /// Signing root id.
-        signing_root_id: String,
-        /// Signing root version.
-        signing_root_version: String,
-        /// Key purpose.
-        key_purpose: String,
-        /// Key version.
-        key_version: String,
+        /// SDK-owned application binding digest encoded as unpadded base64url.
+        application_binding_digest_b64u: String,
         /// Export authorization digest encoded as unpadded base64url.
         export_authorization_digest_b64u: String,
         /// Router decision.

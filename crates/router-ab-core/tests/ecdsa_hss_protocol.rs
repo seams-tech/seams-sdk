@@ -38,17 +38,14 @@ fn digest_b64u(bytes: &[u8]) -> String {
     b64u(digest(bytes).as_bytes())
 }
 
+const ECDSA_HSS_WALLET_KEY_ID: &str = "wallet-key-1";
+const ECDSA_HSS_WALLET_ID: &str = "wallet-1";
+const ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-1";
+const ECDSA_HSS_SIGNING_ROOT_ID: &str = "signing-root-1";
+const ECDSA_HSS_SIGNING_ROOT_VERSION: &str = "root-v1";
+
 fn context() -> RouterAbEcdsaHssStableKeyContextV1 {
-    RouterAbEcdsaHssStableKeyContextV1::new(
-        "wallet-1",
-        "localhost",
-        "ecdsa-threshold-key-1",
-        "signing-root-1",
-        "root-v1",
-        "evm-signing",
-        "v1",
-    )
-    .expect("context")
+    RouterAbEcdsaHssStableKeyContextV1::new(b64u(&[0x42; 32])).expect("context")
 }
 
 fn server_identity() -> ServerIdentityV1 {
@@ -71,16 +68,19 @@ fn lifecycle_at_epoch(
     lifecycle_id: &str,
     activation_epoch: &str,
 ) -> LifecycleScopeV1 {
-    let context = context();
     let root_share_epoch = RootShareEpoch::new(activation_epoch).expect("root epoch");
-    let session_id =
-        router_ab_ecdsa_hss_active_state_session_id_v1(&context, root_share_epoch.as_str())
-            .expect("ECDSA-HSS active state session id");
+    let session_id = router_ab_ecdsa_hss_active_state_session_id_v1(
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+        root_share_epoch.as_str(),
+    )
+    .expect("ECDSA-HSS active state session id");
     LifecycleScopeV1::new(
         lifecycle_id,
         work_kind,
         root_share_epoch,
-        "wallet-1",
+        ECDSA_HSS_WALLET_ID,
         session_id,
         "signer-set-1",
         "signing-worker-1",
@@ -207,6 +207,11 @@ fn activation_refresh_request() -> RouterAbEcdsaHssActivationRefreshRequestV1 {
 
 fn normal_signing_scope() -> RouterAbEcdsaHssNormalSigningScopeV1 {
     RouterAbEcdsaHssNormalSigningScopeV1::new(
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
         context(),
         public_identity(),
         server_identity(),
@@ -259,11 +264,9 @@ fn ecdsa_hss_protocol_version_and_scope_are_frozen() {
 }
 
 #[test]
-fn ecdsa_hss_context_rejects_non_v1_key_scope() {
-    let mut context = context();
-    context.key_scope = "legacy-role-local".to_owned();
-
-    let err = context.validate().expect_err("wrong key scope rejects");
+fn ecdsa_hss_context_rejects_non_digest_binding() {
+    let err = RouterAbEcdsaHssStableKeyContextV1::new(b64u(&[0x42; 31]))
+        .expect_err("wrong digest length rejects");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 
@@ -498,9 +501,14 @@ fn ecdsa_hss_deriver_plaintext_rejects_wrong_signing_worker_identity() {
         "wrong-signing-worker-lifecycle",
         ExpensiveWorkKindV1::RegistrationPrepare,
         RootShareEpoch::new("root-epoch-1").expect("root epoch"),
-        "wallet-1",
-        router_ab_ecdsa_hss_active_state_session_id_v1(&context(), "root-epoch-1")
-            .expect("session id"),
+        ECDSA_HSS_WALLET_ID,
+        router_ab_ecdsa_hss_active_state_session_id_v1(
+            ECDSA_HSS_THRESHOLD_KEY_ID,
+            ECDSA_HSS_SIGNING_ROOT_ID,
+            ECDSA_HSS_SIGNING_ROOT_VERSION,
+            "root-epoch-1",
+        )
+        .expect("session id"),
         "signer-set-1",
         "different-signing-worker",
     )

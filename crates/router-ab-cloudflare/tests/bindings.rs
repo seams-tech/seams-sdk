@@ -177,10 +177,12 @@ use router_ab_cloudflare::{
     ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, ROUTER_QUOTA_DO_BINDING_ENV,
     ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV, ROUTER_REPLAY_DO_BINDING_ENV,
     ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
-    SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
-    SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV, SIGNER_A_PEER_BINDING_ENV,
-    SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV, SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV,
-    SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV, SIGNER_A_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+    ROUTER_WALLET_BUDGET_DO_BINDING_ENV, ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
+    ROUTER_WALLET_BUDGET_DO_OBJECT_ENV, SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+    SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV, SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+    SIGNER_A_PEER_BINDING_ENV, SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
+    SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV, SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV,
+    SIGNER_A_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH_ENV,
     SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY_ENV, SIGNER_A_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV,
@@ -238,6 +240,11 @@ use signer_core::threshold_ecdsa::{
 };
 
 const TEST_ACTIVATED_AT_MS: u64 = 1_000;
+const ECDSA_HSS_WALLET_KEY_ID: &str = "wallet-key-1";
+const ECDSA_HSS_WALLET_ID: &str = "wallet-1";
+const ECDSA_HSS_THRESHOLD_KEY_ID: &str = "ecdsa-key-1";
+const ECDSA_HSS_SIGNING_ROOT_ID: &str = "signing-root-1";
+const ECDSA_HSS_SIGNING_ROOT_VERSION: &str = "root-version-1";
 
 fn root_epoch() -> RootShareEpoch {
     RootShareEpoch::new("epoch-1").expect("root epoch")
@@ -1441,21 +1448,17 @@ fn ecdsa_client_public_key33() -> [u8; 33] {
 }
 
 fn ecdsa_hss_context() -> RouterAbEcdsaHssStableKeyContextV1 {
-    RouterAbEcdsaHssStableKeyContextV1::new(
-        "wallet-1",
-        "example.com",
-        "ecdsa-key-1",
-        "signing-root-1",
-        "root-version-1",
-        "evm-signing",
-        "key-version-1",
-    )
-    .expect("ECDSA-HSS context")
+    RouterAbEcdsaHssStableKeyContextV1::new(b64u(&[0x42; 32])).expect("ECDSA-HSS context")
 }
 
 fn ecdsa_hss_active_state_session_id(epoch: &RootShareEpoch) -> String {
-    router_ab_ecdsa_hss_active_state_session_id_v1(&ecdsa_hss_context(), epoch.as_str())
-        .expect("ECDSA-HSS active-state session id")
+    router_ab_ecdsa_hss_active_state_session_id_v1(
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+        epoch.as_str(),
+    )
+    .expect("ECDSA-HSS active-state session id")
 }
 
 fn ecdsa_hss_lifecycle_scope_for(
@@ -1468,7 +1471,7 @@ fn ecdsa_hss_lifecycle_scope_for(
         lifecycle_id,
         work_kind,
         epoch,
-        "wallet-1",
+        ECDSA_HSS_WALLET_ID,
         session_id,
         "signer-set-v1",
         "server-a",
@@ -1805,8 +1808,15 @@ fn ecdsa_hss_digest_signing_request() -> RouterAbEcdsaHssEvmDigestSigningRequest
         TEST_ACTIVATED_AT_MS,
     )
     .expect("ECDSA-HSS activation receipt");
-    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(&receipt)
-        .expect("ECDSA-HSS normal-signing scope");
+    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(
+        &receipt,
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+    )
+    .expect("ECDSA-HSS normal-signing scope");
     RouterAbEcdsaHssEvmDigestSigningRequestV1::new(
         scope,
         "ecdsa-hss-sign-request-1",
@@ -1834,17 +1844,16 @@ fn ecdsa_hss_digest_signing_finalize_request() -> RouterAbEcdsaHssEvmDigestSigni
 fn ecdsa_hss_trusted_admission(
     request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
 ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
-    let active_session_id = router_ab_ecdsa_hss_active_state_session_id_v1(
-        &request.scope.context,
-        &request.scope.activation_epoch,
-    )
-    .expect("ECDSA-HSS active session id");
+    let active_session_id = request
+        .scope
+        .active_state_session_id()
+        .expect("ECDSA-HSS active session id");
     CloudflareRouterNormalSigningTrustedAdmissionV1::new(
         CloudflareRouterNormalSigningTrustedMetadataV1::new(
             "org-1",
             "project-1",
             "dev",
-            request.scope.context.wallet_id.clone(),
+            request.scope.wallet_id.clone(),
             CloudflareRouterAuthContextV1::authenticated_session("subject-1", active_session_id)
                 .expect("ECDSA-HSS auth context"),
             digest(0x42),
@@ -1860,17 +1869,16 @@ fn ecdsa_hss_trusted_admission(
 fn ecdsa_hss_finalize_trusted_admission(
     request: &RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
 ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
-    let active_session_id = router_ab_ecdsa_hss_active_state_session_id_v1(
-        &request.scope.context,
-        &request.scope.activation_epoch,
-    )
-    .expect("ECDSA-HSS finalize active session id");
+    let active_session_id = request
+        .scope
+        .active_state_session_id()
+        .expect("ECDSA-HSS finalize active session id");
     CloudflareRouterNormalSigningTrustedAdmissionV1::new(
         CloudflareRouterNormalSigningTrustedMetadataV1::new(
             "org-1",
             "project-1",
             "dev",
-            request.scope.context.wallet_id.clone(),
+            request.scope.wallet_id.clone(),
             CloudflareRouterAuthContextV1::authenticated_session("subject-1", active_session_id)
                 .expect("ECDSA-HSS finalize auth context"),
             digest(0x42),
@@ -1888,14 +1896,13 @@ fn ecdsa_hss_finalize_trusted_admission(
 fn ecdsa_hss_wallet_session(
     request: &RouterAbEcdsaHssEvmDigestSigningRequestV1,
 ) -> CloudflareRouterVerifiedWalletSessionV1 {
-    let active_session_id = router_ab_ecdsa_hss_active_state_session_id_v1(
-        &request.scope.context,
-        &request.scope.activation_epoch,
-    )
-    .expect("ECDSA-HSS Wallet Session active session id");
+    let active_session_id = request
+        .scope
+        .active_state_session_id()
+        .expect("ECDSA-HSS Wallet Session active session id");
     CloudflareRouterVerifiedWalletSessionV1::new(
         "subject-1",
-        request.scope.context.wallet_id.clone(),
+        request.scope.wallet_id.clone(),
         active_session_id,
         "signing-grant-ecdsa-1",
         "org-1",
@@ -2760,6 +2767,15 @@ fn router_env() -> CloudflareEnvMapV1 {
         (ROUTER_QUOTA_DO_BINDING_ENV, "ROUTER_QUOTA_DO"),
         (ROUTER_QUOTA_DO_OBJECT_ENV, "router-quota"),
         (ROUTER_QUOTA_DO_KEY_PREFIX_ENV, "router-quota:"),
+        (
+            ROUTER_WALLET_BUDGET_DO_BINDING_ENV,
+            "ROUTER_WALLET_BUDGET_DO",
+        ),
+        (ROUTER_WALLET_BUDGET_DO_OBJECT_ENV, "router-wallet-budget"),
+        (
+            ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
+            "router-wallet-budget:",
+        ),
         (ROUTER_ABUSE_DO_BINDING_ENV, "ROUTER_ABUSE_DO"),
         (ROUTER_ABUSE_DO_OBJECT_ENV, "router-abuse"),
         (ROUTER_ABUSE_DO_KEY_PREFIX_ENV, "router-abuse:"),
@@ -2795,6 +2811,15 @@ fn router_env_with_public_keyset() -> CloudflareEnvMapV1 {
         (ROUTER_QUOTA_DO_BINDING_ENV, "ROUTER_QUOTA_DO"),
         (ROUTER_QUOTA_DO_OBJECT_ENV, "router-quota"),
         (ROUTER_QUOTA_DO_KEY_PREFIX_ENV, "router-quota:"),
+        (
+            ROUTER_WALLET_BUDGET_DO_BINDING_ENV,
+            "ROUTER_WALLET_BUDGET_DO",
+        ),
+        (ROUTER_WALLET_BUDGET_DO_OBJECT_ENV, "router-wallet-budget"),
+        (
+            ROUTER_WALLET_BUDGET_DO_KEY_PREFIX_ENV,
+            "router-wallet-budget:",
+        ),
         (ROUTER_ABUSE_DO_BINDING_ENV, "ROUTER_ABUSE_DO"),
         (ROUTER_ABUSE_DO_OBJECT_ENV, "router-abuse"),
         (ROUTER_ABUSE_DO_KEY_PREFIX_ENV, "router-abuse:"),
@@ -7128,8 +7153,15 @@ fn ecdsa_hss_activation_refresh_receipt_preserves_identity_for_next_epoch() {
         refresh.refresh_request.next_activation_epoch
     );
 
-    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(&receipt)
-        .expect("refreshed ECDSA-HSS normal-signing scope");
+    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(
+        &receipt,
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+    )
+    .expect("refreshed ECDSA-HSS normal-signing scope");
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &refresh
             .to_recipient_proof_bundle_activation_request()
@@ -7235,8 +7267,15 @@ fn ecdsa_hss_normal_signing_scope_binds_active_material_to_identity() {
         TEST_ACTIVATED_AT_MS,
     )
     .expect("ECDSA-HSS activation receipt");
-    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(&receipt)
-        .expect("ECDSA-HSS normal-signing scope");
+    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(
+        &receipt,
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+    )
+    .expect("ECDSA-HSS normal-signing scope");
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
             .to_recipient_proof_bundle_activation_request()
@@ -7309,14 +7348,13 @@ fn ecdsa_hss_wallet_session_builds_prepare_admission_candidate() {
         .to_normal_signing_admission_store_request(&request, TEST_ACTIVATED_AT_MS + 1)
         .expect("ECDSA-HSS admission store request");
 
-    assert_eq!(admission.account_id, request.scope.context.wallet_id);
+    assert_eq!(admission.account_id, request.scope.wallet_id);
     assert_eq!(
         admission.threshold_session_id,
-        router_ab_ecdsa_hss_active_state_session_id_v1(
-            &request.scope.context,
-            &request.scope.activation_epoch,
-        )
-        .expect("ECDSA-HSS active session id")
+        request
+            .scope
+            .active_state_session_id()
+            .expect("ECDSA-HSS active session id")
     );
     assert_eq!(
         admission.signing_worker_id,
@@ -7358,14 +7396,13 @@ fn ecdsa_hss_wallet_session_builds_finalize_admission_candidate() {
         .to_normal_signing_admission_store_request(&request, TEST_ACTIVATED_AT_MS + 1)
         .expect("ECDSA-HSS finalize admission store request");
 
-    assert_eq!(admission.account_id, request.scope.context.wallet_id);
+    assert_eq!(admission.account_id, request.scope.wallet_id);
     assert_eq!(
         admission.threshold_session_id,
-        router_ab_ecdsa_hss_active_state_session_id_v1(
-            &request.scope.context,
-            &request.scope.activation_epoch,
-        )
-        .expect("ECDSA-HSS finalize active session id")
+        request
+            .scope
+            .active_state_session_id()
+            .expect("ECDSA-HSS finalize active session id")
     );
     assert_eq!(
         admission.finalize_request_digest,
@@ -7447,8 +7484,15 @@ fn ecdsa_hss_normal_signing_request_materializes_from_active_state() {
         TEST_ACTIVATED_AT_MS,
     )
     .expect("ECDSA-HSS activation receipt");
-    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(&receipt)
-        .expect("ECDSA-HSS normal-signing scope");
+    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(
+        &receipt,
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+    )
+    .expect("ECDSA-HSS normal-signing scope");
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
             .to_recipient_proof_bundle_activation_request()
@@ -7792,8 +7836,15 @@ fn ecdsa_hss_normal_signing_request_rejects_active_state_drift() {
         TEST_ACTIVATED_AT_MS,
     )
     .expect("ECDSA-HSS activation receipt");
-    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(&receipt)
-        .expect("ECDSA-HSS normal-signing scope");
+    let scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(
+        &receipt,
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+    )
+    .expect("ECDSA-HSS normal-signing scope");
     let mut active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
             .to_recipient_proof_bundle_activation_request()
@@ -7837,8 +7888,15 @@ fn ecdsa_hss_normal_signing_scope_rejects_public_identity_drift() {
         TEST_ACTIVATED_AT_MS,
     )
     .expect("ECDSA-HSS activation receipt");
-    let mut scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(&receipt)
-        .expect("ECDSA-HSS normal-signing scope");
+    let mut scope = cloudflare_ecdsa_hss_normal_signing_scope_from_activation_receipt_v1(
+        &receipt,
+        ECDSA_HSS_WALLET_KEY_ID,
+        ECDSA_HSS_WALLET_ID,
+        ECDSA_HSS_THRESHOLD_KEY_ID,
+        ECDSA_HSS_SIGNING_ROOT_ID,
+        ECDSA_HSS_SIGNING_ROOT_VERSION,
+    )
+    .expect("ECDSA-HSS normal-signing scope");
     scope.public_identity.ethereum_address20_b64u = b64u(&[0x55; 20]);
     let active_state = cloudflare_active_signing_worker_state_from_activation_request_v1(
         &activation
@@ -9720,7 +9778,7 @@ fn durable_object_call_routes_root_share_has_to_signer_scope() {
     );
     assert_eq!(
         call.durable_object_url(),
-        "https://router-ab-durable-object.internal/router-ab/do/v1/root-share/has"
+        "https://router-ab-durable-object.internal/router-ab/do/root-share/has"
     );
     assert_eq!(
         call.storage_key(),

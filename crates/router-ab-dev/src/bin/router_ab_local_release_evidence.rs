@@ -211,11 +211,11 @@ fn ecdsa_hss_evidence() -> RouterAbProtocolResult<EcdsaHssEvidence> {
         live_http_route_dispatch_evidence:
             "run pnpm router:check after local services are ready; this report does not open local HTTP listeners",
         route_shape: EcdsaHssRouteShape {
-            prepare_route: "/v1/hss/ecdsa/sign/prepare",
-            finalize_route: "/v1/hss/ecdsa/sign",
-            private_pool_fill_route: "/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put",
-            private_prepare_route: "/router-ab/v1/signing-worker/ecdsa-hss/sign/prepare",
-            private_finalize_route: "/router-ab/v1/signing-worker/ecdsa-hss/sign",
+            prepare_route: "/router-ab/ecdsa-hss/sign/prepare",
+            finalize_route: "/router-ab/ecdsa-hss/sign",
+            private_pool_fill_route: "/router-ab/signing-worker/ecdsa-hss/presignature-pool/put",
+            private_prepare_route: "/router-ab/signing-worker/ecdsa-hss/sign/prepare",
+            private_finalize_route: "/router-ab/signing-worker/ecdsa-hss/sign",
         },
         prepare_finalize_protocol_timing: timing,
         signed_digest_b64u: prepare.signing_digest_b64u,
@@ -294,12 +294,12 @@ fn ed25519_pool_evidence() -> RouterAbProtocolResult<Ed25519PoolEvidence> {
     Ok(Ed25519PoolEvidence {
         evidence_kind: "protocol_shape_parser_binding_timing",
         route_shape: Ed25519PoolRouteShape {
-            refill_route: "/v2/router-ab/ed25519/sign/presign-pool/prepare",
-            pool_hit_finalize_route: "/v2/router-ab/ed25519/sign",
-            pool_miss_prepare_route: "/v2/router-ab/ed25519/sign/prepare",
-            pool_miss_finalize_route: "/v2/router-ab/ed25519/sign",
-            private_refill_route: "/router-ab/v1/signing-worker/sign/presign-pool/prepare",
-            private_finalize_route: "/router-ab/v1/signing-worker/sign",
+            refill_route: "/router-ab/ed25519/sign/presign-pool/prepare",
+            pool_hit_finalize_route: "/router-ab/ed25519/sign",
+            pool_miss_prepare_route: "/router-ab/ed25519/sign/prepare",
+            pool_miss_finalize_route: "/router-ab/ed25519/sign",
+            private_refill_route: "/router-ab/signing-worker/sign/presign-pool/prepare",
+            private_finalize_route: "/router-ab/signing-worker/sign",
         },
         refill_timing,
         pool_hit_finalize_timing,
@@ -335,6 +335,11 @@ fn ecdsa_signing_request() -> RouterAbProtocolResult<RouterAbEcdsaHssEvmDigestSi
 
 fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaHssNormalSigningScopeV1> {
     RouterAbEcdsaHssNormalSigningScopeV1::new(
+        "wallet-key-1",
+        "wallet-1",
+        "ecdsa-threshold-key-1",
+        "signing-root-1",
+        "root-v1",
         ecdsa_context()?,
         ecdsa_public_identity()?,
         signing_worker_identity()?,
@@ -343,15 +348,7 @@ fn ecdsa_scope() -> RouterAbProtocolResult<RouterAbEcdsaHssNormalSigningScopeV1>
 }
 
 fn ecdsa_context() -> RouterAbProtocolResult<RouterAbEcdsaHssStableKeyContextV1> {
-    RouterAbEcdsaHssStableKeyContextV1::new(
-        "wallet-1",
-        "localhost",
-        "ecdsa-threshold-key-1",
-        "signing-root-1",
-        "root-v1",
-        "evm-signing",
-        "v1",
-    )
+    RouterAbEcdsaHssStableKeyContextV1::new(b64u(&[0x42; 32]))
 }
 
 fn ecdsa_public_identity() -> RouterAbProtocolResult<RouterAbEcdsaHssPublicIdentityV1> {

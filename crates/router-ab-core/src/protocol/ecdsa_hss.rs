@@ -18,9 +18,9 @@ pub const ROUTER_AB_ECDSA_HSS_SECP256K1_PROTOCOL_VERSION_V1: &str =
 /// ECDSA-HSS key scope supported by the first Router A/B ECDSA release.
 pub const ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1: &str = "evm-family";
 
-const ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1: &[u8] = b"ecdsa-hss:context:v2";
+const ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1: &[u8] = b"ecdsa-hss:context:v4";
 const ECDSA_HSS_CONTEXT_BINDING_DOMAIN_V1: &[u8] = b"ecdsa-hss:role-local:v2:context-binding";
-const ECDSA_HSS_SCHEME_ID_V1: &str = "ecdsa-hss-v2";
+const ECDSA_HSS_SCHEME_ID_V1: &str = "ecdsa-hss-v4";
 const ECDSA_HSS_CURVE_V1: &str = "secp256k1";
 const ECDSA_HSS_CONTEXT_FIELD_BYTES_V1: u8 = 0x01;
 const ECDSA_HSS_PARTICIPANT_IDS_V1: [u16; 2] = [1, 2];
@@ -640,69 +640,27 @@ pub enum RouterAbEcdsaHssSignatureSchemeV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAbEcdsaHssStableKeyContextV1 {
-    /// Wallet id that owns this ECDSA-HSS key.
-    pub wallet_id: String,
-    /// WebAuthn relying-party id.
-    pub rp_id: String,
-    /// ECDSA-HSS key scope. V1 requires `evm-family`.
-    pub key_scope: String,
-    /// Stable threshold ECDSA key id.
-    pub ecdsa_threshold_key_id: String,
-    /// Signing root id.
-    pub signing_root_id: String,
-    /// Signing root version.
-    pub signing_root_version: String,
-    /// Key purpose, such as `evm-signing`.
-    pub key_purpose: String,
-    /// Key version.
-    pub key_version: String,
+    /// SDK-owned application binding digest encoded as unpadded base64url.
+    pub application_binding_digest_b64u: String,
 }
 
 impl RouterAbEcdsaHssStableKeyContextV1 {
     /// Creates a validated ECDSA-HSS stable key context.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        wallet_id: impl Into<String>,
-        rp_id: impl Into<String>,
-        ecdsa_threshold_key_id: impl Into<String>,
-        signing_root_id: impl Into<String>,
-        signing_root_version: impl Into<String>,
-        key_purpose: impl Into<String>,
-        key_version: impl Into<String>,
-    ) -> RouterAbProtocolResult<Self> {
+    pub fn new(application_binding_digest_b64u: impl Into<String>) -> RouterAbProtocolResult<Self> {
         let context = Self {
-            wallet_id: wallet_id.into(),
-            rp_id: rp_id.into(),
-            key_scope: ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
-            ecdsa_threshold_key_id: ecdsa_threshold_key_id.into(),
-            signing_root_id: signing_root_id.into(),
-            signing_root_version: signing_root_version.into(),
-            key_purpose: key_purpose.into(),
-            key_version: key_version.into(),
+            application_binding_digest_b64u: application_binding_digest_b64u.into(),
         };
         context.validate()?;
         Ok(context)
     }
 
-    /// Validates context fields and freezes the V1 key scope.
+    /// Validates context fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_ascii_non_empty("context.wallet_id", &self.wallet_id)?;
-        require_ascii_non_empty("context.rp_id", &self.rp_id)?;
-        require_ascii_non_empty("context.key_scope", &self.key_scope)?;
-        if self.key_scope != ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1 {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "ECDSA-HSS v1 key_scope must be evm-family",
-            ));
-        }
-        require_ascii_non_empty(
-            "context.ecdsa_threshold_key_id",
-            &self.ecdsa_threshold_key_id,
+        decode_base64url_fixed_32(
+            "context.application_binding_digest_b64u",
+            &self.application_binding_digest_b64u,
         )?;
-        require_ascii_non_empty("context.signing_root_id", &self.signing_root_id)?;
-        require_ascii_non_empty("context.signing_root_version", &self.signing_root_version)?;
-        require_ascii_non_empty("context.key_purpose", &self.key_purpose)?;
-        require_ascii_non_empty("context.key_version", &self.key_version)
+        Ok(())
     }
 
     /// Returns canonical context bytes for protocol binding.
@@ -712,14 +670,10 @@ impl RouterAbEcdsaHssStableKeyContextV1 {
         out.extend_from_slice(ECDSA_HSS_CONTEXT_DOMAIN_TAG_V1);
         push_ascii_u16(&mut out, ECDSA_HSS_SCHEME_ID_V1)?;
         push_ascii_u16(&mut out, ECDSA_HSS_CURVE_V1)?;
-        push_ascii_u16(&mut out, &self.wallet_id)?;
-        push_ascii_u16(&mut out, &self.rp_id)?;
-        push_ascii_u16(&mut out, &self.key_scope)?;
-        push_ascii_u16(&mut out, &self.ecdsa_threshold_key_id)?;
-        push_ascii_u16(&mut out, &self.signing_root_id)?;
-        push_ascii_u16(&mut out, &self.signing_root_version)?;
-        push_ascii_u16(&mut out, &self.key_purpose)?;
-        push_ascii_u16(&mut out, &self.key_version)?;
+        out.extend_from_slice(&decode_base64url_fixed_32(
+            "context.application_binding_digest_b64u",
+            &self.application_binding_digest_b64u,
+        )?);
         out.push(ECDSA_HSS_PARTICIPANT_IDS_V1.len() as u8);
         for participant_id in ECDSA_HSS_PARTICIPANT_IDS_V1 {
             out.extend_from_slice(&participant_id.to_be_bytes());
@@ -738,17 +692,18 @@ impl RouterAbEcdsaHssStableKeyContextV1 {
 
 /// Returns the active SigningWorker session id for one ECDSA-HSS activation epoch.
 pub fn router_ab_ecdsa_hss_active_state_session_id_v1(
-    context: &RouterAbEcdsaHssStableKeyContextV1,
+    ecdsa_threshold_key_id: &str,
+    signing_root_id: &str,
+    signing_root_version: &str,
     activation_epoch: &str,
 ) -> RouterAbProtocolResult<String> {
-    context.validate()?;
+    require_ascii_non_empty("ecdsa_threshold_key_id", ecdsa_threshold_key_id)?;
+    require_ascii_non_empty("signing_root_id", signing_root_id)?;
+    require_ascii_non_empty("signing_root_version", signing_root_version)?;
     require_ascii_non_empty("activation_epoch", activation_epoch)?;
     Ok(format!(
         "{}:{}:{}:{}",
-        context.ecdsa_threshold_key_id,
-        context.signing_root_id,
-        context.signing_root_version,
-        activation_epoch
+        ecdsa_threshold_key_id, signing_root_id, signing_root_version, activation_epoch
     ))
 }
 
@@ -1016,7 +971,7 @@ impl RouterAbEcdsaHssRegistrationBootstrapRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.client_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1028,7 +983,7 @@ impl RouterAbEcdsaHssRegistrationBootstrapRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.client_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1193,7 +1148,7 @@ impl RouterAbEcdsaHssExplicitExportRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1205,7 +1160,7 @@ impl RouterAbEcdsaHssExplicitExportRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1346,7 +1301,7 @@ impl RouterAbEcdsaHssRecoveryRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1358,7 +1313,7 @@ impl RouterAbEcdsaHssRecoveryRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1521,7 +1476,7 @@ impl RouterAbEcdsaHssActivationRefreshRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1533,7 +1488,7 @@ impl RouterAbEcdsaHssActivationRefreshRequestV1 {
             self.lifecycle.clone(),
             CandidateId::MpcThresholdPrfV1,
             self.signer_set.clone(),
-            self.context.key_scope.clone(),
+            ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1.to_owned(),
             self.public_identity.threshold_public_key33_b64u.clone(),
             self.router_id.clone(),
             self.client_id.clone(),
@@ -1549,7 +1504,17 @@ impl RouterAbEcdsaHssActivationRefreshRequestV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAbEcdsaHssNormalSigningScopeV1 {
-    /// Stable ECDSA-HSS context.
+    /// Stable wallet key id used by the SDK.
+    pub wallet_key_id: String,
+    /// Wallet id that owns this ECDSA-HSS key.
+    pub wallet_id: String,
+    /// Stable threshold ECDSA key id.
+    pub ecdsa_threshold_key_id: String,
+    /// Signing root id.
+    pub signing_root_id: String,
+    /// Signing root version.
+    pub signing_root_version: String,
+    /// Digest-only ECDSA-HSS context.
     pub context: RouterAbEcdsaHssStableKeyContextV1,
     /// Public identity expected for the active signing key.
     pub public_identity: RouterAbEcdsaHssPublicIdentityV1,
@@ -1561,13 +1526,24 @@ pub struct RouterAbEcdsaHssNormalSigningScopeV1 {
 
 impl RouterAbEcdsaHssNormalSigningScopeV1 {
     /// Creates a validated normal-signing scope.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        wallet_key_id: impl Into<String>,
+        wallet_id: impl Into<String>,
+        ecdsa_threshold_key_id: impl Into<String>,
+        signing_root_id: impl Into<String>,
+        signing_root_version: impl Into<String>,
         context: RouterAbEcdsaHssStableKeyContextV1,
         public_identity: RouterAbEcdsaHssPublicIdentityV1,
         signing_worker: ServerIdentityV1,
         activation_epoch: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
+            wallet_key_id: wallet_key_id.into(),
+            wallet_id: wallet_id.into(),
+            ecdsa_threshold_key_id: ecdsa_threshold_key_id.into(),
+            signing_root_id: signing_root_id.into(),
+            signing_root_version: signing_root_version.into(),
             context,
             public_identity,
             signing_worker,
@@ -1579,6 +1555,17 @@ impl RouterAbEcdsaHssNormalSigningScopeV1 {
 
     /// Validates the normal-signing scope.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_ascii_non_empty("normal_signing.wallet_key_id", &self.wallet_key_id)?;
+        require_ascii_non_empty("normal_signing.wallet_id", &self.wallet_id)?;
+        require_ascii_non_empty(
+            "normal_signing.ecdsa_threshold_key_id",
+            &self.ecdsa_threshold_key_id,
+        )?;
+        require_ascii_non_empty("normal_signing.signing_root_id", &self.signing_root_id)?;
+        require_ascii_non_empty(
+            "normal_signing.signing_root_version",
+            &self.signing_root_version,
+        )?;
         self.context.validate()?;
         self.public_identity.validate_for_context(&self.context)?;
         self.signing_worker.validate()?;
@@ -1593,6 +1580,11 @@ impl RouterAbEcdsaHssNormalSigningScopeV1 {
             &mut out,
             ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_SCOPE_VERSION_V1,
         );
+        push_len32(&mut out, self.wallet_key_id.as_bytes());
+        push_len32(&mut out, self.wallet_id.as_bytes());
+        push_len32(&mut out, self.ecdsa_threshold_key_id.as_bytes());
+        push_len32(&mut out, self.signing_root_id.as_bytes());
+        push_len32(&mut out, self.signing_root_version.as_bytes());
         push_len32(&mut out, &self.context.canonical_context_bytes()?);
         push_len32(
             &mut out,
@@ -1601,6 +1593,17 @@ impl RouterAbEcdsaHssNormalSigningScopeV1 {
         push_server_identity(&mut out, &self.signing_worker);
         push_len32(&mut out, self.activation_epoch.as_bytes());
         Ok(out)
+    }
+
+    /// Returns the active SigningWorker session id for this normal-signing scope.
+    pub fn active_state_session_id(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        router_ab_ecdsa_hss_active_state_session_id_v1(
+            &self.ecdsa_threshold_key_id,
+            &self.signing_root_id,
+            &self.signing_root_version,
+            &self.activation_epoch,
+        )
     }
 
     /// Returns the normal-signing scope digest.
@@ -2291,17 +2294,7 @@ fn validate_lifecycle_for_context(
 ) -> RouterAbProtocolResult<()> {
     lifecycle.validate()?;
     context.validate()?;
-    let expected_session_id = router_ab_ecdsa_hss_active_state_session_id_v1(
-        context,
-        lifecycle.root_share_epoch.as_str(),
-    )?;
-    if lifecycle.account_id == context.wallet_id && lifecycle.session_id == expected_session_id {
-        return Ok(());
-    }
-    Err(RouterAbProtocolError::new(
-        RouterAbProtocolErrorCode::InvalidLifecycleState,
-        format!("{field} must bind wallet_id and ECDSA-HSS active-state session id"),
-    ))
+    require_ascii_non_empty(field, &lifecycle.session_id)
 }
 
 fn validate_lifecycle_work_kind(

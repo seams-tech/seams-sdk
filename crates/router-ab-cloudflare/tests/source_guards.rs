@@ -113,7 +113,7 @@ fn strict_router_public_keyset_route_applies_cors_boundary() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for required in [
-        "is_cloudflare_router_public_keyset_path_v2",
+        "is_cloudflare_router_public_keyset_path",
         "Method::Options",
         "cloudflare_router_public_keyset_preflight_response_v1",
         "cloudflare_router_public_keyset_response_v1",
@@ -126,16 +126,33 @@ fn strict_router_public_keyset_route_applies_cors_boundary() {
 
     let cors_body =
         extract_function_body(&strict_worker_rs, "cloudflare_router_public_keyset_cors_v1");
+    assert!(
+        cors_body.contains("PUBLIC_KEYSET_CORS_CONFIG_V1"),
+        "strict Router keyset CORS wrapper must use the public-keyset config"
+    );
+    let keyset_config =
+        extract_braced_block_after_marker(&strict_worker_rs, "const PUBLIC_KEYSET_CORS_CONFIG_V1");
     for required in [
         "ROUTER_AB_PUBLIC_KEYSET_CORS_ORIGINS_ENV",
+        "default_origins: Some(\"*\")",
+        "allow_wildcard: true",
+    ] {
+        assert!(
+            keyset_config.contains(required),
+            "strict Router keyset CORS config must set `{required}`"
+        );
+    }
+    let apply_cors_body =
+        extract_function_body(&strict_worker_rs, "cloudflare_router_apply_cors_v1");
+    for required in [
         "Access-Control-Allow-Origin",
         "Access-Control-Allow-Methods",
         "Access-Control-Allow-Headers",
         "Access-Control-Max-Age",
     ] {
         assert!(
-            cors_body.contains(required),
-            "strict Router keyset CORS helper must set `{required}`"
+            apply_cors_body.contains(required),
+            "strict Router shared CORS helper must set `{required}`"
         );
     }
 }
@@ -145,12 +162,12 @@ fn strict_router_normal_signing_routes_apply_cors_boundary() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for required in [
-        "is_cloudflare_router_normal_signing_public_path_v2",
+        "is_cloudflare_router_normal_signing_public_path",
         "Method::Options",
         "cloudflare_router_normal_signing_preflight_response_v1",
         "cloudflare_router_normal_signing_response_v1",
-        "CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH_V2",
-        "CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH_V2",
+        "CLOUDFLARE_ROUTER_NORMAL_SIGNING_ROUND1_PREPARE_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH",
     ] {
         assert!(
             route_body.contains(required),
@@ -160,41 +177,62 @@ fn strict_router_normal_signing_routes_apply_cors_boundary() {
 
     let lib_rs = read_src_file("lib.rs");
     assert!(
-        lib_rs.contains(r#""/v2/router-ab/ed25519/sign/prepare""#)
-            && lib_rs.contains(r#""/v2/router-ab/ed25519/sign""#),
-        "strict Router normal-signing public paths must use explicit v2 routes"
+        lib_rs.contains(r#""/router-ab/ed25519/sign/prepare""#)
+            && lib_rs.contains(r#""/router-ab/ed25519/sign""#),
+        "strict Router normal-signing public paths must use explicit unversioned routes"
     );
     assert!(
         !lib_rs.contains(r#""/v1/hss/sign/prepare""#) && !lib_rs.contains(r#""/v1/hss/sign""#),
-        "strict Router normal-signing public paths must not keep v1 route literals"
+        "strict Router normal-signing public paths must not keep legacy route literals"
     );
 
     let cors_body = extract_function_body(
         &strict_worker_rs,
         "cloudflare_router_normal_signing_cors_v1",
     );
+    assert!(
+        cors_body.contains("NORMAL_SIGNING_CORS_CONFIG_V1"),
+        "strict Router normal-signing CORS wrapper must use the normal-signing config"
+    );
+    let normal_config =
+        extract_braced_block_after_marker(&strict_worker_rs, "const NORMAL_SIGNING_CORS_CONFIG_V1");
     for required in [
         "ROUTER_AB_NORMAL_SIGNING_CORS_ORIGINS_ENV",
+        "default_origins: None",
+        "allow_wildcard: false",
+    ] {
+        assert!(
+            normal_config.contains(required),
+            "strict Router normal-signing CORS config must set `{required}`"
+        );
+    }
+    let apply_cors_body =
+        extract_function_body(&strict_worker_rs, "cloudflare_router_apply_cors_v1");
+    for required in [
         "Access-Control-Allow-Origin",
         "Access-Control-Allow-Methods",
         "Access-Control-Allow-Headers",
         "Access-Control-Max-Age",
     ] {
         assert!(
-            cors_body.contains(required),
-            "strict Router normal-signing CORS helper must set `{required}`"
+            apply_cors_body.contains(required),
+            "strict Router shared CORS helper must set `{required}`"
         );
     }
+    let origin_body = extract_function_body(
+        &strict_worker_rs,
+        "cloudflare_router_cors_allowed_origin_v1",
+    );
     assert!(
-        cors_body.contains("cloudflare_router_normal_signing_cors_allowed_origin_v1"),
+        origin_body.contains("cloudflare_router_normal_signing_cors_allowed_origin_v1"),
         "strict Router normal-signing CORS helper must use the exact-origin allowlist parser"
     );
     assert!(
-        !cors_body.contains("unwrap_or_else(|| \"*\".to_string())"),
+        !normal_config.contains("Some(\"*\")"),
         "strict Router normal-signing CORS must not default bearer routes to wildcard Origin"
     );
     assert!(
-        !cors_body.contains("origin == \"*\""),
+        !normal_config.contains("allow_wildcard: true"),
         "strict Router normal-signing CORS must not allow wildcard Origins"
     );
     assert!(
@@ -208,15 +246,21 @@ fn strict_router_normal_signing_routes_use_boundary_parsers() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for required in [
-        "request.bytes().await",
+        "read_router_public_body_v1",
+        "parse_router_public_body_v1",
         "parse_router_ab_ed25519_normal_signing_prepare_request_v2_json",
-        "parse_router_ab_ed25519_normal_signing_finalize_request_v2_json",
+        "parse_cloudflare_router_budgeted_ed25519_finalize_request_v2_json",
     ] {
         assert!(
             route_body.contains(required),
             "strict Router normal-signing route must parse raw bodies through `{required}`"
         );
     }
+    let read_body = extract_function_body(&strict_worker_rs, "read_router_public_body_v1");
+    assert!(
+        read_body.contains("request.bytes().await"),
+        "strict Router shared body helper must read raw Worker request bytes"
+    );
     for forbidden in [
         "json::<RouterAbEd25519NormalSigningPrepareRequestV2>",
         "json::<RouterAbEd25519NormalSigningFinalizeRequestV2>",
@@ -233,16 +277,17 @@ fn strict_router_ecdsa_hss_routes_apply_cors_and_boundary_parsers() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");
     for required in [
-        "is_cloudflare_router_ecdsa_hss_public_path_v1",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH_V1",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH_V1",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PUBLIC_REQUEST_PATH_V1",
-        "CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH_V1",
-        "request.bytes().await",
+        "is_cloudflare_router_ecdsa_hss_public_path",
+        "CLOUDFLARE_ROUTER_ECDSA_HSS_REGISTRATION_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_ECDSA_HSS_EXPORT_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PUBLIC_REQUEST_PATH",
+        "CLOUDFLARE_ROUTER_ECDSA_HSS_SIGNING_PUBLIC_REQUEST_PATH",
+        "read_router_public_body_v1",
+        "parse_router_public_body_v1",
         "parse_router_ab_ecdsa_hss_registration_bootstrap_request_v1_json",
         "parse_router_ab_ecdsa_hss_explicit_export_request_v1_json",
         "parse_router_ab_ecdsa_hss_evm_digest_signing_request_v1_json",
-        "parse_router_ab_ecdsa_hss_evm_digest_signing_finalize_request_v1_json",
+        "parse_cloudflare_router_budgeted_ecdsa_hss_finalize_request_v1_json",
         "handle_cloudflare_router_ecdsa_hss_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ecdsa_hss_explicit_export_authenticated_public_request_v1",
         "handle_cloudflare_router_ecdsa_hss_evm_digest_signing_prepare_authenticated_public_request_v1",
@@ -254,6 +299,11 @@ fn strict_router_ecdsa_hss_routes_apply_cors_and_boundary_parsers() {
             "strict Router ECDSA-HSS public route must pass through `{required}`"
         );
     }
+    let read_body = extract_function_body(&strict_worker_rs, "read_router_public_body_v1");
+    assert!(
+        read_body.contains("request.bytes().await"),
+        "strict Router shared body helper must read raw Worker request bytes"
+    );
     for forbidden in [
         "json::<RouterAbEcdsaHssRegistrationBootstrapRequestV1>",
         "json::<RouterAbEcdsaHssExplicitExportRequestV1>",
@@ -269,11 +319,11 @@ fn strict_router_ecdsa_hss_routes_apply_cors_and_boundary_parsers() {
 
     let lib_rs = read_src_file("lib.rs");
     assert!(
-        lib_rs.contains(r#""/v1/hss/ecdsa/register""#)
-            && lib_rs.contains(r#""/v1/hss/ecdsa/export""#)
-            && lib_rs.contains(r#""/v1/hss/ecdsa/sign/prepare""#)
-            && lib_rs.contains(r#""/v1/hss/ecdsa/sign""#),
-        "strict Router ECDSA-HSS public paths must use explicit versioned routes"
+        lib_rs.contains(r#""/router-ab/ecdsa-hss/register""#)
+            && lib_rs.contains(r#""/router-ab/ecdsa-hss/export""#)
+            && lib_rs.contains(r#""/router-ab/ecdsa-hss/sign/prepare""#)
+            && lib_rs.contains(r#""/router-ab/ecdsa-hss/sign""#),
+        "strict Router ECDSA-HSS public paths must use explicit unversioned routes"
     );
 }
 
@@ -355,7 +405,7 @@ fn ecdsa_hss_export_uses_client_only_deriver_path() {
     for required in [
         "CloudflareEcdsaHssDeriverExportPrivateRequestV1",
         "CloudflareSignerClientRecipientProofBundleResponseV1",
-        "cloudflare_ecdsa_hss_deriver_export_service_url_v1",
+        "cloudflare_ecdsa_hss_deriver_export_service_url",
         "validate_cloudflare_signer_client_recipient_proof_bundle_private_response_v1",
     ] {
         assert!(
@@ -413,7 +463,7 @@ fn ecdsa_hss_registration_uses_protocol_specific_deriver_path() {
     for required in [
         "CloudflareEcdsaHssDeriverRegistrationPrivateRequestV1",
         "CloudflareSignerRecipientProofBundleResponseV1",
-        "cloudflare_ecdsa_hss_deriver_registration_service_url_v1",
+        "cloudflare_ecdsa_hss_deriver_registration_service_url",
         "validate_cloudflare_signer_recipient_proof_bundle_private_response_v1",
     ] {
         assert!(
@@ -539,10 +589,8 @@ fn ecdsa_hss_active_state_lookup_uses_full_scope_session_identity() {
     let lookup_body =
         extract_function_body(&durable_object_rs, "from_ecdsa_hss_normal_signing_scope");
     for required in [
-        "router_ab_ecdsa_hss_active_state_session_id_v1",
-        "&scope.context",
-        "&scope.activation_epoch",
-        "scope.context.wallet_id.clone()",
+        "scope.wallet_id.clone()",
+        "scope.active_state_session_id()?",
         "scope.signing_worker.server_id.clone()",
     ] {
         assert!(
@@ -616,7 +664,7 @@ fn ecdsa_hss_finalize_private_fetch_takes_one_use_presignature() {
         "handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_private_fetch_v1",
     );
     for required in [
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH",
         "CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestFinalizeRequestV1",
         "CloudflareActiveSigningWorkerStateLookupV1::from_ecdsa_hss_normal_signing_scope",
         "active_signing_worker_state_get_call",
@@ -778,7 +826,7 @@ fn ecdsa_hss_prepare_private_fetch_from_pool_reserves_then_binds_presignature() 
         "handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_private_fetch_from_pool_v1",
     );
     for required in [
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH",
         "CloudflareSigningWorkerAdmittedEcdsaHssEvmDigestSigningRequestV1",
         "CloudflareActiveSigningWorkerStateLookupV1::from_ecdsa_hss_normal_signing_scope",
         "CloudflareSigningWorkerEcdsaPresignaturePoolLookupV1::new",
@@ -818,7 +866,7 @@ fn ecdsa_hss_presignature_pool_put_private_fetch_derives_active_state() {
         "handle_cloudflare_signing_worker_ecdsa_hss_presignature_pool_put_private_fetch_v1",
     );
     for required in [
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH",
         "CloudflareSigningWorkerEcdsaHssPresignaturePoolPutRequestV1",
         "parsed.validate_at(now_unix_ms)",
         "CloudflareActiveSigningWorkerStateLookupV1::from_ecdsa_hss_normal_signing_scope",
@@ -1137,7 +1185,7 @@ fn ecdsa_hss_explicit_export_emits_sanitized_audit_event() {
         "account_id",
         "session_id",
         "selected_server_id",
-        "ecdsa_threshold_key_id",
+        "application_binding_digest_b64u",
         "export_authorization_digest_b64u",
         "decision",
         "reason_code",
@@ -1360,19 +1408,19 @@ fn strict_signing_worker_entrypoint_routes_normal_signing() {
     let body = extract_function_body(&strict_worker_rs, "handle_strict_signing_worker_fetch_v1");
 
     for required in [
-        "CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH",
         "handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_ACTIVATION_PATH",
         "handle_cloudflare_ecdsa_hss_signing_worker_activation_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH",
         "handle_cloudflare_signing_worker_normal_signing_round1_prepare_private_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH",
         "handle_cloudflare_signing_worker_normal_signing_private_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH",
         "handle_cloudflare_signing_worker_ecdsa_hss_presignature_pool_put_private_fetch_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH",
         "handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_prepare_private_fetch_from_pool_v1",
-        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1",
+        "CLOUDFLARE_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH",
         "handle_cloudflare_signing_worker_ecdsa_hss_evm_digest_finalize_private_fetch_v1",
     ] {
         assert!(
@@ -1475,9 +1523,9 @@ fn ecdsa_hss_direct_activation_delivery_excludes_client_and_export_bundles() {
     for forbidden in [
         "Role::Client",
         "OpenedShareKind::XClientBase",
-        "cloudflare_ecdsa_hss_deriver_export_service_url_v1",
-        "CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH_V1",
-        "CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH_V1",
+        "cloudflare_ecdsa_hss_deriver_export_service_url",
+        "CLOUDFLARE_SIGNER_A_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH",
+        "CLOUDFLARE_SIGNER_B_ECDSA_HSS_EXPORT_PRIVATE_REQUEST_PATH",
     ] {
         assert!(
             !delivery_impl.contains(forbidden),
@@ -1661,10 +1709,42 @@ fn ecdsa_hss_cloudflare_boundaries_do_not_reconstruct_canonical_export_keys() {
 }
 
 fn read_src_file(file_name: &str) -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src")
-        .join(file_name);
+    let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    if file_name == "lib.rs" {
+        return read_aggregate_rust_source(&src_dir);
+    }
+    if file_name == "strict_worker.rs" {
+        return read_module_rust_source(&src_dir.join("strict_worker"));
+    }
+    if file_name == "durable_object.rs" {
+        return read_module_rust_source(&src_dir.join("durable_object"));
+    }
+    let path = src_dir.join(file_name);
     fs::read_to_string(path).expect("source file should read")
+}
+
+fn read_aggregate_rust_source(src_dir: &Path) -> String {
+    let mut files = Vec::new();
+    collect_rust_files(src_dir, &mut files);
+    read_joined_sources(files)
+}
+
+fn read_module_rust_source(module_dir: &Path) -> String {
+    let mut files = Vec::new();
+    collect_rust_files(module_dir, &mut files);
+    read_joined_sources(files)
+}
+
+fn read_joined_sources(mut files: Vec<PathBuf>) -> String {
+    files.sort();
+    files
+        .into_iter()
+        .map(|path| {
+            let source = fs::read_to_string(&path).expect("source file should read");
+            format!("\n// source: {}\n{source}", path.display())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn rust_source_files() -> Vec<PathBuf> {

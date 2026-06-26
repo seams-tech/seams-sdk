@@ -180,17 +180,17 @@ pub const LOCAL_SIGNING_WORKER_STATE_DIR_V1: &str = ".router-ab-local/signing-wo
 /// Local worker startup epoch for redacted diagnostics.
 pub const LOCAL_WORKER_STARTUP_EPOCH_V1: &str = "local-dev-v1";
 /// Local health endpoint path.
-pub const LOCAL_WORKER_HEALTH_PATH_V1: &str = "/healthz";
+pub const LOCAL_WORKER_HEALTH_PATH: &str = "/healthz";
 /// Local readiness endpoint path.
-pub const LOCAL_WORKER_READY_PATH_V1: &str = "/readyz";
+pub const LOCAL_WORKER_READY_PATH: &str = "/readyz";
 /// Router public normal-signing path mirrored from production.
-pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2: &str = "/v2/router-ab/ed25519/sign";
+pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH: &str = "/router-ab/ed25519/sign";
 /// Router public normal-signing round-1 prepare path mirrored from production.
-pub const LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2: &str = "/v2/router-ab/ed25519/sign/prepare";
+pub const LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH: &str = "/router-ab/ed25519/sign/prepare";
 /// Router public ECDSA-HSS digest-signing prepare path mirrored from production.
-pub const LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1: &str = "/v1/hss/ecdsa/sign/prepare";
+pub const LOCAL_ROUTER_ECDSA_HSS_SIGNING_PREPARE_PATH: &str = "/router-ab/ecdsa-hss/sign/prepare";
 /// Router public ECDSA-HSS digest-signing finalize path mirrored from production.
-pub const LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH_V1: &str = "/v1/hss/ecdsa/sign";
+pub const LOCAL_ROUTER_ECDSA_HSS_SIGNING_PATH: &str = "/router-ab/ecdsa-hss/sign";
 /// Local private service-auth secret env key shared with the TypeScript relay.
 pub const LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_ENV_V1: &str =
     "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET";
@@ -201,36 +201,36 @@ pub const LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_DEFAULT_SECRET_V1: &str =
 pub const LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1: &str =
     "x-router-ab-internal-service-auth";
 /// Deriver A private Router-dispatch path mirrored from production.
-pub const LOCAL_DERIVER_A_PRIVATE_PATH_V1: &str = "/router-ab/v1/signer-a";
+pub const LOCAL_DERIVER_A_PRIVATE_PATH: &str = "/router-ab/signer-a";
 /// Deriver B private Router-dispatch path mirrored from production.
-pub const LOCAL_DERIVER_B_PRIVATE_PATH_V1: &str = "/router-ab/v1/signer-b";
+pub const LOCAL_DERIVER_B_PRIVATE_PATH: &str = "/router-ab/signer-b";
 /// Deriver A private peer path mirrored from production.
-pub const LOCAL_DERIVER_A_PEER_PATH_V1: &str = "/router-ab/v1/signer-a/peer";
+pub const LOCAL_DERIVER_A_PEER_PATH: &str = "/router-ab/signer-a/peer";
 /// Deriver B private peer path mirrored from production.
-pub const LOCAL_DERIVER_B_PEER_PATH_V1: &str = "/router-ab/v1/signer-b/peer";
+pub const LOCAL_DERIVER_B_PEER_PATH: &str = "/router-ab/signer-b/peer";
 /// SigningWorker activation path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/proof-bundle-activation";
+pub const LOCAL_SIGNING_WORKER_ACTIVATION_PATH: &str =
+    "/router-ab/signing-worker/proof-bundle-activation";
 /// SigningWorker normal-signing path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1: &str = "/router-ab/v1/signing-worker/sign";
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH: &str = "/router-ab/signing-worker/sign";
 /// SigningWorker normal-signing round-1 prepare path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/sign/prepare";
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH: &str =
+    "/router-ab/signing-worker/sign/prepare";
 /// SigningWorker Ed25519 presign-pool prepare path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/sign/presign-pool/prepare";
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH: &str =
+    "/router-ab/signing-worker/sign/presign-pool/prepare";
 /// SigningWorker Ed25519 presign-pool-hit finalize path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/sign/presign-pool";
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH: &str =
+    "/router-ab/signing-worker/sign/presign-pool";
 /// SigningWorker ECDSA-HSS presignature pool-fill path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put";
+pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-hss/presignature-pool/put";
 /// SigningWorker ECDSA-HSS digest-signing prepare path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/ecdsa-hss/sign/prepare";
+pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-hss/sign/prepare";
 /// SigningWorker ECDSA-HSS digest-signing finalize path mirrored from production.
-pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1: &str =
-    "/router-ab/v1/signing-worker/ecdsa-hss/sign";
+pub const LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-hss/sign";
 /// Local HTTP service-binding content type for canonical protocol bytes.
 pub const LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1: &str = "application/octet-stream";
 /// Local HTTP service-binding content type for Worker-shaped JSON protocol calls.
@@ -1312,11 +1312,18 @@ pub struct LocalRouterAbHssDevHttpCeremonyResultV1 {
 #[serde(rename_all = "camelCase")]
 pub struct LocalRouterEd25519KeyStoreSeedV1 {
     pub relayer_key_id: String,
+    pub wallet_id: String,
     pub near_account_id: String,
+    pub near_ed25519_signing_key_id: String,
     pub rp_id: String,
+    pub threshold_session_id: String,
+    pub signing_grant_id: String,
     pub public_key: String,
     pub relayer_signing_share_b64u: String,
     pub key_version: String,
+    pub threshold_expires_at_ms: u64,
+    pub participant_ids: Vec<u32>,
+    pub remaining_uses: u32,
     pub recovery_export_capable: bool,
 }
 
@@ -1369,13 +1376,13 @@ pub fn handle_local_deriver_peer_message_v1(
 ) -> RouterAbProtocolResult<LocalDeriverPeerMessageReceiptV1> {
     let (expected_path, expected_kind, expected_from, expected_to) = match receiver_role {
         LocalServiceRoleV1::DeriverA => (
-            LOCAL_DERIVER_A_PEER_PATH_V1,
+            LOCAL_DERIVER_A_PEER_PATH,
             WireMessageKindV1::SignerBToSignerA,
             Role::SignerB,
             Role::SignerA,
         ),
         LocalServiceRoleV1::DeriverB => (
-            LOCAL_DERIVER_B_PEER_PATH_V1,
+            LOCAL_DERIVER_B_PEER_PATH,
             WireMessageKindV1::SignerAToSignerB,
             Role::SignerA,
             Role::SignerB,
@@ -1625,7 +1632,7 @@ impl LocalRouterEcdsaHssTrustedAdmissionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_common()?;
         request.validate()?;
-        if self.account_id != request.scope.context.wallet_id {
+        if self.account_id != request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "local ECDSA-HSS prepare admission account_id does not match request scope",
@@ -1633,7 +1640,9 @@ impl LocalRouterEcdsaHssTrustedAdmissionV1 {
         }
         if self.session_id
             != router_ab_ecdsa_hss_active_state_session_id_v1(
-                &request.scope.context,
+                &request.scope.ecdsa_threshold_key_id,
+                &request.scope.signing_root_id,
+                &request.scope.signing_root_version,
                 &request.scope.activation_epoch,
             )?
         {
@@ -1660,7 +1669,7 @@ impl LocalRouterEcdsaHssTrustedAdmissionV1 {
     ) -> RouterAbProtocolResult<()> {
         self.validate_common()?;
         request.validate()?;
-        if self.account_id != request.scope.context.wallet_id {
+        if self.account_id != request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "local ECDSA-HSS finalize admission account_id does not match request scope",
@@ -1668,7 +1677,9 @@ impl LocalRouterEcdsaHssTrustedAdmissionV1 {
         }
         if self.session_id
             != router_ab_ecdsa_hss_active_state_session_id_v1(
-                &request.scope.context,
+                &request.scope.ecdsa_threshold_key_id,
+                &request.scope.signing_root_id,
+                &request.scope.signing_root_version,
                 &request.scope.activation_epoch,
             )?
         {
@@ -2009,12 +2020,12 @@ pub fn handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
             "local normal-signing round-1 prepare route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker normal-signing round-1 prepare route must be served at {}",
-                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH
             ),
         ));
     }
@@ -2099,12 +2110,12 @@ pub fn handle_local_signing_worker_normal_signing_presign_pool_prepare_json_v1(
             "local normal-signing presign-pool prepare route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker normal-signing presign-pool prepare route must be served at {}",
-                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH
             ),
         ));
     }
@@ -2262,12 +2273,12 @@ pub fn handle_local_signing_worker_normal_signing_json_v1(
             "local normal-signing route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker normal-signing route must be served at {}",
-                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH
             ),
         ));
     }
@@ -2332,12 +2343,12 @@ pub fn handle_local_signing_worker_normal_signing_presign_pool_hit_json_v1(
             "local normal-signing presign-pool-hit route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker normal-signing presign-pool-hit route must be served at {}",
-                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH_V1
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PRESIGN_POOL_PATH
             ),
         ));
     }
@@ -2415,12 +2426,12 @@ pub fn handle_local_signing_worker_ecdsa_hss_presignature_pool_put_json_v1(
             "local ECDSA-HSS presignature pool-fill route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker ECDSA-HSS presignature pool-fill route must be served at {}",
-                LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH_V1
+                LOCAL_SIGNING_WORKER_ECDSA_HSS_PRESIGNATURE_POOL_PUT_PATH
             ),
         ));
     }
@@ -2463,12 +2474,12 @@ pub fn handle_local_signing_worker_ecdsa_hss_prepare_json_v1(
             "local ECDSA-HSS prepare route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker ECDSA-HSS prepare route must be served at {}",
-                LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH_V1
+                LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PREPARE_PATH
             ),
         ));
     }
@@ -2534,12 +2545,12 @@ pub fn handle_local_signing_worker_ecdsa_hss_finalize_json_v1(
             "local ECDSA-HSS finalize route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker ECDSA-HSS finalize route must be served at {}",
-                LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH_V1
+                LOCAL_SIGNING_WORKER_ECDSA_HSS_SIGNING_PATH
             ),
         ));
     }
@@ -3139,10 +3150,14 @@ fn local_active_ecdsa_hss_signing_worker_state_v1(
             "local ECDSA-HSS scope SigningWorker does not match local worker config",
         ));
     }
-    let session_id =
-        router_ab_ecdsa_hss_active_state_session_id_v1(&scope.context, &scope.activation_epoch)?;
+    let session_id = router_ab_ecdsa_hss_active_state_session_id_v1(
+        &scope.ecdsa_threshold_key_id,
+        &scope.signing_root_id,
+        &scope.signing_root_version,
+        &scope.activation_epoch,
+    )?;
     let state = ActiveSigningWorkerStateV1::new(
-        scope.context.wallet_id.clone(),
+        scope.wallet_id.clone(),
         session_id,
         scope.public_identity.threshold_public_key33_b64u.clone(),
         signing_worker,
@@ -3150,9 +3165,7 @@ fn local_active_ecdsa_hss_signing_worker_state_v1(
         local_ecdsa_hss_digest_v1(b"activation"),
         format!(
             "local-ecdsa-hss/{}/{}/{}",
-            scope.context.ecdsa_threshold_key_id,
-            scope.context.signing_root_version,
-            scope.activation_epoch
+            scope.ecdsa_threshold_key_id, scope.signing_root_version, scope.activation_epoch
         ),
         LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1,
     )?;
@@ -3225,21 +3238,43 @@ pub fn build_local_router_ed25519_key_store_seed_v1(
     fixture: &LocalNormalSigningSmokeFixtureV1,
     rp_id: impl Into<String>,
     key_version: impl Into<String>,
+    signing_grant_id: impl Into<String>,
+    threshold_expires_at_ms: u64,
+    remaining_uses: u32,
 ) -> RouterAbProtocolResult<LocalRouterEd25519KeyStoreSeedV1> {
     fixture.validate()?;
     let rp_id = rp_id.into();
     require_non_empty("local Ed25519 seed rp_id", &rp_id)?;
     let key_version = key_version.into();
     require_non_empty("local Ed25519 seed key_version", &key_version)?;
+    let signing_grant_id = signing_grant_id.into();
+    require_non_empty("local Ed25519 seed signing_grant_id", &signing_grant_id)?;
+    require_positive_unix_ms_v1(
+        "local Ed25519 seed threshold_expires_at_ms",
+        threshold_expires_at_ms,
+    )?;
+    if remaining_uses == 0 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "local Ed25519 seed remaining_uses is required",
+        ));
+    }
     let derivation = local_normal_signing_smoke_hss_derivation_v1(fixture)?;
     let x_server_base = derivation.signing_worker_output.base_share;
     Ok(LocalRouterEd25519KeyStoreSeedV1 {
         relayer_key_id: derivation.near_public_key.clone(),
+        wallet_id: fixture.account_id.clone(),
         near_account_id: fixture.account_id.clone(),
+        near_ed25519_signing_key_id: derivation.near_public_key.clone(),
         rp_id,
+        threshold_session_id: fixture.session_id.clone(),
+        signing_grant_id,
         public_key: derivation.near_public_key,
         relayer_signing_share_b64u: encode_base64url_bytes_v1(&x_server_base),
         key_version,
+        threshold_expires_at_ms,
+        participant_ids: vec![1, 2],
+        remaining_uses,
         recovery_export_capable: true,
     })
 }
@@ -3640,12 +3675,12 @@ pub fn handle_local_signing_worker_activation_v1(
             "local SigningWorker activation route requires SigningWorker receiver",
         ));
     }
-    if path != LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1 {
+    if path != LOCAL_SIGNING_WORKER_ACTIVATION_PATH {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             format!(
                 "SigningWorker activation route must be served at {}",
-                LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1
+                LOCAL_SIGNING_WORKER_ACTIVATION_PATH
             ),
         ));
     }
