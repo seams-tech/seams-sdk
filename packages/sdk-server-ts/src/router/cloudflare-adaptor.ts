@@ -95,6 +95,8 @@ export type {
 export type {
   ConsoleOrgProjectEnvContext,
   ConsoleOrgProjectEnvService,
+  D1ConsoleOrgProjectEnvSchemaOptions,
+  D1ConsoleOrgProjectEnvServiceOptions,
   InMemoryConsoleOrgProjectEnvServiceOptions,
   PostgresConsoleOrgProjectEnvSchemaOptions,
   PostgresConsoleOrgProjectEnvServiceOptions,
@@ -503,6 +505,8 @@ export type {
   PostgresConsoleObservabilityIngestionServiceOptions,
 } from '../console/observability';
 export {
+  createD1ConsoleOrgProjectEnvService,
+  ensureConsoleOrgProjectEnvD1Schema,
   createInMemoryConsoleOrgProjectEnvService,
   ensureConsoleOrgProjectEnvPostgresSchema,
   createPostgresConsoleOrgProjectEnvService,

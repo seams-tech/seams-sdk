@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
+import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import {
   createD1ConsoleRuntimeSnapshotService,
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
@@ -269,6 +270,139 @@ function isErrorWithCode(input: unknown): input is ErrorWithCode {
 }
 
 test.describe('D1 adapter contracts', () => {
+  test('org project environment adapter scopes tenants and default environments', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const service = await createD1ConsoleOrgProjectEnvService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date('2026-06-27T00:00:00.000Z'),
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-projects-primary',
+        actorUserId: 'user-d1-projects-primary',
+        roles: ['admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-projects-secondary',
+        actorUserId: 'user-d1-projects-secondary',
+        roles: ['admin'],
+      };
+
+      let missingOrgError: unknown = null;
+      try {
+        await service.getOrganization(primaryCtx);
+      } catch (error: unknown) {
+        missingOrgError = error;
+      }
+      expect(errorCode(missingOrgError)).toBe('organization_not_found');
+
+      const primaryOrg = await service.upsertOrganization(primaryCtx, {
+        name: 'D1 Primary Org',
+      });
+      expect(primaryOrg.slug).toBe('d1-primary-org');
+      await expect(service.findDefaultOrganization()).resolves.toMatchObject({
+        id: primaryCtx.orgId,
+      });
+
+      const project = await service.createProject(primaryCtx, {
+        id: 'project-d1-org',
+        name: 'D1 Control Plane',
+        liveEnvironmentsEnabled: false,
+      });
+      expect(project.environmentCount).toBe(3);
+
+      const environments = await service.listEnvironments(primaryCtx, {
+        projectId: project.id,
+      });
+      expect(environments.map((environment) => environment.key)).toEqual([
+        'prod',
+        'staging',
+        'dev',
+      ]);
+      expect(environments.map((environment) => environment.status)).toEqual([
+        'DISABLED',
+        'DISABLED',
+        'ACTIVE',
+      ]);
+
+      const prodEnvironment = await service.updateEnvironment(
+        primaryCtx,
+        'project-d1-org:prod',
+        {
+          signingRootVersion: 'signing-root-d1-v2',
+          name: 'Production Root',
+        },
+      );
+      expect(prodEnvironment?.signingRootVersion).toBe('signing-root-d1-v2');
+
+      await service.upsertOrganization(secondaryCtx, {
+        name: 'D1 Secondary Org',
+      });
+      await expect(service.findDefaultOrganization()).resolves.toBeNull();
+      await expect(service.listProjects(secondaryCtx)).resolves.toHaveLength(0);
+      await expect(
+        service.updateEnvironment(secondaryCtx, 'project-d1-org:prod', {
+          name: 'Cross Tenant Mutation',
+        }),
+      ).resolves.toBeNull();
+
+      await expect(
+        service.findOrganizationForScope({ projectId: project.id }),
+      ).resolves.toMatchObject({
+        id: primaryCtx.orgId,
+      });
+      await expect(
+        service.findOrganizationForScope({
+          projectId: project.id,
+          environmentId: 'project-d1-org:prod',
+        }),
+      ).resolves.toMatchObject({
+        id: primaryCtx.orgId,
+      });
+      await expect(service.searchOrganizations({ query: 'primary', limit: 5 })).resolves.toEqual([
+        expect.objectContaining({ id: primaryCtx.orgId }),
+      ]);
+
+      let duplicateEnvironmentKeyError: unknown = null;
+      try {
+        await service.createEnvironment(primaryCtx, {
+          projectId: project.id,
+          key: 'dev',
+          name: 'Duplicate Development',
+        });
+      } catch (error: unknown) {
+        duplicateEnvironmentKeyError = error;
+      }
+      expect(errorCode(duplicateEnvironmentKeyError)).toBe('environment_key_conflict');
+
+      const archivedProject = await service.archiveProject(primaryCtx, project.id);
+      expect(archivedProject?.status).toBe('ARCHIVED');
+      const archivedEnvironments = await service.listEnvironments(primaryCtx, {
+        projectId: project.id,
+        status: 'ARCHIVED',
+      });
+      expect(archivedEnvironments).toHaveLength(3);
+
+      let archivedProjectError: unknown = null;
+      try {
+        await service.updateProject(primaryCtx, project.id, {
+          name: 'Archived Project Update',
+        });
+      } catch (error: unknown) {
+        archivedProjectError = error;
+      }
+      expect(errorCode(archivedProjectError)).toBe('project_archived');
+
+      const deleted = await service.deleteOrganization(primaryCtx);
+      expect(deleted.deleted).toBe(true);
+      await expect(service.findOrganizationForScope({ projectId: project.id })).resolves.toBeNull();
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
   test('billing reservations are trigger-atomic and idempotent', async () => {
     const temp = createTemporaryD1Database();
     try {

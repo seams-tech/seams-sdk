@@ -26,6 +26,20 @@ export {
 } from './service';
 
 export type {
+  D1ConsoleOrgProjectEnvSchemaOptions,
+  D1ConsoleOrgProjectEnvServiceOptions,
+  ConsoleOrgProjectEnvD1Runtime,
+  ConsoleOrgProjectEnvD1Service,
+} from './d1';
+export {
+  CONSOLE_ORG_PROJECT_ENV_D1_RUNTIME,
+  CONSOLE_ORG_PROJECT_ENV_D1_SCHEMA_SQL,
+  ensureConsoleOrgProjectEnvD1Schema,
+  createD1ConsoleOrgProjectEnvService,
+  getConsoleOrgProjectEnvD1Runtime,
+} from './d1';
+
+export type {
   PostgresConsoleOrgProjectEnvSchemaOptions,
   PostgresConsoleOrgProjectEnvServiceOptions,
 } from './postgres';

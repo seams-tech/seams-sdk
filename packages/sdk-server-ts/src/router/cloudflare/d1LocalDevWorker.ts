@@ -1,6 +1,7 @@
 import {
   ensureConsoleBillingPrepaidReservationD1Schema,
 } from '../../console/billingPrepaidReservations/d1';
+import { ensureConsoleOrgProjectEnvD1Schema } from '../../console/orgProjectEnv/d1';
 import { ensureConsoleRuntimeSnapshotsD1Schema } from '../../console/runtimeSnapshots/d1';
 import { ensureConsoleSponsoredCallD1Schema } from '../../console/sponsoredCalls/d1';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
@@ -51,6 +52,7 @@ async function assertSignerD1Schema(database: D1DatabaseLike): Promise<void> {
 }
 
 async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
+  await ensureConsoleOrgProjectEnvD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleBillingPrepaidReservationD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleSponsoredCallD1Schema({ database: env.CONSOLE_DB });
   await ensureConsoleRuntimeSnapshotsD1Schema({ database: env.CONSOLE_DB });

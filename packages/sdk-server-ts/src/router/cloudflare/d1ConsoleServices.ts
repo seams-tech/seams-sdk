@@ -26,6 +26,10 @@ import {
   type ConsoleBillingPrepaidReservationService,
 } from '../../console/billingPrepaidReservations';
 import {
+  createD1ConsoleOrgProjectEnvService,
+  type ConsoleOrgProjectEnvService,
+} from '../../console/orgProjectEnv';
+import {
   createD1ConsoleSponsoredCallService,
   type ConsoleSponsoredCallService,
 } from '../../console/sponsoredCalls';
@@ -96,6 +100,7 @@ export interface CloudflareD1ConsoleServiceBundleOptions {
 export interface CloudflareD1ConsoleRouterStorageOptions {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -104,6 +109,7 @@ export interface CloudflareD1ConsoleRouterStorageOptions {
 export interface CloudflareD1ConsoleServiceBundle {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -334,6 +340,17 @@ async function createCloudflareD1PrepaidReservations(
   });
 }
 
+async function createCloudflareD1OrgProjectEnv(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleOrgProjectEnvService> {
+  return await createD1ConsoleOrgProjectEnvService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1SponsoredCalls(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleSponsoredCallService> {
@@ -400,6 +417,7 @@ export function createCloudflareD1SigningRootSecretAdapters(
 function createCloudflareD1ConsoleRouterStorageOptions(input: {
   readonly tenantStorageRouteResolver: TenantStorageRouteResolver;
   readonly tenantStorageNamespace: string;
+  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
   readonly runtimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -407,6 +425,7 @@ function createCloudflareD1ConsoleRouterStorageOptions(input: {
   return {
     tenantStorageRouteResolver: input.tenantStorageRouteResolver,
     tenantStorageNamespace: input.tenantStorageNamespace,
+    orgProjectEnv: input.orgProjectEnv,
     prepaidReservations: input.prepaidReservations,
     sponsoredCalls: input.sponsoredCalls,
     runtimeSnapshots: input.runtimeSnapshots,
@@ -418,12 +437,14 @@ export async function createCloudflareD1ConsoleServiceBundle(
 ): Promise<CloudflareD1ConsoleServiceBundle> {
   const normalized = normalizeCloudflareD1ConsoleServiceBundleOptions(options);
   const tenantStorageRouteResolver = createCloudflareD1TenantRouteResolver(normalized);
+  const orgProjectEnv = await createCloudflareD1OrgProjectEnv(normalized);
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
   const runtimeSnapshots = await createCloudflareD1RuntimeSnapshots(normalized);
   const consoleRouterOptions = createCloudflareD1ConsoleRouterStorageOptions({
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
+    orgProjectEnv,
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,
@@ -431,6 +452,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
   return {
     tenantStorageRouteResolver,
     tenantStorageNamespace: normalized.namespace,
+    orgProjectEnv,
     prepaidReservations,
     sponsoredCalls,
     runtimeSnapshots,
