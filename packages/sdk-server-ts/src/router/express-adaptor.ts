@@ -314,6 +314,10 @@ export type {
 export type {
   ConsoleBootstrapTokensContext,
   ConsoleBootstrapTokenService,
+  ConsoleBootstrapTokensD1Runtime,
+  ConsoleBootstrapTokensD1Service,
+  D1ConsoleBootstrapTokenSchemaOptions,
+  D1ConsoleBootstrapTokenServiceOptions,
   InMemoryConsoleBootstrapTokenServiceOptions,
   PostgresConsoleBootstrapTokenSchemaOptions,
   PostgresConsoleBootstrapTokenServiceOptions,
@@ -720,6 +724,11 @@ export {
   parseRelayBootstrapGrantIssueBody,
 } from './bootstrapGrantBroker';
 export {
+  CONSOLE_BOOTSTRAP_TOKENS_D1_RUNTIME,
+  CONSOLE_BOOTSTRAP_TOKENS_D1_SCHEMA_SQL,
+  createD1ConsoleBootstrapTokenService,
+  ensureConsoleBootstrapTokensD1Schema,
+  getConsoleBootstrapTokensD1Runtime,
   createInMemoryConsoleBootstrapTokenService,
   ensureConsoleBootstrapTokensPostgresSchema,
   createPostgresConsoleBootstrapTokenService,

@@ -30,6 +30,10 @@ import {
   type ConsoleApiKeyService,
 } from '../../console/apiKeys';
 import {
+  createD1ConsoleBootstrapTokenService,
+  type ConsoleBootstrapTokenService,
+} from '../../console/bootstrapTokens';
+import {
   createD1ConsoleBillingService,
   type BillingProviderAdapters,
   type ConsoleBillingService,
@@ -141,6 +145,7 @@ export interface CloudflareD1ConsoleServiceBundle {
   readonly account: ConsoleAccountService;
   readonly policies: ConsolePolicyService;
   readonly apiKeys: ConsoleApiKeyService;
+  readonly bootstrapTokens: ConsoleBootstrapTokenService;
   readonly billing: ConsoleBillingService;
   readonly prepaidReservations: ConsoleBillingPrepaidReservationService;
   readonly sponsoredCalls: ConsoleSponsoredCallService;
@@ -445,6 +450,17 @@ async function createCloudflareD1ApiKeys(
   });
 }
 
+async function createCloudflareD1BootstrapTokens(
+  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+): Promise<ConsoleBootstrapTokenService> {
+  return await createD1ConsoleBootstrapTokenService({
+    database: options.consoleDatabase,
+    namespace: options.namespace,
+    ensureSchema: options.ensureSchema,
+    now: options.now,
+  });
+}
+
 async function createCloudflareD1SponsoredCalls(
   options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
 ): Promise<ConsoleSponsoredCallService> {
@@ -550,6 +566,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
   });
   const policies = await createCloudflareD1Policies(normalized);
   const apiKeys = await createCloudflareD1ApiKeys(normalized);
+  const bootstrapTokens = await createCloudflareD1BootstrapTokens(normalized);
   const billing = await createCloudflareD1Billing(normalized);
   const prepaidReservations = await createCloudflareD1PrepaidReservations(normalized);
   const sponsoredCalls = await createCloudflareD1SponsoredCalls(normalized);
@@ -575,6 +592,7 @@ export async function createCloudflareD1ConsoleServiceBundle(
     account,
     policies,
     apiKeys,
+    bootstrapTokens,
     billing,
     prepaidReservations,
     sponsoredCalls,

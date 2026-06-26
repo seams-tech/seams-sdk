@@ -10,6 +10,7 @@ import {
   runD1ConsoleBillingMonthlyFinalization,
 } from '../../packages/sdk-server-ts/src/console/billing/d1';
 import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/sdk-server-ts/src/console/billingPrepaidReservations/d1';
+import { createD1ConsoleBootstrapTokenService } from '../../packages/sdk-server-ts/src/console/bootstrapTokens/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/d1';
 import { createD1ConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/d1';
 import {
@@ -787,6 +788,191 @@ test.describe('D1 adapter contracts', () => {
       });
       const remaining = await service.listApiKeys(primaryCtx);
       expect(remaining.map((apiKey) => apiKey.id)).toEqual([createdSecretKey.apiKey.id]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('bootstrap token adapter redeems through atomic D1 conditional updates', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      let nowMsValue = Date.parse('2026-06-27T02:00:00.000Z');
+      const service = await createD1ConsoleBootstrapTokenService({
+        database: temp.database,
+        namespace: 'd1-contracts',
+        ensureSchema: true,
+        now: () => new Date(nowMsValue),
+      });
+      const primaryCtx = {
+        orgId: 'org-d1-bootstrap-primary',
+        actorUserId: 'user-d1-bootstrap-primary',
+        roles: ['admin'],
+      };
+      const secondaryCtx = {
+        orgId: 'org-d1-bootstrap-secondary',
+        actorUserId: 'user-d1-bootstrap-secondary',
+        roles: ['admin'],
+      };
+
+      const created = await service.createToken(primaryCtx, {
+        publishableKeyId: 'pk-d1-bootstrap',
+        projectId: 'project-d1-bootstrap',
+        environmentId: 'env-d1-bootstrap-prod',
+        newAccountId: 'account-d1-bootstrap',
+        rpId: 'app.example.com',
+        origin: 'https://app.example.com',
+        method: 'post',
+        path: '/wallets/register/intent',
+        allowedPaths: ['/wallets/register/intent', '/wallets/register/complete'],
+        requestHashSha256: 'request-hash-d1-bootstrap',
+        maxUses: 2,
+        ttlMs: 60_000,
+        riskDecision: 'allow',
+        paymentReference: 'billing-reservation-d1-bootstrap',
+      });
+      expect(created.token).toMatch(/^tbt_v1_/);
+      expect(created.record).toMatchObject({
+        orgId: primaryCtx.orgId,
+        publishableKeyId: 'pk-d1-bootstrap',
+        method: 'POST',
+        maxUses: 2,
+        usedCount: 0,
+        status: 'issued',
+      });
+      expect(created.record.allowedPaths).toEqual([
+        '/wallets/register/intent',
+        '/wallets/register/complete',
+      ]);
+
+      await expect(
+        service.countIssued(primaryCtx, { publishableKeyId: 'pk-d1-bootstrap' }),
+      ).resolves.toBe(1);
+      await expect(
+        service.countIssued(secondaryCtx, { publishableKeyId: 'pk-d1-bootstrap' }),
+      ).resolves.toBe(0);
+      await expect(
+        service.countIssued(primaryCtx, {
+          publishableKeyId: 'pk-d1-bootstrap',
+          issuedSince: '2026-06-27T02:00:01.000Z',
+        }),
+      ).resolves.toBe(0);
+
+      const peeked = await service.peekTokenRecord(created.token);
+      expect(peeked).toMatchObject({
+        id: created.record.id,
+        usedCount: 0,
+        status: 'issued',
+      });
+      await expect(service.peekTokenRecord(`${created.token}tampered`)).resolves.toBeNull();
+
+      const originMismatch = await service.redeemToken({
+        token: created.token,
+        origin: 'https://evil.example.com',
+        method: 'POST',
+        path: '/wallets/register/intent',
+        requestHashSha256: 'request-hash-d1-bootstrap',
+      });
+      expect(originMismatch).toMatchObject({
+        ok: false,
+        status: 403,
+        code: 'bootstrap_token_origin_mismatch',
+      });
+      await expect(service.peekTokenRecord(created.token)).resolves.toMatchObject({
+        usedCount: 0,
+        status: 'issued',
+      });
+
+      const requestMismatch = await service.redeemToken({
+        token: created.token,
+        origin: 'https://app.example.com',
+        method: 'POST',
+        path: '/wallets/register/intent',
+        requestHashSha256: 'wrong-request-hash',
+      });
+      expect(requestMismatch).toMatchObject({
+        ok: false,
+        status: 409,
+        code: 'bootstrap_token_request_mismatch',
+      });
+      await expect(service.peekTokenRecord(created.token)).resolves.toMatchObject({
+        usedCount: 0,
+        status: 'issued',
+      });
+
+      const firstRedeem = await service.redeemToken({
+        token: created.token,
+        origin: 'https://app.example.com',
+        method: 'POST',
+        path: '/wallets/register/complete',
+        requestHashSha256: 'request-hash-d1-bootstrap',
+      });
+      expect(firstRedeem).toMatchObject({
+        ok: true,
+        record: expect.objectContaining({
+          usedCount: 1,
+          status: 'issued',
+          redeemedAt: '2026-06-27T02:00:00.000Z',
+        }),
+      });
+
+      nowMsValue = Date.parse('2026-06-27T02:00:01.000Z');
+      const secondRedeem = await service.redeemToken({
+        token: created.token,
+        origin: 'https://app.example.com',
+        method: 'POST',
+        path: '/wallets/register/intent',
+        requestHashSha256: 'request-hash-d1-bootstrap',
+      });
+      expect(secondRedeem).toMatchObject({
+        ok: true,
+        record: expect.objectContaining({
+          usedCount: 2,
+          status: 'redeemed',
+          redeemedAt: '2026-06-27T02:00:01.000Z',
+        }),
+      });
+
+      const thirdRedeem = await service.redeemToken({
+        token: created.token,
+        origin: 'https://app.example.com',
+        method: 'POST',
+        path: '/wallets/register/intent',
+        requestHashSha256: 'request-hash-d1-bootstrap',
+      });
+      expect(thirdRedeem).toMatchObject({
+        ok: false,
+        status: 409,
+        code: 'bootstrap_token_already_used',
+      });
+
+      nowMsValue = Date.parse('2026-06-27T02:05:00.000Z');
+      const expiring = await service.createToken(primaryCtx, {
+        publishableKeyId: 'pk-d1-bootstrap-expiring',
+        projectId: 'project-d1-bootstrap',
+        environmentId: 'env-d1-bootstrap-prod',
+        newAccountId: 'account-d1-bootstrap-expiring',
+        rpId: 'app.example.com',
+        origin: 'https://app.example.com',
+        method: 'POST',
+        path: '/wallets/register/intent',
+        ttlMs: 1_000,
+      });
+      nowMsValue = Date.parse('2026-06-27T02:05:02.000Z');
+      const expired = await service.redeemToken({
+        token: expiring.token,
+        origin: 'https://app.example.com',
+        method: 'POST',
+        path: '/wallets/register/intent',
+      });
+      expect(expired).toMatchObject({
+        ok: false,
+        status: 401,
+        code: 'bootstrap_token_expired',
+      });
+      await expect(service.peekTokenRecord(expiring.token)).resolves.toMatchObject({
+        usedCount: 0,
+        status: 'expired',
+      });
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
