@@ -1,24 +1,20 @@
 import type { AuthService } from '../../core/AuthService';
-import { getPostgresPool } from '../../storage/postgres';
 import {
-  runPostgresConsoleBillingMonthlyFinalization,
-  type PostgresConsoleBillingMonthlyFinalizationOptions,
-  type PostgresConsoleBillingMonthlyFinalizationResult,
+  runD1ConsoleBillingMonthlyFinalization,
+  type D1ConsoleBillingMonthlyFinalizationOptions,
+  type D1ConsoleBillingMonthlyFinalizationResult,
 } from '../../console/billing';
 import {
-  runPostgresConsoleRuntimeSnapshotOutboxDispatch,
+  runD1ConsoleRuntimeSnapshotOutboxDispatch,
   type ConsoleRuntimeSnapshotOutboxEvent,
-  type PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
-  type PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
+  type D1ConsoleRuntimeSnapshotOutboxDispatchOptions,
+  type D1ConsoleRuntimeSnapshotOutboxDispatchResult,
 } from '../../console/runtimeSnapshots';
 import {
   runD1ConsoleWebhookRetryDispatch,
-  runPostgresConsoleWebhookRetryDispatch,
   type ConsoleWebhookSecretCipher,
   type D1ConsoleWebhookRetryDispatchOptions,
   type D1ConsoleWebhookRetryDispatchResult,
-  type PostgresConsoleWebhookRetryDispatchOptions,
-  type PostgresConsoleWebhookRetryDispatchResult,
 } from '../../console/webhooks';
 import type { ConsoleObservabilityIngestionService } from '../../console/observability';
 import type { D1DatabaseLike } from '../../storage/tenantRoute';
@@ -26,40 +22,17 @@ import type { ScheduledHandler } from './cloudflare.types';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 
-const DEFAULT_BILLING_MONTHLY_FINALIZATION_LOCK_ID = 9452360123591;
-const DEFAULT_RUNTIME_SNAPSHOT_OUTBOX_LOCK_ID = 9452360123592;
-const DEFAULT_WEBHOOK_RETRY_DISPATCH_LOCK_ID = 9452360123593;
-
 type BillingMonthlyFinalizationRunner = (
-  options: PostgresConsoleBillingMonthlyFinalizationOptions,
-) => Promise<PostgresConsoleBillingMonthlyFinalizationResult>;
+  options: D1ConsoleBillingMonthlyFinalizationOptions,
+) => Promise<D1ConsoleBillingMonthlyFinalizationResult>;
 
 type RuntimeSnapshotOutboxRunner = (
-  options: PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
-) => Promise<PostgresConsoleRuntimeSnapshotOutboxDispatchResult>;
+  options: D1ConsoleRuntimeSnapshotOutboxDispatchOptions,
+) => Promise<D1ConsoleRuntimeSnapshotOutboxDispatchResult>;
 
 type WebhookRetryDispatchRunner = (
-  options: PostgresConsoleWebhookRetryDispatchOptions,
-) => Promise<PostgresConsoleWebhookRetryDispatchResult>;
-
-type D1WebhookRetryDispatchRunner = (
   options: D1ConsoleWebhookRetryDispatchOptions,
 ) => Promise<D1ConsoleWebhookRetryDispatchResult>;
-
-type BillingMonthlyFinalizationLockProvider = (input: {
-  postgresUrl: string;
-  lockId: number;
-}) => Promise<{ acquired: boolean; release: () => Promise<void> }>;
-
-type RuntimeSnapshotOutboxLockProvider = (input: {
-  postgresUrl: string;
-  lockId: number;
-}) => Promise<{ acquired: boolean; release: () => Promise<void> }>;
-
-type WebhookRetryDispatchLockProvider = (input: {
-  postgresUrl: string;
-  lockId: number;
-}) => Promise<{ acquired: boolean; release: () => Promise<void> }>;
 
 export interface CloudflareBillingMonthlyFinalizationCronOptions {
   /**
@@ -68,9 +41,9 @@ export interface CloudflareBillingMonthlyFinalizationCronOptions {
    */
   enabled?: boolean;
   /**
-   * Postgres URL for console billing schema.
+   * D1 database for console billing finalization.
    */
-  postgresUrl?: string;
+  database?: D1DatabaseLike;
   /**
    * Optional billing namespace; defaults to `console-default`.
    */
@@ -94,18 +67,13 @@ export interface CloudflareBillingMonthlyFinalizationCronOptions {
    */
   ensureSchema?: boolean;
   /**
-   * Advisory lock id to prevent concurrent finalization runners.
-   * Defaults to an internal constant.
-   */
-  advisoryLockId?: number;
-  /**
    * Optional runner override for tests.
    */
   runner?: BillingMonthlyFinalizationRunner;
   /**
-   * Optional lock provider override for tests.
+   * Clock used by the D1 billing finalization runner.
    */
-  lockProvider?: BillingMonthlyFinalizationLockProvider;
+  now?: () => Date;
 }
 
 export interface CloudflareRuntimeSnapshotOutboxCronOptions {
@@ -115,9 +83,9 @@ export interface CloudflareRuntimeSnapshotOutboxCronOptions {
    */
   enabled?: boolean;
   /**
-   * Postgres URL for runtime snapshot schema.
+   * D1 database for runtime snapshot outbox dispatch.
    */
-  postgresUrl?: string;
+  database?: D1DatabaseLike;
   /**
    * Optional runtime snapshot namespace; defaults to `console-default`.
    */
@@ -142,22 +110,33 @@ export interface CloudflareRuntimeSnapshotOutboxCronOptions {
    */
   ensureSchema?: boolean;
   /**
-   * Advisory lock id to prevent concurrent dispatch runners.
-   * Defaults to an internal constant.
-   */
-  advisoryLockId?: number;
-  /**
    * Optional runner override for tests.
    */
   runner?: RuntimeSnapshotOutboxRunner;
   /**
-   * Dispatch callback used by the default Postgres outbox runner.
+   * Dispatch callback used by the default D1 outbox runner.
    */
   dispatch?: (event: ConsoleRuntimeSnapshotOutboxEvent) => Promise<void> | void;
   /**
-   * Optional lock provider override for tests.
+   * D1 dispatch worker id used in claim leases.
    */
-  lockProvider?: RuntimeSnapshotOutboxLockProvider;
+  workerId?: string;
+  /**
+   * D1 claim lease duration in milliseconds.
+   */
+  claimTtlMs?: number;
+  /**
+   * Retry backoff in milliseconds.
+   */
+  retryBackoffMs?: number;
+  /**
+   * Retry ceiling for total attempts per event.
+   */
+  maxAttempts?: number;
+  /**
+   * Clock used by the D1 runtime snapshot outbox runner.
+   */
+  now?: () => Date;
 }
 
 export interface CloudflareWebhookRetryDispatchCronOptions {
@@ -166,10 +145,6 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
    * Defaults to false.
    */
   enabled?: boolean;
-  /**
-   * Postgres URL for webhook schema.
-   */
-  postgresUrl?: string;
   /**
    * D1 database for Cloudflare webhook retry dispatch.
    */
@@ -217,18 +192,9 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
    */
   ensureSchema?: boolean;
   /**
-   * Advisory lock id to prevent concurrent dispatch runners.
-   * Defaults to an internal constant.
-   */
-  advisoryLockId?: number;
-  /**
    * Optional runner override for tests.
    */
   runner?: WebhookRetryDispatchRunner;
-  /**
-   * Optional D1 runner override for tests.
-   */
-  d1Runner?: D1WebhookRetryDispatchRunner;
   /**
    * D1 retry worker id used in claim leases.
    */
@@ -242,9 +208,9 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
    */
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**
-   * Optional lock provider override for tests.
+   * Clock used by the D1 webhook retry runner.
    */
-  lockProvider?: WebhookRetryDispatchLockProvider;
+  now?: () => Date;
 }
 
 export interface CloudflareCronOptions {
@@ -275,12 +241,6 @@ export interface CloudflareCronOptions {
   webhookRetryDispatch?: CloudflareWebhookRetryDispatchCronOptions;
 }
 
-function toValidLockId(input: unknown, fallback: number): number {
-  const n = typeof input === 'number' ? input : Number(input);
-  if (!Number.isInteger(n)) return fallback;
-  return n;
-}
-
 function normalizeCronExpressions(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   return Array.from(
@@ -300,24 +260,6 @@ function shouldRunForCronTick(
   const tick = String(eventCron || '').trim();
   if (!tick) return false;
   return cronExpressions.includes(tick);
-}
-
-async function defaultBillingLockProvider(input: {
-  postgresUrl: string;
-  lockId: number;
-}): Promise<{ acquired: boolean; release: () => Promise<void> }> {
-  const pool = await getPostgresPool(input.postgresUrl);
-  const lockRow = await pool.query('SELECT pg_try_advisory_lock($1) AS locked', [input.lockId]);
-  const acquired = Boolean((lockRow.rows?.[0] as any)?.locked);
-  let released = false;
-  return {
-    acquired,
-    release: async () => {
-      if (!acquired || released) return;
-      released = true;
-      await pool.query('SELECT pg_advisory_unlock($1)', [input.lockId]);
-    },
-  };
 }
 
 export function createCloudflareCron(
@@ -382,7 +324,7 @@ export function createCloudflareCron(
         billingFinalizationCronExpressions,
         eventCron,
       );
-      const postgresUrl = String(billingFinalization?.postgresUrl || '').trim();
+      const database = billingFinalization?.database || null;
       if (!billingCronMatches) {
         if (verbose) {
           logger.info('[cron][billing-finalization] skipped: cron expression mismatch', {
@@ -390,57 +332,34 @@ export function createCloudflareCron(
             cronExpressions: billingFinalizationCronExpressions,
           });
         }
-      } else if (!postgresUrl) {
-        logger.warn('[cron][billing-finalization] skipped: missing postgresUrl');
+      } else if (!database) {
+        logger.warn('[cron][billing-finalization] skipped: missing D1 database');
       } else if (billingFinalizationOrgIds.length === 0) {
         logger.warn('[cron][billing-finalization] skipped: missing orgIds');
       } else {
-        const lockId = toValidLockId(
-          billingFinalization?.advisoryLockId,
-          DEFAULT_BILLING_MONTHLY_FINALIZATION_LOCK_ID,
-        );
-        const lockProvider = billingFinalization?.lockProvider || defaultBillingLockProvider;
-        const runner = billingFinalization?.runner || runPostgresConsoleBillingMonthlyFinalization;
-        const lock = await lockProvider({ postgresUrl, lockId });
-        if (!lock.acquired) {
-          logger.info('[cron][billing-finalization] skipped: advisory lock not acquired', {
-            lockId,
+        const runner = billingFinalization?.runner || runD1ConsoleBillingMonthlyFinalization;
+        const result = await runner({
+          database,
+          namespace: billingFinalization?.namespace,
+          orgIds: billingFinalizationOrgIds,
+          periodMonthUtc: billingFinalization?.periodMonthUtc,
+          ensureSchema: billingFinalization?.ensureSchema,
+          now: billingFinalization?.now,
+        });
+        logger.info('[cron][billing-finalization] completed', {
+          namespace: result.namespace,
+          periodMonthUtc: result.periodMonthUtc,
+          orgCount: result.orgCount,
+          generatedCount: result.generatedCount,
+          skippedCount: result.skippedCount,
+          failureCount: result.failures.length,
+        });
+        if (result.failures.length > 0) {
+          logger.warn('[cron][billing-finalization] failures', {
+            namespace: result.namespace,
+            periodMonthUtc: result.periodMonthUtc,
+            failures: result.failures,
           });
-        } else {
-          try {
-            const result = await runner({
-              postgresUrl,
-              namespace: billingFinalization?.namespace,
-              orgIds: billingFinalizationOrgIds,
-              periodMonthUtc: billingFinalization?.periodMonthUtc,
-              ensureSchema: billingFinalization?.ensureSchema,
-              logger: logger as any,
-            });
-            logger.info('[cron][billing-finalization] completed', {
-              namespace: result.namespace,
-              periodMonthUtc: result.periodMonthUtc,
-              orgCount: result.orgCount,
-              generatedCount: result.generatedCount,
-              skippedCount: result.skippedCount,
-              failureCount: result.failures.length,
-            });
-            if (result.failures.length > 0) {
-              logger.warn('[cron][billing-finalization] failures', {
-                namespace: result.namespace,
-                periodMonthUtc: result.periodMonthUtc,
-                failures: result.failures,
-              });
-            }
-          } finally {
-            try {
-              await lock.release();
-            } catch (error: unknown) {
-              logger.error('[cron][billing-finalization] failed to release advisory lock', {
-                lockId,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
         }
       }
     }
@@ -451,7 +370,7 @@ export function createCloudflareCron(
         runtimeSnapshotOutboxCronExpressions,
         eventCron,
       );
-      const postgresUrl = String(runtimeSnapshotOutbox?.postgresUrl || '').trim();
+      const database = runtimeSnapshotOutbox?.database || null;
       if (!runtimeSnapshotOutboxCronMatches) {
         if (verbose) {
           logger.info('[cron][runtime-snapshot-outbox] skipped: cron expression mismatch', {
@@ -459,60 +378,41 @@ export function createCloudflareCron(
             cronExpressions: runtimeSnapshotOutboxCronExpressions,
           });
         }
-      } else if (!postgresUrl) {
-        logger.warn('[cron][runtime-snapshot-outbox] skipped: missing postgresUrl');
+      } else if (!database) {
+        logger.warn('[cron][runtime-snapshot-outbox] skipped: missing D1 database');
       } else if (runtimeSnapshotOutboxOrgIds.length === 0) {
         logger.warn('[cron][runtime-snapshot-outbox] skipped: missing orgIds');
       } else if (!runtimeSnapshotOutbox?.runner && typeof runtimeSnapshotOutbox?.dispatch !== 'function') {
         logger.warn(
-          '[cron][runtime-snapshot-outbox] skipped: missing dispatch callback for default runner',
+          '[cron][runtime-snapshot-outbox] skipped: missing dispatch callback for default D1 runner',
         );
       } else {
-        const lockId = toValidLockId(
-          runtimeSnapshotOutbox?.advisoryLockId,
-          DEFAULT_RUNTIME_SNAPSHOT_OUTBOX_LOCK_ID,
-        );
-        const lockProvider = runtimeSnapshotOutbox?.lockProvider || defaultBillingLockProvider;
-        const runner =
-          runtimeSnapshotOutbox?.runner || runPostgresConsoleRuntimeSnapshotOutboxDispatch;
-        const lock = await lockProvider({ postgresUrl, lockId });
-        if (!lock.acquired) {
-          logger.info('[cron][runtime-snapshot-outbox] skipped: advisory lock not acquired', {
-            lockId,
+        const runner = runtimeSnapshotOutbox?.runner || runD1ConsoleRuntimeSnapshotOutboxDispatch;
+        const result = await runner({
+          database,
+          namespace: runtimeSnapshotOutbox?.namespace,
+          orgIds: runtimeSnapshotOutboxOrgIds,
+          limit: runtimeSnapshotOutbox?.limit,
+          ensureSchema: runtimeSnapshotOutbox?.ensureSchema,
+          dispatch: runtimeSnapshotOutbox?.dispatch,
+          logger: logger as any,
+          workerId: runtimeSnapshotOutbox?.workerId,
+          claimTtlMs: runtimeSnapshotOutbox?.claimTtlMs,
+          retryBackoffMs: runtimeSnapshotOutbox?.retryBackoffMs,
+          maxAttempts: runtimeSnapshotOutbox?.maxAttempts,
+          now: runtimeSnapshotOutbox?.now,
+        });
+        logger.info('[cron][runtime-snapshot-outbox] completed', {
+          namespace: result.namespace,
+          orgCount: result.orgCount,
+          dispatchedCount: result.dispatchedCount,
+          failureCount: result.failureCount,
+        });
+        if (result.failures.length > 0) {
+          logger.warn('[cron][runtime-snapshot-outbox] failures', {
+            namespace: result.namespace,
+            failures: result.failures,
           });
-        } else {
-          try {
-            const result = await runner({
-              postgresUrl,
-              namespace: runtimeSnapshotOutbox?.namespace,
-              orgIds: runtimeSnapshotOutboxOrgIds,
-              limit: runtimeSnapshotOutbox?.limit,
-              ensureSchema: runtimeSnapshotOutbox?.ensureSchema,
-              dispatch: runtimeSnapshotOutbox?.dispatch,
-              logger: logger as any,
-            });
-            logger.info('[cron][runtime-snapshot-outbox] completed', {
-              namespace: result.namespace,
-              orgCount: result.orgCount,
-              dispatchedCount: result.dispatchedCount,
-              failureCount: result.failureCount,
-            });
-            if (result.failures.length > 0) {
-              logger.warn('[cron][runtime-snapshot-outbox] failures', {
-                namespace: result.namespace,
-                failures: result.failures,
-              });
-            }
-          } finally {
-            try {
-              await lock.release();
-            } catch (error: unknown) {
-              logger.error('[cron][runtime-snapshot-outbox] failed to release advisory lock', {
-                lockId,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
         }
       }
     }
@@ -523,7 +423,6 @@ export function createCloudflareCron(
         webhookRetryDispatchCronExpressions,
         eventCron,
       );
-      const postgresUrl = String(webhookRetryDispatch?.postgresUrl || '').trim();
       const d1Database = webhookRetryDispatch?.database || null;
       const d1SecretCipher = webhookRetryDispatch?.secretCipher || null;
       if (!webhookRetryDispatchCronMatches) {
@@ -535,8 +434,12 @@ export function createCloudflareCron(
         }
       } else if (webhookRetryDispatchOrgIds.length === 0) {
         logger.warn('[cron][webhook-retry-dispatch] skipped: missing orgIds');
-      } else if (d1Database && d1SecretCipher) {
-        const runner = webhookRetryDispatch?.d1Runner || runD1ConsoleWebhookRetryDispatch;
+      } else if (!d1Database || !d1SecretCipher) {
+        logger.warn(
+          '[cron][webhook-retry-dispatch] skipped: missing D1 database or secret cipher',
+        );
+      } else {
+        const runner = webhookRetryDispatch?.runner || runD1ConsoleWebhookRetryDispatch;
         const result = await runner({
           database: d1Database,
           secretCipher: d1SecretCipher,
@@ -551,6 +454,7 @@ export function createCloudflareCron(
           logger: logger as any,
           workerId: webhookRetryDispatch?.workerId,
           claimTtlMs: webhookRetryDispatch?.claimTtlMs,
+          now: webhookRetryDispatch?.now,
         });
         logger.info('[cron][webhook-retry-dispatch] completed', {
           namespace: result.namespace,
@@ -566,62 +470,6 @@ export function createCloudflareCron(
             namespace: result.namespace,
             failures: result.failures,
           });
-        }
-      } else if (!postgresUrl) {
-        logger.warn(
-          '[cron][webhook-retry-dispatch] skipped: missing postgresUrl or D1 database/secret cipher',
-        );
-      } else {
-        const lockId = toValidLockId(
-          webhookRetryDispatch?.advisoryLockId,
-          DEFAULT_WEBHOOK_RETRY_DISPATCH_LOCK_ID,
-        );
-        const lockProvider = webhookRetryDispatch?.lockProvider || defaultBillingLockProvider;
-        const runner = webhookRetryDispatch?.runner || runPostgresConsoleWebhookRetryDispatch;
-        const lock = await lockProvider({ postgresUrl, lockId });
-        if (!lock.acquired) {
-          logger.info('[cron][webhook-retry-dispatch] skipped: advisory lock not acquired', {
-            lockId,
-          });
-        } else {
-          try {
-            const result = await runner({
-              postgresUrl,
-              namespace: webhookRetryDispatch?.namespace,
-              orgIds: webhookRetryDispatchOrgIds,
-              limit: webhookRetryDispatch?.limit,
-              maxAttempts: webhookRetryDispatch?.maxAttempts,
-              initialBackoffMs: webhookRetryDispatch?.initialBackoffMs,
-              maxBackoffMs: webhookRetryDispatch?.maxBackoffMs,
-              ensureSchema: webhookRetryDispatch?.ensureSchema,
-              observabilityIngestion: webhookRetryDispatch?.observabilityIngestion,
-              logger: logger as any,
-            });
-            logger.info('[cron][webhook-retry-dispatch] completed', {
-              namespace: result.namespace,
-              orgCount: result.orgCount,
-              attemptedCount: result.attemptedCount,
-              deliveredCount: result.deliveredCount,
-              failedCount: result.failedCount,
-              skippedCount: result.skippedCount,
-              failureCount: result.failures.length,
-            });
-            if (result.failures.length > 0) {
-              logger.warn('[cron][webhook-retry-dispatch] failures', {
-                namespace: result.namespace,
-                failures: result.failures,
-              });
-            }
-          } finally {
-            try {
-              await lock.release();
-            } catch (error: unknown) {
-              logger.error('[cron][webhook-retry-dispatch] failed to release advisory lock', {
-                lockId,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
         }
       }
     }

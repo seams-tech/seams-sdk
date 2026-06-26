@@ -1,30 +1,26 @@
 import { test, expect } from '@playwright/test';
 import { createCloudflareCron } from '@server/router/cloudflare-adaptor';
 
+const fakeD1Database = {} as any;
+const fakeWebhookSecretCipher = {} as any;
+
 test.describe('cloudflare cron billing finalization', () => {
-  test('skips billing finalization when postgres url is missing', async () => {
+  test('skips billing finalization when D1 database is missing', async () => {
     let runnerCalled = false;
-    let lockProviderCalled = false;
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       billingMonthlyFinalization: {
         enabled: true,
+        orgIds: ['org-a'],
         runner: async () => {
           runnerCalled = true;
           return {
             namespace: 'ns',
             periodMonthUtc: '2026-01',
-            orgCount: 0,
+            orgCount: 1,
             generatedCount: 0,
             skippedCount: 0,
             failures: [],
-          };
-        },
-        lockProvider: async () => {
-          lockProviderCalled = true;
-          return {
-            acquired: true,
-            release: async () => {},
           };
         },
       },
@@ -32,57 +28,21 @@ test.describe('cloudflare cron billing finalization', () => {
 
     await cron({ scheduledTime: Date.now(), cron: '0 2 * * *' }, undefined, undefined);
     expect(runnerCalled).toBe(false);
-    expect(lockProviderCalled).toBe(false);
   });
 
-  test('skips billing finalization when advisory lock is not acquired', async () => {
-    let runnerCalled = false;
-    let releaseCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
-      billingMonthlyFinalization: {
-        enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
-        namespace: 'test-ns',
-        periodMonthUtc: '2026-01',
-        orgIds: ['org-a'],
-        runner: async () => {
-          runnerCalled = true;
-          return {
-            namespace: 'test-ns',
-            periodMonthUtc: '2026-01',
-            orgCount: 0,
-            generatedCount: 0,
-            skippedCount: 0,
-            failures: [],
-          };
-        },
-        lockProvider: async () => ({
-          acquired: false,
-          release: async () => {
-            releaseCalled = true;
-          },
-        }),
-      },
-    });
-
-    await cron({ scheduledTime: Date.now(), cron: '0 2 * * *' }, undefined, undefined);
-    expect(runnerCalled).toBe(false);
-    expect(releaseCalled).toBe(false);
-  });
-
-  test('runs billing finalization when lock is acquired and releases lock', async () => {
-    let releaseCalled = false;
+  test('runs billing finalization with D1 runner input', async () => {
     let runnerInput: any = null;
+    const now = () => new Date('2026-02-03T04:05:06.000Z');
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       billingMonthlyFinalization: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
         namespace: 'billing-ns',
         periodMonthUtc: '2026-01',
         orgIds: ['org-a', 'org-b'],
         ensureSchema: false,
+        now,
         runner: async (input) => {
           runnerInput = input;
           return {
@@ -94,37 +54,29 @@ test.describe('cloudflare cron billing finalization', () => {
             failures: [],
           };
         },
-        lockProvider: async () => ({
-          acquired: true,
-          release: async () => {
-            releaseCalled = true;
-          },
-        }),
       },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '0 2 * * *' }, undefined, undefined);
 
-    expect(runnerInput).toBeTruthy();
-    expect(String(runnerInput?.postgresUrl || '')).toContain('postgres://example.invalid/db');
+    expect(runnerInput?.database).toBe(fakeD1Database);
     expect(runnerInput?.namespace).toBe('billing-ns');
-    expect(Array.isArray(runnerInput?.orgIds)).toBe(true);
     expect(runnerInput?.orgIds).toEqual(['org-a', 'org-b']);
     expect(runnerInput?.periodMonthUtc).toBe('2026-01');
     expect(runnerInput?.ensureSchema).toBe(false);
-    expect(releaseCalled).toBe(true);
+    expect(runnerInput?.now).toBe(now);
   });
 });
 
 test.describe('cloudflare cron runtime snapshot outbox', () => {
-  test('skips runtime snapshot outbox when postgres url is missing', async () => {
+  test('skips runtime snapshot outbox when D1 database is missing', async () => {
     let runnerCalled = false;
-    let lockProviderCalled = false;
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       runtimeSnapshotOutbox: {
         enabled: true,
         orgIds: ['org-a'],
+        dispatch: async () => {},
         runner: async () => {
           runnerCalled = true;
           return {
@@ -135,29 +87,20 @@ test.describe('cloudflare cron runtime snapshot outbox', () => {
             failures: [],
           };
         },
-        lockProvider: async () => {
-          lockProviderCalled = true;
-          return {
-            acquired: true,
-            release: async () => {},
-          };
-        },
       },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
     expect(runnerCalled).toBe(false);
-    expect(lockProviderCalled).toBe(false);
   });
 
-  test('skips runtime snapshot outbox when advisory lock is not acquired', async () => {
+  test('runs runtime snapshot outbox when a runner override omits dispatch callback', async () => {
     let runnerCalled = false;
-    let releaseCalled = false;
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       runtimeSnapshotOutbox: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
         namespace: 'runtime-ns',
         orgIds: ['org-a'],
         runner: async () => {
@@ -170,55 +113,32 @@ test.describe('cloudflare cron runtime snapshot outbox', () => {
             failures: [],
           };
         },
-        lockProvider: async () => ({
-          acquired: false,
-          release: async () => {
-            releaseCalled = true;
-          },
-        }),
       },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
-    expect(runnerCalled).toBe(false);
-    expect(releaseCalled).toBe(false);
+    expect(runnerCalled).toBe(true);
   });
 
-  test('skips runtime snapshot outbox when default runner has no dispatch callback', async () => {
-    let lockProviderCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
-      runtimeSnapshotOutbox: {
-        enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
-        namespace: 'runtime-ns',
-        orgIds: ['org-a'],
-        lockProvider: async () => {
-          lockProviderCalled = true;
-          return {
-            acquired: true,
-            release: async () => {},
-          };
-        },
-      },
-    });
-
-    await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
-    expect(lockProviderCalled).toBe(false);
-  });
-
-  test('runs runtime snapshot outbox when lock is acquired and releases lock', async () => {
-    let releaseCalled = false;
+  test('runs runtime snapshot outbox with D1 runner input', async () => {
     let runnerInput: any = null;
+    const now = () => new Date('2026-02-03T04:05:06.000Z');
+    const dispatch = async () => {};
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       runtimeSnapshotOutbox: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
         namespace: 'runtime-ns',
         orgIds: ['org-a', 'org-b'],
         limit: 50,
         ensureSchema: false,
+        workerId: 'worker-1',
+        claimTtlMs: 1234,
+        retryBackoffMs: 5678,
+        maxAttempts: 9,
+        now,
+        dispatch,
         runner: async (input) => {
           runnerInput = input;
           return {
@@ -229,31 +149,28 @@ test.describe('cloudflare cron runtime snapshot outbox', () => {
             failures: [],
           };
         },
-        lockProvider: async () => ({
-          acquired: true,
-          release: async () => {
-            releaseCalled = true;
-          },
-        }),
       },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
 
-    expect(runnerInput).toBeTruthy();
-    expect(String(runnerInput?.postgresUrl || '')).toContain('postgres://example.invalid/db');
+    expect(runnerInput?.database).toBe(fakeD1Database);
     expect(runnerInput?.namespace).toBe('runtime-ns');
     expect(runnerInput?.orgIds).toEqual(['org-a', 'org-b']);
     expect(runnerInput?.limit).toBe(50);
     expect(runnerInput?.ensureSchema).toBe(false);
-    expect(releaseCalled).toBe(true);
+    expect(runnerInput?.workerId).toBe('worker-1');
+    expect(runnerInput?.claimTtlMs).toBe(1234);
+    expect(runnerInput?.retryBackoffMs).toBe(5678);
+    expect(runnerInput?.maxAttempts).toBe(9);
+    expect(runnerInput?.now).toBe(now);
+    expect(runnerInput?.dispatch).toBe(dispatch);
   });
 });
 
 test.describe('cloudflare cron webhook retry dispatch', () => {
-  test('skips webhook retry dispatch when postgres url is missing', async () => {
+  test('skips webhook retry dispatch when D1 database or cipher is missing', async () => {
     let runnerCalled = false;
-    let lockProviderCalled = false;
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       webhookRetryDispatch: {
@@ -271,60 +188,16 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
             failures: [],
           };
         },
-        lockProvider: async () => {
-          lockProviderCalled = true;
-          return {
-            acquired: true,
-            release: async () => {},
-          };
-        },
       },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
     expect(runnerCalled).toBe(false);
-    expect(lockProviderCalled).toBe(false);
   });
 
-  test('skips webhook retry dispatch when advisory lock is not acquired', async () => {
-    let runnerCalled = false;
-    let releaseCalled = false;
-    const cron = createCloudflareCron({} as any, {
-      enabled: true,
-      webhookRetryDispatch: {
-        enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
-        namespace: 'webhook-ns',
-        orgIds: ['org-a'],
-        runner: async () => {
-          runnerCalled = true;
-          return {
-            namespace: 'webhook-ns',
-            orgCount: 1,
-            attemptedCount: 0,
-            deliveredCount: 0,
-            failedCount: 0,
-            skippedCount: 0,
-            failures: [],
-          };
-        },
-        lockProvider: async () => ({
-          acquired: false,
-          release: async () => {
-            releaseCalled = true;
-          },
-        }),
-      },
-    });
-
-    await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
-    expect(runnerCalled).toBe(false);
-    expect(releaseCalled).toBe(false);
-  });
-
-  test('runs webhook retry dispatch when lock is acquired and releases lock', async () => {
-    let releaseCalled = false;
+  test('runs webhook retry dispatch with D1 runner input', async () => {
     let runnerInput: any = null;
+    const now = () => new Date('2026-02-03T04:05:06.000Z');
     const observabilityIngestion = {
       appendEvent: async () => ({ accepted: 1, deduplicated: 0 }),
       appendEvents: async (_ctx: unknown, events: unknown[]) => ({
@@ -336,7 +209,8 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
       enabled: true,
       webhookRetryDispatch: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
+        secretCipher: fakeWebhookSecretCipher,
         namespace: 'webhook-ns',
         orgIds: ['org-a', 'org-b'],
         limit: 25,
@@ -344,7 +218,10 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
         initialBackoffMs: 1000,
         maxBackoffMs: 60000,
         ensureSchema: false,
+        workerId: 'webhook-worker-1',
+        claimTtlMs: 4321,
         observabilityIngestion: observabilityIngestion as any,
+        now,
         runner: async (input) => {
           runnerInput = input;
           return {
@@ -357,19 +234,13 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
             failures: [],
           };
         },
-        lockProvider: async () => ({
-          acquired: true,
-          release: async () => {
-            releaseCalled = true;
-          },
-        }),
       },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
 
-    expect(runnerInput).toBeTruthy();
-    expect(String(runnerInput?.postgresUrl || '')).toContain('postgres://example.invalid/db');
+    expect(runnerInput?.database).toBe(fakeD1Database);
+    expect(runnerInput?.secretCipher).toBe(fakeWebhookSecretCipher);
     expect(runnerInput?.namespace).toBe('webhook-ns');
     expect(runnerInput?.orgIds).toEqual(['org-a', 'org-b']);
     expect(runnerInput?.limit).toBe(25);
@@ -377,8 +248,10 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
     expect(runnerInput?.initialBackoffMs).toBe(1000);
     expect(runnerInput?.maxBackoffMs).toBe(60000);
     expect(runnerInput?.ensureSchema).toBe(false);
+    expect(runnerInput?.workerId).toBe('webhook-worker-1');
+    expect(runnerInput?.claimTtlMs).toBe(4321);
     expect(runnerInput?.observabilityIngestion).toBe(observabilityIngestion);
-    expect(releaseCalled).toBe(true);
+    expect(runnerInput?.now).toBe(now);
   });
 });
 
@@ -387,15 +260,11 @@ test.describe('cloudflare cron per-job expression filters', () => {
     let billingCalled = false;
     let runtimeCalled = false;
     let webhookCalled = false;
-    const lockProvider = async () => ({
-      acquired: true,
-      release: async () => {},
-    });
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       billingMonthlyFinalization: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
         namespace: 'billing-ns',
         orgIds: ['org-a'],
         cronExpressions: ['0 2 1 * *'],
@@ -410,14 +279,14 @@ test.describe('cloudflare cron per-job expression filters', () => {
             failures: [],
           };
         },
-        lockProvider,
       },
       runtimeSnapshotOutbox: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
         namespace: 'runtime-ns',
         orgIds: ['org-a'],
         cronExpressions: ['*/5 * * * *'],
+        dispatch: async () => {},
         runner: async () => {
           runtimeCalled = true;
           return {
@@ -428,11 +297,11 @@ test.describe('cloudflare cron per-job expression filters', () => {
             failures: [],
           };
         },
-        lockProvider,
       },
       webhookRetryDispatch: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
+        secretCipher: fakeWebhookSecretCipher,
         namespace: 'webhook-ns',
         orgIds: ['org-a'],
         cronExpressions: ['*/5 * * * *'],
@@ -448,7 +317,6 @@ test.describe('cloudflare cron per-job expression filters', () => {
             failures: [],
           };
         },
-        lockProvider,
       },
     });
 
@@ -465,7 +333,7 @@ test.describe('cloudflare cron per-job expression filters', () => {
       enabled: true,
       billingMonthlyFinalization: {
         enabled: true,
-        postgresUrl: 'postgres://example.invalid/db',
+        database: fakeD1Database,
         namespace: 'billing-ns',
         orgIds: ['org-a'],
         cronExpressions: ['0 2 1 * *'],
@@ -480,10 +348,6 @@ test.describe('cloudflare cron per-job expression filters', () => {
             failures: [],
           };
         },
-        lockProvider: async () => ({
-          acquired: true,
-          release: async () => {},
-        }),
       },
     });
 

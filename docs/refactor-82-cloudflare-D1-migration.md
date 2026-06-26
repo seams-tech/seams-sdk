@@ -63,6 +63,9 @@ Authoritative Cloudflare references:
 - The shared sponsored execution recorder is D1-only for refactor 82 staging.
   A future Postgres implementation must enter through the full-family Postgres
   adapter contract, not through the Cloudflare D1 route path.
+- Cloudflare cron helpers are D1-only for refactor 82 staging. Billing monthly
+  finalization, runtime snapshot outbox dispatch, and webhook retry dispatch
+  accept D1 bindings and call D1 runners directly.
 
 ## Simplification Decisions
 
@@ -167,6 +170,8 @@ Completed so far:
 - Removed the live Postgres branch from the shared sponsored execution recorder
   so Cloudflare sponsored EVM and signed-delegate route imports do not pull
   Postgres helpers while D1/DO staging is the target backend family.
+- Switched the Cloudflare cron helper from Postgres URLs, advisory locks, and
+  Postgres default runners to D1 database bindings and D1 default runners.
 - Added D1 Stripe credit purchase persistence, purchase receipt documents,
   receipt line items, and webhook event idempotency.
 - Added persisted D1 monthly usage statements, MAW debit reconciliation, and
@@ -894,6 +899,8 @@ Work:
   import mixed Postgres modules from Worker bundles.
 - Keep sponsored gas settlement on the D1 atomic path for staging. Reintroduce
   Postgres settlement only as part of the future full-family Postgres adapter.
+- Keep Cloudflare cron on D1 runner inputs. Postgres cron belongs to a future
+  full-family Postgres adapter surface, not the D1/DO staging Worker helper.
 
 Exit criteria:
 
