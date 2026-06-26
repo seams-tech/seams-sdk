@@ -17,6 +17,7 @@ import { ensureConsoleSponsorshipSpendCapD1Schema } from '../../console/sponsors
 import { ensureConsoleTeamRbacD1Schema } from '../../console/teamRbac/d1';
 import { ensureConsoleWalletsD1Schema } from '../../console/wallets/d1';
 import { ensureConsoleWebhooksD1Schema } from '../../console/webhooks/d1';
+import { ensureNearPublicKeyStoreD1Schema } from '../../core/NearPublicKeyStore';
 import { ensureRecoveryExecutionStoreD1Schema } from '../../core/RecoveryExecutionStore';
 import { ensureRecoverySessionStoreD1Schema } from '../../core/RecoverySessionStore';
 import { ensureSigningRootSecretShareD1Schema } from '../../core/ThresholdService';
@@ -76,11 +77,12 @@ async function assertSignerD1Schema(database: D1DatabaseLike): Promise<void> {
             'signer_identity_links',
             'signer_app_session_versions',
             'signer_recovery_sessions',
-            'signer_recovery_executions'
+            'signer_recovery_executions',
+            'signer_near_public_keys'
           )`,
     )
     .first<TableCountRow>();
-  if (parseReadyTableCount(row) !== 11) {
+  if (parseReadyTableCount(row) !== 12) {
     throw new Error('local SIGNER_DB migration has not created all required signer tables');
   }
 }
@@ -112,6 +114,7 @@ async function ensureLocalD1Schemas(env: LocalD1DevEnv): Promise<void> {
   await ensureIdentityStoreD1Schema({ database: env.SIGNER_DB });
   await ensureRecoverySessionStoreD1Schema({ database: env.SIGNER_DB });
   await ensureRecoveryExecutionStoreD1Schema({ database: env.SIGNER_DB });
+  await ensureNearPublicKeyStoreD1Schema({ database: env.SIGNER_DB });
   await assertSignerD1Schema(env.SIGNER_DB);
 }
 

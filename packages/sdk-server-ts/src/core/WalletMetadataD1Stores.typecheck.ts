@@ -1,4 +1,5 @@
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../storage/tenantRoute';
+import type { D1NearPublicKeyStoreOptions } from './NearPublicKeyStore';
 import type { D1RecoveryExecutionStoreOptions } from './RecoveryExecutionStore';
 import type { D1RecoverySessionStoreOptions } from './RecoverySessionStore';
 import type { D1WebAuthnAuthenticatorStoreOptions } from './WebAuthnAuthenticatorStore';
@@ -108,6 +109,14 @@ const validRecoveryExecutionStoreOptions: D1RecoveryExecutionStoreOptions = {
   envId: 'env_1',
 };
 
+const validNearPublicKeyStoreOptions: D1NearPublicKeyStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  projectId: 'project_1',
+  envId: 'env_1',
+};
+
 // @ts-expect-error D1 wallet metadata storage requires org identity.
 const missingWalletOrgId: D1WalletStoreOptions = {
   database,
@@ -172,6 +181,14 @@ const missingRecoveryExecutionOrgId: D1RecoveryExecutionStoreOptions = {
   envId: 'env_1',
 };
 
+// @ts-expect-error D1 NEAR public key storage requires project identity.
+const missingNearPublicKeyProjectId: D1NearPublicKeyStoreOptions = {
+  database,
+  namespace: 'seams',
+  orgId: 'org_1',
+  envId: 'env_1',
+};
+
 void validWalletStoreOptions;
 void validAuthMethodStoreOptions;
 void validWebAuthnAuthenticatorOptions;
@@ -181,6 +198,7 @@ void validWebAuthnSyncChallengeOptions;
 void validIdentityStoreOptions;
 void validRecoverySessionStoreOptions;
 void validRecoveryExecutionStoreOptions;
+void validNearPublicKeyStoreOptions;
 void missingWalletOrgId;
 void missingAuthMethodEnvId;
 void missingWebAuthnProjectId;
@@ -189,3 +207,4 @@ void missingWebAuthnChallengeOrgId;
 void missingIdentityProjectId;
 void missingRecoverySessionEnvId;
 void missingRecoveryExecutionOrgId;
+void missingNearPublicKeyProjectId;

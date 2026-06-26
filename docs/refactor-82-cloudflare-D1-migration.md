@@ -97,8 +97,8 @@ Completed so far:
   snapshot storage/outbox, webhook endpoint/delivery persistence, compact
   observability incident/request-rollup storage, signer wallet metadata/auth
   method storage, signer WebAuthn storage, signer identity/app-session storage,
-  signer recovery session/execution storage, and sealed signing-root secret
-  shares.
+  signer recovery session/execution storage, signer NEAR public key storage,
+  and sealed signing-root secret shares.
 - Added signer KEK provider routing for Cloudflare Secrets Store, Wrangler
   secrets, and external KMS/HSM clients.
 - Wired D1 org/project/env, Team RBAC, account/profile, policies, API keys,
@@ -126,7 +126,8 @@ Completed so far:
   tenant scoping, signer WebAuthn tenant scoping and one-time challenge
   consumption, signer identity/app-session tenant scoping, signer recovery
   session/execution tenant scoping, recovery-session expiry reads,
-  recovery-execution status queries, and signer secret tenant scoping.
+  recovery-execution status queries, signer NEAR public key tenant scoping, and
+  signer secret tenant scoping.
 - Completed the first Postgres-coupling inventory and ownership matrix.
 - Added D1 runtime snapshot outbox lease-race coverage.
 - Added Durable Object ECDSA presignature reservation and pool-fill CAS
@@ -348,7 +349,7 @@ Current Postgres coupling is concentrated in:
 | Email OTP | `email_otp_challenges`, `email_otp_grants`, `email_otp_wallet_enrollments`, `email_otp_recovery_wrapped_enrollment_escrows`, `email_otp_auth_states`, `email_otp_unlock_challenges`, `email_otp_registration_attempts` | `SIGNER_DB` D1 | Challenge/grant expiry stays adapter-owned. Store JSON as `TEXT` and normalize lookup columns. |
 | Threshold key metadata | `threshold_ed25519_keys`, `threshold_ecdsa_keys` | `SIGNER_DB` D1 | Durable metadata and public identifiers only. Secret shares stay application-encrypted. |
 | Sealed signing-root shares | `signing_root_secret_shares`, `signer_signing_root_secret_shares` | `SIGNER_DB` D1 | D1 stores ciphertext, KEK ID, envelope version, AAD digest, ciphertext digest, and audit marker. |
-| Device/recovery/identity | `device_linking_sessions`, `email_recovery_preparations`, `near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions` | `SIGNER_DB` D1 | D1 identity-link, app-session-version, recovery-session, and recovery-execution adapters, append-only migrations, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, app-session rotation tests, recovery-session expiry reads, and recovery-execution status query tests are in place. Email recovery preparation, device linking, and NEAR public key adapters remain. |
+| Device/recovery/identity | `device_linking_sessions`, `email_recovery_preparations`, `near_public_keys`, `identity_links`, `app_session_versions`, `recovery_sessions`, `recovery_executions` | `SIGNER_DB` D1 | D1 identity-link, app-session-version, recovery-session, recovery-execution, and NEAR public key adapters, append-only migrations, explicit `kind: 'd1'` factory selectors, local smoke coverage, tenant-scoping tests, sole-identity move/unlink tests, app-session rotation tests, recovery-session expiry reads, recovery-execution status query tests, and NEAR public key list/upsert tests are in place. Email recovery preparation and device linking adapters remain. |
 | Signing sessions | `threshold_ed25519_sessions` | Durable Object | Session use counts and replay-sensitive mutation need per-session serialization. Persist durable DO state before cache updates. |
 | Budget and replay guards | `threshold_wallet_session_consumptions`, `threshold_wallet_session_budget_reservations`, `threshold_signing_session_seal_idempotency` | Durable Object | Replace row locks and unique idempotency rows with DO methods that return the same result unions. |
 | ECDSA presign | `threshold_ecdsa_presign_sessions`, `threshold_ecdsa_presignatures` | Durable Object | Replace `FOR UPDATE SKIP LOCKED` with one object per relayer key or signing root. |
@@ -378,10 +379,10 @@ Before D1 staging, these adapters must exist behind domain-store ports:
   caps, sponsored calls, runtime snapshots, compact observability
   read/ingestion services, and the webhook route service.
 - Signer D1 remaining: registration ceremonies, email OTP, email recovery
-  preparation, device linking, NEAR public keys, and threshold key metadata.
+  preparation, device linking, and threshold key metadata.
 - Signer D1 in place: WebAuthn, wallet metadata, wallet auth methods, identity
-  links, app-session versions, recovery sessions, recovery executions, and
-  sealed signing-root secret shares.
+  links, app-session versions, recovery sessions, recovery executions, NEAR
+  public keys, and sealed signing-root secret shares.
 - Durable Objects: signing-session use counts, wallet signing budgets,
   idempotency/replay guards, ECDSA presignature pools, ECDSA pool-fill
   sessions, normal-signing admission quotas, and signing-root coordination.
@@ -810,8 +811,7 @@ Work:
 
 - Finish the remaining console D1 adapter work for webhook retry dispatch.
 - Finish remaining signer D1 adapters for registration ceremonies, email OTP,
-  email recovery preparation, device linking, NEAR public keys, and threshold
-  key metadata.
+  email recovery preparation, device linking, and threshold key metadata.
 - Finish Durable Object adapters for signer admission, budgets, replay guards,
   presignature pools, and signing-root coordination.
 - Keep the KEK provider boundary narrow: Cloudflare Secrets Store for hosted
@@ -945,6 +945,9 @@ Completed:
     migration, local smoke coverage, explicit D1 factory selectors,
     tenant-scoped adapter tests, recovery-session expiry coverage, and
     recovery-execution status query coverage.
+14. Add D1 NEAR public key metadata store, append-only signer migration, local
+    smoke coverage, explicit D1 factory selector, tenant-scoped adapter test,
+    and key-list/upsert coverage.
 
 Next:
 
@@ -952,7 +955,7 @@ Next:
    retry dispatch.
 2. Continue Step 3 by adding the remaining signer D1 metadata adapters:
    registration ceremonies, email OTP, email recovery preparation, device
-   linking, NEAR public keys, and threshold key metadata.
+   linking, and threshold key metadata.
 3. Finish the Durable Object adapter and test slice for normal-signing
    admission, budget, replay, presignature, and signing-root coordination.
 4. Finish Step 4 by making Wrangler/Miniflare D1 and local Durable Object

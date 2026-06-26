@@ -45,6 +45,10 @@ import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/
 import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
 import { D1IdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
 import {
+  D1NearPublicKeyStore,
+  type NearPublicKeyRecord,
+} from '../../packages/sdk-server-ts/src/core/NearPublicKeyStore';
+import {
   D1RecoveryExecutionStore,
   type RecoveryExecutionRecord,
 } from '../../packages/sdk-server-ts/src/core/RecoveryExecutionStore';
@@ -450,6 +454,10 @@ function createD1WebhookTestSecretCipher() {
 
 function recoveryExecutionAction(record: RecoveryExecutionRecord): string {
   return record.action;
+}
+
+function nearPublicKeyValue(record: NearPublicKeyRecord): string {
+  return record.publicKey;
 }
 
 function isErrorWithCode(input: unknown): input is ErrorWithCode {
@@ -3706,6 +3714,70 @@ test.describe('D1 adapter contracts', () => {
           action: 'submit_recovery',
         }),
       ]);
+    } finally {
+      cleanupTemporaryD1Database(temp.tempDir);
+    }
+  });
+
+  test('signer NEAR public key metadata is scoped in D1', async () => {
+    const temp = createTemporaryD1Database();
+    try {
+      const scope = {
+        database: temp.database,
+        namespace: 'd1-contracts',
+        orgId: 'org-d1-signer',
+        projectId: 'project-d1-signer',
+        envId: 'env-production',
+      };
+      const keyStore = new D1NearPublicKeyStore(scope);
+      const otherEnvKeyStore = new D1NearPublicKeyStore({
+        ...scope,
+        envId: 'env-development',
+        ensureSchema: false,
+      });
+      const thresholdKey = {
+        version: 'near_public_key_v1',
+        userId: 'user-d1-near-key',
+        publicKey: 'ed25519:threshold-public-key',
+        kind: 'threshold',
+        signerSlot: 2,
+        credentialIdB64u: 'credential-d1-near-key',
+        rpId: 'app.seams.test',
+        createdAtMs: Date.parse('2026-06-27T08:00:00.000Z'),
+        updatedAtMs: Date.parse('2026-06-27T08:00:00.000Z'),
+        addedTxHash: 'near-tx-add-threshold',
+      } as const;
+      const backupKey = {
+        version: 'near_public_key_v1',
+        userId: 'user-d1-near-key',
+        publicKey: 'ed25519:backup-public-key',
+        kind: 'backup',
+        signerSlot: 1,
+        createdAtMs: Date.parse('2026-06-27T08:01:00.000Z'),
+        updatedAtMs: Date.parse('2026-06-27T08:01:00.000Z'),
+      } as const;
+      const removedThresholdKey = {
+        ...thresholdKey,
+        updatedAtMs: Date.parse('2026-06-27T08:02:00.000Z'),
+        removedAtMs: Date.parse('2026-06-27T08:02:00.000Z'),
+      } as const;
+
+      await keyStore.put(thresholdKey);
+      await keyStore.put(backupKey);
+      await keyStore.put(removedThresholdKey);
+
+      const keys = await keyStore.listByUserId('user-d1-near-key');
+      expect(keys.map(nearPublicKeyValue)).toEqual([
+        'ed25519:backup-public-key',
+        'ed25519:threshold-public-key',
+      ]);
+      expect(keys[1]).toMatchObject({
+        kind: 'threshold',
+        signerSlot: 2,
+        removedAtMs: Date.parse('2026-06-27T08:02:00.000Z'),
+      });
+      await expect(otherEnvKeyStore.listByUserId('user-d1-near-key')).resolves.toHaveLength(0);
+      await expect(keyStore.listByUserId('')).resolves.toHaveLength(0);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

@@ -214,6 +214,17 @@ export {
   type UnlinkIdentityResult,
 } from './core/IdentityStore';
 export {
+  D1NearPublicKeyStore,
+  NEAR_PUBLIC_KEY_STORE_D1_SCHEMA_SQL,
+  createNearPublicKeyStore,
+  ensureNearPublicKeyStoreD1Schema,
+  type D1NearPublicKeyStoreOptions,
+  type D1NearPublicKeyStoreSchemaOptions,
+  type NearPublicKeyKind,
+  type NearPublicKeyRecord,
+  type NearPublicKeyStore,
+} from './core/NearPublicKeyStore';
+export {
   NEAR_EMAIL_RECOVERY_ACTION,
   markTrackedRecoverySessionVerified,
   recordTrackedNearRecoveryExecution,
